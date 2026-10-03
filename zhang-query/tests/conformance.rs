@@ -164,6 +164,20 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
     },
     Deviation {
         case: None,
+        reason: "intervals are equal when their months (a year is twelve) and days are: =, !=, IN lists, GROUP BY and \
+                 DISTINCT all use that (by lead decision on #479); beanquery rejects = and != on intervals, has no IN \
+                 list of them, and groups relativedeltas field by field (1 year - 1 month apart from 11 months). \
+                 Ordering (<, ORDER BY, min, max, PIVOT BY) is a compile error; beanquery fails at run time",
+        accepted: Accepted::NoFixture,
+    },
+    Deviation {
+        case: None,
+        reason: "dates are those of beancount's calendar, years 1 to 9999: a date function or date arithmetic whose \
+                 result falls outside is NULL (by lead decision on #479); beanquery raises an error",
+        accepted: Accepted::NoFixture,
+    },
+    Deviation {
+        case: None,
         reason: "open_meta(account) and commodity_meta(currency) are metas (key, value) lists of the directive's own \
                  metadata; beanquery's dicts also hold the filename and lineno zhang does not keep",
         accepted: Accepted::NoFixture,

@@ -266,14 +266,14 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         "actual",
         DataType::Amount,
         "The account's true balance in the asserted currency at the assertion: the units of every earlier posting to the \
-         account, not counting its sub-accounts; a balance with pad includes its padding (zhang extension).",
+         account, not counting its sub-accounts; a balance with pad includes its padding. A zhang extension.",
         |_, record| balance_check(record).map_or(Value::Null, |(_, _, actual)| Value::Amount(actual.clone())),
     ),
     ColumnDef::record(
         "passed",
         DataType::Bool,
         "Whether the assertion holds: actual is within the tolerance of the asserted amount, or equal to it without a \
-         tolerance (zhang extension).",
+         tolerance. A zhang extension.",
         |_, record| balance_check(record).map_or(Value::Null, |(amount, tolerance, actual)| Value::Bool(holds(actual, amount, tolerance))),
     ),
 ];
@@ -523,7 +523,7 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
         "source",
         DataType::Str,
         "What declares the document: 'directive' for a document directive, 'transaction' or 'posting' for the document \
-         metadata of a transaction or of one of its postings (zhang extension).",
+         metadata of a transaction or of one of its postings. A zhang extension.",
         |_, record| {
             document(record).map_or(Value::Null, |it| {
                 Value::Str(
@@ -540,15 +540,14 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "path",
         DataType::Str,
-        "Path of the document as written, relative to the ledger's directory: the path the web UI downloads it with \
-         (zhang extension).",
+        "Path of the document as written, relative to the ledger's directory: the path the web UI downloads it with. A zhang extension.",
         |_, record| document(record).map_or(Value::Null, |it| Value::Str(it.path.to_string_lossy().into_owned())),
     ),
     ColumnDef::record(
         "transaction_id",
         DataType::Str,
         "Id of the transaction whose metadata names the document, its id in the postings table; NULL for a document \
-         directive (zhang extension).",
+         directive. A zhang extension.",
         |_, record| {
             document(record)
                 .and_then(|it| it.transaction_id)

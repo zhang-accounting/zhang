@@ -276,7 +276,8 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "metas",
         DataType::Metas,
-        "Metadata of the directive as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        "Metadata of the directive as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang \
+         extension.",
         |_, record| metas_value(record),
     ),
 ];
@@ -344,7 +345,8 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "metas",
         DataType::Metas,
-        "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang \
+         extension.",
         |_, record| metas_value(record),
     ),
 ];

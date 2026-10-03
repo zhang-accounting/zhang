@@ -288,8 +288,8 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The result size [`Query::execute`], [`Query::execute_at`] and [`ExecuteOptions::default`]
 /// allow, in values: every cell is one value, and every position of a position or inventory
-/// cell, element of a set and 64 bytes of text one more (see
-/// [`ExecuteOptions::max_result_values`]).
+/// cell, element of a set, pair of a `metas` value and 64 bytes of text (also of those
+/// elements and pairs) one more (see [`ExecuteOptions::max_result_values`]).
 ///
 /// One million values is about five times the largest result of the fava demo ledger (its
 /// whole `JOURNAL`: 3,209 rows whose running balances hold 178,576 positions, about 210,000
@@ -308,7 +308,8 @@ pub struct ExecuteOptions {
     pub timeout: Option<Duration>,
     /// stop with a [`QueryErrorKind::TooLarge`] error as soon as the execution would hold more
     /// than this many values of its result: one per cell, plus one per position of a position
-    /// or inventory, per element of a set and per 64 bytes of text. It covers the rows before
+    /// or inventory, per element of a set, per pair of a `metas` value and per 64 bytes of
+    /// text (also of those elements and pairs). It covers the rows before
     /// ORDER BY, DISTINCT and LIMIT apply (a LIMIT without ORDER BY stops early) and the
     /// groups of an aggregate query while they are built. `None` for no limit.
     pub max_result_values: Option<u64>,

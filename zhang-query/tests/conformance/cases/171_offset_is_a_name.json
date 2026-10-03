@@ -1,0 +1,17 @@
+{
+  "name": "offset_is_a_name",
+  "query": "SELECT date AS offset, account WHERE account ~ 'Fees' ORDER BY offset DESC LIMIT 2",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "offset", "type": "date"},
+    {"name": "account", "type": "str"}
+  ],
+  "rows": [
+    ["2017-09-04", "Expenses:Financial:Fees"],
+    ["2017-08-04", "Expenses:Financial:Fees"]
+  ],
+  "notes": "beanquery has no OFFSET, so offset is an ordinary name. zhang's OFFSET is only a keyword right after a LIMIT count, so the name keeps working."
+}

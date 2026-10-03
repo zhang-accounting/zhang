@@ -400,6 +400,17 @@ impl Interval {
     }
 }
 
+/// The dates a query computes: years 1 to 9999, the calendar of beancount (Python's
+/// `datetime.date`). A date function or date arithmetic whose result falls outside is NULL.
+pub(crate) fn in_calendar(date: NaiveDate) -> bool {
+    (1..=9999).contains(&date.year())
+}
+
+/// `date` as a value when it is in the calendar ([`in_calendar`]); NULL otherwise.
+pub(crate) fn calendar_value(date: Option<NaiveDate>) -> Value {
+    date.filter(|date| in_calendar(*date)).map_or(Value::Null, Value::Date)
+}
+
 /// The number of days of a month; `None` for a month outside the calendar.
 pub(crate) fn days_in_month(year: i32, month: u32) -> Option<u32> {
     let first = NaiveDate::from_ymd_opt(year, month, 1)?;

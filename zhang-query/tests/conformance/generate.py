@@ -1068,11 +1068,17 @@ CASES = [
     case4("error", "error_date_trunc_argument_order", "SELECT date_trunc(date, 'month')", expect="error",
           notes="date_trunc takes the field first."),
     case4("error", "error_interval_comparison",
-          "SELECT DISTINCT interval('1 month') = interval('1 month') WHERE account = 'Expenses:Financial:Fees'",
+          "SELECT DISTINCT interval('1 month') < interval('2 months') WHERE account = 'Expenses:Financial:Fees'",
           expect="error",
-          notes="Intervals cannot be compared."),
+          notes="Intervals have no order. (beanquery also rejects = and != on intervals, which zhang accepts: see "
+                "ACCEPTED_DEVIATIONS.)"),
     case4("error", "error_date_bin_int_stride", "SELECT date_bin(7, date, 2016-01-01)", expect="error"),
     case4("error", "error_open_date_of_a_date", "SELECT open_date(date)", expect="error"),
+    case4("select", "offset_is_a_name",
+          "SELECT date AS offset, account WHERE account ~ 'Fees' ORDER BY offset DESC LIMIT 2",
+          ordered=True,
+          notes="beanquery has no OFFSET, so offset is an ordinary name. zhang's OFFSET is only a keyword right after "
+                "a LIMIT count, so the name keeps working."),
 ]
 
 

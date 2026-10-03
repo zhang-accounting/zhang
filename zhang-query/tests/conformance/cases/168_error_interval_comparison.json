@@ -1,6 +1,6 @@
 {
   "name": "error_interval_comparison",
-  "query": "SELECT DISTINCT interval('1 month') = interval('1 month') WHERE account = 'Expenses:Financial:Fees'",
+  "query": "SELECT DISTINCT interval('1 month') < interval('2 months') WHERE account = 'Expenses:Financial:Fees'",
   "phase": 4,
   "kind": "engine",
   "ordered": false,
@@ -8,5 +8,5 @@
   "error_class": "compile",
   "columns": [],
   "rows": [],
-  "notes": "Intervals cannot be compared."
+  "notes": "Intervals have no order. (beanquery also rejects = and != on intervals, which zhang accepts: see ACCEPTED_DEVIATIONS.)"
 }

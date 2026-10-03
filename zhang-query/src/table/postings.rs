@@ -827,7 +827,7 @@ pub static COLUMNS: &[ColumnDef] = &[
     ColumnDef {
         name: "metas",
         ty: DataType::Metas,
-        description: "Metadata of the posting as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        description: "Metadata of the posting as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang extension.",
         get: Get::Posting(|data, row| Value::Metas(data.posting_metas(row).iter().map(|meta| (meta.key.clone(), meta.value.clone())).collect())),
         reads: Reads::POSTING,
         borrow: Borrow::No,
@@ -835,7 +835,8 @@ pub static COLUMNS: &[ColumnDef] = &[
     ColumnDef {
         name: "entry_metas",
         ty: DataType::Metas,
-        description: "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        description: "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order. A \
+                      zhang extension.",
         get: Get::Posting(|data, row| Value::Metas(data.entry_metas(row))),
         reads: Reads::POSTING,
         borrow: Borrow::No,

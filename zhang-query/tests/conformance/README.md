@@ -5,8 +5,8 @@ BQL-compatible query engine (issue #434, Phases 1 to 3, and issue #479, Phase 4)
 were produced by the official Python **beanquery**, not by zhang, so they are
 the reference the engine is cross-validated against.
 
-- `cases/NNN_<name>.json`: one fixture per query (170 cases: 001–060 for
-  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–170 for Phase 4).
+- `cases/NNN_<name>.json`: one fixture per query (171 cases: 001–060 for
+  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–171 for Phase 4).
 - `generate.py`: the generator. It holds the case list and writes the fixtures.
 - Oracle versions used: **beancount 3.2.3, beanquery 0.2.0** (Python 3.9).
 
@@ -598,7 +598,8 @@ DISTINCT` over one account, as case 001 does.
   an optional sign; anything else is NULL. Intervals add up, and a date plus an
   interval moves by the months first (clamping the day to the month's end),
   then by the days; subtracting adds the negated interval (154–156). Intervals
-  cannot be compared (168).
+  have no order: `<` is a compile error (168). beanquery also rejects `=` and
+  `!=` on them, which zhang accepts (an accepted deviation without fixture).
 - **`date_bin(stride, date, origin)`** takes the stride as an interval or as
   text (157–161). A stride of days bins by whole strides from the origin. A
   negative stride or a NULL stride is NULL.
@@ -607,6 +608,9 @@ DISTINCT` over one account, as case 001 does.
   `open` and `close` of an account and the last `commodity` directive of a
   currency, on any table; unknown names are NULL, names are case-sensitive, and
   metadata is not inherited by sub-accounts (162–166).
+- **`offset`** is an ordinary name in beanquery, which has no `OFFSET`; zhang's
+  `OFFSET` is only a keyword right after a `LIMIT` count, so the name keeps
+  working (171).
 
 Accepted deviations (see `ACCEPTED_DEVIATIONS` in the harness), decided by the
 lead on #479:
@@ -651,7 +655,7 @@ These are deliberately out of scope or not exercisable on this ledger:
 
 ## Cases
 
-170 cases:
+171 cases:
 
 - Phase 1 (001–060), 60 cases: 47 `engine` with rows, 6 `ledger-dependent`, and 7 errors (`engine`).
 - Phase 2 (061–100), 40 cases: 13 `engine` and 15 `ledger-dependent` with rows, 3 `engine` and 2
@@ -661,8 +665,8 @@ These are deliberately out of scope or not exercisable on this ledger:
   `ledger-dependent` csv cases, and 13 errors (`engine`). By feature: `HAVING` 9 (6 with rows, 3
   errors), `PIVOT BY` 12 (6 with rows, 6 errors), `FROM #table` 21 (17 with rows, 4 errors), and
   3 csv cases (1 pivot, 2 tables). 12 cases set `strict_names`.
-- Phase 4 (146–170), 25 cases: 21 `engine` with rows and 4 errors (`engine`). By area: `date` 8,
-  `interval` 8, `directives` 5, `error` 4. 3 of them are accepted deviations (154, 158, 159).
+- Phase 4 (146–171), 26 cases: 22 `engine` with rows and 4 errors (`engine`). By area: `date` 8,
+  `interval` 8, `directives` 5, `select` 1, `error` 4. 3 of them are accepted deviations (154, 158, 159).
 
 | # | Case | Phase | Area | Kind | Ordered | Expect |
 |---|---|---|---|---|---|---|
@@ -836,3 +840,4 @@ These are deliberately out of scope or not exercisable on this ledger:
 | 168 | `error_interval_comparison` | 4 | error | engine | no | error |
 | 169 | `error_date_bin_int_stride` | 4 | error | engine | no | error |
 | 170 | `error_open_date_of_a_date` | 4 | error | engine | no | error |
+| 171 | `offset_is_a_name` | 4 | select | engine | yes | 2 rows |

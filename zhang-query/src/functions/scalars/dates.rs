@@ -9,11 +9,15 @@
 //! Two deliberate differences: `date_bin` lays its bins from the origin without
 //! beanquery's off-by-one at bin boundaries (see [`bin`]), and `interval` also accepts
 //! weeks.
+//!
+//! Dates are those of beancount's calendar, years 1 to 9999: a function whose result would
+//! fall outside, such as `date_add(9999-12-31, 1)` or `date_trunc('decade', 0002-12-15)`, is
+//! NULL (beanquery raises an error).
 
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 use crate::functions::FunctionContext;
-use crate::value::{Interval, Value};
+use crate::value::{calendar_value, in_calendar, Interval, Value};
 
 fn date_arg(args: &[Value], function: &str) -> Result<NaiveDate, String> {
     args[0].as_date().ok_or_else(|| format!("{}() expects a date", function))
@@ -118,14 +122,11 @@ fn parse_python_date(text: &str) -> Option<NaiveDate> {
     python_date(year.parse().ok()?, month, day)
 }
 
-/// beanquery `date_add(date, days)`.
+/// beanquery `date_add(date, days)`; NULL when the result is outside the calendar.
 pub(super) fn date_add(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
     let date = date_of(&args[0], "date_add")?;
     let days = int_arg(&args[1], "date_add")?;
-    Duration::try_days(days)
-        .and_then(|days| date.checked_add_signed(days))
-        .map(Value::Date)
-        .ok_or_else(|| "date out of range".to_owned())
+    Ok(calendar_value(Duration::try_days(days).and_then(|days| date.checked_add_signed(days))))
 }
 
 /// beanquery `date_diff(a, b)`: the days from `b` to `a`.
@@ -152,7 +153,7 @@ pub(super) fn date_trunc(args: &[Value], _ctx: &dyn FunctionContext) -> Result<V
         "millennium" => first(year - (year - 1).rem_euclid(1000), 1),
         _ => None,
     };
-    Ok(truncated.map_or(Value::Null, Value::Date))
+    Ok(calendar_value(truncated))
 }
 
 /// beanquery `date_part(field, date)`: `weekday`/`dow` (Monday 0 to Sunday 6),
@@ -223,11 +224,7 @@ pub(super) fn date_bin(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Val
         _ => return Err("date_bin() expects an interval".to_owned()),
     };
     let (source, origin) = (date_of(&args[1], "date_bin")?, date_of(&args[2], "date_bin")?);
-    Ok(bin(stride, source, origin)?.map_or(Value::Null, Value::Date))
-}
-
-fn out_of_range() -> String {
-    "date out of range".to_owned()
+    Ok(bin(stride, source, origin).map_or(Value::Null, Value::Date))
 }
 
 /// The month index `year * 12 + month0` of a date.
@@ -235,40 +232,45 @@ fn month_index(date: NaiveDate) -> i64 {
     date.year() as i64 * 12 + date.month0() as i64
 }
 
-/// How many times [`bin`] may move its estimate before it gives up (NULL); far more than an
-/// estimate is ever off by.
-const BIN_SEARCH_STEPS: usize = 10_000;
+/// How many times [`bin`] may move its estimate. The estimate is at most two strides off
+/// (see [`bin`]), so this is never reached; it only bounds the work for any input.
+const BIN_SEARCH_STEPS: usize = 16;
 
 /// `date_bin`: the bins are the origin moved by every whole number `k` of strides, each
 /// computed from the origin at once (`origin + k × stride`, so bins from a month end stay
 /// on month ends: 01-31, 02-29, 03-31, ...), and a date belongs to the last bin that starts
 /// on or before it. A date on a boundary starts its bin, and dates before the origin fall
-/// in bins laid backwards from it. A stride that does not move forward (zero or negative)
-/// is NULL.
+/// in bins laid backwards from it.
+///
+/// NULL for a stride that does not move forward (zero or negative), for a stride whose
+/// months and days have opposite signs (`interval('2 months') - interval('61 days')`: its
+/// bins need not grow with `k`, so a date has no single bin), and when a bin falls outside the
+/// calendar.
+///
+/// Every other stride has months and days of one sign, so `origin + k × stride` grows with
+/// `k`, and lies within six days of `k` times the stride's average length (at least 30 days
+/// with months): the estimate below is at most two strides off, and the search takes a few
+/// steps whatever the dates.
 ///
 /// beanquery 0.2.0 walks the bins of a stride with months one stride at a time instead (so
 /// they drift from a month end: 01-31, 02-29, 03-29, ...) and puts a date on a boundary into
 /// the previous bin; zhang does neither (see the accepted deviations of the conformance
 /// suite).
-fn bin(stride: Interval, source: NaiveDate, origin: NaiveDate) -> Result<Option<NaiveDate>, String> {
+fn bin(stride: Interval, source: NaiveDate, origin: NaiveDate) -> Option<NaiveDate> {
     if stride.months == 0 {
         if stride.days <= 0 {
-            return Ok(None);
+            return None;
         }
         let diff = (source - origin).num_days();
         let start = diff - diff.rem_euclid(stride.days);
-        return origin
-            .checked_add_signed(Duration::try_days(start).ok_or_else(out_of_range)?)
-            .map(Some)
-            .ok_or_else(out_of_range);
+        return origin.checked_add_signed(Duration::try_days(start)?).filter(|it| in_calendar(*it));
     }
-    let nth = |k: i64| -> Result<NaiveDate, String> {
-        let months = stride.months.checked_mul(k).ok_or_else(out_of_range)?;
-        let days = stride.days.checked_mul(k).ok_or_else(out_of_range)?;
-        Interval::new(months, days).add_to(origin).ok_or_else(out_of_range)
-    };
+    if stride.months.signum() * stride.days.signum() < 0 {
+        return None;
+    }
+    let nth = |k: i64| Interval::new(stride.months.checked_mul(k)?, stride.days.checked_mul(k)?).add_to(origin);
     if nth(1)? <= origin {
-        return Ok(None);
+        return None;
     }
     // an estimate of the bin, then the exact one: nth(k) <= source < nth(k + 1)
     let mut k = if stride.days == 0 {
@@ -283,10 +285,10 @@ fn bin(stride: Interval, source: NaiveDate, origin: NaiveDate) -> Result<Option<
         } else if nth(k + 1)? <= source {
             k += 1;
         } else {
-            return nth(k).map(Some);
+            return nth(k).filter(|it| in_calendar(*it));
         }
     }
-    Ok(None)
+    None
 }
 
 #[cfg(test)]
@@ -397,9 +399,17 @@ mod tests {
         assert_eq!(call("date_add", vec![on("2016-02-28"), Value::Int(1)]), on("2016-02-29"));
         assert_eq!(call("date_add", vec![on("2016-03-01"), Value::Int(-1)]), on("2016-02-29"));
         assert_eq!(call("date_diff", vec![on("2016-01-01"), on("2016-12-31")]), Value::Int(-365));
-        let ctx = crate::functions::TestContext::default();
-        let err = try_call_with(&ctx, "date_add", vec![on("2016-01-01"), Value::Int(i64::MAX)]).unwrap_err();
-        assert_eq!(err, "date out of range");
+        // outside the calendar (years 1 to 9999): NULL
+        assert_eq!(call("date_add", vec![on("2016-01-01"), Value::Int(i64::MAX)]), Value::Null);
+        assert_eq!(call("date_add", vec![on("9999-12-31"), Value::Int(1)]), Value::Null);
+        assert_eq!(call("date_add", vec![on("0001-01-01"), Value::Int(-1)]), Value::Null);
+        assert_eq!(call("date_add", vec![on("9999-12-30"), Value::Int(1)]), on("9999-12-31"));
+        assert_eq!(call("date_trunc", vec!["decade".into(), on("0002-12-15")]), Value::Null);
+        assert_eq!(call("date_trunc", vec!["week".into(), on("0001-01-01")]), on("0001-01-01"));
+        assert_eq!(call("date_trunc", vec!["week".into(), on("0001-01-06")]), on("0001-01-01"));
+        assert_eq!(call("date_trunc", vec!["century".into(), on("0099-12-31")]), on("0001-01-01"));
+        assert_eq!(call("date_bin", vec!["1 year".into(), on("9999-06-01"), on("0001-07-01")]), on("9998-07-01"));
+        assert_eq!(call("date_bin", vec!["1 year".into(), on("0001-03-01"), on("0002-06-01")]), Value::Null);
     }
 
     #[test]
@@ -435,6 +445,32 @@ mod tests {
 
     fn bin_of(stride: &str, source: &str, origin: &str) -> Value {
         call("date_bin", vec![stride.into(), on(source), on(origin)])
+    }
+
+    /// A stride whose months and days have opposite signs has no ordered bins: NULL, at once.
+    #[test]
+    fn date_bin_rejects_strides_of_mixed_signs() {
+        let mixed = |months, days| {
+            call(
+                "date_bin",
+                vec![Value::Interval(Interval::new(months, days)), on("2016-03-30"), on("0001-01-01")],
+            )
+        };
+        assert_eq!(mixed(2, -61), Value::Null);
+        assert_eq!(mixed(1, -1), Value::Null);
+        assert_eq!(mixed(-1, 40), Value::Null);
+        assert_eq!(mixed(-1, -1), Value::Null);
+        // one sign: the last of origin + k × (1 month 1 day) on or before the date
+        let origin = date("0001-01-01");
+        let at = |k: i64| Interval::new(k, k).add_to(origin).unwrap();
+        let k = (0..).find(|k| at(k + 1) > date("2016-03-30")).unwrap();
+        assert_eq!(mixed(1, 1), Value::Date(at(k)));
+        // a far origin takes as few steps as a near one
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            assert_ne!(mixed(1, 3), Value::Null);
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]
@@ -490,7 +526,7 @@ mod tests {
             let stride = match next(3) {
                 0 => Interval::new(next(25) + 1, 0),
                 1 => Interval::new(0, next(60) + 1),
-                _ => Interval::new(next(3) + 1, next(20) - 5),
+                _ => Interval::new(next(3) + 1, next(20)),
             };
             let at = |k: i64| Interval::new(stride.months * k, stride.days * k).add_to(origin).unwrap();
             // a stride is at least a day; mixed ones at least 22 days

@@ -6,7 +6,7 @@
 //! query      := (select | balances | journal) [;]
 //! select     := SELECT [DISTINCT] targets [from] [where]
 //!               [GROUP BY item, ... [HAVING expr]] [ORDER BY item [ASC|DESC], ...]
-//!               [PIVOT BY column, column] [LIMIT count [OFFSET count]]
+//!               [PIVOT BY column, column] [LIMIT count [OFFSET count]]   (OFFSET is only a keyword there)
 //! count      := int | $n | :name                 (a parameter is bound to an int)
 //! column     := name | int                       (a target name or a 1-based target index)
 //! balances   := BALANCES [AT name] [from] [where]
@@ -85,7 +85,7 @@ type PResult<'a, T> = IResult<&'a str, T, PError<'a>>;
 
 const RESERVED: &[&str] = &[
     "select", "distinct", "from", "where", "group", "by", "order", "asc", "desc", "limit", "as", "and", "or", "not", "in", "is", "null", "true", "false",
-    "having", "pivot", "offset",
+    "having", "pivot",
 ];
 
 /// The clauses that may follow `FROM #table`.
@@ -379,10 +379,13 @@ impl<'s> Parser<'s> {
         }
         let (after, digits) = take_while::<_, _, PError>(|c: char| c.is_ascii_digit())(i)?;
         if digits.is_empty() || after.starts_with(is_ident_char) || after.starts_with('.') {
-            return failure(
-                i,
-                format!("expected a non-negative integer or a parameter after {}, found {}", clause, found(i)),
-            );
+            // a number reads as one token, `1.5` rather than `1`
+            let token = match i.find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_')) {
+                Some(end) if !digits.is_empty() => format!("'{}'", &i[..end]),
+                None if !digits.is_empty() => format!("'{}'", i),
+                _ => found(i),
+            };
+            return failure(i, format!("expected a non-negative integer or a parameter after {}, found {}", clause, token));
         }
         let value = digits.parse::<u64>().map_err(|_| {
             NomErr::Failure(PError {
@@ -1539,8 +1542,13 @@ mod tests {
         assert_eq!(offset.value, CountValue::Param(ParamRef::Positional(2)));
         assert_eq!(&src[offset.span.start..offset.span.end], "$2");
         assert!(parse_ok("SELECT a LIMIT 1").offset.is_none());
-        // OFFSET is a keyword
-        assert!(parse_err("SELECT offset").message.contains("keyword OFFSET"));
+        // OFFSET is only a keyword after a LIMIT: elsewhere it is a name, as in beanquery
+        let select = parse_ok("SELECT date AS offset, offset ORDER BY offset DESC LIMIT 1 OFFSET 2");
+        assert_eq!(select.offset.as_ref().and_then(Count::literal), Some(2));
+        assert!(matches!(&select.order_by.unwrap()[0].expr.kind, ExprKind::Column(name) if name == "offset"));
+        let err = parse_err("SELECT a LIMIT 1.5");
+        assert!(err.message.contains("after LIMIT, found '1.5'"), "{}", err.message);
+        assert!(parse_err("SELECT a LIMIT 1 OFFSET 2x").message.contains("found '2x'"));
         assert!(parse_err("SELECT a OFFSET 1 LIMIT 1").message.contains("OFFSET must follow LIMIT"));
         assert!(parse_err("SELECT a LIMIT 1 OFFSET 1 PIVOT BY a, b")
             .message

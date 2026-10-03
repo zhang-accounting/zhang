@@ -14,7 +14,7 @@ pub(crate) use crate::ast::ArithOp;
 use crate::ast::{self, BinaryOp, Count, CountValue, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
-use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
+use crate::functions::{resolve_scalar, AggregateFunction, AggregateKind, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes, Params};
 use crate::period::{Period, PeriodDate};
 use crate::table::{self, ColumnDef, Scope, Table, BALANCE_COLUMN, POSTINGS};
@@ -635,6 +635,9 @@ impl Compiler<'_> {
         if let Some(items) = &select.order_by {
             for item in items {
                 let idx = self.resolve_reference(&item.expr, "ORDER BY", &mut targets, &mut target_asts, &mut bare_columns, visible)?;
+                if targets[idx].ty == DataType::Interval {
+                    return err(format!("cannot order by '{}': intervals have no order", targets[idx].name), item.expr.span);
+                }
                 order.push((idx, item.descending));
             }
         }
@@ -1055,6 +1058,9 @@ impl Compiler<'_> {
             types.push(ty);
         }
         let resolved = resolve_aggregate(name, star, &types).map_err(|message| LocatedError::compile(message, span))?;
+        if matches!(resolved.function.kind, AggregateKind::Min | AggregateKind::Max) && types.first() == Some(&DataType::Interval) {
+            return err(format!("{}() is not supported for intervals: intervals have no order", name), span);
+        }
         let ty = resolved.function.returns.resolve(&types);
         let arg = widen(compiled, &resolved.widen).into_iter().next();
         self.aggregates.push(AggregateCall {
@@ -1083,17 +1089,6 @@ impl Compiler<'_> {
                 // a string literal compared with a date is read as a date
                 let (left_c, left_ty) = coerce_date_literal(left_c, left_ty, right_ty, left.span)?;
                 let (right_c, right_ty) = coerce_date_literal(right_c, right_ty, left_ty, right.span)?;
-                if left_ty == DataType::Interval || right_ty == DataType::Interval {
-                    return err(
-                        format!(
-                            "operator {} is not supported for ({}, {}): intervals cannot be compared",
-                            op.symbol(),
-                            left_ty,
-                            right_ty
-                        ),
-                        span,
-                    );
-                }
                 let comparable =
                     left_ty == right_ty || left_ty == DataType::Null || right_ty == DataType::Null || (left_ty.is_numeric() && right_ty.is_numeric());
                 if !comparable {
@@ -1107,7 +1102,15 @@ impl Compiler<'_> {
                         )
                     };
                     if !orderable(left_ty) || !orderable(right_ty) {
-                        return err(format!("operator {} is not supported for ({}, {})", op.symbol(), left_ty, right_ty), span);
+                        let hint = if left_ty == DataType::Interval || right_ty == DataType::Interval {
+                            ": intervals have no order (1 month is neither more nor less than 30 days)"
+                        } else {
+                            ""
+                        };
+                        return err(
+                            format!("operator {} is not supported for ({}, {}){}", op.symbol(), left_ty, right_ty, hint),
+                            span,
+                        );
                     }
                 }
                 Ok((
@@ -1184,7 +1187,7 @@ fn pivot(columns: &[Expr; 2], targets: &[PlannedTarget], group_keys: Option<&[us
             columns[1].span,
         );
     }
-    if matches!(targets[rows].ty, DataType::Set | DataType::Inventory | DataType::Metas) {
+    if matches!(targets[rows].ty, DataType::Set | DataType::Inventory | DataType::Metas | DataType::Interval) {
         return err(
             format!(
                 "cannot pivot by '{}': values of type {} cannot be pivoted",
@@ -1192,6 +1195,10 @@ fn pivot(columns: &[Expr; 2], targets: &[PlannedTarget], group_keys: Option<&[us
             ),
             columns[0].span,
         );
+    }
+    // the pivoted columns are sorted by their value
+    if targets[cols].ty == DataType::Interval {
+        return err(format!("cannot pivot by '{}': intervals have no order", targets[cols].name), columns[1].span);
     }
     Ok(Pivot { rows, columns: cols })
 }

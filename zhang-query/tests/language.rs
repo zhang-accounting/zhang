@@ -397,9 +397,46 @@ fn dates_and_intervals_on_month_ends() {
         rows("SELECT DISTINCT date_add(NULL, 1), date_trunc(NULL, date), date_part('year', NULL), date(NULL), date(NULL, 1, 1), date_bin(NULL, date, date), interval(NULL), date + NULL LIMIT 1"),
         expected(&[&["NULL"; 8]])
     );
-    // intervals cannot be compared
-    let err = Query::compile("SELECT interval('1 day') < interval('2 days')").err().unwrap();
-    assert!(err.message.contains("intervals cannot be compared"), "{err}");
+    // intervals are equal or not (by their months and days), but have no order
+    assert_eq!(
+        rows(
+            "SELECT DISTINCT interval('12 months') = interval('1 year'), interval('1 year') + interval('-1 month') != interval('11 months'), \
+             interval('30 days') = interval('1 month'), interval('1 month') IN (interval('1 day'), interval('1 month')) LIMIT 1"
+        ),
+        expected(&[&["TRUE", "FALSE", "FALSE", "TRUE"]])
+    );
+    assert_eq!(
+        rows("SELECT interval('1 month') AS every, count(*) GROUP BY every"),
+        expected(&[&["1 month", "6"]])
+    );
+    for (sql, message) in [
+        ("SELECT interval('1 day') < interval('2 days')", "intervals have no order"),
+        ("SELECT date, interval('1 day') AS i ORDER BY i", "cannot order by 'i'"),
+        ("SELECT min(interval('1 day'))", "min() is not supported for intervals"),
+        ("SELECT max(interval('1 day'))", "max() is not supported for intervals"),
+        (
+            "SELECT account, interval('1 day') AS i, count(*) AS n GROUP BY 1, 2 PIVOT BY account, i",
+            "cannot pivot by 'i'",
+        ),
+    ] {
+        let err = Query::compile(sql).err().unwrap_or_else(|| panic!("{sql}"));
+        assert_eq!(err.kind, QueryErrorKind::Compile, "{sql}");
+        assert!(err.message.contains(message), "{sql}: {err}");
+    }
+    // dates stay in the years 1 to 9999: results outside are NULL
+    assert_eq!(
+        rows(
+            "SELECT DISTINCT 9999-12-31 + 1, 0001-01-01 - 1, 1 + 9999-12-31, 9999-12-31 + interval('1 day'), \
+             0001-01-31 - interval('1 month'), date_add(9999-12-31, 1), date_trunc('decade', 0002-12-15), \
+             date_bin('1 year', 9999-06-01, 0001-07-01), 9999-12-30 + 1 LIMIT 1"
+        ),
+        expected(&[&["NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "9998-07-01", "9999-12-31"]])
+    );
+    // a stride whose months and days have opposite signs is NULL
+    assert_eq!(
+        rows("SELECT DISTINCT date_bin(interval('2 months') - interval('61 days'), date, 2000-01-01) LIMIT 1"),
+        expected(&[&["NULL"]])
+    );
     // a zero stride is NULL
     assert_eq!(
         rows("SELECT DISTINCT date_bin('0 days', date, 2024-01-01), date_bin(interval('0 months'), date, 2024-01-01) LIMIT 1"),
@@ -525,9 +562,47 @@ fn new_functions_and_columns_are_in_the_schema() {
     assert!(columns("postings").contains(&("entry_metas", DataType::Metas)));
     assert!(columns("transactions").contains(&("metas", DataType::Metas)));
     assert!(columns("entries").contains(&("metas", DataType::Metas)));
+    // the zhang extensions say so, in one wording
+    for function in schema
+        .functions
+        .iter()
+        .filter(|it| ["icontains", "any_icontains", "intersects", "under", "meta_values", "entry_meta_values"].contains(&it.name))
+    {
+        assert!(function.description.ends_with(". A zhang extension."), "{}", function.description);
+    }
+    for (table, column) in [
+        ("postings", "metas"),
+        ("postings", "entry_metas"),
+        ("transactions", "metas"),
+        ("entries", "metas"),
+    ] {
+        let doc = schema
+            .tables
+            .iter()
+            .find(|it| it.name == table)
+            .unwrap()
+            .columns
+            .iter()
+            .find(|it| it.name == column)
+            .unwrap();
+        assert!(doc.description.ends_with(". A zhang extension."), "{table}.{column}: {}", doc.description);
+    }
     let signatures = schema.functions.iter().map(|function| function.signature.as_str()).collect::<Vec<_>>();
     assert!(signatures.contains(&"date_bin(interval, date, date) -> date"), "{signatures:?}");
     assert!(signatures.contains(&"open_meta(str) -> metas"), "{signatures:?}");
+}
+
+/// `offset` is a keyword only right after a LIMIT count, so it stays a name elsewhere, as in
+/// beanquery, which has no OFFSET.
+#[test]
+fn offset_is_a_name_outside_the_limit_clause() {
+    assert_eq!(rows("SELECT date AS offset ORDER BY offset DESC LIMIT 1"), expected(&[&["2024-03-31"]]));
+    assert_eq!(
+        rows("SELECT account AS offset, count(*) GROUP BY offset ORDER BY offset LIMIT 1 OFFSET 1"),
+        expected(&[&["Assets:Bank:Savings", "1"]])
+    );
+    let err = Query::compile("SELECT offset").err().unwrap();
+    assert_eq!((err.kind, err.column), (QueryErrorKind::Compile, Some(8)), "{err}");
 }
 
 #[test]
@@ -540,11 +615,10 @@ fn offset_syntax_errors_point_at_the_clause() {
             "expected a non-negative integer or a parameter after OFFSET, found end of query",
         ),
         ("SELECT date LIMIT 2 OFFSET -1", 28, "after OFFSET, found '-'"),
-        ("SELECT date LIMIT 2.5", 19, "after LIMIT, found '2'"),
+        ("SELECT date LIMIT 2.5", 19, "after LIMIT, found '2.5'"),
         ("SELECT date LIMIT :", 19, "expected a parameter name after ':'"),
         ("SELECT date LIMIT 1 OFFSET 99999999999999999999", 28, "OFFSET is too large"),
         ("SELECT date LIMIT 1 OFFSET 1 OFFSET 2", 30, "unexpected 'OFFSET'"),
-        ("SELECT offset", 8, "keyword OFFSET"),
     ] {
         let err = Query::compile(sql).err().unwrap_or_else(|| panic!("{sql}"));
         assert_eq!((err.kind, err.column), (QueryErrorKind::Parse, Some(column)), "{sql}: {err}");
@@ -584,4 +658,37 @@ fn new_functions_nest_to_the_limit_on_a_small_stack() {
     assert!(sql.len() < zhang_query::MAX_QUERY_LENGTH);
     let set = Value::Set((0..100_000).map(|idx| format!("Assets:Y{}", idx)).chain(["Assets:Bank".to_owned()]).collect());
     assert_eq!(on_small_stack(sql, Params::new().bind("set", set)).unwrap(), expected(&[&["3"]]));
+}
+
+/// METAS cells, and sets of long texts, count their text against the result budget like
+/// strings do, so a few rows of large metadata cannot slip past the limit.
+#[test]
+fn metas_and_sets_count_their_text_against_the_result_budget() {
+    let mut text = String::from("1970-01-01 commodity USD\n1970-01-01 open Assets:A\n1970-01-01 open Expenses:B\n");
+    let value = "x".repeat(200);
+    for txn in 0..50 {
+        text.push_str(&format!("\n2024-01-01 * \"big meta {txn}\"\n"));
+        for key in 0..20 {
+            text.push_str(&format!("  k{key:03}: \"{value}\"\n  r: \"{key}{value}\"\n"));
+        }
+        text.push_str("  Expenses:B 1 USD\n  Assets:A -1 USD\n");
+    }
+    let ledger = common::load_text(&text);
+    let run = |sql: &str, limit: u64| {
+        let options = ExecuteOptions {
+            max_result_values: Some(limit),
+            ..options(false)
+        };
+        Query::compile(sql).unwrap().execute_with_options(&ledger, &Params::new(), &options)
+    };
+    // 50 rows of 40 pairs of about 205 bytes: about 8,000 values, not 50
+    for sql in [
+        "SELECT metas FROM #transactions",
+        "SELECT entry_metas WHERE account = 'Assets:A'",
+        "SELECT entry_meta_values('r') FROM #transactions",
+    ] {
+        let err = run(sql, 1_000).unwrap_err();
+        assert_eq!(err.kind, QueryErrorKind::TooLarge, "{sql}: {err}");
+        assert_eq!(run(sql, 100_000).unwrap().rows.len(), 50, "{sql}");
+    }
 }

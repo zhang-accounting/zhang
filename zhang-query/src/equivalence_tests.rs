@@ -172,6 +172,14 @@ const PARAM_QUERIES: &[&str] = &[
     "SELECT date, payee WHERE payee ~ :invalid LIMIT :size",
     "SELECT DISTINCT account LIMIT :size OFFSET :offset",
     "SELECT account, count(*) GROUP BY account LIMIT :size OFFSET :offset",
+    // parameters that fold WHERE or HAVING to a constant: only TRUE drops it, FALSE and NULL
+    // keep no row or group
+    "SELECT date, account WHERE :flag",
+    "SELECT date, account WHERE :none = 1 LIMIT :size",
+    "SELECT count(*), sum(position) WHERE :flag AND account ~ 'Assets'",
+    "SELECT account, count(*) GROUP BY account HAVING count(*) > 0 AND :flag",
+    "SELECT account, count(*) GROUP BY account HAVING (count(*) > 0 OR :yes) AND :none = 1",
+    "SELECT account, count(*) GROUP BY account HAVING (count(*) > 0 OR :yes) AND :flag",
 ];
 
 fn params() -> Params {
@@ -191,6 +199,8 @@ fn params() -> Params {
         .bind("root", "Assets")
         .bind("empty", "")
         .bind("flag", false)
+        .bind("yes", true)
+        .bind("none", Value::Null)
         .bind("invalid", "(")
         .bind("size", 9i64)
         .bind("offset", 4i64)
@@ -198,7 +208,7 @@ fn params() -> Params {
 
 fn param_types() -> ParamTypes {
     let mut types = params().types();
-    types = types.bind("missing", DataType::Str);
+    types = types.bind("missing", DataType::Str).bind("none", DataType::Int);
     types
 }
 

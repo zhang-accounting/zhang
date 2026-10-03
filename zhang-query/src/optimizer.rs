@@ -1007,6 +1007,31 @@ mod tests {
             show(bind(&query.plan, &Params::new().bind("all", Value::Null)).filter.as_ref().unwrap()),
             "(NULL OR (account = 'x'))"
         );
+        // a filter that folds to FALSE or NULL keeps every row out: it stays
+        let query = crate::Query::compile_with_params("SELECT date WHERE :all", &crate::ParamTypes::new().bind("all", DataType::Bool)).unwrap();
+        assert!(bind(&query.plan, &Params::new().bind("all", true)).filter.is_none());
+        assert_eq!(show(bind(&query.plan, &Params::new().bind("all", false)).filter.as_ref().unwrap()), "FALSE");
+        assert_eq!(
+            show(bind(&query.plan, &Params::new().bind("all", Value::Null)).filter.as_ref().unwrap()),
+            "NULL"
+        );
+        // and so does HAVING
+        let query = crate::Query::compile_with_params(
+            "SELECT account, count(*) GROUP BY account HAVING count(*) > 0 AND :all",
+            &crate::ParamTypes::new().bind("all", DataType::Bool),
+        )
+        .unwrap();
+        assert!(bind(&query.plan, &Params::new().bind("all", true)).having.is_some());
+        assert_eq!(show(bind(&query.plan, &Params::new().bind("all", false)).having.as_ref().unwrap()), "FALSE");
+        let query = crate::Query::compile_with_params(
+            "SELECT account, count(*) GROUP BY account HAVING (count(*) > 0 OR :all) AND :n = 1",
+            &crate::ParamTypes::new().bind("all", DataType::Bool).bind("n", DataType::Int),
+        )
+        .unwrap();
+        let bound = |all: bool, n: Value| bind(&query.plan, &Params::new().bind("all", all).bind("n", n));
+        assert!(bound(true, Value::Int(1)).having.is_none());
+        assert_eq!(show(bound(true, Value::Null).having.as_ref().unwrap()), "NULL");
+        assert_eq!(show(bound(true, Value::Int(2)).having.as_ref().unwrap()), "FALSE");
     }
 
     #[test]

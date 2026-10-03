@@ -22,7 +22,7 @@ use crate::prices::PriceMap;
 use crate::projector::{borrowed_str, set_membership};
 use crate::running::RunningState;
 use crate::table::{Dataset, RowRef};
-use crate::value::{Inventory, Position, Value};
+use crate::value::{calendar_value, Inventory, Position, Value};
 use crate::{decimal, ColumnInfo};
 
 /// How many rows are scanned between two deadline checks.
@@ -440,27 +440,21 @@ fn arithmetic(op: ArithOp, left: Value, right: Value) -> Result<Value, String> {
             }
         }
         (Str(a), Str(b)) if op == ArithOp::Add => Str(a + &b),
+        // a date outside the calendar (years 1 to 9999) is NULL
         (Date(date), Int(days)) => {
-            let delta = Duration::try_days(days).ok_or("date out of range")?;
-            let shifted = match op {
+            let shifted = Duration::try_days(days).and_then(|delta| match op {
                 ArithOp::Add => date.checked_add_signed(delta),
                 _ => date.checked_sub_signed(delta),
-            };
-            Date(shifted.ok_or("date out of range")?)
+            });
+            calendar_value(shifted)
         }
-        (Int(days), Date(date)) => Date(
-            date.checked_add_signed(Duration::try_days(days).ok_or("date out of range")?)
-                .ok_or("date out of range")?,
-        ),
+        (Int(days), Date(date)) => calendar_value(Duration::try_days(days).and_then(|delta| date.checked_add_signed(delta))),
         (Date(a), Date(b)) => Int((a - b).num_days()),
-        (Date(date), Interval(interval)) => {
-            let moved = match op {
-                ArithOp::Add => interval.add_to(date),
-                _ => interval.subtract_from(date),
-            };
-            Date(moved.ok_or("date out of range")?)
-        }
-        (Interval(interval), Date(date)) => Date(interval.add_to(date).ok_or("date out of range")?),
+        (Date(date), Interval(interval)) => calendar_value(match op {
+            ArithOp::Add => interval.add_to(date),
+            _ => interval.subtract_from(date),
+        }),
+        (Interval(interval), Date(date)) => calendar_value(interval.add_to(date)),
         (Interval(a), Interval(b)) => Interval(
             match op {
                 ArithOp::Add => a.checked_add(&b),
@@ -669,15 +663,17 @@ impl Budget {
 }
 
 /// The size of a value in [`Budget`] values: one per value, plus one per position of a
-/// position or inventory, per element of a set and per 64 bytes of text, so that a budget
-/// bounds the memory, and the encoded size, of a result.
+/// position or inventory, per element of a set and per pair of metadata (`metas`), and per
+/// 64 bytes of text (also the text of those elements and pairs), so that a budget bounds the
+/// memory, and the encoded size, of a result.
 pub(crate) fn weight(value: &Value) -> u64 {
     match value {
         Value::Str(text) => text_weight(text.len()),
-        Value::Set(set) => 1 + set.len() as u64,
+        Value::Set(set) => 1 + set.iter().map(|item| text_weight(item.len())).sum::<u64>(),
+        Value::Metas(pairs) => 1 + pairs.iter().map(|(key, value)| text_weight(key.len() + value.len())).sum::<u64>(),
         Value::Position(_) => 2,
         Value::Inventory(inventory) => inventory_weight(inventory),
-        _ => 1,
+        Value::Null | Value::Bool(_) | Value::Int(_) | Value::Decimal(_) | Value::Date(_) | Value::Amount(_) | Value::Interval(_) => 1,
     }
 }
 

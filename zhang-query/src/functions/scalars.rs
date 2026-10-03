@@ -71,7 +71,7 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         name: "under",
         params: &[Exact(Str), Exact(Str)],
         returns: ReturnType::Exact(Bool),
-        description: "Whether an account is the ancestor or one of its sub-accounts, e.g. under('Assets:Bank:Cash', 'Assets:Bank') is TRUE and under('Assets:Banking', 'Assets:Bank') FALSE; a zhang extension.",
+        description: "Whether an account is the ancestor or one of its sub-accounts, e.g. under('Assets:Bank:Cash', 'Assets:Bank') is TRUE and under('Assets:Banking', 'Assets:Bank') FALSE. A zhang extension.",
         eval: accounts::under,
     },
     // ---- function library: account and commodity directives ----
@@ -93,7 +93,7 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         name: "open_meta",
         params: &[Exact(Str)],
         returns: ReturnType::Exact(Metas),
-        description: "The metadata of the account's open directive; NULL if it has none.",
+        description: "The metadata of the account's open directive as (key, value) pairs, [] when it has none; NULL if the account has no open directive.",
         eval: ledger::open_meta,
     },
     ScalarFunction {
@@ -107,7 +107,7 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         name: "commodity_meta",
         params: &[Exact(Str)],
         returns: ReturnType::Exact(Metas),
-        description: "The metadata of the currency's commodity directive; NULL if it has none.",
+        description: "The metadata of the currency's commodity directive as (key, value) pairs, [] when it has none; NULL without a commodity directive.",
         eval: ledger::commodity_meta,
     },
     ScalarFunction {
@@ -517,14 +517,14 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         name: "meta_values",
         params: &[Exact(Str)],
         returns: ReturnType::Exact(Set),
-        description: "Every value of a metadata key of the posting, as a set (a repeated key has several); empty if absent; a zhang extension.",
+        description: "Every value of a metadata key of the posting, as a set (a repeated key has several); empty if absent. A zhang extension.",
         eval: meta::meta_values,
     },
     ScalarFunction {
         name: "entry_meta_values",
         params: &[Exact(Str)],
         returns: ReturnType::Exact(Set),
-        description: "Every value of a metadata key of the transaction, as a set (a repeated key has several); empty if absent; a zhang extension.",
+        description: "Every value of a metadata key of the transaction, as a set (a repeated key has several); empty if absent. A zhang extension.",
         eval: meta::entry_meta_values,
     },
     // ---- function library: search (zhang extensions) ----
@@ -532,21 +532,21 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         name: "icontains",
         params: &[Exact(Str), Exact(Str)],
         returns: ReturnType::Exact(Bool),
-        description: "Whether the text contains the needle, ignoring case (Unicode lower-case), e.g. icontains(payee, 'cafe'); a zhang extension.",
+        description: "Whether the text contains the needle, ignoring case (Unicode lower-case), e.g. icontains(payee, 'cafe'). A zhang extension.",
         eval: search::icontains,
     },
     ScalarFunction {
         name: "any_icontains",
         params: &[Exact(Set), Exact(Str)],
         returns: ReturnType::Exact(Bool),
-        description: "Whether an element of the set contains the needle, ignoring case, e.g. any_icontains(tags, 'trip'); a zhang extension.",
+        description: "Whether an element of the set contains the needle, ignoring case, e.g. any_icontains(tags, 'trip'). A zhang extension.",
         eval: search::any_icontains,
     },
     ScalarFunction {
         name: "intersects",
         params: &[Exact(Set), Exact(Set)],
         returns: ReturnType::Exact(Bool),
-        description: "Whether the two sets share an element, e.g. intersects(tags, :tags); a zhang extension.",
+        description: "Whether the two sets share an element, e.g. intersects(tags, :tags). A zhang extension.",
         eval: search::intersects,
     },
     // ---- function library: strings ----
