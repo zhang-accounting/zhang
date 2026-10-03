@@ -10,7 +10,7 @@ use zhang_ast::{Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::utils::calculable::Calculable;
 
-use crate::balance_writes::{balance_directives, BalanceRow};
+use crate::balance_writes::{balance_directives, BalanceRow, BalanceWriteEntity};
 use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
@@ -196,7 +196,7 @@ pub async fn get_account_journals(ledger: State<SharedLedger>, params: Path<(Str
 #[api(group = "account")]
 pub async fn create_account_balance(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
-) -> ServerResult<Created> {
+) -> ApiResult<BalanceWriteEntity> {
     let target_account = params.0 .0;
     let ledger = ledger.read().await;
     let rules = Rules::of(&ledger);
@@ -214,10 +214,11 @@ pub async fn create_account_balance(
         },
     };
 
-    let directives = balance_directives(&ledger, vec![row], Date::now(&ledger.options.timezone))?;
-    ledger.data_source.async_append(&ledger, directives).await?;
+    let written = balance_directives(&ledger, vec![row], Date::now(&ledger.options.timezone))?
+        .write(&ledger)
+        .await?;
     reload_sender.reload();
-    Ok(Created)
+    ResponseWrapper::json(written)
 }
 
 /// the balances of a batch, those of deeper accounts first, the order of the request kept otherwise
@@ -232,7 +233,7 @@ fn sub_accounts_first(mut balances: Vec<BatchAccountBalanceRequest>) -> Vec<Batc
 #[api(group = "account")]
 pub async fn create_batch_account_balances(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<Vec<BatchAccountBalanceRequest>>,
-) -> ServerResult<Created> {
+) -> ApiResult<BalanceWriteEntity> {
     let ledger = ledger.read().await;
     let rules = Rules::of(&ledger);
     let mut rows = vec![];
@@ -254,10 +255,9 @@ pub async fn create_batch_account_balances(
     }
 
     // one time for the whole batch, so the file order decides the order of its directives
-    let directives = balance_directives(&ledger, rows, Date::now(&ledger.options.timezone))?;
-    ledger.data_source.async_append(&ledger, directives).await?;
+    let written = balance_directives(&ledger, rows, Date::now(&ledger.options.timezone))?.write(&ledger).await?;
     reload_sender.reload();
-    Ok(Created)
+    ResponseWrapper::json(written)
 }
 
 /// Balance requests are checked like transactions: a name the ledger would not read

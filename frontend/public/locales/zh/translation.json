@@ -562,6 +562,7 @@
       "check": "断言余额",
       "pad": "填充并断言",
       "saved": "余额指令已写入",
+      "replaced": "已替换 {{account}} 在 {{date}} 的余额断言（原为 {{amount}}）",
       "failed": "余额断言失败",
       "no_commodities": "该账户还没有任何货币"
     },

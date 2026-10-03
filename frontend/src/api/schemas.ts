@@ -328,9 +328,28 @@ export interface operations {
       };
     };
     responses: {
-      /** @description no content */
-      204: {
-        content: never;
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the balances of a beancount ledger the request replaced: those of the same account and commodity for the same
+               * date, which the new balance supersedes
+               */
+              replaced: {
+                account: string;
+                /** @description the amount it asserted */
+                amount: {
+                  commodity: string;
+                  number: string;
+                };
+                /** Format: date */
+                date: string;
+              }[];
+            };
+          };
+        };
       };
     };
   };
@@ -438,9 +457,28 @@ export interface operations {
       };
     };
     responses: {
-      /** @description no content */
-      204: {
-        content: never;
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the balances of a beancount ledger the request replaced: those of the same account and commodity for the same
+               * date, which the new balance supersedes
+               */
+              replaced: {
+                account: string;
+                /** @description the amount it asserted */
+                amount: {
+                  commodity: string;
+                  number: string;
+                };
+                /** Format: date */
+                date: string;
+              }[];
+            };
+          };
+        };
       };
     };
   };

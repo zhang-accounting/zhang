@@ -583,6 +583,7 @@
       "check": "Check balance",
       "pad": "Pad & check",
       "saved": "Balance directive written",
+      "replaced": "Replaced the balance of {{account}} for {{date}} (was {{amount}})",
       "failed": "Could not balance the account",
       "no_commodities": "This account holds no commodities yet"
     },

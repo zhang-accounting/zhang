@@ -20,7 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { batchBalanceRows, subAccountsFirst } from '@/utils/balance-check';
+import { batchBalanceRows, replacedBalancesText, subAccountsFirst } from '@/utils/balance-check';
 import { useListState } from '@/hooks/use-list-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -144,10 +144,13 @@ export default function BatchBalance() {
     toast.info(t('batch_balance.start_toast', { count: accountsToBalance.length }));
     setSubmitting(true);
     try {
-      await createBatchBalance(accountsToBalance);
+      const res = await createBatchBalance(accountsToBalance);
 
+      // a check of a beancount ledger replaces the balance it wrote earlier today
+      const replaced = replacedBalancesText(res.data.data.replaced, (it) => t('ledger.balance.replaced', it));
       toast.success(t('batch_balance.success_toast'), {
-        description: t('batch_balance.success_toast_description'),
+        description: replaced ? `${replaced}\n${t('batch_balance.success_toast_description')}` : t('batch_balance.success_toast_description'),
+        duration: replaced ? 10000 : undefined,
       });
       resetOnNextRefresh.current = true;
       accountsHandler.setState(stateItems);

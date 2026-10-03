@@ -46,3 +46,15 @@ export function subAccountsFirst<T extends { account_name: string }>(balances: T
     .sort((a, b) => depth(b.balance) - depth(a.balance) || a.index - b.index)
     .map(({ balance }) => balance);
 }
+
+/** A balance a request replaced: one of the same account and commodity for the same date (`replaced` of the answer). */
+export interface ReplacedBalance {
+  date: string;
+  account: string;
+  amount: { number: string; commodity: string };
+}
+
+/** How a toast says which balances a request replaced, one per line; empty when it replaced none. */
+export function replacedBalancesText(replaced: ReplacedBalance[], line: (balance: { date: string; account: string; amount: string }) => string): string {
+  return replaced.map((it) => line({ date: it.date, account: it.account, amount: `${it.amount.number} ${it.amount.commodity}` })).join('\n');
+}

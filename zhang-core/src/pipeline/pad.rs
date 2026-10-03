@@ -137,13 +137,15 @@ pub(crate) fn may_serve(serves: &mut Option<PadServes>, directive: &Spanned<Dire
     serves.as_mut().is_none_or(|it| it.take(directive))
 }
 
-/// For each of `new`, written after the directives of a loaded ledger (its stream, [`Ledger::directives`]): the `pad`
-/// that would serve it once the ledger is loaded again, paired as the pad stage pairs them. `None` for a directive that
-/// is no balance assertion, or that no `pad` serves. A `pad` among `new` serves too
-pub fn serving_pads(directives: &[Spanned<Directive>], new: &[Directive]) -> Vec<Option<Pad>> {
+/// For each of `new`, written after the directives of a loaded ledger (its stream, [`Ledger::directives`]) but for
+/// those `gone` (to be replaced): the `pad` that would serve it once the ledger is loaded again, paired as the pad stage
+/// pairs them. `None` for a directive that is no balance assertion, or that no `pad` serves. A `pad` among `new` serves
+/// too
+pub fn serving_pads(directives: &[Spanned<Directive>], gone: impl Fn(&Spanned<Directive>) -> bool, new: &[Directive]) -> Vec<Option<Pad>> {
     // what the pairing reads: the pads, and the balance entries, which also order the pads of a day
     let mut stream = directives
         .iter()
+        .filter(|it| !gone(it))
         .filter(|it| matches!(it.data, Directive::Pad(_)) || Ledger::is_balance_entry(&it.data))
         .cloned()
         .collect::<Vec<_>>();

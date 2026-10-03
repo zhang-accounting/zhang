@@ -875,13 +875,14 @@ option "timezone" "UTC"
         assert_eq!(passed, vec![true]);
         assert_eq!(scratch.balance("Assets:A").await, json!({"CNY": "100"}));
 
-        // a plain check is dated tomorrow too
+        // a plain check is dated tomorrow too, and replaces the balance of tomorrow
         let (status, body) = check(&scratch, "Assets:A", amount(100, "CNY")).await;
         assert!(status.is_success(), "{status} {body}");
-        assert_eq!(written(&scratch).matches(&format!("{} balance Assets:A 100 CNY", tomorrow())).count(), 2);
+        assert_eq!(body["data"]["replaced"][0]["amount"]["number"], json!("100"), "{body}");
+        assert_eq!(written(&scratch).matches(&format!("{} balance Assets:A 100 CNY", tomorrow())).count(), 1);
         let (errors, _, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(passed, vec![true, true]);
+        assert_eq!(passed, vec![true]);
     }
 
     #[tokio::test]
@@ -986,7 +987,10 @@ option "timezone" "UTC"
             days_ago(2)
         ));
         let before = written(&scratch);
-        let close = format!("Close that pad first: write a balance of Assets:A in USD on {}", days_ago(2));
+        let close = format!(
+            "Close that pad first: edit main.bean, and add a balance of Assets:A in USD on {}, right after it",
+            days_ago(2)
+        );
         for answer in [
             check(&scratch, "Assets:A", amount(20, "USD")).await,
             pad(&scratch, "Assets:A", amount(20, "USD"), "Equity:Fx").await,
@@ -997,7 +1001,7 @@ option "timezone" "UTC"
                 answer,
                 &[
                     "beancount pads every commodity of an account",
-                    &format!("the pad of Assets:A on {} from Equity:Open", days_ago(3)),
+                    &format!("the pad of Assets:A on {} from Equity:Open, in main.bean", days_ago(3)),
                     &close,
                 ],
             );
@@ -1150,5 +1154,137 @@ option "timezone" "UTC"
         assert_eq!(paddings, vec!["2024-03-04 50 CNY from Equity:Open".to_owned()]);
         assert_eq!(passed, vec![true, true, true]);
         assert_eq!(scratch.balance("Assets:A").await, json!({"CNY": "85"}));
+    }
+
+    #[tokio::test]
+    async fn a_second_check_of_the_day_replaces_the_first() {
+        // reconciled at 100, then dinner is added, then "80 now": the balance of tomorrow is replaced, not doubled
+        let scratch = Scratch::beancount(&format!(
+            r#"{OPENS}{} * "seed usd"
+  Assets:A 10 USD
+  Equity:Fx
+"#,
+            days_ago(30)
+        ));
+        let (status, body) = pad(&scratch, "Assets:A", amount(100, "CNY"), "Equity:Open").await;
+        assert!(status.is_success(), "{status} {body}");
+        assert_eq!(body["data"]["replaced"], json!([]));
+        let reconciled = written(&scratch);
+        append(
+            &scratch,
+            &format!(
+                r#"{} * "Shop" "dinner"
+  Expenses:Food 20 CNY
+  Assets:A
+"#,
+                today()
+            ),
+        );
+        let (status, body) = check(&scratch, "Assets:A", amount(80, "CNY")).await;
+        assert!(status.is_success(), "{status} {body}");
+        // the answer says what was replaced, for the UI to tell
+        assert_eq!(
+            body["data"]["replaced"],
+            json!([{"date": tomorrow().to_string(), "account": "Assets:A", "amount": {"number": "100", "commodity": "CNY"}}])
+        );
+        // in its place
+        assert_eq!(written(&scratch), reconciled.replace("balance Assets:A 100 CNY", "balance Assets:A 80 CNY"));
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(paddings, vec![format!("{} 100 CNY from Equity:Open", today())]);
+        assert_eq!(passed, vec![true]);
+    }
+
+    #[tokio::test]
+    async fn a_second_reconcile_of_the_day_pads_from_the_first_and_replaces_its_balance() {
+        let scratch = Scratch::beancount(&format!(
+            r#"{OPENS}{} * "seed"
+  Assets:A 50 CNY
+  Equity:Fx
+"#,
+            days_ago(30)
+        ));
+        for target in [20, 22] {
+            let (status, body) = pad(&scratch, "Assets:A", amount(target, "CNY"), "Equity:Open").await;
+            assert!(status.is_success(), "{status} {body}");
+        }
+        let files = written(&scratch);
+        assert_eq!(files.matches(" balance Assets:A ").count(), 1, "{files}");
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        // the first padding stays; the second books the 2 from where it left the account
+        assert_eq!(
+            paddings,
+            vec![format!("{} -30 CNY from Equity:Open", today()), format!("{} 2 CNY from Equity:Open", today())]
+        );
+        assert_eq!(passed, vec![true]);
+        assert_eq!(scratch.balance("Assets:A").await, json!({"CNY": "22"}));
+    }
+
+    #[tokio::test]
+    async fn a_pad_that_could_only_fail_is_refused() {
+        // a commodity held at cost, also by a sub-account; a pad from the account's own sub-account
+        let ledger = |main: &str| {
+            format!(
+                r#"option "operating_currency" "CNY"
+option "timezone" "UTC"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:A
+1970-01-01 open Assets:A:Sub
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Broker:Stock
+1970-01-01 open Assets:Cash
+1970-01-01 open Equity:Open
+1970-01-01 open Income:X
+{} * "seed"
+  Assets:A:Sub 50 CNY
+  Income:X
+{} * "buy"
+  {main} 10 AAPL {{100 USD}}
+  Assets:Cash -1000 USD
+"#,
+                days_ago(5),
+                days_ago(4)
+            )
+        };
+        for scratch in [Scratch::beancount(&ledger("Assets:Broker")), Scratch::new(&ledger("Assets:Broker"))] {
+            let before = written(&scratch);
+            refused(
+                &scratch,
+                &before,
+                pad(&scratch, "Assets:Broker", amount(7, "AAPL"), "Equity:Open").await,
+                &[
+                    "Assets:Broker holds AAPL at cost",
+                    "would book -3 AAPL without a cost",
+                    "as a purchase or a sale",
+                ],
+            );
+            refused(
+                &scratch,
+                &before,
+                pad(&scratch, "Assets:A", amount(80, "CNY"), "Assets:A:Sub").await,
+                &["Assets:A cannot be padded from Assets:A:Sub", "Pad it from another account"],
+            );
+            refused(
+                &scratch,
+                &before,
+                pad(&scratch, "Assets:A", amount(80, "CNY"), "Assets:A").await,
+                &["Assets:A cannot be padded from Assets:A"],
+            );
+            // nothing to pad: no padding without a cost
+            let (status, body) = pad(&scratch, "Assets:Broker", amount(10, "AAPL"), "Equity:Open").await;
+            assert!(status.is_success(), "{status} {body}");
+        }
+        // the parent of an account holding lots
+        let scratch = Scratch::beancount(&ledger("Assets:Broker:Stock"));
+        let before = written(&scratch);
+        refused(
+            &scratch,
+            &before,
+            pad(&scratch, "Assets:Broker", amount(12, "AAPL"), "Equity:Open").await,
+            &["Assets:Broker holds AAPL at cost", "would book 2 AAPL without a cost"],
+        );
     }
 }

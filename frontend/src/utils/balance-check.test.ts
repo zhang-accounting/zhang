@@ -2,7 +2,7 @@
 //   pnpm run test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { balanceCheckRows, batchBalanceRows, subAccountsFirst } from './balance-check.ts';
+import { balanceCheckRows, batchBalanceRows, replacedBalancesText, subAccountsFirst } from './balance-check.ts';
 
 const calculated = { number: '0', commodity: 'CNY' };
 
@@ -54,5 +54,20 @@ test('a batch writes the balances of sub-accounts before their parents', () => {
   assert.deepEqual(
     ordered.map((it) => it.account_name),
     ['Assets:Bank:Checking:Main', 'Assets:Bank:Checking', 'Assets:Bank', 'Assets:Cash'],
+  );
+});
+
+test('the balances a request replaced are told one per line', () => {
+  const line = ({ date, account, amount }: { date: string; account: string; amount: string }) => `${account} ${date}: ${amount}`;
+  assert.equal(replacedBalancesText([], line), '');
+  assert.equal(
+    replacedBalancesText(
+      [
+        { date: '2026-10-05', account: 'Assets:A', amount: { number: '100', commodity: 'CNY' } },
+        { date: '2026-10-05', account: 'Assets:B', amount: { number: '7', commodity: 'USD' } },
+      ],
+      line,
+    ),
+    'Assets:A 2026-10-05: 100 CNY\nAssets:B 2026-10-05: 7 USD',
   );
 });
