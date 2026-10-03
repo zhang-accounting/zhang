@@ -147,6 +147,17 @@ fn a_time_of_a_posting_stays_the_postings() {
     assert!(matches!(txn.date, Date::Date(_)));
     assert_eq!(times(&txn), vec![json!({}), json!({"time": "02:00:00"})]);
 
+    // the transaction has a time of its own
+    let txn = transaction("2024-01-15 * \"Bob\" \"coffee\"\n  time: \"09:00:00\"\n  Assets:Cash -5 USD\n  Expenses:Food 5 USD\n  time: \"12:30:00\"\n");
+    let nine = chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap().and_hms_opt(9, 0, 0).unwrap();
+    assert_eq!(txn.date, Date::Datetime(nine));
+    assert_eq!(times(&txn), vec![json!({}), json!({"time": "12:30:00"})]);
+
+    // the only time is the first posting's: zhang wrote transaction metadata after the last
+    let txn = transaction("2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 USD\n  time: \"01:00:00\"\n  Expenses:Food 5 USD\n");
+    assert!(matches!(txn.date, Date::Date(_)));
+    assert_eq!(times(&txn), vec![json!({"time": "01:00:00"}), json!({})]);
+
     // another posting has a time too
     let txn = transaction("2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 USD\n    time: \"01:00:00\"\n  Expenses:Food 5 USD\n  time: \"02:00:00\"\n");
     assert!(matches!(txn.date, Date::Date(_)));
