@@ -278,6 +278,8 @@ pub(crate) enum Record<'a> {
     /// reads it, what zhang's check of it found
     Balance {
         directive: &'a Spanned<Directive>,
+        /// its position in `#entries`
+        seq: u32,
         check: Option<directives::AssertionCheck>,
     },
     /// a document: a `document` directive, or a `document` metadata value

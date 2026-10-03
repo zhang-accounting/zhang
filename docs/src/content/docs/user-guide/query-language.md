@@ -621,6 +621,7 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `account_balance` | `inventory` | The [account balance](#the-account-balance): the balance of the posting's account right after this posting. Zhang extension. |
 | `balanced` | `bool` | `FALSE` if Zhang found that the transaction does not balance (an `UnbalancedTransaction` error), otherwise `TRUE`. Zhang extension. |
 | `errors` | `set` | The kinds of the errors Zhang recorded for the transaction, named as in the `kind` column of [`#errors`](#errors), such as `UnbalancedTransaction` or `AccountDoesNotExist`. Empty if there are none. Zhang extension. |
+| `automatic` | `bool` | `TRUE` if the posting was written without an amount and Zhang inferred its units to balance the transaction, as beancount marks such postings automatic; `FALSE` if its amount is written. The padding account's posting of a padding transaction is automatic too. Zhang extension. |
 
 ### The running balance
 
@@ -689,7 +690,7 @@ ORDER BY currency
 - **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
 - **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries` and `#transactions` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
 - **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
-- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual` and `passed` on `#balances`; and `source`, `path` and `transaction_id` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
+- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual`, `passed`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
 
 ### #entries
 
@@ -737,6 +738,9 @@ ORDER BY currency
 | | `discrepancy` | `amount` | If the assertion fails, `actual` minus the asserted amount; `NULL` if it holds. A `balance ... with pad` holds unless a pad of the same time changes its balance after it, or it pads from the asserted account itself or one of its sub-accounts, which leaves its balance as it was. |
 | | `actual` | `amount` | The true balance of the account in the asserted currency at the assertion: the units of every posting to the account and its sub-accounts before it, as Zhang checks a balance. An assertion never changes it. A `balance ... with pad` is checked once the pads of its time are booked. Zhang extension. |
 | | `passed` | `bool` | Whether the assertion holds, as Zhang's balance check decides it: `actual` is within the tolerance of the asserted amount, or equal to it when the assertion has no tolerance. An assertion that fails is also an `AccountBalanceCheckError` in [`#errors`](#errors). Zhang extension. |
+| | `id` | `str` | The `id` of the assertion's row in [`#entries`](#entries). Zhang extension. |
+| | `seq` | `int` | The position of the assertion in `#entries`, as the `seq` of the transactions, so `ORDER BY seq DESC` lists the newest first. Zhang extension. |
+| | `time`, `timestamp` | `str`, `int` | Time of day of the assertion in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none) and its Unix time, in seconds. Zhang extension. |
 | `#notes` | `date`, `account` | `date`, `str` | Date and account of the note. |
 | | `comment` | `str` | The text of the note. |
 | | `tags`, `links` | `set` | Tags and links. |
@@ -749,6 +753,8 @@ ORDER BY currency
 | | `source` | `str` | What declares the document: `'directive'` for a `document` directive, `'transaction'` or `'posting'` for the `document` metadata of a transaction or of one of its postings. Zhang extension. |
 | | `path` | `str` | Path of the file as written, relative to the ledger's directory: Zhang resolves document paths against the ledger's directory, and the web UI downloads the file with this path. An absolute path inside the directory is made relative to it. Zhang extension. |
 | | `transaction_id` | `str` | For a document named in metadata, the `id` of its transaction, as in the postings table. `NULL` for a `document` directive. Zhang extension. |
+| | `seq` | `int` | The position in `#entries` of the `document` directive, or of the transaction that names the document, so `ORDER BY seq DESC` lists the newest first. The documents of one transaction share it. Zhang extension. |
+| | `time`, `timestamp` | `str`, `int` | Time of day of the `document` directive, or of the transaction that names the document, in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none), and its Unix time, in seconds. Zhang extension. |
 | `#commodities` | `date` | `date` | Date of the `commodity` directive. |
 | | `name` | `str` | The commodity, such as `USD`. |
 
@@ -891,7 +897,7 @@ GROUP BY name
 - `kind` is the error code, such as `UnbalancedTransaction`. The [Error Code Guide](/user-guide/error-code/) explains each code and how to fix it. `message` is the sentence the errors page shows for it.
 - `file` is the file of the directive that caused the error, relative to the ledger's directory, as in the web UI's file list. `source` is the text of that directive. `line` and `column` are `NULL` for now, because Zhang does not record line numbers yet.
 - `date` is the date of the directive, or `NULL` for an undated one such as an `option`. `account` is the account the error is about, for errors that name one, such as `AccountDoesNotExist`, `AccountClosed` and `AccountBalanceCheckError`.
-- `meta(key)` reads the other details Zhang records about an error. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
+- `meta(key)` reads the other details Zhang records about an error, and `metas` lists them all. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
 - `id` is the id of the error in `GET /api/errors`, and `span_start` and `span_end` are where the directive that caused it starts and ends in its file, as byte offsets. The id is derived from the directive's position, so the errors of one directive share it, and an error in a transaction has the transaction's `id`.
 - Rows are ordered by file, then by position in the file. `SELECT *` is short for `SELECT file, date, kind, account, message`.
 
@@ -908,6 +914,7 @@ GROUP BY name
 | `id` | `str` | Id of the error, the `id` of `GET /api/errors`. |
 | `span_start` | `int` | Byte offset in its file where the directive that caused the error starts, or `NULL` if unknown. |
 | `span_end` | `int` | Byte offset in its file where the directive that caused the error ends, or `NULL` if unknown. |
+| `metas` | `metas` | The details Zhang records about the error, such as `txn_id` and `account_name`, as [structured pairs](#structured-metadata) sorted by key: the `metas` of `GET /api/errors`. |
 
 How many errors of each kind there are:
 
@@ -1340,7 +1347,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 }
 ```
 
-- `columns` has one entry per column, 33 in all, in the order of the [column table](#columns).
+- `columns` has one entry per column, 34 in all, in the order of the [column table](#columns).
 - `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets`, `budget_events` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
 - `functions` has one entry per overload, 89 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 

@@ -12,11 +12,12 @@ use bigdecimal::BigDecimal;
 use chrono::{Datelike, NaiveDate};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Directive, Meta, Posting, Spanned, Transaction};
+use zhang_ast::{resolve_local_datetime, Account, Directive, Meta, Posting, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
-use super::{directive_meta, ledger_file, render_meta, ColumnDef, LedgerCache, Record, Rows, Table};
+use super::postings::time_value;
+use super::{directive_meta, ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -62,6 +63,21 @@ pub(super) fn directive<'r>(record: &'r Record<'_>) -> Option<&'r Spanned<Direct
         Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => Some(directive),
         _ => None,
     }
+}
+
+/// The time of day of a directive in the ledger's timezone, as `HH:MM:SS`, as zhang stores the
+/// date and time of a transaction; NULL without a directive.
+pub(super) fn directive_time(data: &Dataset<'_>, directive: Option<&Spanned<Directive>>) -> Value {
+    let datetime = directive.and_then(|it| it.data.datetime());
+    datetime.map_or(Value::Null, |it| time_value(resolve_local_datetime(&data.ledger.options.timezone, &it).time()))
+}
+
+/// The Unix time of a directive, read like [`directive_time`].
+pub(super) fn directive_timestamp(data: &Dataset<'_>, directive: Option<&Spanned<Directive>>) -> Value {
+    let datetime = directive.and_then(|it| it.data.datetime());
+    datetime.map_or(Value::Null, |it| {
+        Value::Int(resolve_local_datetime(&data.ledger.options.timezone, &it).timestamp())
+    })
 }
 
 pub(super) fn date_value(record: &Record<'_>) -> Value {
@@ -120,13 +136,26 @@ fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection
         .into_iter()
         .any(|name| BALANCES.column(name).is_some_and(|column| projection.contains(column)));
     let mut checks = if wanted { assertion_checks(store) } else { HashMap::new() };
-    ledger_order(ledger, store)
-        .filter(|directive| assertion(&directive.data).is_some())
-        .map(|directive| Record::Balance {
+    let entries = LedgerCache::of(ledger, store).entries(ledger, store);
+    entries
+        .rows
+        .iter()
+        .map(|entry| (&ledger.directives[entry.directive as usize], entry.seq))
+        .filter(|(directive, _)| assertion(&directive.data).is_some())
+        .map(|(directive, seq)| Record::Balance {
             directive,
+            seq,
             check: checks.remove(&(directive.span.filename.as_deref(), directive.span.start)),
         })
         .collect()
+}
+
+/// The position in `#entries` of a `#balances` row.
+fn balance_seq(record: &Record<'_>) -> Option<u32> {
+    match record {
+        Record::Balance { seq, .. } => Some(*seq),
+        _ => None,
+    }
 }
 
 /// What zhang's balance check found for an assertion while loading the ledger.
@@ -166,7 +195,10 @@ fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&Bi
 
 /// The asserted amount of an assertion row and what zhang's check of it found, if looked up.
 fn balance_check<'r>(record: &'r Record<'_>) -> Option<(&'r Amount, &'r AssertionCheck)> {
-    let Record::Balance { directive, check: Some(check) } = record else {
+    let Record::Balance {
+        directive, check: Some(check), ..
+    } = record
+    else {
         return None;
     };
     assertion(&directive.data).map(|(_, amount, _)| (amount, check))
@@ -215,6 +247,31 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         "Whether the assertion holds, as zhang's balance check decided it (a failing one is an AccountBalanceCheckError): \
          actual is within the tolerance of the asserted amount, or equal to it without a tolerance. A zhang extension.",
         |_, record| balance_check(record).map_or(Value::Null, |(_, check)| Value::Bool(check.passed)),
+    ),
+    ColumnDef::record(
+        "id",
+        DataType::Str,
+        "Id of the assertion: the id of its #entries row. A zhang extension.",
+        |data, record| balance_seq(record).map_or(Value::Null, |seq| Value::Str(data.entry_id(seq).to_owned())),
+    ),
+    ColumnDef::record(
+        "seq",
+        DataType::Int,
+        "Position of the assertion in #entries, from 0 in ledger order, as the seq of the transactions; ORDER BY seq DESC lists \
+         the newest first. A zhang extension.",
+        |_, record| balance_seq(record).map_or(Value::Null, |seq| Value::Int(seq.into())),
+    ),
+    ColumnDef::record(
+        "time",
+        DataType::Str,
+        "Time of day of the assertion in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        |data, record| directive_time(data, directive(record)),
+    ),
+    ColumnDef::record(
+        "timestamp",
+        DataType::Int,
+        "Unix time, in seconds, of the assertion's date and time. A zhang extension.",
+        |data, record| directive_timestamp(data, directive(record)),
     ),
 ];
 
@@ -320,6 +377,8 @@ pub(crate) struct DocumentRow<'a> {
     path: &'a Path,
     /// the id of the transaction the store keeps, for a document named in metadata
     transaction_id: Option<Uuid>,
+    /// the position in `#entries` of the directive or the transaction that declares it
+    seq: u32,
 }
 
 impl<'a> DocumentRow<'a> {
@@ -338,23 +397,29 @@ impl<'a> DocumentRow<'a> {
 /// transactions the store keeps (those of `#transactions`), in ledger order: a transaction's own
 /// first, then those of its postings in order. A repeated key gives one row per value.
 fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    let row = |directive, source, filename: &'a str, transaction_id| {
+    let row = |directive, source, filename: &'a str, transaction_id, seq| {
         Record::Document(DocumentRow {
             directive,
             source,
             filename,
             path: ledger_file(ledger, Path::new(filename)),
             transaction_id,
+            seq,
         })
     };
-    let mut rows = ledger_order(ledger, store)
-        .filter_map(|directive| match &directive.data {
-            Directive::Document(document) => Some(row(directive, DocumentSource::Directive(document), document.filename.as_str(), None)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
     let cache = LedgerCache::of(ledger, store);
     let entries = cache.entries(ledger, store);
+    let mut rows = entries
+        .rows
+        .iter()
+        .filter_map(|entry| {
+            let directive = &ledger.directives[entry.directive as usize];
+            match &directive.data {
+                Directive::Document(document) => Some(row(directive, DocumentSource::Directive(document), document.filename.as_str(), None, entry.seq)),
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
     for entry in cache.documented(ledger, store).iter().map(|seq| &entries.rows[*seq as usize]) {
         let directive = &ledger.directives[entry.directive as usize];
         let Directive::Transaction(transaction) = &directive.data else {
@@ -368,7 +433,7 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
         );
         for (source, meta) in holders {
             for filename in meta.get_all("document") {
-                rows.push(row(directive, source, filename.as_str(), entry.txn));
+                rows.push(row(directive, source, filename.as_str(), entry.txn, entry.seq));
             }
         }
     }
@@ -493,6 +558,27 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
                 .and_then(|it| it.transaction_id)
                 .map_or(Value::Null, |id| Value::Str(id.to_string()))
         },
+    ),
+    ColumnDef::record(
+        "seq",
+        DataType::Int,
+        "Position in #entries of the document directive, or of the transaction that names the document; ORDER BY seq DESC lists \
+         the newest first. A zhang extension.",
+        |_, record| document(record).map_or(Value::Null, |it| Value::Int(it.seq.into())),
+    ),
+    ColumnDef::record(
+        "time",
+        DataType::Str,
+        "Time of day of the document directive, or of the transaction that names the document, in the ledger's timezone, as \
+         `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        |data, record| directive_time(data, document(record).map(|it| it.directive)),
+    ),
+    ColumnDef::record(
+        "timestamp",
+        DataType::Int,
+        "Unix time, in seconds, of the date and time of the document directive, or of the transaction that names the document. A \
+         zhang extension.",
+        |data, record| directive_timestamp(data, document(record).map(|it| it.directive)),
     ),
 ];
 

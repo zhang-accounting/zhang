@@ -473,7 +473,7 @@ fn explain_shows_having_and_pivot() {
          order by: 2 DESC\n\
          limit: 8\n\
          pivot by: 1 (rows), 0 (columns)\n\
-         project: [account, number, year] (3 of 33 columns)\n"
+         project: [account, number, year] (3 of 34 columns)\n"
     );
     // without ORDER BY, LIMIT only aggregates the first groups unless HAVING may drop some
     let limit = |sql: &str| {

@@ -266,6 +266,9 @@ fn d2_schema_has_the_new_columns_and_tables() {
             ("source", "str"),
             ("path", "str"),
             ("transaction_id", "str"),
+            ("seq", "int"),
+            ("time", "str"),
+            ("timestamp", "int"),
         ])
     );
     let wildcard = Query::compile("SELECT * FROM #documents").unwrap().columns();

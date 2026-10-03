@@ -621,6 +621,7 @@ WHERE payee IN ('Amazon')
 | `account_balance` | `inventory` | [账户余额](#账户余额)：本条分录之后该分录所属账户的余额。张记账扩展。 |
 | `balanced` | `bool` | 张记账发现交易不平衡（`UnbalancedTransaction` 错误）时为 `FALSE`，否则为 `TRUE`。张记账扩展。 |
 | `errors` | `set` | 张记账为该交易记录的错误种类，名称与 [`#errors`](#错误表) 的 `kind` 列相同，例如 `UnbalancedTransaction` 或 `AccountDoesNotExist`。没有错误时为空集合。张记账扩展。 |
+| `automatic` | `bool` | 分录书写时没有金额、由张记账推算出数量来平衡交易时为 `TRUE`（beancount 称这样的分录为自动分录）；写了金额时为 `FALSE`。补齐交易中补齐来源账户的分录也是自动分录。张记账扩展。 |
 
 ### 累计余额
 
@@ -689,7 +690,7 @@ ORDER BY currency
 - **行的顺序。**没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
 - **元数据。**每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries` 和 `#transactions` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
 - **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
-- **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual` 和 `passed`；以及 `#documents` 的 `source`、`path` 和 `transaction_id`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_events` 和 `#errors` 是张记账自己的表。
+- **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual`、`passed`、`id`、`seq`、`time` 和 `timestamp`；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
 ### #entries
 
@@ -737,6 +738,9 @@ ORDER BY currency
 | | `discrepancy` | `amount` | 断言不成立时为 `actual` 减去断言金额；成立时为 `NULL`。`balance ... with pad` 也会检查：除非同一时间在它之后的填充改变了它的余额，或者它从被断言的账户本身或其子账户填充（这不会改变它的余额），它总是成立。 |
 | | `actual` | `amount` | 断言时账户在断言货币下的真实余额：此前记到这个账户及其子账户的所有分录的数量之和，与张记账检查余额的方式一致。断言从不改变它。`balance ... with pad` 在同一时间的填充都记账之后检查。张记账扩展。 |
 | | `passed` | `bool` | 断言是否成立，与张记账的余额检查一致：`actual` 与断言金额之差在容差之内；断言没有容差时两者必须相等。不成立的断言也是 [`#errors`](#错误表) 中的一条 `AccountBalanceCheckError`。张记账扩展。 |
+| | `id` | `str` | 该断言在 [`#entries`](#entries) 中那一行的 `id`。张记账扩展。 |
+| | `seq` | `int` | 该断言在 `#entries` 中的位置，与交易的 `seq` 相同，因此 `ORDER BY seq DESC` 让最新的排在最前。张记账扩展。 |
+| | `time`、`timestamp` | `str`、`int` | 断言在账本时区中的时刻（`HH:MM:SS`，没有时刻时为 `00:00:00`），以及它的 Unix 时间（秒）。张记账扩展。 |
 | `#notes` | `date`、`account` | `date`、`str` | 备注的日期和账户。 |
 | | `comment` | `str` | 备注的内容。 |
 | | `tags`、`links` | `set` | 标签和链接。 |
@@ -749,6 +753,8 @@ ORDER BY currency
 | | `source` | `str` | 文档的来源：`document` 指令为 `'directive'`，交易或其分录的 `document` 元数据分别为 `'transaction'` 和 `'posting'`。张记账扩展。 |
 | | `path` | `str` | 按原样书写、相对于账本目录的文件路径：张记账相对于账本目录解析文档路径，网页界面也用这个路径下载文件。位于账本目录内的绝对路径会转换为相对于该目录的路径。张记账扩展。 |
 | | `transaction_id` | `str` | 元数据中的文档所属交易的 `id`，与 postings 表中的一致。`document` 指令为 `NULL`。张记账扩展。 |
+| | `seq` | `int` | `document` 指令或在元数据中写下该文档的交易在 `#entries` 中的位置，因此 `ORDER BY seq DESC` 让最新的排在最前。同一笔交易的文档相同。张记账扩展。 |
+| | `time`、`timestamp` | `str`、`int` | `document` 指令或写下该文档的交易在账本时区中的时刻（`HH:MM:SS`，没有时刻时为 `00:00:00`），以及它的 Unix 时间（秒）。张记账扩展。 |
 | `#commodities` | `date` | `date` | `commodity` 指令的日期。 |
 | | `name` | `str` | 商品，例如 `USD`。 |
 
@@ -891,7 +897,7 @@ GROUP BY name
 - `kind` 是错误代码，例如 `UnbalancedTransaction`。[错误代码指南](/zh-cn/user-guide/error-code/)解释了每个代码及其修复方法。`message` 是错误页面为它显示的那句话（英文）。
 - `file` 是引发错误的指令所在的文件，路径相对于账本目录，与网页界面的文件列表一致。`source` 是该指令的文本。`line` 和 `column` 目前为 `NULL`，因为张记账还不记录行号。
 - `date` 是该指令的日期；没有日期的指令（例如 `option`）为 `NULL`。`account` 是错误涉及的账户，只有指明了账户的错误才有，例如 `AccountDoesNotExist`、`AccountClosed` 和 `AccountBalanceCheckError`。
-- `meta(key)` 读取张记账为错误记录的其他信息。交易中的错误，`meta('txn_id')` 是该交易的 `id`，与 postings 表中的一致。分录引用了未定义的预算时，有 `meta('budget_name')`。
+- `meta(key)` 读取张记账为错误记录的其他信息，`metas` 列出全部信息。交易中的错误，`meta('txn_id')` 是该交易的 `id`，与 postings 表中的一致。分录引用了未定义的预算时，有 `meta('budget_name')`。
 - `id` 是错误在 `GET /api/errors` 中的 id，`span_start` 和 `span_end` 是引发错误的指令在其文件中开始和结束的位置（字节偏移）。id 由指令的位置得出，因此同一条指令的错误共用一个 id，交易中的错误的 id 就是该交易的 `id`。
 - 各行先按文件、再按在文件中的位置排列。`SELECT *` 是 `SELECT file, date, kind, account, message` 的简写。
 
@@ -908,6 +914,7 @@ GROUP BY name
 | `id` | `str` | 错误的 id，即 `GET /api/errors` 中的 `id`。 |
 | `span_start` | `int` | 引发错误的指令在其文件中开始的字节偏移；未知时为 `NULL`。 |
 | `span_end` | `int` | 引发错误的指令在其文件中结束的字节偏移；未知时为 `NULL`。 |
+| `metas` | `metas` | 张记账为该错误记录的信息，例如 `txn_id` 和 `account_name`，按键排序的[结构化键值对](#结构化元数据)：即 `GET /api/errors` 的 `metas`。 |
 
 每种错误各有多少：
 
@@ -1340,7 +1347,7 @@ Assets:Broker:GLD,,17
 }
 ```
 
-- `columns` 每列一项，共 33 项，顺序与[列](#列)表格相同。
+- `columns` 每列一项，共 34 项，顺序与[列](#列)表格相同。
 - `tables` 每个表一项，先是 `postings`，然后按[其他表](#其他表)中列出的顺序排列，最后是 `budgets`、`budget_events` 和 `errors`。`name` 不带 `#`。`postings` 一项的列与 `columns` 相同；结构化列的字段以 `open.date` 这样的名字列为单独的列。
 - `functions` 每个重载一项，共 89 项：先是聚合函数，然后是标量函数，其中包括 `account_sortkey` 和 `maxwidth`。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
 

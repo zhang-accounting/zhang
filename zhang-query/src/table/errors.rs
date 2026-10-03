@@ -255,7 +255,21 @@ static COLUMNS: &[ColumnDef] = &[
         "Byte offset in its file where the directive that raised the error ends, or NULL if unknown.",
         |_, record| span_offset(record, |span| span.end),
     ),
+    ColumnDef::record(
+        "metas",
+        DataType::Metas,
+        "What zhang records about the error, such as txn_id or account_name, as (key, value) pairs sorted by key: the metas of \
+         GET /api/errors. A zhang extension.",
+        |_, record| ledger_error(record).map_or(Value::Null, |it| Value::Metas(error_metas(it.error))),
+    ),
 ];
+
+/// The details zhang records about an error, as `(key, value)` pairs sorted by key.
+fn error_metas(error: &ErrorDomain) -> Vec<(String, String)> {
+    let mut metas = error.metas.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();
+    metas.sort();
+    metas
+}
 
 /// An offset of the span of the error's directive; NULL for an error without one.
 fn span_offset(record: &Record<'_>, offset: fn(&SpanInfo) -> usize) -> Value {
