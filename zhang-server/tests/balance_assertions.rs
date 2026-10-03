@@ -139,12 +139,21 @@ async fn the_journal_lists_each_assertion_with_its_balance_and_whether_it_passed
     let journals = scratch.journals(None, None, None, None).await;
     let records = journals["records"].as_array().unwrap();
     let kinds = records.iter().map(|it| it["type"].as_str().unwrap()).collect::<Vec<_>>();
-    // newest first; the assertions keep their place among the transactions
+    // newest first; the assertions keep their place among the transactions, the `balance ... with pad` checked
+    // after its padding
     assert_eq!(
         kinds,
-        vec!["BalanceCheck", "BalancePad", "BalanceCheck", "Transaction", "BalanceCheck", "Transaction"]
+        vec![
+            "BalanceCheck",
+            "BalanceCheck",
+            "BalancePad",
+            "BalanceCheck",
+            "Transaction",
+            "BalanceCheck",
+            "Transaction"
+        ]
     );
-    assert_eq!(journals["total_count"], 6);
+    assert_eq!(journals["total_count"], 7);
 
     let checks = records.iter().filter(|it| it["type"] == "BalanceCheck").collect::<Vec<_>>();
     for check in &checks {
@@ -170,13 +179,15 @@ async fn the_journal_lists_each_assertion_with_its_balance_and_whether_it_passed
         described,
         vec![
             (decimal("500"), decimal("500"), decimal("0"), true),
+            // the `balance ... with pad`, after its padding
+            (decimal("500"), decimal("500"), decimal("0"), true),
             // within its tolerance: passes, though the balance is not the asserted amount
             (decimal("154.996"), decimal("155"), decimal("0.004"), true),
             (decimal("165"), decimal("200"), decimal("35"), false),
         ]
     );
     let tolerances = checks.iter().map(|check| check["tolerance"].clone()).collect::<Vec<_>>();
-    assert_eq!(tolerances, vec![Value::Null, json!("0.01"), Value::Null]);
+    assert_eq!(tolerances, vec![Value::Null, Value::Null, json!("0.01"), Value::Null]);
 
     // the pad is sized from the true balance, 154.996
     let pad = records.iter().find(|it| it["type"] == "BalancePad").unwrap();
@@ -190,15 +201,15 @@ async fn the_journal_lists_each_assertion_with_its_balance_and_whether_it_passed
 async fn assertions_take_part_in_paging_and_search_like_transactions() {
     let scratch = Scratch::new(LEDGER);
     let page = scratch.journals(Some(2), Some(4), None, None).await;
-    assert_eq!(page["total_count"], 6);
+    assert_eq!(page["total_count"], 7);
     let kinds = page["records"].as_array().unwrap().iter().map(|it| it["type"].clone()).collect::<Vec<_>>();
-    assert_eq!(kinds, vec![json!("BalanceCheck"), json!("Transaction")]);
+    assert_eq!(kinds, vec![json!("Transaction"), json!("BalanceCheck"), json!("Transaction")]);
 
     // listed under the payee `Balance Check` and their account
     let found = scratch.journals(None, None, Some("balance check"), None).await;
-    assert_eq!(found["total_count"], 3);
+    assert_eq!(found["total_count"], 4);
     let found = scratch.journals(None, None, Some("assets:bank"), None).await;
-    assert_eq!(found["total_count"], 6);
+    assert_eq!(found["total_count"], 7);
     // an assertion has no tags
     let tagged = scratch.journals(None, None, None, Some(&["food"])).await;
     let kinds = tagged["records"].as_array().unwrap().iter().map(|it| it["type"].clone()).collect::<Vec<_>>();
@@ -214,6 +225,8 @@ async fn the_account_journal_shows_assertions_with_the_true_running_balance() {
     assert_eq!(
         described,
         vec![
+            row("Balance Check", "0", "500", Some(("500", "500", true))),
+            // the `balance ... with pad`, after its padding
             row("Balance Check", "0", "500", Some(("500", "500", true))),
             row("Balance Pad", "345.004", "500", None),
             row("Balance Check", "0", "154.996", Some(("155", "154.996", true))),
@@ -275,7 +288,10 @@ async fn an_assertion_on_a_parent_account_is_checked_against_its_sub_accounts_to
     );
     let journals = scratch.journals(None, None, None, None).await;
     let records = journals["records"].as_array().unwrap();
-    let check = records.iter().find(|it| it["type"] == "BalanceCheck").unwrap();
+    let check = records
+        .iter()
+        .find(|it| it["type"] == "BalanceCheck" && it["datetime"] == "2024-01-02T00:00:00")
+        .unwrap();
     assert_eq!(check["passed"], true);
     assert_eq!(number(&check["postings"][0]["account_before"]["number"]), decimal("100"));
     // the pad books what the sub-accounts lack to the parent account itself
@@ -288,7 +304,12 @@ async fn an_assertion_on_a_parent_account_is_checked_against_its_sub_accounts_to
     let rows = scratch.account_journals("Assets:Bank").await;
     assert_eq!(
         rows.iter().map(described_row).collect::<Vec<_>>(),
-        vec![row("Balance Pad", "50", "50", None), row("Balance Check", "0", "0", Some(("100", "100", true))),]
+        vec![
+            // the `balance ... with pad`, after its padding
+            row("Balance Check", "0", "50", Some(("150", "150", true))),
+            row("Balance Pad", "50", "50", None),
+            row("Balance Check", "0", "0", Some(("100", "100", true))),
+        ]
     );
 }
 
@@ -378,6 +399,8 @@ async fn the_account_journal_keeps_the_order_of_a_day() {
         rows.iter().map(described_row).collect::<Vec<_>>(),
         vec![
             row("Shop", "-10", "140", None),
+            // the `balance ... with pad`, checked after the balance entries of its time
+            row("Balance Check", "0", "150", Some(("150", "150", true))),
             row("Balance Check", "0", "150", Some(("150", "150", true))),
             row("Balance Pad", "50", "150", None),
             row("Balance Check", "0", "100", Some(("90", "100", false))),

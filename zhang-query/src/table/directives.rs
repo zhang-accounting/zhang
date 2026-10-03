@@ -110,7 +110,8 @@ fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&bigdec
 
 /// The balance assertions. Only when the projection reads `discrepancy` are the failed checks
 /// looked up: zhang keeps every check it made in the store, and a failed one has a discrepancy of
-/// the account's balance minus the asserted amount. A `balance ... with pad` always holds.
+/// the account's balance minus the asserted amount. A `balance ... with pad` is checked too: it holds unless a
+/// pad of the same time changes its balance after it.
 fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
     let wanted = BALANCES.column("discrepancy").is_some_and(|column| projection.contains(column));
     // a check zhang kept has its directive's span
@@ -126,7 +127,7 @@ fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection
         .filter(|directive| assertion(&directive.data).is_some())
         .map(|directive| Record::Balance {
             directive,
-            discrepancy: if wanted && matches!(directive.data, Directive::BalanceCheck(_)) {
+            discrepancy: if wanted {
                 discrepancies.get(&(directive.span.filename.as_deref(), directive.span.start)).cloned()
             } else {
                 None

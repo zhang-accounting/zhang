@@ -531,6 +531,69 @@
     "pads": [],
     "unused_pads": []
   },
+  "parent_then_child_pad": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:Bank",
+        "amount": {
+          "currency": "CNY",
+          "number": "500"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "545"
+        },
+        "date": "2024-01-10",
+        "passed": false
+      },
+      {
+        "account": "Assets:Bank:Checking",
+        "amount": {
+          "currency": "CNY",
+          "number": "200"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "200"
+        },
+        "date": "2024-01-10",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:Bank": {
+        "CNY": "305"
+      },
+      "Assets:Bank:Checking": {
+        "CNY": "200"
+      },
+      "Assets:Bank:Savings": {
+        "CNY": "40"
+      },
+      "Equity:Open": {
+        "CNY": "-545"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:Bank:Checking",
+        "date": "2024-01-09",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "45"
+        }
+      }
+    ],
+    "unused_pads": [
+      {
+        "account": "Assets:Bank",
+        "date": "2024-01-09"
+      }
+    ]
+  },
   "same_day_pad": {
     "accepted_deviation": null,
     "assertions": [

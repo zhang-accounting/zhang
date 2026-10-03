@@ -684,7 +684,7 @@ ORDER BY currency
 | | `account` | `str` | The account whose balance is asserted. |
 | | `amount` | `amount` | The asserted balance. |
 | | `tolerance` | `decimal` | The explicit tolerance (`~ 0.01`), or `NULL`. |
-| | `discrepancy` | `amount` | If the assertion fails, the balance minus the asserted amount; `NULL` if it holds. A `balance ... with pad` always holds. |
+| | `discrepancy` | `amount` | If the assertion fails, the balance minus the asserted amount; `NULL` if it holds. A `balance ... with pad` holds unless a pad of the same time changes its balance after it. |
 | `#notes` | `date`, `account` | `date`, `str` | Date and account of the note. |
 | | `comment` | `str` | The text of the note. |
 | | `tags`, `links` | `set` | Tags and links. |
