@@ -27,10 +27,10 @@ pub(super) static ACCOUNTS: Table = Table {
 
 type OpenClose<'a> = (Option<&'a Spanned<Directive>>, Option<&'a Spanned<Directive>>);
 
-fn rows<'a>(ledger: &'a Ledger, _store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+fn rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
     // account -> (first open, first close)
     let mut accounts: IndexMap<&str, OpenClose<'_>> = IndexMap::new();
-    for directive in ledger_order(ledger) {
+    for directive in ledger_order(ledger, store) {
         match &directive.data {
             Directive::Open(open) => {
                 let (first, _) = accounts.entry(open.account.name()).or_default();

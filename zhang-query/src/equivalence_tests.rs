@@ -337,6 +337,9 @@ option "operating_currency" "CNY"
     );
     assert_equivalent(&ledger, DATA_QUERIES);
     assert_equivalent(&fava_demo_ledger(), &DATA_QUERIES[..4]);
+    // the data tables read the cache of the ledger too
+    let mut ledger = ledger;
+    assert_cache_keeps_results(&mut ledger, &DATA_QUERIES.iter().map(|sql| (*sql, Params::new())).collect::<Vec<_>>());
 }
 
 /// Queries whose filter scopes them to some accounts, with the parameters they are run with:
@@ -405,20 +408,25 @@ fn account_scopes_keep_results() {
     }
 }
 
+/// Every query returns the same rows from a cache that the other queries built as from a fresh
+/// one, which it builds itself.
+fn assert_cache_keeps_results(ledger: &mut Ledger, queries: &[(&str, Params)]) {
+    let run = |ledger: &Ledger, sql: &str, params: &Params| compile_scoped(sql).execute_with_options(ledger, params, &options());
+    // every query on the cache the earlier ones built, in reverse order
+    let warm = queries.iter().rev().map(|(sql, params)| run(ledger, sql, params)).collect::<Vec<_>>();
+    assert!(ledger.derived.is_initialized());
+    for ((sql, params), warm) in queries.iter().rev().zip(warm) {
+        ledger.derived = Default::default();
+        assert_same(sql, run(ledger, sql, params), warm);
+    }
+}
+
 /// A query reads the same rows from a cache other queries built as from a fresh one: what the
 /// cache holds does not depend on the query that built it.
 #[test]
 fn the_ledger_cache_keeps_results() {
     for mut ledger in [fava_demo_ledger(), load_text(&random_lots_ledger(5, 120))] {
-        let run = |ledger: &Ledger, sql: &str, params: &Params| compile_scoped(sql).execute_with_options(ledger, params, &options());
         let queries = QUERIES.iter().map(|sql| (*sql, Params::new())).chain(scoped_queries()).collect::<Vec<_>>();
-        // every query on the cache the earlier ones built, in reverse order
-        let warm = queries.iter().rev().map(|(sql, params)| run(&ledger, sql, params)).collect::<Vec<_>>();
-        assert!(ledger.derived.is_initialized());
-        for ((sql, params), warm) in queries.iter().rev().zip(warm) {
-            // a fresh cache, which this query builds
-            ledger.derived = Default::default();
-            assert_same(sql, run(&ledger, sql, params), warm);
-        }
+        assert_cache_keeps_results(&mut ledger, &queries);
     }
 }

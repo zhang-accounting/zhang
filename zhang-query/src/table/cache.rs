@@ -14,11 +14,14 @@
 //!   they belong to, and the rows of every account, so a query scoped to some accounts
 //!   ([`super::Scope`]) only visits theirs. Booking runs here, over every posting at cost; a
 //!   row keeps the cost of its lot and its price whatever a query projects.
-//! - The [`PriceMap`] of the ledger, and the ids of the `#entries` rows.
+//! - The [`PriceMap`] of the ledger, the ids of the `#entries` rows, and the transactions that
+//!   name documents in their metadata (`#documents`).
 //!
 //! A query then only does the work its own rows need (see [`super::Dataset`]): it finds the
 //! stored transactions of the rows it reads, and keeps the parts of the rows its projection
-//! reads.
+//! reads. The other tables read the same parts: the directive tables list their rows in the
+//! order of [`Entries`], `#balances` and `#budgets` add up the booked rows of their accounts
+//! only, and `#documents` reads the transactions that name documents.
 
 use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsStr;
@@ -51,6 +54,9 @@ pub(crate) struct LedgerCache {
     prices: OnceLock<PriceMap>,
     /// the `id` of every `#entries` row, by `seq`
     entry_ids: OnceLock<Vec<String>>,
+    /// the `seq` of the transactions whose metadata, or the metadata of one of their postings,
+    /// names a document, in the order of `#transactions`
+    documented: OnceLock<Vec<u32>>,
 }
 
 /// How many directives, transactions, postings, prices, errors and metadata a ledger holds: a
@@ -80,6 +86,7 @@ impl LedgerCache {
             postings: OnceLock::new(),
             prices: OnceLock::new(),
             entry_ids: OnceLock::new(),
+            documented: OnceLock::new(),
         }
     }
 
@@ -111,6 +118,28 @@ impl LedgerCache {
 
     pub fn postings(&self, ledger: &Ledger, store: &Store) -> &Postings {
         self.postings.get_or_init(|| Postings::build(ledger, store, self.entries(ledger, store)))
+    }
+
+    /// The `#entries` rows (their `seq`) of the transactions whose metadata, or the metadata of
+    /// one of their postings, has a `document` key, in the order of `#transactions`.
+    pub fn documented(&self, ledger: &Ledger, store: &Store) -> &[u32] {
+        self.documented.get_or_init(|| {
+            let entries = self.entries(ledger, store);
+            let documented = |txn: &Transaction| {
+                std::iter::once(&txn.meta)
+                    .chain(txn.postings.iter().map(|posting| &posting.meta))
+                    .any(|meta| meta.get_one("document").is_some())
+            };
+            entries
+                .transactions
+                .iter()
+                .copied()
+                .filter(|seq| match &ledger.directives[entries.rows[*seq as usize].directive as usize].data {
+                    Directive::Transaction(txn) => documented(txn),
+                    _ => false,
+                })
+                .collect()
+        })
     }
 
     pub fn prices(&self, store: &Store) -> &PriceMap {
@@ -201,9 +230,10 @@ pub(crate) struct EntryInfo {
 }
 
 impl Entries {
-    /// The dated directives in beancount's order (see [`super::directives::ledger_order`]),
-    /// without the correcting transactions of balance assertions and the transactions zhang
-    /// rejected, which never reached the store.
+    /// The dated directives in beancount's order: by date, then by [`day_rank`], then in the
+    /// order of the ledger's directives (which follows the source within a day for directives
+    /// without a time), without the correcting transactions of balance assertions and the
+    /// transactions zhang rejected, which never reached the store.
     fn build(ledger: &Ledger, store: &Store) -> Entries {
         let directives = &ledger.directives;
         let mut positions = Positions::default();
@@ -225,7 +255,7 @@ impl Entries {
             }
         }
 
-        // (sort key, index): a stable sort by key, as `ledger_order` sorts
+        // (sort key, index), sorted stably by key
         let mut order = directives
             .iter()
             .enumerate()
@@ -266,7 +296,7 @@ impl Entries {
     }
 
     /// The `#entries` row of the directive with this index.
-    fn of_directive(&self, idx: usize) -> Option<&EntryInfo> {
+    pub fn of_directive(&self, idx: usize) -> Option<&EntryInfo> {
         self.of_directive.get(idx).filter(|it| **it != NONE).map(|it| &self.rows[*it as usize])
     }
 }

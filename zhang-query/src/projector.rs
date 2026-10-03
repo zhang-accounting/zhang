@@ -184,8 +184,7 @@ impl Projection {
         Projection::of_columns(table, table.columns.iter())
     }
 
-    /// The `columns` of `table`.
-    pub(crate) fn of_columns<'c>(table: &'static Table, columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
+    fn of_columns<'c>(table: &'static Table, columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
         let mut projection = Projection {
             table,
             columns: 0,

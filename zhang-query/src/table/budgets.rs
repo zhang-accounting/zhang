@@ -15,8 +15,9 @@
 //!   budget's accounts spent in the month, and `available = assigned - activity` is what
 //!   carries over. All three are amounts in the budget's commodity.
 //! - **Computed from the ledger.** The figures are computed here from the budget directives
-//!   and the booked postings, in the order the store folded them ([`fold_order`]), with the
-//!   rules zhang applies while loading: a budget exists from its first `budget` directive on
+//!   and the booked postings of the ledger's cache ([`LedgerCache`]), in the order the store
+//!   folded them (the order of the ledger's directives), with the rules zhang applies while
+//!   loading: a budget exists from its first `budget` directive on
 //!   (a second one of the same name is a duplicate zhang reports), a `budget-add`,
 //!   `budget-transfer` or `budget-close` naming a budget that does not exist yet is an error
 //!   without effect, and only the postings folded after the budget's definition are its
@@ -72,23 +73,24 @@
 //! `budget-close` a `close` without an amount. Directives without effect have no row. The
 //! amounts are as written; `#budgets` converts them to the budget's commodity.
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Months, NaiveDate, NaiveTime};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Date, Directive, Flag, Meta, Spanned};
+use zhang_ast::{Account, Date, Directive, Meta, Spanned};
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
-use super::directives::{date_of, fold_order};
-use super::{ledger_file, position, ColumnDef, Dataset, LedgerCache, Limits, Record, Rows, Scope, Table, POSTINGS};
+use super::directives::date_of;
+use super::{ledger_file, ColumnDef, LedgerCache, Limits, Record, Rows, Table};
 use crate::error::{LocatedError, QueryErrorKind};
 use crate::prices::PriceMap;
 use crate::projector::Projection;
-use crate::value::{DataType, Position, Value};
+use crate::value::{Cost, DataType, Position, Value};
 
 pub(super) static BUDGETS: Table = Table {
     name: "budgets",
@@ -113,9 +115,9 @@ struct Budget<'a> {
     commodity: &'a str,
     /// the metadata of the `budget` directive
     meta: &'a Meta,
-    /// the sequence of the last transaction the store folded before the budget's definition:
-    /// only the transactions after it are the budget's activity
-    defined_after: Option<i32>,
+    /// the index of the `budget` directive in the ledger's directives, the order the store
+    /// folds them in: only the transactions after it are the budget's activity
+    defined_at: usize,
     /// the month of the definition, the first of the budget's series
     first: NaiveDate,
     /// the first month the budget is closed in
@@ -176,13 +178,11 @@ struct Budgets<'a> {
     budgets: HashMap<&'a str, Budget<'a>>,
     /// the effects of the budget directives, in ledger order
     events: Vec<BudgetEvent<'a>>,
-    /// the last transaction the store keeps, not counting the corrections of balance
-    /// assertions, and its date
-    last_transaction: Option<(NaiveDate, &'a Spanned<Directive>)>,
 }
 
-/// Fold the budget directives the way zhang does while loading (see the module docs).
-fn budgets<'a>(ledger: &'a Ledger, store: &'a Store) -> Budgets<'a> {
+/// Fold the budget directives the way zhang does while loading (see the module docs), in the
+/// order of the ledger's directives, which the store folds them in.
+fn budgets(ledger: &Ledger) -> Budgets<'_> {
     let timezone = &ledger.options.timezone;
     let event = |name, directive, kind, amount, date: &Date| {
         let datetime = date.to_timezone_datetime(timezone);
@@ -197,27 +197,15 @@ fn budgets<'a>(ledger: &'a Ledger, store: &'a Store) -> Budgets<'a> {
     };
     let mut budgets: HashMap<&str, Budget<'_>> = HashMap::new();
     let mut events = vec![];
-    let mut last_sequence = None;
-    let mut last_transaction: Option<(NaiveDate, &Spanned<Directive>)> = None;
-    for (directive, stored) in fold_order(ledger, store) {
+    for (idx, directive) in ledger.directives.iter().enumerate() {
         match &directive.data {
-            Directive::Transaction(_) => {
-                let Some(stored) = stored else { continue };
-                last_sequence = Some(stored.sequence);
-                if stored.flag != Flag::BalanceCheck {
-                    let date = stored.datetime.date_naive();
-                    if last_transaction.is_none_or(|(it, _)| it <= date) {
-                        last_transaction = Some((date, directive));
-                    }
-                }
-            }
             Directive::Budget(budget) => {
                 let date = budget.date.naive_date();
                 budgets.entry(budget.name.as_str()).or_insert_with(|| Budget {
                     name: &budget.name,
                     commodity: &budget.commodity,
                     meta: &budget.meta,
-                    defined_after: last_sequence,
+                    defined_at: idx,
                     first: first_of_month(date),
                     closed_from: None,
                     latest: (date, directive),
@@ -254,40 +242,35 @@ fn budgets<'a>(ledger: &'a Ledger, store: &'a Store) -> Budgets<'a> {
             _ => {}
         }
     }
-    Budgets {
-        budgets,
-        events,
-        last_transaction,
+    Budgets { budgets, events }
+}
+
+/// The last transaction the store keeps, not counting the corrections of balance assertions,
+/// and its date: of the latest date, the last one folded.
+fn last_transaction<'a>(ledger: &'a Ledger, store: &Store) -> Option<(NaiveDate, &'a Spanned<Directive>)> {
+    let cache = LedgerCache::of(ledger, store);
+    let (postings, entries) = (cache.postings(ledger, store), cache.entries(ledger, store));
+    postings
+        .entries
+        .iter()
+        .filter_map(|entry| Some((entry.date, &ledger.directives[entries.rows[entry.entry? as usize].directive as usize])))
+        .max_by_key(|(date, _)| *date)
+}
+
+/// `units` held at `cost` in `commodity` as of `date`, as `convert(position, commodity, date)`
+/// values the position ([`Position::convert`]); `None` when no price converts it.
+fn in_commodity<'u>(units: &'u Amount, cost: Option<&Cost>, commodity: &str, prices: &PriceMap, date: NaiveDate) -> Option<Cow<'u, BigDecimal>> {
+    if units.commodity == commodity {
+        return Some(Cow::Borrowed(&units.number));
     }
-}
-
-/// The price map the budget figures are converted with: the dataset's
-/// ([`Dataset::prices`]), which `convert()` reads.
-fn price_map(store: &Store) -> PriceMap {
-    PriceMap::from_prices(&store.prices)
-}
-
-/// `position` in `commodity` as of `date`, as `convert(position, commodity, date)` values it;
-/// `None` when no price converts it.
-fn in_commodity(position: &Position, commodity: &str, prices: &PriceMap, date: NaiveDate) -> Option<BigDecimal> {
-    if position.units.commodity == commodity {
-        return Some(position.units.number.clone());
-    }
-    let converted = position.convert(commodity, prices, Some(date));
-    (converted.commodity == commodity).then_some(converted.number)
-}
-
-/// The booked postings of the ledger: the rows of the postings table, with their `position`
-/// (units and the cost of their lot).
-fn booked_postings<'a>(ledger: &'a Ledger, store: &'a Store) -> Dataset<'a> {
-    let projection = Projection::of_columns(&POSTINGS, POSTINGS.column("position").into_iter());
-    // `today` is only read by `today()`, which nothing evaluates on these rows
-    Dataset::postings(ledger, store, LedgerCache::of(ledger, store), NaiveDate::MIN, projection, &Scope::All)
+    let converted = Position::new(units.clone(), cost.cloned()).convert(commodity, prices, Some(date));
+    (converted.commodity == commodity).then_some(Cow::Owned(converted.number))
 }
 
 /// The activity of every budget per month (`(budget, first day of the month)`): the booked
 /// postings of its accounts folded after its definition, converted to its commodity at their
 /// date, counted negated on an Income, Liabilities or Equity account, as zhang counts them.
+/// Only the cached rows of the budgets' accounts are read.
 fn activity<'a>(
     ledger: &'a Ledger, store: &'a Store, budgets: &HashMap<&'a str, Budget<'a>>, accounts: &HashMap<&'a str, BTreeSet<String>>, prices: &PriceMap,
 ) -> HashMap<(&'a str, NaiveDate), BigDecimal> {
@@ -304,24 +287,43 @@ fn activity<'a>(
     if owners.is_empty() {
         return activity;
     }
-    let booked = booked_postings(ledger, store);
-    for row in &booked.rows {
-        let Some(owners) = owners.get(row.account) else { continue };
-        let entry = booked.entry(row);
-        let position = position(row);
+    let cache = LedgerCache::of(ledger, store);
+    let (postings, entries) = (cache.postings(ledger, store), cache.entries(ledger, store));
+    for (account, owners) in &owners {
+        let rows = postings.account_rows(account);
         for (budget, negated) in owners {
-            if budget.defined_after.is_some_and(|after| entry.txn.sequence <= after) {
-                continue;
-            }
-            let Some(number) = in_commodity(&position, budget.commodity, prices, entry.date) else {
-                continue;
+            // the rows come in date order: the sum of the current month, added to the budget's
+            // month when the month changes
+            let mut current: Option<(NaiveDate, BigDecimal)> = None;
+            let mut flush = |current: Option<(NaiveDate, BigDecimal)>| {
+                if let Some((month, sum)) = current {
+                    *activity.entry((budget.name, month)).or_insert_with(BigDecimal::zero) += sum;
+                }
             };
-            let sum = activity.entry((budget.name, first_of_month(entry.date))).or_insert_with(BigDecimal::zero);
-            if *negated {
-                *sum -= number;
-            } else {
-                *sum += number;
+            for row in rows.iter().map(|idx| &postings.rows[*idx as usize]) {
+                let entry = &postings.entries[row.entry as usize];
+                // where the store folded the transaction, among the ledger's directives
+                let folded_at = entry.entry.map(|seq| entries.rows[seq as usize].directive as usize);
+                if folded_at.is_some_and(|at| at < budget.defined_at) {
+                    continue;
+                }
+                let cost = row.lot.as_ref().and_then(|lot| lot.cost.as_ref());
+                let Some(number) = in_commodity(&row.units, cost, budget.commodity, prices, entry.date) else {
+                    continue;
+                };
+                let month = first_of_month(entry.date);
+                if current.as_ref().is_none_or(|(it, _)| *it != month) {
+                    flush(current.replace((month, BigDecimal::zero())));
+                }
+                if let Some((_, sum)) = current.as_mut() {
+                    if *negated {
+                        *sum -= number.as_ref();
+                    } else {
+                        *sum += number.as_ref();
+                    }
+                }
             }
+            flush(current);
         }
     }
     activity
@@ -335,9 +337,8 @@ fn added<'a>(budgets: &HashMap<&'a str, Budget<'a>>, events: &[BudgetEvent<'a>],
         let (Some(budget), Some(amount), Some(date)) = (budgets.get(event.name), &event.amount, event.date()) else {
             continue;
         };
-        let position = Position::new(amount.clone(), None);
-        if let Some(number) = in_commodity(&position, budget.commodity, prices, date) {
-            *added.entry((budget.name, first_of_month(date))).or_insert_with(BigDecimal::zero) += number;
+        if let Some(number) = in_commodity(amount, None, budget.commodity, prices, date) {
+            *added.entry((budget.name, first_of_month(date))).or_insert_with(BigDecimal::zero) += number.as_ref();
         }
     }
     added
@@ -401,11 +402,8 @@ impl Series<'_, '_> {
 }
 
 fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
-    let Budgets {
-        budgets,
-        events,
-        last_transaction,
-    } = budgets(ledger, store);
+    let Budgets { budgets, events } = budgets(ledger);
+    let last_transaction = last_transaction(ledger, store);
     let wants_activity = ["activity", "assigned", "available"].into_iter().any(|name| projects(projection, name));
     let wants_added = ["added", "assigned", "available"].into_iter().any(|name| projects(projection, name));
 
@@ -417,7 +415,7 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection, limits
             }
         }
     }
-    let prices = (wants_activity || wants_added).then(|| price_map(store));
+    let prices = (wants_activity || wants_added).then(|| LedgerCache::of(ledger, store).prices(store));
     let mut activity = match &prices {
         Some(prices) if wants_activity => activity(ledger, store, &budgets, &accounts, prices),
         _ => HashMap::new(),
@@ -613,8 +611,8 @@ static COLUMNS: &[ColumnDef] = &[
 // ---------------------------------------------------------------------------------------
 // #budget_events
 
-fn event_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    budgets(ledger, store).events.into_iter().map(Record::BudgetEvent).collect()
+fn event_rows<'a>(ledger: &'a Ledger, _store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+    budgets(ledger).events.into_iter().map(Record::BudgetEvent).collect()
 }
 
 fn budget_event<'r, 'a>(record: &'r Record<'a>) -> Option<&'r BudgetEvent<'a>> {

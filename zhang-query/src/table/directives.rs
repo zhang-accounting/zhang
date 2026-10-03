@@ -5,17 +5,18 @@
 //! ([`ledger_order`]). `#documents` adds, after its directives, the documents that
 //! transactions and postings name in their metadata.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, NaiveDate};
+use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction};
+use zhang_ast::{Account, Directive, Meta, Posting, SpanInfo, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{Store, TransactionDomain};
+use zhang_core::store::Store;
 
-use super::{directive_meta, ledger_file, render_meta, ColumnDef, Record, Rows, Table};
+use super::{directive_meta, ledger_file, render_meta, ColumnDef, LedgerCache, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -38,17 +39,18 @@ pub(super) fn day_rank(directive: &Directive) -> i8 {
 
 /// The dated directives of the ledger in beancount's order: by date, then by [`day_rank`],
 /// then in ledger order (zhang's order of the day, which follows the source for directives
-/// without a time).
-pub(super) fn ledger_order(ledger: &Ledger) -> Vec<&Spanned<Directive>> {
-    let mut directives = ledger.directives.iter().collect::<Vec<_>>();
-    directives.sort_by_key(|directive| (date_of(&directive.data), day_rank(&directive.data)));
-    directives
+/// without a time). These are the rows of `#entries`, in the order the cache of the ledger keeps
+/// them ([`super::cache::Entries`]), so every directive is there except the transactions that
+/// are no entries: the correcting transactions of balance assertions, and those zhang rejected.
+pub(super) fn ledger_order<'a>(ledger: &'a Ledger, store: &Store) -> impl Iterator<Item = &'a Spanned<Directive>> {
+    let entries = LedgerCache::of(ledger, store).entries(ledger, store);
+    entries.rows.iter().map(|entry| &ledger.directives[entry.directive as usize])
 }
 
-/// One [`Record::Directive`] per directive that `keep` selects, in [`ledger_order`].
-pub(super) fn directives_where<'a>(ledger: &'a Ledger, keep: impl Fn(&Directive) -> bool) -> Vec<Record<'a>> {
-    ledger_order(ledger)
-        .into_iter()
+/// One [`Record::Directive`] per directive that `keep` selects, in [`ledger_order`]; `keep`
+/// only selects directives that are not transactions.
+pub(super) fn directives_where<'a>(ledger: &'a Ledger, store: &Store, keep: impl Fn(&Directive) -> bool) -> Vec<Record<'a>> {
+    ledger_order(ledger, store)
         .filter(|directive| keep(&directive.data))
         .map(Record::Directive)
         .collect()
@@ -95,28 +97,6 @@ fn same_position(a: &SpanInfo, b: &SpanInfo) -> bool {
     a.start == b.start && a.filename == b.filename
 }
 
-/// The directives of the processed ledger in the order the store folded them
-/// (`ledger.directives`: by date and time, balance entries first within one), each
-/// transaction with the transaction the store keeps for it; `None` for every other directive
-/// and for a transaction the store rejected.
-///
-/// The store numbers its transactions in the order it folds them (`sequence`), so walking
-/// both in that order pairs them by source position, without hashing ids or paths. The
-/// correcting transactions of balance assertions (flag `C`) and the padding transactions
-/// (flag `P`) are in the stream too, with the span of their assertion.
-pub(super) fn fold_order<'a>(ledger: &'a Ledger, store: &'a Store) -> impl Iterator<Item = (&'a Spanned<Directive>, Option<&'a TransactionDomain>)> {
-    let mut stored = store.transactions.values().collect::<Vec<_>>();
-    stored.sort_by_key(|txn| txn.sequence);
-    let mut stored = stored.into_iter().peekable();
-    ledger.directives.iter().map(move |directive| {
-        let txn = match directive.data {
-            Directive::Transaction(_) => stored.next_if(|txn| same_position(&txn.span, &directive.span)),
-            _ => None,
-        };
-        (directive, txn)
-    })
-}
-
 // ---------------------------------------------------------------------------------------
 // #balances
 
@@ -145,8 +125,7 @@ fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection
         .into_iter()
         .any(|name| BALANCES.column(name).is_some_and(|column| projection.contains(column)));
     let mut actuals = if wanted { actual_balances(ledger, store) } else { HashMap::new() };
-    ledger_order(ledger)
-        .into_iter()
+    ledger_order(ledger, store)
         .filter(|directive| assertion(&directive.data).is_some())
         .map(|directive| Record::Balance {
             directive,
@@ -155,59 +134,76 @@ fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection
         .collect()
 }
 
+/// A balance assertion of [`actual_balances`]: the bound of the directives whose transactions
+/// it sees (their index in the ledger's directives is below it), the assertion, and the asserted
+/// amount.
+type Assertion<'a> = (usize, &'a Spanned<Directive>, &'a Amount);
+
 /// The true balance of the account of every assertion, in the assertion's currency, keyed by
 /// the assertion: the units of every posting to that very account (not its sub-accounts, as
 /// zhang checks a balance) that the store folded before the assertion. The correcting
 /// transactions (flag `C`) zhang inserts after its checks are not postings, so a failed
 /// assertion does not move the balance. A `balance ... with pad` is checked after its own
 /// padding transaction (flag `P`), which follows it in the stream.
+///
+/// The postings are the cached rows of the asserted accounts ([`LedgerCache`]), in the order
+/// the store folded them, which is the order of the ledger's directives.
 fn actual_balances<'a>(ledger: &'a Ledger, store: &'a Store) -> HashMap<*const Spanned<Directive>, Amount> {
-    // only the asserted accounts are summed
-    let asserted = ledger
-        .directives
-        .iter()
-        .filter_map(|directive| assertion(&directive.data))
-        .map(|(account, _, _)| account.name())
-        .collect::<HashSet<_>>();
-    // (account, currency) -> units
-    let mut sums: HashMap<(&str, &str), BigDecimal> = HashMap::new();
-    let mut actuals = HashMap::new();
-    // a `balance ... with pad` waiting for its padding transaction
-    let mut pad: Option<&Spanned<Directive>> = None;
-    for (directive, txn) in fold_order(ledger, store) {
-        let padding = txn.is_some() && pad.is_some_and(|pad| same_position(&pad.span, &directive.span));
-        if !padding {
-            if let Some(pad) = pad.take() {
-                record_actual(&sums, &mut actuals, pad);
-            }
-        }
-        if let Some(txn) = txn.filter(|txn| txn.flag != Flag::BalanceCheck) {
-            for posting in txn.postings.iter().filter(|posting| asserted.contains(posting.account.name())) {
-                let units = &posting.inferred_amount;
-                *sums.entry((posting.account.name(), units.commodity.as_str())).or_insert_with(BigDecimal::zero) += &units.number;
-            }
-        }
-        if let Some(pad) = pad.take().filter(|_| padding) {
-            record_actual(&sums, &mut actuals, pad);
-        }
-        match directive.data {
-            Directive::BalanceCheck(_) => record_actual(&sums, &mut actuals, directive),
-            Directive::BalancePad(_) => pad = Some(directive),
-            _ => {}
-        }
+    let cache = LedgerCache::of(ledger, store);
+    let (postings, entries) = (cache.postings(ledger, store), cache.entries(ledger, store));
+    // the assertions of every account in fold order, each with the bound of the transactions it
+    // sees: those folded before it, and its own padding for a balance with pad
+    let mut assertions: HashMap<&str, Vec<Assertion<'_>>> = HashMap::new();
+    for (idx, directive) in ledger.directives.iter().enumerate() {
+        let Some((account, amount, _)) = assertion(&directive.data) else {
+            continue;
+        };
+        let padding = matches!(directive.data, Directive::BalancePad(_))
+            && ledger.directives.get(idx + 1).is_some_and(|next| same_position(&next.span, &directive.span))
+            && entries.of_directive(idx + 1).is_some_and(|entry| entry.txn.is_some());
+        let bound = if padding { idx + 2 } else { idx };
+        assertions.entry(account.name()).or_default().push((bound, directive, amount));
     }
-    if let Some(pad) = pad {
-        record_actual(&sums, &mut actuals, pad);
+
+    let mut actuals = HashMap::new();
+    for (account, checks) in assertions {
+        let rows = postings.account_rows(account);
+        // currency -> units of the postings so far
+        let mut sums: HashMap<&str, BigDecimal> = HashMap::new();
+        let mut next = 0;
+        // the last posting added up: the rows booking splits a posting into share it
+        let mut last = None;
+        for (bound, directive, amount) in checks {
+            while let Some(row) = rows.get(next).map(|idx| &postings.rows[*idx as usize]) {
+                let entry = &postings.entries[row.entry as usize];
+                let folded_at = entry.entry.map(|seq| entries.rows[seq as usize].directive as usize);
+                if folded_at.is_some_and(|at| at >= bound) {
+                    break;
+                }
+                next += 1;
+                if last == Some((row.entry, row.posting_index)) {
+                    continue;
+                }
+                last = Some((row.entry, row.posting_index));
+                // a row booked against a lot may hold a part of the posting, or its units
+                // written with the lot's scale: those are read from the stored posting
+                let units = match row.lot.as_ref().and_then(|lot| lot.cost.as_ref()) {
+                    None => Some(&row.units),
+                    Some(_) => store
+                        .transactions
+                        .get(&entry.id)
+                        .and_then(|txn| txn.postings.get(row.posting_index as usize))
+                        .map(|posting| &posting.inferred_amount),
+                };
+                if let Some(units) = units {
+                    *sums.entry(units.commodity.as_str()).or_insert_with(BigDecimal::zero) += &units.number;
+                }
+            }
+            let units = sums.get(amount.commodity.as_str()).cloned().unwrap_or_else(BigDecimal::zero);
+            actuals.insert(std::ptr::from_ref(directive), Amount::new(units, amount.commodity.clone()));
+        }
     }
     actuals
-}
-
-/// Record the balance `sums` give the account of the assertion `directive`.
-fn record_actual(sums: &HashMap<(&str, &str), BigDecimal>, actuals: &mut HashMap<*const Spanned<Directive>, Amount>, directive: &Spanned<Directive>) {
-    if let Some((account, amount, _)) = assertion(&directive.data) {
-        let units = sums.get(&(account.name(), amount.commodity.as_str())).cloned().unwrap_or_else(BigDecimal::zero);
-        actuals.insert(std::ptr::from_ref(directive), Amount::new(units, amount.commodity.clone()));
-    }
 }
 
 /// Whether an assertion holds: `|actual - asserted| <= tolerance`, without a tolerance
@@ -290,7 +286,7 @@ pub(super) static NOTES: Table = Table {
     description: "One row per note directive, in ledger order.",
     columns: NOTE_COLUMNS,
     wildcard: &["date", "account", "comment", "tags", "links"],
-    rows: Rows::Records(|ledger, _, _| directives_where(ledger, |it| matches!(it, Directive::Note(_)))),
+    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| matches!(it, Directive::Note(_)))),
 };
 
 fn note<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Note> {
@@ -327,7 +323,7 @@ pub(super) static EVENTS: Table = Table {
     description: "One row per event directive, in ledger order.",
     columns: EVENT_COLUMNS,
     wildcard: &["date", "type", "description"],
-    rows: Rows::Records(|ledger, _, _| directives_where(ledger, |it| matches!(it, Directive::Event(_)))),
+    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| matches!(it, Directive::Event(_)))),
 };
 
 fn event<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Event> {
@@ -382,8 +378,8 @@ pub(crate) struct DocumentRow<'a> {
     filename: &'a str,
     /// the path relative to the ledger's directory
     path: &'a Path,
-    /// the transaction the store keeps, for a document named in metadata
-    transaction: Option<&'a TransactionDomain>,
+    /// the id of the transaction the store keeps, for a document named in metadata
+    transaction_id: Option<Uuid>,
 }
 
 impl<'a> DocumentRow<'a> {
@@ -399,27 +395,29 @@ impl<'a> DocumentRow<'a> {
 }
 
 /// The document directives in ledger order, then the `document` metadata values of the
-/// transactions the store keeps, in ledger order: a transaction's own first, then those of
-/// its postings in order. A repeated key gives one row per value.
+/// transactions the store keeps (those of `#transactions`), in ledger order: a transaction's own
+/// first, then those of its postings in order. A repeated key gives one row per value.
 fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    let row = |directive, source, filename: &'a str, transaction| {
+    let row = |directive, source, filename: &'a str, transaction_id| {
         Record::Document(DocumentRow {
             directive,
             source,
             filename,
             path: ledger_file(ledger, Path::new(filename)),
-            transaction,
+            transaction_id,
         })
     };
-    let mut rows = ledger_order(ledger)
-        .into_iter()
+    let mut rows = ledger_order(ledger, store)
         .filter_map(|directive| match &directive.data {
             Directive::Document(document) => Some(row(directive, DocumentSource::Directive(document), document.filename.as_str(), None)),
             _ => None,
         })
         .collect::<Vec<_>>();
-    for (directive, stored) in fold_order(ledger, store) {
-        let (Directive::Transaction(transaction), Some(stored)) = (&directive.data, stored) else {
+    let cache = LedgerCache::of(ledger, store);
+    let entries = cache.entries(ledger, store);
+    for entry in cache.documented(ledger, store).iter().map(|seq| &entries.rows[*seq as usize]) {
+        let directive = &ledger.directives[entry.directive as usize];
+        let Directive::Transaction(transaction) = &directive.data else {
             continue;
         };
         let holders = std::iter::once((DocumentSource::Transaction(transaction), &transaction.meta)).chain(
@@ -430,7 +428,7 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
         );
         for (source, meta) in holders {
             for filename in meta.get_all("document") {
-                rows.push(row(directive, source, filename.as_str(), Some(stored)));
+                rows.push(row(directive, source, filename.as_str(), entry.txn));
             }
         }
     }
@@ -553,8 +551,8 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
          directive (zhang extension).",
         |_, record| {
             document(record)
-                .and_then(|it| it.transaction)
-                .map_or(Value::Null, |txn| Value::Str(txn.id.to_string()))
+                .and_then(|it| it.transaction_id)
+                .map_or(Value::Null, |id| Value::Str(id.to_string()))
         },
     ),
 ];
@@ -567,7 +565,7 @@ pub(super) static COMMODITIES: Table = Table {
     description: "One row per commodity directive, in ledger order.",
     columns: COMMODITY_COLUMNS,
     wildcard: &["meta", "date", "name"],
-    rows: Rows::Records(|ledger, _, _| directives_where(ledger, |it| matches!(it, Directive::Commodity(_)))),
+    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| matches!(it, Directive::Commodity(_)))),
 };
 
 fn commodity<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Commodity> {
