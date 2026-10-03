@@ -4,23 +4,27 @@
     "validations": [
       [
         "$.data.errors.length()",
-        0
+        1
       ],
       [
-        "$.data.transactions[*][?(@.sequence==1)].flag",
-        "BalancePad"
+        "$.data.errors[0].error_type",
+        "AccountBalanceCheckError"
       ],
       [
         "$.data.balance_assertions.length()",
         1
       ],
       [
-        "$.data.balance_assertions[?(@.sequence==2)].passed",
-        true
+        "$.data.balance_assertions[?(@.sequence==1)].passed",
+        false
       ],
       [
-        "$.data.balance_assertions[?(@.sequence==2)].balance.number",
-        "0.10"
+        "$.data.balance_assertions[?(@.sequence==1)].balance.number",
+        "0"
+      ],
+      [
+        "$.data.transactions[*][?(@.sequence==2)].flag",
+        "BalancePad"
       ]
     ]
   }
