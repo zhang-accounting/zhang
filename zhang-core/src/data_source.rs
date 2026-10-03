@@ -61,6 +61,13 @@ where
         Err(ZhangError::Unsupported(format!("listing the directory {path:?}")))
     }
 
+    /// Whether there is a file at `path`, relative to the ledger root and written with `/`; `None` (the default)
+    /// when this source cannot tell. A source on the local disk is not asked: [`has_file`] looks at
+    /// [`DataSource::local_root`] instead.
+    fn exists(&self, _path: String) -> Option<bool> {
+        None
+    }
+
     fn load(&self, _entry: String, _endpoint: String) -> ZhangResult<LoadResult> {
         unimplemented!()
     }
@@ -109,6 +116,15 @@ pub fn written_into(ledger: &Ledger, directive: Directive, file: &Path) -> Direc
             Directive::Document(document)
         }
         directive => directive,
+    }
+}
+
+/// Whether `ledger` has a file at `path`, within it or absolute; `None` when its source cannot tell.
+pub fn has_file(ledger: &Ledger, path: &str) -> Option<bool> {
+    match ledger.data_source.local_root(&ledger.entry.0) {
+        Some(root) => Some(root.join(path).is_file()),
+        None if Path::new(path).is_absolute() => None,
+        None => ledger.data_source.exists(path.to_owned()),
     }
 }
 

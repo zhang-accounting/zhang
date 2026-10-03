@@ -1167,6 +1167,8 @@ export interface operations {
                   | 'UnusedPad'
                   | 'PadWithCost'
                   | 'BalanceTimeIgnored'
+                  | 'DocumentPathRelativeToRoot'
+                  | 'DocumentNotFound'
                   | 'AccountDoesNotExist'
                   | 'AccountClosed'
                   | 'CommodityDoesNotDefine'

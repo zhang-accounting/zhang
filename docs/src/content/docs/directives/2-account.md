@@ -265,7 +265,10 @@ Zhang Accounting is fully compatible with Beancount's account directives. The sy
 In a Beancount ledger, the path of a `document` is relative to the directory of the file it is written in, as
 Beancount reads it. The documents you upload are written so: one written into `data/2026/10.bean` names
 `../../attachments/…`. Earlier versions wrote the path from the ledger's directory into such files, which Beancount
-reports as missing and Zhang no longer finds: put `../../` before them.
+reports as missing. Zhang still finds those documents there, and lists a
+[`DocumentPathRelativeToRoot`](/user-guide/error-code/#documentpathrelativetoroot) notice on each with the path to write
+instead. A `document` whose file is found nowhere is reported as
+[`DocumentNotFound`](/user-guide/error-code/#documentnotfound), as Beancount reports it.
 
 ## Examples
 

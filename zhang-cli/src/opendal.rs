@@ -65,6 +65,13 @@ impl DataSource for OpendalDataSource {
         self.local_root.clone()
     }
 
+    /// asks the service, and gives up after [`PLUGIN_FILE_TIMEOUT`]: `None` then, or when the service fails
+    fn exists(&self, path: String) -> Option<bool> {
+        let file = &path;
+        self.blocking(Some(PLUGIN_FILE_TIMEOUT), |operator| async move { operator.exists(file).await })
+            .ok()
+    }
+
     /// checks the size before downloading, never reads more than one chunk past `max_len`, and gives up after
     /// [`PLUGIN_FILE_TIMEOUT`]
     fn get_limited(&self, path: String, max_len: u64) -> ZhangResult<Vec<u8>> {
@@ -746,6 +753,126 @@ mod test {
             let paths = store.documents.iter().map(|it| it.path.as_str()).collect::<Vec<_>>();
             assert_eq!(paths, vec!["attachments/u1/a statement.pdf"], "{}", main);
         }
+    }
+
+    /// the files of a beancount ledger whose data file holds four `document`s: one written by an earlier version,
+    /// relative to the root; one relative to its file; one found both relative to its file and to the root; one missing
+    const DOCUMENTS: &[(&str, &str)] = &[
+        ("main.bean", "1970-01-01 open Assets:Cash\ninclude \"data/2024/01.bean\"\n"),
+        (
+            "data/2024/01.bean",
+            "2024-01-01 document Assets:Cash \"attachments/legacy.pdf\"\n\
+             2024-01-02 document Assets:Cash \"../../attachments/right.pdf\"\n\
+             2024-01-03 document Assets:Cash \"both.pdf\"\n\
+             2024-01-04 document Assets:Cash \"attachments/missing.pdf\"\n",
+        ),
+        ("attachments/legacy.pdf", "legacy"),
+        ("attachments/right.pdf", "right"),
+        ("data/2024/both.pdf", "next to its file"),
+        ("both.pdf", "at the root"),
+    ];
+
+    /// The documents of [`DOCUMENTS`]: beancount finds each relative to its file first. The legacy one is found at
+    /// the root, still downloads, and has a notice with the path beancount reads; the missing one is reported.
+    async fn assert_documents(ledger: Ledger) {
+        use axum::extract::{Path as UrlPath, State};
+        use axum::response::IntoResponse;
+        use base64::Engine as _;
+        use zhang_ast::error::ErrorKind;
+        use zhang_server::routes::document::download_document;
+        use zhang_server::state::SharedLedger;
+
+        let (paths, errors) = {
+            let store = ledger.store.read().unwrap();
+            let paths = store.documents.iter().map(|it| it.path.clone()).collect::<Vec<_>>();
+            let mut errors = store
+                .errors
+                .iter()
+                .map(|it| {
+                    let mut metas = it.metas.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>();
+                    metas.sort();
+                    let line = it.span.as_ref().map(|span| span.content.trim().to_owned()).unwrap_or_default();
+                    (it.error_type.clone(), metas, line)
+                })
+                .collect::<Vec<_>>();
+            errors.sort_by(|a, b| a.2.cmp(&b.2));
+            (paths, errors)
+        };
+        assert_eq!(
+            paths,
+            vec![
+                "attachments/legacy.pdf",
+                "attachments/right.pdf",
+                "data/2024/both.pdf",
+                "data/2024/attachments/missing.pdf"
+            ]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                (
+                    ErrorKind::DocumentPathRelativeToRoot,
+                    vec!["file=data/2024/01.bean".to_owned(), "written_as=../../attachments/legacy.pdf".to_owned()],
+                    "2024-01-01 document Assets:Cash \"attachments/legacy.pdf\"".to_owned()
+                ),
+                (
+                    ErrorKind::DocumentNotFound,
+                    vec!["path=data/2024/attachments/missing.pdf".to_owned()],
+                    "2024-01-04 document Assets:Cash \"attachments/missing.pdf\"".to_owned()
+                ),
+            ]
+        );
+        let state = State(SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        for (path, content) in [
+            ("attachments/legacy.pdf", "legacy"),
+            ("attachments/right.pdf", "right"),
+            ("data/2024/both.pdf", "next to its file"),
+        ] {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(path);
+            let response = download_document(state.clone(), UrlPath((encoded,))).await.into_response();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(body, content.as_bytes(), "{}", path);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_document_written_relative_to_the_root_by_an_earlier_version_is_kept_with_a_notice() {
+        // on the local disk
+        let dir = tempdir().unwrap();
+        for (file, content) in DOCUMENTS {
+            std::fs::create_dir_all(dir.path().join(file).parent().unwrap()).unwrap();
+            std::fs::write(dir.path().join(file), content).unwrap();
+        }
+        let mut opts = ServerOpts {
+            path: dir.path().to_path_buf(),
+            endpoint: "main.bean".to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        assert_documents(Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_owned(), source).await.unwrap()).await;
+
+        // on a remote source, which tells whether a file exists
+        let operator = Operator::new(Memory::default()).unwrap();
+        for (file, content) in DOCUMENTS {
+            operator.write(file, content.as_bytes().to_vec()).await.unwrap();
+        }
+        let source = OpendalDataSource {
+            operator,
+            data_type: Box::new(beancount::Beancount {}),
+            is_beancount: true,
+            local_root: None,
+        };
+        assert_eq!(source.exists("data/2024/both.pdf".to_owned()), Some(true));
+        assert_eq!(source.exists("data/2024/attachments/legacy.pdf".to_owned()), Some(false));
+        let ledger = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.bean".to_owned(), Arc::new(source))
+            .await
+            .unwrap();
+        assert_documents(ledger).await;
     }
 
     #[tokio::test]

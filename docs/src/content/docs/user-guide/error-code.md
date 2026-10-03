@@ -180,6 +180,36 @@ that net to zero.
 the `balance` on the next day and remove its `time`, as the UI writes it now. To assert it before them, remove the
 `time`.
 
+## DocumentPathRelativeToRoot
+
+A notice, not an error of the ledger, like [`BalanceTimeIgnored`](#balancetimeignored): the document is listed and
+opens as before. It is reported on a `document` of a Beancount ledger whose path names no file relative to the file
+the `document` is in, which is where Beancount looks, but names one relative to the ledger's directory. Earlier
+versions of Zhang wrote the documents you uploaded so, into files like `data/2026/10.bean`, which Beancount reports as
+"File does not exist". Zhang keeps using the file it finds relative to the ledger's directory, and the notice gives the
+path to write instead.
+
+**Example:** in `data/2026/10.bean`
+```beancount
+2026-10-04 document Assets:Bank "attachments/3f2a/statement.pdf"
+```
+
+**Solution:** Write the path the notice gives, relative to the file: here
+`"../../attachments/3f2a/statement.pdf"`. The notice goes, and Beancount finds the file too. Documents uploaded now
+are written so.
+
+## DocumentNotFound
+
+A `document` of a Beancount ledger names a file that does not exist, neither relative to the file the `document` is
+in, where Beancount looks, nor relative to the ledger's directory. Beancount reports it as "File does not exist".
+
+**Example of Error:** in `data/2026/10.bean`, with no `data/2026/statement.pdf`
+```beancount
+2026-10-04 document Assets:Bank "statement.pdf"
+```
+
+**Solution:** Put the file where the path names it, or correct the path, relative to the file the `document` is in.
+
 ## AccountDoesNotExist
 
 Triggered when operations are performed on an account that has not been defined in the ledger.

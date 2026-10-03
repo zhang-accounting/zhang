@@ -18,6 +18,9 @@ pub fn file_in_ledger(root: &Path, file: &Path) -> PathBuf {
     if let Ok(within) = file.strip_prefix(root) {
         return within.to_path_buf();
     }
+    if file.is_relative() {
+        return file.to_path_buf();
+    }
     // the same directory named another way, as `/tmp` is `/private/tmp`
     match (root.canonicalize(), file.canonicalize()) {
         (Ok(root), Ok(file)) => file.strip_prefix(root).map(Path::to_path_buf).unwrap_or(file),

@@ -19,6 +19,11 @@ pub enum ErrorKind {
     /// a notice: a `balance` of a beancount file whose `time` metadata is later than transactions of its account on
     /// its day. Zhang checks it at the start of its date, as beancount does, before those transactions
     BalanceTimeIgnored,
+    /// a notice: a `document` of a beancount file whose path is not found relative to that file, as beancount reads
+    /// it, but is found relative to the ledger's root, as earlier versions of zhang wrote it. Zhang uses the file there
+    DocumentPathRelativeToRoot,
+    /// a `document` of a beancount ledger whose file does not exist, as beancount reports it
+    DocumentNotFound,
     AccountDoesNotExist,
     AccountClosed,
 

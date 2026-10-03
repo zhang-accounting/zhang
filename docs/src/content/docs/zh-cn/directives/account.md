@@ -132,4 +132,4 @@ description: 关于在张记账中使用账户指令的全面指南。
 
 ## Beancount 兼容性
 
-在 Beancount 账本中，`document` 的路径相对于它所在文件的目录，与 Beancount 的读法相同。你上传的文档会按这种方式写入：写入 `data/2026/10.bean` 的文档路径为 `../../attachments/…`。早期版本在这类文件中写入的是相对于账本目录的路径，Beancount 会报告文件不存在，张记账现在也找不到它们：请在这些路径前加上 `../../`。
+在 Beancount 账本中，`document` 的路径相对于它所在文件的目录，与 Beancount 的读法相同。你上传的文档会按这种方式写入：写入 `data/2026/10.bean` 的文档路径为 `../../attachments/…`。早期版本在这类文件中写入的是相对于账本目录的路径，Beancount 会报告文件不存在。张记账仍会在账本目录下找到这些文档，并在每一条上附带一条 `DocumentPathRelativeToRoot` 提示，给出应改写成的路径。在任何位置都找不到文件的 `document` 会报告为 `DocumentNotFound`，与 Beancount 相同。
