@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { batchBalanceRows, subAccountsFirst } from '@/utils/balance-check';
 import { useListState } from '@/hooks/use-list-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -64,18 +65,14 @@ export default function BatchBalance() {
         selectAtom(accountAtom, (val) =>
           loadable_unwrap(val, [], (data) => {
             // stable order: the API returns accounts in arbitrary order, rows must not jump on reload
-            return data
-              .flatMap((account) =>
-                Object.entries(account.balance_with_sub_accounts).map(([commodity, value]) => ({
-                  commodity: commodity,
-                  currentAmount: value,
-                  accountName: account.name,
-                  hasSubAccounts: account.has_sub_accounts,
-                  balanceAmount: '',
-                  pad: undefined,
-                })),
-              )
-              .sort((a, b) => a.accountName.localeCompare(b.accountName) || a.commodity.localeCompare(b.commodity));
+            return batchBalanceRows(data).map((row) => ({
+              commodity: row.commodity,
+              currentAmount: row.currentAmount,
+              accountName: row.accountName,
+              hasSubAccounts: row.includesSubAccounts,
+              balanceAmount: '',
+              pad: undefined,
+            }));
           }),
         ),
       [],
@@ -130,17 +127,20 @@ export default function BatchBalance() {
   const mismatchCount = accounts.filter(hasMismatch).length;
 
   const onSave = async () => {
-    const accountsToBalance = accounts
-      .filter((account) => account.balanceAmount.trim() !== '')
-      .map((account) => ({
-        type: account.pad ? ('Pad' as const) : ('Check' as const),
-        account_name: account.accountName,
-        amount: {
-          number: account.balanceAmount,
-          commodity: account.commodity,
-        },
-        pad: account.pad ?? '',
-      }));
+    // sub-accounts first: a parent's `balance` covers them, so it must come after their pads
+    const accountsToBalance = subAccountsFirst(
+      accounts
+        .filter((account) => account.balanceAmount.trim() !== '')
+        .map((account) => ({
+          type: account.pad ? ('Pad' as const) : ('Check' as const),
+          account_name: account.accountName,
+          amount: {
+            number: account.balanceAmount,
+            commodity: account.commodity,
+          },
+          pad: account.pad ?? '',
+        })),
+    );
     toast.info(t('batch_balance.start_toast', { count: accountsToBalance.length }));
     setSubmitting(true);
     try {
