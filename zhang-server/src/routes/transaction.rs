@@ -17,7 +17,7 @@ use zhang_core::store::TransactionDomain;
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
 
 use super::Query;
-use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest};
+use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, JournalRequest, MetaRequest};
 use crate::response::{
     InfoForNewTransaction, JournalBalanceItemEntity, JournalItemEntity, JournalTransactionItemEntity, JournalTransactionPostingEntity, Pageable,
     ResponseWrapper,
@@ -133,9 +133,14 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 /// `original` is the transaction an update replaces, as it was read from the ledger.
 fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> ServerResult<Directive> {
     let rules = validate::Rules::of(ledger);
+    let original_postings = payload
+        .postings
+        .iter()
+        .map(|posting| original.and_then(|original| original_posting(original, &payload.postings, posting)))
+        .collect_vec();
     let mut postings = vec![];
-    for (index, posting) in payload.postings.into_iter().enumerate() {
-        let original_meta = original.and_then(|it| it.postings.get(index)).map(|it| &it.meta);
+    for (posting, original_posting) in payload.postings.into_iter().zip(original_postings) {
+        let original_meta = original_posting.map(|it| &it.meta);
         if let Some(unit) = &posting.unit {
             validate::amount(unit, &rules)?;
         }
@@ -200,6 +205,26 @@ fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original
         meta.insert(key, value);
     }
     Ok(meta)
+}
+
+/// The posting of `original` that the request posting `posting`, one of `requested`, edits:
+/// the only posting to its account on both sides, or else the only one to its account
+/// with its units. `None` when there is no such single posting, so that every value of
+/// the request posting counts as new.
+fn original_posting<'a>(
+    original: &'a Transaction, requested: &[CreateTransactionPostingRequest], posting: &CreateTransactionPostingRequest,
+) -> Option<&'a Posting> {
+    let same_account = original.postings.iter().filter(|it| it.account.name() == posting.account).collect_vec();
+    let requested_same_account = requested.iter().filter(|it| it.account == posting.account).count();
+    if let ([candidate], 1) = (same_account.as_slice(), requested_same_account) {
+        return Some(candidate);
+    }
+    let same_units = same_account.into_iter().filter(|it| it.units == posting.unit).collect_vec();
+    let requested_same_units = requested.iter().filter(|it| it.account == posting.account && it.unit == posting.unit).count();
+    match (same_units.as_slice(), requested_same_units) {
+        ([candidate], 1) => Some(candidate),
+        _ => None,
+    }
 }
 
 /// The transaction directive the stored transaction at `span` was read from.
@@ -1134,6 +1159,113 @@ mod string_round_trip_test {
         assert_eq!(
             forms,
             vec!["bare 1.5", "bare 2024-01-15", "bare TRUE", "quoted ", "quoted a: b", "quoted from plugin"]
+        );
+    }
+
+    /// Write `ledger` as the `main.bean` of a new ledger, apply `update` to its only
+    /// transaction and return the file written, after checking it reloads without errors.
+    async fn edit_bean(ledger: &str, update: CreateTransactionRequest) -> String {
+        let dir = std::env::temp_dir().join(format!("zhang-edit-bean-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let opens = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n";
+        std::fs::write(dir.join("main.bean"), format!("{opens}{ledger}")).unwrap();
+        let load = || async {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+        };
+        let loaded = load().await;
+        let id = loaded.operations().read().transactions.values().next().unwrap().id;
+        let (state, reload) = states(loaded);
+        let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let written = std::fs::read_to_string(dir.join("main.bean")).unwrap();
+        assert!(load().await.operations().read().errors.is_empty(), "{written}");
+        std::fs::remove_dir_all(dir).ok();
+        written
+    }
+
+    /// A posting of an [`edit`]: an account, a number of CNY and its metadata.
+    type EditedPosting<'a> = (&'a str, i64, &'a [(&'a str, &'a str)]);
+
+    /// An update request for a transaction `Bob` `coffee` with `postings`.
+    fn edit(postings: &[EditedPosting]) -> CreateTransactionRequest {
+        let mut update = request("coffee", "n");
+        update.payee = "Bob".to_owned();
+        update.metas = vec![];
+        update.postings = postings
+            .iter()
+            .map(|(account, number, metas)| CreateTransactionPostingRequest {
+                account: account.to_string(),
+                unit: Some(Amount::new(BigDecimal::from(*number), "CNY")),
+                metas: Some(metas.iter().map(|(key, value)| meta(key, value)).collect()),
+            })
+            .collect();
+        update
+    }
+
+    /// The postings of the edited transaction in `written`, from its first posting on.
+    fn postings_of(written: &str) -> &str {
+        let start = ["\n  Assets", "\n  Expenses"].iter().filter_map(|it| written.find(it)).min().unwrap();
+        &written[start..]
+    }
+
+    /// A request posting takes the original forms of the posting to the same account,
+    /// wherever it is in the request, and none when that posting is not clear.
+    #[tokio::test]
+    async fn edited_postings_are_matched_by_account() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n    rate: 1.5\n  Expenses:Food 5 CNY\n    rate: \"9\"\n";
+
+        // the value of Cash sent for Food is a change for Food: quoted
+        let written = edit_bean(ledger, edit(&[("Expenses:Food", 5, &[("rate", "1.5")]), ("Assets:Cash", -5, &[])])).await;
+        assert_eq!(
+            postings_of(&written),
+            "\n  Expenses:Food 5 CNY\n    rate: \"1.5\"\n  Assets:Cash -5 CNY\n",
+            "{written}"
+        );
+
+        // reordered, each value keeps its form
+        let written = edit_bean(ledger, edit(&[("Expenses:Food", 5, &[("rate", "9")]), ("Assets:Cash", -5, &[("rate", "1.5")])])).await;
+        assert_eq!(
+            postings_of(&written),
+            "\n  Expenses:Food 5 CNY\n    rate: \"9\"\n  Assets:Cash -5 CNY\n    rate: 1.5\n",
+            "{written}"
+        );
+
+        // several postings to an account are told apart by their units
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -4 CNY\n    rate: 1.5\n  Assets:Cash -6 CNY\n    rate: 2.5\n  Expenses:Food 10 CNY\n";
+        let written = edit_bean(
+            ledger,
+            edit(&[
+                ("Assets:Cash", -6, &[("rate", "2.5")]),
+                ("Assets:Cash", -4, &[("rate", "1.5")]),
+                ("Expenses:Food", 10, &[]),
+            ]),
+        )
+        .await;
+        assert_eq!(
+            postings_of(&written),
+            "\n  Assets:Cash -6 CNY\n    rate: 2.5\n  Assets:Cash -4 CNY\n    rate: 1.5\n  Expenses:Food 10 CNY\n",
+            "{written}"
+        );
+
+        // and when the units do not tell them apart either, every value is new
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n    rate: 1.5\n  Assets:Cash -5 CNY\n    rate: 2.5\n  Expenses:Food 10 CNY\n";
+        let written = edit_bean(
+            ledger,
+            edit(&[
+                ("Assets:Cash", -5, &[("rate", "1.5")]),
+                ("Assets:Cash", -5, &[("rate", "2.5")]),
+                ("Expenses:Food", 10, &[]),
+            ]),
+        )
+        .await;
+        assert_eq!(
+            postings_of(&written),
+            "\n  Assets:Cash -5 CNY\n    rate: \"1.5\"\n  Assets:Cash -5 CNY\n    rate: \"2.5\"\n  Expenses:Food 10 CNY\n",
+            "{written}"
         );
     }
 }
