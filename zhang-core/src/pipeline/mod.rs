@@ -26,6 +26,7 @@ mod active_accounts;
 pub(crate) mod balance;
 mod balance_check;
 mod pad;
+mod plugin_view;
 
 use std::collections::{HashMap, VecDeque};
 
@@ -36,6 +37,7 @@ use chrono_tz::Tz;
 use indexmap::IndexSet;
 use log::debug;
 pub use pad::PadStage;
+pub use plugin_view::AbiV1View;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;

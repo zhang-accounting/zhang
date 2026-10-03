@@ -1002,3 +1002,50 @@ fn router_gets_no_file_access_even_with_allowed_paths() {
     assert_eq!(error_kind(&answer), "denied", "{answer}");
     assert!(answer["Err"]["message"].as_str().unwrap().contains("processor or mapper"), "{answer}");
 }
+
+const PADDED: &str = indoc! {r#"
+    1970-01-01 commodity CNY
+    1970-01-01 open Assets:Cash
+    1970-01-01 open Equity:Open
+    1970-01-01 open Expenses:Food
+    2024-01-01 pad Assets:Cash Equity:Open
+    2024-01-02 * "lunch"
+      Assets:Cash -10 CNY
+      Expenses:Food 10 CNY
+    2024-02-01 balance Assets:Cash 100 CNY
+"#};
+
+#[test]
+fn a_plugin_of_the_oldest_contract_loads_a_ledger_with_a_pad() {
+    // `old_contract.wat` fails on a `pad` directive, like a plugin built before `pad` existed
+    let dir = ledger_dir(&["old_contract.wat"]);
+    let ledger = load(
+        &dir,
+        &format!("option \"features.plugin\" \"true\"\n{}{PADDED}", plugin(&dir, "old_contract.wat")),
+    );
+    assert_eq!(
+        registered(&ledger),
+        vec![("old-contract".to_owned(), vec![PluginType::Processor, PluginType::Mapper])]
+    );
+
+    // the pad still works: it pads the 110 the cash lacks on the day of the pad, and the balance holds
+    assert_eq!(store_summary(&ledger), store_summary(&load(&ledger_dir(&[]), PADDED)));
+    assert!(errors(&ledger).is_empty(), "{:?}", errors(&ledger));
+    let store = ledger.store.read().unwrap();
+    let padding = store.transactions.values().find(|it| it.flag == zhang_ast::Flag::BalancePad).unwrap();
+    assert_eq!(padding.datetime.date_naive().to_string(), "2024-01-01");
+    assert_eq!(padding.postings[0].inferred_amount.to_string(), "110 CNY");
+    assert!(store.balance_assertions.iter().all(|it| it.passed));
+    drop(store);
+    assert!(
+        ledger.directives.iter().any(|it| matches!(it.data, Directive::Pad(_))),
+        "the pad is back in the stream"
+    );
+
+    // the plugin is called without the pad: handed one, it fails
+    let pad = ledger.directives.iter().find(|it| matches!(it.data, Directive::Pad(_))).unwrap().clone();
+    for stage in ledger.plugins.build_stages() {
+        let mut ctx = zhang_core::pipeline::StageContext::new(&[]);
+        assert!(stage.process(vec![pad.clone()], &mut ctx).is_err(), "{} fails on a pad", stage.name());
+    }
+}

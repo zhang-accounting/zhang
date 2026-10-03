@@ -406,10 +406,19 @@ impl Ledger {
     }
 
     /// the stages to run: the user's WASM plugins in declaration order (only with
-    /// the plugin runtime and `features.plugins` on), then the built-in stages
+    /// the plugin runtime and `features.plugins` on), each on the stream as plugins of
+    /// ABI v1 see it ([`AbiV1View`]), then the built-in stages
     fn build_stages(&self) -> Vec<Box<dyn ProcessStage>> {
         #[cfg(feature = "plugin_runtime")]
-        let plugin_stages = if self.options.features.plugins { self.plugins.build_stages() } else { vec![] };
+        let plugin_stages: Vec<Box<dyn ProcessStage>> = if self.options.features.plugins {
+            self.plugins
+                .build_stages()
+                .into_iter()
+                .map(|stage| Box::new(crate::pipeline::AbiV1View::new(stage)) as Box<dyn ProcessStage>)
+                .collect()
+        } else {
+            vec![]
+        };
         #[cfg(not(feature = "plugin_runtime"))]
         let plugin_stages: Vec<Box<dyn ProcessStage>> = vec![];
         plugin_stages.into_iter().chain(builtin_stages()).collect()
