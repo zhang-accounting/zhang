@@ -1,4 +1,60 @@
 {
+  "balance_time_after_transactions": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "100"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "100"
+        },
+        "date": "2024-03-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "70"
+        },
+        "date": "2024-03-03",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "70"
+      },
+      "Equity:Open": {
+        "CNY": "-100"
+      },
+      "Expenses:Food": {
+        "CNY": "30"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:A",
+        "date": "2024-03-01",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "100"
+        }
+      }
+    ],
+    "pads_with_cost": [],
+    "unused_pads": []
+  },
   "balance_time_on_pad_day": {
     "accepted_deviation": null,
     "assertions": [
@@ -1401,6 +1457,51 @@
       {
         "account": "Assets:A",
         "date": "2024-01-02"
+      }
+    ]
+  },
+  "same_day_pads_with_times": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "100"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "100"
+        },
+        "date": "2024-01-06",
+        "passed": true
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "100"
+      },
+      "Equity:Y": {
+        "CNY": "-100"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:A",
+        "date": "2024-01-05",
+        "from": "Equity:Y",
+        "units": {
+          "currency": "CNY",
+          "number": "100"
+        }
+      }
+    ],
+    "pads_with_cost": [],
+    "unused_pads": [
+      {
+        "account": "Assets:A",
+        "date": "2024-01-05"
       }
     ]
   },

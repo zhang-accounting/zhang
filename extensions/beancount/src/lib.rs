@@ -240,6 +240,9 @@ macro_rules! extract_time {
 }
 
 impl Beancount {
+    /// the `time` metadata of a directive as its time, which orders the directives of a day. Not for a `balance` or a
+    /// `pad`, whose `time` stays plain metadata: beancount knows no times, and checks a `balance` at the start of its
+    /// date, before the transactions of that day, and orders the `pad`s of a day by their line
     fn extract_time_from_meta(&self, directive: &mut BeancountDirective) {
         match directive {
             Either::Left(zhang_directive) => match zhang_directive {
@@ -247,9 +250,6 @@ impl Beancount {
                 Directive::Close(directive) => extract_time!(directive),
                 Directive::Commodity(directive) => extract_time!(directive),
                 Directive::Transaction(directive) => extract_time!(directive),
-                Directive::BalanceCheck(balance_check) => extract_time!(balance_check),
-                Directive::BalancePad(balance_pad) => extract_time!(balance_pad),
-                Directive::Pad(directive) => extract_time!(directive),
                 Directive::Note(directive) => extract_time!(directive),
                 Directive::Document(directive) => extract_time!(directive),
                 Directive::Price(directive) => extract_time!(directive),
@@ -258,11 +258,7 @@ impl Beancount {
                 Directive::Query(directive) => extract_time!(directive),
                 _ => {}
             },
-            Either::Right(beancount_only_directive) => {
-                if let BeancountOnlyDirective::Balance(directive) = beancount_only_directive {
-                    extract_time!(directive)
-                }
-            }
+            Either::Right(_) => {}
         }
     }
 }
@@ -413,15 +409,41 @@ mod test {
             .unwrap();
 
         assert_eq!(directives.len(), 1);
+        // its `time` stays plain metadata: beancount orders the pads of a day by their line
+        let mut meta = Meta::default();
+        meta.insert("time".to_owned(), zhang_ast::ZhangString::quote("08:00:00"));
         assert_eq!(
             directives.pop().unwrap().data,
             Directive::Pad(Pad {
-                date: Date::Datetime(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().and_hms_opt(8, 0, 0).unwrap()),
+                date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
                 account: Account::from_str("Assets:BankAccount").unwrap(),
                 pad: Account::from_str("Equity:Open-Balances").unwrap(),
-                meta: Default::default(),
+                meta,
             })
         );
+    }
+
+    #[test]
+    fn should_check_a_balance_at_the_start_of_its_date_whatever_its_time() {
+        // beancount checks a balance before the transactions of its day; its `time` stays plain metadata
+        let directives = Beancount::default()
+            .transform(
+                indoc! {r#"
+                1970-01-02 balance Assets:BankAccount 100 CNY
+                  time: "20:00:00"
+            "#}
+                .to_string(),
+                None,
+            )
+            .unwrap();
+        let Directive::BalanceCheck(check) = &directives[0].data else {
+            panic!("a balance is a balance check")
+        };
+        assert_eq!(check.date, Date::Date(NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()));
+        assert_eq!(check.meta.get_one("time").map(|it| it.as_str()), Some("20:00:00"));
+        // and it is written back as it was read
+        let exported = Beancount {}.export(directives[0].clone());
+        assert_eq!(exported, "1970-01-02 balance Assets:BankAccount 100 CNY\n  time: \"20:00:00\"");
     }
 
     #[test]
@@ -480,7 +502,12 @@ mod test {
         });
         let exported = Beancount {}.export(Spanned::new(pad.clone(), SpanInfo::default()));
         assert_eq!(exported, "1970-01-01 pad Assets:BankAccount Equity:Open-Balances\n  time: \"08:00:00\"");
-        assert_eq!(Beancount::default().transform(exported, None).unwrap().pop().unwrap().data, pad);
+        // read back, the time is plain metadata
+        let Directive::Pad(read) = Beancount::default().transform(exported, None).unwrap().pop().unwrap().data else {
+            panic!("a pad is a pad")
+        };
+        assert_eq!(read.date.naive_date(), pad.datetime().unwrap().date());
+        assert_eq!(read.meta.get_one("time").map(|it| it.as_str()), Some("08:00:00"));
     }
 
     #[test]
