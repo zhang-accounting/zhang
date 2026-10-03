@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
 use log::debug;
@@ -9,7 +9,7 @@ use crate::data_type::DataType;
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
 use crate::utils::has_path_visited;
-use crate::ZhangResult;
+use crate::{ZhangError, ZhangResult};
 
 /// `DataSource` is the protocol to describe how the `DataType` be stored and be transformed into standard directives.
 /// The Data Source have two capabilities:
@@ -26,6 +26,39 @@ where
     }
     fn get(&self, _path: String) -> ZhangResult<Vec<u8>> {
         unimplemented!()
+    }
+
+    /// The directory on the local disk holding the ledger whose root is `entry`, when this source reads the local
+    /// disk; `None` (the default) for a remote source.
+    ///
+    /// Plugins read local files through it with a capability handle, so a symlink cannot lead them outside what
+    /// they were granted. On a remote source they read through [`DataSource::get_limited`] and
+    /// [`DataSource::list`] instead.
+    fn local_root(&self, _entry: &Path) -> Option<PathBuf> {
+        None
+    }
+
+    /// The content of the file at `path`, relative to the ledger root and written with `/`, when it holds at most
+    /// `max_len` bytes; [`ZhangError::TooLarge`] when it holds more, and [`ZhangError::FileNotFound`] when it does
+    /// not exist.
+    ///
+    /// The default reads the whole file with [`DataSource::get`] before checking its size. A remote source should
+    /// check the size before downloading, stop reading past `max_len`, and give up after a while: a plugin waits
+    /// for this call, and its own timeout cannot interrupt it.
+    fn get_limited(&self, path: String, max_len: u64) -> ZhangResult<Vec<u8>> {
+        let content = self.get(path.clone())?;
+        if content.len() as u64 > max_len {
+            return Err(ZhangError::TooLarge(format!("the file {path:?} holds more than {max_len} bytes")));
+        }
+        Ok(content)
+    }
+
+    /// The entries of the directory at `path`, relative to the ledger root and written with `/` (empty for the root
+    /// itself), in any order; [`ZhangError::TooLarge`] when it has more than `max_entries`, which a source should
+    /// detect without listing them all. The default is [`ZhangError::Unsupported`]: a source that cannot list
+    /// directories keeps it.
+    fn list(&self, path: String, _max_entries: usize) -> ZhangResult<Vec<SourceEntry>> {
+        Err(ZhangError::Unsupported(format!("listing the directory {path:?}")))
     }
 
     fn load(&self, _entry: String, _endpoint: String) -> ZhangResult<LoadResult> {
@@ -132,6 +165,11 @@ impl DataSource for LocalFileSystemDataSource {
         Ok(std::fs::read(PathBuf::from(path))?)
     }
 
+    /// the ledger root itself: this source reads the paths it is given from the local disk
+    fn local_root(&self, entry: &Path) -> Option<PathBuf> {
+        Some(entry.to_path_buf())
+    }
+
     fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
         let entry = PathBuf::from(entry);
         let entry = entry.canonicalize().with_path(&entry)?;
@@ -181,6 +219,15 @@ impl DataSource for LocalFileSystemDataSource {
         }
         Ok(())
     }
+}
+
+/// an entry of a directory, as [`DataSource::list`] lists it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceEntry {
+    /// the entry's name, without the directory's path or a trailing `/`
+    pub name: String,
+    /// whether the entry is a directory; otherwise it is a file
+    pub is_dir: bool,
 }
 
 pub struct LoadResult {

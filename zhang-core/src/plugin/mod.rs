@@ -7,6 +7,7 @@ use zhang_ast::{Directive, Spanned};
 use crate::plugin::http::{PluginRequest, PluginResponse};
 
 pub mod capabilities;
+pub mod files;
 pub mod host;
 pub mod http;
 pub mod router;

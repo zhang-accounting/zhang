@@ -1,17 +1,21 @@
 use std::collections::VecDeque;
+use std::fmt::{Display, Formatter};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 
 use async_recursion::async_recursion;
 use beancount::Beancount;
 use chrono::Datelike;
+use futures::TryStreamExt;
 use log::{debug, info, warn};
 use minijinja::{context, Environment};
 use opendal::services::{Fs, Github, Webdav, S3};
-use opendal::{ErrorKind, HttpTransporter, Operator};
+use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
-use zhang_core::data_source::{DataSource, LoadResult};
+use zhang_core::data_source::{DataSource, LoadResult, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -20,10 +24,18 @@ use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
 use crate::{FileSystem, ServerOpts};
+
+/// how long a plugin's read or listing of a remote ledger may take before the host gives up on it. The plugin
+/// waits for the host meanwhile, and its own timeout cannot interrupt the host, so a stalled server would
+/// otherwise stall the load
+const PLUGIN_FILE_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub struct OpendalDataSource {
     operator: Operator,
     data_type: Box<dyn DataType<Carrier = String> + 'static + Send + Sync>,
     is_beancount: bool,
+    /// the directory the `Fs` service reads, the ledger root on the local disk; `None` for a remote service
+    local_root: Option<PathBuf>,
 }
 
 async fn is_wildcard_pathbuf(pathbuf: &Path) -> bool {
@@ -43,27 +55,73 @@ impl DataSource for OpendalDataSource {
     }
 
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        // opendal has no native blocking IO anymore. Drive the async read on a dedicated thread with its own
-        // runtime and its own http client, isolated from the caller's runtime (if any): this can't panic with
-        // "Cannot start a runtime from within a runtime", and never waits on a pooled http connection owned by
-        // a caller runtime that is blocked on this very call (which deadlocks a current-thread runtime).
-        let result = std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let http_transport = HttpTransporter::new(ReqwestTransport::new(reqwest::Client::new()));
-                    let operator = self
-                        .operator
-                        .clone()
-                        .with_context(self.operator.base_context().with_http_transport(http_transport));
-                    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
-                    runtime.block_on(operator.read(&path)).map_err(|e| e.to_string())
-                })
-                .join()
-                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-        });
-        result
+        let file = &path;
+        self.blocking(None, |operator| async move { operator.read(file).await })
             .map(|data| data.to_vec())
             .map_err(|e| ZhangError::CustomError(format!("fail to get file content [{}] : {}", path, e)))
+    }
+
+    fn local_root(&self, _entry: &Path) -> Option<PathBuf> {
+        self.local_root.clone()
+    }
+
+    /// checks the size before downloading, never reads more than one chunk past `max_len`, and gives up after
+    /// [`PLUGIN_FILE_TIMEOUT`]
+    fn get_limited(&self, path: String, max_len: u64) -> ZhangResult<Vec<u8>> {
+        let file = &path;
+        let content = self
+            .blocking(Some(PLUGIN_FILE_TIMEOUT), |operator| async move {
+                if operator.stat(file).await?.content_length() > max_len {
+                    return Ok(None);
+                }
+                // streamed as a second guard, in case the size was wrong or the file grew since
+                let mut chunks = operator.reader(file).await?.into_stream(..).await?;
+                let mut content = Vec::new();
+                while let Some(chunk) = chunks.try_next().await? {
+                    if (content.len() + chunk.len()) as u64 > max_len {
+                        return Ok(None);
+                    }
+                    content.extend_from_slice(&chunk.to_bytes());
+                }
+                Ok(Some(content))
+            })
+            .map_err(|e| e.into_zhang_error(&path))?;
+        content.ok_or_else(|| ZhangError::TooLarge(format!("the file {path:?} holds more than {max_len} bytes")))
+    }
+
+    /// stops listing past `max_entries`, and gives up after [`PLUGIN_FILE_TIMEOUT`]
+    fn list(&self, path: String, max_entries: usize) -> ZhangResult<Vec<SourceEntry>> {
+        // a directory path ends with `/` in opendal, and the root is `/`
+        let dir = format!("{}/", path.trim_end_matches('/'));
+        let listed = &dir;
+        let entries = self
+            .blocking(Some(PLUGIN_FILE_TIMEOUT), |operator| async move {
+                let mut lister = operator.lister(listed).await?;
+                let mut entries = vec![];
+                let mut seen = 0;
+                while let Some(entry) = lister.try_next().await? {
+                    // the listing also holds the listed directory itself
+                    if entry.path() == listed {
+                        continue;
+                    }
+                    seen += 1;
+                    if seen > max_entries {
+                        return Ok(None);
+                    }
+                    let is_dir = match entry.metadata().mode() {
+                        EntryMode::DIR => true,
+                        EntryMode::FILE => false,
+                        EntryMode::Unknown => continue,
+                    };
+                    let name = entry.name().trim_end_matches('/');
+                    if !name.is_empty() {
+                        entries.push(SourceEntry { name: name.to_owned(), is_dir });
+                    }
+                }
+                Ok(Some(entries))
+            })
+            .map_err(|e| e.into_zhang_error(&path))?;
+        entries.ok_or_else(|| ZhangError::TooLarge(format!("the directory {path:?} has more than {max_entries} entries")))
     }
 
     async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
@@ -212,7 +270,72 @@ impl DataSource for OpendalDataSource {
     }
 }
 
+/// why [`OpendalDataSource::blocking`] got no result
+#[derive(Debug)]
+enum BlockingError {
+    Opendal(opendal::Error),
+    TimedOut(Duration),
+    Runtime(String),
+}
+
+impl Display for BlockingError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockingError::Opendal(e) => write!(f, "{e}"),
+            BlockingError::TimedOut(limit) => write!(f, "timed out after {limit:?}"),
+            BlockingError::Runtime(e) => write!(f, "cannot start a runtime: {e}"),
+        }
+    }
+}
+
+impl BlockingError {
+    /// a missing file is [`ZhangError::FileNotFound`]; the rest keeps opendal's details, which only the host logs
+    fn into_zhang_error(self, path: &str) -> ZhangError {
+        match self {
+            BlockingError::Opendal(e) if e.kind() == ErrorKind::NotFound => ZhangError::FileNotFound,
+            other => ZhangError::CustomError(format!("[{path}]: {other}")),
+        }
+    }
+}
+
 impl OpendalDataSource {
+    /// run `task` on the operator and wait for it. opendal has no native blocking IO anymore: the task runs on a
+    /// dedicated thread with its own runtime and its own http client, isolated from the caller's runtime (if any).
+    /// This can't panic with "Cannot start a runtime from within a runtime", and never waits on a pooled http
+    /// connection owned by a caller runtime that is blocked on this very call (which deadlocks a current-thread
+    /// runtime).
+    ///
+    /// With a `timeout`, the task is abandoned once it runs longer.
+    fn blocking<T, F>(&self, timeout: Option<Duration>, task: impl FnOnce(Operator) -> F + Send) -> Result<T, BlockingError>
+    where
+        T: Send,
+        F: Future<Output = opendal::Result<T>>,
+    {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let http_transport = HttpTransporter::new(ReqwestTransport::new(reqwest::Client::new()));
+                    let operator = self
+                        .operator
+                        .clone()
+                        .with_context(self.operator.base_context().with_http_transport(http_transport));
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| BlockingError::Runtime(e.to_string()))?;
+                    runtime.block_on(async {
+                        match timeout {
+                            Some(limit) => tokio::time::timeout(limit, task(operator)).await.map_err(|_| BlockingError::TimedOut(limit))?,
+                            None => task(operator).await,
+                        }
+                        .map_err(BlockingError::Opendal)
+                    })
+                })
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        })
+    }
+
     // `async_recursion` adds a `#[must_use]` to the boxed future it returns
     #[allow(clippy::double_must_use)]
     #[async_recursion]
@@ -279,10 +402,13 @@ impl OpendalDataSource {
         Ok(())
     }
     pub async fn from_env(source: FileSystem, server_opts: &mut ServerOpts) -> OpendalDataSource {
+        let mut local_root = None;
         let operator = match source {
             FileSystem::Fs => {
                 let builder = Fs::default().root(server_opts.path.to_string_lossy().to_string().as_str());
-                Operator::new(builder).unwrap()
+                let operator = Operator::new(builder).unwrap();
+                local_root = Some(server_opts.path.canonicalize().unwrap_or_else(|_| server_opts.path.clone()));
+                operator
             }
             FileSystem::WebDav => {
                 let webdav_builder = Webdav::default().endpoint(&std::env::var("ZHANG_WEBDAV_ENDPOINT").expect("ZHANG_WEBDAV_ENDPOINT must be set"));
@@ -344,6 +470,7 @@ impl OpendalDataSource {
             operator,
             data_type: new_data_type,
             is_beancount,
+            local_root,
         }
     }
 
@@ -378,5 +505,90 @@ impl OpendalDataSource {
 
         let vec = self.async_get(path.to_string()).await?;
         Ok(String::from_utf8(vec).expect("invalid utf8 content"))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    use opendal::services::Memory;
+    use opendal::Operator;
+    use zhang_core::data_source::{DataSource, SourceEntry};
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ZhangError;
+
+    use super::{BlockingError, OpendalDataSource, PLUGIN_FILE_TIMEOUT};
+
+    /// a remote-like source holding `files`
+    async fn source(files: &[&str]) -> OpendalDataSource {
+        let operator = Operator::new(Memory::default()).unwrap();
+        for file in files {
+            operator.write(file, file.as_bytes().to_vec()).await.unwrap();
+        }
+        OpendalDataSource {
+            operator,
+            data_type: Box::new(ZhangDataType {}),
+            is_beancount: false,
+            local_root: None,
+        }
+    }
+
+    fn entry(name: &str, is_dir: bool) -> SourceEntry {
+        SourceEntry { name: name.to_owned(), is_dir }
+    }
+
+    #[tokio::test]
+    async fn should_list_a_directory_without_itself() {
+        let source = source(&["main.zhang", "documents/receipt.txt", "documents/2024/a.csv"]).await;
+
+        let mut documents = source.list("documents".to_owned(), 10).unwrap();
+        documents.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(documents, vec![entry("2024", true), entry("receipt.txt", false)]);
+
+        let mut root = source.list(String::new(), 10).unwrap();
+        root.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(root, vec![entry("documents", true), entry("main.zhang", false)]);
+
+        assert_eq!(source.get("documents/2024/a.csv".to_owned()).unwrap(), b"documents/2024/a.csv");
+        assert_eq!(source.local_root(Path::new("/")), None, "a remote source has no local root");
+    }
+
+    #[tokio::test]
+    async fn should_refuse_a_file_over_the_limit() {
+        let source = source(&["documents/receipt.txt"]).await;
+        source.operator.write("empty.txt", Vec::<u8>::new()).await.unwrap();
+        let file = "documents/receipt.txt".to_owned();
+
+        assert_eq!(source.get_limited(file.clone(), 21).unwrap(), b"documents/receipt.txt");
+        assert!(matches!(source.get_limited(file.clone(), 20), Err(ZhangError::TooLarge(_))));
+        assert!(matches!(source.get_limited(file, 0), Err(ZhangError::TooLarge(_))));
+        assert_eq!(source.get_limited("empty.txt".to_owned(), 0).unwrap(), b"");
+        assert!(matches!(source.get_limited("missing.txt".to_owned(), 10), Err(ZhangError::FileNotFound)));
+    }
+
+    #[tokio::test]
+    async fn should_stop_listing_past_the_limit() {
+        let source = source(&["documents/a.pdf", "documents/b.pdf", "documents/c/d.pdf"]).await;
+
+        assert_eq!(source.list("documents".to_owned(), 3).unwrap().len(), 3);
+        assert!(matches!(source.list("documents".to_owned(), 2), Err(ZhangError::TooLarge(_))));
+        assert!(matches!(source.list("documents/".to_owned(), 0), Err(ZhangError::TooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn should_give_up_on_a_stalled_call_at_its_timeout() {
+        let source = source(&[]).await;
+        let started = Instant::now();
+
+        let result = source.blocking(Some(Duration::from_millis(50)), |_| async {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(())
+        });
+
+        assert!(matches!(result, Err(BlockingError::TimedOut(_))), "{:?}", result);
+        assert!(started.elapsed() < Duration::from_secs(10), "gave up after {:?}", started.elapsed());
+        assert_eq!(PLUGIN_FILE_TIMEOUT, Duration::from_secs(30));
     }
 }

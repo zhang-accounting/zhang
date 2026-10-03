@@ -16,8 +16,9 @@ zhang-server = { version = "0.1.0-alpha.3", path = "../zhang-server" }
 beancount = { version = "0.1", path = "../extensions/beancount" }
 
 
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 tokio-util = { workspace = true }
+futures = "0.3"
 log = { workspace = true }
 async-trait = { workspace = true }
 http = { workspace = true }

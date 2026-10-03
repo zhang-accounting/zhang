@@ -38,6 +38,12 @@ impl ExtraInput {
 /// A relative `path` is taken as relative to the root already
 fn relative_to_root(root: &Path, path: &Path) -> Option<PathBuf> {
     let relative = if path.has_root() { path.strip_prefix(root).ok()? } else { path };
+    normalize_relative(relative)
+}
+
+/// a relative `path` normalized lexically (no `.` or `..` components, no empty ones); `None` when it is absolute or
+/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way
+pub(crate) fn normalize_relative(relative: &Path) -> Option<PathBuf> {
     let mut normalized = PathBuf::new();
     for component in relative.components() {
         match component {
