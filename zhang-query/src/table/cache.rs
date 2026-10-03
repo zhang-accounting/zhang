@@ -62,10 +62,16 @@ pub(crate) struct LedgerCache {
     lookups: OnceLock<Lookups>,
 }
 
-/// How many directives, transactions, postings, prices, errors and metadata a ledger holds: a
-/// cheap check that the ledger did not change since its cache was made.
+/// How many directives, transactions, postings, prices, documents, errors and metadata a ledger
+/// holds: a cheap check that the ledger did not change since its cache was made.
+///
+/// It only counts, so it catches what is added to or removed from the ledger, not an edit that
+/// keeps every count (a posting whose amount changed, a price replaced by another). That is
+/// enough as a defensive check: nothing changes a loaded ledger, whose changes are written to
+/// its files and read by a reload, which starts a new cache. Hashing the contents would cost
+/// every query more than the check is worth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Fingerprint([usize; 6]);
+struct Fingerprint([usize; 7]);
 
 impl Fingerprint {
     fn of(ledger: &Ledger, store: &Store) -> Fingerprint {
@@ -74,6 +80,7 @@ impl Fingerprint {
             store.transactions.len(),
             store.postings.len(),
             store.prices.len(),
+            store.documents.len(),
             store.errors.len(),
             store.metas.len(),
         ])
