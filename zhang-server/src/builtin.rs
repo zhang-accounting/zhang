@@ -91,7 +91,7 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
               last(date) AS last_month, \
               CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
-              CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity, \
+              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
               last(available) AS available, last(closed) AS closed \
               FROM #budgets \
               WHERE date <= :month \
@@ -113,7 +113,7 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
               last(date) AS last_month, \
               CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
-              CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity, \
+              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
               last(available) AS available, last(closed) AS closed \
               FROM #budgets \
               WHERE name = :name AND date <= :month \
@@ -131,12 +131,12 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     },
     BuiltinQuery {
         name: "budgets.postings",
-        description: "The postings of a budget's accounts in a month (its first day), newest first, with each account's balance after them.",
+        description: "The postings of a budget in a month (its first day), newest first, with each account's balance after them.",
         bql: "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units, \
               only(currency, account_balance) AS balance \
-              WHERE account IN :accounts AND yearmonth(date) = :month \
+              WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date) \
               ORDER BY timestamp DESC",
-        params: &[("accounts", DataType::Set), ("month", DataType::Date)],
+        params: &[("accounts", DataType::Set), ("month", DataType::Date), ("name", DataType::Str)],
     },
     BuiltinQuery {
         name: "commodities.totals",

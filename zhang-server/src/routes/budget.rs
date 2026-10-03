@@ -43,7 +43,8 @@ impl MonthFigures {
         MonthFigures {
             closed: row.bool("closed").unwrap_or(false),
             assigned: amount("assigned"),
-            activity: amount("activity"),
+            // a number in the budget's currency, `0` in a month the query carries the budget over to
+            activity: Amount::new(row.decimal("activity").unwrap_or_default(), &currency),
             available: amount("available"),
         }
     }
@@ -155,7 +156,10 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
                 })
             })
             .collect_vec();
-        let params = Params::new().bind("accounts", Value::Set(accounts)).bind("month", month);
+        let params = Params::new()
+            .bind("accounts", Value::Set(accounts))
+            .bind("month", month)
+            .bind("name", budget_name.as_str());
         let postings = execute(ledger, "budgets.postings", &params, false)?;
         let postings = rows(&postings)
             .map(|row| {

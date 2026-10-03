@@ -143,7 +143,7 @@ ORDER BY seq
 
 #### `budgets.month`
 
-截至某个月的每个预算：该预算在 `#budgets` 中到这个月为止的最后一个月，即预算页面列出的内容。`#budgets` 中每个预算都有直到当前月份的每一个月，所以 `last_month` 就是所请求的月份，除非请求的是更晚的月份。预算在 `last_month` 之后不可能再有变动，所以 [`CASE`](/zh-cn/user-guide/query-language/#case) 把它顺延过来：这个月以 `available` 开始，支出为零。在该月之后才开始的预算不会列出。`WHERE date <= :month` 还让 `#budgets` 不再生成更晚的月份，所以账本中日期写到遥远未来的笔误不会造成影响。
+截至某个月的每个预算：该预算在 `#budgets` 中到这个月为止的最后一个月，即预算页面列出的内容。`#budgets` 中每个预算都有直到当前月份的每一个月，所以 `last_month` 就是所请求的月份，除非请求的是更晚的月份。预算在 `last_month` 之后不可能再有变动，所以 [`CASE`](/zh-cn/user-guide/query-language/#case) 把它顺延过来：这个月以 `available` 开始，支出为零。`activity` 是一个数值，以预算的 `currency` 计。在该月之后才开始的预算不会列出。`WHERE date <= :month` 还让 `#budgets` 不再生成更晚的月份，所以账本中日期写到遥远未来的笔误不会造成影响。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
@@ -153,7 +153,7 @@ ORDER BY seq
 SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
        last(date) AS last_month,
        CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
-       CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
        last(available) AS available, last(closed) AS closed
 FROM #budgets
 WHERE date <= :month
@@ -188,7 +188,7 @@ WHERE name = :name
 SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
        last(date) AS last_month,
        CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
-       CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
        last(available) AS available, last(closed) AS closed
 FROM #budgets
 WHERE name = :name AND date <= :month
@@ -213,17 +213,18 @@ ORDER BY timestamp DESC
 
 #### `budgets.postings`
 
-某个月中预算账户的分录，最新的在前，每条分录附带其账户在该分录之后、以该分录货币计的余额。预算页面把它们和 `budgets.events` 的事件按时间合并列出，最新的在前。
+某个月中预算的分录，最新的在前，每条分录附带其账户在该分录之后、以该分录货币计的余额：即其日期当时计入该预算的预算账户分录，由 [`account_budgets`](/zh-cn/user-guide/query-language/#账户与商品指令) 判断，所以关闭后以其他预算重新开启的账户，其分录列在它所计入的预算中。预算页面把它们和 `budgets.events` 的事件按时间合并列出，最新的在前。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `accounts` | `set` | 预算的账户，即 `budgets.budget` 的 `accounts` |
 | `month` | `date` | 该月的第一天 |
+| `name` | `str` | 预算 |
 
 ```sql
 SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
        only(currency, account_balance) AS balance
-WHERE account IN :accounts AND yearmonth(date) = :month
+WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
 ORDER BY timestamp DESC
 ```
 

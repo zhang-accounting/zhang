@@ -4,9 +4,11 @@
 //!
 //! - a budget exists from its first `budget` directive on; the directives of a budget that does
 //!   not exist yet, and the postings before its definition, are not its own;
-//! - activity adds up the postings of the budget's accounts (those whose `open` names it with
-//!   `budget:`), negated on Income, Liabilities and Equity accounts, each converted to the
-//!   budget's commodity at its date; `budget-add` and `budget-transfer` amounts likewise;
+//! - activity adds up the postings of the budget's accounts, negated on Income, Liabilities and
+//!   Equity accounts, each converted to the budget's commodity at its date; `budget-add` and
+//!   `budget-transfer` amounts likewise. A posting is the activity of the budgets the account's
+//!   `open` in effect at its date names with `budget:`, each once: an account closed and
+//!   opened again with other budgets counts in those from its reopening on;
 //! - a conversion uses the latest `price` on or before the date (the last of a day wins): the
 //!   pair itself, else its inverse, else through the cost currency of a posting held at cost;
 //!   an amount no price converts is left out;
@@ -48,7 +50,7 @@ struct ReferenceBudget {
 /// The budgets of a ledger, as the reference computes them.
 pub(crate) struct Reference {
     budgets: HashMap<String, ReferenceBudget>,
-    /// the accounts of every budget: every `budget` entry of an account's `open` counts
+    /// the accounts of every budget: every `budget` entry of every `open` of an account counts
     accounts: HashMap<String, BTreeSet<String>>,
     /// the budgets an `open` names with a repeated `budget` entry, but its last one, with the
     /// accounts of those `open`s: the store keeps only the last value of a repeated key
@@ -60,6 +62,10 @@ pub(crate) struct Reference {
 
 /// A posting of a budget's account, as the reference sees it.
 pub(crate) struct ReferencePosting {
+    pub date: NaiveDate,
+    /// the budgets of the account's `open` in effect at the posting's date
+    pub budgets: BTreeSet<String>,
+    pub account: String,
     pub narration: Option<String>,
     pub units: Amount,
     /// the account's balance in the commodity of `units` after the posting
@@ -170,23 +176,10 @@ impl Reference {
             }
         }
         let prices = Prices(prices);
-        // account -> the budgets its open names
-        let mut owners: HashMap<String, Vec<String>> = HashMap::new();
+        // account -> the budgets of its `open` in effect, as the directives are walked in order
+        let mut owners: HashMap<String, BTreeSet<String>> = HashMap::new();
         let mut accounts: HashMap<String, BTreeSet<String>> = HashMap::new();
         let mut repeated: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for directive in &ledger.directives {
-            if let Directive::Open(open) = &directive.data {
-                let names = open.meta.get_all("budget");
-                for (idx, budget) in names.iter().enumerate() {
-                    let (account, budget) = (open.account.name().to_owned(), budget.as_str().to_owned());
-                    if idx + 1 < names.len() && names.last().is_some_and(|last| last.as_str() != budget) {
-                        repeated.entry(budget.clone()).or_default().insert(account.clone());
-                    }
-                    owners.entry(account.clone()).or_default().push(budget.clone());
-                    accounts.entry(budget).or_default().insert(account);
-                }
-            }
-        }
         let mut postings: HashMap<String, Vec<ReferencePosting>> = HashMap::new();
         let mut balances: HashMap<(String, String), BigDecimal> = HashMap::new();
         let mut budgets: HashMap<String, ReferenceBudget> = HashMap::new();
@@ -199,6 +192,19 @@ impl Reference {
         };
         for directive in &ledger.directives {
             match &directive.data {
+                Directive::Open(open) => {
+                    let account = open.account.name().to_owned();
+                    let names = open.meta.get_all("budget");
+                    for budget in &names {
+                        let budget = budget.as_str().to_owned();
+                        if names.last().is_some_and(|last| last.as_str() != budget) {
+                            repeated.entry(budget.clone()).or_default().insert(account.clone());
+                        }
+                        accounts.entry(budget).or_default().insert(account.clone());
+                    }
+                    // a later open replaces the budgets of an earlier one
+                    owners.insert(account, names.iter().map(|name| name.as_str().to_owned()).collect());
+                }
                 Directive::Budget(budget) => {
                     budgets.entry(budget.name.clone()).or_insert_with(|| ReferenceBudget {
                         commodity: budget.commodity.clone(),
@@ -225,7 +231,9 @@ impl Reference {
                     let date = transaction.date.naive_date();
                     let mut units = None;
                     for (idx, posting) in transaction.postings.iter().enumerate() {
-                        let Some(names) = owners.get(posting.account.name()) else { continue };
+                        let Some(names) = owners.get(posting.account.name()).filter(|names| !names.is_empty()) else {
+                            continue;
+                        };
                         if units.is_none() {
                             units = Some(self::units(transaction)?);
                         }
@@ -233,7 +241,10 @@ impl Reference {
                         let account = posting.account.name().to_owned();
                         let balance = balances.entry((account.clone(), units.commodity.clone())).or_insert_with(BigDecimal::zero);
                         *balance += &units.number;
-                        postings.entry(account).or_default().push(ReferencePosting {
+                        postings.entry(account.clone()).or_default().push(ReferencePosting {
+                            date,
+                            budgets: names.clone(),
+                            account,
                             narration: transaction.narration.as_ref().map(|it| it.as_str().to_owned()).filter(|it| !it.is_empty()),
                             units: units.clone(),
                             after: balance.clone(),
@@ -269,20 +280,25 @@ impl Reference {
         self.accounts.get(name).cloned().unwrap_or_default()
     }
 
+    /// The first day of the month of the budget's first `budget-close` once it exists.
+    pub(crate) fn closed_from(&self, name: &str) -> Option<NaiveDate> {
+        self.budgets.get(name)?.closed_from
+    }
+
     /// Whether an `open` names the budget with a repeated `budget` entry before its last one.
     pub(crate) fn repeated(&self, name: &str) -> bool {
         self.repeated.contains_key(name)
     }
 
-    /// The accounts whose `open` names the budget with a repeated `budget` entry before its last
-    /// one: those the store does not know as the budget's.
-    pub(crate) fn lost_accounts(&self, name: &str) -> BTreeSet<String> {
-        self.repeated.get(name).cloned().unwrap_or_default()
-    }
-
-    /// The postings of an account, in ledger order.
-    pub(crate) fn postings(&self, account: &str) -> &[ReferencePosting] {
-        self.postings.get(account).map(Vec::as_slice).unwrap_or_default()
+    /// The postings of a budget in the month of `month`: those of the accounts whose `open` in
+    /// effect at their date names it.
+    pub(crate) fn month_postings(&self, name: &str, month: NaiveDate) -> Vec<&ReferencePosting> {
+        let month = first_of_month(month);
+        self.postings
+            .values()
+            .flatten()
+            .filter(|posting| first_of_month(posting.date) == month && posting.budgets.contains(name))
+            .collect()
     }
 
     /// The number of months of every budget from its first through the month of `month`: the

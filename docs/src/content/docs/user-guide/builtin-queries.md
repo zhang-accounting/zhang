@@ -143,7 +143,7 @@ The budget pages read [`#budgets`](/user-guide/query-language/#budgets), [`#budg
 
 #### `budgets.month`
 
-Every budget as of a month: its last month in `#budgets` up to that month, as the budgets page lists them. `#budgets` has a row for every month of a budget through the current month, so `last_month` is the requested month, unless it is a later one. Nothing can have happened to the budget since `last_month`, so the [`CASE`](/user-guide/query-language/#case) carries it over: the month starts with `available` and spends nothing. Budgets that start after the month are not listed. `WHERE date <= :month` also makes `#budgets` generate no later month, so a date typo far ahead in the ledger does not get in the way.
+Every budget as of a month: its last month in `#budgets` up to that month, as the budgets page lists them. `#budgets` has a row for every month of a budget through the current month, so `last_month` is the requested month, unless it is a later one. Nothing can have happened to the budget since `last_month`, so the [`CASE`](/user-guide/query-language/#case) carries it over: the month starts with `available` and spends nothing. `activity` is a number, in the budget's `currency`. Budgets that start after the month are not listed. `WHERE date <= :month` also makes `#budgets` generate no later month, so a date typo far ahead in the ledger does not get in the way.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
@@ -153,7 +153,7 @@ Every budget as of a month: its last month in `#budgets` up to that month, as th
 SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
        last(date) AS last_month,
        CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
-       CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
        last(available) AS available, last(closed) AS closed
 FROM #budgets
 WHERE date <= :month
@@ -188,7 +188,7 @@ One budget as of a month, as in `budgets.month`. No row if the budget starts aft
 SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
        last(date) AS last_month,
        CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
-       CASE WHEN last(date) < :month THEN last(available) * 0 ELSE last(activity) END AS activity,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
        last(available) AS available, last(closed) AS closed
 FROM #budgets
 WHERE name = :name AND date <= :month
@@ -213,17 +213,18 @@ ORDER BY timestamp DESC
 
 #### `budgets.postings`
 
-The postings of a budget's accounts in a month, newest first, each with its account's balance in the posting's currency after it. The budget's page lists them together with the events of `budgets.events`, newest first.
+The postings of a budget in a month, newest first, each with its account's balance in the posting's currency after it: those of its accounts that count in it at their date, by [`account_budgets`](/user-guide/query-language/#account-and-commodity-directives), so a posting of an account closed and opened again with another budget is listed in the budget it counts in. The budget's page lists them together with the events of `budgets.events`, newest first.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `accounts` | `set` | the budget's accounts, the `accounts` of `budgets.budget` |
 | `month` | `date` | the first day of the month |
+| `name` | `str` | the budget |
 
 ```sql
 SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
        only(currency, account_balance) AS balance
-WHERE account IN :accounts AND yearmonth(date) = :month
+WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
 ORDER BY timestamp DESC
 ```
 

@@ -228,7 +228,9 @@ function SingleBudget() {
       <section aria-busy={refreshing} className={cn('flex flex-col gap-3 transition-opacity', refreshing && 'opacity-60')}>
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: formatMonth(date, i18n.language) })}</h2>
-          {budgetInfo && <OpenInExplore name="budgets.postings" params={{ accounts: budgetInfo.related_accounts, month: date }} iconOnly />}
+          {budgetInfo && (
+            <OpenInExplore name="budgets.postings" params={{ accounts: budgetInfo.related_accounts, month: date, name: budgetInfo.name }} iconOnly />
+          )}
         </div>
         {eventsError ? (
           <EmptyState icon={TriangleAlert} title={t('page_state.load_failed')} description={eventsError.message} />
