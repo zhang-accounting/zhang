@@ -38,6 +38,7 @@ use crate::error::ServerError;
 use crate::response::ResponseWrapper;
 use crate::state::AppState;
 
+pub mod account_queries;
 pub mod auth;
 pub mod broadcast;
 pub mod error;

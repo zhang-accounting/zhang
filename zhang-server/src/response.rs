@@ -364,6 +364,8 @@ pub struct AccountInfoEntity {
     pub alias: Option<String>,
     /// the account's own balance, that of its own postings
     pub amount: CalculatedAmount,
+    /// the balance of the account and all its sub-accounts, valued like `amount`: the total of the account's page
+    pub amount_with_sub_accounts: CalculatedAmount,
     /// the balance a balance assertion on the account is checked against, per currency: that of the account
     /// and all its sub-accounts
     pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
