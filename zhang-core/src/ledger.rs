@@ -16,7 +16,7 @@ use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, Spa
 
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
-use crate::data_source::DataSource;
+use crate::data_source::{DataSource, ListedFiles};
 use crate::derived::Derived;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
@@ -65,6 +65,9 @@ pub struct Ledger {
     /// whether the ledger may no longer be what its files hold: they were written, or found changed, since it was
     /// loaded. A writer reloads it first, to read the files as they are, and edit the places they have now
     pub stale: bool,
+
+    /// the files of a remote source the load listed, to tell whether the documents exist; emptied once loaded
+    pub(crate) listed_files: ListedFiles,
 
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
@@ -182,6 +185,7 @@ impl Ledger {
             clock: LoadClock::new(context.clock),
             derived: Derived::default(),
             stale: false,
+            listed_files: ListedFiles::default(),
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
@@ -217,6 +221,7 @@ impl Ledger {
         let (processed, assertions) = self.run_stages(full_stream)?;
         let (metas, mut dated) = Ledger::partition_processed_directives(processed);
         self.handle_other_directives(&mut dated, assertions)?;
+        self.listed_files = ListedFiles::default();
         self.metas = metas;
         self.directives = dated;
 

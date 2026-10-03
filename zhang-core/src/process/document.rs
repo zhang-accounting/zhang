@@ -45,7 +45,7 @@ impl DirectiveProcess for Document {
 /// [`DocumentPathRelativeToRoot`](ErrorKind::DocumentPathRelativeToRoot) notice telling how beancount would find it.
 /// A document found nowhere is [`DocumentNotFound`](ErrorKind::DocumentNotFound), as beancount reports it; where the
 /// source cannot tell, nothing is reported.
-fn beancount_document_path(ledger: &Ledger, written: &str, span: &SpanInfo) -> ZhangResult<String> {
+fn beancount_document_path(ledger: &mut Ledger, written: &str, span: &SpanInfo) -> ZhangResult<String> {
     let file = span.filename.as_ref().map(|file| file_in_ledger(&ledger.entry.0, file)).unwrap_or_default();
     let from_file = document_path_in_ledger(written, &file);
     if has_file(ledger, &from_file) != Some(false) {

@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -65,11 +65,27 @@ impl DataSource for OpendalDataSource {
         self.local_root.clone()
     }
 
-    /// asks the service, and gives up after [`PLUGIN_FILE_TIMEOUT`]: `None` then, or when the service fails
-    fn exists(&self, path: String) -> Option<bool> {
-        let file = &path;
-        self.blocking(Some(PLUGIN_FILE_TIMEOUT), |operator| async move { operator.exists(file).await })
-            .ok()
+    /// lists with the service, its pages of files whatever their depth: `None` past `max_files` files or `timeout`, or
+    /// when the service fails
+    fn files_in(&self, dir: String, recursive: bool, max_files: usize, timeout: Duration) -> Option<HashSet<String>> {
+        // a directory path ends with `/` in opendal, and the root is `/`
+        let listed = format!("{}/", dir.trim_end_matches('/'));
+        let listed = &listed;
+        self.blocking(Some(timeout), |operator| async move {
+            let mut lister = operator.lister_with(listed).recursive(recursive).await?;
+            let mut files = HashSet::new();
+            while let Some(entry) = lister.try_next().await? {
+                if entry.metadata().is_file() {
+                    if files.len() == max_files {
+                        return Ok(None);
+                    }
+                    files.insert(entry.path().trim_start_matches('/').to_owned());
+                }
+            }
+            Ok(Some(files))
+        })
+        .ok()
+        .flatten()
     }
 
     /// checks the size before downloading, never reads more than one chunk past `max_len`, and gives up after
@@ -867,12 +883,166 @@ mod test {
             is_beancount: true,
             local_root: None,
         };
-        assert_eq!(source.exists("data/2024/both.pdf".to_owned()), Some(true));
-        assert_eq!(source.exists("data/2024/attachments/legacy.pdf".to_owned()), Some(false));
+        let data = source.files_in("data".to_owned(), true, 10, PLUGIN_FILE_TIMEOUT).unwrap();
+        assert_eq!(data, ["data/2024/01.bean", "data/2024/both.pdf"].iter().map(|it| it.to_string()).collect());
+        let root = source.files_in(String::new(), false, 10, PLUGIN_FILE_TIMEOUT).unwrap();
+        assert_eq!(root, ["main.bean", "both.pdf"].iter().map(|it| it.to_string()).collect());
+        assert_eq!(source.files_in("data".to_owned(), true, 1, PLUGIN_FILE_TIMEOUT), None, "past its files");
         let ledger = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.bean".to_owned(), Arc::new(source))
             .await
             .unwrap();
         assert_documents(ledger).await;
+    }
+
+    /// counts the calls an operator makes to its service: a remote service answers each with a request at least
+    #[derive(Debug, Clone, Default)]
+    struct Counting(Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl opendal::raw::Layer for Counting {
+        fn apply_service(&self, inner: opendal::raw::Servicer) -> opendal::raw::Servicer {
+            Arc::new(CountingService { inner, calls: self.0.clone() })
+        }
+    }
+
+    #[derive(Debug)]
+    struct CountingService {
+        inner: opendal::raw::Servicer,
+        calls: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl CountingService {
+        fn count(&self, call: &str, path: &str) {
+            self.calls.lock().unwrap().push(format!("{} {}", call, path));
+        }
+    }
+
+    impl opendal::raw::Service for CountingService {
+        type Reader = opendal::raw::oio::Reader;
+        type Writer = opendal::raw::oio::Writer;
+        type Lister = opendal::raw::oio::Lister;
+        type Deleter = opendal::raw::oio::Deleter;
+        type Copier = opendal::raw::oio::Copier;
+        type Composer = opendal::raw::oio::Composer;
+
+        fn info(&self) -> opendal::raw::ServiceInfo {
+            self.inner.info()
+        }
+
+        fn capability(&self) -> opendal::Capability {
+            self.inner.capability()
+        }
+
+        async fn create_dir(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpCreateDir) -> opendal::Result<opendal::raw::RpCreateDir> {
+            self.count("create_dir", path);
+            self.inner.create_dir(ctx, path, args).await
+        }
+
+        async fn stat(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpStat) -> opendal::Result<opendal::raw::RpStat> {
+            self.count("stat", path);
+            self.inner.stat(ctx, path, args).await
+        }
+
+        fn read(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpRead) -> opendal::Result<Self::Reader> {
+            self.count("read", path);
+            self.inner.read(ctx, path, args)
+        }
+
+        fn write(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpWrite) -> opendal::Result<Self::Writer> {
+            self.count("write", path);
+            self.inner.write(ctx, path, args)
+        }
+
+        fn delete(&self, ctx: &opendal::OperationContext) -> opendal::Result<Self::Deleter> {
+            self.count("delete", "");
+            self.inner.delete(ctx)
+        }
+
+        fn list(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpList) -> opendal::Result<Self::Lister> {
+            self.count("list", path);
+            self.inner.list(ctx, path, args)
+        }
+
+        fn copy(&self, ctx: &opendal::OperationContext, from: &str, to: &str, args: opendal::raw::OpCopy) -> opendal::Result<Self::Copier> {
+            self.count("copy", from);
+            self.inner.copy(ctx, from, to, args)
+        }
+
+        async fn rename(&self, ctx: &opendal::OperationContext, from: &str, to: &str, args: opendal::raw::OpRename) -> opendal::Result<opendal::raw::RpRename> {
+            self.count("rename", from);
+            self.inner.rename(ctx, from, to, args).await
+        }
+
+        async fn presign(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpPresign) -> opendal::Result<opendal::raw::RpPresign> {
+            self.count("presign", path);
+            self.inner.presign(ctx, path, args).await
+        }
+    }
+
+    /// A load of a beancount ledger on a remote source asks it whether its documents exist a directory at a time, not
+    /// a document at a time: 240 documents in three directories, uploaded each in its own one as the UI does, cost a
+    /// listing of each, besides reading the two files of the ledger.
+    #[tokio::test]
+    async fn a_remote_source_is_asked_for_documents_a_directory_at_a_time() {
+        let counting = Counting::default();
+        let operator = Operator::new(Memory::default()).unwrap().layer(counting.clone());
+        let mut documents = String::new();
+        for index in 0..240 {
+            let dir = ["attachments", "receipts", "statements"][index % 3];
+            let file = format!("{}/{:08}-0000-0000-0000-000000000000/document {}.pdf", dir, index, index);
+            operator.write(&file, b"%PDF".to_vec()).await.unwrap();
+            documents.push_str(&format!("2024-01-15 document Assets:Cash \"../../{}\"\n", file));
+        }
+        // written relative to the root by an earlier version, and missing
+        operator.write("receipts/legacy.pdf", b"%PDF".to_vec()).await.unwrap();
+        documents.push_str("2024-01-16 document Assets:Cash \"receipts/legacy.pdf\"\n2024-01-17 document Assets:Cash \"missing.pdf\"\n");
+        operator.write("data/2024/01.bean", documents.into_bytes()).await.unwrap();
+        operator
+            .write("main.bean", b"1970-01-01 open Assets:Cash\ninclude \"data/2024/01.bean\"\n".to_vec())
+            .await
+            .unwrap();
+        counting.0.lock().unwrap().clear();
+
+        let source = OpendalDataSource {
+            operator,
+            data_type: Box::new(beancount::Beancount {}),
+            is_beancount: true,
+            local_root: None,
+        };
+        let ledger = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.bean".to_owned(), Arc::new(source))
+            .await
+            .unwrap();
+
+        let store = ledger.store.read().unwrap();
+        assert_eq!(store.documents.len(), 242);
+        let mut errors = store
+            .errors
+            .iter()
+            .map(|it| format!("{:?} {:?}", it.error_type, it.metas.get("written_as").or_else(|| it.metas.get("path"))))
+            .collect::<Vec<_>>();
+        errors.sort();
+        assert_eq!(
+            errors,
+            vec![
+                "DocumentNotFound Some(\"data/2024/missing.pdf\")".to_owned(),
+                "DocumentPathRelativeToRoot Some(\"../../receipts/legacy.pdf\")".to_owned(),
+            ]
+        );
+        let mut calls = counting.0.lock().unwrap().clone();
+        calls.sort();
+        // the two files of the ledger, the three directories of the documents, `data`, where the missing one would
+        // be next to its file, and the root, where it would be at the root
+        assert_eq!(
+            calls,
+            vec![
+                "list /",
+                "list attachments/",
+                "list data/",
+                "list receipts/",
+                "list statements/",
+                "read data/2024/01.bean",
+                "read main.bean"
+            ],
+        );
     }
 
     #[tokio::test]

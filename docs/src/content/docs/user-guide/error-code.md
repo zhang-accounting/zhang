@@ -202,6 +202,8 @@ are written so.
 
 A `document` of a Beancount ledger names a file that does not exist, neither relative to the file the `document` is
 in, where Beancount looks, nor relative to the ledger's directory. Beancount reports it as "File does not exist".
+On a remote storage such as S3, Zhang lists each directory of the documents once when it loads the ledger, rather than
+asking for each document; when it cannot list a directory in time, it reports nothing for the documents in it.
 
 **Example of Error:** in `data/2026/10.bean`, with no `data/2026/statement.pdf`
 ```beancount
