@@ -909,6 +909,13 @@ pub fn is_valid_meta_key(key: &str) -> bool {
     reads_all(meta_key, key)
 }
 
+/// Whether `value` is a metadata value that reads back unchanged when written unquoted:
+/// the value grammar reads all of it as one bare value, such as `1.5`, `2024-01-15` or
+/// `TRUE`, and not as a quoted string or as a shorter value followed by something else.
+pub fn is_valid_bare_meta_value(value: &str) -> bool {
+    matches!(string(value), Ok(("", ZhangString::UnquoteString(read))) if read == value)
+}
+
 /// Whether `flag` is a transaction flag that reads back as a flag.
 pub fn is_valid_transaction_flag(flag: &str) -> bool {
     reads_all(self::flag, flag)
@@ -2040,8 +2047,18 @@ mod test {
     /// The checks for names written unquoted run the grammar on the name.
     mod names {
         use crate::data_type::text::parser::{
-            is_valid_account_name, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
+            is_valid_account_name, is_valid_bare_meta_value, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
         };
+
+        #[test]
+        fn bare_meta_values() {
+            for valid in ["1.5", "-2", "2024-01-15", "TRUE", "USD", "#tag", "a;b", "中文"] {
+                assert!(is_valid_bare_meta_value(valid), "{valid}");
+            }
+            for invalid in ["", "from plugin", "a: b", "a:b", "\"quoted\"", "a\"b", "(x)", "a,b", "tab\t", "line\n", " x"] {
+                assert!(!is_valid_bare_meta_value(invalid), "{invalid:?}");
+            }
+        }
 
         #[test]
         fn account_names() {

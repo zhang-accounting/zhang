@@ -10,7 +10,7 @@ use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::constants::TXN_ID;
-use zhang_core::data_type::text::parser::transaction_header_len;
+use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
 use zhang_core::domains::schemas::{MetaType, TransactionInfoDomain};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::TransactionDomain;
@@ -178,17 +178,20 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
 /// New and changed values are written quoted. A value `original`, the metadata the
 /// request edits, already has unquoted under the same key is written unquoted again, so
 /// an edit that leaves a number, date or boolean as it was does not turn it into a string
-/// for beancount. An unquoted value read from the ledger is a bare word, so it reads back.
+/// for beancount. That is only done for a value the parser reads back as the same bare
+/// value: `original` comes after the plugins, and a plugin can make an unquoted value of
+/// any text, such as `from plugin`.
 fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> ServerResult<Meta> {
     let mut meta = Meta::default();
     for MetaRequest { key, value } in metas {
         validate::meta_key(&key, rules)?;
-        let unchanged_bare = original.is_some_and(|original| {
-            original
-                .get_all(&key)
-                .into_iter()
-                .any(|it| matches!(it, ZhangString::UnquoteString(bare) if *bare == value))
-        });
+        let unchanged_bare = is_valid_bare_meta_value(&value)
+            && original.is_some_and(|original| {
+                original
+                    .get_all(&key)
+                    .into_iter()
+                    .any(|it| matches!(it, ZhangString::UnquoteString(bare) if *bare == value))
+            });
         let value = if unchanged_bare {
             ZhangString::UnquoteString(value)
         } else {
@@ -356,7 +359,7 @@ mod string_round_trip_test {
     use zhang_core::ledger::Ledger;
     use zhang_core::store::TransactionDomain;
 
-    use super::{create_new_transaction, get_journals, insert_transaction_metas, update_single_transaction, write_transaction_documents};
+    use super::{create_new_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction, write_transaction_documents};
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
@@ -1097,5 +1100,40 @@ mod string_round_trip_test {
         );
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// An unquoted value is only written back unquoted when it reads back as that value:
+    /// a plugin can make an unquoted value of any text.
+    #[test]
+    fn only_values_that_read_back_bare_stay_bare() {
+        use zhang_ast::{Meta, ZhangString};
+
+        let mut original = Meta::default();
+        for value in ["from plugin", "a: b", "", "1.5", "2024-01-15", "TRUE"] {
+            original.insert(
+                format!("k{}", original.clone().get_flatten().len()),
+                ZhangString::UnquoteString(value.to_owned()),
+            );
+        }
+        let request = original
+            .clone()
+            .get_flatten()
+            .into_iter()
+            .map(|(key, value)| meta(&key, value.as_str()))
+            .collect::<Vec<_>>();
+        let written = metas_from_request(request, &crate::validate::Rules::Zhang, Some(&original)).unwrap();
+        let mut forms = written
+            .get_flatten()
+            .into_iter()
+            .map(|(_, value)| match value {
+                ZhangString::UnquoteString(bare) => format!("bare {bare}"),
+                ZhangString::QuoteString(quoted) => format!("quoted {quoted}"),
+            })
+            .collect::<Vec<_>>();
+        forms.sort();
+        assert_eq!(
+            forms,
+            vec!["bare 1.5", "bare 2024-01-15", "bare TRUE", "quoted ", "quoted a: b", "quoted from plugin"]
+        );
     }
 }
