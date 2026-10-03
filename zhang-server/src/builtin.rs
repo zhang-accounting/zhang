@@ -18,7 +18,7 @@
 //! 3. Map the [`QueryResult`] into the endpoint's response; [`calculated_amount`] and
 //!    [`LedgerDateRange`] are the shared pieces of that mapping.
 //! 4. List the query, with its BQL as it is here, on the "Built-in queries" page of the docs
-//!    (`docs/src/content/docs/user-guide/builtin-queries.md` and its `zh-cn` twin).
+//!    (`docs/src/content/docs/reference/builtin-queries.md` and its `zh-cn` twin).
 //!
 //! The tests check that every query compiles, declares exactly the parameters its BQL uses,
 //! can be written out as BQL and is documented.
@@ -287,7 +287,7 @@ mod test {
     #[test]
     fn every_builtin_is_documented_with_its_bql() {
         let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../docs/src/content/docs");
-        for file in ["user-guide/builtin-queries.md", "zh-cn/user-guide/builtin-queries.md"] {
+        for file in ["reference/builtin-queries.md", "zh-cn/reference/builtin-queries.md"] {
             let page = std::fs::read_to_string(docs.join(file)).unwrap_or_else(|err| panic!("{}: {}", file, err));
             let page = normalize(&page);
             for builtin in BUILTINS {
