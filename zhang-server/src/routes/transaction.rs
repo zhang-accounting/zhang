@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use axum::extract::{Multipart, Path, State};
@@ -183,20 +184,20 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
 /// New and changed values are written quoted. A value `original`, the metadata the
 /// request edits, already has unquoted under the same key is written unquoted again, so
 /// an edit that leaves a number, date or boolean as it was does not turn it into a string
-/// for beancount. That is only done for a value the parser reads back as the same bare
-/// value: `original` comes after the plugins, and a plugin can make an unquoted value of
-/// any text, such as `from plugin`.
+/// for beancount. Repeated pairs are matched in order: the n-th `key: value` of the request
+/// takes the form of the n-th `key: value` of `original`, and one beyond those is new.
+/// A value is only written unquoted when the parser reads it back as the same bare value:
+/// `original` comes after the plugins, and a plugin can make an unquoted value of any
+/// text, such as `from plugin`.
 fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> ServerResult<Meta> {
     let mut meta = Meta::default();
+    let mut occurrences: HashMap<(String, String), usize> = HashMap::new();
     for MetaRequest { key, value } in metas {
         validate::meta_key(&key, rules)?;
-        let unchanged_bare = is_valid_bare_meta_value(&value)
-            && original.is_some_and(|original| {
-                original
-                    .get_all(&key)
-                    .into_iter()
-                    .any(|it| matches!(it, ZhangString::UnquoteString(bare) if *bare == value))
-            });
+        let occurrence = occurrences.entry((key.clone(), value.clone())).or_default();
+        let original_form = original.and_then(|original| original.get_all(&key).into_iter().filter(|it| it.as_str() == value).nth(*occurrence));
+        *occurrence += 1;
+        let unchanged_bare = is_valid_bare_meta_value(&value) && matches!(original_form, Some(ZhangString::UnquoteString(_)));
         let value = if unchanged_bare {
             ZhangString::UnquoteString(value)
         } else {
@@ -1402,6 +1403,34 @@ mod string_round_trip_test {
         assert_eq!(
             postings_of(&written),
             "\n  Assets:Cash -5 CNY\n    rate: \"1.5\"\n  Assets:Cash -5 CNY\n    rate: \"1.5\"\n  Expenses:Food 10 CNY\n",
+            "{written}"
+        );
+    }
+
+    /// A repeated key keeps the form of each of its values only as many times as the
+    /// original has that value: a value changed into another one's is new.
+    #[tokio::test]
+    async fn repeated_values_are_matched_by_occurrence() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  dup: 1.5\n  dup: 2.5\n  Assets:Cash -5 CNY\n    dup: 1.5\n    dup: 2.5\n  Expenses:Food 5 CNY\n";
+        // 2.5 changed into 1.5, on the transaction and on the posting
+        let mut update = edit(&[("Assets:Cash", -5, &[("dup", "1.5"), ("dup", "1.5")]), ("Expenses:Food", 5, &[])]);
+        update.metas = vec![meta("dup", "1.5"), meta("dup", "1.5")];
+        let written = edit_bean(ledger, update).await;
+        assert!(written.contains("\n  dup: 1.5\n  dup: \"1.5\"\n"), "{written}");
+        assert_eq!(
+            postings_of(&written),
+            "\n  Assets:Cash -5 CNY\n    dup: 1.5\n    dup: \"1.5\"\n  Expenses:Food 5 CNY\n",
+            "{written}"
+        );
+
+        // unchanged, both keep their form
+        let mut update = edit(&[("Assets:Cash", -5, &[("dup", "1.5"), ("dup", "2.5")]), ("Expenses:Food", 5, &[])]);
+        update.metas = vec![meta("dup", "2.5"), meta("dup", "1.5")];
+        let written = edit_bean(ledger, update).await;
+        assert!(written.contains("\n  dup: 2.5\n  dup: 1.5\n"), "{written}");
+        assert_eq!(
+            postings_of(&written),
+            "\n  Assets:Cash -5 CNY\n    dup: 1.5\n    dup: 2.5\n  Expenses:Food 5 CNY\n",
             "{written}"
         );
     }
