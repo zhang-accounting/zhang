@@ -516,3 +516,32 @@ include "{data_file}"
     let (_, info) = respond(get_account_info(state, UrlPath(("Assets:Bank".to_owned(),))).await).await;
     assert_eq!(number(&info["data"]["balance_with_sub_accounts"]["CNY"]), decimal("500"));
 }
+
+#[tokio::test]
+async fn an_opened_sub_account_without_postings_counts_as_a_sub_account() {
+    let scratch = Scratch::new(
+        r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Equity:Open
+2024-01-02 * "Self" "init"
+  Assets:Bank 5 CNY
+  Equity:Open
+"#,
+    );
+    let (_, info) = respond(get_account_info(scratch.state().await, UrlPath(("Assets:Bank".to_owned(),))).await).await;
+    assert_eq!(info["data"]["has_sub_accounts"], true);
+    assert_eq!(info["data"]["balance_with_sub_accounts"], json!({"CNY": "5"}));
+    let (_, list) = respond(get_account_list(scratch.state().await).await).await;
+    let bank = list["data"].as_array().unwrap().iter().find(|it| it["name"] == "Assets:Bank").unwrap().clone();
+    assert_eq!(bank["has_sub_accounts"], true);
+    let checking = list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|it| it["name"] == "Assets:Bank:Checking")
+        .unwrap()
+        .clone();
+    assert_eq!(checking["has_sub_accounts"], false);
+}
