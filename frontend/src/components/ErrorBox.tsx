@@ -1,6 +1,7 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ChevronLeft, ChevronRight, FileWarning, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
+import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { LedgerError } from '@/api/types';
 import { useDisclosure } from '@/hooks/use-disclosure';
@@ -12,10 +13,11 @@ import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } f
 import { Skeleton } from './ui/skeleton';
 import { Textarea } from './ui/textarea';
 
-function errorLocation(error: LedgerError | null) {
+/** Where the error's directive is: its file and its byte offsets in it (the server records offsets, not lines). */
+function errorLocation(error: LedgerError | null, t: TFunction) {
   if (!error?.span) return '';
   const { filename, start, end } = error.span;
-  return `${filename ?? ''}:L${start}${end !== start ? `-${end}` : ''}`;
+  return t('ERROR_BOX_LOCATION', { file: filename ?? '', start, end });
 }
 
 /** Ledger error list (Home): tappable rows opening a detail dialog, compact pager, the otter + "healthy" when empty. */
@@ -81,7 +83,7 @@ export default function ErrorBox() {
               <TriangleAlert className="size-4 shrink-0 text-destructive" />
               {selectError && errorTitle(selectError)}
             </DialogTitle>
-            <DialogDescription className="font-mono text-xs break-all">{errorLocation(selectError)}</DialogDescription>
+            <DialogDescription className="font-mono text-xs break-all">{errorLocation(selectError, t)}</DialogDescription>
           </DialogHeader>
           {metas.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -94,7 +96,7 @@ export default function ErrorBox() {
             </div>
           )}
           <Textarea
-            aria-label={errorLocation(selectError)}
+            aria-label={errorLocation(selectError, t)}
             className="min-h-32 font-mono text-base md:text-xs"
             rows={Math.min(Math.max(selectErrorContent.split('\n').length, 4), 18)}
             spellCheck={false}
@@ -136,7 +138,7 @@ export default function ErrorBox() {
                 </ItemMedia>
                 <ItemContent className="min-w-0">
                   <ItemTitle className="line-clamp-2 w-full">{errorTitle(error)}</ItemTitle>
-                  {error.span && <ItemDescription className="truncate font-mono text-xs">{errorLocation(error)}</ItemDescription>}
+                  {error.span && <ItemDescription className="truncate font-mono text-xs">{errorLocation(error, t)}</ItemDescription>}
                 </ItemContent>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               </Item>
