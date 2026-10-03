@@ -100,6 +100,37 @@ fn is_ident_char(c: char) -> bool {
 }
 
 /// Skip whitespace and `--` comments.
+/// The parameters (`$n` and `:name`) of a query text with their byte ranges, in order. String
+/// literals and comments are skipped as the parser skips them, so a `:name` inside one is not
+/// a parameter.
+pub(crate) fn param_tokens(query: &str) -> Vec<(std::ops::Range<usize>, ParamRef)> {
+    let mut tokens = vec![];
+    let mut idx = 0;
+    while let Some(c) = query[idx..].chars().next() {
+        let rest = &query[idx..];
+        let len = match c {
+            // a string runs to the next quote of its kind; an unterminated one to the end
+            '\'' | '"' => rest[1..].find(c).map_or(rest.len(), |end| end + 2),
+            '-' if rest.starts_with("--") => rest.find('\n').unwrap_or(rest.len()),
+            '$' => {
+                let digits = rest[1..].len() - rest[1..].trim_start_matches(|c: char| c.is_ascii_digit()).len();
+                if let Some(number) = rest[1..=digits].parse::<usize>().ok().filter(|number| *number >= 1) {
+                    tokens.push((idx..idx + 1 + digits, ParamRef::Positional(number)));
+                }
+                1 + digits
+            }
+            ':' if rest[1..].starts_with(is_ident_start) => {
+                let name = rest[1..].len() - rest[1..].trim_start_matches(is_ident_char).len();
+                tokens.push((idx..idx + 1 + name, ParamRef::Named(rest[1..=name].to_owned())));
+                1 + name
+            }
+            c => c.len_utf8(),
+        };
+        idx += len;
+    }
+    tokens
+}
+
 fn skip_ws(mut i: &str) -> &str {
     loop {
         let trimmed = i.trim_start();
@@ -1599,5 +1630,29 @@ mod tests {
             assert_eq!((err.line, err.column), (Some(1), Some(column)), "{}: {}", src, err);
             assert!(err.message.contains(message), "{}: {}", src, err.message);
         }
+    }
+
+    #[test]
+    fn param_tokens_skip_strings_and_comments() {
+        let tokens = |query: &str| {
+            param_tokens(query)
+                .into_iter()
+                .map(|(range, param)| (query[range].to_owned(), param.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let pair = |text: &str| (text.to_owned(), text.to_owned());
+        assert_eq!(
+            tokens("SELECT ':a', \":b\" -- :c\nWHERE x = :d AND y IN $12 -- $3"),
+            vec![pair(":d"), pair("$12")]
+        );
+        // the parameter ends where the name does
+        assert_eq!(tokens("WHERE date>=:from_date)AND:to<1"), vec![pair(":from_date"), pair(":to")]);
+        // not parameters: `$0`, a lone `$` or `:`, a quote inside the other kind of string and
+        // an unterminated string
+        assert_eq!(tokens("SELECT $0, $, : x, '\"' + :ok, \"'\""), vec![pair(":ok")]);
+        assert_eq!(tokens("SELECT 'unterminated :a"), vec![]);
+        assert_eq!(tokens("SELECT 1 -- :a"), vec![]);
+        assert_eq!(tokens("SELECT '午餐', :名"), vec![]);
+        assert_eq!(tokens("SELECT '午餐', :x名"), vec![pair(":x")]);
     }
 }
