@@ -87,13 +87,13 @@ fn seq(record: &Record<'_>) -> Value {
 
 /// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and
 /// time of a transaction.
-fn time(data: &Dataset<'_>, record: &Record<'_>) -> Value {
+pub(super) fn time(data: &Dataset<'_>, record: &Record<'_>) -> Value {
     let datetime = directive(record).and_then(|it| it.data.datetime());
     datetime.map_or(Value::Null, |it| time_value(resolve_local_datetime(&data.ledger.options.timezone, &it).time()))
 }
 
 /// The Unix time of the row's directive, read like [`time`].
-fn timestamp(data: &Dataset<'_>, record: &Record<'_>) -> Value {
+pub(super) fn timestamp(data: &Dataset<'_>, record: &Record<'_>) -> Value {
     let datetime = directive(record).and_then(|it| it.data.datetime());
     datetime.map_or(Value::Null, |it| {
         Value::Int(resolve_local_datetime(&data.ledger.options.timezone, &it).timestamp())

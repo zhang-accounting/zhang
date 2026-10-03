@@ -689,7 +689,7 @@ ORDER BY currency
 - **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
 - **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries` and `#transactions` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
 - **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
-- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual` and `passed` on `#balances`; and `source`, `path` and `transaction_id` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
+- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `time` and `timestamp` on `#prices`; `actual` and `passed` on `#balances`; and `source`, `path` and `transaction_id` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
 
 ### #entries
 
@@ -730,6 +730,7 @@ ORDER BY currency
 | `#prices` | `date` | `date` | Date of the price. |
 | | `currency` | `str` | The commodity being priced. |
 | | `amount` | `amount` | The price of one unit. |
+| | `time`, `timestamp` | `str`, `int` | Time of day of the price in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none) and the Unix time of its date and time, in seconds, as in [`#entries`](#entries). They tell apart several prices of one day, which come in time order. Zhang extension. |
 | `#balances` | `date` | `date` | Date of the assertion. |
 | | `account` | `str` | The account whose balance is asserted. |
 | | `amount` | `amount` | The asserted balance. |
