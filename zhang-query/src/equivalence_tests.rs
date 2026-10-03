@@ -122,6 +122,11 @@ const QUERIES: &[&str] = &[
     "SELECT account, open.date, close FROM #accounts ORDER BY open.date DESC, account LIMIT 5",
     "SELECT account, year(date) AS y, count(*) AS n FROM #balances GROUP BY 1, 2 HAVING count(*) > 1 PIVOT BY account, y",
     "SELECT name, date FROM #commodities ORDER BY name DESC LIMIT 2",
+    // top-k pages whose other targets are built for the kept rows only, also next to running totals
+    "SELECT seq, type, id, date, time, payee, narration, tags, links, metas, accounts FROM #entries ORDER BY seq DESC LIMIT 9 OFFSET 4",
+    "SELECT date, path, account, transaction_id FROM #documents ORDER BY seq DESC LIMIT 3",
+    "SELECT id, account, payee, units(position), str(position), metas, entry_metas ORDER BY seq DESC, posting_index LIMIT 20 OFFSET 7",
+    "SELECT date, account, balance, account_balance, payee, number / 0 ORDER BY date DESC, account LIMIT 6 OFFSET 2",
     // account-scoped scans, and the columns zhang adds
     "SELECT date, account, position, balance, account_balance WHERE account = 'Assets:Broker' OR account = 'Assets:US:BofA:Checking'",
     "SELECT date, account, balance, account_balance, seq, posting_index WHERE account IN ('Assets:Cash', 'Assets:US:Vanguard:Cash', 'Nowhere') ORDER BY seq DESC LIMIT 20",
@@ -177,6 +182,7 @@ const PARAM_QUERIES: &[&str] = &[
     "SELECT count(*) WHERE account NOT IN :accounts AND :missing IN tags",
     "SELECT date, account WHERE account IN (:account, 'Assets:Cash', :missing) LIMIT :size",
     "SELECT date, payee WHERE icontains(payee, :needle) OR icontains(narration, :needle) ORDER BY date DESC LIMIT :size OFFSET :offset",
+    "SELECT seq, type, id, payee, tags, metas FROM #entries WHERE icontains(payee, :needle) ORDER BY seq DESC LIMIT :size OFFSET :offset",
     "SELECT account, sum(position) WHERE under(account, :root) GROUP BY account ORDER BY account",
     "SELECT date, balance WHERE under(account, :root) ORDER BY date DESC LIMIT :size OFFSET :offset",
     "SELECT account, count(*) WHERE account ~ :empty OR :flag GROUP BY account LIMIT :size",
@@ -428,6 +434,14 @@ fn explain_shows_the_decisions() {
     .unwrap()
     .explain();
     assert!(page.contains("limit: :size offset :offset (top-k while scanning)\n"), "{page}");
+    // a top-k page builds its targets but the ORDER BY keys for the rows it keeps only
+    let wide = explain("SELECT seq, payee, tags, metas FROM #entries ORDER BY seq DESC LIMIT 10");
+    assert!(
+        wide.contains("limit: 10 (top-k while scanning)\nlate targets: [1, 2, 3] (built for the kept rows only)\n"),
+        "{wide}"
+    );
+    assert!(!explain("SELECT date, payee ORDER BY date DESC").contains("late targets"));
+    assert!(!explain("SELECT date, number / 2 ORDER BY date DESC LIMIT 3").contains("late targets"));
     assert!(explain("SELECT DISTINCT account LIMIT 3 OFFSET 6").contains("limit: 3 offset 6 (stops the scan)\n"));
     let grouped = explain("SELECT account, last(balance), min(balance) GROUP BY account LIMIT 2");
     assert!(

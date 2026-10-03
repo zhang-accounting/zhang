@@ -655,6 +655,7 @@ fn explain_shows_the_optimized_plan() {
          filter: ((year = 2024) AND (account ~ /^Expenses/i))\n\
          order by: 1 DESC\n\
          limit: 5 (top-k while scanning)\n\
+         late targets: [0] (built for the kept rows only)\n\
          project: [account, number, year] (3 of 34 columns)\n"
     );
     let grouped = Query::compile("SELECT root(account, 1) AS r, sum(position) WHERE TRUE OR payee IS NULL GROUP BY r").unwrap();

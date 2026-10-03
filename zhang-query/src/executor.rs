@@ -696,6 +696,8 @@ pub(crate) fn row_weight(row: &[Value]) -> u64 {
 struct Built {
     cells: Vec<Value>,
     ordinal: usize,
+    /// the index of the row in the dataset
+    index: usize,
 }
 
 /// Rows ranked by the ORDER BY, ties broken by arrival, as a stable sort orders them.
@@ -931,6 +933,7 @@ pub(crate) fn execute_within(
     let (mut rows, counted, windowed) = match &plan.group_keys {
         None => {
             let deferred = &strategy.running.deferred_targets;
+            let late = &strategy.late_targets;
             let stop_at = end.filter(|_| strategy.limit == LimitMode::StopScan);
             let mut collector = match end {
                 Some(k) if strategy.limit == LimitMode::TopK => Collector::TopK {
@@ -977,7 +980,11 @@ pub(crate) fn execute_within(
                 };
                 let mut cells = Vec::with_capacity(plan.targets.len());
                 for (idx, target) in plan.targets.iter().enumerate() {
-                    cells.push(if deferred.contains(&idx) { Value::Null } else { target.expr.eval(&env)? });
+                    cells.push(if deferred.contains(&idx) || late.contains(&idx) {
+                        Value::Null
+                    } else {
+                        target.expr.eval(&env)?
+                    });
                 }
                 if let Some(seen) = &mut seen {
                     let key = cells[..plan.visible].to_vec();
@@ -993,7 +1000,15 @@ pub(crate) fn execute_within(
                         continue;
                     }
                 }
-                collector.push(Built { cells, ordinal }, &plan.order, &mut budget)?;
+                collector.push(
+                    Built {
+                        cells,
+                        ordinal,
+                        index: counter,
+                    },
+                    &plan.order,
+                    &mut budget,
+                )?;
             }
             let counted = match strategy.limit {
                 LimitMode::StopScan => Some(match &seen {
@@ -1009,26 +1024,41 @@ pub(crate) fn execute_within(
             if !plan.order.is_empty() && !ranked {
                 rows.sort_by(|a, b| order_cmp(&plan.order, &a.cells, &b.cells));
             }
-            if deferred.is_empty() {
+            if deferred.is_empty() && late.is_empty() {
                 (rows.into_iter().map(|row| row.cells).collect::<Vec<_>>(), counted, false)
             } else {
                 // the rows are chosen: LIMIT and OFFSET apply now (no DISTINCT defers), then
-                // the replay evaluates the deferred targets of the rows that are left
+                // the late targets are built for the rows that are left, and the replay
+                // evaluates their deferred targets
                 let counted = Some(counted.unwrap_or(rows.len() as u64));
                 if let Some(window) = run.window {
                     window.apply(&mut rows);
                 }
-                let mut needs = rows.iter().enumerate().map(|(slot, row)| (row.ordinal, slot)).collect::<Vec<_>>();
-                needs.sort_unstable();
-                let filtered_rows = filtered.rows.take().unwrap_or_default();
-                execution.replay(&filtered_rows, &needs, |slot, env| {
-                    for idx in deferred {
-                        let value = plan.targets[*idx].expr.eval(env)?;
-                        budget.change(weight(&rows[slot].cells[*idx]), weight(&value))?;
-                        rows[slot].cells[*idx] = value;
+                for (counter, row) in rows.iter_mut().enumerate() {
+                    Deadline::check(execution.deadline, counter)?;
+                    let env = Env {
+                        row: Some(data.row(row.index)),
+                        ..base
+                    };
+                    for idx in late {
+                        let value = plan.targets[*idx].expr.eval(&env)?;
+                        budget.change(weight(&row.cells[*idx]), weight(&value))?;
+                        row.cells[*idx] = value;
                     }
-                    Ok(())
-                })?;
+                }
+                if !deferred.is_empty() {
+                    let mut needs = rows.iter().enumerate().map(|(slot, row)| (row.ordinal, slot)).collect::<Vec<_>>();
+                    needs.sort_unstable();
+                    let filtered_rows = filtered.rows.take().unwrap_or_default();
+                    execution.replay(&filtered_rows, &needs, |slot, env| {
+                        for idx in deferred {
+                            let value = plan.targets[*idx].expr.eval(env)?;
+                            budget.change(weight(&rows[slot].cells[*idx]), weight(&value))?;
+                            rows[slot].cells[*idx] = value;
+                        }
+                        Ok(())
+                    })?;
+                }
                 (rows.into_iter().map(|row| row.cells).collect::<Vec<_>>(), counted, true)
             }
         }
