@@ -1,0 +1,24 @@
+{
+  "name": "pivot_several_value_columns",
+  "query": "SELECT account, year, count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses:Food:(Coffee|Alcohol|Groceries)' GROUP BY 1, 2 PIVOT BY account, year",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "strict_names": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account/year", "type": "str"},
+    {"name": "2015/n", "type": "int"},
+    {"name": "2015/total", "type": "decimal"},
+    {"name": "2016/n", "type": "int"},
+    {"name": "2016/total", "type": "decimal"},
+    {"name": "2017/n", "type": "int"},
+    {"name": "2017/total", "type": "decimal"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", null, null, 7, "63.58", null, null],
+    ["Expenses:Food:Coffee", 4, "21.93", 5, "29.96", 4, "25.09"],
+    ["Expenses:Food:Groceries", 27, "2054.00", 29, "2367.32", 17, "1515.10"]
+  ],
+  "notes": "With several remaining targets, each value of b gets one column per target, named '<value>/<target>' and ordered value first, then target order: 2015/n, 2015/total, 2016/n, ... Expenses:Food:Alcohol has postings only in 2016, so its other cells are NULL."
+}

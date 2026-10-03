@@ -5,6 +5,7 @@
 //! exactly the same [`Directive`] AST — the shared test module below is the
 //! behavioural contract.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -429,6 +430,16 @@ fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
     Ok((rest, (tags, links)))
 }
 
+/// The tags and links after the string of a note or document, as the AST keeps
+/// them: `None` when there are none.
+type TagAndLinkSets = (Option<HashSet<String>>, Option<HashSet<String>>);
+
+fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
+    let (i, (tags, links)) = tags_or_links(i)?;
+    let set = |items: Vec<String>| (!items.is_empty()).then(|| items.into_iter().collect::<HashSet<_>>());
+    Ok((i, (set(tags), set(links))))
+}
+
 // ---------------------------------------------------------------------------
 // metadata
 // ---------------------------------------------------------------------------
@@ -505,14 +516,15 @@ fn note_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
     let (i, comment) = string(i)?;
+    let (i, (tags, links)) = tag_and_link_sets(i)?;
     Ok((
         i,
         Directive::Note(Note {
             date,
             account,
             comment,
-            tags: None,
-            links: None,
+            tags,
+            links,
             meta: Meta::default(),
         }),
     ))
@@ -554,14 +566,15 @@ fn document_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
     let (i, filename) = string(i)?;
+    let (i, (tags, links)) = tag_and_link_sets(i)?;
     Ok((
         i,
         Directive::Document(Document {
             date,
             account,
             filename,
-            tags: None,
-            links: None,
+            tags,
+            links,
             meta: Meta::default(),
         }),
     ))
@@ -1099,6 +1112,49 @@ mod test {
                 assert_eq!(inner.account, account!("Assets:Card"));
                 assert_eq!(inner.filename, quote!("abc.jpg"));
             }
+        }
+    }
+    mod note_and_document_tags {
+        use std::collections::HashSet;
+
+        use zhang_ast::Directive;
+
+        use crate::data_type::text::parser::parse;
+
+        fn set(items: &[&str]) -> Option<HashSet<String>> {
+            Some(items.iter().map(|it| (*it).to_owned()).collect())
+        }
+
+        #[test]
+        fn notes_and_documents_keep_their_tags_and_links() {
+            let directives = parse(
+                "2020-01-10 note Assets:Bank \"x\" #t1 ^ln #t2 ; a comment\n\
+                 2020-01-11 document Assets:Bank \"a.pdf\" ^l1 ^l2\n\
+                 2020-01-12 note Assets:Bank \"y\" # a comment, not a tag\n\
+                 2020-01-13 document Assets:Bank \"b.pdf\"\n  k: \"v\"\n",
+                None,
+            )
+            .unwrap()
+            .into_iter()
+            .map(|it| it.data)
+            .collect::<Vec<_>>();
+            let Directive::Note(note) = &directives[0] else {
+                panic!("{:?}", directives[0])
+            };
+            assert_eq!((note.tags.clone(), note.links.clone()), (set(&["t1", "t2"]), set(&["ln"])));
+            let Directive::Document(document) = &directives[1] else {
+                panic!("{:?}", directives[1])
+            };
+            assert_eq!((document.tags.clone(), document.links.clone()), (None, set(&["l1", "l2"])));
+            let Directive::Note(note) = &directives[2] else {
+                panic!("{:?}", directives[2])
+            };
+            assert_eq!((note.tags.clone(), note.links.clone()), (None, None));
+            let Directive::Document(document) = &directives[3] else {
+                panic!("{:?}", directives[3])
+            };
+            assert_eq!((document.tags.clone(), document.links.clone()), (None, None));
+            assert_eq!(document.meta.get_one("k").map(|it| it.as_str()), Some("v"));
         }
     }
     mod price {

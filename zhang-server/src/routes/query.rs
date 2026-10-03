@@ -269,6 +269,48 @@ mod csv_test {
     }
 
     #[tokio::test]
+    async fn query_csv_of_a_pivot_splits_the_pivoted_columns_per_currency() {
+        let response = post_csv("SELECT account, currency, sum(position) AS total GROUP BY 1, 2 PIVOT BY account, currency").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        // a pivoted inventory column is split like any other; missing cells stay empty
+        assert_eq!(
+            text(response).await,
+            "account/currency,AAPL (AAPL),CNY (CNY),USD (USD)\r\n\
+             Assets:Broker,2,,\r\n\
+             Assets:Cash,,-12.50,\r\n\
+             Equity:Opening,,,-300.00\r\n\
+             Expenses:Food,,12.50,\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn query_results_of_a_pivot_have_typed_columns() {
+        let ledger = ledger().await;
+        let response = super::run(
+            ledger.0.clone(),
+            "SELECT account, currency, count(*) AS n GROUP BY 1, 2 HAVING count(*) > 0 PIVOT BY currency, account".to_owned(),
+            zhang_query::DEFAULT_MAX_RESULT_VALUES,
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+        assert_eq!(
+            body,
+            json!({"data": {
+                "columns": [
+                    {"name": "currency/account", "type": "str"},
+                    {"name": "Assets:Broker", "type": "int"},
+                    {"name": "Assets:Cash", "type": "int"},
+                    {"name": "Equity:Opening", "type": "int"},
+                    {"name": "Expenses:Food", "type": "int"}
+                ],
+                "rows": [["AAPL", 1, null, null, null], ["CNY", null, 1, null, 1], ["USD", null, null, 1, null]]
+            }})
+        );
+    }
+
+    #[tokio::test]
     async fn query_csv_errors_are_the_query_api_400() {
         let response = post_csv("SELECT account WHERE").await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -324,6 +366,30 @@ mod result_limit_test {
         Arc::new(RwLock::new(ledger))
     }
 
+    /// A name with thousands of dots is a positioned 400, on a runtime whose threads have a
+    /// 2 MiB stack.
+    #[test]
+    fn long_dotted_names_are_a_query_400() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_stack_size(2 << 20)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let ledger = ledger().await;
+            for dots in [10_000, 32_000] {
+                let query = format!("SELECT a{} FROM #accounts", ".a".repeat(dots));
+                let response = run(ledger.clone(), query, 100).await.into_response();
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["line"], 1);
+                assert_eq!(body["column"], 8 + 2 * zhang_query::MAX_NAME_PARTS - 1);
+            }
+        });
+    }
+
     #[tokio::test]
     async fn results_over_the_limit_are_a_query_400() {
         let ledger = ledger().await;
@@ -359,5 +425,51 @@ mod result_limit_test {
             assert!(message.starts_with("ZHANG_QUERY_MAX_RESULT_VALUES must be a positive integer"), "{}", message);
             assert!(message.ends_with("using the default of 1000000 values"), "{}", message);
         }
+    }
+}
+
+#[cfg(test)]
+mod schema_test {
+    use axum::response::IntoResponse;
+    use gotcha::Schematic;
+
+    use super::get_query_schema;
+    use crate::response::QuerySchemaEntity;
+
+    #[tokio::test]
+    async fn the_schema_lists_every_table_with_its_columns() {
+        let response = get_query_schema().await.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let schema = &body["data"];
+        assert!(!schema["functions"].as_array().unwrap().is_empty());
+
+        let tables = schema["tables"].as_array().unwrap();
+        // postings comes first, with the same columns as the top-level `columns`
+        assert_eq!(tables[0]["name"], "postings");
+        assert_eq!(tables[0]["columns"], schema["columns"]);
+        assert!(tables.iter().any(|table| table["name"] == "prices"));
+        for table in tables {
+            let name = table["name"].as_str().unwrap();
+            assert!(!name.starts_with('#') && !name.is_empty(), "{}", name);
+            assert!(!table["description"].as_str().unwrap().is_empty(), "{}", name);
+            let columns = table["columns"].as_array().unwrap();
+            assert!(!columns.is_empty(), "{}", name);
+            for column in columns {
+                assert_eq!(column.as_object().unwrap().len(), 3, "{}: {}", name, column);
+                for field in ["name", "type", "description"] {
+                    assert!(!column[field].as_str().unwrap().is_empty(), "{}: {}", name, column);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_openapi_schema_declares_the_tables() {
+        let schema = serde_json::to_value(QuerySchemaEntity::generate_schema().schema).unwrap();
+        assert_eq!(schema["required"], serde_json::json!(["columns", "functions", "tables"]));
+        let table = &schema["properties"]["tables"]["items"];
+        assert_eq!(table["required"], serde_json::json!(["name", "description", "columns"]));
+        assert_eq!(table["properties"]["columns"]["type"], "array");
     }
 }

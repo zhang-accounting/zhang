@@ -160,7 +160,10 @@ export default function Explore() {
     const view = viewRef.current;
     if (!view) return;
     const { from, to } = view.state.selection.main;
-    view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length - cursorBack }, scrollIntoView: true });
+    // a word inserted right after another token is kept apart from it, e.g. `SELECT *` + `FROM #prices`
+    const before = view.state.sliceDoc(Math.max(0, from - 1), from);
+    const insert = /^[\w#]/.test(text) && /[\w*)'"]/.test(before) ? ` ${text}` : text;
+    view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length - cursorBack }, scrollIntoView: true });
     view.focus();
   };
 

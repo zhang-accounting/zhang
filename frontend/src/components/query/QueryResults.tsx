@@ -23,8 +23,9 @@ interface Props {
 }
 
 /**
- * Results card: row count and timing, plus a Table / Chart switch when the result can be charted (two columns: a label or
- * date and a value, see `detectChartKind`). The choice is remembered; results that cannot be charted show the table.
+ * Results card: row count and timing, plus a Table / Chart switch when the result can be charted (a label or date column
+ * followed by one value column, or by several such as a PIVOT BY result, see `detectChartKind`). The choice is
+ * remembered; results that cannot be charted show the table.
  */
 export default function QueryResults({ runId, result, elapsedMs, stale = false, operatingCurrency }: Props) {
   const { t } = useTranslation();

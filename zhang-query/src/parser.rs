@@ -5,10 +5,13 @@
 //! ```text
 //! query      := (select | balances | journal) [;]
 //! select     := SELECT [DISTINCT] targets [from] [where]
-//!               [GROUP BY item, ...] [ORDER BY item [ASC|DESC], ...] [LIMIT int]
+//!               [GROUP BY item, ... [HAVING expr]] [ORDER BY item [ASC|DESC], ...]
+//!               [PIVOT BY column, column] [LIMIT int]
+//! column     := name | int                       (a target name or a 1-based target index)
 //! balances   := BALANCES [AT name] [from] [where]
 //! journal    := JOURNAL ['regex' | $n | :name] [AT name] [from]
-//! from       := FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]   (at least one part)
+//! from       := FROM table | FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]   (at least one part)
+//! table      := #name | name        (a bare name only when it names a table; SELECT only)
 //! date       := 2024-01-31 | $n | :name
 //! where      := WHERE expr
 //! targets    := '*' | expr [AS name], ...
@@ -22,7 +25,7 @@
 //! sum        := term (('+' | '-') term)*
 //! term       := unary (('*' | '/') unary)*
 //! unary      := '-' unary | '+' unary | primary
-//! primary    := '(' expr ')' | literal | $n | :name | name '(' ['*' | expr, ...] ')' | name
+//! primary    := '(' expr ')' | literal | $n | :name | name '(' ['*' | expr, ...] ')' | name ('.' name)*
 //! literal    := 'string' | "string" | 2024-01-31 | 12 | 12.50 | TRUE | FALSE | NULL
 //! ```
 //!
@@ -41,7 +44,7 @@ use nom::bytes::complete::{tag, tag_no_case, take_while, take_while1};
 use nom::error::{ErrorKind, ParseError};
 use nom::{Err as NomErr, IResult};
 
-use crate::ast::{ArithOp, BinaryOp, Expr, ExprKind, FromClause, InTarget, Literal, LogicalOp, OrderItem, Period, Select, Target, Targets, UnaryOp};
+use crate::ast::{ArithOp, BinaryOp, Expr, ExprKind, FromClause, InTarget, Literal, LogicalOp, OrderItem, Period, Select, TableName, Target, Targets, UnaryOp};
 use crate::error::{QueryError, QueryErrorKind, Span};
 use crate::params::ParamRef;
 use crate::statements::{self, AtFunction};
@@ -80,6 +83,9 @@ const RESERVED: &[&str] = &[
     "select", "distinct", "from", "where", "group", "by", "order", "asc", "desc", "limit", "as", "and", "or", "not", "in", "is", "null", "true", "false",
     "having", "pivot",
 ];
+
+/// The clauses that may follow `FROM #table`.
+const FOLLOWS_TABLE: &[&str] = &["where", "group", "order", "having", "pivot", "limit"];
 
 fn is_ident_start(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '_'
@@ -166,6 +172,10 @@ fn raw_identifier(i: &str) -> PResult<'_, &str> {
     }
     take_while1(is_ident_char)(i)
 }
+
+/// The most parts a dotted name may have (`open.date` has two). Attribute access only needs
+/// two today; the cap keeps names short whatever the query length.
+pub const MAX_NAME_PARTS: usize = 8;
 
 /// The longest accepted query text, in bytes.
 pub const MAX_QUERY_LENGTH: usize = 64 * 1024;
@@ -262,7 +272,7 @@ impl<'s> Parser<'s> {
         };
         let (i, targets) = cut(self.targets(i))?;
 
-        let (i, FromClause { expr: from, period }) = self.parse_from(i)?;
+        let (i, FromClause { table, expr: from, period }) = self.parse_from(i)?;
         let (i, where_clause) = self.parse_where(i)?;
         let (i, group_by) = match keyword("group")(i) {
             Ok((rest, _)) => {
@@ -272,9 +282,20 @@ impl<'s> Parser<'s> {
             }
             Err(_) => (i, None),
         };
-        if is_keyword(i, "having") {
-            return failure(skip_ws(i), "HAVING is not supported yet");
-        }
+        // as in beanquery, HAVING is part of the GROUP BY clause
+        let (i, having) = match keyword("having")(i) {
+            Ok(_) if group_by.is_none() => {
+                return failure(skip_ws(i), "HAVING requires a GROUP BY clause; filter rows with WHERE");
+            }
+            Ok((rest, _)) => {
+                let (rest, expr) = cut(self.expr(rest))?;
+                if is_keyword(rest, "having") {
+                    return failure(skip_ws(rest), "HAVING may appear only once; combine the conditions with AND");
+                }
+                (rest, Some(expr))
+            }
+            Err(_) => (i, None),
+        };
         let (i, order_by) = match keyword("order")(i) {
             Ok((rest, _)) => {
                 let (rest, _) = cut(keyword("by")(rest))?;
@@ -283,9 +304,17 @@ impl<'s> Parser<'s> {
             }
             Err(_) => (i, None),
         };
-        if is_keyword(i, "pivot") {
-            return failure(skip_ws(i), "PIVOT BY is not supported yet");
+        if is_keyword(i, "having") {
+            return failure(skip_ws(i), "HAVING must follow GROUP BY, before ORDER BY");
         }
+        let (i, pivot_by) = match keyword("pivot")(i) {
+            Ok((rest, _)) => {
+                let (rest, _) = keyword("by")(rest).or_else(|_| failure(skip_ws(rest), format!("expected BY after PIVOT, found {}", found(rest))))?;
+                let (rest, columns) = self.pivot_columns(rest)?;
+                (rest, Some(columns))
+            }
+            Err(_) => (i, None),
+        };
         let (i, limit) = match keyword("limit")(i) {
             Ok((rest, _)) => {
                 let rest = skip_ws(rest);
@@ -303,36 +332,113 @@ impl<'s> Parser<'s> {
             }
             Err(_) => (i, None),
         };
+        if is_keyword(i, "pivot") {
+            return failure(skip_ws(i), "PIVOT BY must come before LIMIT");
+        }
         Ok((
             i,
             Select {
                 distinct,
                 targets,
+                table,
                 from,
                 period,
                 where_clause,
                 group_by,
+                having,
                 order_by,
+                pivot_by,
                 limit,
             },
         ))
     }
 
-    /// `[FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]]`, shared by SELECT, BALANCES and
-    /// JOURNAL. A FROM clause has at least one part. The modifiers come in this order, each at
-    /// most once, as in beanquery; `open`, `close` and `clear` are not columns, so they cannot
-    /// start the expression.
+    /// The two columns of `PIVOT BY`, after the keywords: each a target name or a 1-based
+    /// target index, as in beanquery (expressions are not accepted).
+    fn pivot_columns(&self, i: &'s str) -> PResult<'s, [Expr; 2]> {
+        let (i, first) = self.pivot_column(i)?;
+        let i = match symbol(",")(i) {
+            Ok((rest, _)) => rest,
+            Err(_) => return failure(skip_ws(i), format!("PIVOT BY takes two columns separated by a comma, found {}", found(i))),
+        };
+        let (i, second) = self.pivot_column(i)?;
+        if symbol(",")(i).is_ok() {
+            return failure(skip_ws(i), "PIVOT BY takes exactly two columns");
+        }
+        Ok((i, [first, second]))
+    }
+
+    fn pivot_column(&self, i: &'s str) -> PResult<'s, Expr> {
+        let i = skip_ws(i);
+        let start = self.offset(i);
+        let expected = || failure(i, format!("expected a target name or number after PIVOT BY, found {}", found(i)));
+        if i.starts_with(|c: char| c.is_ascii_digit()) {
+            let (rest, digits) = take_while::<_, _, PError>(|c: char| c.is_ascii_digit())(i)?;
+            if rest.starts_with(is_ident_char) || rest.starts_with('.') {
+                return expected();
+            }
+            let index = digits.parse::<i64>().map_err(|_| {
+                NomErr::Failure(PError {
+                    input: i,
+                    message: Cow::Borrowed("the PIVOT BY index is too large"),
+                })
+            })?;
+            return Ok((rest, Expr::new(ExprKind::Literal(Literal::Int(index)), Span::new(start, self.offset(rest)))));
+        }
+        let Ok((rest, name)) = raw_identifier(i) else {
+            return expected();
+        };
+        let name = name.to_ascii_lowercase();
+        if RESERVED.contains(&name.as_str()) || skip_ws(rest).starts_with('(') {
+            return expected();
+        }
+        Ok((rest, Expr::new(ExprKind::Column(name), Span::new(start, self.offset(rest)))))
+    }
+
+    /// `[FROM #name | FROM [expr] [OPEN ON date] [CLOSE [ON date]] [CLEAR]]`, shared by
+    /// SELECT, BALANCES and JOURNAL. A FROM clause has at least one part. The modifiers come in
+    /// this order, each at most once, as in beanquery; `open`, `close` and `clear` are not
+    /// columns, so they cannot start the expression.
+    ///
+    /// A table stands alone, as in beanquery: neither a filter expression nor the period
+    /// modifiers may follow it (WHERE filters its rows). The compiler resolves its name.
     fn parse_from(&self, i: &'s str) -> PResult<'s, FromClause> {
         const MODIFIERS: [&str; 3] = ["open", "close", "clear"];
         let Ok((i, _)) = keyword("from")(i) else {
-            return Ok((i, FromClause { expr: None, period: None }));
+            return Ok((
+                i,
+                FromClause {
+                    table: None,
+                    expr: None,
+                    period: None,
+                },
+            ));
         };
-        let table = skip_ws(i);
-        if table.starts_with('#') || (is_keyword(table, "postings") && !skip_ws(&table["postings".len()..]).starts_with(['=', '!', '<', '>', '~'])) {
-            return failure(
-                table,
-                "selecting a table with FROM is not supported yet; the query always reads postings, and FROM <expression> filters them",
-            );
+        if let Some((rest, table)) = self.table_name(i)? {
+            let next = skip_ws(rest);
+            if MODIFIERS.iter().any(|modifier| is_keyword(rest, modifier)) {
+                return failure(
+                    next,
+                    format!(
+                        "OPEN ON, CLOSE and CLEAR cannot be combined with a table (#{}); they summarize the postings, so leave the table out: FROM OPEN ON ...",
+                        table.name
+                    ),
+                );
+            }
+            if !next.is_empty() && !next.starts_with(';') && !FOLLOWS_TABLE.iter().any(|word| is_keyword(rest, word)) {
+                return failure(
+                    next,
+                    format!("unexpected {} after the table #{}; filter its rows with WHERE", found(next), table.name),
+                );
+            }
+            return Ok((
+                rest,
+                FromClause {
+                    table: Some(table),
+                    expr: None,
+                    period: None,
+                },
+            ));
         }
         let (i, expr) = if MODIFIERS.iter().any(|modifier| is_keyword(i, modifier)) {
             (i, None)
@@ -370,7 +476,41 @@ impl<'s> Parser<'s> {
             );
         }
         let period = (open.is_some() || close.is_some() || clear).then_some(Period { open, close, clear });
-        Ok((i, FromClause { expr, period }))
+        Ok((i, FromClause { table: None, expr, period }))
+    }
+
+    /// The table of a FROM clause, if it names one: `#name`, or, as in beanquery, a bare name
+    /// that is not a column of the postings table and stands alone (followed by what may
+    /// follow a table). So `FROM prices` reads the prices table, while `FROM payee ~ 'x'` and
+    /// `FROM year = 2016` keep parsing as filters.
+    fn table_name(&self, i: &'s str) -> Result<Option<(&'s str, TableName)>, NomErr<PError<'s>>> {
+        const MODIFIERS: [&str; 3] = ["open", "close", "clear"];
+        let i = skip_ws(i);
+        let start = self.offset(i);
+        if let Some(name) = i.strip_prefix('#') {
+            let Ok((rest, name)) = take_while1::<_, _, PError>(is_ident_char)(name) else {
+                return Err(NomErr::Failure(PError {
+                    input: name,
+                    message: Cow::Owned(format!("expected a table name after '#', e.g. #prices, found {}", found(name))),
+                }));
+            };
+            let span = Span::new(start, self.offset(rest));
+            let name = name.to_owned();
+            return Ok(Some((rest, TableName { name, span, bare: false })));
+        }
+        let Ok((rest, name)) = raw_identifier(i) else {
+            return Ok(None);
+        };
+        let lower = name.to_ascii_lowercase();
+        let next = skip_ws(rest);
+        let alone = next.is_empty() || next.starts_with(';') || FOLLOWS_TABLE.iter().chain(&MODIFIERS).any(|word| is_keyword(rest, word));
+        let keyword = RESERVED.contains(&lower.as_str()) || MODIFIERS.contains(&lower.as_str());
+        if !alone || keyword || crate::table::POSTINGS.column(name).is_some() {
+            return Ok(None);
+        }
+        let span = Span::new(start, self.offset(rest));
+        let name = name.to_owned();
+        Ok(Some((rest, TableName { name, span, bare: true })))
     }
 
     /// The date of `OPEN ON` / `CLOSE ON`: a date literal or a parameter.
@@ -401,7 +541,7 @@ impl<'s> Parser<'s> {
     /// `BALANCES [AT name] [from] [WHERE expr]`, after the keyword.
     fn balances(&self, i: &'s str, keyword: Span) -> PResult<'s, Select> {
         let (i, at) = self.at_clause(i)?;
-        let (i, FromClause { expr: from, period }) = self.parse_from(i)?;
+        let (i, FromClause { expr: from, period, .. }) = self.statement_from(i, "BALANCES")?;
         let (i, where_clause) = self.parse_where(i)?;
         // the FROM clause is passed through as SELECT parses it
         Ok((
@@ -431,7 +571,7 @@ impl<'s> Parser<'s> {
             _ => (i, None),
         };
         let (i, at) = self.at_clause(i)?;
-        let (i, FromClause { expr: from, period }) = self.parse_from(i)?;
+        let (i, FromClause { expr: from, period, .. }) = self.statement_from(i, "JOURNAL")?;
         if is_keyword(i, "where") {
             return failure(skip_ws(i), "JOURNAL has no WHERE clause; filter the postings with FROM <expression>");
         }
@@ -443,6 +583,23 @@ impl<'s> Parser<'s> {
                 ..statements::journal(keyword, account, at)
             },
         ))
+    }
+
+    /// The FROM clause of BALANCES and JOURNAL, which always read the postings: `#name` is
+    /// rejected (beanquery does not accept a table there either).
+    fn statement_from(&self, i: &'s str, statement: &str) -> PResult<'s, FromClause> {
+        let rejected = |at: &'s str| failure(at, format!("{} always reads the postings; FROM cannot name a table", statement));
+        if let Ok((rest, _)) = keyword("from")(i) {
+            let table = skip_ws(rest);
+            if table.starts_with('#') {
+                return rejected(table);
+            }
+        }
+        let (rest, from) = self.parse_from(i)?;
+        match &from.table {
+            Some(table) => rejected(&self.src[table.span.start..]),
+            None => Ok((rest, from)),
+        }
     }
 
     /// `[AT name]`: the function applied to the positions and balances of BALANCES and
@@ -835,6 +992,18 @@ impl<'s> Parser<'s> {
         if RESERVED.contains(&lower.as_str()) {
             return error(i, format!("expected an expression, found keyword {}", name.to_uppercase()));
         }
+        // attribute access on a structured column: `open.date` is the column `open.date`
+        let (mut rest, mut lower, mut parts) = (rest, lower, 1);
+        while let Some(attribute) = rest.strip_prefix('.').filter(|it| it.starts_with(is_ident_start)) {
+            if parts == MAX_NAME_PARTS {
+                return failure(rest, format!("a name has at most {} parts separated by '.', such as open.date", MAX_NAME_PARTS));
+            }
+            let (after, attribute) = take_while1::<_, _, PError>(is_ident_char)(attribute)?;
+            lower.push('.');
+            lower.push_str(&attribute.to_ascii_lowercase());
+            rest = after;
+            parts += 1;
+        }
         self.leaf(rest, ExprKind::Column(lower), start)
     }
 
@@ -1071,6 +1240,82 @@ mod tests {
     }
 
     #[test]
+    fn attribute_access_is_a_dotted_column_name() {
+        let select = parse_ok("SELECT Open.Date, close.meta.x, account FROM #accounts WHERE open.date > 2020-01-01");
+        let Targets::List(targets) = &select.targets else { panic!() };
+        assert_eq!(targets[0].expr.kind, ExprKind::Column("open.date".into()));
+        assert_eq!(targets[0].expr.span, Span::new(7, 16));
+        assert_eq!(targets[1].expr.kind, ExprKind::Column("close.meta.x".into()));
+        assert_eq!(targets[2].expr.kind, ExprKind::Column("account".into()));
+        // a number after the dot, or a space, is not an attribute
+        assert!(parse("SELECT open.1").is_err());
+        assert!(parse("SELECT open .date").is_err());
+        assert!(parse("SELECT open.").is_err());
+        // at most MAX_NAME_PARTS parts, the error at the dot of the first extra one
+        let name = ["a"; MAX_NAME_PARTS].join(".");
+        assert!(matches!(parse_ok(&format!("SELECT {name}")).targets, Targets::List(_)));
+        let err = parse_err(&format!("SELECT {name}.b"));
+        assert_eq!((err.kind, err.column), (QueryErrorKind::Parse, Some(8 + name.len())), "{}", err);
+        assert!(err.message.contains("at most 8 parts"), "{}", err.message);
+    }
+
+    #[test]
+    fn from_clause_tables() {
+        let table = |src: &str| parse_ok(src).table.map(|table| (table.name, table.bare, table.span));
+        assert_eq!(table("SELECT * FROM #prices"), Some(("prices".into(), false, Span::new(14, 21))));
+        assert_eq!(table("SELECT * FROM #Prices WHERE TRUE"), Some(("Prices".into(), false, Span::new(14, 21))));
+        assert_eq!(
+            table("select date from #entries where type = 'open' order by date limit 3;"),
+            Some(("entries".into(), false, Span::new(17, 25)))
+        );
+        // a bare name that is not a postings column stands for a table, as in beanquery
+        assert_eq!(table("SELECT * FROM prices"), Some(("prices".into(), true, Span::new(14, 20))));
+        assert_eq!(table("SELECT * FROM nosuch GROUP BY 1"), Some(("nosuch".into(), true, Span::new(14, 20))));
+        // ... but a postings column, a keyword or anything followed by an expression is a filter
+        for src in [
+            "SELECT * FROM payee",
+            "SELECT * FROM prices = 1",
+            "SELECT * FROM year = 2016",
+            "SELECT * FROM TRUE",
+            "SELECT * FROM CLEAR",
+        ] {
+            let select = parse_ok(src);
+            assert!(select.table.is_none(), "{}", src);
+        }
+        assert!(parse_ok("SELECT * FROM OPEN ON 2016-01-01").table.is_none());
+
+        let err = parse_err("SELECT * FROM #");
+        assert_eq!(err.column, Some(16), "{}", err);
+        assert!(err.message.contains("expected a table name after '#'"), "{}", err.message);
+        let err = parse_err("SELECT * FROM # prices");
+        assert_eq!(err.column, Some(16), "{}", err);
+        // a table is a complete FROM clause
+        for (src, column) in [
+            ("SELECT count(*) FROM #postings OPEN ON 2016-01-01", 32),
+            ("SELECT count(*) FROM #entries CLOSE ON 2017-01-01 CLEAR", 31),
+            ("SELECT count(*) FROM prices CLEAR", 29),
+        ] {
+            let err = parse_err(src);
+            assert_eq!(err.kind, QueryErrorKind::Parse, "{}", src);
+            assert_eq!(err.column, Some(column), "{}: {}", src, err);
+            assert!(err.message.contains("cannot be combined with a table"), "{}", err.message);
+        }
+        let err = parse_err("SELECT * FROM #prices currency = 'USD'");
+        assert_eq!(err.column, Some(23), "{}", err);
+        assert!(err.message.contains("filter its rows with WHERE"), "{}", err.message);
+        // BALANCES and JOURNAL always read the postings
+        for (src, column) in [
+            ("BALANCES FROM #prices", 15),
+            ("JOURNAL 'Assets' FROM #postings", 23),
+            ("BALANCES FROM prices WHERE TRUE", 15),
+        ] {
+            let err = parse_err(src);
+            assert_eq!(err.column, Some(column), "{}: {}", src, err);
+            assert!(err.message.contains("always reads the postings"), "{}", err.message);
+        }
+    }
+
+    #[test]
     fn from_clause_period_modifiers() {
         let date = |y, m, d| ExprKind::Literal(Literal::Date(NaiveDate::from_ymd_opt(y, m, d).unwrap()));
 
@@ -1151,7 +1396,7 @@ mod tests {
         let err = parse_err("SELECT * FROM CLOSE ON 2024");
         assert!(err.message.contains("expected a date after CLOSE ON"), "{}", err.message);
         let err = parse_err("SELECT * FROM postings OPEN ON 2024-01-01");
-        assert!(err.message.contains("selecting a table"), "{}", err.message);
+        assert!(err.message.contains("cannot be combined with a table (#postings)"), "{}", err.message);
         let err = parse_err("SELECT * WHERE date > 2024-13-01");
         assert!(err.message.contains("invalid date"));
         let err = parse_err("SELECT * LIMIT -1");
@@ -1218,6 +1463,46 @@ mod tests {
         assert_eq!(pattern.kind, ExprKind::Param(ParamRef::Named("account".into())));
         // no account: no filter
         assert!(parse_ok("JOURNAL FROM year = 2016").where_clause.is_none());
+    }
+
+    #[test]
+    fn parses_having_and_pivot_by_in_grammar_order() {
+        let select = parse_ok(
+            "select year, account, sum(number) as total group by 1, 2 having sum(number) > 10 and count(*) > 1 \
+             order by 3 desc pivot by Account, 1 limit 5",
+        );
+        assert!(matches!(select.having.as_ref().unwrap().kind, ExprKind::Logical(LogicalOp::And, _)));
+        let [first, second] = select.pivot_by.as_ref().unwrap();
+        // names are lower-cased like columns; indexes are integer literals
+        assert_eq!(first.as_identifier(), Some("account"));
+        assert_eq!(second.as_index(), Some(1));
+        assert_eq!(select.limit, Some(5));
+        assert!(parse_ok("SELECT a GROUP BY a").having.is_none() && parse_ok("SELECT a").pivot_by.is_none());
+    }
+
+    #[test]
+    fn having_and_pivot_by_syntax_errors() {
+        for (src, column, message) in [
+            ("SELECT count(*) HAVING count(*) > 1", 17, "HAVING requires a GROUP BY clause"),
+            ("SELECT a GROUP BY a ORDER BY a HAVING count(*) > 1", 32, "HAVING must follow GROUP BY"),
+            ("SELECT a GROUP BY a HAVING count(*) > 1 HAVING count(*) < 9", 41, "HAVING may appear only once"),
+            ("SELECT a GROUP BY a HAVING", 27, "end of query"),
+            ("SELECT a, b GROUP BY a, b PIVOT a, b", 33, "expected BY after PIVOT, found 'a'"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a", 37, "two columns separated by a comma"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, b, c", 40, "exactly two columns"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a + 1, b", 38, "separated by a comma, found '+'"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY root(a, 2), b", 36, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY 'a', b", 36, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, -1", 39, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY 1.5, 2", 36, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, limit", 39, "expected a target name or number"),
+            ("SELECT a, b GROUP BY a, b LIMIT 1 PIVOT BY a, b", 35, "PIVOT BY must come before LIMIT"),
+            ("SELECT a, b GROUP BY a, b PIVOT BY a, b ORDER BY a", 41, "unexpected 'ORDER'"),
+        ] {
+            let err = parse_err(src);
+            assert_eq!((err.line, err.column), (Some(1), Some(column)), "{}: {}", src, err);
+            assert!(err.message.contains(message), "{}: {}", src, err.message);
+        }
     }
 
     #[test]

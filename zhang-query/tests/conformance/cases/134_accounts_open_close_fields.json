@@ -1,0 +1,23 @@
+{
+  "name": "accounts_open_close_fields",
+  "query": "SELECT account, open.date AS opened, open.currencies AS currencies, close.date AS closed FROM #accounts WHERE account ~ 'Vanguard|Chase|Opening' ORDER BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "opened", "type": "date"},
+    {"name": "currencies", "type": "set"},
+    {"name": "closed", "type": "date"}
+  ],
+  "rows": [
+    ["Assets:US:Vanguard", "2015-01-01", ["USD"], null],
+    ["Assets:US:Vanguard:Cash", "2015-01-01", ["USD"], null],
+    ["Assets:US:Vanguard:RGAGX", "2015-01-01", ["RGAGX"], null],
+    ["Assets:US:Vanguard:VBMPX", "2015-01-01", ["VBMPX"], null],
+    ["Equity:Opening-Balances", "1980-05-12", null, null],
+    ["Liabilities:US:Chase:Slate", "1980-05-12", ["USD"], null]
+  ],
+  "notes": "#accounts has one row per account with an open or close directive. Its columns are account, open and close; open and close are the directives themselves (structured values, NULL when missing), so SELECT * is not portable and this case reads their fields with attribute access: open.date, open.currencies (the constraint currencies, NULL when the open has none) and close.date (NULL: the ledger closes no account)."
+}

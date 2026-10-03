@@ -1,10 +1,12 @@
 //! The projector: the stage between the optimizer and the executor that decides which parts
-//! of the `postings` rows an execution builds.
+//! of the rows of the query's table an execution builds.
 //!
-//! It takes the columns the optimized plan reads ([`Plan::referenced_columns`]: targets,
-//! including the hidden GROUP BY / ORDER BY ones, the filter and aggregate arguments) and
-//! turns them into a [`Projection`]. The row source ([`crate::table::Dataset`]) then builds
-//! only what the projected columns read:
+//! It takes the columns of the plan's table the optimized plan reads
+//! ([`Plan::referenced_columns`]: targets, including the hidden GROUP BY / ORDER BY ones, the
+//! filter and aggregate arguments) and turns them into a [`Projection`]. The row source
+//! ([`crate::table::Dataset`]) then builds only what the projected columns read. A record
+//! table computes each column when it is read, and its builder may skip work that only
+//! unprojected columns need. For the `postings` table:
 //!
 //! - Lot booking always runs over every posting held at cost: the lot a posting reduces
 //!   depends on all earlier postings, and how a reduction splits across lots decides the
@@ -35,16 +37,25 @@ use std::fmt;
 use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
 use crate::functions::{AggregateKind, ParamType};
-use crate::table::{Borrow, ColumnDef, Reads, COLUMNS};
+use crate::table::{Borrow, ColumnDef, Reads, RowRef, Table};
 use crate::value::Value;
 
-/// The `postings` columns one plan reads, and the row parts they need.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The columns of its table one plan reads, and the posting row parts they need.
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Projection {
-    /// bit `i` is set when `COLUMNS[i]` is read
+    table: &'static Table,
+    /// bit `i` is set when `table.columns[i]` is read
     columns: u64,
     reads: Reads,
 }
+
+impl PartialEq for Projection {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.table, other.table) && self.columns == other.columns && self.reads == other.reads
+    }
+}
+
+impl Eq for Projection {}
 
 /// Decide how the plan materializes its running totals (see the module docs).
 pub(crate) fn plan_running(plan: &mut Plan) {
@@ -133,7 +144,7 @@ fn total_function(expr: &CExpr) -> bool {
 /// changes nothing but the work done.
 fn infallible(expr: &CExpr) -> bool {
     let node = match expr {
-        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) => true,
+        CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
         CExpr::Scalar { .. } => total_function(expr),
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
@@ -155,32 +166,52 @@ fn never_null(expr: &CExpr) -> bool {
 /// Build the projection of an optimized plan.
 pub(crate) fn project(plan: &Plan) -> Projection {
     let referenced = plan.referenced_columns();
-    Projection::of_columns(COLUMNS.iter().filter(|column| referenced.contains(column.name)))
+    Projection::of_columns(plan.table, plan.table.columns.iter().filter(|column| referenced.contains(column.name)))
 }
 
 impl Projection {
-    /// Every column: rows carry everything.
+    /// Every column of the `postings` table: rows carry everything.
     #[cfg(test)]
     pub fn all() -> Projection {
-        Projection::of_columns(COLUMNS.iter())
+        Projection::all_of(&crate::table::POSTINGS)
     }
 
-    fn of_columns<'c>(columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
+    /// Every column of `table`.
+    #[cfg(test)]
+    pub fn all_of(table: &'static Table) -> Projection {
+        Projection::of_columns(table, table.columns.iter())
+    }
+
+    fn of_columns<'c>(table: &'static Table, columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
         let mut projection = Projection {
+            table,
             columns: 0,
             reads: Reads::default(),
         };
         for column in columns {
-            projection.columns |= bit(column);
+            projection.columns |= projection.bit(column);
             projection.reads.cost |= column.reads.cost;
             projection.reads.price |= column.reads.price;
         }
         projection
     }
 
-    /// Whether the column is projected.
+    /// The table whose columns are projected.
+    pub fn table(&self) -> &'static Table {
+        self.table
+    }
+
+    /// Whether the column is projected; never for a column of another table.
     pub fn contains(&self, column: &ColumnDef) -> bool {
-        self.columns & bit(column) != 0
+        self.index(column).is_some_and(|index| self.columns & (1 << index) != 0)
+    }
+
+    fn index(&self, column: &ColumnDef) -> Option<usize> {
+        self.table.columns.iter().position(|it| std::ptr::eq(it, column))
+    }
+
+    fn bit(&self, column: &ColumnDef) -> u64 {
+        1 << self.index(column).expect("a column of the projected table")
     }
 
     /// Whether booked rows keep the cost of their lot.
@@ -202,7 +233,9 @@ impl Projection {
 
     /// The projected column names, in name order (like [`Plan::referenced_columns`]).
     pub fn names(&self) -> Vec<&'static str> {
-        let mut names = COLUMNS
+        let mut names = self
+            .table
+            .columns
             .iter()
             .filter(|column| self.contains(column))
             .map(|column| column.name)
@@ -212,16 +245,11 @@ impl Projection {
     }
 }
 
-fn bit(column: &ColumnDef) -> u64 {
-    let index = COLUMNS.iter().position(|it| std::ptr::eq(it, column)).expect("a column of the postings table");
-    1 << index
-}
-
 /// `[account, position] (2 of 23 columns)`
 impl fmt::Display for Projection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let names = self.names();
-        write!(f, "[{}] ({} of {} columns)", names.join(", "), names.len(), COLUMNS.len())
+        write!(f, "[{}] ({} of {} columns)", names.join(", "), names.len(), self.table.columns.len())
     }
 }
 
@@ -231,7 +259,7 @@ impl fmt::Display for Projection {
 pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Option<&'r str>> {
     match expr {
         CExpr::Column(column) => match (column.borrow, env.data, env.row) {
-            (Borrow::Str(get), Some(data), Some(row)) => Some(get(data, row)),
+            (Borrow::Str(get), Some(data), Some(RowRef::Posting(row))) => Some(get(data, row)),
             _ => None,
         },
         CExpr::Const(Value::Str(text)) => Some(Some(text)),
@@ -248,7 +276,7 @@ pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Opt
 pub(crate) fn set_membership<'r, 'a>(expr: &'r CExpr, env: &Env<'r, 'a>) -> Option<impl Fn(&str) -> bool + use<'r, 'a>> {
     match expr {
         CExpr::Column(column) => match (column.borrow, env.data, env.row) {
-            (Borrow::Contains(contains), Some(data), Some(row)) => Some(move |needle: &str| contains(data, row, needle)),
+            (Borrow::Contains(contains), Some(data), Some(RowRef::Posting(row))) => Some(move |needle: &str| contains(data, row, needle)),
             _ => None,
         },
         _ => None,
@@ -266,9 +294,9 @@ mod tests {
     use zhang_core::ledger::Ledger;
 
     use super::*;
-    use crate::executor::{execute, RegexCache};
+    use crate::executor::{execute, Budget, RegexCache};
     use crate::params::Params;
-    use crate::table::{column, Dataset};
+    use crate::table::{column, Dataset, Limits, Record, COLUMNS};
     use crate::Query;
 
     fn load(dir: PathBuf) -> Ledger {
@@ -406,6 +434,69 @@ option "operating_currency" "USD"
         assert_pruning_keeps_results(&ledger, QUERIES.iter().map(|it| it.to_string()).chain(every_column()));
     }
 
+    /// Run `sql` over the rows of its table built for `projection` (or the query's own).
+    fn run_table(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
+        let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        let store = ledger.store.read().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let mut budget = Budget::new(None);
+        let data = Dataset::build(
+            ledger,
+            &store,
+            today,
+            projection.unwrap_or(query.projection),
+            &mut Limits::new(None, &mut budget),
+        )
+        .unwrap();
+        let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
+        format!("{rows:?}")
+    }
+
+    #[test]
+    fn record_tables_prune_without_changing_results() {
+        let ledger = load_text(&format!(
+            "{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n2024-04-04 note Assets:Bank \"x\"\n"
+        ));
+        let mut checked = 0;
+        for table in crate::table::tables().iter().filter(|table| !table.is_postings()) {
+            let all = Projection::all_of(table);
+            let queries = table
+                .columns
+                .iter()
+                .map(|column| format!("SELECT {} FROM #{}", column.name, table.name))
+                .chain([format!("SELECT * FROM #{}", table.name), format!("SELECT count(*) FROM #{}", table.name)]);
+            for sql in queries {
+                assert_eq!(run_table(&ledger, &sql, None), run_table(&ledger, &sql, Some(all)), "{sql}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 60, "{checked}");
+    }
+
+    #[test]
+    fn balances_look_up_discrepancies_only_when_projected() {
+        let ledger = load_text(&format!("{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n"));
+        let store = ledger.store.read().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let discrepancies = |sql: &str| {
+            let mut budget = Budget::new(None);
+            let data = Dataset::build(
+                &ledger,
+                &store,
+                today,
+                Query::compile(sql).unwrap().projection,
+                &mut Limits::new(None, &mut budget),
+            )
+            .unwrap();
+            data.records
+                .iter()
+                .filter(|record| matches!(record, Record::Balance { discrepancy: Some(_), .. }))
+                .count()
+        };
+        assert_eq!(discrepancies("SELECT date, amount FROM #balances"), 0);
+        assert_eq!(discrepancies("SELECT date FROM #balances WHERE discrepancy IS NOT NULL"), 1);
+    }
+
     #[test]
     fn rows_drop_costs_and_prices_outside_the_projection() {
         let ledger = load_text(LEDGER);
@@ -455,8 +546,9 @@ option "operating_currency" "USD"
         for row in &data.rows {
             let env = Env {
                 data: Some(&data),
-                row: Some(row),
+                row: Some(RowRef::Posting(row)),
                 aggregates: &[],
+                cells: &[],
                 running: None,
                 params: &params,
                 regexes: &regexes,
@@ -464,7 +556,7 @@ option "operating_currency" "USD"
             };
             for column in COLUMNS {
                 let expr = CExpr::Column(column);
-                let value = (column.get)(&data, row);
+                let value = column.value(&data, RowRef::Posting(row));
                 if let Some(text) = borrowed_str(&expr, &env) {
                     assert_eq!(text.map(|it| Value::Str(it.to_owned())).unwrap_or(Value::Null), value, "{}", column.name);
                     checked += 1;

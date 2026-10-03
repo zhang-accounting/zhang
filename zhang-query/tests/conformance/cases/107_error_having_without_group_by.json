@@ -1,0 +1,12 @@
+{
+  "name": "error_having_without_group_by",
+  "query": "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' HAVING count(*) > 100",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "HAVING belongs to the GROUP BY clause, so it cannot be combined with an implicit GROUP BY (aggregates mixed with plain targets and no GROUP BY): a syntax error. Write GROUP BY account HAVING ... instead."
+}

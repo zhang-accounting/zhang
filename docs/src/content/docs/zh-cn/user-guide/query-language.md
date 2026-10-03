@@ -8,7 +8,7 @@ description: 张记账兼容 BQL 的查询语言参考，包括语法、BALANCES
 查询直接在张记账已加载到内存中的账本上执行。查询是只读的，所有运算都使用精确的十进制数，金额永远不会经过浮点数转换。
 
 :::caution[早期版本]
-本页描述的是 [#434](https://github.com/zhang-accounting/zhang/issues/434) 第二阶段的查询语言：在单一的 `postings` 表上执行的 `SELECT`、`BALANCES` 和 `JOURNAL` 语句，会计期间子句 `OPEN ON`、`CLOSE` 和 `CLEAR`，保存的查询以及 CSV 导出。尚未支持的功能见[与 BQL 和 beanquery 的差异](#与-bql-和-beanquery-的差异)。
+本页描述的是 [#434](https://github.com/zhang-accounting/zhang/issues/434) 第三阶段的查询语言：在 `postings` 表、[其他表](#其他表)和[张记账特有的表](#张记账特有的表)上执行的 `SELECT`、`BALANCES` 和 `JOURNAL` 语句，会计期间子句 `OPEN ON`、`CLOSE` 和 `CLEAR`，保存的查询以及 CSV 导出。尚未支持的功能见[与 BQL 和 beanquery 的差异](#与-bql-和-beanquery-的差异)。
 :::
 
 ## 运行查询
@@ -98,8 +98,9 @@ LIMIT 10
 SELECT [DISTINCT] target [, target ...] | *
   [FROM from_clause]
   [WHERE expression]
-  [GROUP BY group_key [, group_key ...]]
+  [GROUP BY group_key [, group_key ...] [HAVING expression]]
   [ORDER BY order_key [ASC | DESC] [, order_key [ASC | DESC] ...]]
+  [PIVOT BY pivot_key, pivot_key]
   [LIMIT count]
   [;]
 
@@ -110,25 +111,29 @@ JOURNAL ['pattern'] [AT function] [FROM from_clause] [;]
 target      = expression [AS name]
 group_key   = expression | target name | target number
 order_key   = expression | target name | target number
-from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
+pivot_key   = target name | target number
+from_clause = #table | [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 ```
 
 - 一个查询就是一条语句：`SELECT`，或者简写形式 [`BALANCES` 和 `JOURNAL`](#balances-与-journal) 之一。不支持 `PRINT`。
 - 各子句必须按上面的顺序出现。除开头的关键字外都是可选的，末尾可以有一个 `;`。
-- 关键字、列名和函数名都不区分大小写：`SELECT account`、`select ACCOUNT` 和 `Select Account` 是同一个查询。
+- 关键字、列名和函数名都不区分大小写：`SELECT account`、`select ACCOUNT` 和 `Select Account` 是同一个查询。[表名](#其他表)与 beanquery 一样区分大小写。
+- 结构化的列的字段用点号读取，中间不能有空格：例如 [`#accounts`](#accounts) 中的 `open.date`。
 - 名字由 ASCII 字母、数字和下划线组成，不能以数字开头。`SELECT`、`DISTINCT`、`FROM`、`WHERE`、`GROUP`、`BY`、`ORDER`、`ASC`、`DESC`、`LIMIT`、`AS`、`AND`、`OR`、`NOT`、`IN`、`IS`、`NULL`、`TRUE`、`FALSE`、`HAVING` 和 `PIVOT` 是保留字，不能用作列名。
 - 词法单元之间的空格和换行没有意义，一个查询可以分成多行书写。
 - `--` 开始一段注释，直到行尾。
 
 ### 查询的执行过程
 
-1. 如果 `FROM` 中有[会计期间子句](#会计期间)（`OPEN ON`、`CLOSE` 和 `CLEAR`），它们先改写整个账本的分录。
-2. `FROM` 中的表达式和 `WHERE` 子句决定哪些分录参与计算。
+1. `FROM #table` 选择要读取的[表](#其他表)，没有时读取分录。如果 `FROM` 中有[会计期间子句](#会计期间)（`OPEN ON`、`CLOSE` 和 `CLEAR`），它们先改写整个账本的分录。
+2. `FROM` 中的表达式和 `WHERE` 子句决定哪些行参与计算。
 3. 如果查询读取了[累计余额](#累计余额)，就按账本顺序在被选中的分录上累加。
 4. 如果查询使用了[聚合函数](#聚合函数)或带有 `GROUP BY` 子句，被选中的分录会被分组，每组产生一行；否则每条分录产生一行。
-5. `ORDER BY` 对结果行排序。
-6. `DISTINCT` 去除重复的行，每组重复只保留第一行。
-7. `LIMIT` 保留前面的若干行，丢弃其余的行。
+5. `HAVING` 丢弃不满足其条件的分组。
+6. `ORDER BY` 对结果行排序。
+7. `DISTINCT` 去除重复的行，每组重复只保留第一行。
+8. `LIMIT` 保留前面的若干行，丢弃其余的行。
+9. `PIVOT BY` 把剩下的行转换成一张表，某个目标的每个值占一列。
 
 在读取任何分录之前，张记账会先检查并简化查询。只包含常量的部分（例如 `'^Expenses:' + 'Food'`）在这时就计算一次。依赖账本或当前日期的函数（`today`、`convert`、`value`、`getprice` 和元数据函数）不会被提前计算。因此，常量模式中无效的正则表达式会立即报错并给出位置，即使没有任何分录会与它匹配。
 
@@ -136,14 +141,14 @@ from_clause = [expression] [OPEN ON date] [CLOSE [ON date]] [CLEAR]
 
 目标（target）是要为每一行计算的表达式，用逗号分隔。
 
-- `SELECT *` 是 `SELECT date, flag, payee, narration, account, position` 的简写。
+- `SELECT *` 是 `SELECT date, flag, payee, narration, account, position` 的简写。用于其他表时，展开为[该表的列](#其他表)。
 - `AS name` 为目标命名。这个名字可以在 `GROUP BY` 和 `ORDER BY` 中使用，但不能在 `WHERE` 中使用。
 - 结果列有别名时以别名命名；否则以目标的原文命名（去掉首尾空格），与书写完全一致，例如 `account`、`ACCOUNT`、`sum(position)` 或 `sum( position )`。`SELECT *` 的各列使用上面列出的小写名字。
 - `SELECT DISTINCT` 会去掉与之前某一行完全相同的行，只比较被选择的值。
 
 ### FROM
 
-`FROM` 后面跟的是表达式、[会计期间子句](#会计期间)或两者兼有，而不是表名。其中的表达式和 `WHERE` 一样过滤分录；当两者同时存在时，分录必须同时满足两个条件：
+`FROM` 后面跟的是一个表、一个表达式、[会计期间子句](#会计期间)，或表达式加会计期间子句。其中的表达式和 `WHERE` 一样过滤分录；当两者同时存在时，分录必须同时满足两个条件：
 
 ```sql
 SELECT account, sum(position)
@@ -163,7 +168,15 @@ WHERE account ~ '^(Income|Expenses)'
 GROUP BY account
 ```
 
-查询总是读取 `postings` 表。在 `FROM` 中写表名（如 `FROM postings` 或 `FROM #postings`）会报错。
+`FROM #name` 读取[其他表](#其他表)之一，`FROM #postings` 则显式指定默认的表。表在 `FROM` 中必须单独出现，请用 `WHERE` 过滤它的行。会计期间子句只作用于分录，因此不能跟在表的后面；`BALANCES` 和 `JOURNAL` 总是读取分录。
+
+```sql
+SELECT date, account, amount, discrepancy
+FROM #balances
+WHERE discrepancy IS NOT NULL
+```
+
+与 beanquery 一样，不是 postings 表的列名的裸名字也表示一个表：`FROM prices` 就是 `FROM #prices`。未知的表会报错，错误位置指向表名。
 
 ### WHERE
 
@@ -189,6 +202,23 @@ WHERE account ~ '^Expenses'
 GROUP BY category
 ```
 
+### HAVING
+
+`HAVING` 过滤聚合查询的分组，就像 `WHERE` 过滤分录一样。它紧跟在 `GROUP BY` 之后，保留条件为 `TRUE` 的分组；条件为 `FALSE` 或 `NULL` 的分组会被丢弃。
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses'
+GROUP BY category
+HAVING sum(number) > 1000
+```
+
+- `HAVING` 需要 `GROUP BY` 子句。没有 `GROUP BY` 时是语法错误，即使查询已经[隐式分组](#group-by)。
+- 条件必须是使用了[聚合函数](#聚合函数)的布尔表达式。其中的聚合函数不必出现在 `SELECT` 中：即使 `count(*)` 不是目标，`HAVING count(*) > 10` 也可以使用。
+- `HAVING` 中的名字和 `WHERE` 中一样，指的是 `postings` 表的列，而不是目标的别名。`HAVING total > 1000` 会报错，应该重复写出表达式，例如 `HAVING sum(number) > 1000`。
+- 在聚合函数之外，只能通过分组键读取列：与某个分组键相同的表达式取该分组的值。在 `GROUP BY account HAVING account ~ 'Food' AND count(*) > 10` 中，`account` 是每个分组的账户。其他列必须写在聚合函数之内。
+- `LIMIT` 只计算 `HAVING` 保留下来的分组。
+
 ### ORDER BY
 
 - 排序键和分组键一样，可以是表达式、目标名或目标序号。没有被选择的表达式也可以用来排序，只是不会出现在结果中。
@@ -201,6 +231,32 @@ GROUP BY category
 ### LIMIT
 
 `LIMIT n` 在排序和 `DISTINCT` 之后保留前 `n` 行。`n` 必须是非负整数字面量。`LIMIT 0` 不返回任何行。
+
+### PIVOT BY
+
+`PIVOT BY a, b` 把聚合查询的结果转换成一张表：目标 `a` 的每个值占一行，目标 `b` 的每个值占一列。
+
+```sql
+SELECT root(account, 2) AS category, year, sum(position) AS total
+WHERE account ~ '^Expenses:(Food|Home)'
+GROUP BY category, year
+PIVOT BY category, year
+```
+
+| category/year | 2015 | 2016 | 2017 |
+|---|---|---|---|
+| Expenses:Food | 6614.67 USD | 6859.72 USD | 4686.42 USD |
+| Expenses:Home | 31304.42 USD | 31280.55 USD | 20866.27 USD |
+
+- `PIVOT BY` 写在 `ORDER BY` 之后、`LIMIT` 之前，正好接受两个目标，每个目标用名字或它在 `SELECT` 列表中的序号表示，不能是表达式。
+- 查询必须是聚合查询，第二个目标必须是分组键，两个目标不能相同。
+- 它最后执行，作用于经过 `HAVING`、`ORDER BY`、`DISTINCT` 和 `LIMIT` 之后剩下的行，只有这些行会产生列。
+- 无论 `ORDER BY` 如何，结果行都按 `a` 排序，列按 `b` 的值排序。
+- 第一列以两个目标命名为 `a/b`。其余每一列以 `b` 的一个值命名（例如 `2016`），存放该值对应的剩余目标。剩余的目标不止一个时，每个值的每个目标各占一列，命名为 `<值>/<目标>`，例如 `2016/total` 和 `2016/count`。
+- 值在列名中的写法：日期为 `2016-01-31`，小数为 `12.50`，布尔值为 `True` 和 `False`，`NULL` 为 `NULL`。
+- 与 beanquery 一样，列名不一定唯一：`NULL` 值和字符串 `'NULL'` 都命名为 `NULL`，含有 `/` 的值也可能让 `<值>/<目标>` 形式的列名与另一列相同。列按位置区分，所以不会丢失数据，但按列名查找列的电子表格或程序会看到重名的列。
+- 某对 `a` 和 `b` 没有对应的行时，单元格为 `NULL`。如果有多行对应同一对值（查询除 `a` 和 `b` 外还按其他键分组时会出现），由结果顺序中的最后一行填充。
+- 各列保持其目标的类型，所以 [CSV 导出](#csv-导出)会按货币拆分透视后的金额和库存列，例如 `2016 (USD)`。
 
 ### 参数
 
@@ -491,7 +547,7 @@ WHERE payee IN ('Amazon')
 
 ## postings 表
 
-只有一张表 `postings`。每笔交易的每条分录对应一行，交易的字段会重复出现在它的每条分录上。
+默认的表是 `postings`。每笔交易的每条分录对应一行，交易的字段会重复出现在它的每条分录上。[其他表](#其他表)存放各种指令，[张记账特有的表](#张记账特有的表)存放预算和账本错误。
 
 - **包含：**所有交易（无论标记是什么），以及张记账为 `balance ... with pad ...` 指令生成的补齐交易。补齐交易的标记为 `P`，收款方为 `Balance Pad`，描述形如 `pad Assets:Bank to Equity:Opening`。带有[会计期间子句](#会计期间)的查询还会看到这些子句加入的[合成交易](#合成交易)。
 - **不包含：**余额断言，以及所有非交易指令，例如 `open`、`close`、`price`、`note`、`document` 和预算指令。
@@ -559,6 +615,209 @@ LIMIT 10
 ```
 
 这个查询返回该账户最近的十条分录，每条都带有记账之后的余额。第一行显示的就是当前余额。
+
+## 其他表
+
+除了 `postings`，查询还可以用 `FROM #name` 读取下面的表。它们就是 beanquery 的表，列名、类型和行的顺序都与 beanquery 相同：
+
+| 表 | 每一行是 | `SELECT *` |
+|----|----------|------------|
+| `#entries` | 任意一条指令 | `id, type, filename, date, year, month, day, flag, payee, narration, description, tags, links, meta, accounts` |
+| `#transactions` | 一笔交易 | `date, flag, payee, narration, tags, links, accounts` |
+| `#prices` | 一条 `price` 指令 | `date, currency, amount` |
+| `#balances` | 一条余额断言 | `date, account, amount, tolerance, discrepancy` |
+| `#notes` | 一条 `note` 指令 | `date, account, comment, tags, links` |
+| `#events` | 一条 `event` 指令 | `date, type, description` |
+| `#documents` | 一条 `document` 指令 | `date, account, filename, tags, links` |
+| `#accounts` | 一个有 `open` 或 `close` 指令的账户 | `account, open, close` |
+| `#commodities` | 一条 `commodity` 指令 | `meta, date, name` |
+
+张记账还有两张自己的表 `#budgets` 和 `#errors`，见[张记账特有的表](#张记账特有的表)。
+
+```sql
+SELECT currency, last(amount) AS latest
+FROM #prices
+WHERE date >= 2024-01-01
+GROUP BY currency
+ORDER BY currency
+```
+
+- **每个表有自己的列。**一个表只有为它列出的列，没有 `postings` 的列。`year`、`month` 和 `day` 只存在于 `#entries` 和 `postings` 中，其他表请使用 [`year(date)`](#日期函数) 等日期函数。所有函数、聚合函数，以及 `GROUP BY`、`HAVING`、`ORDER BY`、`PIVOT BY`、`DISTINCT` 和 `LIMIT` 都可以用于每个表。
+- **行的顺序。**没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
+- **元数据。**每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令）。
+- **余额断言不是交易。**张记账把每条余额断言保存为一笔标记为 `C` 的交易。这些交易不会出现在 `#transactions` 和 `#entries` 中，断言在 `#entries` 中是一条 `balance` 记录。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
+
+### #entries
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `id` | `str` | 指令的唯一 ID。交易的 ID 就是交易本身的 ID，与其分录的 `id` 列相同。 |
+| `type` | `str` | 指令的种类，小写：`transaction`、`open`、`close`、`balance`、`price`、`note`、`document`、`event`、`commodity`、`custom` 或 `query`，以及张记账的 `budget`、`budget-add`、`budget-transfer` 和 `budget-close`。`balance ... with pad` 算作 `balance`。 |
+| `filename` | `str` | 指令所在的账本文件。 |
+| `date`、`year`、`month`、`day` | `date`、`int` | 指令的日期及其各部分。 |
+| `flag`、`payee`、`narration`、`description` | `str` | 对交易而言与 `postings` 中的同名列相同；其他指令为 `NULL`。 |
+| `tags`、`links` | `set` | 交易、note 或 document 的标签和链接；其他指令为 `NULL`。 |
+| `meta` | `str` | 指令的元数据。 |
+| `accounts` | `set` | 指令涉及的账户：交易的各分录账户，`open`、`close`、`balance`、`note` 或 `document` 的账户，以及 `balance ... with pad` 的补齐账户。其他指令为空集合。 |
+
+### #transactions
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `date` | `date` | 交易日期。 |
+| `flag` | `str` | `*`、`!`，补齐交易为 `P`。 |
+| `payee` | `str` | 收款方，或 `NULL`。 |
+| `narration` | `str` | 描述，没有时为 `''`。 |
+| `tags`、`links` | `set` | 标签和链接。 |
+| `accounts` | `set` | 各分录的账户。 |
+| `meta` | `str` | 交易的元数据。 |
+
+### #prices、#balances、#notes、#events、#documents 和 #commodities
+
+| 表 | 列 | 类型 | 说明 |
+|----|----|------|------|
+| `#prices` | `date` | `date` | 价格的日期。 |
+| | `currency` | `str` | 被定价的商品。 |
+| | `amount` | `amount` | 一单位商品的价格。 |
+| `#balances` | `date` | `date` | 断言的日期。 |
+| | `account` | `str` | 被断言余额的账户。 |
+| | `amount` | `amount` | 断言的余额。 |
+| | `tolerance` | `decimal` | 显式给出的容差（`~ 0.01`），或 `NULL`。 |
+| | `discrepancy` | `amount` | 断言不成立时为余额减去断言金额；成立时为 `NULL`。`balance ... with pad` 总是成立。 |
+| `#notes` | `date`、`account` | `date`、`str` | 备注的日期和账户。 |
+| | `comment` | `str` | 备注的内容。 |
+| | `tags`、`links` | `set` | 标签和链接。 |
+| `#events` | `date` | `date` | 事件的日期。 |
+| | `type` | `str` | 事件的种类，例如 `location`。 |
+| | `description` | `str` | 事件的值，例如一个城市。 |
+| `#documents` | `date`、`account` | `date`、`str` | 文档的日期和账户。 |
+| | `filename` | `str` | 文件的路径。与 beancount 一样，相对路径相对于声明它的账本文件所在的目录。 |
+| | `tags`、`links` | `set` | 标签和链接。 |
+| `#commodities` | `date` | `date` | `commodity` 指令的日期。 |
+| | `name` | `str` | 商品，例如 `USD`。 |
+
+这些表都还有一列 `meta`。
+
+### #accounts
+
+`open` 和 `close` 是账户的 `open` 和 `close` 指令，是结构化的值，用点号读取它们的字段：
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `account` | `str` | 账户名。 |
+| `open`、`open.date` | `date` | `open` 指令的日期，没有时为 `NULL`。单独使用 `open` 时读作这个日期。 |
+| `open.account` | `str` | `open` 指令的账户。 |
+| `open.currencies` | `set` | 账户限定的货币；不限定时为 `NULL`。 |
+| `open.booking` | `str` | 记账方法，取自 `booking_method` 元数据，或 `NULL`。 |
+| `open.meta` | `str` | `open` 指令的元数据。 |
+| `close`、`close.date` | `date` | `close` 指令的日期，账户未关闭时为 `NULL`。单独使用 `close` 时读作这个日期。 |
+| `close.account`、`close.meta` | `str` | `close` 指令的账户和元数据。 |
+
+```sql
+SELECT account, open.date, open.currencies
+FROM #accounts
+WHERE close IS NULL
+ORDER BY account
+```
+
+不存在的指令的字段为 `NULL`。未知的字段（例如 `open.datum`）会报错，错误位置指向该字段。
+
+## 张记账特有的表
+
+张记账有两张自己的表，存放 Beancount 中没有的数据：`#budgets` 是[预算](/zh-cn/directives/budget/)的逐月数据，`#errors` 是张记账在账本中发现的问题。它们与[其他表](#其他表)一样用 `FROM #budgets` 和 `FROM #errors` 读取，规则也相同：一个表只有自己的列，例如 `account` 不是 `#budgets` 的列，所有子句和函数都可以用于它。与指令表不同，它们没有 `meta` 列，行的顺序见下面各表的说明。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取的都是该行自己的元数据。
+
+### 预算表
+
+`#budgets` 中每个预算每个月对应一行，数据与网页界面的预算页面在该月显示的一致。
+
+- 每个预算从其 `budget` 指令所在的月份起，每个月都有一行，直到以下两个月份中较晚的一个：该预算最后一次 `budget-add`、`budget-transfer`、`budget-close` 或支出所在的月份，以及账本中最后一笔交易所在的月份。因此，用 `budget-add` 为未来月份提前安排的预算会显示那个月。价格、事件、备注等其他指令不会延长这些月份。没有预算条目、也没有支出的月份同样有一行，可用金额顺延到这个月，与预算页面一致。这些行只取决于账本，与今天的日期无关：更晚的月份就是该预算最后一行顺延过去、没有任何支出的样子。
+- 这些月份是生成的，而不是从账本中读取的，所以每个月份都计入[结果大小限制](#限制)，即使它随后被 `WHERE` 丢弃。如果某笔交易或某条预算指令的日期被误写成遥远的未来，查询会以“结果过大”的错误结束，而不会耗尽内存。错误信息会指出月份最多的预算，以及决定其结束月份的指令，例如 `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`。改正日期后即可再次查询该表。
+- `assigned`、`activity` 和 `available` 即预算页面上的 Assigned、Activity 和 Available 列。`assigned` 是这个月的起始金额（上个月月底仍可用的金额），加上本月 `budget-add` 和 `budget-transfer` 指令放入的金额（`added`）。`activity` 是预算关联的账户在本月的支出，`available` 即 `assigned - activity`，会顺延到下个月。
+- 由于 `assigned` 包含顺延的金额，把多个月的 `assigned` 相加会把同一笔钱算多次。要统计一段时间内一共安排了多少预算，请对 `added` 求和。
+- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。
+- `meta(key)` 读取 `budget` 指令的元数据。
+- 各行先按预算名称、再按月份排列。`SELECT *` 是 `SELECT name, date, assigned, activity, available` 的简写。
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `name` | `str` | 预算的名称，即指令中写的名字。 |
+| `alias` | `str` | 预算的显示名称，来自 `alias` 元数据，没有则为 `NULL`。 |
+| `category` | `str` | 预算页面对预算分组所用的类别，来自 `category` 元数据，没有则为 `NULL`。 |
+| `currency` | `str` | 预算使用的商品（货币）。 |
+| `date` | `date` | 该月的第一天。 |
+| `year` | `int` | 该月所在的年份。 |
+| `month` | `int` | 月份，1 到 12。 |
+| `assigned` | `amount` | 本月分配给该预算的金额：从上个月顺延的可用金额加上 `added`。 |
+| `added` | `amount` | 本月 `budget-add` 和 `budget-transfer` 指令放入该预算的金额。从该预算转出的金额计为负数。 |
+| `activity` | `amount` | 预算关联的账户在本月的支出。退款计为负数。 |
+| `available` | `amount` | 月底剩余的金额，即 `assigned - activity`。它会顺延到下个月，超支时为负数。 |
+| `accounts` | `set` | 其分录计入该预算支出的账户。 |
+| `closed` | `bool` | 该预算是否已在本月或更早用 `budget-close` 关闭。 |
+
+按预算页面的分组，查看每个预算还剩多少：
+
+```sql
+SELECT category, name, available
+FROM #budgets
+WHERE date = 2024-06-01
+ORDER BY category, name
+```
+
+2024 年每个预算安排了多少、花了多少：
+
+```sql
+SELECT name, sum(added) AS budgeted, sum(activity) AS spent
+FROM #budgets
+WHERE year = 2024
+GROUP BY name
+ORDER BY spent DESC
+```
+
+未关闭的预算在哪些月份超支：
+
+```sql
+SELECT date, name, available
+FROM #budgets
+WHERE number(available) < 0 AND NOT closed
+```
+
+### 错误表
+
+`#errors` 中每个账本错误对应一行，即网页界面的错误页面列出、`GET /api/errors` 返回的那些问题。
+
+- `kind` 是错误代码，例如 `UnbalancedTransaction`。[错误代码指南](/zh-cn/user-guide/error-code/)解释了每个代码及其修复方法。`message` 是错误页面为它显示的那句话（英文）。
+- `file` 是引发错误的指令所在的文件，路径相对于账本目录，与网页界面的文件列表一致。`source` 是该指令的文本。`line` 和 `column` 目前为 `NULL`，因为张记账还不记录行号。
+- `date` 是该指令的日期；没有日期的指令（例如 `option`）为 `NULL`。`account` 是错误涉及的账户，只有指明了账户的错误才有，例如 `AccountDoesNotExist`、`AccountClosed` 和 `AccountBalanceCheckError`。
+- `meta(key)` 读取张记账为错误记录的其他信息。交易中的错误，`meta('txn_id')` 是该交易的 `id`，与 postings 表中的一致。分录引用了未定义的预算时，有 `meta('budget_name')`。
+- 各行先按文件、再按在文件中的位置排列。`SELECT *` 是 `SELECT file, date, kind, account, message` 的简写。
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| `kind` | `str` | 错误代码，例如 `UnbalancedTransaction`，即 `GET /api/errors` 中的 `error_type`。 |
+| `message` | `str` | 错误页面对该错误的说明。 |
+| `file` | `str` | 引发错误的指令所在的文件，路径相对于账本目录；文件不在账本目录中时为完整路径。 |
+| `line` | `int` | 指令在文件中的行号。目前总是 `NULL`。 |
+| `column` | `int` | 指令在行中的列号。目前总是 `NULL`。 |
+| `date` | `date` | 指令的日期，没有日期的指令为 `NULL`。 |
+| `account` | `str` | 错误涉及的账户，错误没有指明账户时为 `NULL`。 |
+| `source` | `str` | 引发错误的指令的文本。 |
+
+每种错误各有多少：
+
+```sql
+SELECT kind, count(*) AS errors
+FROM #errors
+GROUP BY kind
+ORDER BY errors DESC
+```
+
+按文件中的顺序列出某个文件的错误：
+
+```sql
+SELECT date, kind, account, source
+FROM #errors
+WHERE file = 'data/2024.zhang'
+```
 
 ## 类型
 
@@ -712,7 +971,7 @@ LIMIT 10
 | `entry_meta(str) -> str` | 交易上某个元数据键的值，未设置则为 `NULL`。 |
 | `any_meta(str) -> str` | 先在分录上查找某个元数据键，找不到再查交易；都没有则为 `NULL`。 |
 
-元数据的值总是以文本形式返回。
+元数据的值总是以文本形式返回。在[其他表](#其他表)上，这三个函数都读取该行指令的元数据。在 `#budgets` 上读取 `budget` 指令的元数据，在 `#errors` 上读取张记账为错误记录的信息。
 
 :::note
 张记账目前还不按分录保存元数据：交易内的每一行元数据，包括缩进在某条分录下面的行，都存放在交易上。在这一点改变之前（见 [#434](https://github.com/zhang-accounting/zhang/issues/434)），`meta` 总是返回 `NULL`。请使用 `entry_meta` 或 `any_meta` 读取元数据。
@@ -821,7 +1080,7 @@ curl -X POST http://localhost:8000/api/query \
 
 - 嵌套深度统计的是相互嵌套的括号、函数调用、`IN` 列表、`NOT` 和一元负号。由 `AND`、`OR`、`+` 或 `*` 连接的长链（例如 `account = 'A' OR account = 'B' OR ...`）不算嵌套，在长度限制以内可以任意长。
 - 执行时间包括构建 `postings` 表各行以及应用会计期间子句的时间。查询运行期间会持有账本的读锁，时间限制也限定了持有读锁的时长。
-- 结果大小把每个单元格计为一个值，库存中的每个持仓、集合中的每个元素以及文本中的每 64 字节各再计一个值。查询在 `ORDER BY`、`DISTINCT` 和 `LIMIT` 之前收集的行也计算在内，聚合查询在构建过程中的分组同样如此。超出限制的查询会报错，错误信息建议用 `FROM` 或 `WHERE` 缩小查询范围，或者加上 `LIMIT`。
+- 结果大小把每个单元格计为一个值，库存中的每个持仓、集合中的每个元素以及文本中的每 64 字节各再计一个值。查询在 `ORDER BY`、`DISTINCT` 和 `LIMIT` 之前收集的行也计算在内，聚合查询在构建过程中的分组，以及 [`#budgets`](#预算表) 生成的月份（每个月份计一个值）同样如此。`PIVOT BY` 生成的表计算所有单元格（包括空单元格），并在构建之前检查。超出限制的查询会报错，错误信息建议用 `FROM` 或 `WHERE` 缩小查询范围，或者加上 `LIMIT`。
 - 服务器管理员可以通过环境变量 `ZHANG_QUERY_MAX_RESULT_VALUES` 调高或调低结果大小的限制。
 - `LIMIT` 可以让结果保持较小，[累计余额](#累计余额)的计算方式也有帮助：除非查询按 `balance` 排序、分组或去重，否则只为最终出现在结果中的行构建 `balance`。`units(balance)` 和 `cost(balance)`（以及 `JOURNAL ... AT units` 和 `AT cost`）按货币累加，不保留批次。
 - [CSV 导出](#csv-导出)同样受这些限制。
@@ -873,7 +1132,7 @@ Assets:Broker:GLD,,17
 
 ### Schema
 
-`GET /api/query/schema` 描述 `postings` 表和每个函数重载。查询页面的参考面板就是根据它生成的。
+`GET /api/query/schema` 描述每个表和每个函数重载。查询页面的参考面板就是根据它生成的。
 
 ```json
 {
@@ -883,12 +1142,20 @@ Assets:Broker:GLD,,17
     ],
     "functions": [
       { "name": "count", "signature": "count(*) -> int", "description": "Number of rows.", "aggregate": true }
+    ],
+    "tables": [
+      {
+        "name": "postings",
+        "description": "One row per posting of every transaction, ...",
+        "columns": [{ "name": "date", "type": "date", "description": "Date of the transaction." }]
+      }
     ]
   }
 }
 ```
 
 - `columns` 每列一项，共 23 项，顺序与[列](#列)表格相同，最后一项是累计余额 `balance`。
+- `tables` 每个表一项，先是 `postings`，然后按[其他表](#其他表)中列出的顺序排列，最后是 `budgets` 和 `errors`。`name` 不带 `#`。`postings` 一项的列与 `columns` 相同；结构化列的字段以 `open.date` 这样的名字列为单独的列。
 - `functions` 每个重载一项，共 66 项：先是聚合函数，然后是标量函数，其中包括 `account_sortkey` 和 `maxwidth`。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
 
 ## 示例
@@ -900,6 +1167,29 @@ SELECT year, month, root(account, 2), sum(position) WHERE account ~ "^Expenses" 
 ```
 
 每个月、每个二级支出账户（如 `Expenses:Food`）一行，给出总支出。`GROUP BY 1, 2, 3` 和 `ORDER BY 1, 2, 3` 通过序号引用前三个目标。
+
+### 超过某个金额的支出类别
+
+```sql
+SELECT root(account, 2) AS category, sum(position) AS total
+WHERE account ~ '^Expenses' AND currency = 'USD'
+GROUP BY category
+HAVING sum(number) > 1000
+ORDER BY category
+```
+
+支出超过 1000 USD 的支出类别。`HAVING` 在分组合计之后过滤分组；`WHERE` 做不到，因为它每次只看到一条分录。
+
+### 每月支出，每年一列
+
+```sql
+SELECT month, year, sum(position) AS total
+WHERE account ~ '^Expenses:Food'
+GROUP BY month, year
+PIVOT BY month, year
+```
+
+每个月一行，每年一列，不同年份的同一个月并排显示。某年某月没有分录时，单元格为空。
 
 ### 按收款方统计支出
 
@@ -1060,13 +1350,12 @@ ORDER BY date
 ### 尚未支持
 
 - **`PRINT`**，使用时会报错。
-- **`HAVING` 和 `PIVOT BY`。**
-- **其他表：**只有 `postings` 表，没有 entries、prices、accounts、commodities、documents 或 balances 等表，`FROM` 后面也不能跟表名或子查询。
-- **beanquery 的列** `posting_flag`、`filename`、`lineno`、`location`、`meta`、`entry`、`accounts` 和 `type`。
+- `FROM` 后面的**子查询**、beanquery 用双引号写的表名（`FROM "prices"`），以及它的单行表 `FROM #`。
+- postings 表中 **beanquery 的列** `posting_flag`、`filename`、`lineno`、`location`、`meta`、`entry`、`accounts` 和 `type`，以及 `#entries` 的 `lineno`：张记账不保存行号。
+- **下标访问**，例如 `meta['name']`。请使用 `meta('name')`。
 - **`BETWEEN` 和 `%` 运算符**，以及 beanquery 的带引号标识符。
 - **本页未列出的函数**，例如 `round`、`safediv`、`has_account`、`open_date`、`close_date`、`open_meta`、`currency_meta`、`grep`、`subst`、`upper`、`lower`、`joinstr`、`findfirst`，类型转换函数 `int`、`decimal` 和 `date`，以及 `date_*` 系列函数。调用它们会报错。
 
-[#434](https://github.com/zhang-accounting/zhang/issues/434) 中的路线图计划在之后的阶段支持 `HAVING`、`PIVOT BY` 和更多的表。
 
 ### 行为不同之处
 
@@ -1087,4 +1376,14 @@ ORDER BY date
 - **`FROM` 中的表达式在会计期间子句之后过滤。**这与 beanquery 一致。在 BQL v2 中，该表达式在应用 `OPEN`、`CLOSE` 和 `CLEAR` 之前选择交易。
 - **权益账户。**`account_previous_*` 或 `account_current_*` 选项的值如果不是有效的账户名，会被忽略，并使用默认账户。
 - **期间内的最后一笔条目**决定 `CLEAR` 的 `T` 交易和不带日期的 `CLOSE` 的 `C` 交易的日期。它不考虑张记账特有的预算指令，Beancount 没有这类指令。
+- **`HAVING` 中的列。**对于 `HAVING` 中在聚合函数之外使用的列，beanquery 会从任意一条分录读取。张记账把分组键读作每个分组的值，其他列则会报错。
+- **`HAVING` 必须是布尔表达式。**beanquery 也接受其他值，保留值不为零或不为空的分组，例如 `HAVING sum(number)`。张记账与 `WHERE` 一样拒绝这类条件，应写成 `HAVING sum(number) != 0`。
+- **`PIVOT BY` 遇到 `NULL` 值。**透视目标的值中既有 `NULL` 又有其他值时，beanquery 会出错。张记账把 `NULL` 排在最前，对应的列命名为 `NULL`。
+- **没有分组的 `PIVOT BY`** 在张记账中会报错。beanquery 在执行这类查询时出错。
+- **导出缺少单元格的透视结果为 CSV。**beanquery 无法对透视后金额或库存列中的空单元格做 numberify。张记账把它们留空。
+- **元数据是文本。**beanquery 的 `meta` 列是字典，其中还有 `filename` 和 `lineno`。张记账的 `meta` 是指令自身元数据的文本 `key: "value", ...`，`open.meta` 和 `close.meta` 也是如此。
+- **`#accounts` 的 `open` 和 `close` 不带字段时读作日期。**在 beanquery 中它们是整条指令。
+- **`entry_meta()` 和 `any_meta()` 与 `meta()` 一样可用于每个表。**beanquery 只在 postings 表上接受它们。
+- **`#entries` 包含张记账的指令。**其中有张记账的预算指令；`balance ... with pad` 是一条 `balance` 记录，后面跟着它的补齐交易，而 beancount 中是一条 `pad` 和一条 `balance` 记录。记录的 `id` 是张记账的 ID，不是 beancount 的哈希值。
+- **`discrepancy` 遵循张记账的余额检查。**每条余额断言之后，张记账都会把账户调整到断言的金额，因此断言的差额是相对于上一条断言计算的。beancount 在断言不成立或仅在容差内成立时，不会调整账户。
 - **CSV 导出保留精确的数字。**`bean-query` 会为对齐而在数字前补空格（`" 600.00"`），把 numberify 后的数字舍入到各货币的显示精度（`360.03` 而不是 `360.03016`），有些数字还会用指数写法（`1E+3`）。张记账都不会这样做。

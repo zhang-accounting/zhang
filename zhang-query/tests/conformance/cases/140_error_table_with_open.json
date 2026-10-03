@@ -1,0 +1,12 @@
+{
+  "name": "error_table_with_open",
+  "query": "SELECT count(*) FROM #postings OPEN ON 2016-01-01",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "OPEN, CLOSE and CLEAR belong to the FROM expression form, so they cannot follow a #table: a syntax error."
+}

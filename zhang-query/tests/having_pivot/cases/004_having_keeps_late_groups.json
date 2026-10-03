@@ -1,0 +1,16 @@
+{
+  "name": "having_keeps_late_groups",
+  "query": "SELECT year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY year HAVING count(*) < 180 LIMIT 2",
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "year", "type": "int"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    [2015, 167],
+    [2017, 112]
+  ],
+  "notes": "Without ORDER BY, groups come in the order of their first posting, and LIMIT keeps the first groups that pass HAVING: 2016 fails it and does not count, so 2017 is kept."
+}

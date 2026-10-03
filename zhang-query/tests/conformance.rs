@@ -5,7 +5,8 @@
 //! beanquery (the oracle), so they are independent of this engine. The comparison rules are
 //! those of `tests/conformance/README.md`:
 //!
-//! - columns are compared by position and type; names are advisory only;
+//! - columns are compared by position and type; names are advisory only, except in fixtures with
+//!   `"strict_names": true` (pivoted results and `SELECT *` over a table), where they must match too;
 //! - decimals (also inside amounts, positions and inventories) are compared numerically;
 //! - rows are compared as a sequence when the fixture is `ordered`, otherwise as a multiset;
 //! - inventories are compared as multisets of positions;
@@ -22,11 +23,11 @@
 //! | `ACCEPTED`       | differs from the oracle exactly as documented in [`ACCEPTED_DEVIATIONS`]        | no    |
 //! | `LEDGER-DEP`     | a `ledger-dependent` case listed in [`LEDGER_DEPENDENT_ALLOWED`] that differs   | no    |
 //! | `PENDING-PHASE2` | a `"phase": 2` fixture while [`PHASE2_FEATURES_LANDED`] is `false`              | no    |
+//! | `PENDING-PHASE3` | a `"phase": 3` fixture while [`PHASE3_FEATURES_LANDED`] is `false`              | no    |
 //! | `FAIL`           | anything else, including unlisted `ledger-dependent` cases and missing functions | yes   |
 //!
-//! Phase 2 fixtures still run while they are pending, and the detail column shows the status
-//! they would get (`would PASS`, `would FAIL: ...`). Phase 1 fixtures (no `phase` field) are
-//! always strict.
+//! Pending fixtures still run, and the detail column shows the status they would get
+//! (`would PASS`, `would FAIL: ...`). Phase 1 fixtures (no `phase` field) are always strict.
 //!
 //! The test prints the summary table to stderr (always visible, even without `--nocapture`)
 //! and fails when at least one case is `FAIL`, so it serves as a regression gate.
@@ -52,6 +53,21 @@ use zhang_query::{Amount, Params, Position, Query, QueryErrorKind, QueryResult, 
 /// `"phase": 2` is reported as `PENDING-PHASE2` and cannot fail the test. Flip it to `true` once
 /// the Phase 2 features have landed, together with wiring [`engine_csv`]; then delete the gate.
 const PHASE2_FEATURES_LANDED: bool = true;
+
+/// Temporary gate for the Phase 3 fixtures (issue #434: `HAVING`, `PIVOT BY` and `FROM #table`
+/// over beanquery's tables). While it is `false`, every fixture with `"phase": 3` is reported as
+/// `PENDING-PHASE3` and cannot fail the test. Flip it to `true` once the Phase 3 features have
+/// landed; then delete the gate.
+const PHASE3_FEATURES_LANDED: bool = true;
+
+/// Whether the fixtures of a phase are still pending (non-fatal), see the gates above.
+fn phase_pending(phase: u64) -> bool {
+    match phase {
+        2 => !PHASE2_FEATURES_LANDED,
+        3 => !PHASE3_FEATURES_LANDED,
+        _ => false,
+    }
+}
 
 /// zhang's CSV export of a result, compared with the `expect: "csv"` fixtures.
 ///
@@ -144,6 +160,7 @@ enum Status {
     Accepted,
     LedgerDep,
     PendingPhase2,
+    PendingPhase3,
     Fail,
 }
 
@@ -154,6 +171,7 @@ impl Status {
             Status::Accepted => "ACCEPTED",
             Status::LedgerDep => "LEDGER-DEP",
             Status::PendingPhase2 => "PENDING-PHASE2",
+            Status::PendingPhase3 => "PENDING-PHASE3",
             Status::Fail => "FAIL",
         }
     }
@@ -173,11 +191,14 @@ struct Fixture {
     file: String,
     name: String,
     query: String,
-    /// 1 for the Phase 1 fixtures (no `phase` field), 2 for `"phase": 2`
+    /// 1 for the Phase 1 fixtures (no `phase` field), otherwise the `phase` field (2 or 3)
     phase: u64,
     kind: String,
     ordered: bool,
+    /// `"strict_names": true`: the column names must match too, not only the types
+    strict_names: bool,
     expect: Expect,
+    column_names: Vec<String>,
     column_types: Vec<String>,
     rows: Vec<Vec<Json>>,
 }
@@ -217,11 +238,15 @@ fn load_fixtures() -> Vec<Fixture> {
                 query: string("query"),
                 phase: match json.get("phase").map(|phase| phase.as_u64()) {
                     None => 1,
-                    Some(Some(phase @ (1 | 2))) => phase,
-                    Some(_) => panic!("{}: `phase` must be 1 or 2", file),
+                    Some(Some(phase @ (1..=3))) => phase,
+                    Some(_) => panic!("{}: `phase` must be 1, 2 or 3", file),
                 },
                 kind: string("kind"),
                 ordered: field("ordered").as_bool().expect("`ordered` is a bool"),
+                strict_names: json
+                    .get("strict_names")
+                    .map(|strict| strict.as_bool().unwrap_or_else(|| panic!("{}: `strict_names` is not a bool", file)))
+                    .unwrap_or(false),
                 expect: match string("expect").as_str() {
                     "rows" => Expect::Rows,
                     "error" => match string("error_class").as_str() {
@@ -236,6 +261,10 @@ fn load_fixtures() -> Vec<Fixture> {
                     ),
                     other => panic!("{}: unknown expect `{}`", file, other),
                 },
+                column_names: array("columns")
+                    .iter()
+                    .map(|column| column["name"].as_str().expect("column name").to_owned())
+                    .collect(),
                 column_types: array("columns")
                     .iter()
                     .map(|column| column["type"].as_str().expect("column type").to_owned())
@@ -366,7 +395,8 @@ fn short(text: &str) -> String {
     }
 }
 
-/// `None` when the columns match, otherwise a one-line diff.
+/// `None` when the columns match, otherwise a one-line diff. Names are compared only for a
+/// `strict_names` fixture, after the count and the types.
 fn compare_columns(fixture: &Fixture, result: &QueryResult) -> Option<String> {
     let actual = result.columns.iter().map(|column| column.ty.name()).collect::<Vec<_>>();
     if actual.len() != fixture.column_types.len() {
@@ -388,7 +418,11 @@ fn compare_columns(fixture: &Fixture, result: &QueryResult) -> Option<String> {
         .filter(|(_, (expected, actual))| expected.as_str() != **actual)
         .map(|(index, (expected, actual))| format!("column {} `{}`: expected {}, got {}", index + 1, result.columns[index].name, expected, actual))
         .collect::<Vec<_>>();
-    (!mismatches.is_empty()).then(|| mismatches.join("; "))
+    if !mismatches.is_empty() {
+        return Some(mismatches.join("; "));
+    }
+    let names = result.columns.iter().map(|column| column.name.as_str()).collect::<Vec<_>>();
+    (fixture.strict_names && names != fixture.column_names).then(|| format!("column names: expected {:?}, got {:?}", fixture.column_names, names))
 }
 
 /// `None` when the rows match, otherwise a short diff.
@@ -601,9 +635,10 @@ fn run_case(ledger: &zhang_core::ledger::Ledger, fixture: &Fixture) -> Report {
             }
         }
     };
-    let (status, detail) = if fixture.phase == 2 && !PHASE2_FEATURES_LANDED {
+    let (status, detail) = if phase_pending(fixture.phase) {
         let would = format!("would {}", status.label());
-        (Status::PendingPhase2, if detail.is_empty() { would } else { format!("{}: {}", would, detail) })
+        let pending = if fixture.phase == 2 { Status::PendingPhase2 } else { Status::PendingPhase3 };
+        (pending, if detail.is_empty() { would } else { format!("{}: {}", would, detail) })
     } else {
         (status, detail)
     };
@@ -651,19 +686,33 @@ fn beanquery_conformance() {
         ));
     }
     out.push('\n');
-    for status in [Status::Pass, Status::Accepted, Status::LedgerDep, Status::PendingPhase2, Status::Fail] {
+    for status in [
+        Status::Pass,
+        Status::Accepted,
+        Status::LedgerDep,
+        Status::PendingPhase2,
+        Status::PendingPhase3,
+        Status::Fail,
+    ] {
         let count = reports.iter().filter(|report| report.status == status).count();
         out.push_str(&format!("{:<16} {}\n", status.label(), count));
     }
     out.push_str(&format!("{:<16} {}\n", "TOTAL", reports.len()));
-    let pending = reports.iter().filter(|report| report.status == Status::PendingPhase2).collect::<Vec<_>>();
-    if !pending.is_empty() {
-        let would_fail = pending.iter().filter(|report| report.detail.starts_with("would FAIL")).count();
-        out.push_str(&format!(
-            "\nPHASE2_FEATURES_LANDED is false: {} phase 2 case(s) pending, {} of them would FAIL\n",
-            pending.len(),
-            would_fail
-        ));
+    for (status, gate, phase) in [
+        (Status::PendingPhase2, "PHASE2_FEATURES_LANDED", 2),
+        (Status::PendingPhase3, "PHASE3_FEATURES_LANDED", 3),
+    ] {
+        let pending = reports.iter().filter(|report| report.status == status).collect::<Vec<_>>();
+        if !pending.is_empty() {
+            let would_fail = pending.iter().filter(|report| report.detail.starts_with("would FAIL")).count();
+            out.push_str(&format!(
+                "\n{} is false: {} phase {} case(s) pending, {} of them would FAIL\n",
+                gate,
+                pending.len(),
+                phase,
+                would_fail
+            ));
+        }
     }
     let undocumented = ACCEPTED_DEVIATIONS.iter().filter(|it| matches!(it.accepted, Accepted::NoFixture));
     for deviation in undocumented {

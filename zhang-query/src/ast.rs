@@ -268,9 +268,21 @@ pub(crate) struct Period {
     pub clear: bool,
 }
 
-/// A parsed `FROM` clause: a row filter and/or the period modifiers.
+/// The table of a `FROM #name` clause, as written (the compiler resolves it).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TableName {
+    /// the name without `#`; table names are case-sensitive
+    pub name: String,
+    /// the whole `#name`
+    pub span: Span,
+    /// written without `#` (`FROM prices`)
+    pub bare: bool,
+}
+
+/// A parsed `FROM` clause: a table, or a row filter and/or the period modifiers.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FromClause {
+    pub table: Option<TableName>,
     pub expr: Option<Expr>,
     pub period: Option<Period>,
 }
@@ -279,11 +291,17 @@ pub(crate) struct FromClause {
 pub(crate) struct Select {
     pub distinct: bool,
     pub targets: Targets,
+    /// `FROM #name`; `None` reads the postings
+    pub table: Option<TableName>,
     pub from: Option<Expr>,
     /// `OPEN` / `CLOSE` / `CLEAR` of the FROM clause, applied to the postings before any filter
     pub period: Option<Period>,
     pub where_clause: Option<Expr>,
     pub group_by: Option<Vec<Expr>>,
+    /// `HAVING expr`, which the grammar only accepts after a GROUP BY
+    pub having: Option<Expr>,
     pub order_by: Option<Vec<OrderItem>>,
+    /// `PIVOT BY a, b`: each a target name or a 1-based target index
+    pub pivot_by: Option<[Expr; 2]>,
     pub limit: Option<u64>,
 }

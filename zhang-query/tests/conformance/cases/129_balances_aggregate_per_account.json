@@ -1,0 +1,21 @@
+{
+  "name": "balances_aggregate_per_account",
+  "query": "SELECT account, count(*) AS n, min(date) AS first, max(date) AS last, sum(amount) AS total FROM #balances GROUP BY account ORDER BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"},
+    {"name": "first", "type": "date"},
+    {"name": "last", "type": "date"},
+    {"name": "total", "type": "inventory"}
+  ],
+  "rows": [
+    ["Assets:US:BofA:Checking", 40, "2015-01-02", "2017-08-20", {"positions": [{"units": {"number": "123408.64", "currency": "USD"}, "cost": null}]}],
+    ["Assets:US:Federal:PreTax401k", 3, "2015-01-01", "2017-01-01", {"positions": []}],
+    ["Liabilities:US:Chase:Slate", 39, "2015-01-25", "2017-08-29", {"positions": [{"units": {"number": "-39499.64", "currency": "USD"}, "cost": null}]}]
+  ],
+  "notes": "sum(amount) gives an inventory; the three 0 IRAUSD assertions sum to the empty inventory."
+}

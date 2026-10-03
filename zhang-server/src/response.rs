@@ -745,23 +745,46 @@ pub struct QuerySchemaFunctionEntity {
     pub aggregate: bool,
 }
 
-/// The queryable columns and functions of `POST /api/query`.
+/// A table a query can read with `FROM #name` (`GET /api/query/schema`).
+#[derive(Serialize, Schematic)]
+pub struct QuerySchemaTableEntity {
+    /// the table name, without `#`
+    pub name: String,
+    pub description: String,
+    pub columns: Vec<QuerySchemaColumnEntity>,
+}
+
+/// The queryable tables, columns and functions of `POST /api/query`.
 #[derive(Serialize, Schematic)]
 pub struct QuerySchemaEntity {
+    /// the columns of the `postings` table, the default table
     pub columns: Vec<QuerySchemaColumnEntity>,
     pub functions: Vec<QuerySchemaFunctionEntity>,
+    /// every table, `postings` first
+    pub tables: Vec<QuerySchemaTableEntity>,
+}
+
+impl From<zhang_query::ColumnDoc> for QuerySchemaColumnEntity {
+    fn from(column: zhang_query::ColumnDoc) -> Self {
+        QuerySchemaColumnEntity {
+            name: column.name.to_owned(),
+            column_type: column.ty.into(),
+            description: column.description.to_owned(),
+        }
+    }
 }
 
 impl From<zhang_query::Schema> for QuerySchemaEntity {
     fn from(value: zhang_query::Schema) -> Self {
         QuerySchemaEntity {
-            columns: value
-                .columns
+            columns: value.columns.into_iter().map(QuerySchemaColumnEntity::from).collect(),
+            tables: value
+                .tables
                 .into_iter()
-                .map(|column| QuerySchemaColumnEntity {
-                    name: column.name.to_owned(),
-                    column_type: column.ty.into(),
-                    description: column.description.to_owned(),
+                .map(|table| QuerySchemaTableEntity {
+                    name: table.name.to_owned(),
+                    description: table.description.to_owned(),
+                    columns: table.columns.into_iter().map(QuerySchemaColumnEntity::from).collect(),
                 })
                 .collect(),
             functions: value

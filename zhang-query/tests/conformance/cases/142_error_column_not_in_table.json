@@ -1,0 +1,12 @@
+{
+  "name": "error_column_not_in_table",
+  "query": "SELECT account FROM #transactions",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "Columns are per table: #transactions has no account column."
+}

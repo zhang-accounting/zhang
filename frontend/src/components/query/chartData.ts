@@ -4,17 +4,22 @@ import BigNumber from 'bignumber.js';
 import { isAmount, isInventory, isPosition } from './values.ts';
 
 /**
- * Automatic charts for query results, in the spirit of beanquery/Fava. Only two-column results are charted:
+ * Automatic charts for query results, in the spirit of beanquery/Fava. Two-column results are charted as:
  *
  * - `(str, value)` where every label looks like an account: a treemap over the account hierarchy
  * - `(str, value)` otherwise: a bar chart
  * - `(date, value)`: a line chart over time
  *
+ * and results with more columns, such as PIVOT BY results (a label column, then one column per pivot value), as:
+ *
+ * - `(str, value, value, ...)`: a grouped bar chart, one series per value column
+ * - `(date, value, value, ...)`: a multi-series line chart over time, one series per value column
+ *
  * where `value` is an inventory, position, amount, decimal or int. Positions and inventories are plotted by their
  * units, one currency at a time. Values are kept exact (BigNumber plus the decimal scale of the source strings) and only
  * converted to floats for plotting.
  */
-export type QueryChartKind = 'treemap' | 'bar' | 'line';
+export type QueryChartKind = 'treemap' | 'bar' | 'line' | 'grouped_bar' | 'multi_line';
 
 const VALUE_TYPES = new Set(['int', 'decimal', 'amount', 'position', 'inventory']);
 /**
@@ -58,7 +63,9 @@ export interface ChartPoint {
 }
 
 export function detectChartKind(result: QueryResult): QueryChartKind | null {
-  if (result.columns.length !== 2 || result.rows.length === 0) return null;
+  if (result.rows.length === 0) return null;
+  if (result.columns.length > 2) return detectSeriesChartKind(result);
+  if (result.columns.length !== 2) return null;
   const [label, value] = result.columns;
   if (!VALUE_TYPES.has(value.type)) return null;
   if (label.type === 'date') return 'line';
@@ -66,6 +73,15 @@ export function detectChartKind(result: QueryResult): QueryChartKind | null {
   const labels = result.rows.map((row) => row[0]).filter((cell): cell is string => typeof cell === 'string' && cell !== '');
   const looksLikeAccounts = labels.some((name) => name.includes(':')) && labels.every((name) => ACCOUNT_PATTERN.test(name));
   return looksLikeAccounts ? 'treemap' : 'bar';
+}
+
+/** A date or string label column followed by value columns only, e.g. a PIVOT BY result: one series per value column. */
+function detectSeriesChartKind(result: QueryResult): QueryChartKind | null {
+  const [label, ...values] = result.columns;
+  if (!values.every((column) => VALUE_TYPES.has(column.type))) return null;
+  if (label.type === 'date') return 'multi_line';
+  if (label.type === 'str') return 'grouped_bar';
+  return null;
 }
 
 function add(values: CurrencyValues, currency: string, number: unknown) {
@@ -107,21 +123,28 @@ export function isRunningBalance(columnName: string): boolean {
   return RUNNING_BALANCE_PATTERN.test(columnName.trim());
 }
 
+/** The label of a row, or `null` for a row without one (a NULL date can't be placed on a time axis). */
+function labelOf(labelType: string, label: unknown): string | null {
+  if (label === null || label === undefined) return labelType === 'date' ? null : '';
+  return String(label);
+}
+
 /**
- * One point per distinct label, in the order labels first appear. Rows with a NULL value are skipped. Rows sharing a
- * label are summed (flows, e.g. `SELECT date, position`), except for a running balance column, where the last row of
- * the label wins (e.g. JOURNAL's `balance`: two postings on one day with balances 100 then 150 plot as 150).
+ * One point per distinct label of the value column `valueIndex` (the second column by default), in the order labels
+ * first appear. Rows with a NULL value are skipped. Rows sharing a label are summed (flows, e.g. `SELECT date,
+ * position`), except for a running balance column, where the last row of the label wins (e.g. JOURNAL's `balance`: two
+ * postings on one day with balances 100 then 150 plot as 150).
  */
-export function collectPoints(result: QueryResult): ChartPoint[] {
-  const [labelColumn, valueColumn] = result.columns;
+export function collectPoints(result: QueryResult, valueIndex = 1): ChartPoint[] {
+  const labelColumn = result.columns[0];
+  const valueColumn = result.columns[valueIndex];
   const keepLast = isRunningBalance(valueColumn.name);
   const points = new Map<string, CurrencyValues>();
   for (const row of result.rows) {
-    const label = row[0];
-    if ((label === null || label === undefined) && labelColumn.type === 'date') continue;
-    const values = cellValues(valueColumn.type, row[1]);
+    const key = labelOf(labelColumn.type, row[0]);
+    if (key === null) continue;
+    const values = cellValues(valueColumn.type, row[valueIndex]);
     if (values === null) continue;
-    const key = label === null || label === undefined ? '' : String(label);
     const previous = points.get(key);
     if (keepLast || !previous) {
       points.set(key, values);
@@ -281,4 +304,97 @@ export function buildLine(points: ChartPoint[], currency: string): LineDatum[] {
       return [{ time, date: point.label, value: value.value.toNumber(), signed: exactString(value) }];
     })
     .sort((a, b) => a.time - b.time);
+}
+
+// ---- multi-series charts (PIVOT BY results) ----
+
+/** The most series a chart draws, one per categorical chart colour (chart-1..5). Further value columns are left to the table. */
+export const MAX_SERIES = 5;
+
+export interface Series {
+  /** the value column name, e.g. a pivot value such as `2024` */
+  name: string;
+  /** the position among the value columns, which also picks the series colour */
+  index: number;
+  points: ChartPoint[];
+}
+
+export interface SeriesSet {
+  /** the distinct labels, in the order they first appear in the rows */
+  labels: string[];
+  /** one series per value column, up to MAX_SERIES */
+  series: Series[];
+  /** the number of value columns, including those beyond MAX_SERIES */
+  total: number;
+}
+
+/** One series per value column (every column after the first), each collected like a two-column result. */
+export function collectSeries(result: QueryResult): SeriesSet {
+  const labelType = result.columns[0].type;
+  const labels = new Set<string>();
+  for (const row of result.rows) {
+    const label = labelOf(labelType, row[0]);
+    if (label !== null) labels.add(label);
+  }
+  const valueColumns = result.columns.slice(1);
+  const series = valueColumns.slice(0, MAX_SERIES).map((column, index) => ({ name: column.name, index, points: collectPoints(result, index + 1) }));
+  return { labels: Array.from(labels), series, total: valueColumns.length };
+}
+
+/** Currencies with at least one non-zero value in any series, the most frequent first. */
+export function seriesCurrencies(set: SeriesSet): string[] {
+  return currenciesOf(set.series.flatMap((series) => series.points));
+}
+
+export interface SeriesDatum {
+  label: string;
+  /** per drawn series: the value in the currency, or `null` when the label has none */
+  values: (number | null)[];
+  /** per drawn series: the exact signed value, or `null` when the label has none */
+  signed: (string | null)[];
+}
+
+export interface SeriesLineDatum extends SeriesDatum {
+  /** local midnight of the date label, in milliseconds */
+  time: number;
+}
+
+export interface SeriesChartData<T extends SeriesDatum> {
+  /** the series with a value in the currency, in column order; `values` and `signed` follow this order */
+  series: Series[];
+  data: T[];
+}
+
+/** The series with a value in `currency`, and their values in it keyed by label. */
+function seriesIn(set: SeriesSet, currency: string): { series: Series[]; byLabel: Map<string, ExactValue>[] } {
+  const series = set.series.filter((item) => item.points.some((point) => point.values.has(currency)));
+  const byLabel = series.map(
+    (item) => new Map(item.points.flatMap((point) => (point.values.has(currency) ? [[point.label, point.values.get(currency) as ExactValue]] : []))),
+  );
+  return { series, byLabel };
+}
+
+/** One group of bars per label with a value in `currency`, in result order; a label without a value in a series has no bar there. */
+export function buildSeriesBars(set: SeriesSet, currency: string): SeriesChartData<SeriesDatum> {
+  const { series, byLabel } = seriesIn(set, currency);
+  const data = set.labels.flatMap((label) => {
+    const exact = byLabel.map((values) => values.get(label) ?? null);
+    if (exact.every((value) => value === null)) return [];
+    return [{ label, values: exact.map((value) => value?.value.toNumber() ?? null), signed: exact.map((value) => (value ? exactString(value) : null)) }];
+  });
+  return { series, data };
+}
+
+/** One point per date in ascending order, for every series. A date without a value in a series is plotted as zero there, as in a line chart. */
+export function buildSeriesLines(set: SeriesSet, currency: string): SeriesChartData<SeriesLineDatum> {
+  const { series, byLabel } = seriesIn(set, currency);
+  const data = set.labels
+    .flatMap((label) => {
+      const time = localTime(label);
+      if (time === null) return [];
+      const exact = byLabel.map((values) => values.get(label) ?? ZERO);
+      return [{ label, time, values: exact.map((value) => value.value.toNumber()), signed: exact.map(exactString) }];
+    })
+    .sort((a, b) => a.time - b.time);
+  return { series, data };
 }

@@ -1,0 +1,4036 @@
+{
+ "generator": "beancount 3.2.3, beanquery 0.2.0",
+ "cases": [
+  {
+   "ledger": "fava",
+   "query": "SELECT type, date, year, month, day, flag, payee, narration, description, tags, links, accounts FROM #entries WHERE date >= 2017-08-20 ORDER BY date, type",
+   "ordered": false,
+   "columns": [
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "year",
+     "type": "int"
+    },
+    {
+     "name": "month",
+     "type": "int"
+    },
+    {
+     "name": "day",
+     "type": "int"
+    },
+    {
+     "name": "flag",
+     "type": "str"
+    },
+    {
+     "name": "payee",
+     "type": "str"
+    },
+    {
+     "name": "narration",
+     "type": "str"
+    },
+    {
+     "name": "description",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    },
+    {
+     "name": "accounts",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "balance",
+     "2017-08-20",
+     2017,
+     8,
+     20,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Assets:US:BofA:Checking"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-20",
+     2017,
+     8,
+     20,
+     "*",
+     "Verizon Wireless",
+     "",
+     "Verizon Wireless",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Home:Phone"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-20",
+     2017,
+     8,
+     20,
+     "*",
+     "Goba Goba",
+     "Eating out after work",
+     "Goba Goba | Eating out after work",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-22",
+     2017,
+     8,
+     22,
+     "*",
+     null,
+     "Sell shares of VEA",
+     "Sell shares of VEA",
+     [],
+     [],
+     [
+      "Assets:US:ETrade:Cash",
+      "Assets:US:ETrade:VEA",
+      "Expenses:Financial:Commissions",
+      "Income:US:ETrade:Gains"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-23",
+     2017,
+     8,
+     23,
+     "*",
+     "Wine-Tarner Cable",
+     "",
+     "Wine-Tarner Cable",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Home:Internet"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-23",
+     2017,
+     8,
+     23,
+     "*",
+     "Uncle Boons",
+     "Eating out with Julie",
+     "Uncle Boons | Eating out with Julie",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-24",
+     2017,
+     8,
+     24,
+     "*",
+     "Hoogle",
+     "Payroll",
+     "Hoogle | Payroll",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Assets:US:Federal:PreTax401k",
+      "Assets:US:Hoogle:Vacation",
+      "Expenses:Health:Dental:Insurance",
+      "Expenses:Health:Life:GroupTermLife",
+      "Expenses:Health:Medical:Insurance",
+      "Expenses:Health:Vision:Insurance",
+      "Expenses:Taxes:Y2017:US:CityNYC",
+      "Expenses:Taxes:Y2017:US:Federal",
+      "Expenses:Taxes:Y2017:US:Medicare",
+      "Expenses:Taxes:Y2017:US:SDI",
+      "Expenses:Taxes:Y2017:US:SocSec",
+      "Expenses:Taxes:Y2017:US:State",
+      "Income:US:Hoogle:GroupTermLife",
+      "Income:US:Hoogle:Salary",
+      "Income:US:Hoogle:Vacation"
+     ]
+    ],
+    [
+     "price",
+     "2017-08-25",
+     2017,
+     8,
+     25,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-08-25",
+     2017,
+     8,
+     25,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-08-25",
+     2017,
+     8,
+     25,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-08-25",
+     2017,
+     8,
+     25,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-08-25",
+     2017,
+     8,
+     25,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-08-25",
+     2017,
+     8,
+     25,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "transaction",
+     "2017-08-25",
+     2017,
+     8,
+     25,
+     "*",
+     null,
+     "Transfering accumulated savings to other account",
+     "Transfering accumulated savings to other account",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Assets:US:ETrade:Cash"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-26",
+     2017,
+     8,
+     26,
+     "*",
+     "Uncle Boons",
+     "Eating out alone",
+     "Uncle Boons | Eating out alone",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-27",
+     2017,
+     8,
+     27,
+     "*",
+     null,
+     "Buy shares of GLD",
+     "Buy shares of GLD",
+     [],
+     [],
+     [
+      "Assets:US:ETrade:Cash",
+      "Assets:US:ETrade:GLD",
+      "Expenses:Financial:Commissions"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-27",
+     2017,
+     8,
+     27,
+     "*",
+     null,
+     "Buy shares of VHT",
+     "Buy shares of VHT",
+     [],
+     [],
+     [
+      "Assets:US:ETrade:Cash",
+      "Assets:US:ETrade:VHT",
+      "Expenses:Financial:Commissions"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-28",
+     2017,
+     8,
+     28,
+     "*",
+     "China Garden",
+     "Eating out with Joe",
+     "China Garden | Eating out with Joe",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "balance",
+     "2017-08-29",
+     2017,
+     8,
+     29,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-08-30",
+     2017,
+     8,
+     30,
+     "*",
+     "Good Moods Market",
+     "Buying groceries",
+     "Good Moods Market | Buying groceries",
+     [],
+     [],
+     [
+      "Expenses:Food:Groceries",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "price",
+     "2017-09-01",
+     2017,
+     9,
+     1,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-01",
+     2017,
+     9,
+     1,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-01",
+     2017,
+     9,
+     1,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-01",
+     2017,
+     9,
+     1,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-01",
+     2017,
+     9,
+     1,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-01",
+     2017,
+     9,
+     1,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "transaction",
+     "2017-09-01",
+     2017,
+     9,
+     1,
+     "*",
+     "Jewel of Morroco",
+     "Eating out alone",
+     "Jewel of Morroco | Eating out alone",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-09-04",
+     2017,
+     9,
+     4,
+     "*",
+     "BANK FEES",
+     "Monthly bank fee",
+     "BANK FEES | Monthly bank fee",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Financial:Fees"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-09-04",
+     2017,
+     9,
+     4,
+     "*",
+     "Uncle Boons",
+     "Eating out with Bill",
+     "Uncle Boons | Eating out with Bill",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-09-06",
+     2017,
+     9,
+     6,
+     "*",
+     "Farmer Fresh",
+     "Buying groceries",
+     "Farmer Fresh | Buying groceries",
+     [],
+     [],
+     [
+      "Expenses:Food:Groceries",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "transaction",
+     "2017-09-07",
+     2017,
+     9,
+     7,
+     "*",
+     "Hoogle",
+     "Payroll",
+     "Hoogle | Payroll",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Assets:US:Federal:PreTax401k",
+      "Assets:US:Hoogle:Vacation",
+      "Expenses:Health:Dental:Insurance",
+      "Expenses:Health:Life:GroupTermLife",
+      "Expenses:Health:Medical:Insurance",
+      "Expenses:Health:Vision:Insurance",
+      "Expenses:Taxes:Y2017:US:CityNYC",
+      "Expenses:Taxes:Y2017:US:Federal",
+      "Expenses:Taxes:Y2017:US:Medicare",
+      "Expenses:Taxes:Y2017:US:SDI",
+      "Expenses:Taxes:Y2017:US:SocSec",
+      "Expenses:Taxes:Y2017:US:State",
+      "Income:US:Hoogle:GroupTermLife",
+      "Income:US:Hoogle:Salary",
+      "Income:US:Hoogle:Vacation"
+     ]
+    ],
+    [
+     "price",
+     "2017-09-08",
+     2017,
+     9,
+     8,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-08",
+     2017,
+     9,
+     8,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-08",
+     2017,
+     9,
+     8,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-08",
+     2017,
+     9,
+     8,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-08",
+     2017,
+     9,
+     8,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2017-09-08",
+     2017,
+     9,
+     8,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "transaction",
+     "2017-09-08",
+     2017,
+     9,
+     8,
+     "*",
+     "Cafe Modagor",
+     "Eating out with Julie",
+     "Cafe Modagor | Eating out with Julie",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT type, count(*) AS n, min(date) AS first, max(date) AS last FROM #entries GROUP BY type ORDER BY type",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    },
+    {
+     "name": "first",
+     "type": "date"
+    },
+    {
+     "name": "last",
+     "type": "date"
+    }
+   ],
+   "rows": [
+    [
+     "balance",
+     82,
+     "2015-01-01",
+     "2017-08-29"
+    ],
+    [
+     "commodity",
+     10,
+     "1792-01-01",
+     "2009-05-01"
+    ],
+    [
+     "event",
+     9,
+     "2015-01-01",
+     "2017-06-03"
+    ],
+    [
+     "open",
+     60,
+     "1980-05-12",
+     "2017-01-01"
+    ],
+    [
+     "price",
+     846,
+     "2015-01-02",
+     "2017-09-08"
+    ],
+    [
+     "transaction",
+     1044,
+     "2015-01-01",
+     "2017-09-08"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT type, date, flag, payee, narration, description, tags, links, accounts FROM #entries",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "flag",
+     "type": "str"
+    },
+    {
+     "name": "payee",
+     "type": "str"
+    },
+    {
+     "name": "narration",
+     "type": "str"
+    },
+    {
+     "name": "description",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    },
+    {
+     "name": "accounts",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "open",
+     "2020-01-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Assets:Bank"
+     ]
+    ],
+    [
+     "open",
+     "2020-01-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Assets:Broker"
+     ]
+    ],
+    [
+     "open",
+     "2020-01-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Expenses:Food"
+     ]
+    ],
+    [
+     "open",
+     "2020-01-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Equity:Opening"
+     ]
+    ],
+    [
+     "open",
+     "2020-01-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Income:Salary"
+     ]
+    ],
+    [
+     "commodity",
+     "2020-01-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "commodity",
+     "2020-01-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "transaction",
+     "2020-01-02",
+     "*",
+     "Employer",
+     "salary",
+     "Employer | salary",
+     [
+      "work"
+     ],
+     [
+      "payroll-1"
+     ],
+     [
+      "Assets:Bank",
+      "Income:Salary"
+     ]
+    ],
+    [
+     "transaction",
+     "2020-01-03",
+     "!",
+     "Cafe",
+     "lunch",
+     "Cafe | lunch",
+     [],
+     [],
+     [
+      "Assets:Bank",
+      "Expenses:Food"
+     ]
+    ],
+    [
+     "transaction",
+     "2020-01-03",
+     "*",
+     null,
+     "Market",
+     "Market",
+     [],
+     [],
+     [
+      "Assets:Bank",
+      "Expenses:Food"
+     ]
+    ],
+    [
+     "note",
+     "2020-01-04",
+     null,
+     null,
+     null,
+     null,
+     [
+      "t1"
+     ],
+     [
+      "ln"
+     ],
+     [
+      "Assets:Bank"
+     ]
+    ],
+    [
+     "document",
+     "2020-01-05",
+     null,
+     null,
+     null,
+     null,
+     [
+      "scan"
+     ],
+     [
+      "stmt-1",
+      "stmt-2"
+     ],
+     [
+      "Assets:Bank"
+     ]
+    ],
+    [
+     "event",
+     "2020-01-06",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2020-01-07",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "price",
+     "2020-01-07",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "balance",
+     "2020-01-08",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Assets:Bank"
+     ]
+    ],
+    [
+     "balance",
+     "2020-01-09",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Assets:Bank"
+     ]
+    ],
+    [
+     "balance",
+     "2020-01-10",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Assets:Bank"
+     ]
+    ],
+    [
+     "custom",
+     "2020-01-11",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "query",
+     "2020-01-12",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "event",
+     "2020-01-12",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     []
+    ],
+    [
+     "transaction",
+     "2020-02-01",
+     "*",
+     "Broker",
+     "buy",
+     "Broker | buy",
+     [],
+     [],
+     [
+      "Assets:Bank",
+      "Assets:Broker"
+     ]
+    ],
+    [
+     "note",
+     "2020-02-02",
+     null,
+     null,
+     null,
+     null,
+     [],
+     [],
+     [
+      "Expenses:Food"
+     ]
+    ],
+    [
+     "close",
+     "2020-03-01",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     [
+      "Expenses:Food"
+     ]
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT date, meta('source') AS source FROM #entries WHERE meta('source') IS NOT NULL",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "source",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-02",
+     "hr"
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT * FROM #transactions WHERE date >= 2017-08-01 ORDER BY date, payee, narration",
+   "ordered": false,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "flag",
+     "type": "str"
+    },
+    {
+     "name": "payee",
+     "type": "str"
+    },
+    {
+     "name": "narration",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    },
+    {
+     "name": "accounts",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "2017-08-02",
+     "*",
+     "Kin Soy",
+     "Eating out with Natasha",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-04",
+     "*",
+     "BANK FEES",
+     "Monthly bank fee",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Financial:Fees"
+     ]
+    ],
+    [
+     "2017-08-04",
+     "*",
+     "RiverBank Properties",
+     "Paying the rent",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Home:Rent"
+     ]
+    ],
+    [
+     "2017-08-06",
+     "*",
+     "Rose Flower",
+     "Eating out with Joe",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-08",
+     "*",
+     "EDISON POWER",
+     "",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Home:Electricity"
+     ]
+    ],
+    [
+     "2017-08-10",
+     "*",
+     "Chase:Slate",
+     "Paying off credit card",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-10",
+     "*",
+     "Chichipotle",
+     "Eating out with Joe",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-10",
+     "*",
+     "Hoogle",
+     "Payroll",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Assets:US:Federal:PreTax401k",
+      "Assets:US:Hoogle:Vacation",
+      "Assets:US:Vanguard:Cash",
+      "Expenses:Health:Dental:Insurance",
+      "Expenses:Health:Life:GroupTermLife",
+      "Expenses:Health:Medical:Insurance",
+      "Expenses:Health:Vision:Insurance",
+      "Expenses:Taxes:Y2017:US:CityNYC",
+      "Expenses:Taxes:Y2017:US:Federal",
+      "Expenses:Taxes:Y2017:US:Federal:PreTax401k",
+      "Expenses:Taxes:Y2017:US:Medicare",
+      "Expenses:Taxes:Y2017:US:SDI",
+      "Expenses:Taxes:Y2017:US:SocSec",
+      "Expenses:Taxes:Y2017:US:State",
+      "Income:US:Hoogle:GroupTermLife",
+      "Income:US:Hoogle:Salary",
+      "Income:US:Hoogle:Vacation"
+     ]
+    ],
+    [
+     "2017-08-11",
+     "*",
+     null,
+     "Employer match for contribution",
+     [],
+     [],
+     [
+      "Assets:US:Vanguard:Cash",
+      "Income:US:Hoogle:Match401k"
+     ]
+    ],
+    [
+     "2017-08-11",
+     "*",
+     "Chichipotle",
+     "Eating out with work buddies",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-13",
+     "*",
+     "Uncle Boons",
+     "Eating out alone",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-14",
+     "*",
+     null,
+     "Investing 40% of cash in VBMPX",
+     [],
+     [],
+     [
+      "Assets:US:Vanguard:Cash",
+      "Assets:US:Vanguard:VBMPX"
+     ]
+    ],
+    [
+     "2017-08-14",
+     "*",
+     null,
+     "Investing 40% of cash in VBMPX",
+     [],
+     [],
+     [
+      "Assets:US:Vanguard:Cash",
+      "Assets:US:Vanguard:VBMPX"
+     ]
+    ],
+    [
+     "2017-08-14",
+     "*",
+     null,
+     "Investing 60% of cash in RGAGX",
+     [],
+     [],
+     [
+      "Assets:US:Vanguard:Cash",
+      "Assets:US:Vanguard:RGAGX"
+     ]
+    ],
+    [
+     "2017-08-14",
+     "*",
+     null,
+     "Investing 60% of cash in RGAGX",
+     [],
+     [],
+     [
+      "Assets:US:Vanguard:Cash",
+      "Assets:US:Vanguard:RGAGX"
+     ]
+    ],
+    [
+     "2017-08-16",
+     "*",
+     "Jewel of Morroco",
+     "Eating out with work buddies",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-17",
+     "*",
+     "Uncle Boons",
+     "Eating out with Julie",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-18",
+     "*",
+     "Metro Transport Authority",
+     "Tram tickets",
+     [],
+     [],
+     [
+      "Expenses:Transport:Tram",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-19",
+     "*",
+     "Farmer Fresh",
+     "Buying groceries",
+     [],
+     [],
+     [
+      "Expenses:Food:Groceries",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-20",
+     "*",
+     "Goba Goba",
+     "Eating out after work",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-20",
+     "*",
+     "Verizon Wireless",
+     "",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Home:Phone"
+     ]
+    ],
+    [
+     "2017-08-22",
+     "*",
+     null,
+     "Sell shares of VEA",
+     [],
+     [],
+     [
+      "Assets:US:ETrade:Cash",
+      "Assets:US:ETrade:VEA",
+      "Expenses:Financial:Commissions",
+      "Income:US:ETrade:Gains"
+     ]
+    ],
+    [
+     "2017-08-23",
+     "*",
+     "Uncle Boons",
+     "Eating out with Julie",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-23",
+     "*",
+     "Wine-Tarner Cable",
+     "",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Home:Internet"
+     ]
+    ],
+    [
+     "2017-08-24",
+     "*",
+     "Hoogle",
+     "Payroll",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Assets:US:Federal:PreTax401k",
+      "Assets:US:Hoogle:Vacation",
+      "Expenses:Health:Dental:Insurance",
+      "Expenses:Health:Life:GroupTermLife",
+      "Expenses:Health:Medical:Insurance",
+      "Expenses:Health:Vision:Insurance",
+      "Expenses:Taxes:Y2017:US:CityNYC",
+      "Expenses:Taxes:Y2017:US:Federal",
+      "Expenses:Taxes:Y2017:US:Medicare",
+      "Expenses:Taxes:Y2017:US:SDI",
+      "Expenses:Taxes:Y2017:US:SocSec",
+      "Expenses:Taxes:Y2017:US:State",
+      "Income:US:Hoogle:GroupTermLife",
+      "Income:US:Hoogle:Salary",
+      "Income:US:Hoogle:Vacation"
+     ]
+    ],
+    [
+     "2017-08-25",
+     "*",
+     null,
+     "Transfering accumulated savings to other account",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Assets:US:ETrade:Cash"
+     ]
+    ],
+    [
+     "2017-08-26",
+     "*",
+     "Uncle Boons",
+     "Eating out alone",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-27",
+     "*",
+     null,
+     "Buy shares of GLD",
+     [],
+     [],
+     [
+      "Assets:US:ETrade:Cash",
+      "Assets:US:ETrade:GLD",
+      "Expenses:Financial:Commissions"
+     ]
+    ],
+    [
+     "2017-08-27",
+     "*",
+     null,
+     "Buy shares of VHT",
+     [],
+     [],
+     [
+      "Assets:US:ETrade:Cash",
+      "Assets:US:ETrade:VHT",
+      "Expenses:Financial:Commissions"
+     ]
+    ],
+    [
+     "2017-08-28",
+     "*",
+     "China Garden",
+     "Eating out with Joe",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-08-30",
+     "*",
+     "Good Moods Market",
+     "Buying groceries",
+     [],
+     [],
+     [
+      "Expenses:Food:Groceries",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-09-01",
+     "*",
+     "Jewel of Morroco",
+     "Eating out alone",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-09-04",
+     "*",
+     "BANK FEES",
+     "Monthly bank fee",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Expenses:Financial:Fees"
+     ]
+    ],
+    [
+     "2017-09-04",
+     "*",
+     "Uncle Boons",
+     "Eating out with Bill",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-09-06",
+     "*",
+     "Farmer Fresh",
+     "Buying groceries",
+     [],
+     [],
+     [
+      "Expenses:Food:Groceries",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ],
+    [
+     "2017-09-07",
+     "*",
+     "Hoogle",
+     "Payroll",
+     [],
+     [],
+     [
+      "Assets:US:BofA:Checking",
+      "Assets:US:Federal:PreTax401k",
+      "Assets:US:Hoogle:Vacation",
+      "Expenses:Health:Dental:Insurance",
+      "Expenses:Health:Life:GroupTermLife",
+      "Expenses:Health:Medical:Insurance",
+      "Expenses:Health:Vision:Insurance",
+      "Expenses:Taxes:Y2017:US:CityNYC",
+      "Expenses:Taxes:Y2017:US:Federal",
+      "Expenses:Taxes:Y2017:US:Medicare",
+      "Expenses:Taxes:Y2017:US:SDI",
+      "Expenses:Taxes:Y2017:US:SocSec",
+      "Expenses:Taxes:Y2017:US:State",
+      "Income:US:Hoogle:GroupTermLife",
+      "Income:US:Hoogle:Salary",
+      "Income:US:Hoogle:Vacation"
+     ]
+    ],
+    [
+     "2017-09-08",
+     "*",
+     "Cafe Modagor",
+     "Eating out with Julie",
+     [],
+     [],
+     [
+      "Expenses:Food:Restaurant",
+      "Liabilities:US:Chase:Slate"
+     ]
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT year(date) AS y, flag, count(*) AS n, count(payee) AS payees FROM #transactions GROUP BY 1, 2 ORDER BY 1, 2",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "y",
+     "type": "int"
+    },
+    {
+     "name": "flag",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    },
+    {
+     "name": "payees",
+     "type": "int"
+    }
+   ],
+   "rows": [
+    [
+     2015,
+     "*",
+     368,
+     278
+    ],
+    [
+     2016,
+     "*",
+     393,
+     293
+    ],
+    [
+     2017,
+     "*",
+     283,
+     187
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT * FROM #transactions",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "flag",
+     "type": "str"
+    },
+    {
+     "name": "payee",
+     "type": "str"
+    },
+    {
+     "name": "narration",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    },
+    {
+     "name": "accounts",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-02",
+     "*",
+     "Employer",
+     "salary",
+     [
+      "work"
+     ],
+     [
+      "payroll-1"
+     ],
+     [
+      "Assets:Bank",
+      "Income:Salary"
+     ]
+    ],
+    [
+     "2020-01-03",
+     "!",
+     "Cafe",
+     "lunch",
+     [],
+     [],
+     [
+      "Assets:Bank",
+      "Expenses:Food"
+     ]
+    ],
+    [
+     "2020-01-03",
+     "*",
+     null,
+     "Market",
+     [],
+     [],
+     [
+      "Assets:Bank",
+      "Expenses:Food"
+     ]
+    ],
+    [
+     "2020-02-01",
+     "*",
+     "Broker",
+     "buy",
+     [],
+     [],
+     [
+      "Assets:Bank",
+      "Assets:Broker"
+     ]
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT payee, narration FROM #transactions WHERE 'payroll-1' IN links OR flag = '!' ORDER BY payee",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "payee",
+     "type": "str"
+    },
+    {
+     "name": "narration",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "Cafe",
+     "lunch"
+    ],
+    [
+     "Employer",
+     "salary"
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT * FROM #prices WHERE currency = 'VHT' AND year(date) = 2016 ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "currency",
+     "type": "str"
+    },
+    {
+     "name": "amount",
+     "type": "amount"
+    }
+   ],
+   "rows": [
+    [
+     "2016-01-01",
+     "VHT",
+     {
+      "number": "112.27",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-01-08",
+     "VHT",
+     {
+      "number": "111.37",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-01-15",
+     "VHT",
+     {
+      "number": "111.88",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-01-22",
+     "VHT",
+     {
+      "number": "112.88",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-01-29",
+     "VHT",
+     {
+      "number": "114.11",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-02-05",
+     "VHT",
+     {
+      "number": "112.46",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-02-12",
+     "VHT",
+     {
+      "number": "112.63",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-02-19",
+     "VHT",
+     {
+      "number": "114.40",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-02-26",
+     "VHT",
+     {
+      "number": "115.01",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-03-04",
+     "VHT",
+     {
+      "number": "113.52",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-03-11",
+     "VHT",
+     {
+      "number": "113.41",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-03-18",
+     "VHT",
+     {
+      "number": "113.56",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-03-25",
+     "VHT",
+     {
+      "number": "114.97",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-04-01",
+     "VHT",
+     {
+      "number": "116.46",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-04-08",
+     "VHT",
+     {
+      "number": "116.45",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-04-15",
+     "VHT",
+     {
+      "number": "120.00",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-04-22",
+     "VHT",
+     {
+      "number": "119.64",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-04-29",
+     "VHT",
+     {
+      "number": "118.03",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-05-06",
+     "VHT",
+     {
+      "number": "118.13",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-05-13",
+     "VHT",
+     {
+      "number": "118.53",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-05-20",
+     "VHT",
+     {
+      "number": "118.62",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-05-27",
+     "VHT",
+     {
+      "number": "116.93",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-06-03",
+     "VHT",
+     {
+      "number": "115.82",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-06-10",
+     "VHT",
+     {
+      "number": "116.27",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-06-17",
+     "VHT",
+     {
+      "number": "116.21",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-06-24",
+     "VHT",
+     {
+      "number": "117.22",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-07-01",
+     "VHT",
+     {
+      "number": "116.23",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-07-08",
+     "VHT",
+     {
+      "number": "115.78",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-07-15",
+     "VHT",
+     {
+      "number": "117.19",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-07-22",
+     "VHT",
+     {
+      "number": "118.19",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-07-29",
+     "VHT",
+     {
+      "number": "117.99",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-08-05",
+     "VHT",
+     {
+      "number": "118.60",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-08-12",
+     "VHT",
+     {
+      "number": "119.85",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-08-19",
+     "VHT",
+     {
+      "number": "119.56",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-08-26",
+     "VHT",
+     {
+      "number": "118.08",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-09-02",
+     "VHT",
+     {
+      "number": "119.80",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-09-09",
+     "VHT",
+     {
+      "number": "120.64",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-09-16",
+     "VHT",
+     {
+      "number": "119.82",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-09-23",
+     "VHT",
+     {
+      "number": "119.17",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-09-30",
+     "VHT",
+     {
+      "number": "118.94",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-10-07",
+     "VHT",
+     {
+      "number": "118.78",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-10-14",
+     "VHT",
+     {
+      "number": "118.60",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-10-21",
+     "VHT",
+     {
+      "number": "119.95",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-10-28",
+     "VHT",
+     {
+      "number": "118.95",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-11-04",
+     "VHT",
+     {
+      "number": "118.35",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-11-11",
+     "VHT",
+     {
+      "number": "117.36",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-11-18",
+     "VHT",
+     {
+      "number": "118.31",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-11-25",
+     "VHT",
+     {
+      "number": "117.41",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-12-02",
+     "VHT",
+     {
+      "number": "116.80",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-12-09",
+     "VHT",
+     {
+      "number": "118.49",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-12-16",
+     "VHT",
+     {
+      "number": "116.69",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-12-23",
+     "VHT",
+     {
+      "number": "116.33",
+      "currency": "USD"
+     }
+    ],
+    [
+     "2016-12-30",
+     "VHT",
+     {
+      "number": "115.62",
+      "currency": "USD"
+     }
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT currency, count(*) AS n, min(number(amount)) AS low, max(number(amount)) AS high, last(amount) AS latest FROM #prices GROUP BY currency ORDER BY currency",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "currency",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    },
+    {
+     "name": "low",
+     "type": "decimal"
+    },
+    {
+     "name": "high",
+     "type": "decimal"
+    },
+    {
+     "name": "latest",
+     "type": "amount"
+    }
+   ],
+   "rows": [
+    [
+     "GLD",
+     141,
+     "167.19",
+     "306.91",
+     {
+      "number": "306.91",
+      "currency": "USD"
+     }
+    ],
+    [
+     "ITOT",
+     141,
+     "54.33",
+     "81.02",
+     {
+      "number": "79.93",
+      "currency": "USD"
+     }
+    ],
+    [
+     "RGAGX",
+     141,
+     "75.62",
+     "88.89",
+     {
+      "number": "81.09",
+      "currency": "USD"
+     }
+    ],
+    [
+     "VBMPX",
+     141,
+     "136.57",
+     "212.88",
+     {
+      "number": "212.88",
+      "currency": "USD"
+     }
+    ],
+    [
+     "VEA",
+     141,
+     "130.07",
+     "149.80",
+     {
+      "number": "143.87",
+      "currency": "USD"
+     }
+    ],
+    [
+     "VHT",
+     141,
+     "105.63",
+     "132.32",
+     {
+      "number": "130.97",
+      "currency": "USD"
+     }
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT * FROM #prices ORDER BY date, currency(amount)",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "currency",
+     "type": "str"
+    },
+    {
+     "name": "amount",
+     "type": "amount"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-07",
+     "AAPL",
+     {
+      "number": "301.00",
+      "currency": "EUR"
+     }
+    ],
+    [
+     "2020-01-07",
+     "AAPL",
+     {
+      "number": "300.00",
+      "currency": "USD"
+     }
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT * FROM #balances WHERE account ~ 'Checking' AND year(date) = 2016 ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "amount",
+     "type": "amount"
+    },
+    {
+     "name": "tolerance",
+     "type": "decimal"
+    },
+    {
+     "name": "discrepancy",
+     "type": "amount"
+    }
+   ],
+   "rows": [
+    [
+     "2016-01-30",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "7420.60",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-02-28",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "6903.12",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-03-22",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "4880.60",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-04-14",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "4048.16",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-05-11",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "3542.52",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-06-05",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "3713.92",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-06-25",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "4141.04",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-07-18",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "3744.93",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-08-09",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "2494.50",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-09-05",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "610.75",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-09-27",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "796.72",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-10-18",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "265.64",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-11-07",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "2821.23",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-12-05",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "3971.92",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2016-12-31",
+     "Assets:US:BofA:Checking",
+     {
+      "number": "6377.23",
+      "currency": "USD"
+     },
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT account, count(*) AS n, last(amount) AS latest FROM #balances GROUP BY account ORDER BY account",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    },
+    {
+     "name": "latest",
+     "type": "amount"
+    }
+   ],
+   "rows": [
+    [
+     "Assets:US:BofA:Checking",
+     40,
+     {
+      "number": "2298.50",
+      "currency": "USD"
+     }
+    ],
+    [
+     "Assets:US:Federal:PreTax401k",
+     3,
+     {
+      "number": "0",
+      "currency": "IRAUSD"
+     }
+    ],
+    [
+     "Liabilities:US:Chase:Slate",
+     39,
+     {
+      "number": "-2437.62",
+      "currency": "USD"
+     }
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT * FROM #balances ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "amount",
+     "type": "amount"
+    },
+    {
+     "name": "tolerance",
+     "type": "decimal"
+    },
+    {
+     "name": "discrepancy",
+     "type": "amount"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-08",
+     "Assets:Bank",
+     {
+      "number": "980.00",
+      "currency": "USD"
+     },
+     null,
+     null
+    ],
+    [
+     "2020-01-09",
+     "Assets:Bank",
+     {
+      "number": "980.00",
+      "currency": "USD"
+     },
+     "0.02",
+     null
+    ],
+    [
+     "2020-01-10",
+     "Assets:Bank",
+     {
+      "number": "990.00",
+      "currency": "USD"
+     },
+     null,
+     {
+      "number": "-10.00",
+      "currency": "USD"
+     }
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT date, discrepancy FROM #balances WHERE discrepancy IS NOT NULL",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "discrepancy",
+     "type": "amount"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-10",
+     {
+      "number": "-10.00",
+      "currency": "USD"
+     }
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT * FROM #notes ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "comment",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-04",
+     "Assets:Bank",
+     "called the bank",
+     [
+      "t1"
+     ],
+     [
+      "ln"
+     ]
+    ],
+    [
+     "2020-02-02",
+     "Expenses:Food",
+     "eat less",
+     [],
+     []
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT account, count(*) AS n FROM #notes WHERE comment ~ 'bank|less' GROUP BY account ORDER BY account",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ],
+   "rows": [
+    [
+     "Assets:Bank",
+     1
+    ],
+    [
+     "Expenses:Food",
+     1
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT * FROM #events ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "description",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "2015-01-01",
+     "employer",
+     "Hoogle, 1600 Amphibious Parkway, River View, CA"
+    ],
+    [
+     "2015-09-07",
+     "location",
+     "Los Angeles"
+    ],
+    [
+     "2015-09-16",
+     "location",
+     "New Metropolis"
+    ],
+    [
+     "2016-04-11",
+     "location",
+     "Los Angeles"
+    ],
+    [
+     "2016-04-19",
+     "location",
+     "New Metropolis"
+    ],
+    [
+     "2016-11-16",
+     "location",
+     "Chicago"
+    ],
+    [
+     "2016-11-29",
+     "location",
+     "New Metropolis"
+    ],
+    [
+     "2017-05-18",
+     "location",
+     "Boston"
+    ],
+    [
+     "2017-06-03",
+     "location",
+     "New Metropolis"
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT type, count(*) AS n, max(date) AS last FROM #events GROUP BY type ORDER BY type",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "date"
+    }
+   ],
+   "rows": [
+    [
+     "employer",
+     1,
+     "2015-01-01"
+    ],
+    [
+     "location",
+     8,
+     "2017-06-03"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT * FROM #events WHERE type = 'location' ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "description",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-06",
+     "location",
+     "Berlin"
+    ],
+    [
+     "2020-01-12",
+     "location",
+     "Paris"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT date, account, tags, links FROM #documents ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-05",
+     "Assets:Bank",
+     [
+      "scan"
+     ],
+     [
+      "stmt-1",
+      "stmt-2"
+     ]
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT account, count(*) AS n FROM #documents GROUP BY account",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ],
+   "rows": [
+    [
+     "Assets:Bank",
+     1
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT date, comment FROM #notes WHERE 't1' IN tags AND 'ln' IN links",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "comment",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-04",
+     "called the bank"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT type, tags, links FROM #entries WHERE type IN ('note', 'document') ORDER BY date",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "type",
+     "type": "str"
+    },
+    {
+     "name": "tags",
+     "type": "set"
+    },
+    {
+     "name": "links",
+     "type": "set"
+    }
+   ],
+   "rows": [
+    [
+     "note",
+     [
+      "t1"
+     ],
+     [
+      "ln"
+     ]
+    ],
+    [
+     "document",
+     [
+      "scan"
+     ],
+     [
+      "stmt-1",
+      "stmt-2"
+     ]
+    ],
+    [
+     "note",
+     [],
+     []
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT account, open.date, open.currencies, close.date FROM #accounts ORDER BY account",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "open.date",
+     "type": "date"
+    },
+    {
+     "name": "open.currencies",
+     "type": "set"
+    },
+    {
+     "name": "close.date",
+     "type": "date"
+    }
+   ],
+   "rows": [
+    [
+     "Assets:US:BofA",
+     "2015-01-01",
+     null,
+     null
+    ],
+    [
+     "Assets:US:BofA:Checking",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Assets:US:ETrade:Cash",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Assets:US:ETrade:GLD",
+     "2015-01-01",
+     [
+      "GLD"
+     ],
+     null
+    ],
+    [
+     "Assets:US:ETrade:ITOT",
+     "2015-01-01",
+     [
+      "ITOT"
+     ],
+     null
+    ],
+    [
+     "Assets:US:ETrade:VEA",
+     "2015-01-01",
+     [
+      "VEA"
+     ],
+     null
+    ],
+    [
+     "Assets:US:ETrade:VHT",
+     "2015-01-01",
+     [
+      "VHT"
+     ],
+     null
+    ],
+    [
+     "Assets:US:Federal:PreTax401k",
+     "1980-05-12",
+     [
+      "IRAUSD"
+     ],
+     null
+    ],
+    [
+     "Assets:US:Hoogle:Vacation",
+     "2015-01-01",
+     [
+      "VACHR"
+     ],
+     null
+    ],
+    [
+     "Assets:US:Vanguard",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Assets:US:Vanguard:Cash",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Assets:US:Vanguard:RGAGX",
+     "2015-01-01",
+     [
+      "RGAGX"
+     ],
+     null
+    ],
+    [
+     "Assets:US:Vanguard:VBMPX",
+     "2015-01-01",
+     [
+      "VBMPX"
+     ],
+     null
+    ],
+    [
+     "Equity:Opening-Balances",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Financial:Commissions",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Financial:Fees",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Food:Alcohol",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Food:Coffee",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Food:Groceries",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Food:Restaurant",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Health:Dental:Insurance",
+     "2015-01-01",
+     null,
+     null
+    ],
+    [
+     "Expenses:Health:Life:GroupTermLife",
+     "2015-01-01",
+     null,
+     null
+    ],
+    [
+     "Expenses:Health:Medical:Insurance",
+     "2015-01-01",
+     null,
+     null
+    ],
+    [
+     "Expenses:Health:Vision:Insurance",
+     "2015-01-01",
+     null,
+     null
+    ],
+    [
+     "Expenses:Home:Electricity",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Home:Internet",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Home:Phone",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Home:Rent",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:CityNYC",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:Federal",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:Federal:PreTax401k",
+     "2015-01-01",
+     [
+      "IRAUSD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:Medicare",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:SDI",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:SocSec",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:State",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:CityNYC",
+     "2016-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:Federal",
+     "2016-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:Federal:PreTax401k",
+     "2016-01-01",
+     [
+      "IRAUSD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:Medicare",
+     "2016-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:SDI",
+     "2016-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:SocSec",
+     "2016-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:State",
+     "2016-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:CityNYC",
+     "2017-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:Federal",
+     "2017-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:Federal:PreTax401k",
+     "2017-01-01",
+     [
+      "IRAUSD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:Medicare",
+     "2017-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:SDI",
+     "2017-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:SocSec",
+     "2017-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:State",
+     "2017-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Expenses:Transport:Tram",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Expenses:Vacation",
+     "2015-01-01",
+     [
+      "VACHR"
+     ],
+     null
+    ],
+    [
+     "Income:US:ETrade:Dividends",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Income:US:ETrade:Gains",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Income:US:Federal:PreTax401k",
+     "1980-05-12",
+     [
+      "IRAUSD"
+     ],
+     null
+    ],
+    [
+     "Income:US:Hoogle:GroupTermLife",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Income:US:Hoogle:Match401k",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Income:US:Hoogle:Salary",
+     "2015-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Income:US:Hoogle:Vacation",
+     "2015-01-01",
+     [
+      "VACHR"
+     ],
+     null
+    ],
+    [
+     "Liabilities:AccountsPayable",
+     "1980-05-12",
+     null,
+     null
+    ],
+    [
+     "Liabilities:US:Chase:Slate",
+     "1980-05-12",
+     [
+      "USD"
+     ],
+     null
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT account, open.date FROM #accounts",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "open.date",
+     "type": "date"
+    }
+   ],
+   "rows": [
+    [
+     "Equity:Opening-Balances",
+     "1980-05-12"
+    ],
+    [
+     "Liabilities:AccountsPayable",
+     "1980-05-12"
+    ],
+    [
+     "Liabilities:US:Chase:Slate",
+     "1980-05-12"
+    ],
+    [
+     "Income:US:Federal:PreTax401k",
+     "1980-05-12"
+    ],
+    [
+     "Assets:US:Federal:PreTax401k",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Food:Groceries",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Food:Restaurant",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Food:Coffee",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Food:Alcohol",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Transport:Tram",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Home:Rent",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Home:Electricity",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Home:Internet",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Home:Phone",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Financial:Fees",
+     "1980-05-12"
+    ],
+    [
+     "Expenses:Financial:Commissions",
+     "1980-05-12"
+    ],
+    [
+     "Assets:US:BofA",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:BofA:Checking",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:ETrade:Cash",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:ETrade:ITOT",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:ETrade:VEA",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:ETrade:VHT",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:ETrade:GLD",
+     "2015-01-01"
+    ],
+    [
+     "Income:US:ETrade:Gains",
+     "2015-01-01"
+    ],
+    [
+     "Income:US:ETrade:Dividends",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:Vanguard:VBMPX",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:Vanguard:RGAGX",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:Vanguard",
+     "2015-01-01"
+    ],
+    [
+     "Income:US:Hoogle:Match401k",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:Vanguard:Cash",
+     "2015-01-01"
+    ],
+    [
+     "Income:US:Hoogle:Salary",
+     "2015-01-01"
+    ],
+    [
+     "Income:US:Hoogle:GroupTermLife",
+     "2015-01-01"
+    ],
+    [
+     "Income:US:Hoogle:Vacation",
+     "2015-01-01"
+    ],
+    [
+     "Assets:US:Hoogle:Vacation",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Vacation",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Health:Life:GroupTermLife",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Health:Medical:Insurance",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Health:Dental:Insurance",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Health:Vision:Insurance",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:Federal:PreTax401k",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:Medicare",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:Federal",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:CityNYC",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:SDI",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:State",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2015:US:SocSec",
+     "2015-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:Federal:PreTax401k",
+     "2016-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:Medicare",
+     "2016-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:Federal",
+     "2016-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:CityNYC",
+     "2016-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:SDI",
+     "2016-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:State",
+     "2016-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2016:US:SocSec",
+     "2016-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:Federal:PreTax401k",
+     "2017-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:Medicare",
+     "2017-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:Federal",
+     "2017-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:CityNYC",
+     "2017-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:SDI",
+     "2017-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:State",
+     "2017-01-01"
+    ],
+    [
+     "Expenses:Taxes:Y2017:US:SocSec",
+     "2017-01-01"
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT root(account, 1) AS root, count(*) AS n, min(open.date) AS first FROM #accounts GROUP BY 1 ORDER BY 1",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "root",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    },
+    {
+     "name": "first",
+     "type": "date"
+    }
+   ],
+   "rows": [
+    [
+     "Assets",
+     13,
+     "1980-05-12"
+    ],
+    [
+     "Equity",
+     1,
+     "1980-05-12"
+    ],
+    [
+     "Expenses",
+     37,
+     "1980-05-12"
+    ],
+    [
+     "Income",
+     7,
+     "1980-05-12"
+    ],
+    [
+     "Liabilities",
+     2,
+     "1980-05-12"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT account, open.date, open.currencies, close.date FROM #accounts",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "open.date",
+     "type": "date"
+    },
+    {
+     "name": "open.currencies",
+     "type": "set"
+    },
+    {
+     "name": "close.date",
+     "type": "date"
+    }
+   ],
+   "rows": [
+    [
+     "Assets:Bank",
+     "2020-01-01",
+     [
+      "USD"
+     ],
+     null
+    ],
+    [
+     "Assets:Broker",
+     "2020-01-01",
+     null,
+     null
+    ],
+    [
+     "Expenses:Food",
+     "2020-01-01",
+     [
+      "EUR",
+      "USD"
+     ],
+     "2020-03-01"
+    ],
+    [
+     "Equity:Opening",
+     "2020-01-01",
+     null,
+     null
+    ],
+    [
+     "Income:Salary",
+     "2020-01-01",
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT account FROM #accounts WHERE close.date IS NOT NULL",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "Expenses:Food"
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT date, name FROM #commodities ORDER BY date, name",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "name",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "1792-01-01",
+     "USD"
+    ],
+    [
+     "1900-01-01",
+     "VMMXX"
+    ],
+    [
+     "1980-05-12",
+     "IRAUSD"
+    ],
+    [
+     "1980-05-12",
+     "VACHR"
+    ],
+    [
+     "1995-09-18",
+     "VBMPX"
+    ],
+    [
+     "2004-01-20",
+     "ITOT"
+    ],
+    [
+     "2004-01-26",
+     "VHT"
+    ],
+    [
+     "2004-11-01",
+     "GLD"
+    ],
+    [
+     "2007-07-20",
+     "VEA"
+    ],
+    [
+     "2009-05-01",
+     "RGAGX"
+    ]
+   ]
+  },
+  {
+   "ledger": "fava",
+   "query": "SELECT name, meta('name') AS title FROM #commodities WHERE meta('export') ~ 'NYSE' ORDER BY name",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "name",
+     "type": "str"
+    },
+    {
+     "name": "title",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "GLD",
+     "SPDR Gold Trust (ETF)"
+    ],
+    [
+     "ITOT",
+     "iShares Core S&P Total U.S. Stock Market ETF"
+    ],
+    [
+     "VEA",
+     "Vanguard FTSE Developed Markets ETF"
+    ],
+    [
+     "VHT",
+     "Vanguard Health Care ETF"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT date, name, meta('name') AS title FROM #commodities",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "name",
+     "type": "str"
+    },
+    {
+     "name": "title",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-01",
+     "USD",
+     "US Dollar"
+    ],
+    [
+     "2020-01-01",
+     "AAPL",
+     null
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT account, sum(units(position)) AS balance FROM #postings GROUP BY account ORDER BY account",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "balance",
+     "type": "inventory"
+    }
+   ],
+   "rows": [
+    [
+     "Assets:Bank",
+     [
+      {
+       "number": "380.00",
+       "currency": "USD"
+      }
+     ]
+    ],
+    [
+     "Assets:Broker",
+     [
+      {
+       "number": "2",
+       "currency": "AAPL"
+      }
+     ]
+    ],
+    [
+     "Expenses:Food",
+     [
+      {
+       "number": "20.00",
+       "currency": "USD"
+      }
+     ]
+    ],
+    [
+     "Income:Salary",
+     [
+      {
+       "number": "-1000.00",
+       "currency": "USD"
+      }
+     ]
+    ]
+   ]
+  }
+ ]
+}

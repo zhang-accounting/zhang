@@ -16,7 +16,7 @@ use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes};
 use crate::period::{Period, PeriodDate};
-use crate::table::{column, ColumnDef, BALANCE_COLUMN, WILDCARD_COLUMNS};
+use crate::table::{self, ColumnDef, Table, BALANCE_COLUMN, POSTINGS};
 use crate::value::{DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +73,9 @@ pub(crate) enum CExpr {
     },
     /// the finished value of the aggregate with this index
     Aggregate(usize),
+    /// the value of the target with this index in the current result row: HAVING reads the
+    /// GROUP BY keys and the aggregate targets of a finished group this way
+    Target(usize),
     WidenInt(Box<CExpr>),
     Neg(Box<CExpr>, Span),
     Not(Box<CExpr>),
@@ -198,7 +201,7 @@ pub(crate) struct Execution {
 
 impl Execution {
     pub fn naive(plan: &Plan) -> Execution {
-        let running_balance = plan.referenced_columns().contains(BALANCE_COLUMN);
+        let running_balance = plan.table.is_postings() && plan.referenced_columns().contains(BALANCE_COLUMN);
         Execution {
             running: RunningPlan {
                 eager: running_balance,
@@ -230,7 +233,17 @@ pub(crate) struct PlannedTarget {
     pub span: Span,
 }
 
+/// `PIVOT BY`: the result is reshaped after LIMIT into one row per value of the `rows`
+/// target and one column per value of the `columns` target (both visible target indexes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Pivot {
+    pub rows: usize,
+    pub columns: usize,
+}
+
 pub(crate) struct Plan {
+    /// the table the query reads (`FROM #name`; `postings` by default)
+    pub table: &'static Table,
     /// visible targets first, then hidden ones added by GROUP BY / ORDER BY
     pub targets: Vec<PlannedTarget>,
     pub visible: usize,
@@ -244,10 +257,15 @@ pub(crate) struct Plan {
     pub aggregates: Vec<AggregateCall>,
     /// `Some` for aggregate queries: the indexes of the targets forming the group key
     pub group_keys: Option<Vec<usize>>,
+    /// `HAVING`: the finished groups for which it is not TRUE are dropped. It reads the
+    /// group's targets ([`CExpr::Target`]) and aggregates, never a row.
+    pub having: Option<CExpr>,
     /// (target index, descending)
     pub order: Vec<(usize, bool)>,
     pub distinct: bool,
     pub limit: Option<u64>,
+    /// `PIVOT BY`, applied to the rows LIMIT leaves
+    pub pivot: Option<Pivot>,
     /// every parameter reference with its declared type, for checking bound values
     pub params: Vec<(ParamRef, DataType, Span)>,
     /// how the executor runs the plan, decided by the optimizer and the projector
@@ -261,6 +279,18 @@ enum Mode {
     Row(&'static str),
     /// a target: aggregates are extracted into [`Plan::aggregates`]
     Target,
+    /// the HAVING condition: like a target, but a subexpression equal to a target (a GROUP
+    /// BY key or an aggregate target) reads its value ([`CExpr::Target`])
+    Having,
+}
+
+/// What HAVING can read besides aggregates: the GROUP BY keys and aggregate targets of the
+/// group.
+struct HavingScope {
+    /// (expression, target index, type, is an aggregate) of every key and aggregate target
+    targets: Vec<(Expr, usize, DataType, bool)>,
+    /// the names of the visible targets, for a hint when HAVING uses one
+    names: Vec<String>,
 }
 
 #[derive(Default)]
@@ -272,19 +302,40 @@ struct ExprInfo {
 
 struct Compiler<'q> {
     src: &'q str,
+    /// the table whose columns the query's names resolve to
+    table: &'static Table,
     param_types: &'q ParamTypes,
     aggregates: Vec<AggregateCall>,
     params: Vec<(ParamRef, DataType, Span)>,
+    /// set while the HAVING condition is compiled
+    having: Option<HavingScope>,
 }
 
 type Typed = (CExpr, DataType);
 
 pub(crate) fn compile(src: &str, select: &Select, param_types: &ParamTypes) -> Result<Plan, LocatedError> {
+    let table = match &select.table {
+        None => &POSTINGS,
+        Some(name) => match table::find(&name.name) {
+            Some(table) => table,
+            None => {
+                let names = table::tables().iter().map(|table| format!("#{}", table.name)).collect::<Vec<_>>();
+                let what = if name.bare {
+                    format!("unknown column or table '{}'", name.name)
+                } else {
+                    format!("unknown table '#{}'", name.name)
+                };
+                return err(format!("{}; the tables are {}", what, names.join(", ")), name.span);
+            }
+        },
+    };
     let mut compiler = Compiler {
         src,
+        table,
         param_types,
         aggregates: vec![],
         params: vec![],
+        having: None,
     };
     compiler.plan(select)
 }
@@ -310,7 +361,9 @@ impl Compiler<'_> {
     fn plan(&mut self, select: &Select) -> Result<Plan, LocatedError> {
         // targets
         let target_exprs: Vec<(Expr, Option<String>)> = match &select.targets {
-            Targets::Wildcard => WILDCARD_COLUMNS
+            Targets::Wildcard => self
+                .table
+                .wildcard
                 .iter()
                 .map(|name| (Expr::new(ExprKind::Column((*name).to_owned()), Span::default()), Some((*name).to_owned())))
                 .collect(),
@@ -409,7 +462,17 @@ impl Compiler<'_> {
             None
         };
 
+        let having = match &select.having {
+            Some(expr) => Some(self.having(expr, group_keys.as_deref(), &targets, &target_asts, visible)?),
+            None => None,
+        };
+        let pivot = match &select.pivot_by {
+            Some(columns) => Some(pivot(columns, &targets[..visible], group_keys.as_deref())?),
+            None => None,
+        };
+
         let mut plan = Plan {
+            table: self.table,
             targets,
             visible,
             period,
@@ -417,14 +480,79 @@ impl Compiler<'_> {
             filter: None,
             aggregates: std::mem::take(&mut self.aggregates),
             group_keys,
+            having,
             order,
             distinct: select.distinct,
             limit: select.limit,
+            pivot,
             params: std::mem::take(&mut self.params),
             execution: Execution::default(),
         };
         plan.execution = Execution::naive(&plan);
         Ok(plan)
+    }
+
+    /// Compile the HAVING condition of an aggregate query.
+    ///
+    /// As in beanquery it must use an aggregate function, and names are columns of the table,
+    /// never target aliases. A column may only be read through a GROUP BY key: a
+    /// subexpression equal to a target (a key, or an aggregate target, whose finished value
+    /// is reused) reads that target of the group; any other column must be inside an
+    /// aggregate function. (beanquery evaluates such a column on an arbitrary posting.)
+    fn having(&mut self, expr: &Expr, keys: Option<&[usize]>, targets: &[PlannedTarget], target_asts: &[Expr], visible: usize) -> Result<CExpr, LocatedError> {
+        let Some(keys) = keys else {
+            return err("HAVING requires a GROUP BY clause", expr.span);
+        };
+        self.having = Some(HavingScope {
+            targets: target_asts
+                .iter()
+                .zip(targets)
+                .enumerate()
+                .filter(|(idx, (_, target))| target.is_aggregate || keys.contains(idx))
+                .map(|(idx, (ast, target))| (ast.clone(), idx, target.ty, target.is_aggregate))
+                .collect(),
+            names: targets[..visible].iter().map(|target| target.name.clone()).collect(),
+        });
+        let mut info = ExprInfo::default();
+        let compiled = self.expr(expr, Mode::Having, &mut info);
+        self.having = None;
+        let (compiled, ty) = compiled?;
+        if let Some((name, span)) = info.bare_column {
+            return err(
+                format!("column '{}' must be a GROUP BY key or be used inside an aggregate function in HAVING", name),
+                span,
+            );
+        }
+        if !info.has_aggregate {
+            return err(
+                "HAVING must use an aggregate function such as count(*) or sum(...); filter rows with WHERE",
+                expr.span,
+            );
+        }
+        if !matches!(ty, DataType::Bool | DataType::Null) {
+            return err(format!("HAVING expects a boolean expression, got {}", ty), expr.span);
+        }
+        Ok(compiled)
+    }
+
+    /// In HAVING, an expression equal to a key or an aggregate target reads that target of the
+    /// group; a target name that is not a column gets a hint. `None` compiles it as usual.
+    fn having_reference(&self, expr: &Expr, info: &mut ExprInfo) -> Option<Result<Typed, LocatedError>> {
+        let scope = self.having.as_ref()?;
+        if let Some((_, idx, ty, is_aggregate)) = scope.targets.iter().find(|(ast, ..)| ast.same_as(expr)) {
+            info.has_aggregate |= *is_aggregate;
+            return Some(Ok((CExpr::Target(*idx), *ty)));
+        }
+        match &expr.kind {
+            ExprKind::Column(name) if self.table.column(name).is_none() && scope.names.iter().any(|it| it.eq_ignore_ascii_case(name)) => Some(err(
+                format!(
+                    "unknown column '{}': HAVING cannot use target names; repeat the target's expression instead",
+                    name
+                ),
+                expr.span,
+            )),
+            _ => None,
+        }
     }
 
     /// Compile `OPEN ON` / `CLOSE [ON]` / `CLEAR`.
@@ -519,10 +647,15 @@ impl Compiler<'_> {
     /// frame small (the parser bounds the tree height by [`crate::MAX_DEPTH`]).
     fn expr(&mut self, expr: &Expr, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
         let span = expr.span;
+        if let Mode::Having = mode {
+            if let Some(reference) = self.having_reference(expr, info) {
+                return reference;
+            }
+        }
         Ok(match &expr.kind {
             ExprKind::Literal(literal) => return Ok(literal_value(literal)),
             ExprKind::Param(param) => return self.param(param, span),
-            ExprKind::Column(name) => return column_ref(name, span, mode, info),
+            ExprKind::Column(name) => return column_ref(self.table, name, span, mode, info),
             ExprKind::Call { name, args, star } => self.call(name, args, *star, span, mode, info)?,
             ExprKind::Unary(op, inner) => {
                 let operand = self.expr(inner, mode, info)?;
@@ -711,7 +844,7 @@ impl Compiler<'_> {
                 let comparable =
                     left_ty == right_ty || left_ty == DataType::Null || right_ty == DataType::Null || (left_ty.is_numeric() && right_ty.is_numeric());
                 if !comparable {
-                    return err(format!("cannot compare {} with {}", left_ty, right_ty), span);
+                    return err(format!("cannot compare {} with {}{}", left_ty, right_ty, compare_hint(left_ty, right_ty)), span);
                 }
                 if !matches!(cmp, CmpOp::Eq | CmpOp::Ne) {
                     let orderable = |ty: DataType| {
@@ -764,6 +897,52 @@ impl Compiler<'_> {
     }
 }
 
+/// Resolve the two columns of `PIVOT BY` (target names or 1-based indexes) to visible
+/// targets, with beanquery's rules: the query is an aggregate query, the columns differ, and
+/// the second one is a GROUP BY key (its values become the columns).
+fn pivot(columns: &[Expr; 2], targets: &[PlannedTarget], group_keys: Option<&[usize]>) -> Result<Pivot, LocatedError> {
+    let resolve = |item: &Expr| -> Result<usize, LocatedError> {
+        if let Some(index) = item.as_index() {
+            if index < 1 || index as usize > targets.len() {
+                return err(
+                    format!("PIVOT BY index {} is out of range: the query has {} targets", index, targets.len()),
+                    item.span,
+                );
+            }
+            return Ok(index as usize - 1);
+        }
+        let name = item.as_identifier().unwrap_or_default();
+        targets
+            .iter()
+            .position(|target| target.name.eq_ignore_ascii_case(name))
+            .map_or_else(|| err(format!("PIVOT BY column '{}' is not a target name", name), item.span), Ok)
+    };
+    let (rows, cols) = (resolve(&columns[0])?, resolve(&columns[1])?);
+    let span = Span::new(columns[0].span.start, columns[1].span.end);
+    let Some(keys) = group_keys else {
+        return err("PIVOT BY needs an aggregate query: group the rows with GROUP BY", span);
+    };
+    if rows == cols {
+        return err("the two PIVOT BY columns must be different targets", span);
+    }
+    if !keys.contains(&cols) {
+        return err(
+            format!("the second PIVOT BY column must be a GROUP BY key; '{}' is not", targets[cols].name),
+            columns[1].span,
+        );
+    }
+    if matches!(targets[rows].ty, DataType::Set | DataType::Inventory) {
+        return err(
+            format!(
+                "cannot pivot by '{}': values of type {} cannot be pivoted",
+                targets[rows].name, targets[rows].ty
+            ),
+            columns[0].span,
+        );
+    }
+    Ok(Pivot { rows, columns: cols })
+}
+
 /// Scalar functions that read the row being evaluated (its metadata): in grouped queries
 /// they must be grouped or used inside an aggregate, like columns.
 const ROW_FUNCTIONS: &[&str] = &["meta", "entry_meta", "any_meta"];
@@ -779,13 +958,13 @@ fn literal_value(literal: &Literal) -> Typed {
     }
 }
 
-fn column_ref(name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
-    match column(name) {
+fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+    match table.column(name) {
         Some(def) => {
             if info.bare_column.is_none() {
                 info.bare_column = Some((def.name.to_owned(), span));
             }
-            if def.name != BALANCE_COLUMN {
+            if !(table.is_postings() && def.name == BALANCE_COLUMN) {
                 return Ok((CExpr::Column(def), def.ty));
             }
             if let Mode::Row(clause @ ("FROM" | "WHERE")) = mode {
@@ -796,15 +975,57 @@ fn column_ref(name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result
             }
             Ok((CExpr::Running(Running::Balance), def.ty))
         }
+        None if name.contains('.') => attribute_error(table, name, span, mode, info),
         None => {
             let hint = if crate::functions::SCALAR_FUNCTIONS.iter().any(|it| it.name == name) || is_aggregate(name) {
                 format!("; did you mean {}(...)?", name)
             } else {
                 String::new()
             };
-            err(format!("unknown column '{}'{}", name, hint), span)
+            if table.is_postings() {
+                err(format!("unknown column '{}'{}", name, hint), span)
+            } else {
+                let columns = table.columns.iter().map(|column| column.name).collect::<Vec<_>>();
+                err(
+                    format!("unknown column '{}' in #{} (its columns are {}){}", name, table.name, columns.join(", "), hint),
+                    span,
+                )
+            }
         }
     }
+}
+
+/// The error of a dotted name `base.attribute...` that names no column, for the longest prefix
+/// that is a column: an unknown attribute of a structured column, or an attribute of a column
+/// that has none, both reported at the attribute after that prefix. When no prefix is a
+/// column, the first part is an unknown column. Iterative, so that no number of dots can
+/// exhaust the stack (the parser also caps it, at [`crate::parser::MAX_NAME_PARTS`]).
+fn attribute_error(table: &'static Table, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+    let dots = name.match_indices('.').map(|(idx, _)| idx).collect::<Vec<_>>();
+    for (k, &dot) in dots.iter().enumerate().rev() {
+        let base = &name[..dot];
+        let end = dots.get(k + 1).copied().unwrap_or(name.len());
+        let attribute = &name[dot + 1..end];
+        let attribute_span = Span::new(span.start + dot + 1, span.start + end);
+        let attributes = table.attributes(base);
+        if !attributes.is_empty() {
+            return err(
+                format!("unknown attribute '{}' of {}; its attributes are {}", attribute, base, attributes.join(", ")),
+                attribute_span,
+            );
+        }
+        if let Some(column) = table.column(base) {
+            return err(
+                format!(
+                    "{} is a {} and has no attributes, so {}.{} does not exist",
+                    column.name, column.ty, column.name, attribute
+                ),
+                attribute_span,
+            );
+        }
+    }
+    let first = &name[..dots.first().copied().unwrap_or(name.len())];
+    column_ref(table, first, Span::new(span.start, span.start + first.len()), mode, info)
 }
 
 fn scalar_call(name: &str, args: Vec<CExpr>, types: &[DataType], span: Span) -> Result<Typed, LocatedError> {
@@ -875,6 +1096,19 @@ fn coerce_date_literal(expr: CExpr, ty: DataType, other: DataType, span: Span) -
     Ok((expr, ty))
 }
 
+/// How to compare a value that carries a currency with a number, for the error message.
+fn compare_hint(left: DataType, right: DataType) -> &'static str {
+    let carrier = match (left, right) {
+        (carrier, other) | (other, carrier) if other.is_numeric() && matches!(carrier, DataType::Amount | DataType::Position | DataType::Inventory) => carrier,
+        _ => return "",
+    };
+    match carrier {
+        DataType::Inventory => ": an inventory may hold several currencies; compare the number of one of them, e.g. number(only('USD', sum(position))) > 100",
+        DataType::Position => ": compare its number, e.g. number(units(position)) > 100",
+        _ => ": compare its number, e.g. number(price) > 100",
+    }
+}
+
 /// Whether `needle` and an IN-list item are comparable, after coercing date literals.
 fn coerce_comparable(needle: DataType, item: CExpr, item_ty: DataType, span: Span) -> Result<(bool, CExpr), LocatedError> {
     let (item, item_ty) = coerce_date_literal(item, item_ty, needle, span)?;
@@ -911,7 +1145,7 @@ impl CExpr {
     pub(crate) fn map_children<E>(self, f: &mut impl FnMut(CExpr) -> Result<CExpr, E>) -> Result<CExpr, E> {
         let boxed = |expr: Box<CExpr>, f: &mut dyn FnMut(CExpr) -> Result<CExpr, E>| f(*expr).map(Box::new);
         Ok(match self {
-            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_)) => leaf,
+            leaf @ (CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) | CExpr::Target(_)) => leaf,
             CExpr::Scalar { function, args, span } => CExpr::Scalar {
                 function,
                 args: args.into_iter().map(&mut *f).collect::<Result<_, _>>()?,
@@ -977,7 +1211,7 @@ impl CExpr {
     /// The direct children of this node.
     pub(crate) fn children(&self) -> Vec<&CExpr> {
         match self {
-            CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) => vec![],
+            CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) | CExpr::Target(_) => vec![],
             CExpr::Scalar { args, .. } => args.iter().collect(),
             CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => vec![inner],
             CExpr::And(operands) | CExpr::Or(operands) => operands.iter().collect(),
@@ -1011,14 +1245,14 @@ impl CExpr {
 }
 
 impl Plan {
-    /// The `postings` columns read anywhere in the plan (targets, filter, aggregate
+    /// The columns of the plan's table read anywhere in the plan (targets, filter, aggregate
     /// arguments), for a projection stage that only computes what is used.
     pub(crate) fn referenced_columns(&self) -> BTreeSet<&'static str> {
         let mut columns = BTreeSet::new();
         for target in &self.targets {
             target.expr.collect_columns(&mut columns);
         }
-        for filter in self.filters.iter().chain(self.filter.as_ref()) {
+        for filter in self.filters.iter().chain(self.filter.as_ref()).chain(self.having.as_ref()) {
             filter.collect_columns(&mut columns);
         }
         for aggregate in &self.aggregates {
@@ -1055,6 +1289,7 @@ impl fmt::Display for CExpr {
                 f.write_str(")")
             }
             CExpr::Aggregate(idx) => write!(f, "agg#{}", idx),
+            CExpr::Target(idx) => write!(f, "target#{}", idx),
             CExpr::WidenInt(inner) => write!(f, "decimal({})", inner),
             CExpr::Neg(inner, _) => write!(f, "-{}", inner),
             CExpr::Not(inner) => write!(f, "NOT {}", inner),
@@ -1100,9 +1335,13 @@ impl fmt::Display for CExpr {
     }
 }
 
-/// An `EXPLAIN`-style dump of the plan, one clause per line.
+/// An `EXPLAIN`-style dump of the plan, one clause per line. The first line names the table,
+/// unless the plan reads the default `postings` table.
 impl fmt::Display for Plan {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if !self.table.is_postings() {
+            writeln!(f, "table: #{}", self.table.name)?;
+        }
         for (idx, target) in self.targets.iter().enumerate() {
             let hidden = if idx >= self.visible { " (hidden)" } else { "" };
             writeln!(f, "target {}: {} = {} : {}{}", idx, target.name, target.expr, target.ty, hidden)?;
@@ -1127,6 +1366,9 @@ impl fmt::Display for Plan {
         if let Some(keys) = &self.group_keys {
             writeln!(f, "group by: {:?}", keys)?;
         }
+        if let Some(having) = &self.having {
+            writeln!(f, "having: {}", having)?;
+        }
         if !self.order.is_empty() {
             let order = self
                 .order
@@ -1147,6 +1389,9 @@ impl fmt::Display for Plan {
             };
             writeln!(f, "limit: {}{}", limit, how)?;
         }
+        if let Some(pivot) = &self.pivot {
+            writeln!(f, "pivot by: {} (rows), {} (columns)", pivot.rows, pivot.columns)?;
+        }
         for rewrite in &self.execution.rewrites {
             writeln!(f, "rewrite: {} -> running {}", rewrite.expression(), rewrite.name())?;
         }
@@ -1165,5 +1410,42 @@ impl fmt::Display for Plan {
             writeln!(f, "balance: {}", how.join(", "))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::params::ParamTypes;
+
+    /// Compile `SELECT <name> FROM #accounts` with a dotted name the parser would reject, on a
+    /// thread with a 2 MiB stack.
+    fn compile_dotted(parts: usize) -> LocatedError {
+        std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let src = "SELECT a FROM #accounts";
+                let mut select = crate::parser::parse(src).unwrap();
+                let name = vec!["a"; parts].join(".");
+                let Targets::List(targets) = &mut select.targets else { panic!() };
+                targets[0].expr = Expr::new(ExprKind::Column(name.clone()), Span::new(7, 7 + name.len()));
+                compile(src, &select, &ParamTypes::default()).err().expect("an unknown column")
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    #[test]
+    fn dotted_names_resolve_without_recursion() {
+        for parts in [2, 10_000, 32_000] {
+            let error = compile_dotted(parts);
+            assert_eq!(
+                error.message.lines().next().unwrap().split(" in #").next(),
+                Some("unknown column 'a'"),
+                "{parts}"
+            );
+            assert_eq!(error.span, Some(Span::new(7, 8)), "{parts}");
+        }
     }
 }

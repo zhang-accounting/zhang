@@ -14,15 +14,15 @@ use regex::Regex;
 use zhang_ast::amount::Amount;
 
 use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, LimitMode, Plan, RegexPattern};
-use crate::decimal;
 use crate::error::{LocatedError, QueryErrorKind, Span};
 use crate::functions::{AggregateKind, FunctionContext, ScalarFunction};
 use crate::params::Params;
 use crate::prices::PriceMap;
 use crate::projector::{borrowed_str, set_membership};
 use crate::running::RunningState;
-use crate::table::{Dataset, Row};
+use crate::table::{Dataset, RowRef};
 use crate::value::{Inventory, Position, Value};
+use crate::{decimal, ColumnInfo};
 
 /// How many rows are scanned between two deadline checks.
 const DEADLINE_CHECK_INTERVAL: usize = 256;
@@ -59,9 +59,11 @@ pub(crate) struct Env<'e, 'a> {
     /// the rows and lookups of this execution; `None` while folding constants at compile time
     pub data: Option<&'e Dataset<'a>>,
     /// the current row; `None` when evaluating finished aggregates
-    pub row: Option<&'e Row<'a>>,
+    pub row: Option<RowRef<'e, 'a>>,
     /// finished aggregate values of the current group
     pub aggregates: &'e [Value],
+    /// the targets of the current group's result row, which HAVING reads
+    pub cells: &'e [Value],
     /// the running totals including the current row, when the plan reads them
     pub running: Option<&'e RunningState>,
     pub params: &'e Params,
@@ -98,12 +100,12 @@ impl FunctionContext for Env<'_, '_> {
 
     fn entry_meta(&self, key: &str) -> Option<String> {
         self.impure.set(self.impure.get() || self.data.is_none());
-        self.data.zip(self.row).and_then(|(data, row)| data.entry_meta(row, key))
+        self.data.zip(self.row).and_then(|(data, row)| data.row_entry_meta(row, key))
     }
 
     fn posting_meta(&self, key: &str) -> Option<String> {
         self.impure.set(self.impure.get() || self.data.is_none());
-        self.data.zip(self.row).and_then(|(data, row)| data.posting_meta(row, key))
+        self.data.zip(self.row).and_then(|(data, row)| data.row_meta(row, key))
     }
 }
 
@@ -117,6 +119,7 @@ pub(crate) fn eval_constant(expr: &CExpr) -> Option<Value> {
         data: None,
         row: None,
         aggregates: &[],
+        cells: &[],
         running: None,
         params: &params,
         regexes: &regexes,
@@ -139,7 +142,7 @@ impl CExpr {
             CExpr::Column(def) => match (env.data, env.row) {
                 (Some(data), Some(row)) => {
                     debug_assert!(data.projection.contains(def), "column '{}' is not projected", def.name);
-                    Ok((def.get)(data, row))
+                    Ok(def.value(data, row))
                 }
                 _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
             },
@@ -154,6 +157,14 @@ impl CExpr {
             CExpr::Param(param) => Ok(env.params.get(param).cloned().unwrap_or(Value::Null)),
             CExpr::Scalar { function, args, span } => eval_scalar(function, args, *span, env),
             CExpr::Aggregate(idx) => Ok(env.aggregates.get(*idx).cloned().unwrap_or(Value::Null)),
+            CExpr::Target(idx) => match env.cells.get(*idx) {
+                Some(value) => Ok(value.clone()),
+                None => {
+                    // never constant: folding gives up on it
+                    env.impure.set(true);
+                    Err(LocatedError::eval("a target is not available here", None))
+                }
+            },
             CExpr::WidenInt(inner) => Ok(widen_int(inner.eval(env)?)),
             CExpr::Neg(inner, span) => negate(inner.eval(env)?, *span),
             CExpr::Not(inner) => Ok(not(inner.eval(env)?)),
@@ -515,7 +526,7 @@ impl Deadline {
         }
     }
 
-    fn check(deadline: Option<&Deadline>, counter: usize) -> Result<(), LocatedError> {
+    pub(crate) fn check(deadline: Option<&Deadline>, counter: usize) -> Result<(), LocatedError> {
         match deadline {
             Some(deadline) if counter.is_multiple_of(DEADLINE_CHECK_INTERVAL) && Instant::now() >= deadline.at => Err(LocatedError {
                 kind: QueryErrorKind::Timeout,
@@ -545,7 +556,7 @@ impl Budget {
         Budget { limit, used: 0 }
     }
 
-    fn charge(&mut self, weight: u64) -> Result<(), LocatedError> {
+    pub(crate) fn charge(&mut self, weight: u64) -> Result<(), LocatedError> {
         self.used = self.used.saturating_add(weight);
         match self.limit {
             Some(limit) if self.used > limit => Err(LocatedError {
@@ -561,12 +572,12 @@ impl Budget {
         }
     }
 
-    fn release(&mut self, weight: u64) {
+    pub(crate) fn release(&mut self, weight: u64) {
         self.used = self.used.saturating_sub(weight);
     }
 
     /// Account for something that held `before` values and now holds `after`.
-    fn change(&mut self, before: u64, after: u64) -> Result<(), LocatedError> {
+    pub(crate) fn change(&mut self, before: u64, after: u64) -> Result<(), LocatedError> {
         if after >= before {
             self.charge(after - before)
         } else {
@@ -581,7 +592,7 @@ impl Budget {
 /// bounds the memory, and the encoded size, of a result.
 pub(crate) fn weight(value: &Value) -> u64 {
     match value {
-        Value::Str(text) => 1 + text.len() as u64 / 64,
+        Value::Str(text) => text_weight(text.len()),
         Value::Set(set) => 1 + set.len() as u64,
         Value::Position(_) => 2,
         Value::Inventory(inventory) => inventory_weight(inventory),
@@ -589,11 +600,17 @@ pub(crate) fn weight(value: &Value) -> u64 {
     }
 }
 
+/// The size of a text of `len` bytes in [`Budget`] values (see [`weight`]); column names
+/// built from the data are charged like text cells.
+pub(crate) fn text_weight(len: usize) -> u64 {
+    1 + len as u64 / 64
+}
+
 fn inventory_weight(inventory: &Inventory) -> u64 {
     1 + inventory.len() as u64
 }
 
-fn row_weight(row: &[Value]) -> u64 {
+pub(crate) fn row_weight(row: &[Value]) -> u64 {
     row.iter().map(weight).sum()
 }
 
@@ -712,7 +729,14 @@ impl Filtered {
 /// Run the plan and return the visible columns of the result rows, without a [`Budget`].
 #[cfg(test)]
 pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>) -> Result<Vec<Vec<Value>>, LocatedError> {
-    execute_within(plan, data, params, deadline, Budget::new(None))
+    execute_within(plan, data, params, deadline, Budget::new(None)).map(|output| output.rows)
+}
+
+/// The rows of a result, and its columns when the data decides them (PIVOT BY).
+pub(crate) struct Output {
+    pub rows: Vec<Vec<Value>>,
+    /// `None` when the columns are the plan's visible targets
+    pub columns: Option<Vec<ColumnInfo>>,
 }
 
 /// The state shared by the passes of one execution.
@@ -736,8 +760,10 @@ impl<'x, 'a> Execution<'x, 'a> {
         let mut next = 0;
         for (ordinal, idx) in filtered[..=last].iter().enumerate() {
             Deadline::check(self.deadline, ordinal)?;
-            let row = &self.data.rows[*idx];
-            running.add(row);
+            let row = self.data.row(*idx);
+            if let RowRef::Posting(posting) = row {
+                running.add(posting);
+            }
             let env = Env {
                 row: Some(row),
                 running: Some(&running),
@@ -752,21 +778,21 @@ impl<'x, 'a> Execution<'x, 'a> {
     }
 }
 
-/// Run the plan within the `budget` and return the visible columns of the result rows.
+/// Run the plan within the `budget` and return the visible columns of the result rows,
+/// pivoted when the plan has a PIVOT BY.
 ///
 /// The plan's [`crate::compiler::Execution`] says how: whether the main pass keeps the
 /// running totals, which targets and aggregates over them wait for a replay of the filtered
 /// rows (so that only the rows a query returns materialize a balance), and how LIMIT cuts
 /// the scan short.
-pub(crate) fn execute_within(
-    plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>, mut budget: Budget,
-) -> Result<Vec<Vec<Value>>, LocatedError> {
+pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>, mut budget: Budget) -> Result<Output, LocatedError> {
     let regexes = RegexCache::default();
     let impure = Cell::new(false);
     let base = Env {
         data: Some(data),
         row: None,
         aggregates: &[],
+        cells: &[],
         running: None,
         params,
         regexes: &regexes,
@@ -800,7 +826,7 @@ pub(crate) fn execute_within(
             };
             // DISTINCT without ORDER BY tells rows apart while scanning
             let mut seen = (plan.distinct && strategy.limit == LimitMode::StopScan).then(HashSet::new);
-            for (counter, row) in data.rows.iter().enumerate() {
+            for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
                 if stop_at.is_some_and(|limit| collector.len() >= limit) {
                     break;
@@ -810,8 +836,8 @@ pub(crate) fn execute_within(
                     continue;
                 }
                 let ordinal = filtered.push(counter);
-                if let Some(running) = &mut running {
-                    running.add(row);
+                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                    running.add(posting);
                 }
                 let env = Env {
                     running: running.as_ref(),
@@ -857,15 +883,15 @@ pub(crate) fn execute_within(
             let deferred = &strategy.running.deferred_aggregates;
             let first_groups = plan.limit.filter(|_| strategy.limit == LimitMode::FirstGroups);
             let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
-            for (counter, row) in data.rows.iter().enumerate() {
+            for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
                 let env = Env { row: Some(row), ..base };
                 if !passes(&plan.filter, &env)? {
                     continue;
                 }
                 let ordinal = filtered.push(counter);
-                if let Some(running) = &mut running {
-                    running.add(row);
+                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                    running.add(posting);
                 }
                 let env = Env {
                     running: running.as_ref(),
@@ -950,6 +976,12 @@ pub(crate) fn execute_within(
                         None => out.push(target.expr.eval(&env)?),
                     }
                 }
+                if let Some(having) = &plan.having {
+                    // a group for which HAVING is not TRUE (FALSE or NULL) is dropped
+                    if !matches!(having.eval(&Env { cells: &out, ..env })?, Value::Bool(true)) {
+                        continue;
+                    }
+                }
                 budget.charge(row_weight(&out))?;
                 rows.push(out);
             }
@@ -971,5 +1003,11 @@ pub(crate) fn execute_within(
     if let Some(limit) = plan.limit {
         rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
     }
-    Ok(rows)
+    match plan.pivot {
+        Some(spec) => {
+            let (columns, rows) = crate::pivot::pivot(plan, spec, rows, &mut budget)?;
+            Ok(Output { rows, columns: Some(columns) })
+        }
+        None => Ok(Output { rows, columns: None }),
+    }
 }

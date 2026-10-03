@@ -1,0 +1,26 @@
+{
+  "name": "csv_prices_table",
+  "query": "SELECT date, currency, amount FROM #prices WHERE date >= 2017-09-01 ORDER BY date, currency",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "csv",
+  "columns": [],
+  "rows": [],
+  "csv": [
+    "date,currency,amount (USD)",
+    "2017-09-01,GLD,304.48",
+    "2017-09-01,ITOT, 80.92",
+    "2017-09-01,RGAGX, 80.95",
+    "2017-09-01,VBMPX,211.69",
+    "2017-09-01,VEA,142.80",
+    "2017-09-01,VHT,131.91",
+    "2017-09-08,GLD,306.91",
+    "2017-09-08,ITOT, 79.93",
+    "2017-09-08,RGAGX, 81.09",
+    "2017-09-08,VBMPX,212.88",
+    "2017-09-08,VEA,143.87",
+    "2017-09-08,VHT,130.97"
+  ],
+  "notes": "The amount column of #prices becomes 'amount (USD)'."
+}

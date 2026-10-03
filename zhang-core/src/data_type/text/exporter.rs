@@ -252,6 +252,14 @@ impl ZhangDataTypeExportable for BalanceCheck {
     }
 }
 
+/// The `#tag` and `^link` words of a note or document, each sorted by name (the AST
+/// keeps them in sets).
+fn tags_and_links(tags: Option<std::collections::HashSet<String>>, links: Option<std::collections::HashSet<String>>) -> Vec<String> {
+    let words =
+        |items: Option<std::collections::HashSet<String>>, prefix: char| items.into_iter().flatten().sorted().map(move |it| format!("{}{}", prefix, it));
+    words(tags, '#').chain(words(links, '^')).collect()
+}
+
 impl ZhangDataTypeExportable for Note {
     type Output = String;
     fn export_as(self, style: QuoteStyle) -> String {
@@ -261,7 +269,8 @@ impl ZhangDataTypeExportable for Note {
             self.account.export_as(style),
             self.comment.export_as(style),
         ];
-        append_meta_as(self.meta, line.join(" "), style)
+        let line = line.into_iter().chain(tags_and_links(self.tags, self.links)).join(" ");
+        append_meta_as(self.meta, line, style)
     }
 }
 
@@ -274,7 +283,8 @@ impl ZhangDataTypeExportable for Document {
             self.account.export_as(style),
             self.filename.export_as(style),
         ];
-        append_meta_as(self.meta, line.join(" "), style)
+        let line = line.into_iter().chain(tags_and_links(self.tags, self.links)).join(" ");
+        append_meta_as(self.meta, line, style)
     }
 }
 
@@ -765,6 +775,28 @@ mod test {
             indoc! {r#"
             1970-01-01 document Assets:123 "abc.jpg"
         "#}
+        );
+    }
+
+    #[test]
+    fn note_and_document_tags_and_links() {
+        assert_parse!(
+            "note with tags and links",
+            indoc! {r#"
+            1970-01-01 note Assets:123 "x" #a #b ^l1
+        "#}
+        );
+        assert_parse!(
+            "document with links and metadata",
+            indoc! {r#"
+            1970-01-01 document Assets:123 "abc.jpg" #旅行 ^l1 ^l2
+              k: "v"
+        "#}
+        );
+        // tags and links are kept in sets, and written sorted
+        assert_eq!(
+            parse_and_export(r#"1970-01-01 note Assets:123 "x" ^z #b ^a #a ; comment"#),
+            r#"1970-01-01 note Assets:123 "x" #a #b ^a ^z"#
         );
     }
 

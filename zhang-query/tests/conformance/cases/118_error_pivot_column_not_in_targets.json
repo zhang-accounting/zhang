@@ -1,0 +1,12 @@
+{
+  "name": "error_pivot_column_not_in_targets",
+  "query": "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY account, payee",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "A PIVOT BY name must be a target name (or alias); a table column that is not selected is a compile error."
+}

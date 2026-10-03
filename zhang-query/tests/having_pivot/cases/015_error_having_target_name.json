@@ -1,0 +1,11 @@
+{
+  "name": "error_having_target_name",
+  "query": "SELECT account, sum(number) AS total GROUP BY account HAVING total > 10",
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "Names in HAVING are postings columns, never target aliases."
+}

@@ -4,7 +4,8 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 
 interface Props {
   name: string;
-  plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+  // `Unknown` is a capability this server version doesn't recognise (#460)
+  plugin_type: ('Processor' | 'Mapper' | 'Router' | 'Unknown')[];
   version: string;
 }
 

@@ -1,0 +1,12 @@
+{
+  "name": "error_pivot_one_column",
+  "query": "SELECT account, year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY 1, 2 PIVOT BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": "PIVOT BY takes exactly two columns; one or three is a syntax error."
+}

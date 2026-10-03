@@ -1,0 +1,16 @@
+{
+  "name": "having_hidden_group_key",
+  "query": "SELECT count(*) AS n, sum(number) AS total WHERE account ~ '^Expenses:Food' GROUP BY year HAVING sum(number) > 6800",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "n", "type": "int"},
+    {"name": "total", "type": "decimal"}
+  ],
+  "rows": [
+    [184, "6859.72"]
+  ],
+  "notes": "GROUP BY a column that is not selected, filtered by HAVING: only the 2016 group passes."
+}

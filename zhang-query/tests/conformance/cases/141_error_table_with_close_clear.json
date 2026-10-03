@@ -1,0 +1,12 @@
+{
+  "name": "error_table_with_close_clear",
+  "query": "SELECT count(*) FROM #entries CLOSE ON 2017-01-01 CLEAR",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "syntax",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

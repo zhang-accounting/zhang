@@ -1,0 +1,18 @@
+{
+  "name": "having_group_key_inside_aggregate",
+  "query": "SELECT account, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY account HAVING min(account) ~ 'Coffee|Alcohol' OR count(*) > 300 ORDER BY account",
+  "phase": 3,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "n", "type": "int"}
+  ],
+  "rows": [
+    ["Expenses:Food:Alcohol", 7],
+    ["Expenses:Food:Coffee", 13],
+    ["Expenses:Food:Restaurant", 370]
+  ],
+  "notes": "beanquery requires the HAVING expression to contain an aggregate, so a group key is tested through an aggregate of it (min(account) is the key itself). A bare group key in HAVING is a compile error (error_having_bare_group_key)."
+}

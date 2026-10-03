@@ -1,0 +1,42 @@
+; budgets that carry over, transfer, overspend and close, and errors of several kinds in two
+; files, for the #budgets and #errors query tables (zhang-query/tests/zhang_tables.rs)
+option "operating_currency" "CNY"
+option "operating_currency" "USD"
+include "more.zhang"
+
+1970-01-01 commodity CNY
+
+1970-01-01 open Assets:Bank CNY
+1970-01-01 open Expenses:Food CNY
+  budget: food
+1970-01-01 open Expenses:Dining CNY
+  budget: food
+1970-01-01 open Expenses:Fun CNY
+  budget: fun
+
+2024-01-01 budget food CNY
+  category: "Living"
+  owner: "alice"
+2024-01-01 budget fun CNY
+  alias: "Fun money"
+2024-01-01 budget fun CNY
+
+2024-01-01 budget-add food 500 CNY
+2024-01-01 budget-add fun 100 CNY
+2024-01-05 * "Market" "groceries"
+  Expenses:Food 120 CNY
+  Assets:Bank
+2024-01-20 * "Bistro" "dinner"
+  Expenses:Dining 80 CNY
+  Expenses:Fun 30 CNY
+  Assets:Bank
+
+2024-03-01 budget-add food 200 CNY
+2024-03-02 budget-transfer fun food 50 CNY
+2024-03-10 * "Market" "groceries"
+  Expenses:Food 650 CNY
+  Assets:Bank
+2024-04-01 budget-close fun
+2024-05-15 price USD 7.1 CNY
+; planned ahead, after the last transaction
+2024-06-01 budget-add food 100 CNY
