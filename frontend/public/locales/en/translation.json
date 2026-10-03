@@ -179,6 +179,9 @@
     "saved_empty": "No saved queries in this ledger.",
     "saved_empty_hint": "Save one with a query directive, for example:",
     "saved_invalid": "(invalid)",
+    "open_query": "Open query",
+    "open_query_hint": "See the query behind this figure on the Query page, and adapt it",
+    "open_query_failed": "Could not open the query",
     "chart": {
       "treemap": "Treemap by account",
       "bar": "Bar chart",

@@ -1,16 +1,21 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::Json;
 use gotcha::api;
 use log::{info, warn};
+use zhang_core::ledger::Ledger;
 use zhang_query::{ExecuteOptions, Params, Query, QueryResult, DEFAULT_MAX_RESULT_VALUES};
 
-use crate::request::QueryRequest;
-use crate::response::{QueryApiResult, QueryCsvResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper, SavedQueryEntity};
+use crate::builtin::{self, BUILTINS};
+use crate::error::ServerError;
+use crate::request::{BuiltinQueryTextRequest, QueryRequest};
+use crate::response::{
+    BuiltinQueryEntity, BuiltinQueryTextEntity, QueryApiResult, QueryCsvResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper, SavedQueryEntity,
+};
 use crate::state::SharedLedger;
-use crate::{ApiResult, ServerResult};
+use crate::{ApiResult, LedgerState, ServerResult};
 
 /// How long one query may run before it is stopped with a 400.
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -56,16 +61,16 @@ fn parse_max_result_values(value: Option<&str>) -> Result<u64, String> {
 
 /// Run a BQL-compatible query over the ledger.
 ///
-/// Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
+/// With `count_total` the result also has the number of rows before `LIMIT` and `OFFSET`,
+/// `total`. Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
 #[api(group = "query")]
 pub async fn run_query(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> QueryApiResult<QueryResultEntity> {
-    QueryApiResult(run(ledger.0 .0.clone(), payload.query, max_result_values()).await)
+    let count_total = payload.count_total.unwrap_or(false);
+    QueryApiResult(run(&ledger, payload.query, max_result_values(), count_total).await)
 }
 
-async fn run(
-    ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String, max_result_values: u64,
-) -> ServerResult<ResponseWrapper<QueryResultEntity>> {
-    let result = execute(ledger, text, max_result_values).await?;
+async fn run(ledger: &LedgerState, text: String, max_result_values: u64, count_total: bool) -> ServerResult<ResponseWrapper<QueryResultEntity>> {
+    let result = execute(ledger, text, max_result_values, count_total).await?;
     // converting the cells is CPU-bound too, so it stays off the async workers
     let entity = tokio::task::spawn_blocking(move || QueryResultEntity::from(result)).await?;
     ResponseWrapper::json(entity)
@@ -78,11 +83,11 @@ async fn run(
 /// with HTTP 400 and `{"message", "line", "column"}`, as in `POST /api/query`.
 #[api(group = "query")]
 pub async fn run_query_csv(ledger: State<SharedLedger>, Json(payload): Json<QueryRequest>) -> QueryCsvResult {
-    QueryCsvResult(export_csv(ledger.0 .0.clone(), payload.query).await)
+    QueryCsvResult(export_csv(&ledger, payload.query).await)
 }
 
-async fn export_csv(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String) -> ServerResult<String> {
-    let result = execute(ledger, text, max_result_values()).await?;
+async fn export_csv(ledger: &LedgerState, text: String) -> ServerResult<String> {
+    let result = execute(ledger, text, max_result_values(), false).await?;
     // the read lock is released by now; rendering is CPU-bound, so it stays off the async workers
     Ok(tokio::task::spawn_blocking(move || zhang_query::export::to_csv(&result)).await?)
 }
@@ -98,15 +103,50 @@ pub(crate) fn execute_options(max_result_values: u64) -> ExecuteOptions {
     }
 }
 
+/// Run `work` on the ledger off the async workers, under its read lock: the path of every
+/// query the server runs, `POST /api/query` and the built-in queries alike. Queries in `work`
+/// run with [`execute_options`], whose time limit bounds how long the lock is held.
+pub async fn with_ledger<T: Send + 'static>(ledger: &LedgerState, work: impl FnOnce(&Ledger) -> ServerResult<T> + Send + 'static) -> ServerResult<T> {
+    // an owned guard moves into the blocking task
+    let ledger = ledger.clone().read_owned().await;
+    tokio::task::spawn_blocking(move || work(&ledger)).await?
+}
+
 /// Compile and run a query off the async workers, under the ledger read lock, the time
 /// limit and the result size limit. The query length is capped by the parser.
-async fn execute(ledger: std::sync::Arc<tokio::sync::RwLock<zhang_core::ledger::Ledger>>, text: String, max_result_values: u64) -> ServerResult<QueryResult> {
+async fn execute(ledger: &LedgerState, text: String, max_result_values: u64, count_total: bool) -> ServerResult<QueryResult> {
     // compiling needs no ledger; run it, and the CPU-bound execution, off the async workers
     let query = tokio::task::spawn_blocking(move || Query::compile(&text)).await??;
-    // an owned guard moves into the blocking task; the time limit bounds how long it is held
-    let ledger = ledger.read_owned().await;
-    let result = tokio::task::spawn_blocking(move || query.execute_with_options(&ledger, &Params::new(), &execute_options(max_result_values))).await??;
-    Ok(result)
+    let options = ExecuteOptions {
+        count_total,
+        ..execute_options(max_result_values)
+    };
+    with_ledger(ledger, move |ledger| Ok(query.execute_with_options(ledger, &Params::new(), &options)?)).await
+}
+
+/// The built-in queries: the named BQL behind the figures the app shows, which the Query page
+/// (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
+#[api(group = "query")]
+pub async fn get_builtin_queries() -> ApiResult<Vec<BuiltinQueryEntity>> {
+    ResponseWrapper::json(BUILTINS.iter().map(BuiltinQueryEntity::from).collect())
+}
+
+/// A built-in query with its parameters written in as BQL literals, to open it on the Query page
+/// (`/explore`), where parameters cannot be bound: it runs there to the same result as in the app.
+///
+/// `params` gives every parameter of the query by name (see `GET /api/query/builtins` for
+/// their types): a boolean for `bool`, an integer for `int`, a number or a string such as
+/// `"12.50"` for `decimal`, a string for `str`, a string `YYYY-MM-DD` for `date`, a list of
+/// strings for `set`, and `null` for NULL. An unknown query is a 404; a missing, unknown or
+/// mistyped parameter a 400.
+#[api(group = "query")]
+pub async fn get_builtin_query_text(paths: Path<(String,)>, Json(payload): Json<BuiltinQueryTextRequest>) -> ApiResult<BuiltinQueryTextEntity> {
+    let (name,) = paths.0;
+    let builtin = builtin::get(&name).ok_or(ServerError::NotFound)?;
+    let params = builtin::json_params(builtin, payload.params)?;
+    ResponseWrapper::json(BuiltinQueryTextEntity {
+        query: builtin::text(builtin, &params)?,
+    })
 }
 
 /// The columns and functions available to queries.
@@ -247,7 +287,10 @@ mod csv_test {
     }
 
     async fn post_csv(query: &str) -> Response {
-        let request = QueryRequest { query: query.to_owned() };
+        let request = QueryRequest {
+            query: query.to_owned(),
+            count_total: None,
+        };
         run_query_csv(State(ledger().await), Json(request)).await.into_response()
     }
 
@@ -292,9 +335,10 @@ mod csv_test {
     async fn query_results_of_a_pivot_have_typed_columns() {
         let ledger = ledger().await;
         let response = super::run(
-            ledger.0.clone(),
+            &ledger.0,
             "SELECT account, currency, count(*) AS n GROUP BY 1, 2 HAVING count(*) > 0 PIVOT BY currency, account".to_owned(),
             zhang_query::DEFAULT_MAX_RESULT_VALUES,
+            false,
         )
         .await
         .into_response();
@@ -385,7 +429,7 @@ mod result_limit_test {
             let ledger = ledger().await;
             for dots in [10_000, 32_000] {
                 let query = format!("SELECT a{} FROM #accounts", ".a".repeat(dots));
-                let response = run(ledger.clone(), query, 100).await.into_response();
+                let response = run(&ledger, query, 100, false).await.into_response();
                 assert_eq!(response.status(), StatusCode::BAD_REQUEST);
                 let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
                 let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -398,7 +442,7 @@ mod result_limit_test {
     #[tokio::test]
     async fn results_over_the_limit_are_a_query_400() {
         let ledger = ledger().await;
-        let response = run(ledger.clone(), "JOURNAL".to_owned(), 100).await.into_response();
+        let response = run(&ledger, "JOURNAL".to_owned(), 100, false).await.into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -413,7 +457,7 @@ mod result_limit_test {
         );
 
         // the default limit, which this result is far below
-        let response = run(ledger, "JOURNAL".to_owned(), DEFAULT_MAX_RESULT_VALUES).await.into_response();
+        let response = run(&ledger, "JOURNAL".to_owned(), DEFAULT_MAX_RESULT_VALUES, false).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -476,5 +520,225 @@ mod schema_test {
         let table = &schema["properties"]["tables"]["items"];
         assert_eq!(table["required"], serde_json::json!(["name", "description", "columns"]));
         assert_eq!(table["properties"]["columns"]["type"], "array");
+    }
+}
+
+#[cfg(test)]
+mod builtin_test {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use axum::extract::{Path, State};
+    use axum::http::StatusCode;
+    use axum::response::{IntoResponse, Response};
+    use axum::Json;
+    use chrono::NaiveDate;
+    use serde_json::json;
+    use tokio::sync::RwLock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+    use zhang_query::{Params, Value};
+
+    use super::{get_builtin_queries, get_builtin_query_text, run_query};
+    use crate::builtin::{self, BUILTINS};
+    use crate::request::{BuiltinParamValue, BuiltinQueryTextRequest, QueryRequest};
+    use crate::response::QueryResultEntity;
+    use crate::state::SharedLedger;
+
+    const LEDGER: &str = r#"
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+1970-01-01 open Expenses:Travel
+
+2024-01-31 * "O'Brien" "Lunch" #food
+  Expenses:Food 12.50 USD
+  Assets:Bank -12.50 USD
+
+2024-02-01 * "it's \"quoted\"" "both kinds of quotes" #trip #it's
+  Expenses:Travel 100 USD
+  Assets:Bank -100 USD
+
+2024-02-29 * "C:\\temp\\" "a backslash" #trip
+  Expenses:Travel 7 USD
+  Assets:Bank -7 USD
+"#;
+
+    async fn ledger() -> SharedLedger {
+        let dir = std::env::temp_dir().join(format!("zhang-builtin-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        std::fs::remove_dir_all(dir).ok();
+        SharedLedger(Arc::new(RwLock::new(ledger)))
+    }
+
+    async fn body(response: Response) -> (StatusCode, serde_json::Value) {
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    async fn text_of(name: &str, params: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let params: HashMap<String, Option<BuiltinParamValue>> = serde_json::from_value(params).unwrap();
+        body(
+            get_builtin_query_text(Path((name.to_owned(),)), Json(BuiltinQueryTextRequest { params }))
+                .await
+                .into_response(),
+        )
+        .await
+    }
+
+    async fn query(ledger: &SharedLedger, query: &str, count_total: Option<bool>) -> (StatusCode, serde_json::Value) {
+        let request = QueryRequest {
+            query: query.to_owned(),
+            count_total,
+        };
+        body(run_query(State(ledger.clone()), Json(request)).await.into_response()).await
+    }
+
+    #[tokio::test]
+    async fn builtins_are_listed_with_their_bql_and_typed_params() {
+        let (status, body) = body(get_builtin_queries().await.into_response()).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed = body["data"].as_array().unwrap();
+        assert_eq!(listed.len(), BUILTINS.len());
+        let between = listed.iter().find(|it| it["name"] == "postings.between").unwrap();
+        assert_eq!(
+            between,
+            &json!({
+                "name": "postings.between",
+                "description": builtin::get("postings.between").unwrap().description,
+                "bql": builtin::get("postings.between").unwrap().bql,
+                "params": [{"name": "from", "type": "date"}, {"name": "to", "type": "date"}],
+            })
+        );
+        let matching = listed.iter().find(|it| it["name"] == "postings.matching").unwrap();
+        assert_eq!(matching["params"], json!([{"name": "payee", "type": "str"}, {"name": "tags", "type": "set"}]));
+    }
+
+    /// The text of a built-in query runs over `POST /api/query` to the result the app gets
+    /// by binding the parameters.
+    #[tokio::test]
+    async fn builtin_text_runs_to_the_bound_result() {
+        let ledger = ledger().await;
+        let cases = [
+            (
+                "postings.between",
+                json!({"from": "2024-02-01", "to": "2024-02-29"}),
+                Params::new()
+                    .bind("from", NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+                    .bind("to", NaiveDate::from_ymd_opt(2024, 2, 29).unwrap()),
+                4,
+            ),
+            (
+                "postings.matching",
+                json!({"payee": "it's \"quoted\"", "tags": ["it's", "trip"]}),
+                Params::new()
+                    .bind("payee", "it's \"quoted\"")
+                    .bind("tags", Value::Set(["it's".to_owned(), "trip".to_owned()].into())),
+                2,
+            ),
+            (
+                "postings.matching",
+                json!({"payee": "C:\\temp\\", "tags": null}),
+                Params::new().bind("payee", "C:\\temp\\").bind("tags", Value::Null),
+                2,
+            ),
+            (
+                "postings.matching",
+                json!({"payee": null, "tags": []}),
+                Params::new().bind("payee", Value::Null).bind("tags", Value::Set(Default::default())),
+                0,
+            ),
+            (
+                "postings.matching",
+                json!({"payee": null, "tags": null}),
+                Params::new().bind("payee", Value::Null).bind("tags", Value::Null),
+                6,
+            ),
+        ];
+        for (name, json_params, params, rows) in cases {
+            let (status, written) = text_of(name, json_params.clone()).await;
+            assert_eq!(status, StatusCode::OK, "{}: {}", name, written);
+            let text = written["data"]["query"].as_str().unwrap();
+            for param in builtin::get(name).unwrap().params {
+                assert!(!text.contains(&format!(":{}", param.0)), "{}", text);
+            }
+
+            let bound = builtin::run(&ledger, name, params).await.unwrap();
+            assert_eq!(bound.rows.len(), rows, "{} {}", name, json_params);
+            let bound = serde_json::to_value(QueryResultEntity::from(bound)).unwrap();
+            let (status, inlined) = query(&ledger, text, None).await;
+            assert_eq!(status, StatusCode::OK, "{}: {}", text, inlined);
+            assert_eq!(inlined["data"], bound, "{}", text);
+        }
+    }
+
+    #[tokio::test]
+    async fn builtin_text_of_an_unknown_query_or_bad_params_is_an_error() {
+        let (status, _) = text_of("no.such.query", json!({})).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        for (params, message) in [
+            (json!({"from": "2024-02-01"}), "parameter :to of postings.between is missing"),
+            (
+                json!({"from": "2024-02-01", "to": "2024-02-29", "account": "x"}),
+                "postings.between has no parameter :account",
+            ),
+            (
+                json!({"from": "2024-02-01", "to": 20240229}),
+                "parameter :to must be a date string YYYY-MM-DD or null",
+            ),
+        ] {
+            let (status, body) = text_of("postings.between", params).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(body["message"], message);
+        }
+    }
+
+    #[tokio::test]
+    async fn builtins_run_like_api_queries() {
+        let ledger = ledger().await;
+        let params = || Params::new().bind("payee", Value::Null).bind("tags", Value::Set(["trip".to_owned()].into()));
+        let result = builtin::run(&ledger, "postings.matching", params()).await.unwrap();
+        assert_eq!((result.rows.len(), result.total), (4, None));
+        let result = builtin::run_with_total(&ledger, "postings.matching", params()).await.unwrap();
+        assert_eq!((result.rows.len(), result.total), (4, Some(4)));
+
+        // several under one read lock
+        let (first, second) = super::with_ledger(&ledger, move |ledger| {
+            let first = builtin::execute(ledger, "postings.matching", &params(), false)?;
+            let second = builtin::execute(ledger, "postings.matching", &params(), true)?;
+            Ok((first, second))
+        })
+        .await
+        .unwrap();
+        assert_eq!((first.rows, first.total), (second.rows, None));
+
+        // a parameter of another type, or a query that does not exist, is an error
+        let error = builtin::run(&ledger, "postings.matching", Params::new().bind("payee", 1i64).bind("tags", Value::Null))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "query error: parameter :payee was compiled as str but is bound to a int (line 1, column 63)"
+        );
+        let error = builtin::run(&ledger, "no.such.query", Params::new()).await.unwrap_err();
+        assert_eq!(error.into_response().status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn api_queries_count_their_total_on_request() {
+        let ledger = ledger().await;
+        let (status, body) = query(&ledger, "SELECT date, account ORDER BY seq LIMIT 2 OFFSET 1", Some(true)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["data"]["rows"].as_array().unwrap().len(), 2);
+        assert_eq!(body["data"]["total"], 6);
+        // without it, as before, there is no total
+        for count_total in [None, Some(false)] {
+            let (_, body) = query(&ledger, "SELECT date, account ORDER BY seq LIMIT 2 OFFSET 1", count_total).await;
+            assert_eq!(body["data"].as_object().unwrap().keys().collect::<Vec<_>>(), ["columns", "rows"]);
+        }
     }
 }

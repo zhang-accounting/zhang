@@ -25,6 +25,7 @@ description: 张记账兼容 BQL 的查询语言参考，包括语法、BALANCES
 - **已保存** 菜单列出账本中保存的查询，见[保存的查询](#保存的查询)。
 - **参考** 面板列出了所有列和函数。
 - **导出 CSV** 把结果下载为 CSV 文件，见[导出为 CSV](#导出为-csv)。
+- 应用其他页面中数字旁边的 **打开查询**，会打开本页，把该数字背后的[内置查询](/zh-cn/user-guide/builtin-queries/)放进编辑器并执行。链接到 `/explore?query=...` 对任意查询有同样的效果。
 
 #### 图表
 
@@ -75,7 +76,7 @@ SELECT yearmonth(date) AS month, sum(position) WHERE account ~ '^Expenses' GROUP
 
 ### 通过 HTTP
 
-将查询发送到 `POST /api/query`；发送到 `POST /api/query/csv` 则得到 CSV 格式的结果。`GET /api/query/saved` 列出保存的查询。请求和响应格式见 [HTTP API](#http-api)。
+将查询发送到 `POST /api/query`；发送到 `POST /api/query/csv` 则得到 CSV 格式的结果。`GET /api/query/saved` 列出保存的查询，`GET /api/query/builtins` 列出应用中各项数字背后的[内置查询](/zh-cn/user-guide/builtin-queries/)。请求和响应格式见 [HTTP API](#http-api)。
 
 ## 第一个查询
 
@@ -242,7 +243,7 @@ HAVING sum(number) > 1000
 - 没有 `ORDER BY` 时结果按账本顺序排列，所以只要账本不变，分页就是稳定的。
 - 分页的开销很小：没有 `ORDER BY` 时，查询取够要保留的行就停止；有 `ORDER BY` 时，扫描过程中只保留前 `OFFSET + LIMIT` 行，而不是把所有行都排序。
 
-张记账在自己的代码中执行查询时，还可以要求返回 `LIMIT` 和 `OFFSET` 之前的总行数（Rust API 的 `count_total` 选项），例如用来显示页数。窗口之外的行只计数，不构造。
+查询还可以要求返回 `LIMIT` 和 `OFFSET` 之前的总行数，例如用来显示页数：Rust API 和 [`POST /api/query`](#执行查询) 都有 `count_total` 选项。窗口之外的行只计数，不构造。
 
 ### PIVOT BY
 
@@ -272,7 +273,7 @@ PIVOT BY category, year
 
 ### 参数
 
-张记账在自己的代码中（通过 `zhang-query` crate 的 Rust API）执行查询时，查询中凡是可以写值的地方都可以写参数 `$1`、`$2`、... 或 `:name`，参数的值另行绑定。`JOURNAL` 的模式、`OPEN ON` 和 `CLOSE ON` 的日期，以及 `LIMIT` 和 `OFFSET` 的行数也可以是参数。HTTP API 不绑定参数，所以通过 HTTP 发送的查询中如果含有参数，会报错 `parameter $1 is not bound`。
+张记账在自己的代码中（通过 `zhang-query` crate 的 Rust API）执行查询时，查询中凡是可以写值的地方都可以写参数 `$1`、`$2`、... 或 `:name`，参数的值另行绑定。`JOURNAL` 的模式、`OPEN ON` 和 `CLOSE ON` 的日期，以及 `LIMIT` 和 `OFFSET` 的行数也可以是参数。HTTP API 不绑定参数，所以通过 HTTP 发送的查询中如果含有参数，会报错 `parameter $1 is not bound`。[内置查询](/zh-cn/user-guide/builtin-queries/)可以把参数值写进查询文本，得到一个能通过 HTTP 执行的查询。
 
 参数是一次执行中的常量：读取任何行之前，每个参数都会被替换成它的值，查询再被简化一次，就像值直接写在查询里一样。作为参数给出的正则表达式（`payee ~ :keyword`）只编译一次；作为参数给出的集合（`account IN :accounts`）和值的列表（`IN ('a', 'b', :c)`）用哈希表查找；[`icontains`](#搜索函数) 的查找文本只转换一次小写。所以带参数的查询与把值写成字面量的同一查询一样快。作为参数给出的无效正则表达式仍与以前一样，在某一行与它匹配时于匹配处报错。
 
@@ -1161,6 +1162,7 @@ GROUP BY week ORDER BY week
 | `icontains(str, str) -> bool` | 文本是否包含第二个参数，忽略大小写。与 `~` 不同，要找的是普通文本，不是正则表达式。 | `icontains(payee, 'café')` |
 | `any_icontains(set, str) -> bool` | 集合中是否有元素包含该文本，忽略大小写。 | `any_icontains(tags, 'trip')` |
 | `intersects(set, set) -> bool` | 两个集合是否有共同元素。 | `intersects(tags, :tags)` |
+| `set(str, ...) -> set` | 由给定字符串组成的集合，字符串个数不限。`set()` 是空集合。 | `intersects(tags, set('trip', 'food'))` |
 
 ```sql
 SELECT date, payee, narration, account, position
@@ -1218,6 +1220,7 @@ curl -X POST http://localhost:8000/api/query \
 
 - `columns` 按顺序列出结果列。每列有 `name` 和 `type`，`type` 是 `null`、`bool`、`int`、`decimal`、`str`、`date`、`set`、`amount`、`position`、`inventory`、`interval` 和 `metas` 之一。
 - `rows` 是行的列表。每行是一个列表，每列一个单元格，顺序与 `columns` 相同。
+- 请求中带上 `"count_total": true` 时，结果还有 `total`，即 `LIMIT` 和 `OFFSET` 之前的总行数，用于分页。不带时没有 `total`。
 
 ### 单元格编码
 
@@ -1321,6 +1324,10 @@ Assets:Broker:GLD,,17
 ### 列出保存的查询
 
 `GET /api/query/saved` 按账本顺序列出用 [`query` 指令](/zh-cn/directives/query/)保存在账本中的查询。每一项包含 `name`、查询文本 `query`、指令的日期 `date`，以及 `valid` 和 `error`，后两者说明该查询能否被当前的查询引擎编译以及不能编译的原因。响应示例见 [`query` 指令](/zh-cn/directives/query/#http-api)。要执行保存的查询，把它的 `query` 文本发送到 `POST /api/query`。
+
+### 内置查询
+
+`GET /api/query/builtins` 列出应用中各项数字背后的查询，`POST /api/query/builtins/{name}/text` 把其中一个查询连同填好的参数值写成查询文本。见[内置查询](/zh-cn/user-guide/builtin-queries/)。
 
 ### Schema
 
