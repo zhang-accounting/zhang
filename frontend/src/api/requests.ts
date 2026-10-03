@@ -1,5 +1,5 @@
 import { ApiError } from 'openapi-typescript-fetch';
-import { openAPIFetcher, serverBaseUrl } from './fetcher';
+import { apiBaseUrl, openAPIFetcher, reportUnauthorized } from './fetcher';
 
 export const retrieveBudgets = openAPIFetcher.path('/api/budgets').method('get').create();
 
@@ -65,12 +65,15 @@ export const retrieveSavedQueries = openAPIFetcher.path('/api/query/saved').meth
  * and the download needs the raw blob.
  */
 export async function exportQueryCsv(query: string): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${serverBaseUrl}/api/query/csv`, {
+  const response = await fetch(`${apiBaseUrl}/api/query/csv`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query }),
   });
-  if (!response.ok) throw toApiError(response, await readBody(response));
+  if (!response.ok) {
+    reportUnauthorized(response.url, response.status);
+    throw toApiError(response, await readBody(response));
+  }
   const blob = await response.blob();
   return { blob, filename: filenameOf(response.headers.get('Content-Disposition')) ?? 'query.csv' };
 }

@@ -14,6 +14,10 @@ use zhang_core::utils::has_path_visited;
 /// under the root, and every load rewrites it, so a change there is never a change to an input
 const CACHE_DIR: &str = ".cache";
 
+/// zhang's own state under the root (the registered passkeys), which the server writes itself, so a change there is
+/// never a change to an input either
+const STATE_DIR: &str = crate::auth::STATE_DIR;
+
 /// the ledger root as event paths spell it: canonical (macOS reports canonical paths) and absolute (other
 /// platforms join the watched path onto the working directory)
 pub fn watch_roots(entry: &Path) -> Vec<PathBuf> {
@@ -45,12 +49,12 @@ pub fn should_reload(event: &Event, roots: &[PathBuf], visited_files: &[PathBuf]
     })
 }
 
-/// `path` relative to the ledger root; `None` outside the root and in zhang's own cache
+/// `path` relative to the ledger root; `None` outside the root and in zhang's own cache and state
 fn relative_to_root<'a>(path: &'a Path, roots: &[PathBuf]) -> Option<&'a Path> {
     roots
         .iter()
         .find_map(|root| path.strip_prefix(root).ok())
-        .filter(|relative| !relative.starts_with(CACHE_DIR))
+        .filter(|relative| !relative.starts_with(CACHE_DIR) && !relative.starts_with(STATE_DIR))
 }
 
 /// whether an event of `kind` on `path`, relative to the ledger root, changes `input`
@@ -168,6 +172,25 @@ mod test {
         let event = Event::new(MODIFY).add_path(PathBuf::from("/var/ledger/.cache/plugins/0123.wasm"));
         let root = IndexSet::from([ExtraInput::Dir(PathBuf::new())]);
         assert!(!should_reload(&event, &roots(), &[], &root));
+    }
+
+    #[test]
+    fn should_ignore_zhangs_own_state() {
+        let root = IndexSet::from([ExtraInput::Dir(PathBuf::new())]);
+        for path in [
+            "/var/ledger/.zhang/passkeys.json",
+            "/private/var/ledger/.zhang/passkeys.json",
+            "/var/ledger/.zhang",
+        ] {
+            for kind in [MODIFY, CREATE, REMOVE] {
+                let event = Event::new(kind).add_path(PathBuf::from(path));
+                assert!(!should_reload(&event, &roots(), &visited_files(), &root), "{kind:?} {path}");
+                assert!(!should_reload(&event, &roots(), &visited_files(), &inputs()), "{kind:?} {path}");
+            }
+        }
+        // only the state dir itself, matched by component
+        let event = Event::new(CREATE).add_path(PathBuf::from("/var/ledger/.zhang-notes/todo.txt"));
+        assert!(should_reload(&event, &roots(), &visited_files(), &root));
     }
 
     #[test]
