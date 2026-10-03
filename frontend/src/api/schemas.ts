@@ -835,6 +835,11 @@ export interface operations {
                         commodity: string;
                         number: string;
                       };
+                      /** @description metadata of the posting, sorted by key */
+                      metas: {
+                        key: string;
+                        value: string;
+                      }[];
                       unit?: {
                         commodity: string;
                         number: string;
@@ -870,6 +875,11 @@ export interface operations {
                         commodity: string;
                         number: string;
                       };
+                      /** @description metadata of the posting, sorted by key */
+                      metas: {
+                        key: string;
+                        value: string;
+                      }[];
                       unit?: {
                         commodity: string;
                         number: string;
@@ -905,6 +915,11 @@ export interface operations {
                         commodity: string;
                         number: string;
                       };
+                      /** @description metadata of the posting, sorted by key */
+                      metas: {
+                        key: string;
+                        value: string;
+                      }[];
                       unit?: {
                         commodity: string;
                         number: string;
@@ -1352,6 +1367,13 @@ export interface operations {
           payee: string;
           postings: {
             account: string;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
             unit?: {
               commodity: string;
               number: string;
@@ -1393,6 +1415,13 @@ export interface operations {
           payee: string;
           postings: {
             account: string;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
             unit?: {
               commodity: string;
               number: string;

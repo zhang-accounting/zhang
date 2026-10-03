@@ -17,8 +17,16 @@ export function journalStatus(data: JournalItem): 'ok' | 'warning' | 'error' {
   return 'ok';
 }
 
+/**
+ * The `document` metadata of a transaction and of its postings: the server links a posting's document to the transaction as
+ * well (beancount reads metadata after the last posting as that posting's, where older zhang appended uploads).
+ */
+export function transactionDocuments(data: JournalTransactionItem) {
+  return [data.metas, ...data.postings.map((posting) => posting.metas)].flat().filter((meta) => meta.key === 'document');
+}
+
 export function hasDocuments(data: JournalTransactionItem) {
-  return data.metas.some((meta) => meta.key === 'document');
+  return transactionDocuments(data).length > 0;
 }
 
 /**

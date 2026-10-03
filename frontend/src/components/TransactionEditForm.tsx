@@ -5,7 +5,7 @@ import { CalendarIcon, Plus, TableProperties, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
-import { retrieveNewTransactionInfo, retrieveOptions } from '@/api/requests';
+import { retrieveFiles, retrieveNewTransactionInfo, retrieveOptions } from '@/api/requests';
 import { JournalTransactionItem, MetaEntry } from '@/api/types';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { useDateFormat, useDateLocale } from '@/components/layout/use-date-format';
@@ -18,7 +18,16 @@ import { Calendar } from './ui/calendar';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { directiveText, parseAmount, PostingDraft, toPostingDrafts, toPostingRequest, toRequestMetas, TransactionFormValue } from './transaction-form-utils';
+import {
+  directiveText,
+  ledgerFormat,
+  parseAmount,
+  PostingDraft,
+  toPostingDrafts,
+  toPostingRequest,
+  toRequestMetas,
+  TransactionFormValue,
+} from './transaction-form-utils';
 
 export type { TransactionFormValue } from './transaction-form-utils';
 
@@ -140,6 +149,7 @@ export default function TransactionEditForm(props: Props) {
   }, []);
   const operatingCurrency = options?.operatingCurrency;
   const { value: payees } = useAsync(async () => (await retrieveNewTransactionInfo({})).data.data.payee, []);
+  const { value: fileFormat } = useAsync(async () => ledgerFormat((await retrieveFiles({})).data.data), []);
 
   const parsed = useMemo(() => postings.map((it) => parseAmount(it.amount, operatingCurrency)), [postings, operatingCurrency]);
   const emptyAmounts = parsed.filter((it) => it.status === 'empty').length;
@@ -182,6 +192,7 @@ export default function TransactionEditForm(props: Props) {
   const preview = (): string =>
     directiveText(value, {
       datetime: formatLedgerDateTime(new Date(value.datetime), options?.timezone),
+      format: fileFormat,
       amounts: parsed,
       invalidAmount: t('ledger.txn.preview_invalid_amount'),
       accountPlaceholder: t('ledger.txn.preview_account'),
@@ -189,7 +200,7 @@ export default function TransactionEditForm(props: Props) {
 
   const addPosting = () => {
     const id = Math.max(-1, ...postings.map((it) => it.id)) + 1;
-    postingsHandler.append({ id, account: undefined, amount: '', metas: [] });
+    postingsHandler.append({ id, account: undefined, amount: '', metas: [], documents: [] });
   };
 
   /** Expands / collapses a posting's metadata editor; expanding an empty one starts with a blank row to fill in. */
