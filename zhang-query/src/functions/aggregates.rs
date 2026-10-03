@@ -37,11 +37,7 @@ pub struct AggregateFunction {
 
 impl AggregateFunction {
     pub fn signature(&self) -> String {
-        let params = if self.star {
-            "*".to_owned()
-        } else {
-            self.params.iter().map(ParamType::name).collect::<Vec<_>>().join(", ")
-        };
+        let params = if self.star { "*".to_owned() } else { super::params_signature(self.params) };
         let returns = match self.returns {
             ReturnType::Exact(ty) => ty.name(),
             ReturnType::SameAsArg(idx) => self.params.get(idx).map(ParamType::name).unwrap_or("any"),

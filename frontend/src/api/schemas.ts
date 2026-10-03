@@ -168,9 +168,32 @@ export interface paths {
      * Run Query
      * @description Run a BQL-compatible query over the ledger.
      *
-     * Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
+     * With `count_total` the result also has the number of rows before `LIMIT` and `OFFSET`,
+     * `total`. Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
      */
     post: operations['run_query'];
+  };
+  '/api/query/builtins': {
+    /**
+     * Get Builtin Queries
+     * @description The built-in queries: the named BQL behind the figures the app shows, which the Query page
+     * (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
+     */
+    get: operations['get_builtin_queries'];
+  };
+  '/api/query/builtins/{name}/text': {
+    /**
+     * Get Builtin Query Text
+     * @description A built-in query with its parameters written in as BQL literals, to open it on the Query page
+     * (`/explore`), where parameters cannot be bound: it runs there to the same result as in the app.
+     *
+     * `params` gives every parameter of the query by name (see `GET /api/query/builtins` for
+     * their types): a boolean for `bool`, an integer for `int`, a number or a string such as
+     * `"12.50"` for `decimal`, a string for `str`, a string `YYYY-MM-DD` for `date`, a list of
+     * strings for `set`, and `null` for NULL. An unknown query is a 404; a missing, unknown or
+     * mistyped parameter a 400.
+     */
+    post: operations['get_builtin_query_text'];
   };
   '/api/query/csv': {
     /**
@@ -1441,12 +1464,18 @@ export interface operations {
    * Run Query
    * @description Run a BQL-compatible query over the ledger.
    *
-   * Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
+   * With `count_total` the result also has the number of rows before `LIMIT` and `OFFSET`,
+   * `total`. Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
    */
   run_query: {
     requestBody: {
       content: {
         'application/json': {
+          /**
+           * @description also count the rows before `LIMIT` and `OFFSET` into the result's `total`, e.g. for the
+           * number of pages; `POST /api/query` only
+           */
+          count_total?: boolean | null;
           /** @description the BQL query text */
           query: string;
         };
@@ -1504,6 +1533,8 @@ export interface operations {
                   }[]
                 | null
               )[][];
+              /** @description the number of rows before `LIMIT` and `OFFSET`; only when the request sets `count_total` */
+              total?: number | null;
             };
           };
         };
@@ -1521,6 +1552,80 @@ export interface operations {
     };
   };
   /**
+   * Get Builtin Queries
+   * @description The built-in queries: the named BQL behind the figures the app shows, which the Query page
+   * (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
+   */
+  get_builtin_queries: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description the query, with its parameters written `:name` */
+              bql: string;
+              description: string;
+              /** @description unique, dotted and lower case, e.g. `report.summary` */
+              name: string;
+              /** @description every parameter of the query, in the order it declares them */
+              params: {
+                /** @description the name, `from` for `:from` */
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
+              }[];
+            }[];
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Get Builtin Query Text
+   * @description A built-in query with its parameters written in as BQL literals, to open it on the Query page
+   * (`/explore`), where parameters cannot be bound: it runs there to the same result as in the app.
+   *
+   * `params` gives every parameter of the query by name (see `GET /api/query/builtins` for
+   * their types): a boolean for `bool`, an integer for `int`, a number or a string such as
+   * `"12.50"` for `decimal`, a string for `str`, a string `YYYY-MM-DD` for `date`, a list of
+   * strings for `set`, and `null` for NULL. An unknown query is a 404; a missing, unknown or
+   * mistyped parameter a 400.
+   */
+  get_builtin_query_text: {
+    parameters: {
+      path: {
+        name: string;
+      };
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description the value of every parameter of the query, by name (`from` for `:from`) */
+          params: {
+            [key: string]: boolean | number | string | string[] | null;
+          };
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the BQL with every parameter written in as a literal: it runs on the Query page
+               * (`/explore`) to the same result as the query with the parameters bound
+               */
+              query: string;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
    * Run Query Csv
    * @description Run a BQL-compatible query and download the result as CSV (`query.csv`).
    *
@@ -1532,6 +1637,11 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': {
+          /**
+           * @description also count the rows before `LIMIT` and `OFFSET` into the result's `total`, e.g. for the
+           * number of pages; `POST /api/query` only
+           */
+          count_total?: boolean | null;
           /** @description the BQL query text */
           query: string;
         };

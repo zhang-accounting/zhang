@@ -603,7 +603,17 @@ async fn a_beancount_ledger_file_attaches_metadata_like_beancount() {
 /// The rows of `POST /api/query`, with `NULL` for a null cell.
 async fn query(scratch: &Scratch, sql: &str) -> Vec<Vec<String>> {
     let (ledger, _) = states(scratch.load().await);
-    let (status, body) = respond(run_query(ledger, Json(QueryRequest { query: sql.to_owned() })).await).await;
+    let (status, body) = respond(
+        run_query(
+            ledger,
+            Json(QueryRequest {
+                query: sql.to_owned(),
+                count_total: None,
+            }),
+        )
+        .await,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{sql}: {body}");
     body["data"]["rows"]
         .as_array()

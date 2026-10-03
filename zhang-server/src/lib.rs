@@ -41,6 +41,7 @@ use crate::state::AppState;
 pub mod auth;
 mod balance_writes;
 pub mod broadcast;
+pub mod builtin;
 pub mod error;
 pub mod request;
 pub mod response;
@@ -130,6 +131,8 @@ impl GotchaApp for ServerApp {
             .post("/api/query/csv", routes::query::run_query_csv)
             .get("/api/query/schema", routes::query::get_query_schema)
             .get("/api/query/saved", routes::query::get_saved_queries)
+            .get("/api/query/builtins", routes::query::get_builtin_queries)
+            .post("/api/query/builtins/:name/text", routes::query::get_builtin_query_text)
             .layer(CorsLayer::permissive().expose_headers(cors_expose_headers()))
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
