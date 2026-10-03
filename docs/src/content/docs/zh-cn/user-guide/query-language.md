@@ -691,7 +691,7 @@ ORDER BY currency
 - **行的顺序。**没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
 - **元数据。**每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries` 和 `#transactions` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
 - **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
-- **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual`、`passed`、`id`、`seq`、`time` 和 `timestamp`；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_events` 和 `#errors` 是张记账自己的表。
+- **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual`、`passed`、`pad`、`id`、`seq`、`time` 和 `timestamp`；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
 ### #entries
 
@@ -739,9 +739,10 @@ ORDER BY currency
 | | `discrepancy` | `amount` | 断言不成立时为 `actual` 减去断言金额；成立时为 `NULL`。`balance ... with pad` 也会检查：除非同一时间在它之后的填充改变了它的余额，或者它从被断言的账户本身或其子账户填充（这不会改变它的余额），它总是成立。 |
 | | `actual` | `amount` | 断言时账户在断言货币下的真实余额：此前记到这个账户及其子账户的所有分录的数量之和，与张记账检查余额的方式一致。断言从不改变它。`balance ... with pad` 在同一时间的填充都记账之后检查。张记账扩展。 |
 | | `passed` | `bool` | 断言是否成立，与张记账的余额检查一致：`actual` 与断言金额之差在容差之内；断言没有容差时两者必须相等。不成立的断言也是 [`#errors`](#错误表) 中的一条 `AccountBalanceCheckError`。张记账扩展。 |
-| | `id` | `str` | 该断言在 [`#entries`](#entries) 中那一行的 `id`。张记账扩展。 |
-| | `seq` | `int` | 该断言在 `#entries` 中的位置，与交易的 `seq` 相同，因此 `ORDER BY seq DESC` 让最新的排在最前。张记账扩展。 |
-| | `time`、`timestamp` | `str`、`int` | 断言在账本时区中的时刻（`HH:MM:SS`，没有时刻时为 `00:00:00`），以及它的 Unix 时间（秒）。张记账扩展。 |
+| | `pad` | `str` | `balance ... with pad` 用来补齐的账户；没有 pad 的断言为 `NULL`。张记账扩展。 |
+| | `id` | `str` | 断言的唯一 id：它在 [`#entries`](#entries) 中那一行的 `id`。张记账扩展。 |
+| | `seq` | `int` | 断言在 [`#entries`](#entries) 中的位置，可以与分录的 `seq` 一起排序：与 beancount 一样，断言排在之前各天的分录之后、当天的交易之前。张记账扩展。 |
+| | `time`、`timestamp` | `str`、`int` | 断言在账本时区中的时刻（`HH:MM:SS`，没有时刻时为 `00:00:00`）及其 Unix 时间（秒）。张记账扩展。 |
 | `#notes` | `date`、`account` | `date`、`str` | 备注的日期和账户。 |
 | | `comment` | `str` | 备注的内容。 |
 | | `tags`、`links` | `set` | 标签和链接。 |
@@ -754,8 +755,8 @@ ORDER BY currency
 | | `source` | `str` | 文档的来源：`document` 指令为 `'directive'`，交易或其分录的 `document` 元数据分别为 `'transaction'` 和 `'posting'`。张记账扩展。 |
 | | `path` | `str` | 按原样书写、相对于账本目录的文件路径：张记账相对于账本目录解析文档路径，网页界面也用这个路径下载文件。位于账本目录内的绝对路径会转换为相对于该目录的路径。张记账扩展。 |
 | | `transaction_id` | `str` | 元数据中的文档所属交易的 `id`，与 postings 表中的一致。`document` 指令为 `NULL`。张记账扩展。 |
-| | `seq` | `int` | `document` 指令或在元数据中写下该文档的交易在 `#entries` 中的位置，因此 `ORDER BY seq DESC` 让最新的排在最前。同一笔交易的文档相同。张记账扩展。 |
-| | `time`、`timestamp` | `str`、`int` | `document` 指令或写下该文档的交易在账本时区中的时刻（`HH:MM:SS`，没有时刻时为 `00:00:00`），以及它的 Unix 时间（秒）。张记账扩展。 |
+| | `seq` | `int` | `document` 指令，或在元数据中提到该文档的交易，在 [`#entries`](#entries) 中的位置。张记账扩展。 |
+| | `time`、`timestamp` | `str`、`int` | `document` 指令，或在元数据中提到该文档的交易的时刻（`HH:MM:SS`）及其 Unix 时间（秒）。张记账扩展。 |
 | `#commodities` | `date` | `date` | `commodity` 指令的日期。 |
 | | `name` | `str` | 商品，例如 `USD`。 |
 

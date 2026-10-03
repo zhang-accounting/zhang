@@ -308,6 +308,25 @@ fn d2_schema_has_the_new_columns_and_tables() {
 }
 
 #[test]
+fn a_schema_has_the_columns_that_place_assertions_and_documents() {
+    assert_columns(&[
+        ("balances", "pad", "str"),
+        ("balances", "id", "str"),
+        ("balances", "seq", "int"),
+        ("balances", "time", "str"),
+        ("balances", "timestamp", "int"),
+        ("documents", "seq", "int"),
+        ("documents", "time", "str"),
+        ("documents", "timestamp", "int"),
+    ]);
+    // after beanquery's columns, which SELECT * keeps
+    let wildcard = Query::compile("SELECT * FROM #balances").unwrap().columns();
+    let wildcard = wildcard.iter().map(|it| it.name.as_str()).collect::<Vec<_>>();
+    assert_eq!(wildcard, ["date", "account", "amount", "tolerance", "discrepancy"]);
+    assert_documented(&["`pad`"]);
+}
+
+#[test]
 fn l_schema_has_the_new_functions() {
     let schema = zhang_query::schema();
     let overloads = |name: &str| schema.functions.iter().filter(|it| it.name == name && !it.aggregate).collect::<Vec<_>>();

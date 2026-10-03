@@ -691,7 +691,7 @@ ORDER BY currency
 - **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
 - **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries` and `#transactions` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
 - **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
-- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual`, `passed`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
+- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual`, `passed`, `pad`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
 
 ### #entries
 
@@ -739,8 +739,9 @@ ORDER BY currency
 | | `discrepancy` | `amount` | If the assertion fails, `actual` minus the asserted amount; `NULL` if it holds. A `balance ... with pad` holds unless a pad of the same time changes its balance after it, or it pads from the asserted account itself or one of its sub-accounts, which leaves its balance as it was. |
 | | `actual` | `amount` | The true balance of the account in the asserted currency at the assertion: the units of every posting to the account and its sub-accounts before it, as Zhang checks a balance. An assertion never changes it. A `balance ... with pad` is checked once the pads of its time are booked. Zhang extension. |
 | | `passed` | `bool` | Whether the assertion holds, as Zhang's balance check decides it: `actual` is within the tolerance of the asserted amount, or equal to it when the assertion has no tolerance. An assertion that fails is also an `AccountBalanceCheckError` in [`#errors`](#errors). Zhang extension. |
-| | `id` | `str` | The `id` of the assertion's row in [`#entries`](#entries). Zhang extension. |
-| | `seq` | `int` | The position of the assertion in `#entries`, as the `seq` of the transactions, so `ORDER BY seq DESC` lists the newest first. Zhang extension. |
+| | `pad` | `str` | For a `balance ... with pad`, the account it pads from; `NULL` for a balance without a pad. Zhang extension. |
+| | `id` | `str` | Unique id of the assertion: the `id` of its row in [`#entries`](#entries). Zhang extension. |
+| | `seq` | `int` | Position of the assertion in [`#entries`](#entries). It orders the assertion with the `seq` of the postings: an assertion comes after the postings of earlier days, and before the transactions of its own day, as in beancount. Zhang extension. |
 | | `time`, `timestamp` | `str`, `int` | Time of day of the assertion in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none) and its Unix time, in seconds. Zhang extension. |
 | `#notes` | `date`, `account` | `date`, `str` | Date and account of the note. |
 | | `comment` | `str` | The text of the note. |
@@ -754,8 +755,8 @@ ORDER BY currency
 | | `source` | `str` | What declares the document: `'directive'` for a `document` directive, `'transaction'` or `'posting'` for the `document` metadata of a transaction or of one of its postings. Zhang extension. |
 | | `path` | `str` | Path of the file as written, relative to the ledger's directory: Zhang resolves document paths against the ledger's directory, and the web UI downloads the file with this path. An absolute path inside the directory is made relative to it. Zhang extension. |
 | | `transaction_id` | `str` | For a document named in metadata, the `id` of its transaction, as in the postings table. `NULL` for a `document` directive. Zhang extension. |
-| | `seq` | `int` | The position in `#entries` of the `document` directive, or of the transaction that names the document, so `ORDER BY seq DESC` lists the newest first. The documents of one transaction share it. Zhang extension. |
-| | `time`, `timestamp` | `str`, `int` | Time of day of the `document` directive, or of the transaction that names the document, in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none), and its Unix time, in seconds. Zhang extension. |
+| | `seq` | `int` | Position in [`#entries`](#entries) of the `document` directive, or of the transaction that names the document. Zhang extension. |
+| | `time`, `timestamp` | `str`, `int` | Time of day (`HH:MM:SS`) and Unix time, in seconds, of the `document` directive, or of the transaction that names the document. Zhang extension. |
 | `#commodities` | `date` | `date` | Date of the `commodity` directive. |
 | | `name` | `str` | The commodity, such as `USD`. |
 
