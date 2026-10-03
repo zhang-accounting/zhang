@@ -72,6 +72,38 @@ impl JournalRequest {
     }
 }
 
+/// The page of an account's journal to return: `size` rows of page `page`, counting from 1. Without
+/// either, the whole journal.
+#[derive(Debug, Default, Schematic, Deserialize)]
+pub struct AccountJournalRequest {
+    pub page: Option<u32>,
+    pub size: Option<u32>,
+}
+
+impl AccountJournalRequest {
+    /// The default `size` of a page, as in `GET /api/journals`.
+    pub const DEFAULT_SIZE: u32 = 100;
+
+    /// The window of rows the request asks for; `None` for the whole journal. A page or a size of 0
+    /// is a 400.
+    pub fn window(&self) -> Result<Option<crate::account_queries::JournalWindow>, crate::error::ServerError> {
+        if self.page.is_none() && self.size.is_none() {
+            return Ok(None);
+        }
+        let page = self.page.unwrap_or(1);
+        let size = self.size.unwrap_or(Self::DEFAULT_SIZE);
+        if page == 0 || size == 0 {
+            return Err(crate::error::ServerError::InvalidInput(format!(
+                "page and size count from 1, got page {page} and size {size}"
+            )));
+        }
+        Ok(Some(crate::account_queries::JournalWindow {
+            offset: u64::from(page - 1) * u64::from(size),
+            size: u64::from(size),
+        }))
+    }
+}
+
 #[derive(Schematic, Deserialize)]
 pub struct CreateTransactionRequest {
     pub datetime: DateTime<Utc>,

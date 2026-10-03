@@ -10,8 +10,11 @@ use zhang_ast::{BalanceCheck, BalancePad, Date, Directive, Document, ZhangString
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::utils::calculable::Calculable;
 
-use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
-use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
+use crate::request::{AccountBalanceRequest, AccountJournalRequest, BatchAccountBalanceRequest};
+use crate::response::{
+    AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, Paged, ResponseWrapper,
+};
+use crate::routes::Query;
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::validate::Rules;
 use crate::{account_queries, validate, ApiResult, ServerResult};
@@ -25,7 +28,7 @@ fn validated(amount: Amount, rules: &Rules) -> ServerResult<Amount> {
 /// Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
 /// operating currency at today's prices, and the balance of the account with its sub-accounts.
 ///
-/// Built-in queries `accounts` and `account_balances`.
+/// Built-in queries `accounts.list` and `accounts.balances`.
 #[api(group = "account")]
 pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<AccountEntity>> {
     ResponseWrapper::json(account_queries::with_ledger(&ledger, account_queries::account_list).await?)
@@ -69,7 +72,7 @@ pub async fn legacy_get_account_list(ledger: State<SharedLedger>) -> ApiResult<V
 /// An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
 /// account with its sub-accounts, which its page shows.
 ///
-/// Built-in queries `account_subtree` and `account_subtree_balances`.
+/// Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
 #[api(group = "account")]
 pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>) -> ApiResult<AccountInfoEntity> {
     let account_name = path.0 .0;
@@ -164,7 +167,7 @@ pub async fn upload_account_document(
 
 /// The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
 ///
-/// Built-in query `account_balance_history`.
+/// Built-in query `accounts.balance_history`.
 #[api(group = "account")]
 #[debug_handler]
 pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<AccountBalanceHistoryEntity> {
@@ -196,7 +199,7 @@ pub async fn legacy_get_account_balance_data(ledger: State<SharedLedger>, params
 
 /// The document directives of the account and its sub-accounts, in ledger order.
 ///
-/// Built-in query `account_documents`.
+/// Built-in query `accounts.documents`.
 #[api(group = "account")]
 pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<DocumentEntity>> {
     let account_name = params.0 .0;
@@ -235,11 +238,23 @@ pub async fn legacy_get_account_documents(ledger: State<SharedLedger>, params: P
 /// to and the running balance of the account with its sub-accounts in its currency, and a row per balance
 /// assertion on the account, with the balance it was checked against.
 ///
-/// Built-in queries `account_journal` and `account_balance_assertions`.
+/// With `page` and `size` (from 1; `size` 100 by default), one page of the rows, and the number of rows of all
+/// the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to return at
+/// once is a 400 that asks for pages.
+///
+/// Built-in queries `accounts.journal` (`accounts.journal_rows` and `accounts.journal_page` for a page) and
+/// `accounts.balance_assertions`.
 #[api(group = "account")]
-pub async fn get_account_journals(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
+pub async fn get_account_journals(
+    ledger: State<SharedLedger>, params: Path<(String,)>, page: Query<AccountJournalRequest>,
+) -> ServerResult<Paged<Vec<AccountJournalDomain>>> {
     let account_name = params.0 .0;
-    ResponseWrapper::json(account_queries::with_ledger(&ledger, move |ledger| account_queries::account_journals(ledger, &account_name)).await?)
+    let window = page.0.window()?;
+    let journal = account_queries::with_ledger(&ledger, move |ledger| account_queries::account_journals(ledger, &account_name, window)).await?;
+    Ok(Paged {
+        data: journal.rows,
+        total: journal.total,
+    })
 }
 
 /// The hand-written implementation the query engine replaced (#479), kept to compare with it until wave 3

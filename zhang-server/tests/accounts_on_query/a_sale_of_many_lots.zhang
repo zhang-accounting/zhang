@@ -1,0 +1,74 @@
+option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity STK
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Income:Gains
+
+2024-01-01 * "Buy" "lot 1"
+  Assets:Broker 1 STK {101 USD}
+  Assets:Cash -101 USD
+2024-01-02 * "Buy" "lot 2"
+  Assets:Broker 1 STK {102 USD}
+  Assets:Cash -102 USD
+2024-01-03 * "Buy" "lot 3"
+  Assets:Broker 1 STK {103 USD}
+  Assets:Cash -103 USD
+2024-01-04 * "Buy" "lot 4"
+  Assets:Broker 1 STK {104 USD}
+  Assets:Cash -104 USD
+2024-01-05 * "Buy" "lot 5"
+  Assets:Broker 1 STK {105 USD}
+  Assets:Cash -105 USD
+2024-01-06 * "Buy" "lot 6"
+  Assets:Broker 1 STK {106 USD}
+  Assets:Cash -106 USD
+2024-01-07 * "Buy" "lot 7"
+  Assets:Broker 1 STK {107 USD}
+  Assets:Cash -107 USD
+2024-01-08 * "Buy" "lot 8"
+  Assets:Broker 1 STK {108 USD}
+  Assets:Cash -108 USD
+2024-01-09 * "Buy" "lot 9"
+  Assets:Broker 1 STK {109 USD}
+  Assets:Cash -109 USD
+2024-01-10 * "Buy" "lot 10"
+  Assets:Broker 1 STK {110 USD}
+  Assets:Cash -110 USD
+2024-01-11 * "Buy" "lot 11"
+  Assets:Broker 1 STK {111 USD}
+  Assets:Cash -111 USD
+2024-01-12 * "Buy" "lot 12"
+  Assets:Broker 1 STK {112 USD}
+  Assets:Cash -112 USD
+2024-01-13 * "Buy" "lot 13"
+  Assets:Broker 1 STK {113 USD}
+  Assets:Cash -113 USD
+2024-01-14 * "Buy" "lot 14"
+  Assets:Broker 1 STK {114 USD}
+  Assets:Cash -114 USD
+2024-01-15 * "Buy" "lot 15"
+  Assets:Broker 1 STK {115 USD}
+  Assets:Cash -115 USD
+2024-01-16 * "Buy" "lot 16"
+  Assets:Broker 1 STK {116 USD}
+  Assets:Cash -116 USD
+2024-01-17 * "Buy" "lot 17"
+  Assets:Broker 1 STK {117 USD}
+  Assets:Cash -117 USD
+2024-01-18 * "Buy" "lot 18"
+  Assets:Broker 1 STK {118 USD}
+  Assets:Cash -118 USD
+2024-01-19 * "Buy" "lot 19"
+  Assets:Broker 1 STK {119 USD}
+  Assets:Cash -119 USD
+2024-01-20 * "Buy" "lot 20"
+  Assets:Broker 1 STK {120 USD}
+  Assets:Cash -120 USD
+
+2024-02-01 * "Sell" "every lot"
+  Assets:Broker -20 STK {}
+  Assets:Cash 2400 USD
+  Income:Gains
+
+2024-02-02 balance Assets:Broker 0 STK

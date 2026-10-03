@@ -1,0 +1,15 @@
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Assets:A:C1
+1970-01-01 open Assets:A:C2
+1970-01-01 open Equity:Open
+
+2024-01-01 * "x" "opening"
+  Assets:A 100 CNY
+  Equity:Open
+
+2024-01-05 balance Assets:A:C1 50 CNY with pad Equity:Open
+2024-01-05 balance Assets:A:C2 -50 CNY with pad Equity:Open
+2024-01-05 balance Assets:A 100 CNY
+2024-01-05 balance Assets:A 100 CNY with pad Equity:Open

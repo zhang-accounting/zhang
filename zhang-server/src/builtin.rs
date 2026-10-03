@@ -127,21 +127,35 @@ ORDER BY account, currency",
     },
     BuiltinQuery {
         name: "accounts.journal",
-        description: "The postings of an account and its sub-accounts, newest first, one row per posting, each with the running balance \
-                      of the account and its sub-accounts in the posting's currency right after it.",
-        bql: "SELECT date, time, timestamp, flag, id, account, payee, narration, currency,
-       sum(number) AS units,
-       last(only(currency, units(balance))) AS balance
-WHERE under(account, :account)
-GROUP BY seq, posting_index, date, time, timestamp, flag, id, account, payee, narration, currency
-ORDER BY seq DESC, posting_index DESC",
+        description: "The postings of an account and its sub-accounts in ledger order, each with the running balance of the account \
+                      and its sub-accounts in the posting's currency right after it; a posting booked against several lots has a row \
+                      per lot.",
+        bql: "SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
+       number AS units, currency, only(currency, units(balance)) AS balance
+WHERE under(account, :account)",
         params: &[("account", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.journal_rows",
+        description: "The number of rows of accounts.journal.",
+        bql: "SELECT count(*) AS rows
+WHERE under(account, :account)",
+        params: &[("account", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "accounts.journal_page",
+        description: "Some rows of accounts.journal: from an offset, at most a limit of them.",
+        bql: "SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
+       number AS units, currency, only(currency, units(balance)) AS balance
+WHERE under(account, :account)
+LIMIT :limit OFFSET :offset",
+        params: &[("account", DataType::Str), ("limit", DataType::Int), ("offset", DataType::Int)],
     },
     BuiltinQuery {
         name: "accounts.balance_assertions",
         description: "The balance assertions on an account, newest first, with the balance of the account and its sub-accounts each \
                       was checked against, whether it held, and the account a balance with pad pads from.",
-        bql: "SELECT date, time, timestamp, id, account, amount, actual, passed, pad
+        bql: "SELECT date, time, timestamp, id, account, amount, actual, passed, pad, seq
 FROM #balances
 WHERE account = :account
 ORDER BY seq DESC",
@@ -348,11 +362,18 @@ mod test {
                     ty
                 );
             }
+            // the counts of LIMIT and OFFSET take no NULL: the engine rejects one at the parameter
+            let words = builtin.bql.split_whitespace().collect::<Vec<_>>();
+            let count = |name: &str| {
+                words
+                    .windows(2)
+                    .any(|it| ["LIMIT", "OFFSET"].contains(&it[0].to_uppercase().as_str()) && it[1] == format!(":{}", name))
+            };
             for null in [false, true] {
                 let values = builtin
                     .params
                     .iter()
-                    .map(|(name, ty)| (name.to_string(), (!null).then(|| sample(*ty))))
+                    .map(|(name, ty)| (name.to_string(), (!null || count(name)).then(|| sample(*ty))))
                     .collect::<HashMap<_, _>>();
                 let params = json_params(builtin, values).unwrap();
                 let written = text(builtin, &params).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));

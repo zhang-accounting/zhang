@@ -141,7 +141,9 @@ WHERE under(account, 'Assets:Bank')
 GROUP BY currency
 ```
 
-账户页面的流水由 `accounts.journal` 和 `accounts.balance_assertions` 组合而成：断言显示在当天开始处、它的余额所包含的当天补齐之后，使它的余额等于所在位置的累计余额。
+账户页面的流水按 [`seq`](/zh-cn/user-guide/query-language/#处理顺序)（张记账处理账本的顺序）合并 `accounts.journal` 和 `accounts.balance_assertions` 的行，最新的在前。因此一个断言紧跟在它的余额所包含的分录之后，也就是张记账检查它的位置：写了时刻的余额断言在当天该时刻之前的交易之后，普通的余额断言在写在它之前的补齐之后，`balance ... with pad` 在同一时刻的其他余额记录之后。它的余额就是所在位置的累计余额。按多个批次记账的一笔分录显示为一行。
+
+页面按每页 100 行列出流水（`GET /api/accounts/{account}/journals?page=1&size=100`），`accounts.journal` 的每一行和每个断言各算一行；一页用 `accounts.journal_rows` 和 `accounts.journal_page` 从流水的末尾读取它的行。
 
 #### `accounts.list`
 
@@ -204,31 +206,58 @@ ORDER BY account, currency
 
 #### `accounts.journal`
 
-账户页面的流水：该账户及其子账户的分录，最新的在前，每笔分录一行，每行带有该账户及其子账户在分录货币上紧接其后的[累计余额](/zh-cn/user-guide/query-language/#累计余额)。`balance ... with pad` 生成的补齐交易与其他交易一样列出。
+该账户及其子账户的分录，按账本顺序排列，每行带有该账户及其子账户在分录货币上紧接其后的[累计余额](/zh-cn/user-guide/query-language/#累计余额)。`balance ... with pad` 生成的补齐交易与其他交易一样列出。按多个[批次](/zh-cn/user-guide/query-language/#批次记账)记账的一笔分录每个批次一行，它们的 `seq` 和 `posting_index` 相同。加上 `ORDER BY seq DESC, posting_index DESC` 可以像页面一样把最新的排在最前。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `account` | `str` | 页面的账户 |
 
 ```sql
-SELECT date, time, timestamp, flag, id, account, payee, narration, currency,
-       sum(number) AS units,
-       last(only(currency, units(balance))) AS balance
+SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
+       number AS units, currency, only(currency, units(balance)) AS balance
 WHERE under(account, :account)
-GROUP BY seq, posting_index, date, time, timestamp, flag, id, account, payee, narration, currency
-ORDER BY seq DESC, posting_index DESC
+```
+
+#### `accounts.journal_rows`
+
+`accounts.journal` 的行数：加上断言，就是流水所有页的行数。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `account` | `str` | 页面的账户 |
+
+```sql
+SELECT count(*) AS rows
+WHERE under(account, :account)
+```
+
+#### `accounts.journal_page`
+
+`accounts.journal` 的部分行，按账本顺序：流水的一页从末尾数起读取它的行。不论偏移多少，只构建这一页的行。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `account` | `str` | 页面的账户 |
+| `limit` | `int` | 行数 |
+| `offset` | `int` | 之前跳过的行数 |
+
+```sql
+SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
+       number AS units, currency, only(currency, units(balance)) AS balance
+WHERE under(account, :account)
+LIMIT :limit OFFSET :offset
 ```
 
 #### `accounts.balance_assertions`
 
-对该账户的余额断言，列在它的流水中。`actual` 是断言所检查的该账户及其子账户的余额：流水把每个断言放在累计余额等于这个余额的位置，即当天开始时、它所包含的补齐之后。
+对该账户的余额断言，按 [`seq`](/zh-cn/user-guide/query-language/#处理顺序) 最新的在前。`actual` 是断言所检查的该账户及其子账户的余额，也就是流水中它的 `seq` 所在位置的累计余额。`pad` 是 `balance ... with pad` 用来补齐的账户。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `account` | `str` | 页面的账户 |
 
 ```sql
-SELECT date, time, timestamp, id, account, amount, actual, passed, pad
+SELECT date, time, timestamp, id, account, amount, actual, passed, pad, seq
 FROM #balances
 WHERE account = :account
 ORDER BY seq DESC

@@ -141,7 +141,9 @@ WHERE under(account, 'Assets:Bank')
 GROUP BY currency
 ```
 
-The journal of an account page combines `accounts.journal` and `accounts.balance_assertions`: an assertion is shown at the start of its day, after the paddings of that day that its balance includes, so that its balance is the running balance where it stands.
+The journal of an account page merges the rows of `accounts.journal` and `accounts.balance_assertions` by their [`seq`](/user-guide/query-language/#processing-order), the order in which Zhang processed the ledger, newest first. An assertion therefore stands right after the postings its balance includes, wherever Zhang checked it: a balance written with a time after the transactions of its day before that time, a plain balance after a padding written before it, a `balance ... with pad` after the other balance entries of its time. Its balance is the running balance where it stands. The rows of a posting booked against several lots are shown as one row.
+
+The page lists the journal by pages of 100 rows (`GET /api/accounts/{account}/journals?page=1&size=100`), each row of `accounts.journal` and each assertion counting as one; a page reads its rows with `accounts.journal_rows` and `accounts.journal_page`, from the end of the journal.
 
 #### `accounts.list`
 
@@ -204,31 +206,58 @@ ORDER BY account, currency
 
 #### `accounts.journal`
 
-The journal of an account page: the postings of the account and its sub-accounts, newest first, one row per posting, each with the [running balance](/user-guide/query-language/#the-running-balance) of the account and its sub-accounts in the posting's currency right after it. The padding transactions of `balance ... with pad` are listed like the others.
+The postings of the account and its sub-accounts, in ledger order, each with the [running balance](/user-guide/query-language/#the-running-balance) of the account and its sub-accounts in the posting's currency right after it. The padding transactions of `balance ... with pad` are listed like the others. A posting booked against several [lots](/user-guide/query-language/#lot-booking) has a row per lot; they share its `seq` and `posting_index`. Add `ORDER BY seq DESC, posting_index DESC` to list the newest first, as the page does.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `account` | `str` | the account of the page |
 
 ```sql
-SELECT date, time, timestamp, flag, id, account, payee, narration, currency,
-       sum(number) AS units,
-       last(only(currency, units(balance))) AS balance
+SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
+       number AS units, currency, only(currency, units(balance)) AS balance
 WHERE under(account, :account)
-GROUP BY seq, posting_index, date, time, timestamp, flag, id, account, payee, narration, currency
-ORDER BY seq DESC, posting_index DESC
+```
+
+#### `accounts.journal_rows`
+
+The number of rows of `accounts.journal`: with the assertions, the number of rows of all the pages of the journal.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+
+```sql
+SELECT count(*) AS rows
+WHERE under(account, :account)
+```
+
+#### `accounts.journal_page`
+
+Some rows of `accounts.journal`, in ledger order: a page of the journal reads its rows counting from the end. Only the rows of the page are built, whatever the offset.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+| `limit` | `int` | how many rows |
+| `offset` | `int` | how many rows before them |
+
+```sql
+SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
+       number AS units, currency, only(currency, units(balance)) AS balance
+WHERE under(account, :account)
+LIMIT :limit OFFSET :offset
 ```
 
 #### `accounts.balance_assertions`
 
-The balance assertions on an account, listed in its journal. `actual` is the balance of the account and its sub-accounts that the assertion was checked against: the journal shows each assertion where the running balance is that balance, at the start of its day, after the paddings it includes.
+The balance assertions on the account, newest first by [`seq`](/user-guide/query-language/#processing-order). `actual` is the balance of the account and its sub-accounts that the assertion was checked against, which is the running balance of the journal where its `seq` puts it. `pad` is the account a `balance ... with pad` pads from.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `account` | `str` | the account of the page |
 
 ```sql
-SELECT date, time, timestamp, id, account, amount, actual, passed, pad
+SELECT date, time, timestamp, id, account, amount, actual, passed, pad, seq
 FROM #balances
 WHERE account = :account
 ORDER BY seq DESC

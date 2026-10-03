@@ -88,7 +88,7 @@ impl Scratch {
     }
 
     async fn account_journals(&self, account: &str) -> Vec<Value> {
-        let (status, body) = respond(get_account_journals(self.state().await, UrlPath((account.to_owned(),))).await).await;
+        let (status, body) = respond(get_account_journals(self.state().await, UrlPath((account.to_owned(),)), UrlQuery(Default::default())).await).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         body["data"].as_array().unwrap().clone()
     }
