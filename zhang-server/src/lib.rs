@@ -39,6 +39,7 @@ use crate::response::ResponseWrapper;
 use crate::state::AppState;
 
 pub mod auth;
+mod balance_writes;
 pub mod broadcast;
 pub mod error;
 pub mod request;

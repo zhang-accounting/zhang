@@ -64,3 +64,11 @@ export function padsAnAccountFromTwoAccounts(balances: { account_name: string; p
     (one) => one.pad !== '' && balances.some((other) => other.account_name === one.account_name && other.pad !== '' && other.pad !== one.pad),
   );
 }
+
+/**
+ * Whether a batch pads an account in one commodity and checks another of its commodities without a pad. A beancount `pad` pads
+ * every commodity of its account, so the server refuses such a batch for a beancount ledger.
+ */
+export function checksAPaddedAccountWithoutAPad(balances: { account_name: string; pad: string }[]): boolean {
+  return balances.some((one) => one.pad !== '' && balances.some((other) => other.account_name === one.account_name && other.pad === ''));
+}

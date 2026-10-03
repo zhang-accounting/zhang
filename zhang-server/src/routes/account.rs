@@ -1,20 +1,16 @@
-use std::collections::HashMap;
-
 use axum::extract::{Multipart, Path, State};
 use axum::{debug_handler, Json};
-use chrono::{NaiveDate, Utc};
+use chrono::Utc;
 use gotcha::api;
 use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
-use zhang_core::data_type::is_beancount_endpoint;
+use zhang_ast::{Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
-use zhang_core::ledger::Ledger;
 use zhang_core::utils::calculable::Calculable;
 
-use crate::error::ServerError;
+use crate::balance_writes::{balance_directives, BalanceRow};
 use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
 use crate::state::{SharedLedger, SharedReloadSender};
@@ -205,123 +201,23 @@ pub async fn create_account_balance(
     let ledger = ledger.read().await;
     let rules = Rules::of(&ledger);
 
-    let balance = match payload {
-        AccountBalanceRequest::Check { amount } => Directive::BalanceCheck(BalanceCheck {
-            date: Date::now(&ledger.options.timezone),
+    let row = match payload {
+        AccountBalanceRequest::Check { amount } => BalanceRow {
             account: validate::account(&target_account, &rules)?,
             amount: validated(amount, &rules)?,
-            tolerance: None,
-            meta: Default::default(),
-        }),
-        AccountBalanceRequest::Pad { amount, pad } => Directive::BalancePad(BalancePad {
-            date: Date::now(&ledger.options.timezone),
+            pad: None,
+        },
+        AccountBalanceRequest::Pad { amount, pad } => BalanceRow {
             account: validate::account(&target_account, &rules)?,
             amount: validated(amount, &rules)?,
-            meta: Default::default(),
-            pad: validate::account(&pad, &rules)?,
-        }),
+            pad: Some(validate::account(&pad, &rules)?),
+        },
     };
 
-    let directives = beancount_balances(&ledger, vec![balance])?;
+    let directives = balance_directives(&ledger, vec![row], Date::now(&ledger.options.timezone))?;
     ledger.data_source.async_append(&ledger, directives).await?;
     reload_sender.reload();
     Ok(Created)
-}
-
-/// The balances to write, made from the balance rows of a request (all dated now), as a beancount ledger takes them.
-///
-/// Beancount pads an account with a `pad` dated before the day of the balances it serves: the first balance of the
-/// account in each commodity on a later day, all from the one account the `pad` names. The exporter writes a
-/// `balance ... with pad` as a `pad` on the day before plus its `balance`, so the pad rows of an account go out as one
-/// such directive, followed by plain balances its `pad` also serves; when the account has a `pad` from the same account
-/// on that day already, all go out as plain balances. A zhang ledger takes the rows as they are: there, each
-/// `balance ... with pad` pads itself.
-///
-/// What beancount would not pad as asked is a 400, and nothing is written: pad rows of one account from different
-/// accounts, a pad row from another account than the `pad` of the account that day, and a pad row in a commodity
-/// the account has a balance of that day already, which the `pad` would serve instead.
-fn beancount_balances(ledger: &Ledger, rows: Vec<Directive>) -> ServerResult<Vec<Directive>> {
-    if !is_beancount_endpoint(&ledger.entry.1) {
-        return Ok(rows);
-    }
-    let single = |account: &Account, date: &NaiveDate, detail: String| {
-        ServerError::InvalidInput(format!(
-            "beancount pads an account from a single account per day: the balances of {} on {date} {detail}",
-            account.name()
-        ))
-    };
-    // the account each padded account is padded from, and whether its `pad` is to be written
-    let mut pads: HashMap<String, (Account, bool)> = HashMap::new();
-    for row in &rows {
-        let Directive::BalancePad(pad) = row else { continue };
-        let date = pad.date.naive_date();
-        if let Some((source, _)) = pads.get(pad.account.name()) {
-            if source != &pad.pad {
-                return Err(single(
-                    &pad.account,
-                    &date,
-                    format!("cannot be padded from both {} and {}", source.name(), pad.pad.name()),
-                ));
-            }
-            continue;
-        }
-        let pad_date = date.pred_opt().unwrap_or(date);
-        let existing = ledger.directives.iter().find_map(|it| match &it.data {
-            Directive::Pad(existing) if existing.account == pad.account && existing.date.naive_date() == pad_date => Some(&existing.pad),
-            _ => None,
-        });
-        if let Some(existing) = existing.filter(|existing| *existing != &pad.pad) {
-            return Err(single(&pad.account, &date, format!("are padded from {} already", existing.name())));
-        }
-        pads.insert(pad.account.name().to_owned(), (pad.pad.clone(), existing.is_none()));
-    }
-    // the commodities each padded account has a balance of on the day of the rows
-    let asserted = |account: &Account, commodity: &str, date: &NaiveDate| {
-        ledger.directives.iter().any(|it| match &it.data {
-            Directive::BalanceCheck(check) => &check.account == account && check.amount.commodity == commodity && &check.date.naive_date() == date,
-            Directive::BalancePad(pad) => &pad.account == account && pad.amount.commodity == commodity && &pad.date.naive_date() == date,
-            _ => false,
-        })
-    };
-    for (index, row) in rows.iter().enumerate() {
-        let Directive::BalancePad(pad) = row else { continue };
-        let date = pad.date.naive_date();
-        let in_batch = rows.iter().enumerate().any(|(other, it)| {
-            other != index
-                && match it {
-                    Directive::BalanceCheck(check) => check.account == pad.account && check.amount.commodity == pad.amount.commodity,
-                    Directive::BalancePad(it) => it.account == pad.account && it.amount.commodity == pad.amount.commodity,
-                    _ => false,
-                }
-        });
-        if in_batch || asserted(&pad.account, &pad.amount.commodity, &date) {
-            return Err(ServerError::InvalidInput(format!(
-                "beancount pads only the first balance of an account in each commodity per day: {} has a balance in {} on {date} already",
-                pad.account.name(),
-                pad.amount.commodity
-            )));
-        }
-    }
-    Ok(rows
-        .into_iter()
-        .map(|row| match row {
-            Directive::BalancePad(pad) => match pads.get_mut(pad.account.name()) {
-                // the first pad row of an account without a `pad` that day writes it
-                Some((_, write)) if *write => {
-                    *write = false;
-                    Directive::BalancePad(pad)
-                }
-                _ => Directive::BalanceCheck(BalanceCheck {
-                    date: pad.date,
-                    account: pad.account,
-                    amount: pad.amount,
-                    tolerance: None,
-                    meta: pad.meta,
-                }),
-            },
-            other => other,
-        })
-        .collect())
 }
 
 /// the balances of a batch, those of deeper accounts first, the order of the request kept otherwise
@@ -339,32 +235,26 @@ pub async fn create_batch_account_balances(
 ) -> ServerResult<Created> {
     let ledger = ledger.read().await;
     let rules = Rules::of(&ledger);
-    // one time for the whole batch, so the file order decides the order of its directives
-    let now = Date::now(&ledger.options.timezone);
-    let mut directives = vec![];
+    let mut rows = vec![];
     // sub-accounts before their parents, deepest first: a `balance` on a parent covers its sub-accounts, so it
     // must come after their pads to assert, and pad to, the total they leave
     for balance in sub_accounts_first(payload) {
-        let balance = match balance {
-            BatchAccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
-                date: now.clone(),
+        rows.push(match balance {
+            BatchAccountBalanceRequest::Check { account_name, amount } => BalanceRow {
                 account: validate::account(&account_name, &rules)?,
                 amount: validated(amount, &rules)?,
-                tolerance: None,
-                meta: Default::default(),
-            }),
-            BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
-                date: now.clone(),
+                pad: None,
+            },
+            BatchAccountBalanceRequest::Pad { account_name, amount, pad } => BalanceRow {
                 account: validate::account(&account_name, &rules)?,
                 amount: validated(amount, &rules)?,
-                meta: Default::default(),
-                pad: validate::account(&pad, &rules)?,
-            }),
-        };
-        directives.push(balance);
+                pad: Some(validate::account(&pad, &rules)?),
+            },
+        });
     }
 
-    let directives = beancount_balances(&ledger, directives)?;
+    // one time for the whole batch, so the file order decides the order of its directives
+    let directives = balance_directives(&ledger, rows, Date::now(&ledger.options.timezone))?;
     ledger.data_source.async_append(&ledger, directives).await?;
     reload_sender.reload();
     Ok(Created)
