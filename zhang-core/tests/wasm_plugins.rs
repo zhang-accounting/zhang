@@ -295,6 +295,75 @@ fn invalid_error_payload_is_reported_as_a_plugin_error() {
 }
 
 #[test]
+fn forged_error_payload_is_rejected_without_crashing() {
+    // the plugin forges its block header so the kernel reports a ~2 GiB length; an unfixed host
+    // slices that much memory and dies with SIGBUS. The fix must keep the load alive and report an
+    // invalid payload.
+    let dir = ledger_dir(&["emit_error_forge.wat"]);
+    let directive = plugin(&dir, "emit_error_forge.wat");
+    let content = format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}");
+    let ledger = load(&dir, &content);
+
+    let errors = errors(&ledger);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let (kind, span, error_metas) = &errors[0];
+    assert_eq!(kind, &ErrorKind::PluginError);
+    assert_eq!(error_metas["plugin"], "emit-error-forge");
+    assert!(
+        error_metas["message"].starts_with("the plugin called zhang_emit_error with an invalid payload: "),
+        "{}",
+        error_metas["message"]
+    );
+    assert_directive_span(span, &content, &directive);
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the load continued past the forged call");
+}
+
+#[test]
+fn oversized_error_payload_is_rejected_without_crashing() {
+    // a real, well-formed block just over the 1 MiB limit: rejected on size, not read, no crash
+    let dir = ledger_dir(&["emit_error_toobig.wat"]);
+    let directive = plugin(&dir, "emit_error_toobig.wat");
+    let content = format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}");
+    let ledger = load(&dir, &content);
+
+    let errors = errors(&ledger);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let (kind, _span, error_metas) = &errors[0];
+    assert_eq!(kind, &ErrorKind::PluginError);
+    assert_eq!(error_metas["plugin"], "emit-error-toobig");
+    assert!(
+        error_metas["message"].starts_with("the plugin called zhang_emit_error with an invalid payload: "),
+        "{}",
+        error_metas["message"]
+    );
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the load continued past the oversized call");
+}
+
+#[test]
+fn root_length_cannot_be_forged_to_bypass_the_emit_error_bound() {
+    // the plugin also tries to overwrite the kernel's own MemoryRoot::length (the host's ground
+    // truth) to ~2 GiB, then forges a within-cap block that runs past real memory. If the root were
+    // writable the host would slice past the mapped memory and crash; the kernel protects the root,
+    // so this stays a rejected invalid payload and the load continues.
+    let dir = ledger_dir(&["emit_error_root_forge.wat"]);
+    let directive = plugin(&dir, "emit_error_root_forge.wat");
+    let content = format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}");
+    let ledger = load(&dir, &content);
+
+    let errors = errors(&ledger);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let (kind, _span, error_metas) = &errors[0];
+    assert_eq!(kind, &ErrorKind::PluginError);
+    assert_eq!(error_metas["plugin"], "emit-error-root-forge");
+    assert!(
+        error_metas["message"].starts_with("the plugin called zhang_emit_error with an invalid payload: "),
+        "{}",
+        error_metas["message"]
+    );
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the load continued past the root-forge attack");
+}
+
+#[test]
 fn plugin_without_the_error_import_is_unaffected() {
     // echo imports no host function: it loads next to a plugin that does, and reports nothing
     let dir = ledger_dir(&["echo.wat", "emit_error.wat"]);
@@ -407,6 +476,51 @@ fn router_reads_the_ledger_through_host_functions_only_while_routing() {
     );
     // what it reported with `zhang_emit_error` during the request is only logged
     assert_eq!(errors(&ledger), vec![]);
+}
+
+#[test]
+fn forged_query_input_returns_invalid_input() {
+    // the router forges its block header so the kernel reports a ~2 GiB length; an unfixed host
+    // slices that much memory in `zhang_query` and dies with SIGBUS. The fix must answer the plugin
+    // with an `invalid_input` value and never crash.
+    let (_dir, ledger) = router_ledger(&["router_query_forge.wat"]);
+
+    let response = call(&ledger, "router-query-forge", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap();
+
+    let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+    assert_eq!(body["Err"]["kind"], json!("invalid_input"), "{body}");
+}
+
+#[test]
+fn forged_query_overread_is_rejected_not_echoed() {
+    // the router forges its block header to ~64 KiB, just past the real data region. This does not
+    // crash an unfixed host but makes `zhang_query` read ~64 KiB of the plugin's own kernel memory,
+    // which the fake host echoes straight back. The fix must reject it as `invalid_input` instead.
+    let (_dir, ledger) = router_ledger(&["router_query_overread.wat"]);
+
+    let response = call(&ledger, "router-query-overread", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap();
+
+    let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+    assert_eq!(body["Err"]["kind"], json!("invalid_input"), "{body}");
+    assert!(
+        response.body().len() < 1024,
+        "the leaked memory must not be echoed back: {} bytes",
+        response.body().len()
+    );
+}
+
+#[test]
+fn root_length_cannot_be_forged_to_bypass_the_query_bound() {
+    // the router also tries to overwrite the kernel's own MemoryRoot::length (the host's ground
+    // truth) to ~2 GiB, then forges a within-cap block that runs past real memory. If the root were
+    // writable the host would slice past the mapped memory and crash in `zhang_query`; the kernel
+    // protects the root, so the call is answered with `invalid_input` and never crashes.
+    let (_dir, ledger) = router_ledger(&["router_query_root_forge.wat"]);
+
+    let response = call(&ledger, "router-query-root-forge", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap();
+
+    let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+    assert_eq!(body["Err"]["kind"], json!("invalid_input"), "{body}");
 }
 
 #[test]

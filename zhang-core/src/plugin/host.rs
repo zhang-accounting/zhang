@@ -17,8 +17,10 @@
 //! the instance runs, until the stage running the plugin hands it to the pipeline.
 
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use extism::convert::MemoryHandle;
 use extism::{CurrentPlugin, Function, UserData, Val, EXTISM_USER_MODULE, PTR};
 use log::warn;
 use serde::Deserialize;
@@ -34,6 +36,138 @@ pub const EMIT_ERROR: &str = "zhang_emit_error";
 pub const PLUGIN_META: &str = "plugin";
 /// meta of a [`ErrorKind::PluginError`] holding the problem the plugin described
 pub const MESSAGE_META: &str = "message";
+
+/// the most bytes [`read_input`] will copy out of a plugin for a `zhang_emit_error` payload. The
+/// payload is a small JSON object (a message, an optional span and a few metas), so one mebibyte is
+/// far more than a real caller needs while still being a hard ceiling against a runaway allocation.
+const EMIT_ERROR_MAX_LEN: usize = 1024 * 1024;
+
+// --- reading plugin memory safely -------------------------------------------------------------
+//
+// A host function receives the offset of a block in the plugin's linear ("kernel") memory and has to
+// read the bytes there. extism 1.8 reads them with `CurrentPlugin::memory_from_val` followed by
+// `memory_bytes`/`memory_str`. `memory_from_val` trusts the length the kernel's `length` export
+// reports, which is the block header's `used` field, and `memory_bytes` builds the slice with
+// `std::slice::from_raw_parts` without any bounds check (this is still true in extism 1.30.0, so a
+// version bump does not fix it upstream). A plugin can overwrite its own block header -- e.g.
+// `store_u8($p - 1, 0x7f)` sets `used` to about 2 GiB -- so the host then slices far past the mapped
+// memory and reading it kills the whole process with SIGBUS. A smaller forge leaks the plugin's own
+// kernel memory instead of crashing. These functions never trap, so that is a host crash the plugin
+// controls.
+//
+// extism 1.8 exposes no accessor for the size of the kernel's linear memory (`CurrentPlugin::memory`
+// and the wasmtime store are private). The kernel does record it: its `MemoryRoot` struct, at a
+// fixed address in linear memory, has a `length` field holding the current size of the data region.
+// We read that one field directly through the only public primitive we have, `memory_bytes`, and use
+// it to bound every read. The constants below pin the `MemoryRoot` layout of the extism-runtime
+// kernel 0.1 that ships inside extism 1.8 (see the kernel's `#[repr(C)] struct MemoryRoot`).
+
+/// linear-memory address of the kernel's `MemoryRoot` (the kernel hard-codes it at offset 1)
+const KERNEL_ROOT_ADDR: u64 = 1;
+/// size of `MemoryRoot`: an `AtomicBool` padded to 8, then seven `u64`s = 64 bytes
+const KERNEL_ROOT_SIZE: u64 = 64;
+/// byte offset of `MemoryRoot::length` within the struct: past `initialized` (padded to 8) and
+/// `position` (`u64`), i.e. the second `u64` field
+const KERNEL_LENGTH_FIELD: u64 = 16;
+/// linear-memory address of `MemoryRoot::length`, the current size of the data region in bytes.
+///
+/// This is the one value a plugin cannot forge. The kernel's `store_u8`/`store_u64` exports guard
+/// every write with `pointer_in_bounds_fast`, which rejects any address below `size_of::<MemoryRoot>()`
+/// (64); the `MemoryRoot` is pinned at address 1, so this field (addresses 17..25) is below that floor
+/// and no store export can reach it (the `router_query_root_forge`/`emit_error_root_forge` fixtures
+/// prove a plugin's attempt to overwrite it is a no-op). `length` only ever changes when the kernel
+/// allocator grows the memory. The other mutators (`input_set`, `output_set`, `error_set`) write
+/// their own dedicated root fields, never `length`.
+const KERNEL_LENGTH_ADDR: u64 = KERNEL_ROOT_ADDR + KERNEL_LENGTH_FIELD;
+/// first address a data block can occupy: right after the `MemoryRoot`
+const KERNEL_DATA_START: u64 = KERNEL_ROOT_ADDR + KERNEL_ROOT_SIZE;
+/// the largest plausible data-region size: a wasm32 linear memory tops out at 4 GiB, so a `length`
+/// larger than that (less the bytes the `MemoryRoot` occupies) is a garbage read and we deny it
+const KERNEL_MAX_DATA_LEN: u64 = (1u64 << 32) - KERNEL_DATA_START;
+
+/// why the bytes a plugin handed a host function could not be read
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum InputError {
+    /// the argument is not the offset of a live block (offset 0, or a freed/zero-length handle)
+    NotABlock,
+    /// the block's offset and length do not lie inside the kernel's data region. A plugin can forge
+    /// the length its block header reports, so the host never trusts it for a read: reading an
+    /// out-of-bounds slice crashes the process
+    OutOfBounds,
+    /// the block is larger than this host function is willing to read
+    TooLarge { len: u64, max: usize },
+    /// the bytes are not valid UTF-8 (only from [`read_input_str`])
+    NotUtf8(std::str::Utf8Error),
+}
+
+impl Display for InputError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InputError::NotABlock => write!(f, "is not a memory block"),
+            InputError::OutOfBounds => write!(f, "points outside the plugin's memory"),
+            InputError::TooLarge { len, max } => write!(f, "is {len} bytes, over the {max} byte limit"),
+            InputError::NotUtf8(e) => write!(f, "is not UTF-8 text: {e}"),
+        }
+    }
+}
+
+/// the current size in bytes of the kernel's data region, read straight from `MemoryRoot::length`,
+/// or `None` if it cannot be read or is implausible. This is the ground truth a plugin cannot forge:
+/// a block's own header is writable by the plugin, but `MemoryRoot::length` sits below the kernel's
+/// store floor (see [`KERNEL_LENGTH_ADDR`]) and only the allocator changes it.
+fn kernel_data_len(plugin: &mut CurrentPlugin) -> Option<u64> {
+    // SAFETY: `KERNEL_LENGTH_ADDR` (17) with length 8 is inside the first page, which the kernel
+    // always maps before any host function can run, so `memory_bytes` slices live memory. We only
+    // read it; the bytes are the little-endian `MemoryRoot::length`.
+    let handle = unsafe { MemoryHandle::new(KERNEL_LENGTH_ADDR, 8) };
+    let bytes = plugin.memory_bytes(handle).ok()?;
+    let len = u64::from_le_bytes(bytes.try_into().ok()?);
+    // a sanity guard: a wasm32 memory cannot be this large, so an implausible value means the read
+    // (or the assumed layout) is wrong. Deny the input rather than trust it.
+    (len <= KERNEL_MAX_DATA_LEN).then_some(len)
+}
+
+/// validate that a block at `offset` of `len` bytes is a real, in-bounds read of at most `max_len`
+/// bytes. `kernel_data_len` is `MemoryRoot::length`. Pure arithmetic, split out so it can be tested
+/// without a running plugin.
+fn check_bounds(offset: u64, len: u64, kernel_data_len: u64, max_len: usize) -> Result<(), InputError> {
+    // reject an oversized length before anything reads it, so even a forged ~2 GiB length can never
+    // reach `memory_bytes` and crash the process
+    if len > max_len as u64 {
+        return Err(InputError::TooLarge { len, max: max_len });
+    }
+    let end = offset.checked_add(len).ok_or(InputError::OutOfBounds)?;
+    let limit = KERNEL_DATA_START.checked_add(kernel_data_len).ok_or(InputError::OutOfBounds)?;
+    if offset < KERNEL_DATA_START || end > limit {
+        return Err(InputError::OutOfBounds);
+    }
+    Ok(())
+}
+
+/// Read the bytes of the kernel-memory block a plugin passed to a host function in `val`, after
+/// validating that the block lies within the kernel's memory and is at most `max_len` bytes.
+///
+/// This is the one place host functions turn a plugin-supplied offset into bytes. It never trusts
+/// the length the plugin's block header reports: it bounds every read against `MemoryRoot::length`,
+/// so a forged header cannot make the host read out of bounds (which crashes the process with
+/// SIGBUS) or read another plugin allocation. Reusable by any host function that reads plugin
+/// memory; [`read_input_str`] is the UTF-8 variant.
+pub(crate) fn read_input(plugin: &mut CurrentPlugin, val: &Val, max_len: usize) -> Result<Vec<u8>, InputError> {
+    let handle = plugin.memory_from_val(val).ok_or(InputError::NotABlock)?;
+    let kernel_data_len = kernel_data_len(plugin).ok_or(InputError::OutOfBounds)?;
+    check_bounds(handle.offset, handle.length, kernel_data_len, max_len)?;
+    // now safe: the block is within the kernel data region, so the slice `memory_bytes` builds is
+    // backed by mapped memory and at most `max_len` bytes long
+    let bytes = plugin.memory_bytes(handle).map_err(|_| InputError::OutOfBounds)?;
+    Ok(bytes.to_vec())
+}
+
+/// Like [`read_input`], but returns the bytes as a `String`, failing with [`InputError::NotUtf8`]
+/// when they are not valid UTF-8.
+pub(crate) fn read_input_str(plugin: &mut CurrentPlugin, val: &Val, max_len: usize) -> Result<String, InputError> {
+    let bytes = read_input(plugin, val, max_len)?;
+    String::from_utf8(bytes).map_err(|e| InputError::NotUtf8(e.utf8_error()))
+}
 
 /// what a plugin passes to `zhang_emit_error`
 #[derive(Deserialize)]
@@ -94,11 +228,10 @@ impl PluginHost {
 
 /// `zhang_emit_error(payload)`. It never traps: a payload it cannot read is reported as an invalid payload
 fn emit_error(plugin: &mut CurrentPlugin, inputs: &[Val], _outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
-    let payload = inputs
-        .first()
-        .and_then(|offset| plugin.memory_from_val(offset))
-        .and_then(|handle| plugin.memory_bytes(handle).ok())
-        .map(<[u8]>::to_vec);
+    // read the payload through the bounds-checked helper: a forged block header cannot make this
+    // read out of bounds (a crash) or larger than the limit. Anything unreadable becomes `None`,
+    // which `plugin_error` reports as an invalid payload, exactly as before.
+    let payload = inputs.first().and_then(|offset| read_input(plugin, offset, EMIT_ERROR_MAX_LEN).ok());
     let state = state.get()?;
     let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
     let error = plugin_error(&state.plugin, &state.directive_span, payload.as_deref());
@@ -170,7 +303,62 @@ mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::SpanInfo;
 
-    use super::plugin_error;
+    use super::{check_bounds, plugin_error, InputError, EMIT_ERROR_MAX_LEN, KERNEL_DATA_START};
+
+    /// a plausible data-region size: one page minus the `MemoryRoot`, the value a freshly started
+    /// kernel reports
+    const DATA_LEN: u64 = 65536 - 64;
+
+    #[test]
+    fn check_bounds_accepts_a_block_inside_the_data_region() {
+        // the first real block, just past the data start, well under the limit
+        assert_eq!(check_bounds(KERNEL_DATA_START + 12, 30, DATA_LEN, EMIT_ERROR_MAX_LEN), Ok(()));
+        // a block ending exactly at the end of the data region is still in bounds
+        let len = 128;
+        let offset = KERNEL_DATA_START + DATA_LEN - len;
+        assert_eq!(check_bounds(offset, len, DATA_LEN, EMIT_ERROR_MAX_LEN), Ok(()));
+    }
+
+    #[test]
+    fn check_bounds_rejects_a_forged_length_past_the_data_region() {
+        // the ~2 GiB forge: caught as too large before any read, so it can never crash the host
+        assert_eq!(
+            check_bounds(KERNEL_DATA_START + 12, 0x7f00_0000, DATA_LEN, EMIT_ERROR_MAX_LEN),
+            Err(InputError::TooLarge {
+                len: 0x7f00_0000,
+                max: EMIT_ERROR_MAX_LEN
+            })
+        );
+        // the smaller "just over the real size" forge: under the limit but out of bounds, so it is
+        // rejected instead of leaking the plugin's own kernel memory
+        assert_eq!(
+            check_bounds(KERNEL_DATA_START + 12, 0x1_0004, DATA_LEN, EMIT_ERROR_MAX_LEN),
+            Err(InputError::OutOfBounds)
+        );
+    }
+
+    #[test]
+    fn check_bounds_rejects_an_offset_before_the_data_region() {
+        // an offset pointing into the `MemoryRoot` itself, not a data block
+        assert_eq!(
+            check_bounds(KERNEL_DATA_START - 1, 8, DATA_LEN, EMIT_ERROR_MAX_LEN),
+            Err(InputError::OutOfBounds)
+        );
+        assert_eq!(check_bounds(0, 8, DATA_LEN, EMIT_ERROR_MAX_LEN), Err(InputError::OutOfBounds));
+    }
+
+    #[test]
+    fn check_bounds_rejects_an_offset_plus_length_that_overflows() {
+        assert_eq!(check_bounds(u64::MAX, 1, DATA_LEN, 2), Err(InputError::OutOfBounds));
+    }
+
+    #[test]
+    fn check_bounds_enforces_the_max_len_for_a_well_formed_block() {
+        // a block that really is in bounds but larger than the caller allows
+        assert_eq!(check_bounds(KERNEL_DATA_START, 3, DATA_LEN, 2), Err(InputError::TooLarge { len: 3, max: 2 }));
+        // exactly the limit is allowed
+        assert_eq!(check_bounds(KERNEL_DATA_START, 2, DATA_LEN, 2), Ok(()));
+    }
 
     fn directive_span() -> SpanInfo {
         SpanInfo {
