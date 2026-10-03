@@ -361,11 +361,9 @@ fn processing_order<'a>(ledger: &'a Ledger, store: &'a Store, rows: &[EntryInfo]
                 .map(|it| i64::from(*it)),
             _ => None,
         };
-        // (the number it took, or the last one taken before it; numbered first; then the directive)
-        let key = match number {
-            Some(number) => (number, 0, idx),
-            None => (folded, 1, idx),
-        };
+        // the number it took, or else the last one taken before it, by a directive folded before it; then the
+        // directive
+        let key = (number.unwrap_or(folded), idx);
         if let Some(number) = number {
             folded = folded.max(number);
         }
