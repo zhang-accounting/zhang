@@ -2,11 +2,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveTime};
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned};
+use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned, Transaction};
 
 use super::balance::{exceeds_tolerance, AccountStates, UnitBalances};
 use super::{AssertionOutcome, ProcessStage, StageContext};
@@ -37,7 +37,7 @@ impl ProcessStage for BalanceCheckStage {
     }
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        report_ignored_times(ctx, &directives);
+        let mut ignored_times = IgnoredTimes::of(&directives);
         let mut balances = UnitBalances::for_stage(ctx);
         let mut accounts = AccountStates::default();
         // the `balance ... with pad` directives of the balance entries being applied, checked after the last one
@@ -57,7 +57,10 @@ impl ProcessStage for BalanceCheckStage {
                 }
                 Directive::Close(_) => accounts.apply(&directive.data),
                 Directive::Commodity(commodity) => balances.apply_commodity(commodity, ctx.options),
-                Directive::Transaction(txn) => balances.apply_transaction(txn),
+                Directive::Transaction(txn) => {
+                    let units = balances.apply_transaction(txn);
+                    ignored_times.transaction(directive, txn, &units);
+                }
                 Directive::BalanceCheck(check_directive) => {
                     for (kind, _) in accounts.errors(&[&check_directive.account]) {
                         ctx.emit_error(kind, directive.span.clone(), account_name(&check_directive.account));
@@ -82,6 +85,7 @@ impl ProcessStage for BalanceCheckStage {
         for (pad, span) in pads {
             check(ctx, &balances, &pad.account, &pad.amount, None, span);
         }
+        ignored_times.report(ctx, &directives);
         Ok(directives)
     }
 }
@@ -98,59 +102,93 @@ fn check(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, amo
     ctx.record_assertion(span, AssertionOutcome { balance, passed });
 }
 
-/// A `balance` of a beancount file is checked at the start of its date, as beancount checks it: zhang ignores its
-/// `time` metadata. Where its account, or a sub-account, had transactions on that day before that time, zhang checked
-/// it after them before, and the time changes what it checks: reported as [`ErrorKind::BalanceTimeIgnored`], on the
-/// balance. The padding transactions of `pad` directives do not count
-fn report_ignored_times(ctx: &mut StageContext, directives: &[Spanned<Directive>]) {
-    // the balances of beancount files with a time, by their day
-    let mut timed: HashMap<NaiveDate, Vec<(usize, &Account, NaiveTime)>> = HashMap::new();
-    for (index, directive) in directives.iter().enumerate() {
-        let Directive::BalanceCheck(check) = &directive.data else { continue };
-        if !matches!(check.date, Date::Date(_)) || !directive.span.filename.as_ref().is_some_and(is_beancount_endpoint) {
-            continue;
-        }
-        let time = check.meta.get_one("time").map(|it| it.as_str()).and_then(|it| {
-            NaiveTime::parse_from_str(it, "%H:%M:%S")
-                .or_else(|_| NaiveTime::parse_from_str(it, "%H:%M"))
-                .ok()
-        });
-        if let Some(time) = time {
-            timed.entry(check.date.naive_date()).or_default().push((index, &check.account, time));
-        }
+/// The balances of beancount files whose `time` zhang ignores ([`ErrorKind::BalanceTimeIgnored`]).
+///
+/// A `balance` of a beancount file is checked at the start of its date, as beancount checks it, and its `time`
+/// metadata is plain metadata. Earlier versions of zhang read that `time`, as `H:M:S` (spaces around it trimmed), and
+/// checked the balance at it, after the transactions of its day before it. Where those transactions changed what the
+/// account and its sub-accounts hold in the balance's commodity, the balance checks a different amount now: it is
+/// reported, once. The padding transactions of `pad` directives do not count
+struct IgnoredTimes<'a> {
+    /// the balances with a time, by their day
+    timed: HashMap<NaiveDate, Vec<TimedBalance<'a>>>,
+    /// the places of the `pad` directives, which their padding transactions share
+    pads: HashSet<(&'a Option<std::path::PathBuf>, usize, usize)>,
+}
+
+/// a balance with a time: its index in the stream, its account, commodity and time, and what the transactions of its
+/// day before that time changed of it
+type TimedBalance<'a> = (usize, &'a Account, &'a str, NaiveTime, BigDecimal);
+
+/// a time as earlier versions of zhang read the `time` of a beancount directive: `H:M:S`, spaces around it trimmed
+fn read_time(text: &str) -> Option<NaiveTime> {
+    let parts = text.trim().split(':').map(|it| it.parse::<u32>().ok()).collect::<Option<Vec<_>>>()?;
+    match parts[..] {
+        [hour, minute, second] => NaiveTime::from_hms_opt(hour, minute, second),
+        _ => None,
     }
-    if timed.is_empty() {
-        return;
-    }
-    let pads = directives
-        .iter()
-        .filter(|it| matches!(it.data, Directive::Pad(_)))
-        .map(|it| (&it.span.filename, it.span.start, it.span.end))
-        .collect::<HashSet<_>>();
-    let mut reported = HashSet::new();
-    for directive in directives {
-        let Directive::Transaction(txn) = &directive.data else { continue };
-        let Some(at) = directive.datetime() else { continue };
-        let Some(balances) = timed.get(&at.date()) else { continue };
-        if pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end)) {
-            continue;
-        }
-        for (index, account, time) in balances {
-            let touches = txn.postings.iter().any(|posting| {
-                let name = posting.account.name();
-                name == account.name() || name.strip_prefix(account.name()).is_some_and(|rest| rest.starts_with(':'))
-            });
-            if at.time() < *time && touches && reported.insert(*index) {
-                let balance = &directives[*index];
-                ctx.emit_error(
-                    ErrorKind::BalanceTimeIgnored,
-                    balance.span.clone(),
-                    HashMap::from([
-                        ("account_name".to_owned(), account.name().to_owned()),
-                        ("time".to_owned(), time.format("%H:%M:%S").to_string()),
-                    ]),
-                );
+}
+
+impl<'a> IgnoredTimes<'a> {
+    fn of(directives: &'a [Spanned<Directive>]) -> Self {
+        let mut timed: HashMap<NaiveDate, Vec<_>> = HashMap::new();
+        for (index, directive) in directives.iter().enumerate() {
+            let Directive::BalanceCheck(check) = &directive.data else { continue };
+            if !matches!(check.date, Date::Date(_)) || !directive.span.filename.as_ref().is_some_and(is_beancount_endpoint) {
+                continue;
             }
+            if let Some(time) = check.meta.get_one("time").and_then(|it| read_time(it.as_str())) {
+                timed
+                    .entry(check.date.naive_date())
+                    .or_default()
+                    .push((index, &check.account, check.amount.commodity.as_str(), time, BigDecimal::zero()));
+            }
+        }
+        let pads = if timed.is_empty() {
+            HashSet::new()
+        } else {
+            directives
+                .iter()
+                .filter(|it| matches!(it.data, Directive::Pad(_)))
+                .map(|it| (&it.span.filename, it.span.start, it.span.end))
+                .collect()
+        };
+        Self { timed, pads }
+    }
+
+    /// a transaction of the stream, with the units it booked to each of its postings
+    fn transaction(&mut self, directive: &Spanned<Directive>, txn: &Transaction, units: &[Amount]) {
+        let Some(at) = directive.datetime() else { return };
+        let Some(balances) = self.timed.get_mut(&at.date()) else { return };
+        if self.pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end)) {
+            return;
+        }
+        for (_, account, commodity, time, changed) in balances.iter_mut() {
+            if at.time() >= *time {
+                continue;
+            }
+            for (posting, units) in txn.postings.iter().zip(units) {
+                let name = posting.account.name();
+                let under = name == account.name() || name.strip_prefix(account.name()).is_some_and(|rest| rest.starts_with(':'));
+                if under && units.commodity == *commodity {
+                    *changed += &units.number;
+                }
+            }
+        }
+    }
+
+    fn report(self, ctx: &mut StageContext, directives: &[Spanned<Directive>]) {
+        let mut changed = self.timed.into_values().flatten().filter(|it| !it.4.is_zero()).collect::<Vec<_>>();
+        changed.sort_by_key(|it| it.0);
+        for (index, account, _, time, _) in changed {
+            ctx.emit_error(
+                ErrorKind::BalanceTimeIgnored,
+                directives[index].span.clone(),
+                HashMap::from([
+                    ("account_name".to_owned(), account.name().to_owned()),
+                    ("time".to_owned(), time.format("%H:%M:%S").to_string()),
+                ]),
+            );
         }
     }
 }
@@ -334,5 +372,20 @@ mod test {
             errors,
             vec![ErrorKind::AccountDoesNotExist, ErrorKind::AccountClosed, ErrorKind::AccountDoesNotExist]
         );
+    }
+
+    #[test]
+    fn should_not_report_the_time_of_a_balance_of_a_zhang_file() {
+        // in a zhang file, a `time` metadata is plain metadata: zhang never read it as the balance's time
+        let (_, errors) = run_builtin_stages(indoc! {r#"
+            1970-01-01 open Assets:A
+            1970-01-01 open Expenses:Food
+            2024-03-02 08:00:00 * "breakfast" ""
+              Assets:A -10 CNY
+              Expenses:Food
+            2024-03-02 balance Assets:A 0 CNY
+              time: "09:30:00"
+        "#});
+        assert!(errors.is_empty(), "{errors:?}");
     }
 }

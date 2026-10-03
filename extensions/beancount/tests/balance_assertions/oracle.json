@@ -108,6 +108,204 @@
     "pads_with_cost": [],
     "unused_pads": []
   },
+  "balance_times": {
+    "accepted_deviation": null,
+    "assertions": [
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-01",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "1"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "1"
+        },
+        "date": "2024-03-02",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "2"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "2"
+        },
+        "date": "2024-03-03",
+        "passed": true
+      },
+      {
+        "account": "Assets:B",
+        "amount": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-04",
+        "passed": true
+      },
+      {
+        "account": "Assets:C",
+        "amount": {
+          "currency": "CNY",
+          "number": "7"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-05",
+        "passed": false
+      },
+      {
+        "account": "Assets:D",
+        "amount": {
+          "currency": "CNY",
+          "number": "3"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-06",
+        "passed": false
+      },
+      {
+        "account": "Assets:E",
+        "amount": {
+          "currency": "CNY",
+          "number": "4"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-07",
+        "passed": false
+      },
+      {
+        "account": "Assets:F",
+        "amount": {
+          "currency": "CNY",
+          "number": "5"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-08",
+        "passed": false
+      },
+      {
+        "account": "Assets:G",
+        "amount": {
+          "currency": "CNY",
+          "number": "6"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-09",
+        "passed": false
+      },
+      {
+        "account": "Assets:H",
+        "amount": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "0"
+        },
+        "date": "2024-03-10",
+        "passed": true
+      },
+      {
+        "account": "Assets:A",
+        "amount": {
+          "currency": "CNY",
+          "number": "4"
+        },
+        "balance": {
+          "currency": "CNY",
+          "number": "2"
+        },
+        "date": "2024-03-11",
+        "passed": false
+      }
+    ],
+    "balances": {
+      "Assets:A": {
+        "CNY": "3"
+      },
+      "Assets:A:Sub": {
+        "CNY": "1"
+      },
+      "Assets:AB": {
+        "CNY": "1"
+      },
+      "Assets:B": {
+        "USD": "5"
+      },
+      "Assets:C": {
+        "CNY": "7"
+      },
+      "Assets:D": {
+        "CNY": "3"
+      },
+      "Assets:E": {
+        "CNY": "4"
+      },
+      "Assets:F": {
+        "CNY": "5"
+      },
+      "Assets:G": {
+        "CNY": "6"
+      },
+      "Equity:Open": {
+        "CNY": "-7"
+      },
+      "Expenses:X": {
+        "CNY": "-23",
+        "USD": "-5"
+      }
+    },
+    "errors": [],
+    "pads": [
+      {
+        "account": "Assets:C",
+        "date": "2024-03-05",
+        "from": "Equity:Open",
+        "units": {
+          "currency": "CNY",
+          "number": "7"
+        }
+      }
+    ],
+    "pads_with_cost": [],
+    "unused_pads": []
+  },
   "child_assertion_after_parent_pad": {
     "accepted_deviation": "a pad serves the assertions on its own account only: beancount also lets an assertion on a sub-account use up the pad of its parent account, which then pads nothing for the parent's own assertion",
     "assertions": [

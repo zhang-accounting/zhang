@@ -482,6 +482,36 @@ fn a_balance_whose_time_zhang_ignores_is_reported() {
 }
 
 #[test]
+fn only_a_balance_whose_meaning_changed_is_reported_for_its_ignored_time() {
+    let ledger = load("balance_times");
+    let store = ledger.store.read().unwrap();
+    let reported = store
+        .errors
+        .iter()
+        .filter(|it| it.error_type == ErrorKind::BalanceTimeIgnored)
+        .map(|it| it.span.as_ref().unwrap().content.lines().next().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reported,
+        vec![
+            // a transaction of a sub-account before the time
+            "2024-03-02 balance Assets:A 1 CNY",
+            // a padding transaction written as such
+            "2024-03-05 balance Assets:C 7 CNY",
+            // a transaction without a time, at the start of the day
+            "2024-03-06 balance Assets:D 3 CNY",
+            // a time with spaces around it, and an hour of one digit, which earlier versions read
+            "2024-03-08 balance Assets:F 5 CNY",
+            "2024-03-09 balance Assets:G 6 CNY",
+            // two transactions before the time: once
+            "2024-03-11 balance Assets:A 4 CNY",
+        ]
+    );
+    // not reported: a transaction at the same time, of an account only named like it (Assets:AB), in another
+    // commodity, a time without seconds, which earlier versions did not read, and transactions netting to zero
+}
+
+#[test]
 fn every_ledger_has_an_oracle() {
     let mut ledgers = std::fs::read_dir(dir())
         .unwrap()
