@@ -1118,6 +1118,7 @@ export interface operations {
                   | 'AccountBalanceCheckError'
                   | 'UnusedPad'
                   | 'PadWithCost'
+                  | 'BalanceTimeIgnored'
                   | 'AccountDoesNotExist'
                   | 'AccountClosed'
                   | 'CommodityDoesNotDefine'

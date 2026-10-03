@@ -154,6 +154,27 @@ assertion; Beancount reports it once for each lot held at cost.
 
 **Solution:** Book the missing units with a transaction that gives their cost, instead of padding them.
 
+## BalanceTimeIgnored
+
+A warning: a `balance` of a Beancount ledger has a `time` metadata later than transactions of its account, or of a
+sub-account, on its date. Zhang checks a `balance` of a Beancount ledger at the start of its date, before every
+transaction of that day, as Beancount does, and ignores its `time`. Earlier versions of Zhang checked it at that time,
+after those transactions, so the assertion now checks a different amount, and a `pad` serving it pads a different
+amount. The ledger loads; the assertion passes or fails on its own.
+
+**Example of Warning:**
+```beancount
+2024-03-05 * "breakfast"
+  Assets:Cash  -10 CNY
+  Expenses:Food
+  time: "08:00:00"
+2024-03-05 balance Assets:Cash  100 CNY
+  time: "09:30:00"
+```
+
+**Solution:** To assert the balance after the transactions of the day, date the `balance` on the next day and remove
+its `time`, as the UI writes it now. To assert it before them, remove the `time`.
+
 ## AccountDoesNotExist
 
 Triggered when operations are performed on an account that has not been defined in the ledger.

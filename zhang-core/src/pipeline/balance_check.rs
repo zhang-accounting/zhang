@@ -1,14 +1,16 @@
 //! `balance` assertions as a native pipeline stage.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bigdecimal::BigDecimal;
+use chrono::{NaiveDate, NaiveTime};
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, BalancePad, Directive, SpanInfo, Spanned};
+use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned};
 
 use super::balance::{exceeds_tolerance, AccountStates, UnitBalances};
 use super::{AssertionOutcome, ProcessStage, StageContext};
+use crate::data_type::is_beancount_endpoint;
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -35,6 +37,7 @@ impl ProcessStage for BalanceCheckStage {
     }
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+        report_ignored_times(ctx, &directives);
         let mut balances = UnitBalances::for_stage(ctx);
         let mut accounts = AccountStates::default();
         // the `balance ... with pad` directives of the balance entries being applied, checked after the last one
@@ -93,6 +96,63 @@ fn check(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, amo
     }
     let balance = balances.amount(account, &amount.commodity);
     ctx.record_assertion(span, AssertionOutcome { balance, passed });
+}
+
+/// A `balance` of a beancount file is checked at the start of its date, as beancount checks it: zhang ignores its
+/// `time` metadata. Where its account, or a sub-account, had transactions on that day before that time, zhang checked
+/// it after them before, and the time changes what it checks: reported as [`ErrorKind::BalanceTimeIgnored`], on the
+/// balance. The padding transactions of `pad` directives do not count
+fn report_ignored_times(ctx: &mut StageContext, directives: &[Spanned<Directive>]) {
+    // the balances of beancount files with a time, by their day
+    let mut timed: HashMap<NaiveDate, Vec<(usize, &Account, NaiveTime)>> = HashMap::new();
+    for (index, directive) in directives.iter().enumerate() {
+        let Directive::BalanceCheck(check) = &directive.data else { continue };
+        if !matches!(check.date, Date::Date(_)) || !directive.span.filename.as_ref().is_some_and(is_beancount_endpoint) {
+            continue;
+        }
+        let time = check.meta.get_one("time").map(|it| it.as_str()).and_then(|it| {
+            NaiveTime::parse_from_str(it, "%H:%M:%S")
+                .or_else(|_| NaiveTime::parse_from_str(it, "%H:%M"))
+                .ok()
+        });
+        if let Some(time) = time {
+            timed.entry(check.date.naive_date()).or_default().push((index, &check.account, time));
+        }
+    }
+    if timed.is_empty() {
+        return;
+    }
+    let pads = directives
+        .iter()
+        .filter(|it| matches!(it.data, Directive::Pad(_)))
+        .map(|it| (&it.span.filename, it.span.start, it.span.end))
+        .collect::<HashSet<_>>();
+    let mut reported = HashSet::new();
+    for directive in directives {
+        let Directive::Transaction(txn) = &directive.data else { continue };
+        let Some(at) = directive.datetime() else { continue };
+        let Some(balances) = timed.get(&at.date()) else { continue };
+        if pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end)) {
+            continue;
+        }
+        for (index, account, time) in balances {
+            let touches = txn.postings.iter().any(|posting| {
+                let name = posting.account.name();
+                name == account.name() || name.strip_prefix(account.name()).is_some_and(|rest| rest.starts_with(':'))
+            });
+            if at.time() < *time && touches && reported.insert(*index) {
+                let balance = &directives[*index];
+                ctx.emit_error(
+                    ErrorKind::BalanceTimeIgnored,
+                    balance.span.clone(),
+                    HashMap::from([
+                        ("account_name".to_owned(), account.name().to_owned()),
+                        ("time".to_owned(), time.format("%H:%M:%S").to_string()),
+                    ]),
+                );
+            }
+        }
+    }
 }
 
 fn account_name(account: &Account) -> HashMap<String, String> {

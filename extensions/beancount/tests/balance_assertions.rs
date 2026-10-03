@@ -241,6 +241,8 @@ fn zhang(case: &str) -> Outcome {
             !matches!(
                 error.error_type,
                 ErrorKind::UnusedPad | ErrorKind::PadWithCost | ErrorKind::AccountBalanceCheckError
+                    // a warning, which changes no figure
+                    | ErrorKind::BalanceTimeIgnored
             )
         })
         .map(|error| error.error_type.clone())
@@ -460,6 +462,23 @@ fn zhang_reports_a_pad_with_cost_once_for_its_balance() {
     assert_eq!(zhang.assertions, beancount.assertions);
     assert_eq!(zhang.balances, beancount.balances);
     assert_eq!(zhang.unused_pads, beancount.unused_pads);
+}
+
+#[test]
+fn a_balance_whose_time_zhang_ignores_is_reported() {
+    // the balance of 2024-03-02 says 20:00, after lunch that day: beancount checks it before lunch, and so does zhang
+    let ledger = load("balance_time_after_transactions");
+    let store = ledger.store.read().unwrap();
+    let ignored = store
+        .errors
+        .iter()
+        .filter(|it| it.error_type == ErrorKind::BalanceTimeIgnored)
+        .map(|it| it.span.as_ref().unwrap().content.lines().next().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(ignored, vec!["2024-03-02 balance Assets:A  100 CNY"]);
+    // a balance timed before the transactions of its day, or of an account without any, changes nothing
+    let ledger = load("balance_time_on_pad_day");
+    assert!(ledger.store.read().unwrap().errors.is_empty());
 }
 
 #[test]

@@ -16,6 +16,9 @@ pub enum ErrorKind {
     UnusedPad,
     /// a pad of a commodity its account holds at cost: the padding is booked without a cost
     PadWithCost,
+    /// a warning: a `balance` of a beancount file whose `time` metadata is later than transactions of its account on
+    /// its day. Zhang checks it at the start of its date, as beancount does, before those transactions
+    BalanceTimeIgnored,
     AccountDoesNotExist,
     AccountClosed,
 

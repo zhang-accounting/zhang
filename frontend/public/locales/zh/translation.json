@@ -29,6 +29,7 @@
     "AccountBalanceCheckError": "账户定期对账不通过",
     "UnusedPad": "填充没有被该账户之后的任何余额断言使用",
     "PadWithCost": "填充的商品在该账户中按成本持有：补齐交易不带成本记账",
+    "BalanceTimeIgnored": "余额断言在其日期开始时检查：与 beancount 一样忽略它的时间",
     "AccountClosed": "尝试使用一个已经关闭的账户",
     "CommodityDoesNotDefine": "尝试使用一个未定义的货币",
     "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推倒金额的行",

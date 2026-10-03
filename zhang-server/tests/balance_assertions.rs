@@ -1059,4 +1059,45 @@ option "timezone" "UTC"
             refused(&scratch, &before, answer, &["two rows for Assets:A in CNY"]);
         }
     }
+
+    #[tokio::test]
+    async fn an_old_reconcile_whose_time_is_ignored_is_reported() {
+        // what the UI wrote before: breakfast at 08:00, then "100 now, pad from Equity:Open" at 09:30, and a plain
+        // check at 12:00. Both balances are checked at the start of the day now, before breakfast, as beancount checks
+        // them: the pad pads 50 where it padded 60, and each balance whose meaning changed is reported
+        let scratch = Scratch::beancount(
+            r#"option "operating_currency" "CNY"
+option "timezone" "UTC"
+2020-01-01 commodity CNY
+2024-01-01 open Assets:A
+2024-01-01 open Equity:Open
+2024-01-01 open Expenses:Food
+2024-01-01 open Income:Salary
+2024-03-01 * "salary"
+  Assets:A 50 CNY
+  Income:Salary
+2024-03-05 * "breakfast"
+  Assets:A -10 CNY
+  Expenses:Food
+  time: "08:00:00"
+2024-03-04 pad Assets:A Equity:Open
+2024-03-05 balance Assets:A 100 CNY
+  time: "09:30:00"
+2024-03-05 balance Assets:A 100 CNY
+  time: "12:00:00"
+2024-03-06 balance Assets:A 90 CNY
+  time: "07:00:00"
+2024-03-06 * "lunch"
+  Assets:A -5 CNY
+  Expenses:Food
+  time: "13:00:00"
+"#,
+        );
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        // the balance of the 6th is timed before lunch: its meaning did not change
+        assert_eq!(errors, vec![ErrorKind::BalanceTimeIgnored, ErrorKind::BalanceTimeIgnored]);
+        assert_eq!(paddings, vec!["2024-03-04 50 CNY from Equity:Open".to_owned()]);
+        assert_eq!(passed, vec![true, true, true]);
+        assert_eq!(scratch.balance("Assets:A").await, json!({"CNY": "85"}));
+    }
 }
