@@ -345,6 +345,7 @@ dependencies = [
  "latestmap",
  "log",
  "nom",
+ "serde_json",
  "zhang-ast",
  "zhang-core",
 ]

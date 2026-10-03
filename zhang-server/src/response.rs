@@ -164,6 +164,8 @@ pub struct JournalTransactionPostingEntity {
     pub inferred_unit: Amount,
     pub account_before: Amount,
     pub account_after: Amount,
+    /// metadata of the posting, sorted by key
+    pub metas: Vec<MetaEntity>,
 }
 
 impl From<PostingDomain> for JournalTransactionPostingEntity {
@@ -175,6 +177,14 @@ impl From<PostingDomain> for JournalTransactionPostingEntity {
             inferred_unit: arm.inferred_amount,
             account_before: arm.previous_amount,
             account_after: arm.after_amount,
+            metas: arm
+                .metas
+                .into_iter()
+                .map(|meta| MetaEntity {
+                    key: meta.key,
+                    value: meta.value,
+                })
+                .collect(),
         }
     }
 }

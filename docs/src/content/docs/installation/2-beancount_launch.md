@@ -21,6 +21,26 @@ In this command:
 - Replace `"/path/to/your/beancount/files"` with the actual path to your Beancount files.
 - `main.bean` is the name of your Beancount main file. Adjust this according to your file's name.
 
+## Posting Metadata
+
+Zhang reads the metadata of a transaction in a Beancount file the way Beancount and Fava do: metadata before the first posting belongs to the transaction, and every metadata line after a posting belongs to that posting, however it is indented.
+
+```zhang
+2024-01-02 * "Cafe" "lunch"
+  invoice: "2024-001"     ; the transaction's
+  Assets:Cash -10 CNY
+    receipt: "r-17"       ; the Assets:Cash posting's
+  Expenses:Food 10 CNY
+  category: "meals"       ; the Expenses:Food posting's
+```
+
+Older versions of Zhang wrote a transaction's metadata after its postings. Such a file now reads differently in Zhang: that metadata belongs to the last posting, which is how Fava has always read it. Two keys keep working as before:
+
+- `time`: when the transaction has no `time` of its own, a `time` on its last posting is still the transaction's time of day.
+- `document`: a document on a posting is a document of its transaction, so documents attached to a transaction stay attached.
+
+When Zhang writes a transaction, for example after you edit it in the web UI, it writes the transaction's metadata before the postings and each posting's metadata right under it, so the file reads the same in Zhang, Beancount and Fava. See [Transactions](/directives/6-transaction/#metadata).
+
 ## Common Configurations
 
 When launching Zhang with Beancount data, you might want to customize certain aspects of its operation. Here are some common configurations you might consider:

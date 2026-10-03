@@ -17,3 +17,4 @@ latestmap = "0.2"
 
 [dev-dependencies]
 indoc = "2"
+serde_json = { workspace = true }

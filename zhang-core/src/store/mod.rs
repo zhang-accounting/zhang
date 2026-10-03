@@ -8,7 +8,7 @@ use gotcha_core::Schematic;
 use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Flag, SpanInfo};
+use zhang_ast::{Account, Flag, Meta, SpanInfo};
 
 use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain, QueryDomain};
 
@@ -120,6 +120,32 @@ pub struct PostingDomain {
     pub inferred_amount: Amount,
     pub previous_amount: Amount,
     pub after_amount: Amount,
+    /// metadata of the posting, sorted by key (the values of a repeated key in ledger
+    /// order). The transaction's own metadata is in [`Store::metas`].
+    pub metas: Vec<PostingMetaDomain>,
+}
+
+/// One metadata entry of a posting, its value as plain text like [`MetaDomain`]'s.
+#[derive(Clone, serde::Serialize, Debug, PartialEq, Eq)]
+pub struct PostingMetaDomain {
+    pub key: String,
+    pub value: String,
+}
+
+impl PostingMetaDomain {
+    /// The entries of `meta`, sorted by key; the values of a repeated key keep their order.
+    pub fn of(meta: Meta) -> Vec<PostingMetaDomain> {
+        let mut metas = meta
+            .get_flatten()
+            .into_iter()
+            .map(|(key, value)| PostingMetaDomain {
+                key,
+                value: value.to_plain_string(),
+            })
+            .collect::<Vec<_>>();
+        metas.sort_by(|a, b| a.key.cmp(&b.key));
+        metas
+    }
 }
 
 #[derive(Clone, serde::Serialize)]

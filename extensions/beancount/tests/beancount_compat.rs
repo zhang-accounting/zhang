@@ -133,14 +133,28 @@ fn transaction_metadata_is_exported_before_the_postings() {
     // transaction and none on the postings
     let expected = "2024-01-02 * \"Cafe\" \"coffee\"\n  memo: \"paid\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY";
     let beancount = Beancount::default();
-    // the zhang and beancount parsers read the metadata from either place
+    // the zhang parser reads metadata after the postings, at their indentation, as the
+    // transaction's: older zhang wrote it there
     let after = "2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n  memo: \"paid\"\n";
-    let directive = beancount.transform(after.to_string(), None).unwrap().pop().unwrap();
+    let directive = ZhangDataType::default().transform(after.to_string(), None).unwrap().pop().unwrap();
     let Directive::Transaction(txn) = &directive.data else {
         panic!("expected a transaction, got {:?}", directive.data);
     };
     assert_eq!(txn.meta.get_one("memo"), Some(&ZhangString::quote("paid")));
+    assert!(txn.postings.iter().all(|posting| posting.meta.get_one("memo").is_none()));
 
     assert_eq!(beancount.export(directive.clone()), expected);
     assert_eq!(ZhangDataType::default().export(directive), expected);
+
+    // the beancount parser, like beancount, reads it as metadata of the last posting
+    let directive = beancount.transform(after.to_string(), None).unwrap().pop().unwrap();
+    let Directive::Transaction(txn) = &directive.data else {
+        panic!("expected a transaction, got {:?}", directive.data);
+    };
+    assert_eq!(txn.meta.get_one("memo"), None);
+    assert_eq!(txn.postings[1].meta.get_one("memo"), Some(&ZhangString::quote("paid")));
+    assert_eq!(
+        beancount.export(directive),
+        "2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n    memo: \"paid\""
+    );
 }

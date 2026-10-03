@@ -594,6 +594,7 @@ WHERE payee IN ('Amazon')
 | `price` | `amount` | 用 `@` 写出的单价，没有则为 `NULL`。用 `@@` 写出的总价会除以单位数量。 |
 | `weight` | `amount` | 分录在交易平衡中所占的金额：按成本持有时为单位数量乘以单位成本；否则如果有价格，为单位数量乘以价格；否则为单位本身。 |
 | `other_accounts` | `set` | 同一交易中其他分录的账户。 |
+| `meta` | `str` | 分录的元数据文本：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。交易自己的元数据用 `entry_meta()` 读取。 |
 | `balance` | `inventory` | [累计余额](#累计余额)：截至并包括本行的各行持仓之和。不能用在 `FROM` 或 `WHERE` 中。 |
 
 ### 累计余额
@@ -971,11 +972,19 @@ WHERE file = 'data/2024.zhang'
 | `entry_meta(str) -> str` | 交易上某个元数据键的值，未设置则为 `NULL`。 |
 | `any_meta(str) -> str` | 先在分录上查找某个元数据键，找不到再查交易；都没有则为 `NULL`。 |
 
-元数据的值总是以文本形式返回。在[其他表](#其他表)上，这三个函数都读取该行指令的元数据。在 `#budgets` 上读取 `budget` 指令的元数据，在 `#errors` 上读取张记账为错误记录的信息。
+元数据的值总是以文本形式返回。一个键重复出现时，返回它的第一个值。在[其他表](#其他表)上，这三个函数都读取该行指令的元数据。在 `#budgets` 上读取 `budget` 指令的元数据，在 `#errors` 上读取张记账为错误记录的信息。
 
-:::note
-张记账目前还不按分录保存元数据：交易内的每一行元数据，包括缩进在某条分录下面的行，都存放在交易上。在这一点改变之前（见 [#434](https://github.com/zhang-accounting/zhang/issues/434)），`meta` 总是返回 `NULL`。请使用 `entry_meta` 或 `any_meta` 读取元数据。
-:::
+交易中哪些元数据行属于分录取决于文件格式，见[交易](/zh-cn/directives/transaction/#哪些行属于分录)。例如对于
+
+```zhang
+2024-01-02 * "Cafe" "lunch"
+  category: "meals"
+  Assets:Cash -10 CNY
+  Expenses:Food 10 CNY
+    category: "food"
+```
+
+`Expenses:Food` 分录的 `meta('category')` 为 `'food'`，`entry_meta('category')` 为 `'meals'`，`any_meta('category')` 为 `'food'`；`Assets:Cash` 分录则分别为 `NULL`、`'meals'` 和 `'meals'`。
 
 ### 字符串函数
 
@@ -1154,7 +1163,7 @@ Assets:Broker:GLD,,17
 }
 ```
 
-- `columns` 每列一项，共 23 项，顺序与[列](#列)表格相同，最后一项是累计余额 `balance`。
+- `columns` 每列一项，共 24 项，顺序与[列](#列)表格相同，最后一项是累计余额 `balance`。
 - `tables` 每个表一项，先是 `postings`，然后按[其他表](#其他表)中列出的顺序排列，最后是 `budgets` 和 `errors`。`name` 不带 `#`。`postings` 一项的列与 `columns` 相同；结构化列的字段以 `open.date` 这样的名字列为单独的列。
 - `functions` 每个重载一项，共 66 项：先是聚合函数，然后是标量函数，其中包括 `account_sortkey` 和 `maxwidth`。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
 
@@ -1351,7 +1360,7 @@ ORDER BY date
 
 - **`PRINT`**，使用时会报错。
 - `FROM` 后面的**子查询**、beanquery 用双引号写的表名（`FROM "prices"`），以及它的单行表 `FROM #`。
-- postings 表中 **beanquery 的列** `posting_flag`、`filename`、`lineno`、`location`、`meta`、`entry`、`accounts` 和 `type`，以及 `#entries` 的 `lineno`：张记账不保存行号。
+- postings 表中 **beanquery 的列** `posting_flag`、`filename`、`lineno`、`location`、`entry`、`accounts` 和 `type`，以及 `#entries` 的 `lineno`：张记账不保存行号。
 - **下标访问**，例如 `meta['name']`。请使用 `meta('name')`。
 - **`BETWEEN` 和 `%` 运算符**，以及 beanquery 的带引号标识符。
 - **本页未列出的函数**，例如 `round`、`safediv`、`has_account`、`open_date`、`close_date`、`open_meta`、`currency_meta`、`grep`、`subst`、`upper`、`lower`、`joinstr`、`findfirst`，类型转换函数 `int`、`decimal` 和 `date`，以及 `date_*` 系列函数。调用它们会报错。
@@ -1362,7 +1371,6 @@ ORDER BY date
 - **`SELECT *` 包含 `account`。**beanquery 把 `*` 展开为 `date, flag, payee, narration, position`。张记账在 `position` 之前加入了 `account`，因为没有账户的分录很难看懂。
 - **标准的三值逻辑。**在 beanquery 中，`NOT NULL` 为 `TRUE`，所以 `NOT (payee = 'x')` 会保留没有收款方的分录；`NULL AND FALSE` 为 `NULL`。在张记账中，与 SQL 一样，`NOT NULL` 为 `NULL`，`NULL AND FALSE` 为 `FALSE`。
 - **单元素列表可以使用。**`payee IN ('Amazon')` 在张记账中可以正常使用。beanquery 会把 `('Amazon')` 当作带括号的字符串，必须写成 `('Amazon',)`。
-- **`meta()` 目前总是返回 `NULL`**，因为张记账还不保存分录级的元数据，见[元数据函数](#元数据函数)。
 - **注释**以 `--` 开头。不支持 beanquery 的 `;` 行注释和 `/* */` 块注释。`;` 只能出现在查询末尾。
 - **正则表达式**使用 Rust 语法，不支持环视和反向引用。
 - **记账方法。**使用 `STRICT`、`AVERAGE`、`AVERAGE_ONLY` 或 `NONE` 的账户目前按 FIFO 记账，`STRICT` 下有歧义的匹配也不会报错，见[批次记账](#批次记账)。
@@ -1381,7 +1389,7 @@ ORDER BY date
 - **`PIVOT BY` 遇到 `NULL` 值。**透视目标的值中既有 `NULL` 又有其他值时，beanquery 会出错。张记账把 `NULL` 排在最前，对应的列命名为 `NULL`。
 - **没有分组的 `PIVOT BY`** 在张记账中会报错。beanquery 在执行这类查询时出错。
 - **导出缺少单元格的透视结果为 CSV。**beanquery 无法对透视后金额或库存列中的空单元格做 numberify。张记账把它们留空。
-- **元数据是文本。**beanquery 的 `meta` 列是字典，其中还有 `filename` 和 `lineno`。张记账的 `meta` 是指令自身元数据的文本 `key: "value", ...`，`open.meta` 和 `close.meta` 也是如此。
+- **元数据是文本。**beanquery 的 `meta` 列是字典，其中还有 `filename` 和 `lineno`。张记账的 `meta` 是指令自身元数据的文本 `key: "value", ...`（在 postings 表中是分录自己的元数据），`open.meta` 和 `close.meta` 也是如此。
 - **`#accounts` 的 `open` 和 `close` 不带字段时读作日期。**在 beanquery 中它们是整条指令。
 - **`entry_meta()` 和 `any_meta()` 与 `meta()` 一样可用于每个表。**beanquery 只在 postings 表上接受它们。
 - **`#entries` 包含张记账的指令。**其中有张记账的预算指令；`balance ... with pad` 是一条 `balance` 记录，后面跟着它的补齐交易，而 beancount 中是一条 `pad` 和一条 `balance` 记录。记录的 `id` 是张记账的 ID，不是 beancount 的哈希值。

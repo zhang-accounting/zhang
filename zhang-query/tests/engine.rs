@@ -655,7 +655,7 @@ fn explain_shows_the_optimized_plan() {
          filter: ((year = 2024) AND (account ~ /^Expenses/i))\n\
          order by: 1 DESC\n\
          limit: 5 (top-k while scanning)\n\
-         project: [account, number, year] (3 of 23 columns)\n"
+         project: [account, number, year] (3 of 24 columns)\n"
     );
     let grouped = Query::compile("SELECT root(account, 1) AS r, sum(position) WHERE TRUE OR payee IS NULL GROUP BY r").unwrap();
     assert_eq!(
@@ -664,7 +664,7 @@ fn explain_shows_the_optimized_plan() {
          target 1: sum(position) = agg#0 : inventory\n\
          agg#0: sum(position)\n\
          group by: [0]\n\
-         project: [account, position] (2 of 23 columns)\n"
+         project: [account, position] (2 of 24 columns)\n"
     );
     // a thousand ORs are one flat node
     let sql = format!("SELECT count(*) WHERE {}account = 'x'", "account = 'y' OR ".repeat(999));
@@ -679,23 +679,23 @@ fn explain_shows_the_projected_columns() {
         let explain = Query::compile(sql).unwrap().explain();
         explain.lines().last().unwrap().to_owned()
     };
-    assert_eq!(projected("SELECT count(*)"), "project: [] (0 of 23 columns)");
+    assert_eq!(projected("SELECT count(*)"), "project: [] (0 of 24 columns)");
     assert_eq!(
         projected("SELECT *"),
-        "project: [account, date, flag, narration, payee, position] (6 of 23 columns)"
+        "project: [account, date, flag, narration, payee, position] (6 of 24 columns)"
     );
     // the filter, GROUP BY / ORDER BY keys and aggregate arguments are projected too
     assert_eq!(
         projected("SELECT payee, count(*) FROM year = 2024 WHERE 'x' IN tags GROUP BY payee, month ORDER BY max(cost_date)"),
-        "project: [cost_date, month, payee, tags, year] (5 of 23 columns)"
+        "project: [cost_date, month, payee, tags, year] (5 of 24 columns)"
     );
     // a column only an optimized-away filter read is pruned
-    assert_eq!(projected("SELECT account WHERE TRUE OR payee IS NULL"), "project: [account] (1 of 23 columns)");
+    assert_eq!(projected("SELECT account WHERE TRUE OR payee IS NULL"), "project: [account] (1 of 24 columns)");
     let query = Query::compile("SELECT date, sum(weight) WHERE account ~ 'Expenses' GROUP BY date").unwrap();
     assert_eq!(
         query.explain().lines().last().unwrap(),
         format!(
-            "project: [{}] ({} of 23 columns)",
+            "project: [{}] ({} of 24 columns)",
             query.referenced_columns().join(", "),
             query.referenced_columns().len()
         )

@@ -88,6 +88,7 @@ impl DirectiveProcess for Transaction {
                 inferred_amount.clone(),
                 Amount::new(previous.number, previous.commodity.clone()),
                 Amount::new(after_number, previous.commodity),
+                posting.meta.clone(),
             )?;
 
             // budget related: like `budget-add`, activity on a budget the stream has not defined
@@ -115,10 +116,15 @@ impl DirectiveProcess for Transaction {
             operations.new_error(ErrorKind::UnbalancedTransaction, span, txn_meta())?;
         }
 
-        // extract documents from meta
-        for document in self.meta.clone().get_flatten().into_iter().filter(|(key, _)| key.eq("document")) {
-            let (_, document_file_name) = document;
-            let document_path = document_file_name.to_plain_string();
+        // extract documents from meta. A `document` of a posting is a document of its
+        // transaction too: older zhang appended uploaded documents after the postings, which
+        // a beancount ledger reads as metadata of the last posting
+        let documents = std::iter::once(&self.meta)
+            .chain(self.postings.iter().map(|posting| &posting.meta))
+            .flat_map(|meta| meta.get_all("document"))
+            .collect_vec();
+        for document_file_name in documents {
+            let document_path = document_file_name.as_str().to_owned();
             let document_pathbuf = PathBuf::from(&document_path);
             operations.insert_document(
                 self.date.to_timezone_datetime(&ledger.options.timezone),
