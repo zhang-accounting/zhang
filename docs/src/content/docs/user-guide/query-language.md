@@ -25,6 +25,7 @@ Open the **Query** page (**查询** in the Chinese interface) at `/explore`.
 - The **Saved** menu lists the queries saved in your ledger. See [Saved queries](#saved-queries).
 - The **Reference** panel lists every column and function.
 - **Export CSV** downloads the result as a CSV file. See [Exporting to CSV](#exporting-to-csv).
+- **Open query**, next to a figure elsewhere in the app, opens this page with the [built-in query](/user-guide/builtin-queries/) behind the figure in the editor and runs it. A link to `/explore?query=...` does the same with any query.
 
 #### Charts
 
@@ -75,7 +76,7 @@ Queries saved in the ledger with the [`query` directive](/directives/5-query/) a
 
 ### Over HTTP
 
-Send the query to `POST /api/query`, or to `POST /api/query/csv` to get the result as CSV. `GET /api/query/saved` lists the saved queries. See [HTTP API](#http-api) for the request and response formats.
+Send the query to `POST /api/query`, or to `POST /api/query/csv` to get the result as CSV. `GET /api/query/saved` lists the saved queries, and `GET /api/query/builtins` the [built-in queries](/user-guide/builtin-queries/) behind the app's figures. See [HTTP API](#http-api) for the request and response formats.
 
 ## A first query
 
@@ -242,7 +243,7 @@ HAVING sum(number) > 1000
 - Without `ORDER BY`, the rows come in ledger order, so a page is stable as long as the ledger does not change.
 - Pages are cheap: without `ORDER BY` the query stops once it has the rows it keeps, and with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all.
 
-When Zhang runs a query from its own code it can also ask for the total number of rows before `LIMIT` and `OFFSET` (the `count_total` option of the Rust API), for example to show the number of pages. Rows past the window are only counted, not built.
+A query can also ask for the total number of rows before `LIMIT` and `OFFSET`, for example to show the number of pages: the `count_total` option of the Rust API, and of [`POST /api/query`](#run-a-query). Rows past the window are only counted, not built.
 
 ### PIVOT BY
 
@@ -272,7 +273,7 @@ PIVOT BY category, year
 
 ### Parameters
 
-When Zhang runs a query from its own code, through the Rust API of the `zhang-query` crate, the query can contain parameters, `$1`, `$2`, ... or `:name`, wherever it would contain a value, and the values are bound separately. The pattern of `JOURNAL`, the dates of `OPEN ON` and `CLOSE ON`, and the counts of `LIMIT` and `OFFSET` can be parameters too. The HTTP API does not bind parameters, so a query sent over HTTP that contains one fails with `parameter $1 is not bound`.
+When Zhang runs a query from its own code, through the Rust API of the `zhang-query` crate, the query can contain parameters, `$1`, `$2`, ... or `:name`, wherever it would contain a value, and the values are bound separately. The pattern of `JOURNAL`, the dates of `OPEN ON` and `CLOSE ON`, and the counts of `LIMIT` and `OFFSET` can be parameters too. The HTTP API does not bind parameters, so a query sent over HTTP that contains one fails with `parameter $1 is not bound`. A [built-in query](/user-guide/builtin-queries/) can be written out with its parameters filled in, as a query that runs over HTTP.
 
 A parameter is a constant of one execution: before the rows are read, every parameter is replaced by its value and the query is simplified again, exactly as if the value had been written in the query. A regular expression given as a parameter (`payee ~ :keyword`) is compiled once, a set given as a parameter (`account IN :accounts`) and a list of values (`IN ('a', 'b', :c)`) are looked up in a hash table, and the needle of [`icontains`](#search-functions) is lower-cased once, so a query with parameters is as fast as the same query written with literals. An invalid regular expression given as a parameter is reported, at the match, when a row is matched against it, as before.
 
@@ -1162,6 +1163,7 @@ Zhang extensions for keyword search. "Ignoring case" compares the texts after co
 | `icontains(str, str) -> bool` | Whether the text contains the second argument, ignoring case. Unlike `~`, the needle is plain text, not a regular expression. | `icontains(payee, 'café')` |
 | `any_icontains(set, str) -> bool` | Whether an element of the set contains the text, ignoring case. | `any_icontains(tags, 'trip')` |
 | `intersects(set, set) -> bool` | Whether the two sets have an element in common. | `intersects(tags, :tags)` |
+| `set(str, ...) -> set` | The set of the given strings, with any number of them. `set()` is the empty set. | `intersects(tags, set('trip', 'food'))` |
 
 ```sql
 SELECT date, payee, narration, account, position
@@ -1219,6 +1221,7 @@ A successful response has HTTP status 200:
 
 - `columns` lists the result columns in order. Each has a `name` and a `type`, which is one of `null`, `bool`, `int`, `decimal`, `str`, `date`, `set`, `amount`, `position`, `inventory`, `interval` and `metas`.
 - `rows` is a list of rows. Each row is a list with one cell per column, in the same order.
+- With `"count_total": true` in the request, the result also has `total`, the number of rows before `LIMIT` and `OFFSET`, to page through a result. Without it there is no `total`.
 
 ### Cell encoding
 
@@ -1322,6 +1325,10 @@ Text is written as it is, without any protection against formulas, as in beanque
 ### List saved queries
 
 `GET /api/query/saved` lists the queries saved in the ledger with the [`query` directive](/directives/5-query/), in ledger order. Each has a `name`, the `query` text, the directive's `date`, and `valid` and `error`, which tell whether the query compiles with the current engine and why not. See the [`query` directive](/directives/5-query/#http-api) for an example response. To run a saved query, send its `query` text to `POST /api/query`.
+
+### Built-in queries
+
+`GET /api/query/builtins` lists the queries behind the app's figures, and `POST /api/query/builtins/{name}/text` writes one out with its parameters filled in. See [Built-in queries](/user-guide/builtin-queries/).
 
 ### Schema
 

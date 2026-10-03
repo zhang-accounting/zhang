@@ -4,6 +4,7 @@ import { CircleAlert, Crosshair, DatabaseZap, Download, Play } from 'lucide-reac
 import { ApiError } from 'openapi-typescript-fetch';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { useAsync } from 'react-use';
 import { executeQuery, exportQueryCsv, retrieveOptions } from '@/api/requests';
 import { QueryError, QueryResult } from '@/api/types';
@@ -14,6 +15,7 @@ import QueryReference from '@/components/query/QueryReference';
 import QueryResults from '@/components/query/QueryResults';
 import SavedQueriesMenu from '@/components/query/SavedQueriesMenu';
 import { DEFAULT_QUERY, QUERY_EXAMPLES } from '@/components/query/examples';
+import { EXPLORE_QUERY_PARAM, queryFromSearch } from '@/components/query/explore-link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Kbd } from '@/components/ui/kbd';
@@ -155,6 +157,30 @@ export default function Explore() {
     setQuery(text);
     runQuery(text);
   };
+
+  // a query in the URL (`/explore?query=...`, e.g. from "Open in Explore") is what the user asked to see: put it in the
+  // editor and run it. It then leaves the URL, so a reload or going back does not replace what the user typed since.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = queryFromSearch(searchParams);
+  const openedQueryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (urlQuery === null) {
+      openedQueryRef.current = null;
+      return;
+    }
+    setSearchParams(
+      (params) => {
+        params.delete(EXPLORE_QUERY_PARAM);
+        return params;
+      },
+      { replace: true },
+    );
+    // React's development double effects must not run it twice
+    if (openedQueryRef.current === urlQuery) return;
+    openedQueryRef.current = urlQuery;
+    loadAndRun(urlQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new query in the URL loads one
+  }, [urlQuery]);
 
   const insertText = (text: string, cursorBack = 0) => {
     const view = viewRef.current;

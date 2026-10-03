@@ -175,6 +175,9 @@
     "saved_empty": "账本中没有已保存的查询。",
     "saved_empty_hint": "可以用 query 指令保存查询，例如：",
     "saved_invalid": "（无效）",
+    "open_query": "打开查询",
+    "open_query_hint": "在查询页面查看这个数字背后的查询，并可修改它",
+    "open_query_failed": "无法打开查询",
     "chart": {
       "treemap": "按账户的矩形树图",
       "bar": "柱状图",

@@ -58,6 +58,9 @@ pub enum ParamType {
     Exact(DataType),
     /// any type
     Any,
+    /// any number of arguments, also none, each of this type as for [`ParamType::Exact`]; only
+    /// as the last parameter
+    Variadic(DataType),
 }
 
 impl ParamType {
@@ -66,19 +69,32 @@ impl ParamType {
     pub(crate) fn accepts(&self, arg: DataType) -> Option<bool> {
         match self {
             ParamType::Any => Some(false),
-            ParamType::Exact(_) if arg == DataType::Null => Some(false),
-            ParamType::Exact(expected) if *expected == arg => Some(false),
-            ParamType::Exact(DataType::Decimal) if arg == DataType::Int => Some(true),
-            ParamType::Exact(_) => None,
+            ParamType::Exact(_) | ParamType::Variadic(_) if arg == DataType::Null => Some(false),
+            ParamType::Exact(expected) | ParamType::Variadic(expected) if *expected == arg => Some(false),
+            ParamType::Exact(DataType::Decimal) | ParamType::Variadic(DataType::Decimal) if arg == DataType::Int => Some(true),
+            ParamType::Exact(_) | ParamType::Variadic(_) => None,
         }
     }
 
+    /// The name of the type (of each argument, for [`ParamType::Variadic`]).
     pub fn name(&self) -> &'static str {
         match self {
-            ParamType::Exact(ty) => ty.name(),
+            ParamType::Exact(ty) | ParamType::Variadic(ty) => ty.name(),
             ParamType::Any => "any",
         }
     }
+}
+
+/// The parameters of a signature, e.g. `str, int`, and `str, ...` for a variadic `str`.
+pub(crate) fn params_signature(params: &[ParamType]) -> String {
+    params
+        .iter()
+        .map(|param| match param {
+            ParamType::Variadic(ty) => format!("{}, ...", ty.name()),
+            other => other.name().to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The return type of a function signature.
@@ -168,12 +184,7 @@ pub struct ScalarFunction {
 impl ScalarFunction {
     /// e.g. `root(str, int) -> str`
     pub fn signature(&self) -> String {
-        format!(
-            "{}({}) -> {}",
-            self.name,
-            self.params.iter().map(ParamType::name).collect::<Vec<_>>().join(", "),
-            self.returns.describe(self.params)
-        )
+        format!("{}({}) -> {}", self.name, params_signature(self.params), self.returns.describe(self.params))
     }
 }
 
@@ -203,10 +214,19 @@ pub(crate) fn resolve<T: 'static>(
     }
     for candidate in candidates {
         let params = params_of(candidate);
-        if params.len() != args.len() {
+        let fits = match params.split_last() {
+            Some((ParamType::Variadic(_), fixed)) => args.len() >= fixed.len(),
+            _ => params.len() == args.len(),
+        };
+        if !fits {
             continue;
         }
-        let widen = params.iter().zip(args).map(|(param, arg)| param.accepts(*arg)).collect::<Option<Vec<bool>>>();
+        // the arguments past the last parameter are those of a variadic one
+        let widen = args
+            .iter()
+            .enumerate()
+            .map(|(idx, arg)| params.get(idx).or(params.last()).and_then(|param| param.accepts(*arg)))
+            .collect::<Option<Vec<bool>>>();
         if let Some(widen) = widen {
             return Ok(Resolved { function: candidate, widen });
         }
