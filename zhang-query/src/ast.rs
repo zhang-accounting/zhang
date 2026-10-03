@@ -303,5 +303,32 @@ pub(crate) struct Select {
     pub order_by: Option<Vec<OrderItem>>,
     /// `PIVOT BY a, b`: each a target name or a 1-based target index
     pub pivot_by: Option<[Expr; 2]>,
-    pub limit: Option<u64>,
+    pub limit: Option<Count>,
+    /// `OFFSET n`, which the grammar only accepts after a LIMIT
+    pub offset: Option<Count>,
+}
+
+/// The value of `LIMIT` or `OFFSET`: a non-negative integer literal, or a parameter bound to
+/// an integer when the query is executed.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CountValue {
+    Literal(u64),
+    Param(ParamRef),
+}
+
+/// `LIMIT` or `OFFSET` with the position of its value.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Count {
+    pub value: CountValue,
+    pub span: Span,
+}
+
+impl Count {
+    #[cfg(test)]
+    pub fn literal(&self) -> Option<u64> {
+        match self.value {
+            CountValue::Literal(value) => Some(value),
+            CountValue::Param(_) => None,
+        }
+    }
 }

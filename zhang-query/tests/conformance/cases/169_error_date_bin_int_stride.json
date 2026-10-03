@@ -1,0 +1,12 @@
+{
+  "name": "error_date_bin_int_stride",
+  "query": "SELECT date_bin(7, date, 2016-01-01)",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

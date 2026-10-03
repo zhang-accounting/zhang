@@ -41,7 +41,6 @@
 //!
 //! An option value that is not a valid leaf account name falls back to the default.
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::path::PathBuf;
@@ -58,7 +57,7 @@ use zhang_core::utils::id::FromSpan;
 
 use crate::error::{LocatedError, Span};
 use crate::params::{ParamRef, Params};
-use crate::table::{Dataset, Entry, Row};
+use crate::table::{Dataset, Entry, MaybeOwned, Row};
 use crate::value::{Cost, Position, Value};
 
 /// A date of the period modifiers: a literal of the query or a parameter bound at execution.
@@ -326,7 +325,8 @@ struct Posting<'a> {
 
 impl ResolvedPeriod {
     /// Rewrite the rows of `data`. Its rows must carry the cost of their lots
-    /// ([`crate::projector::Projection::with_cost`]).
+    /// ([`crate::projector::Projection::with_cost`]). The account balances are summed over the
+    /// rewritten rows, as the executor sums them over the rows of the table.
     pub fn apply<'a>(&self, mut data: Dataset<'a>, ledger: &'a Ledger, equity: &'a EquityAccounts) -> Dataset<'a> {
         let keep_price = data.projection.keeps_price();
         let rows = std::mem::take(&mut data.rows);
@@ -378,7 +378,7 @@ impl<'a> Transform<'_, 'a> {
                     lots: Lots::default(),
                 })
                 .lots
-                .add(&row.units, row.cost.as_ref());
+                .add(&row.units, row.cost.as_deref());
         }
         balances
     }
@@ -396,7 +396,7 @@ impl<'a> Transform<'_, 'a> {
     fn conversion_balance(rows: &[Row<'a>]) -> Lots {
         let mut balance = Lots::default();
         for row in rows {
-            balance.add(&row.units, row.cost.as_ref());
+            balance.add(&row.units, row.cost.as_deref());
         }
         balance
     }
@@ -582,13 +582,13 @@ impl<'a> Transform<'_, 'a> {
                 entry,
                 posting_index,
                 account: posting.name,
-                units: Cow::Owned(posting.units),
-                cost: posting.cost,
-                price: posting.price.filter(|_| self.keep_price).map(Cow::Owned),
+                units: MaybeOwned::owned(posting.units),
+                cost: posting.cost.map(MaybeOwned::owned),
+                price: posting.price.filter(|_| self.keep_price).map(MaybeOwned::owned),
             });
         }
         self.entries.push(Entry {
-            txn: Cow::Owned(TransactionDomain {
+            txn: MaybeOwned::owned(TransactionDomain {
                 id,
                 sequence: 0,
                 datetime,
@@ -602,6 +602,8 @@ impl<'a> Transform<'_, 'a> {
             }),
             date,
             meta: None,
+            seq: None,
+            errors: None,
         });
     }
 }

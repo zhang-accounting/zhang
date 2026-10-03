@@ -1,0 +1,106 @@
+; The oracle ledger of zhang-query/tests/server_features.rs: the beanquery 0.2.0 functions
+; (date functions, interval, open_meta, commodity_meta, open_date, close_date).
+;
+; It is written in the syntax zhang and beancount share: generate.py loads it with
+; beancount 3.2.3 and beanquery 0.2.0, the Rust tests load it with zhang. Metadata values
+; are strings, since zhang keeps every metadata value as a string.
+;
+; The transactions sit on the dates the date functions get wrong most easily: month ends,
+; leap days (2000 is a leap century, 2100 would not be), year, decade, century and
+; millennium boundaries, ISO weeks that belong to the neighbouring year, and dates before
+; the Unix epoch.
+
+1960-01-01 commodity CNY
+  name: "Chinese Yuan"
+  symbol: "¥"
+1960-01-01 commodity USD
+  name: "US Dollar"
+1960-01-01 commodity JPY
+
+1960-01-01 open Assets:Bank CNY
+  owner: "alice"
+  bank: "ICBC"
+1960-01-01 open Assets:Wallet
+1960-01-01 open Equity:Opening
+1999-02-28 open Expenses:Food
+  category: "living"
+2019-12-31 open Assets:OldCard
+  owner: "bob"
+
+1969-12-31 * "Before the epoch"
+  Assets:Bank 100 CNY
+  Equity:Opening
+
+1999-12-31 * "End of a millennium (as dates count it)"
+  Expenses:Food 1 CNY
+  Assets:Bank
+
+2000-01-01 * "Start of the year 2000"
+  Expenses:Food 2 CNY
+  Assets:Bank
+
+2000-02-29 * "Leap day of a leap century"
+  Expenses:Food 3 CNY
+  Assets:Bank
+
+2001-01-01 * "First day of the third millennium"
+  Expenses:Food 4 CNY
+  Assets:Bank
+
+2020-01-01 * "Old card"
+  Assets:OldCard 50 CNY
+  Assets:Bank
+
+2020-01-31 * "Month end before a leap February"
+  Expenses:Food 5 CNY
+  Assets:Bank
+
+2020-02-29 * "Leap day"
+  Expenses:Food 6 CNY
+  Assets:Wallet
+
+2020-03-01 * "Day after a leap day"
+  Expenses:Food 7 CNY
+  Assets:Bank
+
+2020-12-31 * "Old card emptied"
+  Assets:Bank 50 CNY
+  Assets:OldCard
+
+2021-01-01 close Assets:OldCard
+
+2021-01-03 * "Sunday in ISO week 53 of 2020"
+  Expenses:Food 8 USD
+  Assets:Wallet
+
+2021-02-28 * "Month end of a common February"
+  Expenses:Food 9 CNY
+  Assets:Bank
+
+2021-03-31 * "Month end of a 31-day month"
+  Expenses:Food 10 CNY
+  Assets:Bank
+
+2023-01-01 * "Sunday in ISO week 52 of 2022"
+  Expenses:Food 11 CNY
+  Assets:Bank
+
+2024-01-01 * "Monday, first day of 2024"
+  Expenses:Food 12 CNY
+  Assets:Bank
+
+2024-02-29 * "Leap day"
+  Expenses:Food 13 CNY
+  Assets:Bank
+
+2024-05-31 * "Month end before a 30-day month"
+  Expenses:Food 14 CNY
+  Assets:Bank
+
+2024-12-30 * "Monday in ISO week 1 of 2025"
+  Expenses:Food 15 CNY
+  Assets:Bank
+
+2024-12-31 * "Last day of a leap year"
+  Expenses:Food 16 CNY
+  Assets:Bank

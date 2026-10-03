@@ -36,14 +36,17 @@
 //! - Return `Err(message)` for runtime failures; the evaluator attaches the source position
 //!   of the call.
 //! - Use the [`FunctionContext`] for anything outside the arguments: today's date, the
-//!   price map, and metadata of the row being evaluated.
+//!   price map, the `open`, `close` and `commodity` directives of the ledger, and metadata
+//!   of the row being evaluated.
 
 pub mod aggregates;
 pub mod scalars;
 
 use chrono::NaiveDate;
+use zhang_ast::{Close, Commodity, Open};
 
 pub use self::aggregates::{AggregateFunction, AggregateKind};
+pub(crate) use self::scalars::is_under;
 pub use self::scalars::SCALAR_FUNCTIONS;
 use crate::prices::PriceMap;
 use crate::value::{DataType, Value};
@@ -115,9 +118,39 @@ pub trait FunctionContext {
     /// `None` when absent or when there is no current row.
     fn entry_meta(&self, key: &str) -> Option<String>;
 
-    /// Metadata `key` of the posting being evaluated. Always `None` until zhang-core keeps
-    /// posting-level metadata (see `Dataset::posting_meta` and issue #434).
+    /// Metadata `key` of the posting being evaluated.
     fn posting_meta(&self, key: &str) -> Option<String>;
+
+    /// Every value of the posting metadata `key` of the row being evaluated, in written order
+    /// (a repeated key has several). Defaults to [`FunctionContext::posting_meta`].
+    fn posting_meta_values(&self, key: &str) -> Vec<String> {
+        self.posting_meta(key).into_iter().collect()
+    }
+
+    /// Every value of the transaction metadata `key` of the row being evaluated, in written
+    /// order. Defaults to [`FunctionContext::entry_meta`].
+    fn entry_meta_values(&self, key: &str) -> Vec<String> {
+        self.entry_meta(key).into_iter().collect()
+    }
+
+    /// The `open` and `close` directives of an account (the earliest of each, as beancount
+    /// keeps them); `None` when the account has neither.
+    fn account_directives(&self, _account: &str) -> Option<AccountDirectives<'_>> {
+        None
+    }
+
+    /// The `commodity` directive of a currency (the last one, as beancount keeps it).
+    fn commodity_directive(&self, _currency: &str) -> Option<&Commodity> {
+        None
+    }
+}
+
+/// The `open` and `close` directives of an account, as [`FunctionContext::account_directives`]
+/// finds them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AccountDirectives<'a> {
+    pub open: Option<&'a Open>,
+    pub close: Option<&'a Close>,
 }
 
 /// Implementation of a scalar function, see the module docs for the contract.

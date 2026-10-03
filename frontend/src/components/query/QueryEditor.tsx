@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 
 // Lightweight BQL highlighting built on the view package only, since no CodeMirror language package is installed.
 const KEYWORDS =
-  'select|distinct|from|where|group|by|order|asc|desc|limit|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having';
+  'select|distinct|from|where|group|by|order|asc|desc|limit|offset|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having';
 // one capture group per token kind, in this order: string, date, number, `#table`, keyword, function name
 const TOKEN_REGEXP = new RegExp(
   [

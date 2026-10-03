@@ -1,12 +1,12 @@
 # BQL conformance fixtures (beanquery oracle)
 
 This directory holds an independent conformance suite for zhang's native
-BQL-compatible query engine (issue #434, Phases 1 to 3). The expected results
+BQL-compatible query engine (issue #434, Phases 1 to 3, and issue #479, Phase 4). The expected results
 were produced by the official Python **beanquery**, not by zhang, so they are
 the reference the engine is cross-validated against.
 
-- `cases/NNN_<name>.json`: one fixture per query (145 cases: 001–060 for
-  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3).
+- `cases/NNN_<name>.json`: one fixture per query (171 cases: 001–060 for
+  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–171 for Phase 4).
 - `generate.py`: the generator. It holds the case list and writes the fixtures.
 - Oracle versions used: **beancount 3.2.3, beanquery 0.2.0** (Python 3.9).
 
@@ -105,7 +105,7 @@ windows with at most one selected posting per day.
 }
 ```
 
-A Phase 2 or Phase 3 fixture adds `"phase": 2` or `"phase": 3` after `query`.
+A Phase 2, 3 or 4 fixture adds `"phase": 2`, `"phase": 3` or `"phase": 4` after `query`.
 A fixture whose column names carry meaning adds `"strict_names": true` after
 `ordered` (see "Comparison rules"). A csv fixture has
 `"expect": "csv"`, empty `columns` and `rows`, and a `csv` field:
@@ -138,9 +138,10 @@ A fixture whose column names carry meaning adds `"strict_names": true` after
     ledger-processing difference rather than an engine bug. It is tolerated
     only through an explicit allow-list entry with a reason (see "Running the
     harness").
-- `phase`: absent for the Phase 1 fixtures, `2` or `3` for the Phase 2 and
-  Phase 3 ones. The harness keeps the fixtures of a phase non-fatal until that
-  phase's features land (see "Running the harness").
+- `phase`: absent for the Phase 1 fixtures, `2`, `3` or `4` for the Phase 2,
+  Phase 3 and Phase 4 ones. The harness keeps the fixtures of Phases 2 and 3
+  non-fatal until that phase's features land (see "Running the harness");
+  Phase 4 fixtures are always strict, like Phase 1.
 - `ordered`: `true` only when the row order is fully determined: by the
   query's `ORDER BY`, by `BALANCES` (which sorts by account), by `PIVOT BY`
   (which sorts by its first column), or by ledger order for a `JOURNAL` or a
@@ -177,6 +178,7 @@ A fixture whose column names carry meaning adds `"strict_names": true` after
 | `Position` | `position` |
 | `Inventory` | `inventory` |
 | `object` (`meta()` / `entry_meta()`, dynamically typed) | `str` (zhang metadata values are strings) |
+| `dateutil.relativedelta` (`interval()`) | `interval`, encoded as zhang writes intervals: the total months as years and months with the sign of the total, then the days, singular for ±1 and zero parts left out (`"1 year 1 month"`, `"11 months"`, `"-1 year"`, `"1 month 3 days"`, `"0 days"`) |
 
 ### Cell encoding
 
@@ -566,9 +568,62 @@ Phase 1 decisions, and are worth deciding on explicitly.
   - Therefore `SELECT *` over `#entries`, `#accounts` and `#commodities`.
   - Subscripts such as `meta['export']`.
   - beanquery's `open_date()`, `close_date()`, `open_meta()` and
-    `commodity_meta()` functions.
+    `commodity_meta()` functions (pinned by Phase 4, except the dictionaries
+    of the one-argument `open_meta()` and `commodity_meta()`).
   - Rows of `#notes` and `#documents`. The ledger has neither, so only their
     columns are pinned.
+
+### Phase 4
+
+Issue #479 (wave 1) adds beanquery's date functions with its `relativedelta`
+intervals, and its account and commodity directive functions (146–170). All of
+them are `engine` cases; the literal edge cases go through a one-row `SELECT
+DISTINCT` over one account, as case 001 does.
+
+- **`date_trunc(field, date)`** is the first day of the date's `week` (Monday),
+  `month`, `quarter`, `year`, `decade`, `century` (1901, 2001, …) or
+  `millennium` (1001, 2001, …). Any other field, including `'day'` and a field
+  in another case (`'Week'`), is NULL (146, 147).
+- **`date_part(field, date)`**: `weekday`/`dow` count from Monday = 0,
+  `isoweekday`/`isodow` from Monday = 1, `week` and `isoyear` are ISO 8601
+  (2016-01-03 is in week 53 of 2015), `decade` is `year // 10`, `century` and
+  `millennium` start at year 1, `epoch` is in seconds. There is no `day`
+  field (148, 149).
+- **`date_add(date, days)`** and **`date_diff(a, b)`** (the days from `b` to
+  `a`) (150, 151). **`date(y, m, d)`** and **`date(text)`** are NULL for a day
+  that does not exist or a year outside 1 to 9999; `date(text)` parses like
+  Python's `strptime('%Y-%m-%d')`, so the month and day may have one digit and
+  the day may be a space and a digit (152, 153).
+- **`interval(text)`** reads `<n> day[s]`, `<n> month[s]` or `<n> year[s]` with
+  an optional sign; anything else is NULL. Intervals add up, and a date plus an
+  interval moves by the months first (clamping the day to the month's end),
+  then by the days; subtracting adds the negated interval (154–156). Intervals
+  have no order: `<` is a compile error (168). beanquery also rejects `=` and
+  `!=` on them, which zhang accepts (an accepted deviation without fixture).
+- **`date_bin(stride, date, origin)`** takes the stride as an interval or as
+  text (157–161). A stride of days bins by whole strides from the origin. A
+  negative stride or a NULL stride is NULL.
+- **`open_date`**, **`close_date`**, **`open_meta(account, key)`** and
+  **`commodity_meta(currency, key)`** (alias `currency_meta`) read the earliest
+  `open` and `close` of an account and the last `commodity` directive of a
+  currency, on any table; unknown names are NULL, names are case-sensitive, and
+  metadata is not inherited by sub-accounts (162–166).
+- **`offset`** is an ordinary name in beanquery, which has no `OFFSET`; zhang's
+  `OFFSET` is only a keyword right after a `LIMIT` count, so the name keeps
+  working (171).
+
+Accepted deviations (see `ACCEPTED_DEVIATIONS` in the harness), decided by the
+lead on #479:
+
+- `interval()` also accepts weeks (154: `interval('2 weeks')` is `14 days`, NULL
+  in beanquery).
+- `date_bin` lays its bins at `origin + k × stride`, each computed from the
+  origin, and a date on a boundary starts its bin. beanquery adds each stride
+  of months to the previous bin, so bins from a month end drift (`2015-01-31`,
+  `2015-02-28`, `2015-03-28`), and with months or years it puts a date exactly
+  on a boundary other than the origin into the previous bin
+  (`date_bin('1 month', 2000-02-01, 2000-01-01)` is `2000-01-01`) (158, 159).
+  Case 157 avoids boundaries, so it matches beanquery as it is.
 
 ## Not covered
 
@@ -590,10 +645,17 @@ These are deliberately out of scope or not exercisable on this ledger:
   target.
 - The Phase 3 corners listed at the end of each Phase 3 topic above, and the
   zhang-specific tables (`#budgets`, `#errors`), which have no oracle.
+- The zhang extensions of issue #479 (`LIMIT`/`OFFSET` with parameters, the
+  total count, `icontains`, `any_icontains`, `intersects`, `under`,
+  `meta_values`, `entry_meta_values` and the `metas` columns), which beanquery
+  does not have; `tests/language.rs` covers them.
+- Where beanquery fails rather than answers: `date_bin` with a zero stride or
+  an unparsable stride text, `interval - date`, a NULL literal argument (a
+  compile error there), and dates outside Python's years 1 to 9999.
 
 ## Cases
 
-145 cases:
+171 cases:
 
 - Phase 1 (001–060), 60 cases: 47 `engine` with rows, 6 `ledger-dependent`, and 7 errors (`engine`).
 - Phase 2 (061–100), 40 cases: 13 `engine` and 15 `ledger-dependent` with rows, 3 `engine` and 2
@@ -603,6 +665,8 @@ These are deliberately out of scope or not exercisable on this ledger:
   `ledger-dependent` csv cases, and 13 errors (`engine`). By feature: `HAVING` 9 (6 with rows, 3
   errors), `PIVOT BY` 12 (6 with rows, 6 errors), `FROM #table` 21 (17 with rows, 4 errors), and
   3 csv cases (1 pivot, 2 tables). 12 cases set `strict_names`.
+- Phase 4 (146–171), 26 cases: 22 `engine` with rows and 4 errors (`engine`). By area: `date` 8,
+  `interval` 8, `directives` 5, `select` 1, `error` 4. 3 of them are accepted deviations (154, 158, 159).
 
 | # | Case | Phase | Area | Kind | Ordered | Expect |
 |---|---|---|---|---|---|---|
@@ -751,3 +815,29 @@ These are deliberately out of scope or not exercisable on this ledger:
 | 143 | `csv_pivot_inventory_date_keys` | 3 | csv | engine | yes | csv, 2 rows |
 | 144 | `csv_prices_table` | 3 | csv | engine | yes | csv, 12 rows |
 | 145 | `csv_balances_select_star` | 3 | csv | ledger-dependent | yes | csv, 4 rows |
+| 146 | `date_trunc_fields_on_ledger_dates` | 4 | date | engine | yes | 19 rows |
+| 147 | `date_trunc_edges` | 4 | date | engine | no | 1 rows |
+| 148 | `date_part_fields` | 4 | date | engine | no | 1 rows |
+| 149 | `date_part_on_ledger_dates` | 4 | date | engine | yes | 5 rows |
+| 150 | `date_add_and_date_diff` | 4 | date | engine | no | 1 rows |
+| 151 | `date_add_and_diff_on_columns` | 4 | date | engine | yes | 12 rows |
+| 152 | `date_constructors` | 4 | date | engine | no | 1 rows |
+| 153 | `date_constructor_on_columns` | 4 | date | engine | yes | 3 rows |
+| 154 | `interval_values` | 4 | interval | engine | no | 1 rows |
+| 155 | `date_interval_arithmetic` | 4 | interval | engine | no | 1 rows |
+| 156 | `date_plus_interval_on_month_ends` | 4 | interval | engine | yes | 13 rows |
+| 157 | `date_bin_months_and_years` | 4 | interval | engine | yes | 13 rows |
+| 158 | `date_bin_on_boundaries` | 4 | interval | engine | no | 1 rows |
+| 159 | `date_bin_month_end_origin` | 4 | interval | engine | no | 1 rows |
+| 160 | `date_bin_days` | 4 | interval | engine | yes | 5 rows |
+| 161 | `date_bin_null_strides` | 4 | interval | engine | no | 1 rows |
+| 162 | `open_and_close_dates` | 4 | directives | engine | yes | 5 rows |
+| 163 | `directive_functions_of_unknown_names` | 4 | directives | engine | no | 1 rows |
+| 164 | `open_meta_values` | 4 | directives | engine | yes | 4 rows |
+| 165 | `commodity_meta_values` | 4 | directives | engine | yes | 7 rows |
+| 166 | `directive_functions_on_tables` | 4 | directives | engine | yes | 10 rows |
+| 167 | `error_date_trunc_argument_order` | 4 | error | engine | no | error |
+| 168 | `error_interval_comparison` | 4 | error | engine | no | error |
+| 169 | `error_date_bin_int_stride` | 4 | error | engine | no | error |
+| 170 | `error_open_date_of_a_date` | 4 | error | engine | no | error |
+| 171 | `offset_is_a_name` | 4 | select | engine | yes | 2 rows |

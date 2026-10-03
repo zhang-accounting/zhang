@@ -1,0 +1,12 @@
+{
+  "name": "error_interval_comparison",
+  "query": "SELECT DISTINCT interval('1 month') < interval('2 months') WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "Intervals have no order. (beanquery also rejects = and != on intervals, which zhang accepts: see ACCEPTED_DEVIATIONS.)"
+}

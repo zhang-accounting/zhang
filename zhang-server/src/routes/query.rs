@@ -94,6 +94,7 @@ pub(crate) fn execute_options(max_result_values: u64) -> ExecuteOptions {
         today: None,
         timeout: Some(QUERY_TIMEOUT),
         max_result_values: Some(max_result_values),
+        count_total: false,
     }
 }
 

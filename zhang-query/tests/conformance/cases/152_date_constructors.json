@@ -1,0 +1,28 @@
+{
+  "name": "date_constructors",
+  "query": "SELECT DISTINCT date(2016, 2, 29) AS leap_day, date(2015, 2, 29) AS no_leap_day, date(2016, 13, 1) AS month_13, date(2016, 0, 1) AS month_0, date(0, 1, 1) AS year_0, date(10000, 1, 1) AS year_10000, date('2016-02-29') AS text, date('2016-2-9') AS short_text, date('2016-02- 9') AS space_day, date('016-02-09') AS short_year, date(' 2016-02-09') AS leading_space, date('2016-02-09x') AS trailing, date('20160209') AS compact, date('2015-02-29') AS invalid_text WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "leap_day", "type": "date"},
+    {"name": "no_leap_day", "type": "date"},
+    {"name": "month_13", "type": "date"},
+    {"name": "month_0", "type": "date"},
+    {"name": "year_0", "type": "date"},
+    {"name": "year_10000", "type": "date"},
+    {"name": "text", "type": "date"},
+    {"name": "short_text", "type": "date"},
+    {"name": "space_day", "type": "date"},
+    {"name": "short_year", "type": "date"},
+    {"name": "leading_space", "type": "date"},
+    {"name": "trailing", "type": "date"},
+    {"name": "compact", "type": "date"},
+    {"name": "invalid_text", "type": "date"}
+  ],
+  "rows": [
+    ["2016-02-29", null, null, null, null, null, "2016-02-29", "2016-02-09", "2016-02-09", null, null, null, null, null]
+  ],
+  "notes": "date(y, m, d) and date(text) are NULL when there is no such day, or the year is outside 1 to 9999. date(text) parses like Python's strptime('%Y-%m-%d'): a four-digit year, a month and a day of one or two digits (the day may also be a space and one digit), and nothing else."
+}

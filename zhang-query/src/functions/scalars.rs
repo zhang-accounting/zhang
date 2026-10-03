@@ -4,6 +4,7 @@ use chrono::Datelike;
 use DataType::*;
 use ParamType::Exact;
 
+pub(crate) use self::accounts::is_under;
 use super::{FunctionContext, ParamType, ReturnType, ScalarFunction};
 use crate::value::{DataType, Value};
 
@@ -11,7 +12,9 @@ use crate::value::{DataType, Value};
 mod accounts;
 mod amounts;
 mod dates;
+mod ledger;
 mod meta;
+mod search;
 mod strings;
 #[cfg(test)]
 mod testing;
@@ -64,6 +67,70 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         description: "A key that sorts accounts by type (Assets, Liabilities, Equity, Income, Expenses), then by name, e.g. account_sortkey('Expenses:Food') = '4-Expenses:Food'.",
         eval: accounts::account_sortkey,
     },
+    ScalarFunction {
+        name: "under",
+        params: &[Exact(Str), Exact(Str)],
+        returns: ReturnType::Exact(Bool),
+        description: "Whether an account is the ancestor or one of its sub-accounts, e.g. under('Assets:Bank:Cash', 'Assets:Bank') is TRUE and under('Assets:Banking', 'Assets:Bank') FALSE. A zhang extension.",
+        eval: accounts::under,
+    },
+    // ---- function library: account and commodity directives ----
+    ScalarFunction {
+        name: "open_date",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Date),
+        description: "The date of the account's open directive; NULL if it has none.",
+        eval: ledger::open_date,
+    },
+    ScalarFunction {
+        name: "close_date",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Date),
+        description: "The date of the account's close directive; NULL while it is open.",
+        eval: ledger::close_date,
+    },
+    ScalarFunction {
+        name: "open_meta",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Metas),
+        description: "The metadata of the account's open directive as (key, value) pairs, [] when it has none; NULL if the account has no open directive.",
+        eval: ledger::open_meta,
+    },
+    ScalarFunction {
+        name: "open_meta",
+        params: &[Exact(Str), Exact(Str)],
+        returns: ReturnType::Exact(Str),
+        description: "A metadata value of the account's open directive, e.g. open_meta(account, 'institution'); NULL if absent.",
+        eval: ledger::open_meta,
+    },
+    ScalarFunction {
+        name: "commodity_meta",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Metas),
+        description: "The metadata of the currency's commodity directive as (key, value) pairs, [] when it has none; NULL without a commodity directive.",
+        eval: ledger::commodity_meta,
+    },
+    ScalarFunction {
+        name: "commodity_meta",
+        params: &[Exact(Str), Exact(Str)],
+        returns: ReturnType::Exact(Str),
+        description: "A metadata value of the currency's commodity directive, e.g. commodity_meta(currency, 'name'); NULL if absent.",
+        eval: ledger::commodity_meta,
+    },
+    ScalarFunction {
+        name: "currency_meta",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Metas),
+        description: "The metadata of the currency's commodity directive; an alias of commodity_meta().",
+        eval: ledger::commodity_meta,
+    },
+    ScalarFunction {
+        name: "currency_meta",
+        params: &[Exact(Str), Exact(Str)],
+        returns: ReturnType::Exact(Str),
+        description: "A metadata value of the currency's commodity directive; an alias of commodity_meta().",
+        eval: ledger::commodity_meta,
+    },
     // ---- function library: dates ----
     ScalarFunction {
         name: "month",
@@ -106,6 +173,69 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         returns: ReturnType::Exact(Date),
         description: "Today's date in the ledger's timezone.",
         eval: dates::today,
+    },
+    ScalarFunction {
+        name: "date",
+        params: &[Exact(Int), Exact(Int), Exact(Int)],
+        returns: ReturnType::Exact(Date),
+        description: "The date of a year, month and day, e.g. date(2024, 2, 29); NULL if there is no such day.",
+        eval: dates::date_from_ymd,
+    },
+    ScalarFunction {
+        name: "date",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Date),
+        description: "The date written as YYYY-MM-DD (month and day may have one digit), e.g. date('2024-2-9'); NULL if it is not one.",
+        eval: dates::date_from_str,
+    },
+    ScalarFunction {
+        name: "date_add",
+        params: &[Exact(Date), Exact(Int)],
+        returns: ReturnType::Exact(Date),
+        description: "The date moved by a number of days, e.g. date_add(2024-02-28, 1) = 2024-02-29.",
+        eval: dates::date_add,
+    },
+    ScalarFunction {
+        name: "date_diff",
+        params: &[Exact(Date), Exact(Date)],
+        returns: ReturnType::Exact(Int),
+        description: "The number of days from the second date to the first, e.g. date_diff(2024-03-01, 2024-02-01) = 29.",
+        eval: dates::date_diff,
+    },
+    ScalarFunction {
+        name: "date_trunc",
+        params: &[Exact(Str), Exact(Date)],
+        returns: ReturnType::Exact(Date),
+        description: "The first day of the date's 'week' (Monday), 'month', 'quarter', 'year', 'decade', 'century' or 'millennium', e.g. date_trunc('month', 2024-05-17) = 2024-05-01; NULL for another field.",
+        eval: dates::date_trunc,
+    },
+    ScalarFunction {
+        name: "date_part",
+        params: &[Exact(Str), Exact(Date)],
+        returns: ReturnType::Exact(Int),
+        description: "A field of a date: 'weekday' or 'dow' (Monday 0), 'isoweekday' or 'isodow' (Monday 1), 'week' (ISO week), 'month', 'quarter', 'year', 'isoyear', 'decade', 'century', 'millennium' or 'epoch' (seconds); NULL for another field.",
+        eval: dates::date_part,
+    },
+    ScalarFunction {
+        name: "interval",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Interval),
+        description: "An interval of days, weeks (a zhang extension), months or years, e.g. interval('3 months') or interval('-1 year'), to add to a date or bin by; NULL for any other text.",
+        eval: dates::interval,
+    },
+    ScalarFunction {
+        name: "date_bin",
+        params: &[Exact(Interval), Exact(Date), Exact(Date)],
+        returns: ReturnType::Exact(Date),
+        description: "The start of the bin of a date among the bins origin + k × interval, e.g. date_bin(interval('7 days'), date, 2024-01-01); a date on a boundary starts its bin.",
+        eval: dates::date_bin,
+    },
+    ScalarFunction {
+        name: "date_bin",
+        params: &[Exact(Str), Exact(Date), Exact(Date)],
+        returns: ReturnType::Exact(Date),
+        description: "date_bin() with the interval written as text, e.g. date_bin('1 month', date, 2024-01-01).",
+        eval: dates::date_bin,
     },
     // ---- function library: valuation ----
     ScalarFunction {
@@ -382,6 +512,42 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         returns: ReturnType::Exact(Str),
         description: "A metadata value of the posting, falling back to the transaction, as text; NULL if absent.",
         eval: meta::any_meta,
+    },
+    ScalarFunction {
+        name: "meta_values",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Set),
+        description: "Every value of a metadata key of the posting, as a set (a repeated key has several); empty if absent. A zhang extension.",
+        eval: meta::meta_values,
+    },
+    ScalarFunction {
+        name: "entry_meta_values",
+        params: &[Exact(Str)],
+        returns: ReturnType::Exact(Set),
+        description: "Every value of a metadata key of the transaction, as a set (a repeated key has several); empty if absent. A zhang extension.",
+        eval: meta::entry_meta_values,
+    },
+    // ---- function library: search (zhang extensions) ----
+    ScalarFunction {
+        name: "icontains",
+        params: &[Exact(Str), Exact(Str)],
+        returns: ReturnType::Exact(Bool),
+        description: "Whether the text contains the needle, ignoring case (Unicode lower-case), e.g. icontains(payee, 'cafe'). A zhang extension.",
+        eval: search::icontains,
+    },
+    ScalarFunction {
+        name: "any_icontains",
+        params: &[Exact(Set), Exact(Str)],
+        returns: ReturnType::Exact(Bool),
+        description: "Whether an element of the set contains the needle, ignoring case, e.g. any_icontains(tags, 'trip'). A zhang extension.",
+        eval: search::any_icontains,
+    },
+    ScalarFunction {
+        name: "intersects",
+        params: &[Exact(Set), Exact(Set)],
+        returns: ReturnType::Exact(Bool),
+        description: "Whether the two sets share an element, e.g. intersects(tags, :tags). A zhang extension.",
+        eval: search::intersects,
     },
     // ---- function library: strings ----
     ScalarFunction {

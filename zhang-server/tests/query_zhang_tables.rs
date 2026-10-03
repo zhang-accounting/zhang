@@ -1,7 +1,13 @@
 //! The `#budgets` and `#errors` query tables against the APIs the UI reads, for the same
 //! ledgers: every row of `#budgets` has the amounts `GET /api/budgets?year=&month=` returns for
 //! its budget and month, and its accounts are the related accounts of `GET /api/budgets/{name}`;
-//! `#errors` has one row per error of `GET /api/errors`, with its type, file and directive.
+//! `#errors` has one row per error of `GET /api/errors`, with its type, file, directive, id and
+//! span. `#documents` has the documents of `GET /api/documents` and `#budget_events` the events
+//! of `GET /api/budgets/{name}/interval/{year}/{month}`.
+//!
+//! Where an API is wrong, the tests say how: the budget API adds the numbers of amounts in
+//! different commodities and reports a budget's final `closed` for every month, which the
+//! table does not.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -17,9 +23,10 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{BudgetListRequest, JournalRequest, QueryRequest};
-use zhang_server::routes::budget::{get_budget_info, get_budget_list};
+use zhang_server::request::{BudgetIntervalDetailRequest, BudgetListRequest, JournalRequest, QueryRequest};
+use zhang_server::routes::budget::{get_budget_info, get_budget_interval_detail, get_budget_list};
 use zhang_server::routes::common::get_errors;
+use zhang_server::routes::document::get_documents;
 use zhang_server::routes::query::{get_query_schema, run_query};
 use zhang_server::state::SharedLedger;
 
@@ -29,11 +36,38 @@ fn fixture_dir(name: &str) -> PathBuf {
 
 /// The fixture, loaded the way the server loads a ledger.
 async fn load(name: &str) -> SharedLedger {
+    load_dir(&fixture_dir(name)).await
+}
+
+/// The ledger of `dir`, loaded the way the server loads a ledger.
+async fn load_dir(dir: &Path) -> SharedLedger {
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(fixture_dir(name), "main.zhang".to_owned(), source)
+    let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source)
         .await
-        .unwrap_or_else(|error| panic!("{name} should load: {error}"));
+        .unwrap_or_else(|error| panic!("{} should load: {error}", dir.display()));
     SharedLedger(Arc::new(RwLock::new(ledger)))
+}
+
+/// A temporary ledger directory, removed when dropped.
+struct ScratchDir(PathBuf);
+
+impl ScratchDir {
+    /// A directory with `files` (relative path, content).
+    fn with(files: &[(&str, &str)]) -> ScratchDir {
+        let dir = ScratchDir(std::env::temp_dir().join(format!("zhang-query-tables-{}", uuid::Uuid::new_v4())));
+        for (name, content) in files {
+            let path = dir.0.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        dir
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 async fn body(response: impl IntoResponse) -> Value {
@@ -153,7 +187,7 @@ async fn budgets_are_the_amounts_of_the_budget_api() {
 
 async fn check_errors(name: &str) -> usize {
     let ledger = load(name).await;
-    let rows = query(&ledger, "SELECT kind, file, source, account, date FROM #errors").await;
+    let rows = query(&ledger, "SELECT kind, file, source, account, date, id, span_start, span_end FROM #errors").await;
     let request = JournalRequest {
         page: None,
         size: Some(1000),
@@ -179,6 +213,9 @@ async fn check_errors(name: &str) -> usize {
                 "file": file,
                 "source": span["content"].as_str().map(str::trim_end),
                 "account": error["metas"]["account_name"],
+                "id": error["id"],
+                "span_start": span["start"],
+                "span_end": span["end"],
             });
             (file, span["start"].as_u64(), row)
         })
@@ -187,7 +224,17 @@ async fn check_errors(name: &str) -> usize {
     api.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
     let table = rows
         .iter()
-        .map(|row| json!({"kind": row["kind"], "file": row["file"], "source": row["source"], "account": row["account"]}))
+        .map(|row| {
+            json!({
+                "kind": row["kind"],
+                "file": row["file"],
+                "source": row["source"],
+                "account": row["account"],
+                "id": row["id"],
+                "span_start": row["span_start"],
+                "span_end": row["span_end"],
+            })
+        })
         .collect::<Vec<_>>();
     assert_eq!(table, api.into_iter().map(|(_, _, row)| row).collect::<Vec<_>>(), "{name}");
     rows.len()
@@ -232,7 +279,7 @@ async fn the_schema_lists_the_zhang_tables() {
         assert!(budgets.contains(&(column.to_owned(), ty.to_owned())), "budgets.{column}: {budgets:?}");
     }
     let errors = columns("errors");
-    assert_eq!(errors.len(), 8);
+    assert_eq!(errors.len(), 11);
     for (column, ty) in [
         ("kind", "str"),
         ("message", "str"),
@@ -241,7 +288,287 @@ async fn the_schema_lists_the_zhang_tables() {
         ("column", "int"),
         ("date", "date"),
         ("account", "str"),
+        ("id", "str"),
+        ("span_start", "int"),
+        ("span_end", "int"),
     ] {
         assert!(errors.contains(&(column.to_owned(), ty.to_owned())), "errors.{column}: {errors:?}");
     }
+    let events = columns("budget_events");
+    assert_eq!(
+        events,
+        [
+            ("name", "str"),
+            ("date", "date"),
+            ("time", "str"),
+            ("timestamp", "int"),
+            ("type", "str"),
+            ("amount", "amount")
+        ]
+        .map(|(name, ty)| (name.to_owned(), ty.to_owned()))
+    );
+    for (table, column, ty) in [
+        ("balances", "actual", "amount"),
+        ("balances", "passed", "bool"),
+        ("documents", "source", "str"),
+        ("documents", "path", "str"),
+        ("documents", "transaction_id", "str"),
+    ] {
+        assert!(
+            columns(table).contains(&(column.to_owned(), ty.to_owned())),
+            "{table}.{column}: {:?}",
+            columns(table)
+        );
+    }
+}
+
+/// A budget in CNY spent in CNY and USD, then closed: the ledger the survey of #479 found the
+/// budget API wrong on.
+const MULTI_CURRENCY_BUDGET: &str = r#"
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:USBank
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Travel
+  budget: food
+1970-01-01 open Equity:Opening
+
+2025-03-01 budget food CNY
+2025-03-01 budget-add food 1000 CNY
+
+2025-03-31 price USD 7.0 CNY
+2025-04-30 price USD 7.3 CNY
+
+2025-03-31 "Opening" "opening"
+  Assets:Bank 10000 CNY
+  Assets:USBank 1000 USD
+  Equity:Opening -10000 CNY
+  Equity:Opening -1000 USD
+
+2025-03-31 23:30:00 "Late" "late march dinner"
+  Expenses:Food 40 CNY
+  Assets:Bank
+
+2025-04-01 "Landlord" "big rent on the first"
+  Expenses:Food 1630 CNY
+  Assets:Bank
+
+2025-04-01 "Garage" "car on the first"
+  Expenses:Travel 1500 CNY
+  Assets:Bank
+
+2025-04-02 "Airline" "US trip"
+  Expenses:Travel 300 USD
+  Assets:USBank
+
+2025-04-30 23:30:00 "Late" "late april dinner"
+  Expenses:Food 60 CNY
+  Assets:Bank
+
+2025-05-01 "Landlord" "may rent"
+  Expenses:Food 1630 CNY
+  Assets:Bank
+
+2025-05-02 budget-close food
+"#;
+
+/// Every figure of every row of `#budgets` that differs from what `GET /api/budgets` returns
+/// for the budget and month: `(budget, year, month, column, table, api)`.
+async fn budget_differences(ledger: &SharedLedger) -> Vec<(String, u32, u32, &'static str, Value, Value)> {
+    let rows = query(ledger, "SELECT name, year, month, assigned, activity, available, closed FROM #budgets").await;
+    let mut differences = vec![];
+    for row in rows {
+        let (year, month) = (row["year"].as_u64().unwrap() as u32, row["month"].as_u64().unwrap() as u32);
+        let request = BudgetListRequest {
+            year: Some(year),
+            month: Some(month),
+        };
+        let listed = body(get_budget_list(State(ledger.clone()), UrlQuery(request)).await).await;
+        let api = listed["data"].as_array().unwrap().iter().find(|it| it["name"] == row["name"]).unwrap().clone();
+        for (column, api_field) in [
+            ("assigned", "assigned_amount"),
+            ("activity", "activity_amount"),
+            ("available", "available_amount"),
+        ] {
+            if amount(&row[column]) != amount(&api[api_field]) {
+                let number = |value: &Value| json!(zhang_query::decimal::to_plain_string(&amount(value).0.normalized()));
+                differences.push((
+                    budget_name_of(&row).to_owned(),
+                    year,
+                    month,
+                    column,
+                    number(&row[column]),
+                    number(&api[api_field]),
+                ));
+            }
+        }
+        if row["closed"] != api["closed"] {
+            differences.push((
+                budget_name_of(&row).to_owned(),
+                year,
+                month,
+                "closed",
+                row["closed"].clone(),
+                api["closed"].clone(),
+            ));
+        }
+    }
+    differences
+}
+
+#[tokio::test]
+async fn budgets_differ_from_the_budget_api_where_it_is_wrong() {
+    let dir = ScratchDir::with(&[("main.zhang", MULTI_CURRENCY_BUDGET)]);
+    let ledger = load_dir(&dir.0).await;
+    let food = |year, month, column, table: Value, api: Value| ("food".to_owned(), year, month, column, table, api);
+    assert_eq!(
+        budget_differences(&ledger).await,
+        vec![
+            // the API reports the final close for every month; the table from May on
+            food(2025, 3, "closed", json!(false), json!(true)),
+            // the API adds the 300 USD of the US trip as 300; the table converts them at
+            // 7.0 CNY, the price as of April 2nd: 1630 + 1500 + 2100 + 60 = 5290 instead of 3490
+            food(2025, 4, "activity", json!("5290"), json!("3490")),
+            food(2025, 4, "available", json!("-4330"), json!("-2530")),
+            food(2025, 4, "closed", json!(false), json!(true)),
+            // and carries the difference over
+            food(2025, 5, "assigned", json!("-4330"), json!("-2530")),
+            food(2025, 5, "available", json!("-5960"), json!("-4160")),
+        ]
+    );
+    // in one commodity the API is right, and the table agrees with it on every figure
+    for name in ["budget-sytem-syntax-and-category", "query-zhang-tables"] {
+        let ledger = load(name).await;
+        let differences = budget_differences(&ledger).await;
+        assert!(
+            differences
+                .iter()
+                .all(|(_, _, _, column, table, api)| *column == "closed" && table == &json!(false) && api == &json!(true)),
+            "{name}: {differences:?}"
+        );
+    }
+}
+
+/// `#budget_events` has the events of the budget API (which has no close events), with the
+/// same timestamps and amounts.
+#[tokio::test]
+async fn budget_events_are_the_events_of_the_budget_api() {
+    let ledger = load("query-zhang-tables").await;
+    let rows = query(
+        &ledger,
+        "SELECT name, year(date) AS y, month(date) AS m, timestamp, type, amount FROM #budget_events",
+    )
+    .await;
+    assert_eq!(rows.len(), 7);
+    let months = rows
+        .iter()
+        .map(|row| {
+            (
+                budget_name_of(row).to_owned(),
+                row["y"].as_u64().unwrap() as u32,
+                row["m"].as_u64().unwrap() as u32,
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    for (name, year, month) in months {
+        let request = BudgetIntervalDetailRequest {
+            budget_name: name.clone(),
+            year,
+            month,
+        };
+        let detail = body(get_budget_interval_detail(State(ledger.clone()), UrlPath(request)).await).await;
+        let mut api = detail["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|it| it["type"] == "BudgetEvent")
+            .map(|it| {
+                let kind = it["event_type"].as_str().unwrap().to_owned();
+                (it["timestamp"].as_i64().unwrap(), amount(&it["amount"]), kind)
+            })
+            .collect::<Vec<_>>();
+        let mut table = rows
+            .iter()
+            .filter(|row| budget_name_of(row) == name && row["y"] == json!(year) && row["m"] == json!(month) && row["type"] != "close")
+            .map(|row| {
+                let kind = match row["type"].as_str().unwrap() {
+                    "assign" => "AddAssignedAmount",
+                    _ => "Transfer",
+                };
+                (row["timestamp"].as_i64().unwrap(), amount(&row["amount"]), kind.to_owned())
+            })
+            .collect::<Vec<_>>();
+        api.sort();
+        table.sort();
+        assert_eq!(table, api, "{name} {year}-{month}");
+    }
+    // the close of `fun` is an event of the table only
+    let closes = query(&ledger, "SELECT name, date FROM #budget_events WHERE type = 'close'").await;
+    assert_eq!(closes, vec![json!({"name": "fun", "date": "2024-04-01"}).as_object().unwrap().clone()]);
+}
+
+const DOCUMENTS_MAIN: &str = r#"
+option "operating_currency" "CNY"
+include "sub/more.zhang"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+
+2024-01-02 document Assets:Bank "statements/jan.pdf"
+
+2024-01-03 * "Shop" "documents of the transaction and of a posting"
+  document: "receipts/a.pdf"
+  document: "receipts/b.pdf"
+  Expenses:Food 10 CNY
+    document: "receipts/c.pdf"
+  Assets:Bank
+
+2024-01-04 * "Shop" "rejected: two implicit postings"
+  document: "receipts/rejected.pdf"
+  Expenses:Food
+  Assets:Bank
+"#;
+
+const DOCUMENTS_MORE: &str = r#"
+2024-01-01 document Assets:Bank "w.pdf"
+"#;
+
+/// `#documents` has the documents of `GET /api/documents`, with the same paths, dates and
+/// transaction ids. The API has no account for a document of a posting; the table has the
+/// posting's.
+#[tokio::test]
+async fn documents_are_the_documents_of_the_document_api() {
+    let dir = ScratchDir::with(&[("main.zhang", DOCUMENTS_MAIN), ("sub/more.zhang", DOCUMENTS_MORE)]);
+    let ledger = load_dir(&dir.0).await;
+    let rows = query(&ledger, "SELECT date, account, path, transaction_id, source FROM #documents").await;
+    let mut table = rows
+        .iter()
+        .map(|row| {
+            let account = if row["source"] == "directive" { row["account"].clone() } else { Value::Null };
+            json!({"date": row["date"], "path": row["path"], "account": account, "trx_id": row["transaction_id"]})
+        })
+        .collect::<Vec<_>>();
+    let documents = body(get_documents(State(ledger.clone())).await).await;
+    let mut api = documents["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| json!({"date": it["datetime"].as_str().unwrap()[..10], "path": it["path"], "account": it["account"], "trx_id": it["trx_id"]}))
+        .collect::<Vec<_>>();
+    let key = |it: &Value| it.to_string();
+    table.sort_by_key(key);
+    api.sort_by_key(key);
+    assert_eq!(table.len(), 5);
+    assert_eq!(table, api);
+    // the posting's document belongs to its account
+    assert_eq!(
+        query(&ledger, "SELECT account, path FROM #documents WHERE source = 'posting'").await,
+        vec![json!({"account": "Expenses:Food", "path": "receipts/c.pdf"}).as_object().unwrap().clone()]
+    );
 }

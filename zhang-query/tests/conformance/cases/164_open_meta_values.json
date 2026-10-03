@@ -1,0 +1,22 @@
+{
+  "name": "open_meta_values",
+  "query": "SELECT DISTINCT account, open_meta(account, 'institution') AS institution, open_meta(account, 'number') AS number, open_meta(account, 'account') AS account_number, open_meta(account, 'nope') AS missing WHERE account ~ '^Assets:US:(BofA|Vanguard)' ORDER BY account",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "account", "type": "str"},
+    {"name": "institution", "type": "str"},
+    {"name": "number", "type": "str"},
+    {"name": "account_number", "type": "str"},
+    {"name": "missing", "type": "str"}
+  ],
+  "rows": [
+    ["Assets:US:BofA:Checking", null, null, "00234-48574897", null],
+    ["Assets:US:Vanguard:Cash", null, "882882", null, null],
+    ["Assets:US:Vanguard:RGAGX", null, "882882", null, null],
+    ["Assets:US:Vanguard:VBMPX", null, "882882", null, null]
+  ],
+  "notes": "open_meta(account, key) is a metadata value of the account's open directive, NULL when absent. Metadata is not inherited: Assets:US:BofA:Checking has no institution although Assets:US:BofA has. beanquery's one-argument open_meta(account) is a dict with filename and lineno, which zhang does not keep, so it is not covered."
+}

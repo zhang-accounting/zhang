@@ -1,0 +1,6 @@
+2024-01-05 document Assets:Bank "docs/contract.pdf"
+
+2024-01-13 * "Shop" "Receipt in a sub file"
+  Expenses:Food                   3 CNY
+  Assets:Bank                    -3 CNY
+    document: "attachments/card-slip.pdf"
