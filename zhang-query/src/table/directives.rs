@@ -263,10 +263,10 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position of the assertion in #entries, from 0 in ledger order, comparable with the seq of the postings. A zhang \
-         extension.",
-        |_, record| match record {
-            Record::Balance { seq, .. } => Value::Int((*seq).into()),
+        "Position of the assertion in the order zhang processes the ledger, as seq in #entries: where zhang checks it, so \
+         it comes right after the postings its actual balance includes. A zhang extension.",
+        |data, record| match record {
+            Record::Balance { seq, .. } => Value::Int(data.entry_order(*seq).into()),
             _ => Value::Null,
         },
     ),
@@ -571,8 +571,8 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position in #entries of the document directive, or of the transaction that names the document. A zhang extension.",
-        |_, record| document(record).map_or(Value::Null, |it| Value::Int(it.seq.into())),
+        "seq of the document directive, or of the transaction that names the document, as in #entries. A zhang extension.",
+        |data, record| document(record).map_or(Value::Null, |it| Value::Int(data.entry_order(it.seq).into())),
     ),
     ColumnDef::record(
         "time",

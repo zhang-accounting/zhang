@@ -617,7 +617,7 @@ WHERE payee IN ('Amazon')
 | `balance` | `inventory` | [累计余额](#累计余额)：截至并包括本行的各行持仓之和。不能用在 `FROM` 或 `WHERE` 中。 |
 | `time` | `str` | 交易在账本时区中的时刻，格式为 `HH:MM:SS`。没有写时间的交易为 `00:00:00`。张记账扩展。 |
 | `timestamp` | `int` | 交易日期和时间的 Unix 时间，单位为秒。张记账扩展。 |
-| `seq` | `int` | 交易在 [`#entries`](#entries) 中的位置，从 0 开始。同一交易的所有分录共享这个值，所以 `ORDER BY seq DESC` 以稳定的顺序把最新的交易排在最前。会计期间子句的[合成交易](#合成交易)为 `NULL`。张记账扩展。 |
+| `seq` | `int` | 交易在[处理顺序](#处理顺序)中的位置，从 0 开始，与 [`#entries`](#entries) 中的一致。同一交易的所有分录共享这个值，所以 `ORDER BY seq DESC` 以稳定的顺序把最新的交易排在最前。会计期间子句的[合成交易](#合成交易)为 `NULL`。张记账扩展。 |
 | `posting_index` | `int` | 分录在其交易中按书写顺序的位置，从 0 开始。[批次记账](#批次记账)把一条分录拆成每个批次一行时，这些行共享这个值。张记账扩展。 |
 | `account_balance` | `inventory` | [账户余额](#账户余额)：本条分录之后该分录所属账户的余额。张记账扩展。 |
 | `balanced` | `bool` | 张记账发现交易不平衡（`UnbalancedTransaction` 错误）时为 `FALSE`，否则为 `TRUE`。张记账扩展。 |
@@ -692,6 +692,21 @@ ORDER BY currency
 - **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
 - **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual`、`passed`、`pad`、`id`、`seq`、`time` 和 `timestamp`；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
+### 处理顺序
+
+`#entries`、`#transactions`、`#balances`、`#documents` 和 [postings 表](#列)的 `seq` 列是记录在张记账处理账本的顺序中的位置，从 0 开始：
+
+1. 先按日期和时刻；没有写时刻的指令在 `00:00:00`；
+2. 同一时刻内，先是 `open` 和 `commodity` 指令，然后是余额记录（余额断言和补齐交易），再是其他所有指令；
+3. 再按指令在文件中的顺序；
+4. 例外：`balance ... with pad` 在同一时刻的其他余额记录（包括它的补齐交易）之后才检查，它的 `seq` 就是检查它的位置。
+
+余额就是按这个顺序变化的：分录的[累计余额](#累计余额)按这个顺序相加，一个断言紧跟在它的 `actual` 余额所包含的分录之后，所以按 `seq` 合并 `#balances` 和分录的行，每个断言都会在正确的位置。没有 `ORDER BY` 时，各表的行保持 beancount 的顺序，两者只在同一天之内不同：beancount 把断言排在当天的交易之前（不论它的时刻），把 `document` 和 `close` 排在交易之后。`ORDER BY seq` 按张记账的顺序列出各行。
+
+```sql
+SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
+```
+
 ### #entries
 
 | 列 | 类型 | 说明 |
@@ -704,7 +719,7 @@ ORDER BY currency
 | `tags`、`links` | `set` | 交易、note 或 document 的标签和链接；其他指令为 `NULL`。 |
 | `meta` | `str` | 指令的元数据。 |
 | `accounts` | `set` | 指令涉及的账户：交易的各分录账户，`open`、`close`、`balance`、`note` 或 `document` 的账户，以及 `balance ... with pad` 的补齐账户。其他指令为空集合。 |
-| `seq` | `int` | 指令在 `#entries` 中的位置，从 0 开始，即它按账本顺序的行号。`ORDER BY seq DESC` 把最新的记录排在最前。张记账扩展。 |
+| `seq` | `int` | 指令在[处理顺序](#处理顺序)中的位置，从 0 开始。`ORDER BY seq DESC` 把最新的记录排在最前。没有 `ORDER BY` 时各行保持 beancount 的顺序，在同一天之内可能与之不同。张记账扩展。 |
 | `time`、`timestamp` | `str`、`int` | 指令在账本时区中的时刻（`HH:MM:SS`，没有时间时为 `00:00:00`），以及其日期和时间的 Unix 时间，单位为秒。张记账扩展。 |
 | `metas` | `metas` | 指令的元数据，以 `(key, value)` 对给出，见[结构化元数据](#结构化元数据)。张记账扩展，不包含在 `SELECT *` 中。 |
 
@@ -720,7 +735,7 @@ ORDER BY currency
 | `accounts` | `set` | 各分录的账户。 |
 | `meta` | `str` | 交易的元数据。 |
 | `id` | `str` | 张记账为交易生成的标识符：与其分录的 `id` 以及它在 `#entries` 中那一行的 `id` 相同。张记账扩展。 |
-| `seq`、`time`、`timestamp` | `int`、`str`、`int` | 与 `postings` 中相同：交易在 `#entries` 中的位置、交易的时刻和 Unix 时间。张记账扩展。 |
+| `seq`、`time`、`timestamp` | `int`、`str`、`int` | 与 `postings` 中相同：交易在[处理顺序](#处理顺序)中的位置、交易的时刻和 Unix 时间。张记账扩展。 |
 | `balanced`、`errors` | `bool`、`set` | 与 `postings` 中相同：交易是否平衡，以及为它记录的错误种类。张记账扩展。 |
 | `metas` | `metas` | 交易的元数据，以 `(key, value)` 对给出，见[结构化元数据](#结构化元数据)。张记账扩展，不包含在 `SELECT *` 中。 |
 
@@ -740,7 +755,7 @@ ORDER BY currency
 | | `passed` | `bool` | 断言是否成立，与张记账的余额检查一致：`actual` 与断言金额之差在容差之内；断言没有容差时两者必须相等。不成立的断言也是 [`#errors`](#错误表) 中的一条 `AccountBalanceCheckError`。张记账扩展。 |
 | | `pad` | `str` | `balance ... with pad` 用来补齐的账户；没有 pad 的断言为 `NULL`。张记账扩展。 |
 | | `id` | `str` | 断言的唯一 id：它在 [`#entries`](#entries) 中那一行的 `id`。张记账扩展。 |
-| | `seq` | `int` | 断言在 [`#entries`](#entries) 中的位置，可以与分录的 `seq` 一起排序：与 beancount 一样，断言排在之前各天的分录之后、当天的交易之前。张记账扩展。 |
+| | `seq` | `int` | 断言在[处理顺序](#处理顺序)中的位置，即张记账检查它的位置，与 [`#entries`](#entries) 中的一致：紧跟在它的 `actual` 余额所包含的分录之后。张记账扩展。 |
 | | `time`、`timestamp` | `str`、`int` | 断言在账本时区中的时刻（`HH:MM:SS`，没有时刻时为 `00:00:00`）及其 Unix 时间（秒）。张记账扩展。 |
 | `#notes` | `date`、`account` | `date`、`str` | 备注的日期和账户。 |
 | | `comment` | `str` | 备注的内容。 |
@@ -754,7 +769,7 @@ ORDER BY currency
 | | `source` | `str` | 文档的来源：`document` 指令为 `'directive'`，交易或其分录的 `document` 元数据分别为 `'transaction'` 和 `'posting'`。张记账扩展。 |
 | | `path` | `str` | 按原样书写、相对于账本目录的文件路径：张记账相对于账本目录解析文档路径，网页界面也用这个路径下载文件。位于账本目录内的绝对路径会转换为相对于该目录的路径。张记账扩展。 |
 | | `transaction_id` | `str` | 元数据中的文档所属交易的 `id`，与 postings 表中的一致。`document` 指令为 `NULL`。张记账扩展。 |
-| | `seq` | `int` | `document` 指令，或在元数据中提到该文档的交易，在 [`#entries`](#entries) 中的位置。张记账扩展。 |
+| | `seq` | `int` | `document` 指令，或在元数据中提到该文档的交易的 [`seq`](#处理顺序)。张记账扩展。 |
 | | `time`、`timestamp` | `str`、`int` | `document` 指令，或在元数据中提到该文档的交易的时刻（`HH:MM:SS`）及其 Unix 时间（秒）。张记账扩展。 |
 | `#commodities` | `date` | `date` | `commodity` 指令的日期。 |
 | | `name` | `str` | 商品，例如 `USD`。 |
