@@ -20,8 +20,13 @@ pub(crate) fn save_plugin_content_into_cache_folder(plugin_hash: String, module_
     std::fs::create_dir_all(&plugin_cache_folder).with_path(plugin_cache_folder.as_path())?;
 
     // save the file into cache folder
-    info!("saving the plugin into cache folder: .cache/plugins/{}.wasm", plugin_hash);
     let wasm_cache_file = plugin_cache_folder.join(format!("{}.wasm", plugin_hash));
+    // an unchanged module is not written again: a write is a change a watcher sees, and a plugin listing a
+    // directory holding the cache would make every load trigger the next one
+    if std::fs::read(&wasm_cache_file).is_ok_and(|cached| cached == module_bytes) {
+        return Ok(());
+    }
+    info!("saving the plugin into cache folder: .cache/plugins/{}.wasm", plugin_hash);
     std::fs::write(&wasm_cache_file, module_bytes).with_path(wasm_cache_file.as_path())?;
     Ok(())
 }
@@ -81,7 +86,8 @@ impl DirectiveProcess for Plugin {
                     operations.new_error(error.kind.clone(), span, error.metas.clone())?;
                 }
                 let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
-                ledger.plugins.insert_plugin(self, declaration, span, &clock, timezone)?;
+                let files = crate::plugin::files::FileAccess::new(declaration.capabilities.allowed_paths.clone(), ledger.data_source.clone(), &ledger.entry.0);
+                ledger.plugins.insert_plugin(self, declaration, span, &clock, timezone, files)?;
                 // a rebuilt local module makes the ledger stale
                 if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, self.module.as_str()) {
                     ledger.extra_inputs.insert(input);

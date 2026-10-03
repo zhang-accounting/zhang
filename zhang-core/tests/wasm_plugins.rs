@@ -7,7 +7,7 @@
 #![cfg(feature = "plugin_runtime")]
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -19,7 +19,7 @@ use tempfile::TempDir;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo};
 use zhang_core::clock::Clock;
-use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
+use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
@@ -54,9 +54,12 @@ fn plugin(dir: &TempDir, fixture: &str) -> String {
 }
 
 fn try_load(dir: &TempDir, content: &str) -> ZhangResult<Ledger> {
+    try_load_from(dir, content, Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})))
+}
+
+fn try_load_from(dir: &TempDir, content: &str, source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
     std::fs::write(dir.path().join("main.zhang"), content).unwrap();
-    let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source))
+    Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
 }
 
 fn load(dir: &TempDir, content: &str) -> Ledger {
@@ -726,4 +729,276 @@ fn router_reads_the_clock_for_each_request_and_records_nothing() {
     // a request is not a load: the ledger does not start depending on the date
     assert!(!ledger.extra_inputs.contains(&ExtraInput::Clock), "{:?}", ledger.extra_inputs);
     assert_eq!(ledger.clock_reading(), None);
+}
+
+/// a ledger directory with the `files.wat` fixture, `documents/receipt.txt`, `documents/2024/a.csv` and
+/// `documents-private/secret.txt`
+fn documents_dir() -> TempDir {
+    let dir = ledger_dir(&["files.wat"]);
+    for (file, content) in [
+        ("documents/receipt.txt", "lunch 10 CNY\n"),
+        ("documents/2024/a.csv", "a,b"),
+        ("documents-private/secret.txt", "secret"),
+    ] {
+        let path = dir.path().join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+    dir
+}
+
+/// the content of the one comment a plugin replaced the stream with
+fn single_comment(ledger: &Ledger) -> String {
+    let comments = ledger
+        .metas
+        .iter()
+        .filter_map(|it| match &it.data {
+            Directive::Comment(comment) => Some(comment.content.clone()),
+            _ => None,
+        })
+        .collect_vec();
+    assert_eq!(comments.len(), 1, "the plugin emits one comment: {comments:?}");
+    comments.into_iter().next().unwrap()
+}
+
+/// the `files.wat` plugin declared with the `meta` lines (each `key: "value"`), loaded from `source`
+fn files_plugin_from(dir: &TempDir, meta: &[(&str, &str)], source: Arc<dyn DataSource>) -> (Ledger, serde_json::Value) {
+    let meta = meta.iter().map(|(key, value)| format!("  {key}: \"{value}\"\n")).join("");
+    let ledger = try_load_from(dir, &with_plugins(&format!("{}{meta}", plugin(dir, "files.wat"))), source)
+        .unwrap_or_else(|e| panic!("a file call never fails the load: {e}"));
+    let answer = single_comment(&ledger);
+    let answer = serde_json::from_str(&answer).unwrap_or_else(|e| panic!("the host answers JSON: {e}: {answer}"));
+    (ledger, answer)
+}
+
+/// the `files.wat` plugin declared with the `meta` lines, loaded from the local disk
+fn files_plugin(dir: &TempDir, meta: &[(&str, &str)]) -> (Ledger, serde_json::Value) {
+    files_plugin_from(dir, meta, Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})))
+}
+
+/// the extra inputs a load recorded besides plugin modules
+fn read_inputs(ledger: &Ledger) -> Vec<ExtraInput> {
+    ledger
+        .extra_inputs
+        .iter()
+        .filter(|it| !matches!(it, ExtraInput::File(path) if path.extension().is_some_and(|it| it == "wat")))
+        .cloned()
+        .collect()
+}
+
+fn error_kind(answer: &serde_json::Value) -> &str {
+    answer["Err"]["kind"].as_str().unwrap_or_else(|| panic!("an error answer: {answer}"))
+}
+
+#[test]
+fn plugin_reads_a_granted_file_and_it_becomes_an_extra_input() {
+    let dir = documents_dir();
+    let meta = [("allowed_paths", "documents"), ("read", "./documents//receipt.txt")];
+    let (mut ledger, answer) = files_plugin(&dir, &meta);
+
+    assert_eq!(answer, json!({"Ok": {"content": "lunch 10 CNY\n", "encoding": "utf8"}}));
+    assert_eq!(read_inputs(&ledger), vec![ExtraInput::File("documents/receipt.txt".into())]);
+    assert_eq!(errors(&ledger), vec![]);
+    // the receipt is no ledger file: the file editor does not list it
+    assert!(ledger.visited_files.iter().all(|it| !it.ends_with("receipt.txt")));
+
+    // a reload, as a change to the receipt triggers, reads the new content
+    std::fs::write(dir.path().join("documents/receipt.txt"), "lunch 12 CNY\n").unwrap();
+    ledger.reload().unwrap();
+    assert_eq!(single_comment(&ledger), r#"{"Ok":{"content":"lunch 12 CNY\n","encoding":"utf8"}}"#);
+}
+
+#[test]
+fn denied_read_is_a_value_not_a_trap() {
+    let dir = documents_dir();
+    let (ledger, answer) = files_plugin(&dir, &[("read", "documents/receipt.txt")]);
+
+    assert_eq!(error_kind(&answer), "denied");
+    assert!(
+        answer["Err"]["message"].as_str().unwrap().contains("allowed_paths"),
+        "the message says how to grant it: {answer}"
+    );
+    assert_eq!(read_inputs(&ledger), vec![], "a denied path is not an input");
+    assert_eq!(errors(&ledger), vec![]);
+}
+
+#[test]
+fn listing_is_recorded_as_a_dir_input() {
+    let dir = documents_dir();
+    let (ledger, answer) = files_plugin(&dir, &[("allowed_paths", "documents"), ("list", "documents")]);
+
+    assert_eq!(
+        answer,
+        json!({"Ok": {"entries": [{"name": "2024", "kind": "dir"}, {"name": "receipt.txt", "kind": "file"}]}})
+    );
+    assert_eq!(read_inputs(&ledger), vec![ExtraInput::Dir("documents".into())]);
+}
+
+#[test]
+fn file_access_security_rules_hold_through_the_host_functions() {
+    let dir = documents_dir();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("passwd"), "root").unwrap();
+    let absolute = dir.path().join("documents/receipt.txt").display().to_string();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        symlink("receipt.txt", dir.path().join("documents/latest.txt")).unwrap();
+        symlink("../documents-private/secret.txt", dir.path().join("documents/escape.txt")).unwrap();
+        symlink(outside.path().join("passwd"), dir.path().join("documents/passwd")).unwrap();
+    }
+    std::fs::File::create(dir.path().join("documents/big.pdf"))
+        .unwrap()
+        .set_len(16 * 1024 * 1024 + 1)
+        .unwrap();
+    std::fs::write(dir.path().join("documents/.secret"), "token").unwrap();
+
+    let mut cases = vec![
+        ("../outside.txt", "denied"),
+        ("documents/../documents-private/secret.txt", "denied"),
+        (absolute.as_str(), "denied"),
+        ("documents-private/secret.txt", "denied"),
+        ("documents/big.pdf", "too_large"),
+        ("documents/missing.pdf", "not_found"),
+        ("documents/.secret", "denied"),
+        ("documents/receipt.txt/", "invalid"),
+    ];
+    if cfg!(unix) {
+        cases.extend([("documents/escape.txt", "denied"), ("documents/passwd", "denied")]);
+    }
+    for (path, kind) in cases {
+        let (_, answer) = files_plugin(&dir, &[("allowed_paths", "documents"), ("read", path)]);
+        assert_eq!(error_kind(&answer), kind, "reading {path}: {answer}");
+    }
+
+    if cfg!(unix) {
+        let (_, answer) = files_plugin(&dir, &[("allowed_paths", "documents"), ("read", "documents/latest.txt")]);
+        assert_eq!(
+            answer,
+            json!({"Ok": {"content": "lunch 10 CNY\n", "encoding": "utf8"}}),
+            "a symlink inside the grant"
+        );
+    }
+}
+
+#[test]
+fn whole_root_grant_keeps_hidden_files_hidden() {
+    let dir = documents_dir();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(dir.path().join(".git/config"), "[remote] url = https://token@example.com").unwrap();
+    std::fs::write(dir.path().join(".env"), "TOKEN=1").unwrap();
+
+    for path in [".git/config", ".env"] {
+        let (_, answer) = files_plugin(&dir, &[("allowed_paths", "."), ("read", path)]);
+        assert_eq!(error_kind(&answer), "denied", "reading {path}: {answer}");
+    }
+    let (_, answer) = files_plugin(&dir, &[("allowed_paths", "."), ("list", ".")]);
+    let names = answer["Ok"]["entries"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a listing: {answer}"))
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect_vec();
+    assert!(names.iter().all(|it| !it.starts_with('.')), "{names:?}");
+    assert!(names.contains(&"documents".to_owned()), "{names:?}");
+
+    let (_, answer) = files_plugin(&dir, &[("allowed_paths", ".git"), ("read", ".git/config")]);
+    assert_eq!(answer["Ok"]["encoding"], "utf8", "a grant naming the hidden directory: {answer}");
+}
+
+/// a source reading the ledger directory the way a remote one (S3, WebDAV, GitHub) does: it has no local root,
+/// fetches files with `get` by their path relative to the ledger root, and cannot list directories
+struct RemoteLike {
+    root: PathBuf,
+    local: LocalFileSystemDataSource,
+}
+
+impl DataSource for RemoteLike {
+    fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+        let path = Path::new(&path);
+        let path = if path.is_absolute() { path.to_path_buf() } else { self.root.join(path) };
+        self.local.get(path.display().to_string())
+    }
+
+    fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+        self.local.load(entry, endpoint)
+    }
+}
+
+#[test]
+fn remote_source_reads_through_get_and_cannot_list() {
+    let dir = documents_dir();
+    let remote = || -> Arc<dyn DataSource> {
+        Arc::new(RemoteLike {
+            root: dir.path().to_path_buf(),
+            local: LocalFileSystemDataSource::new(ZhangDataType {}),
+        })
+    };
+
+    let (ledger, answer) = files_plugin_from(&dir, &[("allowed_paths", "documents"), ("read", "documents/receipt.txt")], remote());
+    assert_eq!(answer, json!({"Ok": {"content": "lunch 10 CNY\n", "encoding": "utf8"}}));
+    assert_eq!(read_inputs(&ledger), vec![ExtraInput::File("documents/receipt.txt".into())]);
+
+    let (_, answer) = files_plugin_from(&dir, &[("allowed_paths", "documents"), ("list", "documents")], remote());
+    assert_eq!(error_kind(&answer), "unsupported");
+
+    for (path, kind) in [("documents-private/secret.txt", "denied"), ("documents/../main.zhang", "denied")] {
+        let (_, answer) = files_plugin_from(&dir, &[("allowed_paths", "documents"), ("read", path)], remote());
+        assert_eq!(error_kind(&answer), kind, "reading {path}: {answer}");
+    }
+}
+
+#[test]
+fn invalid_allowed_paths_value_is_reported_and_grants_nothing() {
+    let dir = documents_dir();
+    let absolute = dir.path().join("documents").display().to_string();
+    let (ledger, answer) = files_plugin(&dir, &[("allowed_paths", &absolute), ("read", "documents/receipt.txt")]);
+
+    assert_eq!(error_kind(&answer), "denied");
+    let module = dir.path().join("files.wat").display().to_string();
+    let errors = errors(&ledger);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let (kind, span, error_metas) = &errors[0];
+    assert_eq!(kind, &ErrorKind::ParseInvalidMeta);
+    assert_eq!(error_metas, &metas(&[("plugin", &module), ("allowed_paths", &absolute)]));
+    assert!(
+        span.content.starts_with(&plugin(&dir, "files.wat")),
+        "on the plugin directive: {}",
+        span.content
+    );
+}
+
+#[test]
+fn forged_path_block_is_invalid_and_the_load_continues() {
+    // the plugin forges its block header so the kernel reports a ~2 GiB length and passes that block to
+    // `zhang_read_file` as the path; a host trusting the length slices that much memory and dies with
+    // SIGBUS. The fix answers `invalid` and the load goes on, even with every file granted.
+    let dir = ledger_dir(&["read_file_forge.wat"]);
+    let ledger = load(&dir, &with_plugins(&format!("{}  allowed_paths: \".\"\n", plugin(&dir, "read_file_forge.wat"))));
+
+    let answer: serde_json::Value = serde_json::from_str(&single_comment(&ledger)).unwrap();
+    assert_eq!(error_kind(&answer), "invalid", "{answer}");
+    assert!(answer["Err"]["message"].as_str().unwrap().starts_with("the path is "), "{answer}");
+    assert_eq!(read_inputs(&ledger), vec![]);
+}
+
+#[test]
+fn router_gets_no_file_access_even_with_allowed_paths() {
+    let dir = documents_dir();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/plugins/router_files.wat"),
+        dir.path().join("router_files.wat"),
+    )
+    .unwrap();
+    let directive = format!(
+        "{}  allowed_paths: \"documents\"\n  read: \"documents/receipt.txt\"\n",
+        plugin(&dir, "router_files.wat")
+    );
+    let ledger = load(&dir, &with_plugins(&directive));
+
+    let response = call(&ledger, "router-files", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap();
+
+    let answer: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+    assert_eq!(error_kind(&answer), "denied", "{answer}");
+    assert!(answer["Err"]["message"].as_str().unwrap().contains("processor or mapper"), "{answer}");
 }
