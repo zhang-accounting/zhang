@@ -1,3 +1,4 @@
+import BigNumber from 'bignumber.js';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ChartLine, CircleAlert, Cog, FileStack, NotebookText, WalletMinimal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -15,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { ACCOUNTS_LINK } from '@/layout/nav-links';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
+import { balanceCheckRows } from '../utils/balance-check';
 import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
@@ -82,6 +84,8 @@ function SingleAccount() {
 
   const details = Object.entries(account?.amount.detail ?? {});
   const multiple = details.length > 1;
+  // what a `balance` on the account is checked against: with its sub-accounts
+  const checkRows = account ? balanceCheckRows(account) : [];
 
   return (
     <PageShell>
@@ -152,12 +156,19 @@ function SingleAccount() {
         <TabsContent value="settings">
           <Section title={t('ledger.balance.title')} description={t('ledger.balance.description')}>
             {account ? (
-              details.length === 0 ? (
+              checkRows.length === 0 ? (
                 <EmptyState icon={WalletMinimal} title={t('ledger.balance.no_commodities')} />
               ) : (
                 <div className="flex flex-col gap-3">
-                  {details.map(([commodity, amount]) => (
-                    <AccountBalanceCheckLine key={commodity} currentAmount={amount} commodity={commodity} accountName={account.name} onSaved={reload} />
+                  {checkRows.map((row) => (
+                    <AccountBalanceCheckLine
+                      key={row.commodity}
+                      currentAmount={row.currentAmount}
+                      includesSubAccounts={row.includesSubAccounts}
+                      commodity={row.commodity}
+                      accountName={account.name}
+                      onSaved={reload}
+                    />
                   ))}
                 </div>
               )
@@ -179,6 +190,31 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
   const journals = useAsync(async () => (await retrieveAccountJournals({ account_name: accountName })).data.data, [accountName, reloadKey]);
   type Row = NonNullable<typeof journals.value>[number];
 
+  // A balance assertion adds nothing: its row shows the amount it asserted instead, red when it failed. The balance
+  // column stays the account's own; the balance the assertion was checked against, which includes the sub-accounts,
+  // shows next to the description when it differs.
+  const change = (item: Row, className?: string) =>
+    item.asserted ? (
+      <span title={t('ledger.preview.balance_amount')} className={cn('text-muted-foreground', !item.passed && 'text-destructive', className)}>
+        = <Amount amount={item.asserted.number} currency={item.asserted.commodity} />
+      </span>
+    ) : (
+      <Amount className={className} tone signed amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />
+    );
+  const failed = (item: Row) =>
+    item.passed === false && (
+      <Badge variant="destructive" className="shrink-0">
+        {t('ledger.journal.check_failed')}
+      </Badge>
+    );
+  const checkedAgainst = (item: Row) =>
+    item.checked_balance &&
+    !new BigNumber(item.checked_balance.number).eq(item.account_after.number) && (
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {t('ledger.account.checked_with_sub_accounts')} <Amount exact amount={item.checked_balance.number} currency={item.checked_balance.commodity} />
+      </span>
+    );
+
   if (journals.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(journals.error)} />;
 
   return (
@@ -198,13 +234,19 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
           key: 'payee',
           header: t('ledger.journals.col_description'),
           className: 'w-full max-w-0',
-          cell: (item) => <PayeeNarration payee={item.payee} narration={item.narration} />,
+          cell: (item) => (
+            <span className="flex min-w-0 items-center gap-2">
+              <PayeeNarration payee={item.payee} narration={item.narration} />
+              {failed(item)}
+              {checkedAgainst(item)}
+            </span>
+          ),
         },
         {
           key: 'change',
           header: t('ledger.account.col_change'),
           className: 'text-right',
-          cell: (item) => <Amount tone signed amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />,
+          cell: (item) => change(item),
         },
         {
           key: 'after',
@@ -216,13 +258,17 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
       renderCard={(item) => (
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
+              {failed(item)}
+            </span>
+            {checkedAgainst(item)}
             <span className="truncate text-xs text-muted-foreground">
               {[item.narration ? item.payee : null, fmt.dateTime(new Date(item.datetime))].filter(Boolean).join(' · ')}
             </span>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-0.5 text-sm">
-            <Amount className="font-semibold" tone signed amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />
+            {change(item, 'font-semibold')}
             <Amount className="text-xs text-muted-foreground" amount={item.account_after.number} currency={item.account_after.commodity} />
           </div>
         </div>

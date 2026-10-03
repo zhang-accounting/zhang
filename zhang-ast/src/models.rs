@@ -209,8 +209,11 @@ pub enum Flag {
     Okay,
     Warning,
 
+    /// `P`: a padding transaction, which a `balance ... with pad` books
     BalancePad,
 
+    /// `C`: the flag zhang once gave a balance check's correcting transaction. A check books nothing
+    /// now; a transaction written with this flag (beancount's conversions) is an ordinary transaction
     BalanceCheck,
 
     Custom(String),

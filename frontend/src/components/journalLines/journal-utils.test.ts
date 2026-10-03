@@ -2,8 +2,8 @@
 //   pnpm run test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { MetaEntry } from '@/api/types';
-import { transactionDocuments } from './journal-utils.ts';
+import type { JournalBalanceCheckItem, MetaEntry } from '@/api/types';
+import { isBalanceCheckPassed, journalStatus, transactionDocuments } from './journal-utils.ts';
 
 const doc = (value: string): MetaEntry => ({ key: 'document', value });
 const meta = (key: string, value: string): MetaEntry => ({ key, value });
@@ -35,4 +35,44 @@ test('transactionDocuments lists a path once when it appears several times', () 
 test('transactionDocuments is empty without document metadata', () => {
   assert.deepEqual(transactionDocuments(transaction([meta('source', 'web')], [meta('receipt', 'r-1')])), []);
   assert.deepEqual(transactionDocuments(transaction([])), []);
+});
+
+/** A balance check the server checked: `account_before` is the balance, `account_after` the asserted amount. */
+function check(balance: string, asserted: string, passed: boolean, tolerance: string | null = null): JournalBalanceCheckItem {
+  const amount = (number: string) => ({ number, commodity: 'CNY' });
+  const difference = String(Number(asserted) - Number(balance));
+  return {
+    type: 'BalanceCheck',
+    type_: 'C',
+    id: '00000000-0000-0000-0000-000000000000',
+    sequence: 1,
+    datetime: '2024-01-02T00:00:00',
+    payee: 'Balance Check',
+    narration: 'Assets:Bank',
+    tolerance,
+    passed,
+    postings: [
+      {
+        account: 'Assets:Bank',
+        unit: amount(difference),
+        cost: null,
+        inferred_unit: amount(difference),
+        account_before: amount(balance),
+        account_after: amount(asserted),
+        metas: [],
+      },
+    ],
+  };
+}
+
+test('a balance check within its tolerance passes, as the server decided', () => {
+  const data = check('50.004', '50', true, '0.01');
+  assert.equal(isBalanceCheckPassed(data), true);
+  assert.equal(journalStatus(data), 'ok');
+});
+
+test('a failing balance check is an error', () => {
+  const data = check('165', '200', false);
+  assert.equal(isBalanceCheckPassed(data), false);
+  assert.equal(journalStatus(data), 'error');
 });

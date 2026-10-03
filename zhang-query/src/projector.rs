@@ -524,7 +524,7 @@ option "operating_currency" "USD"
             let computed = data
                 .records
                 .iter()
-                .filter(|record| matches!(record, Record::Balance { actual: Some(_), .. }))
+                .filter(|record| matches!(record, Record::Balance { check: Some(_), .. }))
                 .count();
             (computed, data.records.len())
         };

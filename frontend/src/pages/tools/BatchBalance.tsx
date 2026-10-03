@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { batchBalanceRows, padsAnAccountWithItsSubAccount, subAccountsFirst } from '@/utils/balance-check';
 import { useListState } from '@/hooks/use-list-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -27,12 +28,15 @@ import { TOOLS_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import { loadable_unwrap } from '@/states';
 import { accountAtom, accountFetcher, accountSelectItemsAtom } from '@/states/account';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
+import { breadcrumbAtom, ledgerFormatAtom, titleAtom } from '@/states/basic';
 
 interface BalanceLineItem {
   commodity: string;
+  /** The balance a `balance` on the account is checked against: with its sub-accounts. */
   currentAmount: string;
   accountName: string;
+  /** The account has sub-accounts, which `currentAmount` includes. */
+  hasSubAccounts: boolean;
 
   balanceAmount: string;
   pad?: string;
@@ -61,17 +65,14 @@ export default function BatchBalance() {
         selectAtom(accountAtom, (val) =>
           loadable_unwrap(val, [], (data) => {
             // stable order: the API returns accounts in arbitrary order, rows must not jump on reload
-            return data
-              .flatMap((account) =>
-                Object.entries(account.amount.detail).map(([commodity, value]) => ({
-                  commodity: commodity,
-                  currentAmount: value,
-                  accountName: account.name,
-                  balanceAmount: '',
-                  pad: undefined,
-                })),
-              )
-              .sort((a, b) => a.accountName.localeCompare(b.accountName) || a.commodity.localeCompare(b.commodity));
+            return batchBalanceRows(data).map((row) => ({
+              commodity: row.commodity,
+              currentAmount: row.currentAmount,
+              accountName: row.accountName,
+              hasSubAccounts: row.includesSubAccounts,
+              balanceAmount: '',
+              pad: undefined,
+            }));
           }),
         ),
       [],
@@ -123,20 +124,30 @@ export default function BatchBalance() {
   // Derived (not stored) so that toggling "Reflect" off clears every flag and the count at once, and on brings them back.
   const hasMismatch = (account: BalanceLineItem) => reflectOnUnbalancedAmount && isMismatch(account);
   const filledCount = accounts.filter((account) => account.balanceAmount.trim() !== '').length;
+  // beancount cannot pass a pad of an account together with a balance of one of its sub-accounts
+  const ledgerFormat = useAtomValue(ledgerFormatAtom);
+  const beancountPadConflict =
+    ledgerFormat === 'beancount' &&
+    padsAnAccountWithItsSubAccount(
+      accounts.filter((account) => account.balanceAmount.trim() !== '').map((account) => ({ account_name: account.accountName, pad: account.pad ?? '' })),
+    );
   const mismatchCount = accounts.filter(hasMismatch).length;
 
   const onSave = async () => {
-    const accountsToBalance = accounts
-      .filter((account) => account.balanceAmount.trim() !== '')
-      .map((account) => ({
-        type: account.pad ? ('Pad' as const) : ('Check' as const),
-        account_name: account.accountName,
-        amount: {
-          number: account.balanceAmount,
-          commodity: account.commodity,
-        },
-        pad: account.pad ?? '',
-      }));
+    // sub-accounts first: a parent's `balance` covers them, so it must come after their pads
+    const accountsToBalance = subAccountsFirst(
+      accounts
+        .filter((account) => account.balanceAmount.trim() !== '')
+        .map((account) => ({
+          type: account.pad ? ('Pad' as const) : ('Check' as const),
+          account_name: account.accountName,
+          amount: {
+            number: account.balanceAmount,
+            commodity: account.commodity,
+          },
+          pad: account.pad ?? '',
+        })),
+    );
     toast.info(t('batch_balance.start_toast', { count: accountsToBalance.length }));
     setSubmitting(true);
     try {
@@ -251,8 +262,9 @@ export default function BatchBalance() {
                     {account.commodity}
                   </Badge>
                 </div>
-                <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
+                <span className="flex shrink-0 flex-col items-end text-sm text-muted-foreground tabular-nums">
                   <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity} />
+                  {account.hasSubAccounts && <span className="text-xs">{t('batch_balance.with_sub_accounts')}</span>}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -286,6 +298,7 @@ export default function BatchBalance() {
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     <Amount mask={maskCurrentAmount} amount={account.currentAmount} currency={account.commodity} />
+                    {account.hasSubAccounts && <div className="text-xs text-muted-foreground">{t('batch_balance.with_sub_accounts')}</div>}
                   </TableCell>
                   <TableCell>{padSelect(account, idx)}</TableCell>
                   <TableCell>
@@ -310,6 +323,7 @@ export default function BatchBalance() {
           {mismatchCount > 0 && (
             <span className="truncate text-xs text-destructive tabular-nums">{t('batch_balance.mismatch_count', { count: mismatchCount })}</span>
           )}
+          {beancountPadConflict && <span className="text-xs text-warning">{t('batch_balance.beancount_parent_pad')}</span>}
         </div>
         <Button
           variant="ghost"

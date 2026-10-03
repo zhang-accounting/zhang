@@ -1,0 +1,15 @@
+; Accepted deviation: a pad is sized from the balance with every padding before it.
+; Beancount sizes the pad of the parent account without the padding of its
+; sub-account, so it pads 60 where 40 are missing, and the parent's assertion fails.
+; Zhang pads the sub-account by 60 and the parent by 40, and both assertions hold.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Equity:Open
+
+2024-01-02 pad Assets:Bank:Checking Equity:Open
+2024-01-02 pad Assets:Bank Equity:Open
+2024-01-03 balance Assets:Bank:Checking  60 CNY
+2024-01-03 balance Assets:Bank  100 CNY

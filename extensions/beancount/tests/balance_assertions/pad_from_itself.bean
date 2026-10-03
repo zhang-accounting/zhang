@@ -1,0 +1,10 @@
+; A pad from the asserted account itself books nothing to its total, so the assertion
+; fails, as in beancount.
+option "operating_currency" "CNY"
+2020-01-01 commodity CNY
+2020-01-01 commodity USD
+
+2024-01-01 open Assets:A
+2024-01-01 open Equity:Open
+2024-01-04 pad Assets:A Assets:A
+2024-01-05 balance Assets:A 150 CNY

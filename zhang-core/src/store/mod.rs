@@ -10,6 +10,7 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, Meta, SpanInfo};
 
+use crate::constants::BALANCE_CHECK_PAYEE;
 use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain, QueryDomain};
 
 #[derive(Default, serde::Serialize)]
@@ -19,6 +20,10 @@ pub struct Store {
     pub commodities: IndexMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionDomain>,
     pub postings: Vec<PostingDomain>,
+
+    /// the `balance` assertions, in ledger order. They are not transactions and have no postings:
+    /// an assertion changes no balance
+    pub balance_assertions: Vec<BalanceAssertionDomain>,
 
     pub prices: Vec<PriceDomain>,
 
@@ -105,6 +110,48 @@ impl TransactionDomain {
             }
         });
         tag_matched && link_matched && keyword_matched
+    }
+}
+
+/// A `balance` assertion as the load checked it: the asserted amount next to the account's balance
+/// where the assertion stands.
+///
+/// It records a check, it is not a transaction: it has no postings, so nothing that sums postings
+/// books it, and no balance depends on it. A failing assertion is reported as an
+/// `AccountBalanceCheckError` and changes no number; `balance ... with pad` (a `P` transaction)
+/// is how a balance is corrected on purpose.
+#[derive(Clone, serde::Serialize, Debug)]
+pub struct BalanceAssertionDomain {
+    /// derived from the span of the `balance` directive, like a transaction id
+    pub id: Uuid,
+    /// its place in the journal: assertions and transactions share one sequence
+    pub sequence: i32,
+    pub datetime: DateTime<Tz>,
+    pub account: Account,
+    /// the asserted amount
+    pub amount: Amount,
+    /// the explicit tolerance (`~`); `None` asserts the exact amount
+    pub tolerance: Option<BigDecimal>,
+    /// the account's balance in the asserted currency where the assertion stands: the sum of the
+    /// postings of the account and all its sub-accounts before it, as in beancount
+    pub balance: Amount,
+    /// whether `balance` is within `tolerance` of `amount`
+    pub passed: bool,
+    pub span: SpanInfo,
+}
+
+impl BalanceAssertionDomain {
+    /// whether a journal search matches the assertion, the way [`TransactionDomain::match_keywords`] matches a
+    /// transaction. The journal lists an assertion with the payee `Balance Check` and its account as the narration
+    /// and the only account; it has no tags or links, so a search by tag or link never matches it
+    pub fn match_keywords(&self, keyword: Option<&String>, tags: &Option<HashSet<String>>, links: &Option<HashSet<String>>) -> bool {
+        if tags.is_some() || links.is_some() {
+            return false;
+        }
+        let Some(keyword) = keyword.map(|it| it.to_lowercase()) else {
+            return true;
+        };
+        BALANCE_CHECK_PAYEE.to_lowercase().contains(&keyword) || self.account.name().to_lowercase().contains(&keyword)
     }
 }
 

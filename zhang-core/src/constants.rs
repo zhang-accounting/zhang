@@ -27,6 +27,9 @@ pub const TRUE: &str = "true";
 
 pub const TXN_ID: &str = "txn_id";
 
+/// the payee a balance assertion is listed under in the journals; its narration is the account
+pub const BALANCE_CHECK_PAYEE: &str = "Balance Check";
+
 pub const COMMODITY_GROUP: &str = "group";
 
 /// `{{ext}}` is the main file's extension, so new directives are written in the ledger's own format

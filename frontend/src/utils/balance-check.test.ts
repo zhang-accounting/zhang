@@ -1,0 +1,68 @@
+// Pure-function tests for the balance-check rows, run with Node's built-in runner (Node >= 23.6 strips the types):
+//   pnpm run test
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { balanceCheckRows, batchBalanceRows, padsAnAccountWithItsSubAccount, subAccountsFirst } from './balance-check.ts';
+
+const calculated = { number: '0', commodity: 'CNY' };
+
+/** An account as the API returns it: its own balance always has the operating currency (CNY). */
+function account(name: string, own: Record<string, string>, withSubAccounts: Record<string, string>, hasSubAccounts: boolean) {
+  return {
+    name,
+    amount: { calculated, detail: { CNY: '0', ...own } },
+    balance_with_sub_accounts: withSubAccounts,
+    has_sub_accounts: hasSubAccounts,
+  };
+}
+
+test('a parent account is checked against the balance with its sub-accounts, labelled so', () => {
+  const bank = account('Assets:Bank', { CNY: '305' }, { CNY: '500', USD: '7' }, true);
+  assert.deepEqual(balanceCheckRows(bank), [
+    { commodity: 'CNY', currentAmount: '500', includesSubAccounts: true },
+    { commodity: 'USD', currentAmount: '7', includesSubAccounts: true },
+  ]);
+});
+
+test('an account without sub-accounts is not labelled', () => {
+  const cash = account('Assets:Cash', { CNY: '12' }, { CNY: '12' }, false);
+  assert.deepEqual(balanceCheckRows(cash), [{ commodity: 'CNY', currentAmount: '12', includesSubAccounts: false }]);
+});
+
+test('a new account gets a row in the operating currency, at zero', () => {
+  // the server gives the operating currency in both; an older one only in the own balance
+  assert.deepEqual(balanceCheckRows(account('Assets:Empty', {}, {}, false)), [{ commodity: 'CNY', currentAmount: '0', includesSubAccounts: false }]);
+  assert.deepEqual(balanceCheckRows(account('Assets:Empty', {}, { CNY: '0' }, false)), [{ commodity: 'CNY', currentAmount: '0', includesSubAccounts: false }]);
+});
+
+test('the batch tool lists every account, a new one too, against the balance with sub-accounts', () => {
+  const rows = batchBalanceRows([
+    account('Liabilities:Card', {}, {}, false),
+    account('Assets:Bank', { CNY: '305' }, { CNY: '500' }, true),
+    account('Assets:Bank:Checking', { CNY: '155' }, { CNY: '155' }, false),
+  ]);
+  assert.deepEqual(rows, [
+    { accountName: 'Assets:Bank', commodity: 'CNY', currentAmount: '500', includesSubAccounts: true },
+    { accountName: 'Assets:Bank:Checking', commodity: 'CNY', currentAmount: '155', includesSubAccounts: false },
+    { accountName: 'Liabilities:Card', commodity: 'CNY', currentAmount: '0', includesSubAccounts: false },
+  ]);
+});
+
+test('a batch writes the balances of sub-accounts before their parents', () => {
+  const balance = (account_name: string) => ({ account_name });
+  const ordered = subAccountsFirst([balance('Assets:Bank'), balance('Assets:Cash'), balance('Assets:Bank:Checking'), balance('Assets:Bank:Checking:Main')]);
+  assert.deepEqual(
+    ordered.map((it) => it.account_name),
+    ['Assets:Bank:Checking:Main', 'Assets:Bank:Checking', 'Assets:Bank', 'Assets:Cash'],
+  );
+});
+
+test('a batch padding an account and asserting one of its sub-accounts is flagged', () => {
+  const check = (account_name: string) => ({ account_name, pad: '' });
+  const pad = (account_name: string) => ({ account_name, pad: 'Equity:Open' });
+  assert.equal(padsAnAccountWithItsSubAccount([pad('Assets:Bank'), check('Assets:Bank:Checking')]), true);
+  assert.equal(padsAnAccountWithItsSubAccount([pad('Assets:Bank:Checking'), pad('Assets:Bank')]), true);
+  // a parent checked without a pad is fine, and so is a sibling that is no sub-account
+  assert.equal(padsAnAccountWithItsSubAccount([check('Assets:Bank'), pad('Assets:Bank:Checking')]), false);
+  assert.equal(padsAnAccountWithItsSubAccount([pad('Assets:Bank'), pad('Assets:Banking')]), false);
+});

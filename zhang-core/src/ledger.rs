@@ -1,15 +1,18 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
 
+use bigdecimal::BigDecimal;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use log::{error, info};
-use zhang_ast::{Directive, Flag, Options, Plugin, SpanInfo, Spanned};
+use uuid::Uuid;
+use zhang_ast::amount::Amount;
+use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, SpanInfo, Spanned};
 
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
@@ -19,9 +22,10 @@ use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
-use crate::pipeline::{builtin_stages, run_pipeline, ProcessStage, StageContext};
+use crate::pipeline::{builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, ProcessStage, StageContext};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
-use crate::store::Store;
+use crate::store::{BalanceAssertionDomain, Store};
+use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
 pub struct Ledger {
@@ -205,9 +209,9 @@ impl Ledger {
 
         // the pipeline always runs (built-in stages at least); `directives`/`metas`
         // reflect its output, so the store and the directive list agree
-        let processed = self.run_stages(full_stream)?;
+        let (processed, assertions) = self.run_stages(full_stream)?;
         let (metas, mut dated) = Ledger::partition_processed_directives(processed);
-        self.handle_other_directives(&mut dated)?;
+        self.handle_other_directives(&mut dated, assertions)?;
         self.metas = metas;
         self.directives = dated;
 
@@ -281,22 +285,31 @@ impl Ledger {
     ///   `open` naming a same-day commodity keeps its source order), then balance
     ///   entries (rank 1), then everything else (rank 2)
     /// - balance entries are balance pad/check directives *and* transactions
-    ///   flagged `P`/`C` — the flags of the transactions those directives
-    ///   materialize into. A stage inserting a balance transaction right after its
-    ///   directive can therefore rely on it staying there. Hand-written `P`/`C`
-    ///   transactions are balance entries too.
+    ///   flagged `P` — the padding transactions balance pads materialize into. The
+    ///   pad stage inserting one right after its directive can therefore rely on it
+    ///   staying there. Hand-written `P` transactions are balance entries too. A
+    ///   balance check materializes into nothing: it changes no balance
     pub(crate) fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
         fn rank(directive: &Directive) -> u8 {
             match directive {
                 Directive::Open(_) | Directive::Commodity(_) => 0,
-                Directive::BalancePad(_) | Directive::BalanceCheck(_) => 1,
-                Directive::Transaction(txn) if matches!(txn.flag, Some(Flag::BalancePad | Flag::BalanceCheck)) => 1,
+                _ if Ledger::is_balance_entry(directive) => 1,
                 _ => 2,
             }
         }
         // `sort_by_key` is stable; `None` (undated) sorts before any datetime
         directives.sort_by_key(|it| (it.datetime(), rank(&it.data)));
         directives
+    }
+
+    /// whether a directive is a balance entry, which [`Ledger::sort_directives_datetime`] puts before everything but
+    /// `open` and `commodity` within its datetime: a balance pad/check directive or a `P` transaction
+    pub(crate) fn is_balance_entry(directive: &Directive) -> bool {
+        match directive {
+            Directive::BalancePad(_) | Directive::BalanceCheck(_) => true,
+            Directive::Transaction(txn) => txn.flag == Some(Flag::BalancePad),
+            _ => false,
+        }
     }
 
     fn handle_options(&mut self, options_directives: &mut [(Options, SpanInfo)]) -> ZhangResult<()> {
@@ -326,8 +339,9 @@ impl Ledger {
         Ok(())
     }
 
-    /// fold the pipeline's output into the store
-    fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>]) -> Result<(), ZhangError> {
+    /// fold the pipeline's output into the store; `assertions` are what the balance-check stage found
+    /// for the `balance` directives
+    fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>], mut assertions: AssertionOutcomes) -> Result<(), ZhangError> {
         // `open`s and transactions feed the booker as they are folded; the lots it ends with become
         // the store's lots. Nothing in the fold reads the store's lots
         let mut booker = Booker::new(self.options.default_booking_method);
@@ -336,7 +350,14 @@ impl Ledger {
             booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
         }
         self.booker = Some(booker);
+        // the `balance ... with pad` directives of the balance entries being folded: their checks are kept after
+        // the last one, where the balance-check stage checked them, so they follow their padding in the journal
+        let mut pads: Vec<(BalancePad, SpanInfo)> = vec![];
+        let mut pads_at = None;
         for directive in directives.iter_mut() {
+            if !pads.is_empty() && !(Ledger::is_balance_entry(&directive.data) && directive.datetime() == pads_at) {
+                self.insert_pad_assertions(&mut pads, &mut assertions)?;
+            }
             match &mut directive.data {
                 // only dated directives reach the fold: options/plugins were handled
                 // before the pipeline, and the undated arms below are unreachable
@@ -345,9 +366,17 @@ impl Ledger {
                 Directive::Close(close) => close.handler(self, &directive.span)?,
                 Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
                 Directive::Transaction(trx) => trx.handler(self, &directive.span)?,
-                // the pad/check stages materialized these into transactions
-                Directive::BalancePad(_) => {}
-                Directive::BalanceCheck(_) => {}
+                // the pad stage materialized its padding into a transaction; its check is kept for the journal
+                Directive::BalancePad(pad) => {
+                    pads.push((pad.clone(), directive.span.clone()));
+                    pads_at = directive.datetime();
+                }
+                // books nothing: the check is kept for the journal
+                Directive::BalanceCheck(check) => {
+                    if let Some(outcome) = assertions.take(&directive.span) {
+                        self.insert_balance_assertion(&check.date, &check.account, &check.amount, check.tolerance.clone(), &directive.span, outcome)?;
+                    }
+                }
                 Directive::Note(_) => {}
                 Directive::Document(document) => document.handler(self, &directive.span)?,
                 Directive::Price(price) => price.handler(self, &directive.span)?,
@@ -363,9 +392,41 @@ impl Ledger {
                 Directive::BudgetClose(budget_close) => budget_close.handler(self, &directive.span)?,
             }
         }
+        self.insert_pad_assertions(&mut pads, &mut assertions)?;
         let booker = self.booker.take().expect("the booker is set at the start of the fold");
         self.operations().write().commodity_lots = booker.into_lots();
         Ok(())
+    }
+
+    /// keep the checks of the `balance ... with pad` directives in `pads` in the store
+    fn insert_pad_assertions(&mut self, pads: &mut Vec<(BalancePad, SpanInfo)>, assertions: &mut AssertionOutcomes) -> ZhangResult<()> {
+        for (pad, span) in pads.drain(..) {
+            if let Some(outcome) = assertions.take(&span) {
+                self.insert_balance_assertion(&pad.date, &pad.account, &pad.amount, None, &span, outcome)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// keep a checked balance assertion in the store, in its place among the transactions
+    fn insert_balance_assertion(
+        &mut self, date: &Date, account: &Account, amount: &Amount, tolerance: Option<BigDecimal>, span: &SpanInfo, outcome: AssertionOutcome,
+    ) -> ZhangResult<()> {
+        let sequence = self.trx_counter.fetch_add(1, Ordering::Relaxed);
+        let mut operations = self.operations();
+        // the padding transaction of a `balance ... with pad` has the id of its span already
+        let id = operations.unused_id(Uuid::from_span(span));
+        operations.insert_balance_assertion(BalanceAssertionDomain {
+            id,
+            sequence,
+            datetime: date.to_timezone_datetime(&self.options.timezone),
+            account: account.clone(),
+            amount: amount.clone(),
+            tolerance,
+            balance: outcome.balance,
+            passed: outcome.passed,
+            span: span.clone(),
+        })
     }
 
     /// the booker of the running store fold
@@ -394,8 +455,9 @@ impl Ledger {
 
     /// run the pipeline over the full directive stream; stage-reported errors are
     /// materialized into the store before the fold, and the inputs stages recorded
-    /// join [`Ledger::extra_inputs`]
-    fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
+    /// join [`Ledger::extra_inputs`]. Returns the stream with what the balance-check
+    /// stage found for its assertions
+    fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, AssertionOutcomes)> {
         let directives = Ledger::sort_directives_datetime(directives);
         let stages = self.build_stages();
         let options = self.operations().options()?;
@@ -407,10 +469,11 @@ impl Ledger {
 
         self.extra_inputs.extend(ctx.inputs().iter().cloned());
         let mut operations = self.operations();
-        for error in ctx.into_errors() {
+        let (errors, assertions) = ctx.into_results();
+        for error in errors {
             operations.new_error(error.kind, &error.span, error.metas)?;
         }
-        Ok(directives)
+        Ok((directives, assertions))
     }
 }
 
@@ -676,7 +739,7 @@ mod test {
 
         #[test]
         fn should_keep_balance_transaction_behind_its_directive() {
-            // a stage inserts a balance directive's transaction (flag `P`/`C`) right after it;
+            // the pad stage inserts a balance pad's transaction (flag `P`) right after it;
             // the re-sort keeps it there instead of moving it behind every balance entry
             let stream = test_parse_zhang(indoc! {r#"
                 1970-01-01 open Assets:Hello
@@ -685,14 +748,27 @@ mod test {
                   Assets:Hello 2 CNY
                   Equity:Open
                 1970-01-02 balance Assets:Hello 2 CNY
-                1970-01-02 C "Balance Check" "check"
-                  Assets:Hello 0 CNY
                 1970-01-02 * "regular"
                   Assets:Hello 1 CNY
                   Equity:Open
             "#});
             let expected = stream.iter().map(|it| it.data.clone()).collect_vec();
             assert_eq!(expected, Ledger::sort_directives_datetime(stream).into_iter().map(|it| it.data).collect_vec());
+        }
+
+        #[test]
+        fn should_sort_a_c_flagged_transaction_like_any_other() {
+            // a balance check materializes into nothing; a transaction flagged `C` (beancount's
+            // conversions) is an ordinary transaction, after the balance entries of its day
+            let sorted = Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                1970-01-02 C "Conversion" ""
+                  Assets:Hello 0 CNY
+                1970-01-02 balance Assets:Hello 2 CNY
+            "#}));
+            assert_eq!(
+                sorted.iter().map(|it| label(&it.data)).collect_vec(),
+                vec!["check Assets:Hello 2", "txn Conversion"]
+            );
         }
 
         /// more than 20 directives, so the real sort algorithm runs (not the
@@ -716,7 +792,7 @@ mod test {
             plugin "p1"
             2023-01-03 note Assets:A "n"
             2023-01-03 balance Assets:A 3 CNY
-            2023-01-03 C "check" ""
+            2023-01-03 C "conversion" ""
               Assets:A 0 CNY
             2023-01-01 commodity CNY
             2023-01-02 10:00 * "t3" ""
@@ -778,9 +854,10 @@ mod test {
                     "txn t3",
                     "open Assets:D",
                     "check Assets:A 3",
-                    "txn check",
+                    // a `C` transaction is no balance entry
                     "txn t1",
                     "Note",
+                    "txn conversion",
                     "Document",
                     "Event",
                 ]
@@ -821,27 +898,21 @@ mod test {
                 2023-01-02 balance Assets:A 90 CNY
             "#});
 
-            let store = ledger.store.read().unwrap();
-            let journal = store
-                .transactions
-                .values()
-                .sorted_by_key(|it| it.sequence)
-                .map(|it| (it.flag.clone(), it.postings.iter().map(|p| p.after_amount.number.clone()).collect_vec()))
-                .collect_vec();
+            // the pad is the only transaction: checks book nothing
             assert_eq!(
-                journal,
+                journal(&ledger),
+                vec![(Flag::BalancePad, vec![posting("Assets:A", 100, 100), posting("Equity:Open", -100, -100)])]
+            );
+            // the `balance ... with pad` is checked, and kept, after the balance entries of its time
+            assert_eq!(
+                assertions(&ledger),
                 vec![
-                    (Flag::BalancePad, vec![BigDecimal::from(100), BigDecimal::from(-100)]),
-                    (Flag::BalanceCheck, vec![BigDecimal::from(100)]),
-                    (Flag::BalanceCheck, vec![BigDecimal::from(90)]),
+                    assertion(2, "Assets:A", 100, 100, true),
+                    assertion(3, "Assets:A", 100, 100, true),
+                    assertion(4, "Assets:A", 90, 100, false)
                 ]
             );
-            let errors = store
-                .errors
-                .iter()
-                .map(|it| (it.error_type.clone(), it.metas.get("account_name").cloned()))
-                .collect_vec();
-            assert_eq!(errors, vec![(ErrorKind::AccountBalanceCheckError, Some("Assets:A".to_owned()))]);
+            assert_eq!(errors(&ledger), vec![(ErrorKind::AccountBalanceCheckError, Some("Assets:A".to_owned()))]);
         }
 
         #[test]
@@ -896,6 +967,31 @@ mod test {
 
         fn posting(account: &str, inferred: i32, after: i32) -> BookedPosting {
             (account.to_owned(), BigDecimal::from(inferred), BigDecimal::from(after))
+        }
+
+        /// (sequence, account, asserted number, balance number, passed)
+        type CheckedAssertion = (i32, String, BigDecimal, BigDecimal, bool);
+
+        fn assertions(ledger: &Ledger) -> Vec<CheckedAssertion> {
+            let store = ledger.store.read().unwrap();
+            store
+                .balance_assertions
+                .iter()
+                .map(|it| {
+                    assert_eq!(it.amount.commodity, it.balance.commodity);
+                    (
+                        it.sequence,
+                        it.account.name().to_owned(),
+                        it.amount.number.clone(),
+                        it.balance.number.clone(),
+                        it.passed,
+                    )
+                })
+                .collect_vec()
+        }
+
+        fn assertion(sequence: i32, account: &str, asserted: i32, balance: i32, passed: bool) -> CheckedAssertion {
+            (sequence, account.to_owned(), BigDecimal::from(asserted), BigDecimal::from(balance), passed)
         }
 
         #[test]
@@ -980,8 +1076,9 @@ mod test {
         }
 
         #[test]
-        fn should_book_same_day_check_then_pad_in_directive_order() {
-            // the same journal the store fold produced before the stages existed
+        fn should_size_a_pad_from_the_true_balance_after_a_failing_check() {
+            // the failing check changes nothing: the account still holds 10 when padded to 100,
+            // so the pad books 90 and the books net to zero
             let ledger = load_from_temp_str(indoc! {r#"
                 1970-01-01 open Assets:A
                 1970-01-01 open Equity:Open
@@ -997,12 +1094,112 @@ mod test {
                 journal(&ledger),
                 vec![
                     (Flag::Okay, vec![posting("Assets:A", 10, 10), posting("Equity:Open", -10, -10)]),
-                    (Flag::BalanceCheck, vec![posting("Assets:A", 40, 50)]),
-                    (Flag::BalancePad, vec![posting("Assets:A", 50, 100), posting("Equity:Open", -50, -60)]),
-                    (Flag::BalanceCheck, vec![posting("Assets:A", 0, 100)]),
+                    (Flag::BalancePad, vec![posting("Assets:A", 90, 100), posting("Equity:Open", -90, -100)]),
+                ]
+            );
+            // the checks keep their place in the journal, between the transactions; the `balance ... with pad` is one
+            assert_eq!(
+                assertions(&ledger),
+                vec![
+                    assertion(2, "Assets:A", 50, 10, false),
+                    assertion(4, "Assets:A", 100, 100, true),
+                    assertion(5, "Assets:A", 100, 100, true)
                 ]
             );
             assert_eq!(errors(&ledger), vec![(ErrorKind::AccountBalanceCheckError, Some("Assets:A".to_owned()))]);
+        }
+
+        #[test]
+        fn should_pass_a_check_within_its_tolerance_without_moving_the_balance() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 open Assets:A
+                1970-01-01 open Equity:Open
+                2023-01-01 * "x"
+                  Assets:A 50.004 CNY
+                  Equity:Open
+                2023-01-02 balance Assets:A 50 ~ 0.01 CNY
+                2023-01-03 balance Assets:A 50.004 CNY
+            "#});
+
+            let store = ledger.store.read().unwrap();
+            let checks = store
+                .balance_assertions
+                .iter()
+                .map(|it| {
+                    (
+                        it.amount.number.to_string(),
+                        it.tolerance.as_ref().map(|it| it.to_string()),
+                        it.balance.number.to_string(),
+                        it.passed,
+                    )
+                })
+                .collect_vec();
+            assert_eq!(
+                checks,
+                vec![
+                    ("50".to_owned(), Some("0.01".to_owned()), "50.004".to_owned(), true),
+                    ("50.004".to_owned(), None, "50.004".to_owned(), true),
+                ]
+            );
+            assert!(store.errors.is_empty());
+            assert_eq!(store.transactions.len(), 1);
+        }
+
+        #[test]
+        fn should_check_a_balance_with_pad_after_the_pads_of_its_time() {
+            // the parent is padded to 500 first; the pad of its sub-account at the same time then moves it to 545,
+            // which the parent's assertion must report instead of holding silently
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 open Assets:Bank
+                1970-01-01 open Assets:Bank:Checking
+                1970-01-01 open Equity:Open
+                2024-01-02 * "init"
+                  Assets:Bank 345 CNY
+                  Assets:Bank:Checking 155 CNY
+                  Equity:Open
+                2024-01-10 balance Assets:Bank 500 CNY with pad Equity:Open
+                2024-01-10 balance Assets:Bank:Checking 200 CNY with pad Equity:Open
+            "#});
+
+            assert_eq!(errors(&ledger), vec![(ErrorKind::AccountBalanceCheckError, Some("Assets:Bank".to_owned()))]);
+            let store = ledger.store.read().unwrap();
+            let checks = store
+                .balance_assertions
+                .iter()
+                .map(|it| (it.account.name().to_owned(), it.balance.number.clone(), it.passed))
+                .collect_vec();
+            assert_eq!(
+                checks,
+                vec![
+                    ("Assets:Bank".to_owned(), BigDecimal::from(545), false),
+                    ("Assets:Bank:Checking".to_owned(), BigDecimal::from(200), true),
+                ]
+            );
+            // a check kept for a `balance ... with pad` has an id of its own, apart from its padding's and its postings'
+            let mut ids = store
+                .transactions
+                .keys()
+                .chain(store.postings.iter().map(|it| &it.id))
+                .chain(store.balance_assertions.iter().map(|it| &it.id))
+                .collect_vec();
+            let all = ids.len();
+            ids.sort();
+            ids.dedup();
+            assert_eq!(ids.len(), all);
+        }
+
+        #[test]
+        fn should_validate_a_c_flagged_transaction_like_any_other() {
+            // `C` is beancount's flag for conversions, not a balance check: an unbalanced one is an error
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 open Assets:A
+                2023-01-01 C "one-sided"
+                  Assets:A 10 CNY
+            "#});
+
+            assert_eq!(journal(&ledger), vec![(Flag::BalanceCheck, vec![posting("Assets:A", 10, 10)])]);
+            assert_eq!(errors(&ledger), vec![(ErrorKind::UnbalancedTransaction, None)]);
+            assert!(assertions(&ledger).is_empty());
         }
 
         /// a ledger whose comparator-based sort panicked ("user-provided comparison
@@ -1080,7 +1277,7 @@ mod test {
                     other => other.directive_type().to_string(),
                 })
                 .collect_vec();
-            assert_eq!(same_day, vec!["Open", "BalanceCheck", "txn C", "BalancePad", "txn P", "txn *", "txn *"]);
+            assert_eq!(same_day, vec!["Open", "BalanceCheck", "BalancePad", "txn P", "txn *", "txn *"]);
             let missing = errors(&ledger)
                 .into_iter()
                 .filter(|(kind, _)| *kind == ErrorKind::AccountDoesNotExist)
@@ -1096,14 +1293,18 @@ mod test {
             let mut synthesized = 0;
             for (previous, directive) in ledger.directives.iter().tuple_windows() {
                 if let Directive::Transaction(txn) = &directive.data {
-                    if matches!(txn.flag, Some(Flag::BalancePad | Flag::BalanceCheck)) {
+                    // only pads synthesize transactions; checks book nothing
+                    assert_ne!(txn.flag, Some(Flag::BalanceCheck));
+                    if txn.flag == Some(Flag::BalancePad) {
                         synthesized += 1;
-                        assert!(matches!(previous.data, Directive::BalancePad(_) | Directive::BalanceCheck(_)));
+                        assert!(matches!(previous.data, Directive::BalancePad(_)));
                         assert_eq!(previous.span, directive.span);
                     }
                 }
             }
-            assert_eq!(synthesized, 5);
+            assert_eq!(synthesized, 1);
+            // four checks and the `balance ... with pad`
+            assert_eq!(ledger.store.read().unwrap().balance_assertions.len(), 5);
             // re-sorting the final stream changes nothing
             assert_eq!(ledger.directives.clone(), Ledger::sort_directives_datetime(ledger.directives.clone()));
         }
@@ -1232,7 +1433,7 @@ mod test {
 
         #[test]
         fn should_not_report_the_accounts_of_pad_and_balance_twice() {
-            // the stages report them on their directives; the `P`/`C` transactions they synthesize
+            // the stages report them on their directives; the `P` transactions the pads synthesize
             // post to the same accounts and must not report them again
             let ledger = load_from_temp_str(indoc! {r#"
                 1970-01-01 open Assets:A
@@ -1256,8 +1457,11 @@ mod test {
                     error(ErrorKind::AccountClosed, "2023-01-04 balance Assets:Closed 0 CNY", "Assets:Closed"),
                 ]
             );
-            // the synthesized transactions are still booked: two pads and two checks
-            assert_eq!(ledger.store.read().unwrap().transactions.len(), 4);
+            // the padding transactions are still booked, and the checks kept for the journal, those of the
+            // `balance ... with pad` directives too
+            let store = ledger.store.read().unwrap();
+            assert_eq!(store.transactions.len(), 2);
+            assert_eq!(store.balance_assertions.len(), 4);
         }
     }
     mod options {

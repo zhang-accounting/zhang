@@ -47,7 +47,6 @@ use std::fmt;
 use std::path::Path;
 
 use chrono::NaiveDate;
-use zhang_ast::amount::Amount;
 use zhang_ast::{Commodity, Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
@@ -276,10 +275,10 @@ pub(crate) enum Record<'a> {
         info: &'a cache::EntryInfo,
     },
     /// a balance assertion (`balance`, or `balance ... with pad`) and, when the projection
-    /// reads it, the true balance of its account at the assertion
+    /// reads it, what zhang's check of it found
     Balance {
         directive: &'a Spanned<Directive>,
-        actual: Option<Amount>,
+        check: Option<directives::AssertionCheck>,
     },
     /// a document: a `document` directive, or a `document` metadata value
     Document(directives::DocumentRow<'a>),

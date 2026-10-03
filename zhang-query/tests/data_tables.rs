@@ -101,10 +101,10 @@ fn balances_have_the_true_balance_and_whether_the_assertion_holds() {
             &["2024-01-06", "Assets:Bank:Checking", "1000 CNY", "NULL", "-30 CNY", "970 CNY", "FALSE"],
             // the failed assertion did not move the balance: it is still 970
             &["2024-01-07", "Assets:Bank:Checking", "970 CNY", "NULL", "NULL", "970 CNY", "TRUE"],
-            // only the account's own postings count, not its sub-account's: 50, within 0.01
-            &["2024-01-08", "Assets:Bank", "50.004 CNY", "0.01", "NULL", "50 CNY", "TRUE"],
-            // 50 is 0.02 away, more than the tolerance
-            &["2024-01-08", "Assets:Bank", "50.02 CNY", "0.01", "-0.02 CNY", "50 CNY", "FALSE"],
+            // the account's sub-accounts count too, as beancount checks a balance: its own 50 and
+            // the 970 of Assets:Bank:Checking, far from both asserted amounts
+            &["2024-01-08", "Assets:Bank", "50.004 CNY", "0.01", "969.996 CNY", "1020 CNY", "FALSE"],
+            &["2024-01-08", "Assets:Bank", "50.02 CNY", "0.01", "969.98 CNY", "1020 CNY", "FALSE"],
             // one currency of an account holding two: 970 - 700 CNY, and 100 USD
             &["2024-01-10", "Assets:Bank:Checking", "270 CNY", "NULL", "NULL", "270 CNY", "TRUE"],
             &["2024-01-10", "Assets:Bank:Checking", "100 USD", "NULL", "NULL", "100 USD", "TRUE"],
@@ -130,22 +130,87 @@ fn balances_have_the_true_balance_and_whether_the_assertion_holds() {
             &ledger,
             "SELECT account, count(*) FROM #balances WHERE NOT passed GROUP BY account ORDER BY account"
         ),
-        rows(&[&["Assets:Bank", "1"], &["Assets:Bank:Checking", "1"]])
+        rows(&[&["Assets:Bank", "2"], &["Assets:Bank:Checking", "1"]])
     );
 }
 
-/// Every assertion `passed` says fails is an error of zhang's balance check. (The converse
-/// needs assertions that no longer move balances: until then, zhang also reports a check that
-/// only fails against the balance an earlier failed check moved, like the one of the 7th.)
+/// The assertions `passed` says fail are the errors of zhang's balance check, and the other way
+/// round: assertions no longer move balances, so no check fails against a balance an earlier
+/// failed check moved (the one of the 7th holds).
 #[test]
 fn failed_assertions_are_balance_check_errors() {
     let ledger = common::load_text(BALANCES);
-    let failed = run(&ledger, "SELECT date, account FROM #balances WHERE NOT passed");
-    let errors = run(&ledger, "SELECT date, account FROM #errors WHERE kind = 'AccountBalanceCheckError'");
-    assert_eq!(failed.len(), 2);
-    for row in &failed {
-        assert!(errors.contains(row), "{:?} not in {:?}", row, errors);
-    }
+    let failed = run(&ledger, "SELECT date, account FROM #balances WHERE NOT passed ORDER BY date, account");
+    let errors = run(
+        &ledger,
+        "SELECT date, account FROM #errors WHERE kind = 'AccountBalanceCheckError' ORDER BY date, account",
+    );
+    assert_eq!(failed.len(), 3);
+    assert_eq!(failed, errors);
+}
+
+const PARENT_ACCOUNTS: &str = r#"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Equity:Opening
+1970-01-01 open Income:Salary
+
+2024-01-02 * "Opening"
+  Assets:Bank 345 CNY
+  Assets:Bank:Checking 155 CNY
+  Equity:Opening
+
+2024-01-03 * "Salary"
+  Assets:Bank:Savings 100 CNY
+  Income:Salary
+
+2024-01-04 balance Assets:Bank 600 CNY
+2024-01-05 balance Assets:Bank 345 CNY
+2024-01-06 balance Assets:Bank 600.004 ~ 0.01 CNY
+2024-01-07 balance Assets:Bank:Checking 155 CNY
+2024-01-08 balance Assets:Bank:Savings 99 CNY
+
+2024-01-10 balance Assets:Bank 700 CNY with pad Equity:Opening
+2024-01-10 balance Assets:Bank:Checking 200 CNY with pad Equity:Opening
+2024-01-11 balance Assets:Bank 745 CNY
+"#;
+
+/// `passed` is zhang's balance check: an assertion passes exactly when zhang reports no
+/// `AccountBalanceCheckError` for it, also for parent accounts, whose balance includes their
+/// sub-accounts, for a tolerance, and for a `balance ... with pad`, which is checked once the
+/// pads of its time are booked.
+#[test]
+fn passed_is_the_balance_check_of_zhang() {
+    let ledger = common::load_text(PARENT_ACCOUNTS);
+    assert_eq!(
+        run(&ledger, "SELECT date, account, amount, discrepancy, actual, passed FROM #balances"),
+        rows(&[
+            // 345 of its own, 155 of Assets:Bank:Checking and 100 of Assets:Bank:Savings
+            &["2024-01-04", "Assets:Bank", "600 CNY", "NULL", "600 CNY", "TRUE"],
+            &["2024-01-05", "Assets:Bank", "345 CNY", "255 CNY", "600 CNY", "FALSE"],
+            // 0.004 away, within the tolerance of 0.01
+            &["2024-01-06", "Assets:Bank", "600.004 CNY", "NULL", "600 CNY", "TRUE"],
+            &["2024-01-07", "Assets:Bank:Checking", "155 CNY", "NULL", "155 CNY", "TRUE"],
+            &["2024-01-08", "Assets:Bank:Savings", "99 CNY", "1 CNY", "100 CNY", "FALSE"],
+            // the pad of the parent brings it to 700 (+100), then the pad of its sub-account of
+            // the same time adds 45 (155 to 200): checked after both, the parent is at 745
+            &["2024-01-10", "Assets:Bank", "700 CNY", "45 CNY", "745 CNY", "FALSE"],
+            &["2024-01-10", "Assets:Bank:Checking", "200 CNY", "NULL", "200 CNY", "TRUE"],
+            // the failed check moved nothing
+            &["2024-01-11", "Assets:Bank", "745 CNY", "NULL", "745 CNY", "TRUE"],
+        ])
+    );
+    let failed = run(&ledger, "SELECT date, account FROM #balances WHERE NOT passed ORDER BY date, account");
+    let errors = run(
+        &ledger,
+        "SELECT date, account FROM #errors WHERE kind = 'AccountBalanceCheckError' ORDER BY date, account",
+    );
+    assert_eq!(failed, errors);
+    assert_eq!(failed.len(), 3);
 }
 
 // ---------------------------------------------------------------------------------------

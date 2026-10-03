@@ -245,8 +245,8 @@ fn budgets(ledger: &Ledger) -> Budgets<'_> {
     Budgets { budgets, events }
 }
 
-/// The last transaction the store keeps, not counting the corrections of balance assertions,
-/// and its date: of the latest date, the last one folded.
+/// The last transaction the store keeps, and its date: of the latest date, the last one
+/// folded.
 fn last_transaction<'a>(ledger: &'a Ledger, store: &Store) -> Option<(NaiveDate, &'a Spanned<Directive>)> {
     let cache = LedgerCache::of(ledger, store);
     let (postings, entries) = (cache.postings(ledger, store), cache.entries(ledger, store));

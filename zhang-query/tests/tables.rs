@@ -378,13 +378,60 @@ fn balances_report_the_discrepancy_zhang_found() {
     assert_eq!(
         on_directives("SELECT * FROM #balances"),
         rows(&[
-            // a balance with pad always holds
+            // a balance with pad holds: it pads to its amount
             &["2024-02-01", "Assets:Bank", "100.00 USD", "NULL", "NULL"],
             // the balance (100.00 after the pad) minus the asserted 99.00
             &["2024-02-02", "Assets:Bank", "99.00 USD", "NULL", "1.00 USD"],
         ])
     );
     assert_eq!(on_directives("SELECT count(*) FROM #balances WHERE discrepancy IS NULL"), rows(&[&["1"]]));
+}
+
+#[test]
+fn a_balance_discrepancy_is_measured_from_the_postings() {
+    // an assertion moves no balance, failing or not: each one is measured from the postings, and a
+    // transaction flagged `C` (beancount's conversions) is an ordinary transaction
+    let ledger = common::load_text(
+        "1970-01-01 open Assets:Bank\n1970-01-01 open Equity:Opening\n\
+         2024-01-01 * \"Salary\"\n  Assets:Bank 165 CNY\n  Equity:Opening\n\
+         2024-01-02 balance Assets:Bank 200 CNY\n\
+         2024-01-03 balance Assets:Bank 200 CNY\n\
+         2024-01-04 balance Assets:Bank 165.004 ~ 0.01 CNY\n\
+         2024-01-05 C \"Conversion\"\n  Assets:Bank 10 CNY\n  Equity:Opening\n",
+    );
+    let query = |sql: &str| -> Vec<Vec<String>> {
+        let result = Query::compile(sql)
+            .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+            .unwrap_or_else(|err| panic!("{}: {}", sql, err));
+        result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
+    };
+    assert_eq!(
+        query("SELECT date, discrepancy FROM #balances"),
+        rows(&[&["2024-01-02", "-35 CNY"], &["2024-01-03", "-35 CNY"], &["2024-01-04", "NULL"]])
+    );
+    assert_eq!(
+        query("SELECT flag, sum(position) WHERE account = 'Assets:Bank' GROUP BY flag ORDER BY flag"),
+        rows(&[&["*", "165 CNY"], &["C", "10 CNY"]])
+    );
+}
+
+#[test]
+fn a_balance_with_pad_reports_the_discrepancy_a_later_pad_of_its_time_leaves() {
+    let ledger = common::load_text(
+        "1970-01-01 open Assets:Bank\n1970-01-01 open Assets:Bank:Checking\n1970-01-01 open Equity:Opening\n\
+         2024-01-02 * \"init\"\n  Assets:Bank 345 CNY\n  Assets:Bank:Checking 155 CNY\n  Equity:Opening\n\
+         2024-01-10 balance Assets:Bank 500 CNY with pad Equity:Opening\n\
+         2024-01-10 balance Assets:Bank:Checking 200 CNY with pad Equity:Opening\n",
+    );
+    let result = Query::compile("SELECT account, discrepancy FROM #balances")
+        .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+        .unwrap();
+    let rows_of = result
+        .rows
+        .iter()
+        .map(|row| row.iter().map(Value::to_string).collect())
+        .collect::<Vec<Vec<String>>>();
+    assert_eq!(rows_of, rows(&[&["Assets:Bank", "45 CNY"], &["Assets:Bank:Checking", "NULL"]]));
 }
 
 #[test]

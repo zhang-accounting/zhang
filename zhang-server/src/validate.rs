@@ -102,6 +102,9 @@ impl Names {
         for price in &store.prices {
             names.commodities.extend([price.commodity.clone(), price.target_commodity.clone()]);
         }
+        names
+            .commodities
+            .extend(store.balance_assertions.iter().map(|assertion| assertion.amount.commodity.clone()));
         for transaction in store.transactions.values() {
             names.tags.extend(transaction.tags.iter().cloned());
             names.links.extend(transaction.links.iter().cloned());
@@ -457,5 +460,35 @@ mod test {
         assert!(meta_key("Receipt", &rules).is_ok(), "an existing key passes");
         assert!(meta_key("Other", &rules).is_err(), "a new key must be one beancount accepts");
         assert!(tag("two words", &rules).is_err(), "zhang's rules still apply");
+    }
+
+    #[test]
+    fn a_commodity_only_a_balance_assertion_uses_is_known() {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use chrono::TimeZone;
+        use zhang_core::store::BalanceAssertionDomain;
+
+        let mut store = Store::default();
+        let usd = Amount::new(BigDecimal::from(1), "Usd");
+        store.balance_assertions.push(BalanceAssertionDomain {
+            id: uuid::Uuid::nil(),
+            sequence: 1,
+            datetime: chrono_tz::Tz::UTC.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            account: Account::from_str("Assets:Cash").unwrap(),
+            amount: usd.clone(),
+            tolerance: None,
+            balance: usd.clone(),
+            passed: true,
+            span: Default::default(),
+        });
+        let store = RwLock::new(store);
+        let rules = Rules::Beancount(KnownNames::of(&store));
+        assert!(amount(&usd, &rules).is_ok(), "a commodity of an assertion is one the ledger has");
+        assert!(
+            amount(&Amount::new(BigDecimal::from(1), "Eur"), &rules).is_err(),
+            "a new one must be one beancount accepts"
+        );
     }
 }

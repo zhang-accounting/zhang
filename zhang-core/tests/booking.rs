@@ -857,11 +857,12 @@ fn current_behavior_e6_empty_cost_augmentation_merges_into_the_first_cost_lot() 
 }
 
 #[test]
-fn current_behavior_e8_balance_correction_on_cost_account_goes_to_the_default_lot() {
-    // current behavior (booking-split design E8, #423); expected to change in a follow-up fix PR
+fn e8_a_failing_balance_check_leaves_the_lots_alone() {
+    // booking-split design E8, #423: a balance check books nothing, as in beancount, so a failing
+    // one on a cost account is an error and does not add a correcting lot
     let ledger = load(&format!("{BUY_10_AT_10}2024-05-17 balance Assets:A 8 USD\n"));
     assert_eq!(errors(&ledger), vec![(ErrorKind::AccountBalanceCheckError, None)]);
-    assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {10 CNY, 2024-05-16}", "-2 USD"]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {10 CNY, 2024-05-16}"]);
 }
 
 #[test]

@@ -105,6 +105,68 @@ For tracking money you spend.
 2023-01-01 open Expenses:Transportation:Gas USD
 ```
 
+## Balance Assertions and Pads
+
+### Balance Assertions
+
+A `balance` directive asserts what an account holds in one commodity:
+
+```zhang
+2024-01-31 balance Assets:Bank:Checking 1520.00 CNY
+2024-01-31 balance Assets:Bank:Checking 1520.00 ~ 0.01 CNY
+```
+
+- The assertion is checked at the start of its date (at its time, if it has one), against the sum of the account's
+  postings before it. Transactions of the same day come after it, as in Beancount.
+- It covers the account and all its sub-accounts, as in Beancount: `balance Assets:Bank 100 CNY` passes when
+  `Assets:Bank:Checking` holds 60 CNY and `Assets:Bank:Savings` holds 40 CNY.
+- It must match exactly, unless it gives a tolerance with `~`: `1520.00 ~ 0.01 CNY` passes for any balance from
+  1519.99 to 1520.01.
+- An assertion only checks. Passing or failing, it changes no balance: an account always holds the sum of its
+  postings, and every balance, report and journal shows that sum. A failing assertion is reported as an
+  [`AccountBalanceCheckError`](/user-guide/error-code/#accountbalancecheckerror).
+- The journal lists every assertion with the asserted amount, the balance it was checked against, and whether it
+  passed.
+
+### Pads
+
+To correct a balance on purpose, add `with pad` and the account to pad from:
+
+```zhang
+2024-01-01 balance Assets:Bank:Checking 1000.00 CNY with pad Equity:Opening-Balances
+```
+
+Zhang adds a padding transaction (flag `P`) that moves the difference between the asserted amount and the
+account's balance there from the pad account, so the assertion holds. The difference is measured from the sum of
+the postings of the account and its sub-accounts: an earlier assertion, even a failing one, does not count. The
+padding goes to the asserted account itself, also when it is a parent account. An account already at the asserted
+amount gets no padding transaction.
+
+The `balance ... with pad` is still an assertion, listed in the journal with the others. It is checked once every
+balance entry of its time is booked, and fails with an
+[`AccountBalanceCheckError`](/user-guide/error-code/#accountbalancecheckerror) instead of holding silently when the
+padding cannot bring the total to the asserted amount:
+
+- when the pad of a sub-account at the same time changes the total afterwards. Write the balances of sub-accounts
+  before those of their parents; the batch balance tool does so;
+- when it pads from the asserted account itself or from one of its sub-accounts: that padding moves units within
+  the total it asserts, so it never changes it. Beancount fails such a pad too.
+
+In a Beancount ledger, a pad of an account and a balance of one of its sub-accounts in the same batch fail
+`bean-check` whichever is written first: Beancount lets the sub-account's balance use up the parent's pad (see the
+differences below). The batch balance tool warns about it; check the parent without a pad instead.
+
+In a Beancount ledger, a `pad` directive serves the next `balance` of its own account in each commodity, until the
+account's next `pad`. A `balance` on the day of the `pad` comes before it and is not padded. Zhang differs from
+Beancount here:
+
+- The padding transaction is dated on the `balance` it serves, where Beancount dates it on the `pad`, and the `pad`
+  and its `balance` must be in the same file.
+- Only an assertion on the padded account itself uses the `pad`. Beancount also lets an assertion on a sub-account
+  use up the `pad` of its parent account, which then pads nothing for the parent's own assertion.
+- A pad is sized from the balance with every padding before it. Beancount sizes the pad of a parent account without
+  the padding of its sub-accounts, so the parent's assertion fails there by that padding.
+
 ## Best Practices
 
 1. **Account Hierarchy**

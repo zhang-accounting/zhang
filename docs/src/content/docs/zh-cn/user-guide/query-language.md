@@ -688,7 +688,7 @@ ORDER BY currency
 - **每个表有自己的列。**一个表只有为它列出的列，没有 `postings` 的列。`year`、`month` 和 `day` 只存在于 `#entries` 和 `postings` 中，其他表请使用 [`year(date)`](#日期函数) 等日期函数。所有函数、聚合函数，以及 `GROUP BY`、`HAVING`、`ORDER BY`、`PIVOT BY`、`DISTINCT` 和 `LIMIT` 都可以用于每个表。
 - **行的顺序。**没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
 - **元数据。**每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries` 和 `#transactions` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
-- **余额断言不是交易。**张记账把每条余额断言保存为一笔标记为 `C` 的交易。这些交易不会出现在 `#transactions` 和 `#entries` 中，断言在 `#entries` 中是一条 `balance` 记录。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
+- **余额断言不是交易。**断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
 - **张记账扩展。**有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual` 和 `passed`；以及 `#documents` 的 `source`、`path` 和 `transaction_id`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
 ### #entries
@@ -734,9 +734,9 @@ ORDER BY currency
 | | `account` | `str` | 被断言余额的账户。 |
 | | `amount` | `amount` | 断言的余额。 |
 | | `tolerance` | `decimal` | 显式给出的容差（`~ 0.01`），或 `NULL`。 |
-| | `discrepancy` | `amount` | 断言不成立时为 `actual` 减去断言金额；成立时为 `NULL`。 |
-| | `actual` | `amount` | 断言时账户在断言货币下的真实余额：此前记到这个账户本身的所有分录的数量之和，不含子账户，与张记账检查余额的方式一致。不成立的断言不会改变它。`balance ... with pad` 在其补齐交易之后检查。张记账扩展。 |
-| | `passed` | `bool` | 断言是否成立：`actual` 与断言金额之差在容差之内；断言没有容差时两者必须相等。张记账扩展。 |
+| | `discrepancy` | `amount` | 断言不成立时为 `actual` 减去断言金额；成立时为 `NULL`。`balance ... with pad` 也会检查：除非同一时间在它之后的填充改变了它的余额，或者它从被断言的账户本身或其子账户填充（这不会改变它的余额），它总是成立。 |
+| | `actual` | `amount` | 断言时账户在断言货币下的真实余额：此前记到这个账户及其子账户的所有分录的数量之和，与张记账检查余额的方式一致。断言从不改变它。`balance ... with pad` 在同一时间的填充都记账之后检查。张记账扩展。 |
+| | `passed` | `bool` | 断言是否成立，与张记账的余额检查一致：`actual` 与断言金额之差在容差之内；断言没有容差时两者必须相等。不成立的断言也是 [`#errors`](#错误表) 中的一条 `AccountBalanceCheckError`。张记账扩展。 |
 | `#notes` | `date`、`account` | `date`、`str` | 备注的日期和账户。 |
 | | `comment` | `str` | 备注的内容。 |
 | | `tags`、`links` | `set` | 标签和链接。 |
@@ -1577,6 +1577,6 @@ ORDER BY date
 - **`#accounts` 的 `open` 和 `close` 不带字段时读作日期。**在 beanquery 中它们是整条指令。
 - **`entry_meta()` 和 `any_meta()` 与 `meta()` 一样可用于每个表。**beanquery 只在 postings 表上接受它们。
 - **`#entries` 包含张记账的指令。**其中有张记账的预算指令；`balance ... with pad` 是一条 `balance` 记录，后面跟着它的补齐交易，而 beancount 中是一条 `pad` 和一条 `balance` 记录。记录的 `id` 是张记账的 ID，不是 beancount 的哈希值。
-- **余额断言只检查账户本身。**`#balances` 的 `discrepancy`、`actual` 和 `passed` 把断言金额与记到这个账户本身的分录比较，与张记账的余额检查一致。beancount 会把账户及其子账户加在一起。与 beancount 一样，余额就是分录之和：不成立或仅在容差内成立的断言不会改变它。
+- **`discrepancy`、`actual` 和 `passed` 遵循张记账的余额检查。**与 beancount 一样，张记账从该账户及其子账户分录的合计计算余额，断言不会改变任何余额。没有 `~` 容差的断言必须精确相等，而 beancount 会根据断言金额的小数位数推断容差。
 - **`#documents` 还列出交易的文档**，排在 `document` 指令之后：即交易和分录的 `document` 元数据的值，beancount 不把它们当作文档。
 - **CSV 导出保留精确的数字。**`bean-query` 会为对齐而在数字前补空格（`" 600.00"`），把 numberify 后的数字舍入到各货币的显示精度（`360.03` 而不是 `360.03016`），有些数字还会用指数写法（`1E+3`）。张记账都不会这样做。

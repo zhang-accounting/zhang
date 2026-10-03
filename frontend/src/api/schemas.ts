@@ -144,7 +144,11 @@ export interface paths {
     get: operations['get_basic_info'];
   };
   '/api/journals': {
-    /** Get Journals */
+    /**
+     * Get Journals
+     * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
+     * among the transactions; it books nothing.
+     */
     get: operations['get_journals'];
   };
   '/api/options': {
@@ -245,6 +249,7 @@ export interface operations {
           'application/json': {
             data: {
               alias?: string | null;
+              /** @description the account's own balance, that of its own postings */
               amount: {
                 calculated: {
                   commodity: string;
@@ -254,6 +259,15 @@ export interface operations {
                   [key: string]: string;
                 };
               };
+              /**
+               * @description the balance a balance assertion on the account is checked against, per currency: that of the account
+               * and all its sub-accounts
+               */
+              balance_with_sub_accounts: {
+                [key: string]: string;
+              };
+              /** @description whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes */
+              has_sub_accounts: boolean;
               name: string;
               /** @enum {string} */
               status: 'Open' | 'Close';
@@ -311,6 +325,7 @@ export interface operations {
           'application/json': {
             data: {
               alias?: string | null;
+              /** @description the account's own balance, that of its own postings */
               amount: {
                 calculated: {
                   commodity: string;
@@ -320,8 +335,17 @@ export interface operations {
                   [key: string]: string;
                 };
               };
+              /**
+               * @description the balance a balance assertion on the account is checked against, per currency: that of the account
+               * and all its sub-accounts
+               */
+              balance_with_sub_accounts: {
+                [key: string]: string;
+              };
               /** Format: date-time */
               date: string;
+              /** @description whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes */
+              has_sub_accounts: boolean;
               name: string;
               'r#type': string;
               /** @enum {string} */
@@ -457,17 +481,34 @@ export interface operations {
           'application/json': {
             data: {
               account: string;
+              /** @description the account's own balance after the row, that of its own postings, on every row */
               account_after: {
                 commodity: string;
                 number: string;
               };
+              /** @description for the row of a balance assertion: the asserted amount; null for a posting */
+              asserted?: {
+                commodity: string;
+                number: string;
+              } | null;
+              /**
+               * @description for the row of a balance assertion: the balance it was checked against, that of the account and
+               * all its sub-accounts; null for a posting
+               */
+              checked_balance?: {
+                commodity: string;
+                number: string;
+              } | null;
               /** Format: date-time */
               datetime: string;
+              /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
               inferred_unit: {
                 commodity: string;
                 number: string;
               };
               narration?: string | null;
+              /** @description for the row of a balance assertion: whether it held, within its tolerance; null for a posting */
+              passed?: boolean | null;
               payee?: string | null;
               timestamp: number;
               trx_id: string;
@@ -885,17 +926,34 @@ export interface operations {
                 }
               | {
                   account: string;
+                  /** @description the account's own balance after the row, that of its own postings, on every row */
                   account_after: {
                     commodity: string;
                     number: string;
                   };
+                  /** @description for the row of a balance assertion: the asserted amount; null for a posting */
+                  asserted?: {
+                    commodity: string;
+                    number: string;
+                  } | null;
+                  /**
+                   * @description for the row of a balance assertion: the balance it was checked against, that of the account and
+                   * all its sub-accounts; null for a posting
+                   */
+                  checked_balance?: {
+                    commodity: string;
+                    number: string;
+                  } | null;
                   /** Format: date-time */
                   datetime: string;
+                  /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                   inferred_unit: {
                     commodity: string;
                     number: string;
                   };
                   narration?: string | null;
+                  /** @description for the row of a balance assertion: whether it held, within its tolerance; null for a posting */
+                  passed?: boolean | null;
                   payee?: string | null;
                   timestamp: number;
                   trx_id: string;
@@ -1147,6 +1205,8 @@ export interface operations {
             data: {
               /** @description docker build date of zhang accounting */
               build_date: string;
+              /** @description the ledger's file format, from its main file's extension: `beancount` or `zhang` */
+              format: string;
               /** @description title of ledger */
               title?: string | null;
               /** @description version of zhang accounting */
@@ -1157,7 +1217,11 @@ export interface operations {
       };
     };
   };
-  /** Get Journals */
+  /**
+   * Get Journals
+   * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
+   * among the transactions; it books nothing.
+   */
   get_journals: {
     parameters: {
       query: {
@@ -1229,8 +1293,17 @@ export interface operations {
                     datetime: string;
                     /** Format: uuid */
                     id: string;
+                    /** @description the account */
                     narration?: string | null;
+                    /** @description whether the balance is within the tolerance of the asserted amount */
+                    passed: boolean;
+                    /** @description `Balance Check` */
                     payee: string;
+                    /**
+                     * @description one entry describing the check, not a posting: `account_before` is the balance it was checked against, that of the
+                     * account and all its sub-accounts where the assertion stands, `account_after` the asserted amount, and `unit` and
+                     * `inferred_unit` the asserted amount minus the balance
+                     */
                     postings: {
                       account: string;
                       account_after: {
@@ -1260,6 +1333,8 @@ export interface operations {
                       } | null;
                     }[];
                     sequence: number;
+                    /** @description the explicit tolerance (`~`) of the assertion; null for an exact one */
+                    tolerance?: string | null;
                     /** @enum {string} */
                     type: 'BalanceCheck';
                     type_: string;
@@ -1722,17 +1797,34 @@ export interface operations {
               to: string;
               top_transactions: {
                 account: string;
+                /** @description the account's own balance after the row, that of its own postings, on every row */
                 account_after: {
                   commodity: string;
                   number: string;
                 };
+                /** @description for the row of a balance assertion: the asserted amount; null for a posting */
+                asserted?: {
+                  commodity: string;
+                  number: string;
+                } | null;
+                /**
+                 * @description for the row of a balance assertion: the balance it was checked against, that of the account and
+                 * all its sub-accounts; null for a posting
+                 */
+                checked_balance?: {
+                  commodity: string;
+                  number: string;
+                } | null;
                 /** Format: date-time */
                 datetime: string;
+                /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                 inferred_unit: {
                   commodity: string;
                   number: string;
                 };
                 narration?: string | null;
+                /** @description for the row of a balance assertion: whether it held, within its tolerance; null for a posting */
+                passed?: boolean | null;
                 payee?: string | null;
                 timestamp: number;
                 trx_id: string;

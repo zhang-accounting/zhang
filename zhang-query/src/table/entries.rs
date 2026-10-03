@@ -1,10 +1,9 @@
 //! `#entries` (one row per directive) and `#transactions` (one row per transaction), as in
 //! beanquery.
 //!
-//! zhang materializes every balance assertion as a transaction with flag `C`; those are not
-//! transactions here (the assertion is a `balance` entry), and neither are transactions the
-//! ledger rejected (they never reach the store). The padding transactions of `balance ... with
-//! pad` (flag `P`) are, as in beancount.
+//! A balance assertion is a `balance` entry, not a transaction: it books nothing. Transactions
+//! the ledger rejected are not rows either (they never reach the store). The padding
+//! transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
 //!
 //! Both tables read their rows from the cache of the ledger ([`super::cache::Entries`]), which
 //! also gives zhang's own columns: `seq` (the position in `#entries`), and on `#transactions`
@@ -55,8 +54,8 @@ pub(super) static TRANSACTIONS: Table = Table {
     rows: Rows::Records(transaction_rows),
 };
 
-/// The entries, in ledger order: the dated directives without the correcting transactions of
-/// balance assertions and the transactions the ledger rejected (see [`super::cache::Entries`]).
+/// The entries, in ledger order: the dated directives without the transactions the ledger
+/// rejected (see [`super::cache::Entries`]).
 fn entry_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
     let table = LedgerCache::of(ledger, store).entries(ledger, store);
     table.rows.iter().map(|info| entry_record(ledger, info)).collect()

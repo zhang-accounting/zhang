@@ -1,0 +1,19 @@
+; A pad of a parent account and a pad of its sub-account, served by assertions of the
+; same day: the parent's pad finds the total right and pads nothing, the sub-account's
+; then moves it, and the parent's assertion fails, as in beancount. Nothing may end
+; up silently false.
+option "operating_currency" "CNY"
+2020-01-01 commodity CNY
+2024-01-01 open Assets:Bank
+2024-01-01 open Assets:Bank:Checking
+2024-01-01 open Assets:Bank:Savings
+2024-01-01 open Equity:Open
+2024-01-02 * "init"
+  Assets:Bank 305 CNY
+  Assets:Bank:Checking 155 CNY
+  Assets:Bank:Savings 40 CNY
+  Equity:Open
+2024-01-09 pad Assets:Bank Equity:Open
+2024-01-09 pad Assets:Bank:Checking Equity:Open
+2024-01-10 balance Assets:Bank 500 CNY
+2024-01-10 balance Assets:Bank:Checking 200 CNY

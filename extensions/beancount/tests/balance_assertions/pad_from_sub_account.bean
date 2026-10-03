@@ -1,0 +1,14 @@
+; A pad from a sub-account of the asserted account moves units within the total it
+; asserts, so it cannot make the assertion hold: it fails, as in beancount.
+option "operating_currency" "CNY"
+2020-01-01 commodity CNY
+2020-01-01 commodity USD
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Assets:Bank:Checking
+2024-01-01 open Equity:Open
+2024-01-02 * "init"
+  Assets:Bank:Checking 100 CNY
+  Equity:Open
+2024-01-04 pad Assets:Bank Assets:Bank:Checking
+2024-01-05 balance Assets:Bank 150 CNY

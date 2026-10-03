@@ -9,6 +9,9 @@ const DEFAULT_PATH: &str = "default_path";
 pub trait FromSpan {
     fn from_span(span: &SpanInfo) -> Uuid;
     fn from_txn_posting(txn_id: &Uuid, idx: usize) -> Uuid;
+    /// the `n`-th id derived from `id` for another directive at the same place, in a space of its own: it is no
+    /// posting id ([`FromSpan::from_txn_posting`]) of a transaction with `id`
+    fn derived(id: &Uuid, n: usize) -> Uuid;
 }
 
 impl FromSpan for Uuid {
@@ -20,6 +23,11 @@ impl FromSpan for Uuid {
 
     fn from_txn_posting(txn_id: &Uuid, idx: usize) -> Uuid {
         let string = digest(format!("{}-{}", txn_id, idx));
+        Uuid::from_str(&string[0..32]).expect("invalid uuid")
+    }
+
+    fn derived(id: &Uuid, n: usize) -> Uuid {
+        let string = digest(format!("{}#{}", id, n));
         Uuid::from_str(&string[0..32]).expect("invalid uuid")
     }
 }

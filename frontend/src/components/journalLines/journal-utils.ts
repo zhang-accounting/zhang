@@ -1,11 +1,9 @@
 // Type-only imports keep this module runnable by `node --test` (journal-utils.test.ts).
-import BigNumber from 'bignumber.js';
 import type { JournalBalanceCheckItem, JournalItem, JournalTransactionItem, MetaEntry } from '@/api/types';
 
-/** `true` when the balance assertion matches the accumulated amount. */
-export function isBalanceCheckPassed(data: JournalBalanceCheckItem) {
-  const posting = data.postings[0];
-  return new BigNumber(posting.account_after.number).eq(new BigNumber(posting.account_before.number));
+/** `true` when the balance assertion held, within its tolerance. The server decides it: a check within its tolerance passes. */
+export function isBalanceCheckPassed(data: Pick<JournalBalanceCheckItem, 'passed'>) {
+  return data.passed;
 }
 
 /** Problem level of a journal: unbalanced transaction / failed check → `error`, `!` flag → `warning`. */

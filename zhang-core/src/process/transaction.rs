@@ -19,20 +19,16 @@ use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
-use crate::{ZhangError, ZhangResult};
+use crate::ZhangResult;
 
 impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let id = Uuid::from_span(span);
         let txn_meta = || HashMap::of(TXN_ID, id.to_string());
-        // balance-check transactions (flag `C`) are exempt from validation
-        let exempt = self.flag == Some(Flag::BalanceCheck);
 
         // booking first: the lots decide the weights the implicit posting is interpolated from (E4)
         let booked = match ledger.booker_mut().book(self) {
             BookOutcome::Booked(booked) => booked,
-            // nothing to book an exempt transaction's implicit posting with: the load fails
-            BookOutcome::Unbookable { kind, .. } if exempt => return Err(ZhangError::ProcessError { span: span.clone(), kind }),
             // the transaction is rejected: it never reaches the store, nor its lots
             BookOutcome::Unbookable { kind, errors } => {
                 let mut operations = ledger.operations();
@@ -45,11 +41,7 @@ impl DirectiveProcess for Transaction {
         };
 
         let mut operations = ledger.operations();
-        let balance_error = if exempt {
-            None
-        } else {
-            operations.check_transaction_balance(&booked.residual)?
-        };
+        let balance_error = operations.check_transaction_balance(&booked.residual)?;
         if balance_error == Some(ErrorKind::CommodityDoesNotDefine) {
             operations.new_error(ErrorKind::CommodityDoesNotDefine, span, txn_meta())?;
         }

@@ -5,7 +5,7 @@
 //! information (price annotations, lot date and label, transaction metadata).
 //!
 //! Which entries produce rows follows beancount: transactions and padding transactions
-//! (flag `P`) do; balance assertions (stored by zhang as transactions with flag `C`) do not.
+//! (flag `P`) do; balance assertions, which book nothing, do not.
 //!
 //! Lot booking runs once per loaded ledger, over every posting ([`book`], kept in the
 //! [`LedgerCache`]). A query then assembles its rows from the booked ones: only those of the

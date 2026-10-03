@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 
 use chrono::NaiveDate;
 use uuid::Uuid;
-use zhang_ast::{Directive, Flag, SpanInfo, Transaction};
+use zhang_ast::{Directive, SpanInfo, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 use zhang_core::utils::id::FromSpan;
@@ -248,8 +248,7 @@ pub(crate) struct EntryInfo {
 impl Entries {
     /// The dated directives in beancount's order: by date, then by [`day_rank`], then in the
     /// order of the ledger's directives (which follows the source within a day for directives
-    /// without a time), without the correcting transactions of balance assertions and the
-    /// transactions zhang rejected, which never reached the store.
+    /// without a time), without the transactions zhang rejected, which never reached the store.
     fn build(ledger: &Ledger, store: &Store) -> Entries {
         let directives = &ledger.directives;
         let mut positions = Positions::default();
@@ -285,9 +284,9 @@ impl Entries {
             let directive = &directives[idx];
             let position = positions.of(&directive.span, false);
             let txn = match &directive.data {
-                Directive::Transaction(txn) => match position.and_then(|position| stored.get(&position)) {
-                    Some(id) if txn.flag != Some(Flag::BalanceCheck) => Some(*id),
-                    _ => continue,
+                Directive::Transaction(_) => match position.and_then(|position| stored.get(&position)) {
+                    Some(id) => Some(*id),
+                    None => continue,
                 },
                 _ => None,
             };
@@ -319,8 +318,8 @@ impl Entries {
 
 /// The booked rows of the `postings` table.
 pub(crate) struct Postings {
-    /// the stored transactions the rows belong to, without the correcting transactions of
-    /// balance assertions, in ledger order (by their sequence in the store)
+    /// the stored transactions the rows belong to, in ledger order (by their sequence in the
+    /// store)
     pub entries: Vec<CachedEntry>,
     /// the sequence of a stored transaction → its index in `entries` ([`NONE`] if not there)
     entry_of_sequence: Vec<u32>,
@@ -400,12 +399,7 @@ impl Postings {
         }
 
         // in ledger order; the sequence is copied next to the transaction to sort on it
-        let mut transactions = store
-            .transactions
-            .values()
-            .filter(|txn| txn.flag != Flag::BalanceCheck)
-            .map(|txn| (txn.sequence, txn))
-            .collect::<Vec<_>>();
+        let mut transactions = store.transactions.values().map(|txn| (txn.sequence, txn)).collect::<Vec<_>>();
         transactions.sort_unstable_by_key(|(sequence, _)| *sequence);
 
         let max_sequence = transactions.last().map(|(sequence, _)| *sequence).unwrap_or_default();

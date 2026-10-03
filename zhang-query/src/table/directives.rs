@@ -8,11 +8,11 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
-use bigdecimal::{BigDecimal, Zero};
+use bigdecimal::BigDecimal;
 use chrono::{Datelike, NaiveDate};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Directive, Meta, Posting, SpanInfo, Spanned, Transaction};
+use zhang_ast::{Account, Directive, Meta, Posting, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
@@ -41,7 +41,7 @@ pub(super) fn day_rank(directive: &Directive) -> i8 {
 /// then in ledger order (zhang's order of the day, which follows the source for directives
 /// without a time). These are the rows of `#entries`, in the order the cache of the ledger keeps
 /// them ([`super::cache::Entries`]), so every directive is there except the transactions that
-/// are no entries: the correcting transactions of balance assertions, and those zhang rejected.
+/// are no entries: those zhang rejected.
 pub(super) fn ledger_order<'a>(ledger: &'a Ledger, store: &Store) -> impl Iterator<Item = &'a Spanned<Directive>> {
     let entries = LedgerCache::of(ledger, store).entries(ledger, store);
     entries.rows.iter().map(|entry| &ledger.directives[entry.directive as usize])
@@ -92,11 +92,6 @@ pub(super) fn year(date: NaiveDate) -> u32 {
     date.year() as u32
 }
 
-/// Whether two spans start at the same position of the same file.
-fn same_position(a: &SpanInfo, b: &SpanInfo) -> bool {
-    a.start == b.start && a.filename == b.filename
-}
-
 // ---------------------------------------------------------------------------------------
 // #balances
 
@@ -119,98 +114,48 @@ fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&BigDec
 }
 
 /// The balance assertions. Only when the projection reads `actual`, `passed` or
-/// `discrepancy` are the balances computed ([`actual_balances`]).
+/// `discrepancy` are the checks zhang made looked up ([`assertion_checks`]).
 fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
     let wanted = ["actual", "passed", "discrepancy"]
         .into_iter()
         .any(|name| BALANCES.column(name).is_some_and(|column| projection.contains(column)));
-    let mut actuals = if wanted { actual_balances(ledger, store) } else { HashMap::new() };
+    let mut checks = if wanted { assertion_checks(store) } else { HashMap::new() };
     ledger_order(ledger, store)
         .filter(|directive| assertion(&directive.data).is_some())
         .map(|directive| Record::Balance {
             directive,
-            actual: actuals.remove(&std::ptr::from_ref(directive)),
+            check: checks.remove(&(directive.span.filename.as_deref(), directive.span.start)),
         })
         .collect()
 }
 
-/// A balance assertion of [`actual_balances`]: the bound of the directives whose transactions
-/// it sees (their index in the ledger's directives is below it), the assertion, and the asserted
-/// amount.
-type Assertion<'a> = (usize, &'a Spanned<Directive>, &'a Amount);
-
-/// The true balance of the account of every assertion, in the assertion's currency, keyed by
-/// the assertion: the units of every posting to that very account (not its sub-accounts, as
-/// zhang checks a balance) that the store folded before the assertion. The correcting
-/// transactions (flag `C`) zhang inserts after its checks are not postings, so a failed
-/// assertion does not move the balance. A `balance ... with pad` is checked after its own
-/// padding transaction (flag `P`), which follows it in the stream.
-///
-/// The postings are the cached rows of the asserted accounts ([`LedgerCache`]), in the order
-/// the store folded them, which is the order of the ledger's directives.
-fn actual_balances<'a>(ledger: &'a Ledger, store: &'a Store) -> HashMap<*const Spanned<Directive>, Amount> {
-    let cache = LedgerCache::of(ledger, store);
-    let (postings, entries) = (cache.postings(ledger, store), cache.entries(ledger, store));
-    // the assertions of every account in fold order, each with the bound of the transactions it
-    // sees: those folded before it, and its own padding for a balance with pad
-    let mut assertions: HashMap<&str, Vec<Assertion<'_>>> = HashMap::new();
-    for (idx, directive) in ledger.directives.iter().enumerate() {
-        let Some((account, amount, _)) = assertion(&directive.data) else {
-            continue;
-        };
-        let padding = matches!(directive.data, Directive::BalancePad(_))
-            && ledger.directives.get(idx + 1).is_some_and(|next| same_position(&next.span, &directive.span))
-            && entries.of_directive(idx + 1).is_some_and(|entry| entry.txn.is_some());
-        let bound = if padding { idx + 2 } else { idx };
-        assertions.entry(account.name()).or_default().push((bound, directive, amount));
-    }
-
-    let mut actuals = HashMap::new();
-    for (account, checks) in assertions {
-        let rows = postings.account_rows(account);
-        // currency -> units of the postings so far
-        let mut sums: HashMap<&str, BigDecimal> = HashMap::new();
-        let mut next = 0;
-        // the last posting added up: the rows booking splits a posting into share it
-        let mut last = None;
-        for (bound, directive, amount) in checks {
-            while let Some(row) = rows.get(next).map(|idx| &postings.rows[*idx as usize]) {
-                let entry = &postings.entries[row.entry as usize];
-                let folded_at = entry.entry.map(|seq| entries.rows[seq as usize].directive as usize);
-                if folded_at.is_some_and(|at| at >= bound) {
-                    break;
-                }
-                next += 1;
-                if last == Some((row.entry, row.posting_index)) {
-                    continue;
-                }
-                last = Some((row.entry, row.posting_index));
-                // a row booked against a lot may hold a part of the posting, or its units
-                // written with the lot's scale: those are read from the stored posting
-                let units = match row.lot.as_ref().and_then(|lot| lot.cost.as_ref()) {
-                    None => Some(&row.units),
-                    Some(_) => store
-                        .transactions
-                        .get(&entry.id)
-                        .and_then(|txn| txn.postings.get(row.posting_index as usize))
-                        .map(|posting| &posting.inferred_amount),
-                };
-                if let Some(units) = units {
-                    *sums.entry(units.commodity.as_str()).or_insert_with(BigDecimal::zero) += &units.number;
-                }
-            }
-            let units = sums.get(amount.commodity.as_str()).cloned().unwrap_or_else(BigDecimal::zero);
-            actuals.insert(std::ptr::from_ref(directive), Amount::new(units, amount.commodity.clone()));
-        }
-    }
-    actuals
+/// What zhang's balance check found for an assertion while loading the ledger.
+pub(crate) struct AssertionCheck {
+    /// the account's balance in the asserted currency where the assertion stands
+    actual: Amount,
+    /// whether the assertion holds; a failed one is an `AccountBalanceCheckError`
+    passed: bool,
 }
 
-/// Whether an assertion holds: `|actual - asserted| <= tolerance`, without a tolerance
-/// exactly, as zhang's balance check decides it.
-fn holds(actual: &Amount, asserted: &Amount, tolerance: Option<&BigDecimal>) -> bool {
-    let distance = (&actual.number - &asserted.number).abs();
-    tolerance.map_or(distance.is_zero(), |tolerance| distance <= *tolerance)
+/// The checks zhang made of the balance assertions while loading the ledger
+/// (`Store::balance_assertions`), by the position of their directive: the balance of the
+/// asserted account and its sub-accounts in the asserted currency, summed from the postings
+/// before the assertion (for a `balance ... with pad`, once the balance entries of its time are
+/// booked), and whether it is within the tolerance of the asserted amount. The same check
+/// reports an `AccountBalanceCheckError` when it fails. Assertions never move a balance.
+fn assertion_checks(store: &Store) -> HashMap<(Option<&Path>, usize), AssertionCheck> {
+    store
+        .balance_assertions
+        .iter()
+        .map(|check| {
+            let position = (check.span.filename.as_deref(), check.span.start);
+            let actual = AssertionCheck {
+                actual: check.balance.clone(),
+                passed: check.passed,
+            };
+            (position, actual)
+        })
+        .collect()
 }
 
 fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&BigDecimal>) -> Value) -> Value {
@@ -219,16 +164,12 @@ fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&Bi
         .map_or(Value::Null, |(account, amount, tolerance)| get(account, amount, tolerance))
 }
 
-/// The asserted amount, tolerance and true balance of an assertion row, if computed.
-fn balance_check<'r>(record: &'r Record<'_>) -> Option<(&'r Amount, Option<&'r BigDecimal>, &'r Amount)> {
-    let Record::Balance {
-        directive,
-        actual: Some(actual),
-    } = record
-    else {
+/// The asserted amount of an assertion row and what zhang's check of it found, if looked up.
+fn balance_check<'r>(record: &'r Record<'_>) -> Option<(&'r Amount, &'r AssertionCheck)> {
+    let Record::Balance { directive, check: Some(check) } = record else {
         return None;
     };
-    assertion(&directive.data).map(|(_, amount, tolerance)| (amount, tolerance, actual))
+    assertion(&directive.data).map(|(_, amount, _)| (amount, check))
 }
 
 static BALANCE_COLUMNS: &[ColumnDef] = &[
@@ -253,9 +194,7 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         DataType::Amount,
         "When the assertion fails, the true balance minus the asserted amount (actual - amount); NULL when it holds.",
         |_, record| match balance_check(record) {
-            Some((amount, tolerance, actual)) if !holds(actual, amount, tolerance) => {
-                Value::Amount(Amount::new(&actual.number - &amount.number, amount.commodity.clone()))
-            }
+            Some((amount, check)) if !check.passed => Value::Amount(Amount::new(&check.actual.number - &amount.number, amount.commodity.clone())),
             _ => Value::Null,
         },
     ),
@@ -266,15 +205,16 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         "actual",
         DataType::Amount,
         "The account's true balance in the asserted currency at the assertion: the units of every earlier posting to the \
-         account, not counting its sub-accounts; a balance with pad includes its padding. A zhang extension.",
-        |_, record| balance_check(record).map_or(Value::Null, |(_, _, actual)| Value::Amount(actual.clone())),
+         account and its sub-accounts, as zhang checks it; a balance with pad is checked once the pads of its time are \
+         booked. A zhang extension.",
+        |_, record| balance_check(record).map_or(Value::Null, |(_, check)| Value::Amount(check.actual.clone())),
     ),
     ColumnDef::record(
         "passed",
         DataType::Bool,
-        "Whether the assertion holds: actual is within the tolerance of the asserted amount, or equal to it without a \
-         tolerance. A zhang extension.",
-        |_, record| balance_check(record).map_or(Value::Null, |(amount, tolerance, actual)| Value::Bool(holds(actual, amount, tolerance))),
+        "Whether the assertion holds, as zhang's balance check decided it (a failing one is an AccountBalanceCheckError): \
+         actual is within the tolerance of the asserted amount, or equal to it without a tolerance. A zhang extension.",
+        |_, record| balance_check(record).map_or(Value::Null, |(_, check)| Value::Bool(check.passed)),
     ),
 ];
 

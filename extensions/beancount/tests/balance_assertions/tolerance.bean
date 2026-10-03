@@ -1,0 +1,16 @@
+; An assertion within its tolerance passes, one beyond it fails, and neither moves
+; the balance: every assertion sees the 50.004 the postings sum to.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+
+2024-01-01 * "x" "opening"
+  Assets:A  50.004 CNY
+  Equity:Open
+
+2024-01-02 balance Assets:A  50 ~ 0.01 CNY
+2024-01-03 balance Assets:A  49.99 ~ 0.01 CNY
+2024-01-04 balance Assets:A  50.004 CNY
+2024-01-05 balance Assets:A  50 CNY
