@@ -16,6 +16,18 @@ pub(crate) enum Literal {
     Date(NaiveDate),
 }
 
+impl Literal {
+    /// The same literal: decimals keep their scale, since it is part of their value's text
+    /// (`1.0` and `1.00` are equal numbers, but `number * 1.0` and `number * 1.00` print
+    /// differently).
+    fn same_as(&self, other: &Literal) -> bool {
+        match (self, other) {
+            (Literal::Decimal(a), Literal::Decimal(b)) => a.as_bigint_and_exponent() == b.as_bigint_and_exponent(),
+            (a, b) => a == b,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UnaryOp {
     Neg,
@@ -171,7 +183,7 @@ impl Expr {
     /// expressions against the targets.
     pub fn same_as(&self, other: &Expr) -> bool {
         match (&self.kind, &other.kind) {
-            (ExprKind::Literal(a), ExprKind::Literal(b)) => a == b,
+            (ExprKind::Literal(a), ExprKind::Literal(b)) => a.same_as(b),
             (ExprKind::Param(a), ExprKind::Param(b)) => a == b,
             (ExprKind::Column(a), ExprKind::Column(b)) => a == b,
             (

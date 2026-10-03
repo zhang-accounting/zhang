@@ -1079,6 +1079,17 @@ CASES = [
           ordered=True,
           notes="beanquery has no OFFSET, so offset is an ordinary name. zhang's OFFSET is only a keyword right after "
                 "a LIMIT count, so the name keeps working."),
+    case4("aggregate", "aggregate_written_twice",
+          "SELECT account, sum(position) AS total, units(sum(position)) AS units, count(*) AS n, count(*) * 2 AS twice "
+          "WHERE account ~ '^Expenses:Food' GROUP BY account ORDER BY account",
+          ordered=True,
+          notes="An aggregate written in several targets has the same value in each: zhang accumulates it once."),
+    case4("aggregate", "aggregate_literal_scale",
+          "SELECT str(max(number * 1.0)) AS one, str(max(number * 1.00)) AS two "
+          "WHERE account ~ 'Expenses:Food' AND currency = 'USD'",
+          notes="The scale of a decimal literal is part of the aggregate: the two maxima are the same number, with one "
+                "and two more decimal places, so they are not the same aggregate. str() shows the scale, which the "
+                "harness otherwise ignores when it compares numbers."),
 ]
 
 
