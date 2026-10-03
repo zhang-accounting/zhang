@@ -1,0 +1,12 @@
+{
+  "name": "error_interval_comparison",
+  "query": "SELECT DISTINCT interval('1 month') = interval('1 month') WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "Intervals cannot be compared."
+}

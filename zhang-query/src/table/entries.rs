@@ -18,7 +18,7 @@ use zhang_core::store::Store;
 use super::cache::{EntryInfo, LedgerCache};
 use super::directives::{date_part, date_value, directive, meta_value, set_value, str_value, year};
 use super::postings::{balanced, error_kinds, time_value};
-use super::{ColumnDef, Dataset, Record, Rows, Table};
+use super::{directive_meta, meta_pairs, ColumnDef, Dataset, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -273,6 +273,12 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
         "Unix time, in seconds, of the directive's date and time. A zhang extension.",
         timestamp,
     ),
+    ColumnDef::record(
+        "metas",
+        DataType::Metas,
+        "Metadata of the directive as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        |_, record| metas_value(record),
+    ),
 ];
 
 static TRANSACTION_COLUMNS: &[ColumnDef] = &[
@@ -335,4 +341,15 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
          zhang extension.",
         |_, record| entry_info(record).map_or(Value::Null, |info| error_kinds(info.errors.as_ref())),
     ),
+    ColumnDef::record(
+        "metas",
+        DataType::Metas,
+        "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order.",
+        |_, record| metas_value(record),
+    ),
 ];
+
+/// The `metas` column of an entry.
+fn metas_value(record: &Record<'_>) -> Value {
+    of_directive(record, |it| Value::Metas(meta_pairs(directive_meta(&it.data))))
+}

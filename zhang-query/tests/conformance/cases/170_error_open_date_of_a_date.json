@@ -1,0 +1,12 @@
+{
+  "name": "error_open_date_of_a_date",
+  "query": "SELECT open_date(date)",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": ""
+}

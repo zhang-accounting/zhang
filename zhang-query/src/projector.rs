@@ -133,7 +133,22 @@ fn picks_a_row(aggregate: &AggregateCall) -> bool {
 
 /// Functions that return a value, never NULL or an error, for arguments of their types,
 /// as long as they take no integer (`abs` and `neg` can overflow one).
-const TOTAL_FUNCTIONS: &[&str] = &["units", "cost", "value", "convert", "str", "only", "filter_currency", "possign", "abs", "neg"];
+const TOTAL_FUNCTIONS: &[&str] = &[
+    "units",
+    "cost",
+    "value",
+    "convert",
+    "str",
+    "only",
+    "filter_currency",
+    "possign",
+    "abs",
+    "neg",
+    "icontains",
+    "any_icontains",
+    "intersects",
+    "under",
+];
 
 fn total_function(expr: &CExpr) -> bool {
     match expr {
@@ -148,6 +163,7 @@ pub(crate) fn infallible(expr: &CExpr) -> bool {
     let node = match expr {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
+        CExpr::InConst { .. } | CExpr::StrTest { .. } => true,
         CExpr::Scalar { .. } => total_function(expr),
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
     };
@@ -253,7 +269,7 @@ impl Projection {
     }
 }
 
-/// `[account, position] (2 of 24 columns)`
+/// `[account, position] (2 of 33 columns)`
 impl fmt::Display for Projection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let names = self.names();
@@ -544,11 +560,11 @@ option "operating_currency" "USD"
         assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
         assert!(projection.keeps_cost() && projection.keeps_price());
         assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
-        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 31 columns)");
+        assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 33 columns)");
 
         let projection = Query::compile("SELECT count(*), sum(number) WHERE account ~ 'Food'").unwrap().projection;
         assert!(!projection.keeps_cost() && !projection.keeps_price());
-        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 31 columns)");
+        assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 33 columns)");
         assert_eq!(Projection::all().names().len(), COLUMNS.len());
     }
 

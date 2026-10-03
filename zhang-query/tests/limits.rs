@@ -39,6 +39,7 @@ fn run(sql: &str, max_result_values: Option<u64>) -> Result<QueryResult, QueryEr
         today: Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
         timeout: None,
         max_result_values,
+        count_total: false,
     };
     Query::compile(sql)?.execute_with_options(ledger(), &Params::new(), &options)
 }

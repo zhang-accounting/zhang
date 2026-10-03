@@ -12,10 +12,11 @@ use indexmap::map::Entry;
 use indexmap::IndexMap;
 use regex::Regex;
 use zhang_ast::amount::Amount;
+use zhang_ast::Commodity;
 
-use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, LimitMode, Plan, RegexPattern};
+use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, ConstSet, LimitMode, Plan, RegexPattern, StrTest, StrTestKind, Window};
 use crate::error::{LocatedError, QueryErrorKind, Span};
-use crate::functions::{AggregateKind, FunctionContext, ScalarFunction};
+use crate::functions::{AccountDirectives, AggregateKind, FunctionContext, ScalarFunction};
 use crate::params::Params;
 use crate::prices::PriceMap;
 use crate::projector::{borrowed_str, set_membership};
@@ -106,6 +107,29 @@ impl FunctionContext for Env<'_, '_> {
     fn posting_meta(&self, key: &str) -> Option<String> {
         self.impure.set(self.impure.get() || self.data.is_none());
         self.data.zip(self.row).and_then(|(data, row)| data.row_meta(row, key))
+    }
+
+    fn posting_meta_values(&self, key: &str) -> Vec<String> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data.zip(self.row).map(|(data, row)| data.row_meta_values(row, key)).unwrap_or_default()
+    }
+
+    fn entry_meta_values(&self, key: &str) -> Vec<String> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data
+            .zip(self.row)
+            .map(|(data, row)| data.row_entry_meta_values(row, key))
+            .unwrap_or_default()
+    }
+
+    fn account_directives(&self, account: &str) -> Option<AccountDirectives<'_>> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data?.account_directives(account)
+    }
+
+    fn commodity_directive(&self, currency: &str) -> Option<&Commodity> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data?.commodity_directive(currency)
     }
 }
 
@@ -222,8 +246,50 @@ impl CExpr {
                 eval_in_list(needle, items, *negated, env)
             }
             CExpr::IsNull { expr, negated } => Ok(Value::Bool(expr.eval(env)?.is_null() != *negated)),
+            CExpr::InConst { needle, set, negated } => eval_in_const(needle, set, *negated, env),
+            CExpr::StrTest { subject, test, .. } => eval_str_test(subject, test, env),
         }
     }
+}
+
+/// `x [NOT] IN <constants>` with the items hashed: a string needle is looked up in place.
+fn eval_in_const(needle: &CExpr, set: &ConstSet, negated: bool, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    let found = match borrowed_str(needle, env) {
+        Some(None) => return Ok(Value::Null),
+        Some(Some(needle)) => set.contains_str(needle),
+        None => match needle.eval(env)? {
+            Value::Null => return Ok(Value::Null),
+            needle => set.contains(&needle),
+        },
+    };
+    Ok(if found {
+        Value::Bool(!negated)
+    } else if set.has_null() {
+        Value::Null
+    } else {
+        Value::Bool(negated)
+    })
+}
+
+/// A prepared `icontains`, `any_icontains` or `under` (see [`StrTestKind`]).
+fn eval_str_test(subject: &CExpr, test: &StrTest, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    if let StrTestKind::AnyIContains(needle) = &test.kind {
+        return Ok(match subject.eval(env)? {
+            Value::Set(items) => Value::Bool(items.iter().any(|item| item.to_lowercase().contains(needle.as_str()))),
+            _ => Value::Null,
+        });
+    }
+    let matches = |text: &str| match &test.kind {
+        StrTestKind::IContains(needle) => text.to_lowercase().contains(needle.as_str()),
+        _ => crate::functions::is_under(text, &test.argument),
+    };
+    Ok(match borrowed_str(subject, env) {
+        Some(text) => text.map_or(Value::Null, |text| Value::Bool(matches(text))),
+        None => match subject.eval(env)? {
+            Value::Str(text) => Value::Bool(matches(&text)),
+            _ => Value::Null,
+        },
+    })
 }
 
 fn eval_scalar(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
@@ -387,6 +453,21 @@ fn arithmetic(op: ArithOp, left: Value, right: Value) -> Result<Value, String> {
                 .ok_or("date out of range")?,
         ),
         (Date(a), Date(b)) => Int((a - b).num_days()),
+        (Date(date), Interval(interval)) => {
+            let moved = match op {
+                ArithOp::Add => interval.add_to(date),
+                _ => interval.subtract_from(date),
+            };
+            Date(moved.ok_or("date out of range")?)
+        }
+        (Interval(interval), Date(date)) => Date(interval.add_to(date).ok_or("date out of range")?),
+        (Interval(a), Interval(b)) => Interval(
+            match op {
+                ArithOp::Add => a.checked_add(&b),
+                _ => a.checked_sub(&b),
+            }
+            .ok_or("interval out of range")?,
+        ),
         (Amount(amount), n @ (Int(_) | Decimal(_))) => {
             let n = n.as_decimal().expect("numeric");
             match op {
@@ -726,10 +807,24 @@ impl Filtered {
     }
 }
 
-/// Run the plan and return the visible columns of the result rows, without a [`Budget`].
+/// Run the plan with its LIMIT and OFFSET and return the visible columns of the result rows,
+/// without a [`Budget`].
 #[cfg(test)]
 pub(crate) fn execute(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>) -> Result<Vec<Vec<Value>>, LocatedError> {
-    execute_within(plan, data, params, deadline, Budget::new(None)).map(|output| output.rows)
+    let run = Run {
+        window: plan.window(params)?,
+        count_total: false,
+    };
+    execute_within(plan, data, params, deadline, Budget::new(None), run).map(|output| output.rows)
+}
+
+/// What one execution asks of a plan besides its rows.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Run {
+    /// LIMIT and OFFSET with their parameters bound ([`Plan::window`])
+    pub window: Option<Window>,
+    /// count the rows the query has before LIMIT and OFFSET ([`Output::total`])
+    pub count_total: bool,
 }
 
 /// The rows of a result, and its columns when the data decides them (PIVOT BY).
@@ -737,6 +832,9 @@ pub(crate) struct Output {
     pub rows: Vec<Vec<Value>>,
     /// `None` when the columns are the plan's visible targets
     pub columns: Option<Vec<ColumnInfo>>,
+    /// the number of rows before LIMIT and OFFSET (and before PIVOT BY), when
+    /// [`Run::count_total`] asks for it
+    pub total: Option<u64>,
 }
 
 /// The state shared by the passes of one execution.
@@ -784,8 +882,16 @@ impl<'x, 'a> Execution<'x, 'a> {
 /// The plan's [`crate::compiler::Execution`] says how: whether the main pass keeps the
 /// running totals, which targets and aggregates over them wait for a replay of the filtered
 /// rows (so that only the rows a query returns materialize a balance), and how LIMIT cuts
-/// the scan short.
-pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>, mut budget: Budget) -> Result<Output, LocatedError> {
+/// the scan short. LIMIT and OFFSET come from `run`: the execution keeps the first
+/// OFFSET + LIMIT rows (or groups), then skips OFFSET of them.
+///
+/// With [`Run::count_total`] it also counts the rows before LIMIT and OFFSET without building
+/// more of them than it would anyway: a scan that stops early goes on evaluating the filter
+/// only (or, for DISTINCT, the targets that tell rows apart), and an aggregate query that
+/// aggregates only its first groups goes on collecting the keys of the others.
+pub(crate) fn execute_within(
+    plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>, mut budget: Budget, run: Run,
+) -> Result<Output, LocatedError> {
     let regexes = RegexCache::default();
     let impure = Cell::new(false);
     let base = Env {
@@ -810,13 +916,17 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
         rows: strategy.running.replays().then(Vec::new),
         count: 0,
     };
+    // the rows the execution keeps before skipping the offset
+    let end = run.window.map(|window| usize::try_from(window.end()).unwrap_or(usize::MAX));
 
-    let mut rows = match &plan.group_keys {
+    // the number of rows before LIMIT and OFFSET when the strategy counts them on the way
+    // (otherwise it is the number of rows left after DISTINCT), and whether LIMIT and OFFSET
+    // were already applied
+    let (mut rows, counted, windowed) = match &plan.group_keys {
         None => {
             let deferred = &strategy.running.deferred_targets;
-            let limit = plan.limit.map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-            let stop_at = limit.filter(|_| strategy.limit == LimitMode::StopScan);
-            let mut collector = match limit {
+            let stop_at = end.filter(|_| strategy.limit == LimitMode::StopScan);
+            let mut collector = match end {
                 Some(k) if strategy.limit == LimitMode::TopK => Collector::TopK {
                     k,
                     heap: BinaryHeap::new(),
@@ -826,13 +936,21 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
             };
             // DISTINCT without ORDER BY tells rows apart while scanning
             let mut seen = (plan.distinct && strategy.limit == LimitMode::StopScan).then(HashSet::new);
+            // rows past the window of a scan that stops early, only counted
+            let mut past_window = 0u64;
             for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
-                if stop_at.is_some_and(|limit| collector.len() >= limit) {
+                let full = stop_at.is_some_and(|limit| collector.len() >= limit);
+                if full && !run.count_total {
                     break;
                 }
                 let env = Env { row: Some(row), ..base };
                 if !passes(&plan.filter, &env)? {
+                    continue;
+                }
+                if full && seen.is_none() {
+                    // every row that passes the filter is a result row
+                    past_window += 1;
                     continue;
                 }
                 let ordinal = filtered.push(counter);
@@ -848,22 +966,43 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
                     cells.push(if deferred.contains(&idx) { Value::Null } else { target.expr.eval(&env)? });
                 }
                 if let Some(seen) = &mut seen {
-                    if !seen.insert(cells[..plan.visible].to_vec()) {
+                    let key = cells[..plan.visible].to_vec();
+                    if full {
+                        // past the window, DISTINCT rows are only told apart, to count them
+                        if !seen.contains(&key) {
+                            budget.charge(row_weight(&key))?;
+                            seen.insert(key);
+                        }
+                        continue;
+                    }
+                    if !seen.insert(key) {
                         continue;
                     }
                 }
                 collector.push(Built { cells, ordinal }, &plan.order, &mut budget)?;
             }
+            let counted = match strategy.limit {
+                LimitMode::StopScan => Some(match &seen {
+                    Some(seen) => seen.len() as u64,
+                    None => filtered.count as u64 + past_window,
+                }),
+                // every filtered row is ranked
+                LimitMode::TopK => Some(filtered.count as u64),
+                LimitMode::AfterSort | LimitMode::FirstGroups => None,
+            };
             let ranked = matches!(collector, Collector::TopK { .. });
             let mut rows = collector.into_rows();
             if !plan.order.is_empty() && !ranked {
                 rows.sort_by(|a, b| order_cmp(&plan.order, &a.cells, &b.cells));
             }
-            if !deferred.is_empty() {
-                // the rows are chosen: LIMIT applies now (no DISTINCT defers), then the
-                // replay evaluates the deferred targets of the rows that are left
-                if let Some(limit) = limit {
-                    rows.truncate(limit);
+            if deferred.is_empty() {
+                (rows.into_iter().map(|row| row.cells).collect::<Vec<_>>(), counted, false)
+            } else {
+                // the rows are chosen: LIMIT and OFFSET apply now (no DISTINCT defers), then
+                // the replay evaluates the deferred targets of the rows that are left
+                let counted = Some(counted.unwrap_or(rows.len() as u64));
+                if let Some(window) = run.window {
+                    window.apply(&mut rows);
                 }
                 let mut needs = rows.iter().enumerate().map(|(slot, row)| (row.ordinal, slot)).collect::<Vec<_>>();
                 needs.sort_unstable();
@@ -876,13 +1015,15 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
                     }
                     Ok(())
                 })?;
+                (rows.into_iter().map(|row| row.cells).collect::<Vec<_>>(), counted, true)
             }
-            rows.into_iter().map(|row| row.cells).collect::<Vec<_>>()
         }
         Some(keys) => {
             let deferred = &strategy.running.deferred_aggregates;
-            let first_groups = plan.limit.filter(|_| strategy.limit == LimitMode::FirstGroups);
+            let first_groups = end.filter(|_| strategy.limit == LimitMode::FirstGroups);
             let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
+            // the keys of the groups past the first ones, only collected to count them
+            let mut later_groups: HashSet<Vec<Value>> = HashSet::new();
             for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
                 let env = Env { row: Some(row), ..base };
@@ -899,10 +1040,16 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
                 };
                 let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
                 // LIMIT without ORDER BY keeps the first groups, so later ones are skipped
-                let full = first_groups.is_some_and(|limit| groups.len() as u64 >= limit);
+                let full = first_groups.is_some_and(|limit| groups.len() >= limit);
                 let accumulators = match groups.entry(key) {
                     Entry::Occupied(entry) => entry.into_mut(),
-                    Entry::Vacant(_) if full => continue,
+                    Entry::Vacant(entry) if full => {
+                        if run.count_total && !later_groups.contains(entry.key()) {
+                            budget.charge(row_weight(entry.key()))?;
+                            later_groups.insert(entry.into_key());
+                        }
+                        continue;
+                    }
                     Entry::Vacant(entry) => {
                         let accumulators = plan
                             .aggregates
@@ -930,6 +1077,9 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
                     budget.change(before, accumulator.weight())?;
                 }
             }
+            // only the first groups were built (no HAVING and no DISTINCT drop any)
+            let counted = first_groups.map(|_| (groups.len() + later_groups.len()) as u64);
+            drop(later_groups);
             if !deferred.is_empty() {
                 // the replay evaluates every deferred first()/last() at the row it picks
                 let mut needs = vec![];
@@ -988,7 +1138,7 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
             if !plan.order.is_empty() {
                 rows.sort_by(|a, b| order_cmp(&plan.order, a, b));
             }
-            rows
+            (rows, counted, false)
         }
     };
     Deadline::check(execution.deadline, 0)?;
@@ -1000,14 +1150,19 @@ pub(crate) fn execute_within(plan: &Plan, data: &Dataset<'_>, params: &Params, d
         let mut seen = HashSet::with_capacity(rows.len());
         rows.retain(|row| seen.insert(row.clone()));
     }
-    if let Some(limit) = plan.limit {
-        rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    let total = run.count_total.then(|| counted.unwrap_or(rows.len() as u64));
+    if let (Some(window), false) = (run.window, windowed) {
+        window.apply(&mut rows);
     }
     match plan.pivot {
         Some(spec) => {
             let (columns, rows) = crate::pivot::pivot(plan, spec, rows, &mut budget)?;
-            Ok(Output { rows, columns: Some(columns) })
+            Ok(Output {
+                rows,
+                columns: Some(columns),
+                total,
+            })
         }
-        None => Ok(Output { rows, columns: None }),
+        None => Ok(Output { rows, columns: None, total }),
     }
 }

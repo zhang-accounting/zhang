@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { QueryAmount, QueryCost, QueryPosition, QueryResult } from '@/api/types';
-import { formatDecimal, isAmount, isInventory, isPosition } from '@/components/query/values';
+import { formatDecimal, isAmount, isInventory, isMetas, isPosition } from '@/components/query/values';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 const MAX_RENDERED_ROWS = 1000;
 const NUMERIC_TYPES = new Set(['int', 'decimal', 'amount', 'position', 'inventory']);
 /** Free-text columns wrap (bounded width) instead of stretching the table. */
-const WRAPPING_TYPES = new Set(['str', 'set']);
+const WRAPPING_TYPES = new Set(['str', 'set', 'metas']);
 
 function formatAmount(amount: QueryAmount): string {
   return `${formatDecimal(String(amount.number))} ${amount.currency}`;
@@ -51,6 +51,20 @@ function QueryCellValue({ type, value }: { type: string; value: unknown }) {
           <div className="flex flex-col">
             {value.positions.map((position, index) => (
               <span key={index}>{formatPosition(position)}</span>
+            ))}
+          </div>
+        );
+      }
+      break;
+    case 'metas':
+      if (isMetas(value)) {
+        if (value.length === 0) return <Empty />;
+        return (
+          <div className="flex flex-col">
+            {value.map((meta, index) => (
+              <span key={index}>
+                <span className="text-muted-foreground">{meta.key}:</span> {meta.value}
+              </span>
             ))}
           </div>
         );

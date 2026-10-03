@@ -18,14 +18,26 @@
 //!    `balance` is state of the execution and is never folded.
 //! 5. [`precompile_regex`]: a match against a constant pattern compiles the regular
 //!    expression once; invalid patterns are compile errors at the pattern.
+//! 6. [`prepare_membership`]: `x IN (a, b, ...)` with constant items, and `x IN <set>` with a
+//!    constant set, become one hash lookup ([`CExpr::InConst`]) instead of comparing every
+//!    item, or copying the set, for every row.
+//! 7. [`prepare_str_test`]: `icontains(x, 'needle')`, `any_icontains(set, 'needle')` and
+//!    `under(account, 'Ancestor')` prepare their constant once ([`CExpr::StrTest`]): the
+//!    needle is lower-cased once, and the subject is read in place.
+//!
+//! Parameters are constants of one execution: [`bind`] replaces every parameter by its bound
+//! value when a query is executed and runs these rules again, so that a pattern or a set
+//! passed as a parameter is compiled or hashed once per execution, like a literal.
+//! [`optimize_naive`] skips rules 6 and 7 and binding, so tests can check that they never
+//! change a result.
 //!
 //! Then [`plan_execution`] makes two decisions about the plan as a whole:
 //!
-//! 6. [`rewrite_linear_balance`]: `units(balance)` and `cost(balance)` are linear in the
+//! 8. [`rewrite_linear_balance`]: `units(balance)` and `cost(balance)` are linear in the
 //!    positions, so they become running sums of `units(position)` / `cost(position)` per
 //!    currency ([`Running::Units`], [`Running::Cost`]), which cost O(currencies) per row
 //!    instead of O(open lots). `value()` and `convert()` price by date and are not linear.
-//! 7. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
+//! 9. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
 //!    LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
 //!    aggregates its first LIMIT groups (unless HAVING may drop some of them); with ORDER BY
 //!    (and no DISTINCT) the scan keeps the top LIMIT rows instead of sorting them all.
@@ -35,29 +47,139 @@
 //! The expression rules rewrite the HAVING condition like any other expression; one that
 //! folds to TRUE is dropped, like a filter.
 
-use crate::compiler::{build_regex, AccountScope, CExpr, CmpOp, LimitMode, Plan, RegexPattern, Running, ScopeValue, ScopedAccount};
+use std::cell::RefCell;
+use std::sync::Arc;
+
+use regex::Regex;
+
+use crate::compiler::{
+    build_regex, AccountScope, CExpr, CmpOp, ConstSet, LimitMode, Plan, RegexPattern, Running, ScopeValue, ScopedAccount, StrTest, StrTestKind, UnderAncestor,
+};
 use crate::error::LocatedError;
 use crate::executor::eval_constant;
 use crate::functions::ParamType;
+use crate::params::Params;
 use crate::projector::infallible;
 use crate::value::{DataType, Value};
 
-/// Scalar functions that depend on the execution (its date, the ledger's prices, the current
-/// row) and are therefore never folded, even with constant arguments.
-const NOT_FOLDABLE: &[&str] = &["today", "meta", "entry_meta", "any_meta", "convert", "value", "getprice"];
+/// Scalar functions that depend on the execution (its date, the ledger's prices and
+/// directives, the current row) and are therefore never folded, even with constant arguments.
+const NOT_FOLDABLE: &[&str] = &[
+    "today",
+    "meta",
+    "entry_meta",
+    "any_meta",
+    "meta_values",
+    "entry_meta_values",
+    "convert",
+    "value",
+    "getprice",
+    "open_date",
+    "close_date",
+    "open_meta",
+    "commodity_meta",
+    "currency_meta",
+];
+
+/// Which expression rules run.
+#[derive(Clone, Copy)]
+struct Rules<'p> {
+    /// prepare constants for the executor: [`prepare_membership`] and [`prepare_str_test`]
+    prepare: bool,
+    /// an invalid constant pattern is a compile error; otherwise the match is left to fail
+    /// when it is evaluated (for parameters, which are bound after compiling)
+    strict_regex: bool,
+    /// the patterns compiled so far, so a pattern used several times (a keyword matched
+    /// against several columns) is compiled once
+    patterns: Option<&'p Patterns>,
+}
+
+/// Regular expressions compiled while binding, by pattern and case sensitivity.
+#[derive(Default)]
+struct Patterns(RefCell<Vec<(String, bool, Regex)>>);
+
+impl Patterns {
+    fn get(&self, pattern: &str, case_insensitive: bool) -> Result<Regex, String> {
+        if let Some((_, _, regex)) = self.0.borrow().iter().find(|(p, ci, _)| p == pattern && *ci == case_insensitive) {
+            return Ok(regex.clone());
+        }
+        let regex = build_regex(pattern, case_insensitive)?;
+        self.0.borrow_mut().push((pattern.to_owned(), case_insensitive, regex.clone()));
+        Ok(regex)
+    }
+}
+
+impl Rules<'_> {
+    const COMPILE: Rules<'static> = Rules {
+        prepare: true,
+        strict_regex: true,
+        patterns: None,
+    };
+    #[cfg(test)]
+    const NAIVE: Rules<'static> = Rules {
+        prepare: false,
+        strict_regex: true,
+        patterns: None,
+    };
+}
 
 /// Optimize a compiled plan: rewrite its expressions, then [`plan_execution`].
 pub(crate) fn optimize(plan: Plan) -> Result<Plan, LocatedError> {
-    let mut plan = optimize_expressions(plan)?;
+    let mut plan = optimize_expressions(plan, Rules::COMPILE)?;
     plan_execution(&mut plan);
     Ok(plan)
 }
 
-/// Only the expression rules, leaving the naive execution the compiler chose: the reference
-/// the decisions of [`plan_execution`] are tested against.
+/// Only the expression rules that change no work per row, leaving the naive execution the
+/// compiler chose: the reference the decisions of [`plan_execution`], the prepared constants
+/// and [`bind`] are tested against.
 #[cfg(test)]
 pub(crate) fn optimize_naive(plan: Plan) -> Result<Plan, LocatedError> {
-    optimize_expressions(plan)
+    optimize_expressions(plan, Rules::NAIVE)
+}
+
+/// The plan of one execution: every parameter replaced by the value bound to it, and the
+/// expression rules run again over the constants this makes (a regular expression, an `IN`
+/// set or a needle given as a parameter is then compiled, hashed or lower-cased once instead
+/// of once per row). The execution decisions of the plan are kept: binding only turns
+/// parameters into constants, so they still hold.
+pub(crate) fn bind(plan: &Plan, params: &Params) -> Plan {
+    let mut plan = plan.clone();
+    let patterns = Patterns::default();
+    let rules = Rules {
+        prepare: true,
+        strict_regex: false,
+        patterns: Some(&patterns),
+    };
+    let bind_expr = |expr: CExpr| optimize_with(substitute(expr, params), rules).expect("binding raises no compile error");
+    plan.filter = plan.filter.take().map(bind_expr);
+    if matches!(plan.filter, Some(CExpr::Const(Value::Bool(true)))) {
+        plan.filter = None;
+    }
+    plan.having = plan.having.take().map(bind_expr);
+    if matches!(plan.having, Some(CExpr::Const(Value::Bool(true)))) {
+        plan.having = None;
+    }
+    for target in &mut plan.targets {
+        let expr = std::mem::replace(&mut target.expr, CExpr::Const(Value::Null));
+        target.expr = bind_expr(expr);
+    }
+    for aggregate in &mut plan.aggregates {
+        if let Some(arg) = aggregate.arg.take() {
+            aggregate.arg = Some(bind_expr(arg));
+        }
+    }
+    plan
+}
+
+/// Replace every parameter by its bound value (NULL when unbound, as when evaluated).
+fn substitute(expr: CExpr, params: &Params) -> CExpr {
+    match expr {
+        CExpr::Param(param) => CExpr::Const(params.get(&param).cloned().unwrap_or(Value::Null)),
+        other => other
+            .map_children(&mut |child| Ok::<_, std::convert::Infallible>(substitute(child, params)))
+            .unwrap_or_else(|never| match never {}),
+    }
 }
 
 /// The decisions about the plan as a whole: [`rewrite_linear_balance`], [`limit_mode`] and
@@ -84,7 +206,7 @@ pub(crate) fn plan_execution(plan: &mut Plan) {
 /// filter (FROM, then WHERE) that only holds for the rows of some accounts:
 ///
 /// - `account = x` (a string constant or parameter, on either side),
-/// - `account IN (x, y, ...)` and `account IN :set`,
+/// - `account IN (x, y, ...)` (also once its constant items are hashed) and `account IN :set`,
 /// - `under(account, x)` (`x` and its sub-accounts),
 /// - an `OR` of these.
 ///
@@ -143,11 +265,26 @@ fn scoped_accounts(expr: &CExpr) -> Option<Vec<ScopedAccount>> {
             CExpr::Param(param) => Some(vec![ScopedAccount::Named(ScopeValue::Param(param.clone()))]),
             _ => None,
         },
-        // `under(account, ancestor)`
-        CExpr::Scalar { function, args, .. } if function.name == "under" => match args.as_slice() {
-            [account, ancestor] if is_account(account) => Some(vec![ScopedAccount::Under(named(ancestor)?)]),
-            _ => None,
-        },
+        // `account IN (...)` with constant items, prepared into a hash lookup
+        CExpr::InConst { needle, set, negated: false } if is_account(needle) => set
+            .values()
+            .into_iter()
+            .map(|value| match value {
+                Value::Str(_) | Value::Set(_) | Value::Null => Some(ScopedAccount::Named(ScopeValue::Const(value))),
+                _ => None,
+            })
+            .collect(),
+        // `under(account, ancestor)`, as a call or as its prepared string test
+        expr if expr.as_under().is_some() => {
+            let (account, ancestor) = expr.as_under()?;
+            if !is_account(account) {
+                return None;
+            }
+            Some(vec![ScopedAccount::Under(match ancestor {
+                UnderAncestor::Const(name) => ScopeValue::Const(name.map_or(Value::Null, Value::from)),
+                UnderAncestor::Param(param) => ScopeValue::Param(param.clone()),
+            })])
+        }
         CExpr::Or(operands) => {
             let mut accounts = vec![];
             for operand in operands {
@@ -192,7 +329,8 @@ pub(crate) fn limit_mode(plan: &Plan) -> LimitMode {
     }
 }
 
-fn optimize_expressions(mut plan: Plan) -> Result<Plan, LocatedError> {
+fn optimize_expressions(mut plan: Plan, rules: Rules<'_>) -> Result<Plan, LocatedError> {
+    let optimize_expr = |expr: CExpr| optimize_with(expr, rules);
     plan.filter = merge_filters(std::mem::take(&mut plan.filters)).map(optimize_expr).transpose()?;
     if matches!(plan.filter, Some(CExpr::Const(Value::Bool(true)))) {
         // a filter that always holds is no filter
@@ -217,13 +355,26 @@ fn optimize_expressions(mut plan: Plan) -> Result<Plan, LocatedError> {
 
 /// Optimize one expression bottom-up. The recursion follows the tree, whose height the parser
 /// bounds by [`crate::MAX_DEPTH`].
+#[cfg(test)]
 pub(crate) fn optimize_expr(expr: CExpr) -> Result<CExpr, LocatedError> {
-    let expr = expr.map_children(&mut optimize_expr)?;
+    optimize_with(expr, Rules::COMPILE)
+}
+
+fn optimize_with(expr: CExpr, rules: Rules<'_>) -> Result<CExpr, LocatedError> {
+    let expr = expr.map_children(&mut |child| optimize_with(child, rules))?;
     let expr = flatten_associative(expr);
     let expr = eliminate_double_negation(expr);
     let expr = simplify_logic(expr);
     let expr = fold_constants(expr);
-    precompile_regex(expr)
+    let expr = if rules.strict_regex {
+        precompile_regex(expr)?
+    } else {
+        precompile_valid_regex(expr, rules.patterns.unwrap_or(&Patterns::default()))
+    };
+    if !rules.prepare {
+        return Ok(expr);
+    }
+    Ok(prepare_str_test(prepare_membership(expr)))
 }
 
 /// The FROM expression and WHERE as one filter.
@@ -332,6 +483,97 @@ pub(crate) fn fold_constants(expr: CExpr) -> CExpr {
     match eval_constant(&expr) {
         Some(value) => CExpr::Const(value),
         None => expr,
+    }
+}
+
+/// [`precompile_regex`] for a pattern bound at execution: an invalid pattern is left to
+/// report its error, at the match, when a row evaluates it (as before binding).
+fn precompile_valid_regex(expr: CExpr, patterns: &Patterns) -> CExpr {
+    match expr {
+        CExpr::Regex {
+            subject,
+            pattern: RegexPattern::Dynamic(pattern),
+            case_insensitive,
+            negated,
+            span,
+            pattern_span,
+        } => {
+            let pattern = match *pattern {
+                CExpr::Const(Value::Str(text)) => match patterns.get(&text, case_insensitive) {
+                    Ok(regex) => RegexPattern::Compiled(regex),
+                    Err(_) => RegexPattern::Dynamic(Box::new(CExpr::Const(Value::Str(text)))),
+                },
+                other => RegexPattern::Dynamic(Box::new(other)),
+            };
+            CExpr::Regex {
+                subject,
+                pattern,
+                case_insensitive,
+                negated,
+                span,
+                pattern_span,
+            }
+        }
+        other => other,
+    }
+}
+
+/// `x IN (constants)` and `x IN <constant set>` as one hash lookup ([`CExpr::InConst`]).
+pub(crate) fn prepare_membership(expr: CExpr) -> CExpr {
+    match expr {
+        CExpr::InList { needle, items, negated } if items.iter().all(|item| matches!(item, CExpr::Const(_))) => {
+            let items = items
+                .into_iter()
+                .map(|item| match item {
+                    CExpr::Const(value) => value,
+                    _ => unreachable!("every item is a constant"),
+                })
+                .collect();
+            CExpr::InConst {
+                needle,
+                set: Arc::new(ConstSet::from_list(items)),
+                negated,
+            }
+        }
+        CExpr::InSet { needle, set, negated } => match *set {
+            CExpr::Const(Value::Set(elements)) => CExpr::InConst {
+                needle,
+                set: Arc::new(ConstSet::from_set(&elements)),
+                negated,
+            },
+            set => CExpr::InSet {
+                needle,
+                set: Box::new(set),
+                negated,
+            },
+        },
+        other => other,
+    }
+}
+
+/// `icontains`, `any_icontains` and `under` with a constant string as their second argument,
+/// prepared once ([`CExpr::StrTest`]).
+pub(crate) fn prepare_str_test(expr: CExpr) -> CExpr {
+    match expr {
+        CExpr::Scalar { function, mut args, span }
+            if matches!(function.name, "icontains" | "any_icontains" | "under") && matches!(args.as_slice(), [_, CExpr::Const(Value::Str(_))]) =>
+        {
+            let Some(CExpr::Const(Value::Str(argument))) = args.pop() else {
+                unreachable!("a constant string argument")
+            };
+            let subject = args.pop().expect("two arguments");
+            let kind = match function.name {
+                "icontains" => StrTestKind::IContains(argument.to_lowercase()),
+                "any_icontains" => StrTestKind::AnyIContains(argument.to_lowercase()),
+                _ => StrTestKind::Under,
+            };
+            CExpr::StrTest {
+                subject: Box::new(subject),
+                test: Arc::new(StrTest { function, argument, kind }),
+                span,
+            }
+        }
+        other => other,
     }
 }
 
@@ -560,6 +802,12 @@ mod tests {
             some("'A'")
         );
         assert_eq!(scope_of("SELECT account, sum(position) WHERE account = :a GROUP BY account"), some(":a"));
+        // the search functions never fail, so a keyword test before the account keeps the scope
+        assert_eq!(
+            scope_of("SELECT date WHERE icontains(payee, :a) AND any_icontains(tags, :a) AND under(account, :a)"),
+            some("under :a")
+        );
+        assert_eq!(scope_of("SELECT date WHERE icontains(payee, 'x') AND account IN ('A', 'B')"), some("'A', 'B'"));
 
         // the filter holds for rows of any account
         for sql in [
@@ -584,27 +832,12 @@ mod tests {
         }
     }
 
-    /// `under(account, ancestor)`, which another change adds: the scope keeps the ancestor and
-    /// its sub-accounts, read here with a stand-in for the function.
+    /// `under(account, ancestor)`: the scope keeps the ancestor and its sub-accounts, whether the
+    /// ancestor is a literal (prepared into a string test when compiled), a parameter, or a
+    /// parameter bound to a literal in the plan of the execution. Scoped and unscoped
+    /// executions return the same rows and totals.
     #[test]
     fn scopes_postings_to_the_accounts_under_an_ancestor() {
-        use crate::functions::{FunctionContext, ReturnType, ScalarFunction};
-
-        fn under(args: &[Value], _: &dyn FunctionContext) -> Result<Value, String> {
-            let (Value::Str(account), Value::Str(ancestor)) = (&args[0], &args[1]) else {
-                return Err("strings".to_owned());
-            };
-            let rest = account.strip_prefix(ancestor.as_str());
-            Ok(Value::Bool(rest.is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))))
-        }
-        static UNDER: ScalarFunction = ScalarFunction {
-            name: "under",
-            params: &[ParamType::Exact(DataType::Str), ParamType::Exact(DataType::Str)],
-            returns: ReturnType::Exact(DataType::Bool),
-            description: "",
-            eval: under,
-        };
-
         let source = zhang_core::data_source::LocalFileSystemDataSource::new(zhang_core::data_type::text::ZhangDataType {});
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests/fava-demo-ledger");
         let ledger = zhang_core::ledger::Ledger::load_with_data_source(dir, "main.zhang".to_owned(), std::sync::Arc::new(source)).unwrap();
@@ -612,47 +845,167 @@ mod tests {
             today: None,
             timeout: None,
             max_result_values: None,
+            count_total: true,
         };
+        let columns = "SELECT date, account, payee, balance, account_balance WHERE payee IS NOT NULL AND";
         let mut counts = vec![];
         for ancestor in ["Assets:US", "Assets:US:BofA", "Assets:U", "Nowhere"] {
-            let run = |scoped: bool| {
-                let mut query = crate::Query::compile("SELECT date, account, payee, balance, account_balance WHERE account = ''").unwrap();
-                let account = CExpr::Column(column("account").unwrap());
-                let parent = CExpr::Const(Value::from(ancestor));
-                query.plan.filter = Some(CExpr::And(vec![
-                    CExpr::IsNull {
-                        expr: Box::new(col("payee")),
-                        negated: true,
-                    },
-                    CExpr::Or(vec![
-                        CExpr::Scalar {
-                            function: &UNDER,
-                            args: vec![account, parent],
-                            span: Span::default(),
-                        },
-                        CExpr::Compare {
-                            op: CmpOp::Eq,
-                            left: Box::new(col("account")),
-                            right: Box::new(str_("Income:US:Hoogle:Salary")),
-                        },
-                    ]),
-                ]));
-                query.plan.execution.scope = account_scope(&query.plan).filter(|_| scoped);
-                if scoped {
-                    let scope = query.plan.execution.scope.as_ref().map(|it| it.to_string());
-                    assert_eq!(scope, Some(format!("under '{ancestor}', 'Income:US:Hoogle:Salary'")));
-                }
-                let result = query.execute_with_options(&ledger, &crate::Params::new(), &options).unwrap();
-                format!("{:?}", result.rows)
-            };
-            let scoped = run(true);
-            assert_eq!(scoped, run(false), "{ancestor}");
-            counts.push(scoped.matches("Date(").count());
+            let forms = [
+                (
+                    format!("{columns} (under(account, '{ancestor}') OR account = 'Income:US:Hoogle:Salary')"),
+                    format!("under '{ancestor}', 'Income:US:Hoogle:Salary'"),
+                ),
+                (
+                    format!("{columns} (under(account, :root) OR account = 'Income:US:Hoogle:Salary') LIMIT :n"),
+                    "under :root, 'Income:US:Hoogle:Salary'".to_owned(),
+                ),
+            ];
+            let params = crate::Params::new().bind("root", ancestor).bind("n", 100_000i64);
+            let mut results = vec![];
+            for (sql, scope) in forms {
+                let run = |scoped: bool| {
+                    let mut query = crate::Query::compile_with_params(&sql, &params.types()).unwrap();
+                    if scoped {
+                        assert_eq!(query.plan.execution.scope.as_ref().map(|it| it.to_string()), Some(scope.clone()), "{sql}");
+                        assert!(
+                            query.explain().contains(&format!("scan: the rows of the accounts {scope}\n")),
+                            "{}",
+                            query.explain()
+                        );
+                    } else {
+                        query.plan.execution.scope = None;
+                    }
+                    let result = query.execute_with_options(&ledger, &params, &options).unwrap();
+                    format!("{:?} {:?}", result.rows, result.total)
+                };
+                let scoped = run(true);
+                assert_eq!(scoped, run(false), "{sql}");
+                results.push(scoped);
+            }
+            assert_eq!(results[0], results[1], "{ancestor}");
+            counts.push(results[0].matches("Date(").count());
         }
         // 'Assets:U' is not an ancestor of 'Assets:US': like 'Nowhere', only the salary is left
         assert!(
             counts[0] > counts[1] && counts[1] > counts[2] && counts[2] == counts[3] && counts[3] > 0,
             "{counts:?}"
+        );
+    }
+
+    fn in_list(needle: CExpr, items: Vec<CExpr>) -> CExpr {
+        CExpr::InList {
+            needle: Box::new(needle),
+            items,
+            negated: false,
+        }
+    }
+
+    #[test]
+    fn constant_membership_becomes_a_hash_lookup() {
+        let prepared = prepare_membership(in_list(col("account"), vec![str_("a"), str_("b"), null()]));
+        assert!(matches!(&prepared, CExpr::InConst { set, .. } if set.contains_str("b") && !set.contains_str("c") && set.has_null()));
+        // EXPLAIN shows the list as written
+        assert_eq!(show(&prepared), "(account IN ('a', 'b', NULL))");
+        // an int item matches the equal decimal
+        let numbers = prepare_membership(in_list(
+            col("number"),
+            vec![CExpr::Const(Value::Int(4)), CExpr::Const(Value::Decimal("8.95".parse().unwrap()))],
+        ));
+        let CExpr::InConst { set, .. } = &numbers else { panic!("{}", show(&numbers)) };
+        assert!(set.contains(&Value::Decimal("4.00".parse().unwrap())) && !set.contains(&Value::Int(8)));
+        // a list with a column is evaluated item by item
+        let dynamic = prepare_membership(in_list(col("account"), vec![str_("a"), col("payee")]));
+        assert!(matches!(dynamic, CExpr::InList { .. }));
+        // a constant set: the elements of a bound parameter
+        let set = CExpr::InSet {
+            needle: Box::new(col("account")),
+            set: Box::new(CExpr::Const(Value::Set(["x".to_owned(), "y".to_owned()].into_iter().collect()))),
+            negated: true,
+        };
+        let prepared = prepare_membership(set);
+        assert_eq!(show(&prepared), "(account NOT IN {'x', 'y'})");
+        let CExpr::InConst { set, .. } = &prepared else { panic!() };
+        assert_eq!(set.values(), vec![Value::Set(["x".to_owned(), "y".to_owned()].into_iter().collect())]);
+        // a list keeps its items as written
+        let CExpr::InConst { set, .. } = prepare_membership(in_list(col("account"), vec![str_("a"), null()])) else {
+            panic!()
+        };
+        assert_eq!(set.values(), vec![Value::from("a"), Value::Null]);
+    }
+
+    #[test]
+    fn string_tests_prepare_their_constant() {
+        let prepared = prepare_str_test(scalar("icontains", vec![col("payee"), str_("CaFé")]));
+        let CExpr::StrTest { test, .. } = &prepared else {
+            panic!("{}", show(&prepared))
+        };
+        assert!(matches!(&test.kind, StrTestKind::IContains(needle) if needle == "café"));
+        assert_eq!(show(&prepared), "icontains(payee, 'CaFé')");
+        let under = prepare_str_test(scalar("under", vec![col("account"), str_("Assets")]));
+        assert_eq!(show(&under), "under(account, 'Assets')");
+        // a NULL or non-constant second argument stays a call
+        assert!(matches!(
+            prepare_str_test(scalar("icontains", vec![col("payee"), null()])),
+            CExpr::Scalar { .. }
+        ));
+        assert!(matches!(
+            prepare_str_test(scalar("under", vec![col("account"), col("payee")])),
+            CExpr::Scalar { .. }
+        ));
+    }
+
+    #[test]
+    fn under_is_recognized_in_every_form() {
+        let params = Params::new().bind("root", "Assets:US");
+        let param = CExpr::Param(crate::params::ParamRef::Named("root".into()));
+        for (expr, expected) in [
+            (scalar("under", vec![col("account"), str_("Assets")]), Some("Assets")),
+            (prepare_str_test(scalar("under", vec![col("account"), str_("Expenses")])), Some("Expenses")),
+            (scalar("under", vec![col("account"), param.clone()]), Some("Assets:US")),
+            (scalar("under", vec![col("account"), null()]), None),
+            (scalar("icontains", vec![col("account"), str_("Assets")]), None),
+        ] {
+            let found = expr.as_under();
+            assert_eq!(found.and_then(|(_, ancestor)| ancestor.bound(&params)), expected, "{}", show(&expr));
+            if let Some((subject, _)) = found {
+                assert_eq!(show(subject), "account");
+            }
+        }
+        let unbound = scalar("under", vec![col("account"), param]);
+        assert!(unbound.as_under().unwrap().1.bound(&Params::new()).is_none());
+        assert!(scalar("under", vec![col("payee"), col("account")]).as_under().is_none());
+    }
+
+    #[test]
+    fn binding_turns_parameters_into_prepared_constants() {
+        let sql = "SELECT date WHERE payee ~ :pattern AND account IN :accounts AND icontains(narration, :needle) AND under(account, :root) AND payee !~ :bad";
+        let types = crate::ParamTypes::new()
+            .bind("pattern", DataType::Str)
+            .bind("accounts", DataType::Set)
+            .bind("needle", DataType::Str)
+            .bind("root", DataType::Str)
+            .bind("bad", DataType::Str);
+        let query = crate::Query::compile_with_params(sql, &types).unwrap();
+        let params = Params::new()
+            .bind("pattern", "^Cafe")
+            .bind("accounts", Value::Set(["Assets:Cash".to_owned()].into_iter().collect()))
+            .bind("needle", "LUNCH")
+            .bind("root", "Assets")
+            .bind("bad", "(");
+        let bound = bind(&query.plan, &params);
+        assert_eq!(
+            show(bound.filter.as_ref().unwrap()),
+            "((payee ~ /^Cafe/i) AND (account IN {'Assets:Cash'}) AND icontains(narration, 'LUNCH') AND under(account, 'Assets') AND (payee !~ regex_i('(')))"
+        );
+        // the compiled plan keeps its parameters
+        assert!(show(query.plan.filter.as_ref().unwrap()).contains("regex_i(:pattern)"));
+        // a parameter that makes the filter always hold removes it
+        let query =
+            crate::Query::compile_with_params("SELECT date WHERE :all OR account = 'x'", &crate::ParamTypes::new().bind("all", DataType::Bool)).unwrap();
+        assert!(bind(&query.plan, &Params::new().bind("all", true)).filter.is_none());
+        assert_eq!(
+            show(bind(&query.plan, &Params::new().bind("all", Value::Null)).filter.as_ref().unwrap()),
+            "(NULL OR (account = 'x'))"
         );
     }
 

@@ -36,6 +36,7 @@ use zhang_core::store::Store;
 use zhang_core::utils::id::FromSpan;
 
 use super::directives::{date_of, day_rank};
+use super::lookups::Lookups;
 use super::postings;
 use crate::error::LocatedError;
 use crate::prices::PriceMap;
@@ -57,6 +58,8 @@ pub(crate) struct LedgerCache {
     /// the `seq` of the transactions whose metadata, or the metadata of one of their postings,
     /// names a document, in the order of `#transactions`
     documented: OnceLock<Vec<u32>>,
+    /// the account and commodity directives by name
+    lookups: OnceLock<Lookups>,
 }
 
 /// How many directives, transactions, postings, prices, errors and metadata a ledger holds: a
@@ -87,6 +90,7 @@ impl LedgerCache {
             prices: OnceLock::new(),
             entry_ids: OnceLock::new(),
             documented: OnceLock::new(),
+            lookups: OnceLock::new(),
         }
     }
 
@@ -140,6 +144,11 @@ impl LedgerCache {
                 })
                 .collect()
         })
+    }
+
+    /// The account and commodity directives of the ledger by name.
+    pub fn lookups(&self, ledger: &Ledger, store: &Store) -> &Lookups {
+        self.lookups.get_or_init(|| Lookups::build(ledger, self.entries(ledger, store)))
     }
 
     pub fn prices(&self, store: &Store) -> &PriceMap {

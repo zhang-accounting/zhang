@@ -51,6 +51,11 @@ export interface QueryPosition {
 export interface QueryInventory {
   positions: QueryPosition[];
 }
+/** One `(key, value)` pair of a `metas` cell; a cell is the list of its pairs, in order. */
+export interface QueryMeta {
+  key: string;
+  value: string;
+}
 export interface QueryError {
   message: string;
   line: number | null;

@@ -4,13 +4,14 @@
 //! names, check types, plan grouping and ordering) → optimise ([`crate::optimizer`]:
 //! rule-based rewrites) → execute ([`crate::executor`]).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt;
+use std::sync::Arc;
 
 use regex::{Regex, RegexBuilder};
 
 pub(crate) use crate::ast::ArithOp;
-use crate::ast::{self, BinaryOp, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
+use crate::ast::{self, BinaryOp, Count, CountValue, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{resolve_scalar, AggregateFunction, ScalarFunction};
@@ -42,6 +43,7 @@ impl CmpOp {
     }
 }
 
+#[derive(Clone)]
 pub(crate) enum RegexPattern {
     /// a constant pattern, compiled once by the optimizer
     Compiled(Regex),
@@ -50,6 +52,7 @@ pub(crate) enum RegexPattern {
 }
 
 /// One `op operand` step of an arithmetic chain.
+#[derive(Clone)]
 pub(crate) struct ArithStep {
     pub op: ArithOp,
     pub operand: CExpr,
@@ -58,6 +61,7 @@ pub(crate) struct ArithStep {
 }
 
 /// A typed, executable expression.
+#[derive(Clone)]
 pub(crate) enum CExpr {
     Const(Value),
     Column(&'static ColumnDef),
@@ -114,6 +118,134 @@ pub(crate) enum CExpr {
         expr: Box<CExpr>,
         negated: bool,
     },
+    /// `x [NOT] IN (constants)` or `x [NOT] IN <constant set>` as a hash lookup, which the
+    /// optimizer prepares from [`CExpr::InList`] / [`CExpr::InSet`] once their items are
+    /// constants (literals, or parameters bound for one execution)
+    InConst {
+        needle: Box<CExpr>,
+        set: Arc<ConstSet>,
+        negated: bool,
+    },
+    /// a string test against a constant, prepared once by the optimizer from the call of
+    /// `icontains`, `any_icontains` or `under` whose second argument is a constant string
+    StrTest {
+        subject: Box<CExpr>,
+        test: Arc<StrTest>,
+        span: Span,
+    },
+}
+
+/// The constant items of a membership test, hashed: strings are looked up without copying
+/// the needle, other values by their value (an int equals the decimal of the same number).
+pub(crate) struct ConstSet {
+    /// the items as written, for EXPLAIN; empty for the elements of a set
+    items: Vec<Value>,
+    /// whether the items are the elements of a set (`IN :tags`) rather than a list
+    from_set: bool,
+    strings: HashSet<String>,
+    others: HashSet<Value>,
+    /// a NULL item: a needle that matches no other item is then NULL, not FALSE
+    has_null: bool,
+}
+
+impl ConstSet {
+    /// The items of `x IN (a, b, ...)`.
+    pub fn from_list(items: Vec<Value>) -> ConstSet {
+        let mut set = ConstSet {
+            items: vec![],
+            from_set: false,
+            strings: HashSet::new(),
+            others: HashSet::new(),
+            has_null: false,
+        };
+        for item in &items {
+            match item {
+                Value::Null => set.has_null = true,
+                Value::Str(text) => {
+                    set.strings.insert(text.clone());
+                }
+                other => {
+                    set.others.insert(other.clone());
+                }
+            }
+        }
+        set.items = items;
+        set
+    }
+
+    /// The elements of the set of `x IN <set>`.
+    pub fn from_set(elements: &BTreeSet<String>) -> ConstSet {
+        ConstSet {
+            items: vec![],
+            from_set: true,
+            strings: elements.iter().cloned().collect(),
+            others: HashSet::new(),
+            has_null: false,
+        }
+    }
+
+    pub fn contains_str(&self, needle: &str) -> bool {
+        self.strings.contains(needle)
+    }
+
+    pub fn contains(&self, needle: &Value) -> bool {
+        match needle {
+            Value::Str(text) => self.strings.contains(text.as_str()),
+            other => self.others.contains(other),
+        }
+    }
+
+    pub fn has_null(&self) -> bool {
+        self.has_null
+    }
+
+    /// The items as values: those of a list as written, or the elements of a set as one set.
+    /// For scans restricted to the accounts of `account IN (...)` ([`crate::optimizer::account_scope`]).
+    pub fn values(&self) -> Vec<Value> {
+        if self.from_set {
+            vec![Value::Set(self.strings.iter().cloned().collect())]
+        } else {
+            self.items.clone()
+        }
+    }
+}
+
+/// The ancestor of an `under(subject, ancestor)` call ([`CExpr::as_under`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnderAncestor<'e> {
+    /// a constant: the ancestor's name, or `None` for NULL, which no account is under
+    Const(Option<&'e str>),
+    /// a parameter, bound when the query executes
+    Param(&'e ParamRef),
+}
+
+impl<'e> UnderAncestor<'e> {
+    /// The ancestor's name with `params` bound; `None` when it is NULL.
+    #[cfg(test)]
+    pub fn bound(self, params: &'e Params) -> Option<&'e str> {
+        match self {
+            UnderAncestor::Const(name) => name,
+            UnderAncestor::Param(param) => params.get(param).and_then(Value::as_str),
+        }
+    }
+}
+
+/// A string test of [`CExpr::StrTest`], with its constant prepared once.
+pub(crate) struct StrTest {
+    /// the function the test was prepared from (`icontains`, `any_icontains` or `under`)
+    pub function: &'static ScalarFunction,
+    /// the constant argument as written
+    pub argument: String,
+    pub kind: StrTestKind,
+}
+
+pub(crate) enum StrTestKind {
+    /// `icontains(subject, needle)`: the needle lower-cased
+    IContains(String),
+    /// `any_icontains(set, needle)`: the needle lower-cased
+    AnyIContains(String),
+    /// `under(account, ancestor)`
+    Under,
 }
 
 /// What a [`CExpr::Running`] total adds up, row by row.
@@ -297,12 +429,14 @@ impl Execution {
 }
 
 /// An aggregate call extracted from a target.
+#[derive(Clone)]
 pub(crate) struct AggregateCall {
     pub function: &'static AggregateFunction,
     /// `None` for `count(*)`
     pub arg: Option<CExpr>,
 }
 
+#[derive(Clone)]
 pub(crate) struct PlannedTarget {
     pub name: String,
     pub ty: DataType,
@@ -319,6 +453,7 @@ pub(crate) struct Pivot {
     pub columns: usize,
 }
 
+#[derive(Clone)]
 pub(crate) struct Plan {
     /// the table the query reads (`FROM #name`; `postings` by default)
     pub table: &'static Table,
@@ -341,7 +476,10 @@ pub(crate) struct Plan {
     /// (target index, descending)
     pub order: Vec<(usize, bool)>,
     pub distinct: bool,
-    pub limit: Option<u64>,
+    /// `LIMIT`: a literal or an integer parameter, resolved per execution ([`Plan::window`])
+    pub limit: Option<Count>,
+    /// `OFFSET`, only with a LIMIT
+    pub offset: Option<Count>,
     /// `PIVOT BY`, applied to the rows LIMIT leaves
     pub pivot: Option<Pivot>,
     /// every parameter reference with its declared type, for checking bound values
@@ -506,7 +644,7 @@ impl Compiler<'_> {
             let keys = group_by.unwrap_or_else(|| (0..visible).filter(|idx| !targets[*idx].is_aggregate).collect());
             for idx in &keys {
                 let target = &targets[*idx];
-                if matches!(target.ty, DataType::Set | DataType::Inventory) {
+                if matches!(target.ty, DataType::Set | DataType::Inventory | DataType::Metas) {
                     return err(
                         format!("cannot group by '{}': values of type {} cannot be grouped", target.name, target.ty),
                         target.span,
@@ -548,6 +686,20 @@ impl Compiler<'_> {
             Some(columns) => Some(pivot(columns, &targets[..visible], group_keys.as_deref())?),
             None => None,
         };
+        let limit = select.limit.as_ref().map(|count| self.count(count, "LIMIT")).transpose()?;
+        let offset = select.offset.as_ref().map(|count| self.count(count, "OFFSET")).transpose()?;
+        if let (
+            Some(CountValue::Literal(limit)),
+            Some(Count {
+                value: CountValue::Literal(offset),
+                span,
+            }),
+        ) = (limit.as_ref().map(|it| &it.value), &offset)
+        {
+            if limit.checked_add(*offset).is_none() {
+                return err("OFFSET plus LIMIT is too large", *span);
+            }
+        }
 
         let mut plan = Plan {
             table: self.table,
@@ -561,7 +713,8 @@ impl Compiler<'_> {
             having,
             order,
             distinct: select.distinct,
-            limit: select.limit,
+            limit,
+            offset,
             pivot,
             params: std::mem::take(&mut self.params),
             execution: Execution::default(),
@@ -631,6 +784,17 @@ impl Compiler<'_> {
             )),
             _ => None,
         }
+    }
+
+    /// The value of `LIMIT` / `OFFSET`: a literal, or a parameter declared as an integer.
+    fn count(&mut self, count: &Count, clause: &str) -> Result<Count, LocatedError> {
+        if let CountValue::Param(param) = &count.value {
+            let (_, ty) = self.param(param, count.span)?;
+            if ty != DataType::Int {
+                return err(format!("{} expects an integer, but parameter {} is a {}", clause, param, ty), count.span);
+            }
+        }
+        Ok(count.clone())
     }
 
     /// Compile `OPEN ON` / `CLOSE [ON]` / `CLEAR`.
@@ -919,6 +1083,17 @@ impl Compiler<'_> {
                 // a string literal compared with a date is read as a date
                 let (left_c, left_ty) = coerce_date_literal(left_c, left_ty, right_ty, left.span)?;
                 let (right_c, right_ty) = coerce_date_literal(right_c, right_ty, left_ty, right.span)?;
+                if left_ty == DataType::Interval || right_ty == DataType::Interval {
+                    return err(
+                        format!(
+                            "operator {} is not supported for ({}, {}): intervals cannot be compared",
+                            op.symbol(),
+                            left_ty,
+                            right_ty
+                        ),
+                        span,
+                    );
+                }
                 let comparable =
                     left_ty == right_ty || left_ty == DataType::Null || right_ty == DataType::Null || (left_ty.is_numeric() && right_ty.is_numeric());
                 if !comparable {
@@ -1009,7 +1184,7 @@ fn pivot(columns: &[Expr; 2], targets: &[PlannedTarget], group_keys: Option<&[us
             columns[1].span,
         );
     }
-    if matches!(targets[rows].ty, DataType::Set | DataType::Inventory) {
+    if matches!(targets[rows].ty, DataType::Set | DataType::Inventory | DataType::Metas) {
         return err(
             format!(
                 "cannot pivot by '{}': values of type {} cannot be pivoted",
@@ -1023,7 +1198,7 @@ fn pivot(columns: &[Expr; 2], targets: &[PlannedTarget], group_keys: Option<&[us
 
 /// Scalar functions that read the row being evaluated (its metadata): in grouped queries
 /// they must be grouped or used inside an aggregate, like columns.
-const ROW_FUNCTIONS: &[&str] = &["meta", "entry_meta", "any_meta"];
+const ROW_FUNCTIONS: &[&str] = &["meta", "entry_meta", "any_meta", "meta_values", "entry_meta_values"];
 
 fn literal_value(literal: &Literal) -> Typed {
     match literal {
@@ -1201,6 +1376,7 @@ pub(crate) fn arith_type(op: ArithOp, left: DataType, right: DataType) -> Option
         (Null, Null) => Some(Null),
         (Null, other) | (other, Null) => match other {
             Int | Decimal | Amount | Date => Some(if op == ArithOp::Div && other == Int { Decimal } else { other }),
+            Interval if matches!(op, ArithOp::Add | ArithOp::Sub) => Some(Interval),
             Str if op == ArithOp::Add => Some(Str),
             _ => None,
         },
@@ -1210,6 +1386,10 @@ pub(crate) fn arith_type(op: ArithOp, left: DataType, right: DataType) -> Option
         (Date, Int) if matches!(op, ArithOp::Add | ArithOp::Sub) => Some(Date),
         (Int, Date) if op == ArithOp::Add => Some(Date),
         (Date, Date) if op == ArithOp::Sub => Some(Int),
+        // beanquery's date arithmetic with relativedelta intervals
+        (Date, Interval) if matches!(op, ArithOp::Add | ArithOp::Sub) => Some(Date),
+        (Interval, Date) if op == ArithOp::Add => Some(Date),
+        (Interval, Interval) if matches!(op, ArithOp::Add | ArithOp::Sub) => Some(Interval),
         (Amount, Int | Decimal) if matches!(op, ArithOp::Mul | ArithOp::Div) => Some(Amount),
         (Int | Decimal, Amount) if op == ArithOp::Mul => Some(Amount),
         (Amount, Amount) if matches!(op, ArithOp::Add | ArithOp::Sub) => Some(Amount),
@@ -1283,6 +1463,16 @@ impl CExpr {
                 expr: boxed(expr, f)?,
                 negated,
             },
+            CExpr::InConst { needle, set, negated } => CExpr::InConst {
+                needle: boxed(needle, f)?,
+                set,
+                negated,
+            },
+            CExpr::StrTest { subject, test, span } => CExpr::StrTest {
+                subject: boxed(subject, f)?,
+                test,
+                span,
+            },
         })
     }
 
@@ -1302,6 +1492,25 @@ impl CExpr {
             CExpr::InSet { needle, set, .. } => vec![needle, set],
             CExpr::InList { needle, items, .. } => std::iter::once(needle.as_ref()).chain(items.iter()).collect(),
             CExpr::IsNull { expr, .. } => vec![expr],
+            CExpr::InConst { needle, .. } => vec![needle],
+            CExpr::StrTest { subject, .. } => vec![subject],
+        }
+    }
+
+    /// `under(subject, ancestor)` with its ancestor, however the plan holds the call: a call
+    /// with a constant or a parameter as the ancestor, or the test the optimizer prepared from
+    /// a constant ancestor ([`CExpr::StrTest`]). For scans restricted to the accounts under an
+    /// ancestor ([`crate::optimizer::account_scope`]).
+    pub(crate) fn as_under(&self) -> Option<(&CExpr, UnderAncestor<'_>)> {
+        match self {
+            CExpr::StrTest { subject, test, .. } if matches!(test.kind, StrTestKind::Under) => Some((subject, UnderAncestor::Const(Some(&test.argument)))),
+            CExpr::Scalar { function, args, .. } if function.name == "under" => match args.as_slice() {
+                [subject, CExpr::Const(Value::Str(ancestor))] => Some((subject, UnderAncestor::Const(Some(ancestor)))),
+                [subject, CExpr::Const(Value::Null)] => Some((subject, UnderAncestor::Const(None))),
+                [subject, CExpr::Param(param)] => Some((subject, UnderAncestor::Param(param))),
+                _ => None,
+            },
+            _ => None,
         }
     }
 
@@ -1322,7 +1531,72 @@ impl CExpr {
     }
 }
 
+/// `LIMIT` and `OFFSET` of one execution, with their parameters bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Window {
+    pub limit: u64,
+    pub offset: u64,
+}
+
+impl Window {
+    /// How many leading rows an execution keeps before it skips the offset: OFFSET plus
+    /// LIMIT, which [`Plan::window`] checked does not overflow.
+    pub fn end(&self) -> u64 {
+        self.offset.saturating_add(self.limit)
+    }
+
+    /// The rows the window keeps of `rows`: skip `offset`, then keep at most `limit`.
+    pub fn apply<T>(&self, rows: &mut Vec<T>) {
+        let offset = usize::try_from(self.offset).unwrap_or(usize::MAX).min(rows.len());
+        rows.drain(..offset);
+        rows.truncate(usize::try_from(self.limit).unwrap_or(usize::MAX));
+    }
+}
+
+/// The value of a `LIMIT` / `OFFSET` with its parameter bound: a negative or NULL value is
+/// an error at the parameter, never a wrap-around.
+fn resolve_count(count: &Count, clause: &str, params: &Params) -> Result<u64, LocatedError> {
+    match &count.value {
+        CountValue::Literal(value) => Ok(*value),
+        CountValue::Param(param) => match params.get(param) {
+            Some(Value::Int(value)) => u64::try_from(*value)
+                .map_err(|_| LocatedError::compile(format!("{} must not be negative, but parameter {} is {}", clause, param, value), count.span)),
+            Some(Value::Null) | None => err(format!("{} expects an integer, but parameter {} is NULL", clause, param), count.span),
+            Some(other) => err(
+                format!("{} expects an integer, but parameter {} is a {}", clause, param, other.data_type()),
+                count.span,
+            ),
+        },
+    }
+}
+
+fn count_text(count: &Count) -> String {
+    match &count.value {
+        CountValue::Literal(value) => value.to_string(),
+        CountValue::Param(param) => param.to_string(),
+    }
+}
+
 impl Plan {
+    /// LIMIT and OFFSET with `params` bound; `None` without a LIMIT.
+    pub(crate) fn window(&self, params: &Params) -> Result<Option<Window>, LocatedError> {
+        let Some(limit) = &self.limit else {
+            return Ok(None);
+        };
+        let limit_value = resolve_count(limit, "LIMIT", params)?;
+        let offset_value = match &self.offset {
+            Some(offset) => resolve_count(offset, "OFFSET", params)?,
+            None => 0,
+        };
+        if limit_value.checked_add(offset_value).is_none() {
+            return err("OFFSET plus LIMIT is too large", self.offset.as_ref().map_or(limit.span, |it| it.span));
+        }
+        Ok(Some(Window {
+            limit: limit_value,
+            offset: offset_value,
+        }))
+    }
+
     /// The columns of the plan's table read anywhere in the plan (targets, filter, aggregate
     /// arguments), for a projection stage that only computes what is used.
     pub(crate) fn referenced_columns(&self) -> BTreeSet<&'static str> {
@@ -1409,6 +1683,20 @@ impl fmt::Display for CExpr {
                 f.write_str("))")
             }
             CExpr::IsNull { expr, negated } => write!(f, "({} IS {}NULL)", expr, if *negated { "NOT " } else { "" }),
+            CExpr::InConst { needle, set, negated } => {
+                write!(f, "({} {}IN ", needle, if *negated { "NOT " } else { "" })?;
+                if set.from_set {
+                    let mut elements = set.strings.iter().collect::<Vec<_>>();
+                    elements.sort();
+                    write!(f, "{{{}}})", elements.iter().map(|it| format!("'{}'", it)).collect::<Vec<_>>().join(", "))
+                } else {
+                    let items = set.items.iter().cloned().map(CExpr::Const).collect::<Vec<_>>();
+                    f.write_str("(")?;
+                    list(f, &items, ", ")?;
+                    f.write_str("))")
+                }
+            }
+            CExpr::StrTest { subject, test, .. } => write!(f, "{}({}, '{}')", test.function.name, subject, test.argument),
         }
     }
 }
@@ -1458,14 +1746,15 @@ impl fmt::Display for Plan {
         if self.distinct {
             writeln!(f, "distinct")?;
         }
-        if let Some(limit) = self.limit {
+        if let Some(limit) = &self.limit {
             let how = match self.execution.limit {
                 LimitMode::AfterSort => "",
                 LimitMode::StopScan => " (stops the scan)",
                 LimitMode::TopK => " (top-k while scanning)",
                 LimitMode::FirstGroups => " (first groups only)",
             };
-            writeln!(f, "limit: {}{}", limit, how)?;
+            let offset = self.offset.as_ref().map(|offset| format!(" offset {}", count_text(offset))).unwrap_or_default();
+            writeln!(f, "limit: {}{}{}", count_text(limit), offset, how)?;
         }
         if let Some(pivot) = &self.pivot {
             writeln!(f, "pivot by: {} (rows), {} (columns)", pivot.rows, pivot.columns)?;

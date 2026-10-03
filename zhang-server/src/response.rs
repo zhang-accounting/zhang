@@ -632,6 +632,8 @@ pub enum QueryColumnType {
     Amount,
     Position,
     Inventory,
+    Interval,
+    Metas,
 }
 
 impl From<zhang_query::DataType> for QueryColumnType {
@@ -648,6 +650,8 @@ impl From<zhang_query::DataType> for QueryColumnType {
             DataType::Amount => QueryColumnType::Amount,
             DataType::Position => QueryColumnType::Position,
             DataType::Inventory => QueryColumnType::Inventory,
+            DataType::Interval => QueryColumnType::Interval,
+            DataType::Metas => QueryColumnType::Metas,
         }
     }
 }
@@ -687,8 +691,16 @@ pub struct QueryInventoryEntity {
     pub positions: Vec<QueryPositionEntity>,
 }
 
-/// One result cell. Booleans and integers are JSON booleans and numbers; decimals, strings
-/// and dates (`YYYY-MM-DD`) are strings; sets are sorted string arrays.
+/// One metadata entry of a `metas` cell.
+#[derive(Serialize, Schematic)]
+pub struct QueryMetaEntity {
+    pub key: String,
+    pub value: String,
+}
+
+/// One result cell. Booleans and integers are JSON booleans and numbers; decimals, strings,
+/// dates (`YYYY-MM-DD`) and intervals (`1 year 2 months`) are strings; sets are sorted string
+/// arrays; metadata (`metas`) is an array of `{"key", "value"}` objects in order.
 ///
 /// Integers are 64-bit and sent as JSON numbers; JavaScript parses numbers as doubles, so
 /// an integer outside ±2^53 (unusual for counts and date parts) loses precision there.
@@ -702,6 +714,7 @@ pub enum QueryCell {
     Amount(QueryAmountEntity),
     Position(QueryPositionEntity),
     Inventory(QueryInventoryEntity),
+    Metas(Vec<QueryMetaEntity>),
 }
 
 impl From<&zhang_query::Amount> for QueryAmountEntity {
@@ -743,6 +756,15 @@ impl QueryCell {
             Value::Inventory(it) => QueryCell::Inventory(QueryInventoryEntity {
                 positions: it.positions().map(|position| (&position).into()).collect(),
             }),
+            Value::Interval(it) => QueryCell::Text(it.to_string()),
+            Value::Metas(it) => QueryCell::Metas(
+                it.iter()
+                    .map(|(key, value)| QueryMetaEntity {
+                        key: key.clone(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            ),
         }))
     }
 }
@@ -879,7 +901,7 @@ mod query_test {
     use bigdecimal::BigDecimal;
     use chrono::NaiveDate;
     use serde_json::json;
-    use zhang_query::{Amount, ColumnInfo, Cost, DataType, Inventory, Position, QueryResult, Value};
+    use zhang_query::{Amount, ColumnInfo, Cost, DataType, Interval, Inventory, Position, QueryResult, Value};
 
     use crate::response::QueryResultEntity;
 
@@ -913,6 +935,8 @@ mod query_test {
             ("p", DataType::Position),
             ("inv", DataType::Inventory),
             ("n", DataType::Null),
+            ("every", DataType::Interval),
+            ("metas", DataType::Metas),
         ];
         let result = QueryResult {
             columns: columns
@@ -933,7 +957,10 @@ mod query_test {
                 Value::Position(lot),
                 Value::Inventory(inventory),
                 Value::Null,
+                Value::Interval(Interval::new(14, -3)),
+                Value::Metas(vec![("invoice".to_owned(), "a.pdf".to_owned()), ("invoice".to_owned(), "b.pdf".to_owned())]),
             ]],
+            total: None,
         };
         let encoded = serde_json::to_value(QueryResultEntity::from(result)).unwrap();
         assert_eq!(
@@ -943,7 +970,7 @@ mod query_test {
                     {"name": "b", "type": "bool"}, {"name": "i", "type": "int"}, {"name": "d", "type": "decimal"},
                     {"name": "s", "type": "str"}, {"name": "date", "type": "date"}, {"name": "tags", "type": "set"},
                     {"name": "a", "type": "amount"}, {"name": "p", "type": "position"}, {"name": "inv", "type": "inventory"},
-                    {"name": "n", "type": "null"}
+                    {"name": "n", "type": "null"}, {"name": "every", "type": "interval"}, {"name": "metas", "type": "metas"}
                 ],
                 "rows": [[
                     true, 42, "-12.50", "午餐", "2024-01-31", ["a", "b"],
@@ -953,7 +980,9 @@ mod query_test {
                         {"units": {"number": "10", "currency": "AAPL"}, "cost": {"number": "150.00", "currency": "USD", "date": "2024-01-31", "label": null}},
                         {"units": {"number": "-12.50", "currency": "EUR"}, "cost": null}
                     ]},
-                    null
+                    null,
+                    "1 year 2 months -3 days",
+                    [{"key": "invoice", "value": "a.pdf"}, {"key": "invoice", "value": "b.pdf"}]
                 ]]
             })
         );

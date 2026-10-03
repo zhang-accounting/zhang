@@ -1,0 +1,23 @@
+{
+  "name": "date_interval_arithmetic",
+  "query": "SELECT DISTINCT 2016-01-31 + interval('1 month') AS leap_end, 2015-01-31 + interval('1 month') AS end, 2016-03-31 - interval('1 month') AS back, interval('1 month') + 2016-01-31 AS commuted, 2016-02-29 + interval('1 year') AS next_year, 2016-02-29 - interval('-1 year') AS minus_negative, 2016-01-31 + (interval('1 month') + interval('1 day')) AS months_then_days, 2016-01-31 - interval('1 month') - interval('1 month') AS twice, 2016-01-10 + interval('-10 days') AS days WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "leap_end", "type": "date"},
+    {"name": "end", "type": "date"},
+    {"name": "back", "type": "date"},
+    {"name": "commuted", "type": "date"},
+    {"name": "next_year", "type": "date"},
+    {"name": "minus_negative", "type": "date"},
+    {"name": "months_then_days", "type": "date"},
+    {"name": "twice", "type": "date"},
+    {"name": "days", "type": "date"}
+  ],
+  "rows": [
+    ["2016-02-29", "2015-02-28", "2016-02-29", "2016-02-29", "2017-02-28", "2017-02-28", "2016-03-01", "2015-11-30", "2015-12-31"]
+  ],
+  "notes": "Adding an interval moves by the months first, keeping the day unless the month is shorter (then its last day), then by the days. Subtracting adds the negated interval, one step at a time, so 2016-01-31 minus one month twice is 2015-11-30."
+}

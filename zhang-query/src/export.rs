@@ -29,8 +29,9 @@
 //!
 //! - The first record is the header of column names. Every record, the last one included,
 //!   ends with CRLF.
-//! - NULL is the empty field. Booleans are `TRUE`/`FALSE`, dates `YYYY-MM-DD`, and sets
-//!   their sorted elements joined by `,`. Decimals keep their exact digits and scale and
+//! - NULL is the empty field. Booleans are `TRUE`/`FALSE`, dates `YYYY-MM-DD`, sets
+//!   their sorted elements joined by `,`, intervals like `1 year 2 months`, and metadata
+//!   (`metas`) its `key: value` pairs joined by `; `. Decimals keep their exact digits and scale and
 //!   never use exponent notation (`4.00`, `-0.03`, `1000`).
 //! - A field that contains `,`, `"`, CR or LF is quoted, with `"` doubled. A record with a
 //!   single empty field is written as `""`, so that it is not a blank line.
@@ -168,6 +169,8 @@ pub fn csv_field(value: &Value) -> Cow<'_, str> {
         Value::Str(it) => Cow::Borrowed(it),
         Value::Date(it) => Cow::Owned(it.format("%Y-%m-%d").to_string()),
         Value::Set(it) => Cow::Owned(it.iter().map(String::as_str).collect::<Vec<_>>().join(",")),
+        // `1 year 2 months`, and `key: value` pairs joined by `; `
+        Value::Interval(_) | Value::Metas(_) => Cow::Owned(value.to_string()),
         // not present in a numberified result; rendered like `str()` for completeness
         Value::Amount(_) | Value::Position(_) | Value::Inventory(_) => Cow::Owned(value.to_string()),
     }
@@ -232,6 +235,7 @@ mod tests {
                 })
                 .collect(),
             rows,
+            total: None,
         }
     }
 

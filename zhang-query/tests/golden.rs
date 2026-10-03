@@ -46,6 +46,8 @@ fn cell_json(value: &Value) -> Json {
         Value::Amount(it) => json!({"number": decimal_json(&it.number), "currency": it.commodity}),
         Value::Position(it) => position_json(it),
         Value::Inventory(it) => inventory_json(it),
+        Value::Interval(it) => json!(it.to_string()),
+        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
     }
 }
 

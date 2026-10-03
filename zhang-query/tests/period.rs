@@ -107,6 +107,8 @@ fn engine_cell(value: &Value) -> Json {
         Value::Amount(it) => engine_amount(it),
         Value::Position(it) => engine_position(it),
         Value::Inventory(it) => sorted_positions(it.positions().map(|position| engine_position(&position)).collect()),
+        Value::Interval(it) => json!(it.to_string()),
+        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
     }
 }
 

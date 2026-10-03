@@ -1,9 +1,10 @@
 //! The execution decisions of the optimizer and the projector (deferred running balances,
-//! running sums for `units(balance)` / `cost(balance)`, LIMIT pushdown, account-scoped scans)
-//! and the per-ledger cache change how much work an execution does, never its result: every
-//! query here returns byte-identical rows (decimal scales included) with [`Query::compile`] and
-//! with [`Query::compile_naive`], with and without its account scope, and on a cache that
-//! other queries built and on a fresh one.
+//! running sums for `units(balance)` / `cost(balance)`, LIMIT and OFFSET pushdown,
+//! account-scoped scans, hashed `IN` lists, prepared string tests, and parameters bound as
+//! constants) and the per-ledger cache change how much work an execution does, never its
+//! result: every query here returns byte-identical rows (decimal scales included), and the same
+//! total row count, with [`Query::compile_with_params`] and with [`Query::compile_naive`], with
+//! and without its account scope, and on a cache that other queries built and on a fresh one.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -134,13 +135,79 @@ const QUERIES: &[&str] = &[
     "SELECT seq, time, timestamp, posting_index, balanced, errors ORDER BY seq DESC, posting_index LIMIT 12",
     "SELECT id, seq, time, timestamp, balanced, errors FROM #transactions ORDER BY seq DESC LIMIT 5",
     "SELECT seq, id, time, timestamp FROM #entries WHERE seq > 10 LIMIT 5",
+    // OFFSET with every LIMIT strategy: top-k, stopping the scan (with DISTINCT), the first
+    // groups, deferred balances, HAVING and PIVOT BY, and an offset past the end
+    "SELECT date, balance ORDER BY date DESC LIMIT 10 OFFSET 5",
+    "SELECT date, account, position, balance LIMIT 7 OFFSET 3",
+    "SELECT DISTINCT account LIMIT 3 OFFSET 2",
+    "SELECT DISTINCT account, currency ORDER BY account DESC LIMIT 4 OFFSET 1",
+    "SELECT account, count(*) GROUP BY account LIMIT 2 OFFSET 3",
+    "SELECT account, last(balance) GROUP BY account ORDER BY account LIMIT 3 OFFSET 2",
+    "SELECT account, count(*) GROUP BY account HAVING count(*) > 5 LIMIT 2 OFFSET 1",
+    "SELECT year, account, sum(position) AS total GROUP BY 1, 2 PIVOT BY account, year LIMIT 6 OFFSET 2",
+    "SELECT date, position LIMIT 5 OFFSET 100000",
+    "SELECT date, position ORDER BY date LIMIT 0 OFFSET 3",
+    "SELECT * FROM #entries ORDER BY date DESC, type LIMIT 7 OFFSET 7",
+    // hashed IN lists and prepared string tests over literals
+    "SELECT account, count(*) WHERE account IN ('Assets:Cash', 'Assets:Broker', 'Expenses:Food:Coffee', NULL) GROUP BY account",
+    "SELECT count(*) WHERE number IN (1, 2.0, 10.00, 0.5) OR number NOT IN (3.25, NULL)",
+    "SELECT date, payee WHERE icontains(payee, 'TRADE') OR icontains(narration, 'café') OR any_icontains(tags, 'TRIP')",
+    "SELECT account, count(*) WHERE under(account, 'Assets') OR under(account, 'Expenses:Food') GROUP BY account",
+    "SELECT DISTINCT account WHERE NOT under(account, 'Assets:US') AND account IN ('Assets:US:BofA:Checking', 'Assets:Cash')",
 ];
+
+/// Queries with parameters, run with [`PARAMS`]: the optimized execution binds them as
+/// constants (compiling a pattern, hashing a set, lower-casing a needle once), the naive one
+/// evaluates them for every row.
+const PARAM_QUERIES: &[&str] = &[
+    "SELECT date, payee WHERE payee ~ :keyword OR narration ~ :keyword OR account ~ :keyword",
+    "SELECT DISTINCT id WHERE payee ~ :keyword OR str(tags) ~ :keyword ORDER BY id LIMIT :size OFFSET :offset",
+    "SELECT account, count(*) WHERE account IN :accounts GROUP BY account",
+    "SELECT count(*) WHERE account NOT IN :accounts AND :missing IN tags",
+    "SELECT date, account WHERE account IN (:account, 'Assets:Cash', :missing) LIMIT :size",
+    "SELECT date, payee WHERE icontains(payee, :needle) OR icontains(narration, :needle) ORDER BY date DESC LIMIT :size OFFSET :offset",
+    "SELECT account, sum(position) WHERE under(account, :root) GROUP BY account ORDER BY account",
+    "SELECT date, balance WHERE under(account, :root) ORDER BY date DESC LIMIT :size OFFSET :offset",
+    "SELECT account, count(*) WHERE account ~ :empty OR :flag GROUP BY account LIMIT :size",
+    "SELECT date, payee WHERE payee ~ :invalid LIMIT :size",
+    "SELECT DISTINCT account LIMIT :size OFFSET :offset",
+    "SELECT account, count(*) GROUP BY account LIMIT :size OFFSET :offset",
+];
+
+fn params() -> Params {
+    let accounts = [
+        "Assets:Cash",
+        "Assets:Broker",
+        "Expenses:Food:Coffee",
+        "Assets:US:BofA:Checking",
+        "Liabilities:US:Chase:Slate",
+    ];
+    Params::new()
+        .bind("keyword", "(?i)trade|coffee|Rent")
+        .bind("accounts", Value::Set(accounts.iter().map(|it| it.to_string()).collect()))
+        .bind("account", "Expenses:Fees")
+        .bind("missing", Value::Null)
+        .bind("needle", "TrAdE")
+        .bind("root", "Assets")
+        .bind("empty", "")
+        .bind("flag", false)
+        .bind("invalid", "(")
+        .bind("size", 9i64)
+        .bind("offset", 4i64)
+}
+
+fn param_types() -> ParamTypes {
+    let mut types = params().types();
+    types = types.bind("missing", DataType::Str);
+    types
+}
 
 fn options() -> ExecuteOptions {
     ExecuteOptions {
         today: Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
         timeout: None,
         max_result_values: None,
+        count_total: true,
     }
 }
 
@@ -150,6 +217,7 @@ fn assert_same(sql: &str, expected: Result<crate::QueryResult, crate::QueryError
         (Ok(expected), Ok(actual)) => {
             assert_eq!(expected.columns, actual.columns, "{sql}");
             assert_eq!(format!("{:?}", expected.rows), format!("{:?}", actual.rows), "{sql}");
+            assert_eq!(expected.total, actual.total, "{sql}");
         }
         (Err(expected), Err(actual)) => assert_eq!(expected, actual, "{sql}"),
         (expected, actual) => panic!("{sql}: {:?} vs {:?}", expected.map(|it| it.rows.len()), actual.map(|it| it.rows.len())),
@@ -158,10 +226,43 @@ fn assert_same(sql: &str, expected: Result<crate::QueryResult, crate::QueryError
 
 /// Run every query both ways and compare the rows.
 fn assert_equivalent(ledger: &Ledger, queries: &[&str]) {
+    assert_equivalent_with(ledger, queries, &ParamTypes::new(), &Params::new());
+}
+
+/// Run every query naively and optimized (with its parameters bound as constants, its account
+/// scope and the total count), without its scope, and without the total, and compare.
+fn assert_equivalent_with(ledger: &Ledger, queries: &[&str], types: &ParamTypes, params: &Params) {
+    let options = options();
     for sql in queries {
-        let run = |query: Query| query.execute_with_options(ledger, &Params::new(), &options());
-        let naive = run(Query::compile_naive(sql).unwrap_or_else(|err| panic!("{sql}: {err}")));
-        let optimized = run(Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}")));
+        let compile = || Query::compile_with_params(sql, types).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        let run = |query: Query, options: &ExecuteOptions| query.execute_with_options(ledger, params, options);
+        let naive = run(Query::compile_naive(sql, types).unwrap_or_else(|err| panic!("{sql}: {err}")), &options);
+        let optimized = run(compile(), &options);
+        if let Ok(optimized) = &optimized {
+            assert!(optimized.total.is_some(), "{sql}");
+        }
+        if compile().plan.execution.scope.is_some() {
+            assert_same(sql, run(unscoped(compile()), &options), optimized.clone());
+        }
+        // counting the rows changes nothing else
+        let uncounted = run(
+            compile(),
+            &ExecuteOptions {
+                count_total: false,
+                ..options.clone()
+            },
+        );
+        match (uncounted, &optimized) {
+            (Ok(uncounted), Ok(optimized)) => {
+                assert_eq!(format!("{:?}", uncounted.rows), format!("{:?}", optimized.rows), "{sql}");
+                assert_eq!(uncounted.total, None, "{sql}");
+            }
+            (Err(uncounted), Err(optimized)) => assert_eq!(&uncounted, optimized, "{sql}"),
+            // counting evaluates the filter past the window, where a row may fail that a scan
+            // stopped by LIMIT never reaches
+            (Ok(_), Err(_)) => {}
+            (Err(uncounted), Ok(_)) => panic!("{sql}: only the uncounted execution fails: {uncounted}"),
+        }
         assert_same(sql, naive, optimized);
     }
 }
@@ -170,6 +271,58 @@ fn assert_equivalent(ledger: &Ledger, queries: &[&str]) {
 fn unscoped(mut query: Query) -> Query {
     query.plan.execution.scope = None;
     query
+}
+
+#[test]
+fn bound_parameters_keep_results() {
+    let types = param_types();
+    assert_equivalent_with(&fava_demo_ledger(), PARAM_QUERIES, &types, &params());
+    for seed in 1..=3 {
+        assert_equivalent_with(&load_text(&random_lots_ledger(seed, 120)), PARAM_QUERIES, &types, &params());
+    }
+    // other windows, and parameters that make the filters always or never hold
+    for (size, offset, flag, root) in [
+        (0i64, 0i64, true, ""),
+        (1, 0, true, "Expenses"),
+        (1000, 3, false, "Assets:US"),
+        (5, 100_000, true, "Liabilities"),
+    ] {
+        let params = params().bind("size", size).bind("offset", offset).bind("flag", flag).bind("root", root);
+        assert_equivalent_with(&fava_demo_ledger(), PARAM_QUERIES, &types, &params);
+    }
+}
+
+/// The total counts every row before LIMIT and OFFSET, whatever cuts the scan short.
+#[test]
+fn totals_count_the_rows_before_the_window() {
+    let ledger = fava_demo_ledger();
+    let run = |sql: &str| Query::compile(sql).unwrap().execute_with_options(&ledger, &Params::new(), &options()).unwrap();
+    for (sql, all) in [
+        ("SELECT date, position LIMIT 5 OFFSET 2", "SELECT date, position"),
+        ("SELECT date, position ORDER BY date DESC LIMIT 5", "SELECT date, position"),
+        ("SELECT DISTINCT account LIMIT 3", "SELECT DISTINCT account"),
+        ("SELECT DISTINCT account, units(balance) LIMIT 3", "SELECT DISTINCT account, units(balance)"),
+        ("SELECT account, count(*) GROUP BY account LIMIT 2", "SELECT account, count(*) GROUP BY account"),
+        (
+            "SELECT account, count(*) GROUP BY account HAVING count(*) > 50 LIMIT 2",
+            "SELECT account, count(*) GROUP BY account HAVING count(*) > 50",
+        ),
+        (
+            "SELECT year, account, count(*) AS n GROUP BY 1, 2 PIVOT BY account, year LIMIT 4",
+            "SELECT year, account, count(*) AS n GROUP BY 1, 2",
+        ),
+        (
+            "SELECT date, balance WHERE account ~ 'Vanguard' ORDER BY date DESC LIMIT 2 OFFSET 1",
+            "SELECT date WHERE account ~ 'Vanguard'",
+        ),
+        ("SELECT date LIMIT 0", "SELECT date"),
+        ("SELECT * FROM #prices LIMIT 3 OFFSET 900", "SELECT * FROM #prices"),
+    ] {
+        let windowed = run(sql);
+        let everything = run(all);
+        assert_eq!(windowed.total, Some(everything.rows.len() as u64), "{sql}");
+        assert_eq!(everything.total, Some(everything.rows.len() as u64), "{all}");
+    }
 }
 
 #[test]
@@ -244,6 +397,14 @@ fn explain_shows_the_decisions() {
     assert!(journal.contains("balance: deferred targets [6]\n"), "{journal}");
     let top = explain("SELECT date, balance ORDER BY date DESC LIMIT 10");
     assert!(top.contains("limit: 10 (top-k while scanning)\nbalance: deferred targets [1]\n"), "{top}");
+    let page = Query::compile_with_params(
+        "SELECT date, balance ORDER BY date DESC LIMIT :size OFFSET :offset",
+        &ParamTypes::new().bind("size", DataType::Int).bind("offset", DataType::Int),
+    )
+    .unwrap()
+    .explain();
+    assert!(page.contains("limit: :size offset :offset (top-k while scanning)\n"), "{page}");
+    assert!(explain("SELECT DISTINCT account LIMIT 3 OFFSET 6").contains("limit: 3 offset 6 (stops the scan)\n"));
     let grouped = explain("SELECT account, last(balance), min(balance) GROUP BY account LIMIT 2");
     assert!(
         grouped.contains("limit: 2 (first groups only)\nbalance: running while scanning, deferred agg#0\n"),
@@ -261,6 +422,16 @@ fn explain_shows_the_decisions() {
         "{scoped}"
     );
     assert!(!explain("SELECT date WHERE account ~ 'Assets:Bank'").contains("scan:"));
+    // under(), with a literal (a prepared test) or a parameter, and a hashed IN list
+    let under = explain("SELECT date WHERE under(account, 'Assets:US') OR account IN ('Assets:Cash', 'Expenses:Fees')");
+    assert!(
+        under.contains("scan: the rows of the accounts under 'Assets:US', 'Assets:Cash', 'Expenses:Fees'\n"),
+        "{under}"
+    );
+    let under = Query::compile_with_params("SELECT date WHERE under(account, :root)", &ParamTypes::new().bind("root", DataType::Str))
+        .unwrap()
+        .explain();
+    assert!(under.contains("scan: the rows of the accounts under :root\n"), "{under}");
 }
 
 /// A plan that does not read `balance` keeps no running total at all.
@@ -348,6 +519,7 @@ option "operating_currency" "CNY"
 fn scoped_queries() -> Vec<(&'static str, Params)> {
     let account = |name: &str| Params::new().bind("account", name);
     let accounts = |names: &[&str]| Params::new().bind("accounts", Value::Set(names.iter().map(|it| it.to_string()).collect()));
+    let root = |name: &str| Params::new().bind("root", name);
     vec![
         ("SELECT date, account, position, balance, account_balance WHERE account = :account", account("Assets:Broker")),
         ("SELECT date, account, position, balance, account_balance WHERE account = :account", account("Assets:US:BofA:Checking")),
@@ -372,11 +544,31 @@ fn scoped_queries() -> Vec<(&'static str, Params)> {
             "SELECT account, first(account_balance), count(*) WHERE 'Assets:Cash' = account OR account = :account GROUP BY account",
             account("Assets:US:Vanguard:Cash"),
         ),
+        // under(), with a parameter and with a literal, and IN lists of constants
+        (
+            "SELECT date, account, balance, account_balance WHERE under(account, :root) LIMIT :size OFFSET 3",
+            root("Assets:US").bind("size", 25i64),
+        ),
+        ("SELECT account, count(*), last(account_balance) WHERE under(account, :root) GROUP BY account", root("Assets")),
+        ("SELECT count(*), last(balance) WHERE under(account, :root)", root("Assets:U")),
+        ("SELECT count(*) WHERE under(account, :root)", Params::new().bind("root", Value::Null).bind("size", 1i64)),
+        (
+            "SELECT date, account, balance WHERE year >= 2016 AND (under(account, 'Assets:US:Vanguard') OR account IN ('Assets:Cash', 'Expenses:Fees', NULL))",
+            Params::new(),
+        ),
+        (
+            "SELECT DISTINCT account WHERE account IN ('Assets:Broker', 'Assets:Short') AND icontains(payee, 'trade')",
+            Params::new(),
+        ),
     ]
 }
 
 fn compile_scoped(sql: &str) -> Query {
-    let types = ParamTypes::new().bind("account", DataType::Str).bind("accounts", DataType::Set);
+    let types = ParamTypes::new()
+        .bind("account", DataType::Str)
+        .bind("accounts", DataType::Set)
+        .bind("root", DataType::Str)
+        .bind("size", DataType::Int);
     Query::compile_with_params(sql, &types).unwrap_or_else(|err| panic!("{sql}: {err}"))
 }
 

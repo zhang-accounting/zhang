@@ -1,0 +1,25 @@
+{
+  "name": "interval_values",
+  "query": "SELECT DISTINCT interval('1 month') AS month, interval('13 months') AS months_13, interval('-1 year') AS year, interval('+10 days') AS days, interval('1  days') AS two_spaces, interval('2 weeks') AS weeks, interval('1 Month') AS upper_case, interval(' 1 day') AS leading_space, interval('1 dayss') AS typo, interval('1 year') + interval('-1 month') AS months_11, interval('1 month') + interval('3 days') AS mixed WHERE account = 'Expenses:Financial:Fees'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "month", "type": "interval"},
+    {"name": "months_13", "type": "interval"},
+    {"name": "year", "type": "interval"},
+    {"name": "days", "type": "interval"},
+    {"name": "two_spaces", "type": "interval"},
+    {"name": "weeks", "type": "interval"},
+    {"name": "upper_case", "type": "interval"},
+    {"name": "leading_space", "type": "interval"},
+    {"name": "typo", "type": "interval"},
+    {"name": "months_11", "type": "interval"},
+    {"name": "mixed", "type": "interval"}
+  ],
+  "rows": [
+    ["1 month", "1 year 1 month", "-1 year", "10 days", "1 day", null, null, null, null, "11 months", "1 month 3 days"]
+  ],
+  "notes": "interval(text) accepts '<n> day[s]', '<n> month[s]' or '<n> year[s]' with an optional sign, and is NULL otherwise (upper case, surrounding spaces, other units). Intervals add up. The fixture encodes beanquery's relativedelta like zhang's interval text: the months as years and months with the sign of their total, then the days ('1 year 1 month', '11 months', '1 month 3 days'). ACCEPTED DEVIATION: zhang also accepts weeks (interval('2 weeks') is 14 days), which beanquery does not."
+}

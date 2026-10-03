@@ -1,0 +1,31 @@
+{
+  "name": "date_bin_months_and_years",
+  "query": "SELECT DISTINCT date, date_bin('1 month', date, 2016-01-01) AS month, date_bin('3 months', date, 2016-01-01) AS quarter, date_bin('1 year', date, 2015-07-01) AS fiscal_year, date_bin(interval('2 months'), date, 2015-12-01) AS two_months WHERE account ~ '^Expenses' AND year = 2016 AND day(date) >= 29 ORDER BY date",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "month", "type": "date"},
+    {"name": "quarter", "type": "date"},
+    {"name": "fiscal_year", "type": "date"},
+    {"name": "two_months", "type": "date"}
+  ],
+  "rows": [
+    ["2016-01-29", "2016-01-01", "2016-01-01", "2015-07-01", "2015-12-01"],
+    ["2016-01-30", "2016-01-01", "2016-01-01", "2015-07-01", "2015-12-01"],
+    ["2016-01-31", "2016-01-01", "2016-01-01", "2015-07-01", "2015-12-01"],
+    ["2016-03-30", "2016-03-01", "2016-01-01", "2015-07-01", "2016-02-01"],
+    ["2016-04-29", "2016-04-01", "2016-04-01", "2015-07-01", "2016-04-01"],
+    ["2016-05-30", "2016-05-01", "2016-04-01", "2015-07-01", "2016-04-01"],
+    ["2016-06-30", "2016-06-01", "2016-04-01", "2015-07-01", "2016-06-01"],
+    ["2016-07-29", "2016-07-01", "2016-07-01", "2016-07-01", "2016-06-01"],
+    ["2016-09-29", "2016-09-01", "2016-07-01", "2016-07-01", "2016-08-01"],
+    ["2016-10-31", "2016-10-01", "2016-10-01", "2016-07-01", "2016-10-01"],
+    ["2016-11-29", "2016-11-01", "2016-10-01", "2016-07-01", "2016-10-01"],
+    ["2016-12-29", "2016-12-01", "2016-10-01", "2016-07-01", "2016-12-01"],
+    ["2016-12-31", "2016-12-01", "2016-10-01", "2016-07-01", "2016-12-01"]
+  ],
+  "notes": "date_bin(stride, date, origin) is the start of the bin of the date among bins of the stride laid from the origin; the stride may be an interval or its text. No date here is on a bin boundary (see date_bin_on_boundaries)."
+}

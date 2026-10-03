@@ -1,0 +1,25 @@
+{
+  "name": "date_part_on_ledger_dates",
+  "query": "SELECT date, date_part('dow', date) AS dow, date_part('isodow', date) AS isodow, date_part('week', date) AS week, date_part('isoyear', date) AS isoyear, date_part('quarter', date) AS quarter, date_part('epoch', date) AS epoch WHERE account = 'Expenses:Food:Groceries' AND date >= 2015-12-20 AND date < 2016-02-15 ORDER BY date",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "dow", "type": "int"},
+    {"name": "isodow", "type": "int"},
+    {"name": "week", "type": "int"},
+    {"name": "isoyear", "type": "int"},
+    {"name": "quarter", "type": "int"},
+    {"name": "epoch", "type": "int"}
+  ],
+  "rows": [
+    ["2015-12-27", 6, 7, 52, 2015, 4, 1451174400],
+    ["2016-01-10", 6, 7, 1, 2016, 1, 1452384000],
+    ["2016-01-19", 1, 2, 3, 2016, 1, 1453161600],
+    ["2016-01-26", 1, 2, 4, 2016, 1, 1453766400],
+    ["2016-02-11", 3, 4, 6, 2016, 1, 1455148800]
+  ],
+  "notes": "date_part over the postings around a year boundary, where the ISO year and week differ from the calendar ones."
+}
