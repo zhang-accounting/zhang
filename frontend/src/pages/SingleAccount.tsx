@@ -6,6 +6,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useAsync } from 'react-use';
 import { retrieveAccountBalance, retrieveAccountDocuments, retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
 import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/layout';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -229,71 +230,76 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
   if (journals.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(journals.error)} />;
 
   return (
-    <ResponsiveList<Row>
-      items={journals.value ?? []}
-      loading={journals.loading}
-      getKey={(item, index) => `${item.trx_id}-${index}`}
-      empty={<EmptyState icon={NotebookText} title={t('ledger.account.no_journals')} description={t('ledger.account.no_journals_description')} />}
-      columns={[
-        {
-          key: 'date',
-          header: t('ledger.account.col_date'),
-          className: 'w-40 pl-4 text-muted-foreground tabular-nums',
-          cell: (item) => fmt.dateTime(new Date(item.datetime)),
-        },
-        {
-          key: 'payee',
-          header: t('ledger.journals.col_description'),
-          className: 'w-full max-w-0',
-          cell: (item) => (
-            <span className="flex min-w-0 items-center gap-2">
-              <PayeeNarration payee={item.payee} narration={item.narration} />
-              {failed(item)}
-            </span>
-          ),
-        },
-        ...(hasSubAccountRows
-          ? [
-              {
-                key: 'account',
-                header: t('ledger.account.col_sub_account'),
-                className: 'max-w-48',
-                cell: (item: Row) => <span className="flex min-w-0">{subAccount(item)}</span>,
-              },
-            ]
-          : []),
-        {
-          key: 'change',
-          header: t('ledger.account.col_change'),
-          className: 'text-right',
-          cell: (item) => change(item),
-        },
-        {
-          key: 'after',
-          header: t('ledger.account.col_balance'),
-          className: 'pr-4 text-right text-muted-foreground',
-          cell: (item) => <Amount amount={item.account_after.number} currency={item.account_after.commodity} />,
-        },
-      ]}
-      renderCard={(item) => (
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
-              {failed(item)}
-            </span>
-            {subAccount(item) && <span className="flex min-w-0">{subAccount(item)}</span>}
-            <span className="truncate text-xs text-muted-foreground">
-              {[item.narration ? item.payee : null, fmt.dateTime(new Date(item.datetime))].filter(Boolean).join(' · ')}
-            </span>
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-end">
+        <OpenInExplore name="accounts.journal" params={{ account: accountName }} />
+      </div>
+      <ResponsiveList<Row>
+        items={journals.value ?? []}
+        loading={journals.loading}
+        getKey={(item, index) => `${item.trx_id}-${index}`}
+        empty={<EmptyState icon={NotebookText} title={t('ledger.account.no_journals')} description={t('ledger.account.no_journals_description')} />}
+        columns={[
+          {
+            key: 'date',
+            header: t('ledger.account.col_date'),
+            className: 'w-40 pl-4 text-muted-foreground tabular-nums',
+            cell: (item) => fmt.dateTime(new Date(item.datetime)),
+          },
+          {
+            key: 'payee',
+            header: t('ledger.journals.col_description'),
+            className: 'w-full max-w-0',
+            cell: (item) => (
+              <span className="flex min-w-0 items-center gap-2">
+                <PayeeNarration payee={item.payee} narration={item.narration} />
+                {failed(item)}
+              </span>
+            ),
+          },
+          ...(hasSubAccountRows
+            ? [
+                {
+                  key: 'account',
+                  header: t('ledger.account.col_sub_account'),
+                  className: 'max-w-48',
+                  cell: (item: Row) => <span className="flex min-w-0">{subAccount(item)}</span>,
+                },
+              ]
+            : []),
+          {
+            key: 'change',
+            header: t('ledger.account.col_change'),
+            className: 'text-right',
+            cell: (item) => change(item),
+          },
+          {
+            key: 'after',
+            header: t('ledger.account.col_balance'),
+            className: 'pr-4 text-right text-muted-foreground',
+            cell: (item) => <Amount amount={item.account_after.number} currency={item.account_after.commodity} />,
+          },
+        ]}
+        renderCard={(item) => (
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
+                {failed(item)}
+              </span>
+              {subAccount(item) && <span className="flex min-w-0">{subAccount(item)}</span>}
+              <span className="truncate text-xs text-muted-foreground">
+                {[item.narration ? item.payee : null, fmt.dateTime(new Date(item.datetime))].filter(Boolean).join(' · ')}
+              </span>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-0.5 text-sm">
+              {change(item, 'font-semibold')}
+              <Amount className="text-xs text-muted-foreground" amount={item.account_after.number} currency={item.account_after.commodity} />
+            </div>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-0.5 text-sm">
-            {change(item, 'font-semibold')}
-            <Amount className="text-xs text-muted-foreground" amount={item.account_after.number} currency={item.account_after.commodity} />
-          </div>
-        </div>
-      )}
-    />
+        )}
+      />
+    </div>
   );
 }
 
@@ -309,6 +315,7 @@ function AccountDocuments({ accountName, subAccounts }: { accountName: string; s
     <Section
       title={t('ledger.account.documents_title', { count: documents.value?.length ?? 0 })}
       description={subAccounts ? t('ledger.account.documents_description_with_sub_accounts') : t('ledger.account.documents_description')}
+      rightSection={<OpenInExplore name="accounts.documents" params={{ account: accountName }} iconOnly />}
     >
       <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:gap-3 lg:grid-cols-5">
@@ -330,6 +337,7 @@ function AccountHistory({ accountName, subAccounts, reloadKey }: { accountName: 
     <Section
       title={t('ledger.account.history_title')}
       description={subAccounts ? t('ledger.account.history_description_with_sub_accounts') : t('ledger.account.history_description')}
+      rightSection={<OpenInExplore name="accounts.balance_history" params={{ account: accountName }} iconOnly />}
     >
       {history.error ? (
         <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(history.error)} />
