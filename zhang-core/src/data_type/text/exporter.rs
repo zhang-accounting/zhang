@@ -1,8 +1,9 @@
 use itertools::Itertools;
+use log::warn;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
-use crate::data_type::text::parser::is_valid_meta_key;
+use crate::data_type::text::parser::{is_flag_char, is_posting_flag_char, is_valid_meta_key};
 use crate::utils::plain_decimal;
 use crate::utils::string_::{quote_as, QuoteStyle};
 
@@ -141,16 +142,57 @@ impl ZhangDataTypeExportable for Transaction {
 impl ZhangDataTypeExportable for Posting {
     type Output = String;
     fn export_as(self, style: QuoteStyle) -> String {
-        // todo cost and price
-        let cost_string = self.cost.map(|it| it.export_as(style));
+        let flag = self.flag.and_then(|flag| posting_flag(flag, &self.account, style));
         let vec1 = vec![
-            self.flag.map(|it| format!(" {}", it.export_as(style))),
+            // the posting's own flag goes before the account, a space apart: `! Assets:Cash -10 CNY`
+            flag,
             Some(self.account.export_as(style)),
             self.units.map(|it| it.export_as(style)),
-            cost_string,
+            self.cost.map(|it| it.export_as(style)),
             self.price.map(|it| it.export_as(style)),
+            self.comment.map(posting_comment),
         ];
         vec1.into_iter().flatten().join(" ")
+    }
+}
+
+/// The flag of a posting as written before its account, when the format reads it back as the
+/// posting's flag: a single [flag character](is_flag_char), which in zhang is not `#`, as an
+/// indented line starting with `#` is a comment there ([`is_posting_flag_char`]). `*` is written
+/// in both styles: `* Assets:Cash -10 CNY` is a posting flagged `*` in either format.
+///
+/// Any other flag is left out, with a warning, and the posting is written without it: its line must
+/// stay a posting, as a comment would drop its amount from the balances, and as an unreadable line
+/// would stop the whole file from loading. The zhang parser never reads such a flag, so in a zhang
+/// file it can only come from a plugin, which sets it again on every load.
+fn posting_flag(flag: Flag, account: &Account, style: QuoteStyle) -> Option<String> {
+    let text = flag.export_as(style);
+    let mut chars = text.chars();
+    let readable = match (chars.next(), chars.next(), style) {
+        (Some(c), None, QuoteStyle::Zhang) => is_posting_flag_char(c),
+        (Some(c), None, QuoteStyle::Beancount) => is_flag_char(c),
+        _ => false,
+    };
+    if readable {
+        Some(text)
+    } else {
+        warn!(
+            "the flag {text:?} of a posting to {} is left out: the {style:?} format would not read it back as the posting's flag",
+            account.name()
+        );
+        None
+    }
+}
+
+/// The comment at the end of a posting line, after `;`, which zhang and beancount both read as a
+/// comment. It stays on the line: a line break, which only a plugin can put in a comment, is
+/// written as a space.
+fn posting_comment(comment: String) -> String {
+    let comment = comment.replace(['\r', '\n'], " ");
+    if comment.is_empty() {
+        ";".to_owned()
+    } else {
+        format!("; {comment}")
     }
 }
 
@@ -848,6 +890,113 @@ mod test {
         let reparsed = data_type.transform(expected.to_owned(), None).unwrap().pop().unwrap();
         assert_eq!(reparsed.data, directive);
         assert_eq!(data_type.export(Spanned::new(reparsed.data, SpanInfo::default())), expected);
+    }
+
+    /// A posting's own flag is written before its account, a space apart, and its comment at the
+    /// end of its line (#474): what is read is written and read back unchanged.
+    #[test]
+    fn posting_flags_and_comments_round_trip() {
+        use zhang_ast::{Directive, Flag};
+
+        use crate::utils::string_::QuoteStyle;
+
+        let source = indoc! {r#"
+            2024-01-10 * "Broker" "sell"
+              note: "t"
+              ! Assets:Broker -5 AAPL {} @ 200 USD   ; check the lot
+                receipt: "r-1"
+              &   Assets:Bank 1000 USD
+              ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD // fees
+              X Income:Gains ;
+              # Income:Gains -1 USD ; a posting commented out
+              *	Expenses:Tax 1 USD
+              Expenses:Fees 2 USD
+        "#};
+        let expected = indoc! {r#"
+            2024-01-10 * "Broker" "sell"
+              note: "t"
+              ! Assets:Broker -5 AAPL { } @ 200 USD ; check the lot
+                receipt: "r-1"
+              & Assets:Bank 1000 USD
+              ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD ; fees
+              X Income:Gains ;
+              * Expenses:Tax 1 USD
+              Expenses:Fees 2 USD
+        "#}
+        .trim();
+        assert_eq!(parse_and_export(source.trim()), expected);
+
+        let data_type = ZhangDataType {};
+        let directive = data_type.transform(source.to_owned(), None).unwrap().pop().unwrap().data;
+        let Directive::Transaction(txn) = &directive else { unreachable!() };
+        let flags = txn.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+        let custom = |flag: &str| Some(Flag::Custom(flag.to_owned()));
+        assert_eq!(flags, vec![Some(Flag::Warning), custom("&"), custom("?"), custom("X"), Some(Flag::Okay), None]);
+        assert_eq!(txn.postings[3].comment.as_deref(), Some(""));
+        // the beancount style writes the same text
+        assert_eq!(txn.clone().export_as(QuoteStyle::Beancount), expected);
+        assert_round_trips(directive);
+    }
+
+    /// `#` starts a comment in a zhang file, so the zhang style leaves out a `#` posting flag, which
+    /// only a plugin can set there, and keeps the posting: a comment would drop its amount. A `*`
+    /// flag is written, as both formats read it back. The beancount style writes `#` too, as
+    /// beancount reads it. A flag no format reads is left out of both.
+    #[test]
+    fn a_posting_flag_that_would_read_back_as_a_comment_is_left_out() {
+        use zhang_ast::{Directive, Flag, SpanInfo, Spanned};
+
+        use crate::utils::string_::QuoteStyle;
+
+        let data_type = ZhangDataType {};
+        let mut directive = data_type
+            .transform(
+                "2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  Expenses:Food 6 USD\n  Expenses:Drinks\n".to_owned(),
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data;
+        let Directive::Transaction(txn) = &mut directive else { unreachable!() };
+        txn.postings[0].flag = Some(Flag::Okay);
+        txn.postings[1].flag = Some(Flag::Custom("#".to_owned()));
+        txn.postings[2].flag = Some(Flag::Custom("ab".to_owned()));
+
+        let zhang = data_type.export(Spanned::new(directive.clone(), SpanInfo::default()));
+        assert_eq!(
+            zhang,
+            "2024-01-10 * \"Lunch\"\n  * Assets:Cash -10 USD\n  Expenses:Food 6 USD\n  Expenses:Drinks"
+        );
+        let Directive::Transaction(reread) = data_type.transform(zhang, None).unwrap().pop().unwrap().data else {
+            unreachable!()
+        };
+        let flags = reread.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+        assert_eq!(flags, vec![Some(Flag::Okay), None, None]);
+
+        let Directive::Transaction(txn) = directive else { unreachable!() };
+        assert_eq!(
+            txn.export_as(QuoteStyle::Beancount),
+            "2024-01-10 * \"Lunch\"\n  * Assets:Cash -10 USD\n  # Expenses:Food 6 USD\n  Expenses:Drinks"
+        );
+    }
+
+    #[test]
+    fn a_line_break_in_a_posting_comment_is_written_as_a_space() {
+        use zhang_ast::Directive;
+
+        let data_type = ZhangDataType {};
+        let mut directive = data_type
+            .transform("2024-01-10 * \"Lunch\"\n  ! Assets:Cash -10 USD\n  Expenses:Food\n".to_owned(), None)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let Directive::Transaction(txn) = &mut directive.data else { unreachable!() };
+        txn.postings[0].comment = Some("from\na plugin".to_owned());
+        assert_eq!(
+            data_type.export(directive),
+            "2024-01-10 * \"Lunch\"\n  ! Assets:Cash -10 USD ; from a plugin\n  Expenses:Food"
+        );
     }
 
     #[test]

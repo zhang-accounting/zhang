@@ -11,7 +11,7 @@ Ledgers:
 * ``fava``: ``integration-tests/fava-demo-ledger/main.zhang``, the shared conformance ledger.
 * ``extra``: ``ledger/main.zhang`` next to this script, with the directives the fava demo
   ledger has none of (notes, documents, close, custom, query, a failing balance assertion,
-  a tolerance, links, '!' flags and metadata). beancount reports two errors on it, both
+  a tolerance, links, '!' flags, posting flags and metadata). beancount reports two errors on it, both
   expected: the document file does not exist, and one balance assertion fails.
 
 Usage::
@@ -100,6 +100,11 @@ CASES = [
     case("extra", "SELECT date, name, meta('name') AS title FROM #commodities", ordered=True),
     # the postings table, named explicitly
     case("extra", "SELECT account, sum(units(position)) AS balance FROM #postings GROUP BY account ORDER BY account", ordered=True),
+    # the flag of the posting itself, NULL when it has none
+    case("extra", "SELECT date, flag, posting_flag, account, number FROM #postings ORDER BY date, account, number", ordered=True),
+    case("extra", "SELECT posting_flag, count(*) AS n FROM #postings GROUP BY posting_flag ORDER BY posting_flag", ordered=True),
+    case("extra", "SELECT payee, account FROM #postings WHERE posting_flag = '!' OR posting_flag IS NULL AND flag = '!' "
+                  "ORDER BY payee, account", ordered=True),
 ]
 
 

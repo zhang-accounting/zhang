@@ -2,7 +2,7 @@
 ;; Birth: 1980-05-12
 ;; Dates: 2015-01-01 - 2017-09-12
 ;; THIS FILE HAS BEEN AUTO-GENERATED.
-* Options
+; Options
 
 option "title" "Example Beancount file"
 option "operating_currency" "USD"
@@ -10,7 +10,7 @@ option "operating_currency" "USD"
 
 
 
-* Commodities
+; Commodities
 
 
 1792-01-01 commodity USD
@@ -60,14 +60,14 @@ option "operating_currency" "USD"
 
 
 
-* Equity Accounts
+; Equity Accounts
 
 1980-05-12 open Equity:Opening-Balances
 1980-05-12 open Liabilities:AccountsPayable
 
 
 
-* Banking
+; Banking
 
 2015-01-01 open Assets:US:BofA
   address: "123 America Street, LargeTown, USA"
@@ -830,7 +830,7 @@ option "operating_currency" "USD"
 
 
 
-* Credit-Cards
+; Credit-Cards
 
 1980-05-12 open Liabilities:US:Chase:Slate                      USD
 
@@ -3050,7 +3050,7 @@ option "operating_currency" "USD"
 
 
 
-* Taxable Investments
+; Taxable Investments
 
 2015-01-01 open Assets:US:ETrade:Cash                       USD
 2015-01-01 open Assets:US:ETrade:ITOT                       ITOT
@@ -3239,7 +3239,7 @@ option "operating_currency" "USD"
 
 
 
-* Vanguard Investments
+; Vanguard Investments
 
 2015-01-01 open Assets:US:Vanguard:VBMPX                     VBMPX
   number: "882882"
@@ -4175,7 +4175,7 @@ option "operating_currency" "USD"
 
 
 
-* Sources of Income
+; Sources of Income
 
 2015-01-01 open Income:US:Hoogle:Salary                      USD
 2015-01-01 open Income:US:Hoogle:GroupTermLife               USD
@@ -5561,14 +5561,14 @@ option "operating_currency" "USD"
 
 
 
-* Taxes
+; Taxes
 
 1980-05-12 open Income:US:Federal:PreTax401k                    IRAUSD
 1980-05-12 open Assets:US:Federal:PreTax401k                    IRAUSD
 
 
 
-** Tax Year 2015
+;; Tax Year 2015
 
 2015-01-01 open Expenses:Taxes:Y2015:US:Federal:PreTax401k      IRAUSD
 2015-01-01 open Expenses:Taxes:Y2015:US:Medicare                USD
@@ -5599,7 +5599,7 @@ option "operating_currency" "USD"
 
 
 
-** Tax Year 2016
+;; Tax Year 2016
 
 2016-01-01 open Expenses:Taxes:Y2016:US:Federal:PreTax401k      IRAUSD
 2016-01-01 open Expenses:Taxes:Y2016:US:Medicare                USD
@@ -5630,7 +5630,7 @@ option "operating_currency" "USD"
 
 
 
-** Tax Year 2017
+;; Tax Year 2017
 
 2017-01-01 open Expenses:Taxes:Y2017:US:Federal:PreTax401k      IRAUSD
 2017-01-01 open Expenses:Taxes:Y2017:US:Medicare                USD
@@ -5648,7 +5648,7 @@ option "operating_currency" "USD"
 
 
 
-* Expenses
+; Expenses
 
 1980-05-12 open Expenses:Food:Groceries
 1980-05-12 open Expenses:Food:Restaurant
@@ -5664,7 +5664,7 @@ option "operating_currency" "USD"
 
 
 
-* Prices
+; Prices
 
 2015-01-02 price VBMPX                             136.65 USD
 2015-01-02 price RGAGX                              88.07 USD
@@ -6515,5 +6515,5 @@ option "operating_currency" "USD"
 
 
 
-* Cash
+; Cash
 

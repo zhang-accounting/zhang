@@ -13,23 +13,22 @@
 //! [`zhang_core::data_type::text::parser`], so both data types read them the same way.
 
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use chrono::{NaiveDate, NaiveTime};
 use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
-use nom::character::complete::{char, line_ending, satisfy, space0, space1};
+use nom::character::complete::{char, line_ending, not_line_ending, space0, space1};
 use nom::combinator::{map, map_res, opt, peek, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
-use nom::sequence::{delimited, preceded, terminated, tuple};
+use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, comma_separator, commodity_name, indentation_width, inline_comment, is_digit, key_value_line, line_trailer, metas_block, number_expr, offset,
-    parse_items, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, unquote_string_raw,
-    valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
+    account_name, comma_separator, commodity_name, flag_char, indentation_width, is_digit, key_value_line, number_expr, offset, parse_items, posting_amount,
+    posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag, unquote_string_raw, CostComponent, PostingMeta,
+    TransactionLine,
 };
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
@@ -52,8 +51,57 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 // ---------------------------------------------------------------------------
-// low level tokens; strings, accounts, commodities and comments are read by zhang-core's parser
+// low level tokens; strings, accounts and commodities are read by zhang-core's parser, comments
+// with beancount's own prefixes below
 // ---------------------------------------------------------------------------
+
+/// `comment_prefix = ";" | "*" | "#" | "//"`: the start of a comment in a beancount file. `*` is
+/// one here, for the org-mode headings beancount ignores at the start of a line, such as
+/// `* Banking`, and not in a zhang file, where zhang-core's parser reads `*` as a flag only. Inside
+/// a transaction a posting is read before a comment, so `* Assets:Cash -10 USD` is a posting flagged
+/// `*` all the same ([`posting_flag`]).
+fn comment_prefix(i: &str) -> IResult<&str, &str> {
+    alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
+}
+
+/// An inline comment (prefix + rest of line), the whole of which is discarded.
+fn inline_comment(i: &str) -> IResult<&str, ()> {
+    value((), pair(comment_prefix, not_line_ending))(i)
+}
+
+/// Trailing `space* comment?` allowed after a single-line directive.
+fn line_trailer(i: &str) -> IResult<&str, ()> {
+    value((), pair(space0, opt(inline_comment)))(i)
+}
+
+/// `valuable_comment = space* comment_prefix space* comment_value`, returning the comment body.
+fn valuable_comment(i: &str) -> IResult<&str, String> {
+    preceded(space0, valuable_comment_body)(i)
+}
+
+/// The `comment_prefix space* comment_value` portion, assuming any leading spaces are already
+/// consumed.
+fn valuable_comment_body(i: &str) -> IResult<&str, String> {
+    let (i, _) = comment_prefix(i)?;
+    let (i, _) = space0(i)?;
+    let (i, body) = not_line_ending(i)?;
+    Ok((i, body.to_string()))
+}
+
+/// A single indented metadata line following a directive, with its trailing comment.
+fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
+    let (i, _) = line_ending(i)?;
+    let (i, _) = space1(i)?;
+    let (i, pair) = key_value_line(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = opt(inline_comment)(i)?;
+    Ok((i, pair))
+}
+
+/// `metas = (line space+ key_value_line comment?)+`
+fn metas_block(i: &str) -> IResult<&str, Meta> {
+    map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
+}
 
 /// beancount dates are date-only; time (when present) is carried in metadata and
 /// re-attached by the caller.
@@ -115,19 +163,17 @@ fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)>
     Ok((i, (amount, Some(meta))))
 }
 
-fn transaction_flag(i: &str) -> IResult<&str, Flag> {
-    let (i, _) = space1(i)?;
-    alt((
-        // beancount's `txn` keyword is the explicit form of a completed transaction
-        map(tag("txn"), |_| Flag::Okay),
-        map(satisfy(|c: char| c == '!' || c == '*' || c == '#' || c.is_ascii_uppercase()), |c| {
-            Flag::from_str(&c.to_string()).expect("invalid flag")
-        }),
-    ))(i)
+/// `posting_flag = flag_char space+`: the flag of a posting, before its account, such as the `!`
+/// of `! Assets:Cash -10 USD`. A beancount file takes every flag beancount 3 reads on a posting, as
+/// beancount does, `#` included, which a zhang file reads as a comment. Beancount takes no `txn`
+/// there. The space is required, so an indented `*` or `#` comment such as `*Assets:Cash -10 USD`
+/// stays a comment.
+fn posting_flag(i: &str) -> IResult<&str, Flag> {
+    terminated(flag_char, space1)(i)
 }
 
 fn transaction_posting(i: &str) -> IResult<&str, Posting> {
-    let (i, flag) = opt(transaction_flag)(i)?;
+    let (i, flag) = opt(posting_flag)(i)?;
     let (i, account) = account_name(i)?;
     let (i, unit) = opt(preceded(space1, posting_unit))(i)?;
 
@@ -884,6 +930,115 @@ mod test {
                   Assets:Card -1e-9 USD
                 "#});
             assert_eq!(trx.flag, Some(Flag::Custom("#".to_string())));
+        }
+
+        #[test]
+        fn should_support_every_beancount_flag_on_the_transaction() {
+            // beancount 3.2.3 reads `&`, `?` and `%` as flags too
+            for flag in ["&", "?", "%"] {
+                let trx = get_txn(&format!("2022-06-02 {flag} \"x\"\n  Assets:Card -1 USD\n  Expenses:Food\n"));
+                assert_eq!(trx.flag, Some(Flag::Custom(flag.to_string())));
+            }
+        }
+    }
+
+    /// A posting can carry its own flag before its account (#474). Every case here was checked with
+    /// beancount 3.2.3, which reads the same flags.
+    mod posting_flags {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use indoc::indoc;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Flag, PostingCost, SingleTotalPrice, ZhangString};
+
+        use crate::parser::parse;
+        use crate::parser::test::get_txn;
+
+        fn amount(number: &str, commodity: &str) -> Amount {
+            Amount::new(BigDecimal::from_str(number).unwrap(), commodity)
+        }
+
+        #[test]
+        fn a_posting_keeps_its_own_flag() {
+            let txn = get_txn(indoc! {r#"
+                2024-01-10 * "Lunch"
+                  ! Assets:Cash  -10 USD
+                  * Expenses:Food 6 USD
+                  Expenses:Drinks 4 USD
+            "#});
+            assert_eq!(txn.flag, Some(Flag::Okay));
+            let flags = txn.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+            assert_eq!(flags, vec![Some(Flag::Warning), Some(Flag::Okay), None]);
+            let accounts = txn.postings.iter().map(|it| it.account.name()).collect::<Vec<_>>();
+            assert_eq!(accounts, vec!["Assets:Cash", "Expenses:Food", "Expenses:Drinks"]);
+            assert_eq!(txn.postings[0].units, Some(amount("-10", "USD")));
+        }
+
+        #[test]
+        fn every_beancount_posting_flag_is_read() {
+            for (written, flag) in [
+                ("!", Flag::Warning),
+                ("*", Flag::Okay),
+                ("#", Flag::Custom("#".to_owned())),
+                ("&", Flag::Custom("&".to_owned())),
+                ("?", Flag::Custom("?".to_owned())),
+                ("%", Flag::Custom("%".to_owned())),
+                ("P", Flag::BalancePad),
+                ("C", Flag::BalanceCheck),
+                ("X", Flag::Custom("X".to_owned())),
+            ] {
+                for space in [" ", "   ", "\t"] {
+                    let txn = get_txn(&format!("2024-01-10 * \"Lunch\"\n  {written}{space}Assets:Cash -10 USD\n  Expenses:Food\n"));
+                    assert_eq!(txn.postings.len(), 2, "{written:?}");
+                    assert_eq!(txn.postings[0].flag, Some(flag.clone()), "{written:?}");
+                    assert_eq!(txn.postings[0].account.name(), "Assets:Cash", "{written:?}");
+                    assert_eq!(txn.postings[1].flag, None, "{written:?}");
+                }
+            }
+        }
+
+        #[test]
+        fn a_flagged_posting_keeps_its_cost_price_comment_and_metadata() {
+            let txn = get_txn(indoc! {r#"
+                2024-01-10 * "Broker" "sell"
+                  ! Assets:Broker -5 AAPL {} @ 200 USD ; check the lot
+                  receipt: "r-1"
+                  * Assets:Bank 1000 USD
+                  Income:Gains
+            "#});
+            let sold = &txn.postings[0];
+            assert_eq!(sold.flag, Some(Flag::Warning));
+            assert_eq!(sold.units, Some(amount("-5", "AAPL")));
+            assert_eq!(sold.cost, Some(PostingCost::default()));
+            assert_eq!(sold.price, Some(SingleTotalPrice::Single(amount("200", "USD"))));
+            assert_eq!(sold.comment.as_deref(), Some("check the lot"));
+            // in beancount every metadata line after a posting is the posting's
+            assert_eq!(sold.meta.get_one("receipt"), Some(&ZhangString::quote("r-1")));
+            assert_eq!(txn.postings[1].flag, Some(Flag::Okay));
+            assert!(txn.meta.clone().get_flatten().is_empty());
+        }
+
+        #[test]
+        fn a_flagged_posting_can_leave_out_its_amount() {
+            let txn = get_txn("2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  ! Expenses:Food\n");
+            assert_eq!(txn.postings[1].flag, Some(Flag::Warning));
+            assert_eq!(txn.postings[1].account.name(), "Expenses:Food");
+            assert_eq!(txn.postings[1].units, None);
+
+            let txn = get_txn("2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  ! Expenses:Food ; elided\n");
+            assert_eq!(txn.postings[1].flag, Some(Flag::Warning));
+            assert_eq!(txn.postings[1].units, None);
+            assert_eq!(txn.postings[1].comment.as_deref(), Some("elided"));
+        }
+
+        #[test]
+        fn a_flag_needs_a_space_before_the_account() {
+            // beancount 3.2.3 reads `!Assets:Cash` as a flagged posting; zhang requires the space
+            assert!(parse("2024-01-10 * \"Lunch\"\n  !Assets:Cash -10 USD\n  Expenses:Food\n", None).is_err());
+            assert!(parse("2024-01-10 * \"Lunch\"\n  ?Assets:Cash -10 USD\n  Expenses:Food\n", None).is_err());
+            // `txn` is a transaction flag only: beancount 3.2.3 reports a syntax error
+            assert!(parse("2024-01-10 * \"Lunch\"\n  txn Assets:Cash -10 USD\n  Expenses:Food\n", None).is_err());
         }
     }
     mod query {

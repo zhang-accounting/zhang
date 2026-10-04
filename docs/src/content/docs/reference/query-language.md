@@ -621,6 +621,7 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `tags` | `set` | Tags of the transaction, without the leading `#`. |
 | `links` | `set` | Links of the transaction, without the leading `^`. |
 | `id` | `str` | Zhang's identifier of the transaction, a UUID. All postings of a transaction share it. |
+| `posting_flag` | `str` | The posting's own [flag](/reference/directives/transaction/#posting-flags), such as `!` for `! Assets:Cash -10 CNY`, or `NULL` if the posting has none. |
 | `account` | `str` | Account of the posting. |
 | `number` | `decimal` | Number of units of the posting. |
 | `currency` | `str` | Currency (commodity) of the units. |
@@ -1641,7 +1642,7 @@ One row per day with postings, with the account's balance at the end of the day.
 
 - **`PRINT`**, which is rejected with an error.
 - **Subqueries** after `FROM`, the double-quoted table names of beanquery (`FROM "prices"`), and its one-row table `FROM #`.
-- **The beanquery columns** `posting_flag`, `filename`, `lineno`, `location`, `entry`, `accounts` and `type` of the postings table, and `lineno` of `#entries`: Zhang does not keep line numbers.
+- **The beanquery columns** `filename`, `lineno`, `location`, `entry`, `accounts` and `type` of the postings table, and `lineno` of `#entries`: Zhang does not keep line numbers.
 - **Subscripts**, such as `meta['name']`. Use `meta('name')`.
 - **Operators `BETWEEN` and `%`**, and beanquery's quoted identifiers.
 - **Functions not listed on this page**, such as `round`, `safediv`, `has_account`, `grep`, `subst`, `upper`, `lower`, `joinstr`, `findfirst`, `parse_date` and the conversion functions `int`, `decimal` and `date(date)`. Calling one is an error.

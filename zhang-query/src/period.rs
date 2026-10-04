@@ -569,6 +569,7 @@ impl<'a> Transform<'_, 'a> {
                 trx_id: id,
                 trx_sequence: 0,
                 trx_datetime: datetime,
+                flag: None,
                 account: posting.account,
                 unit: Some(posting.units.clone()),
                 cost: posting.cost.as_ref().map(|cost| Amount::new(cost.number.clone(), cost.currency.clone())),

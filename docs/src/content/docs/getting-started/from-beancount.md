@@ -58,7 +58,7 @@ When Zhang writes a transaction, for example after you edit it in the web UI, it
 | `open` | Read, with its commodities and booking method (`open Assets:Broker HOOL "FIFO"`). The commodities must be declared, but postings in other commodities are not reported. |
 | `close` | Read. Closing an account that still holds something is reported as [`CloseNonZeroAccount`](/reference/error-codes/#closenonzeroaccount). |
 | `commodity` | Read, and required: see [Commodities must be declared](#commodities-must-be-declared). |
-| transactions | Read, with the flags `*`, `!` and other letters, the `txn` keyword, tags, links, costs (`{}`, `{{}}`, with a date and a label) and prices (`@`, `@@`). |
+| transactions | Read, with the flags `*`, `!` and the other Beancount flags, on the transaction and [on a posting](/reference/directives/transaction/#posting-flags), the `txn` keyword, tags, links, costs (`{}`, `{{}}`, with a date and a label) and prices (`@`, `@@`). |
 | `balance` | Read, with an optional `~` tolerance. Exact without one: see [Balance assertions are exact](#balance-assertions-are-exact). |
 | `pad` | Read, paired with the `balance` it serves: see [Pads](#pads). |
 | `note`, `event` | Read. |
@@ -77,8 +77,7 @@ Zhang cannot read the following. A file using them does not load at all:
 
 - metadata values that are amounts, such as `limit: 10.00 USD`. Quote them: `limit: "10.00 USD"`;
 - a cost with only a date or a label, such as `{2024-01-01}` or `{"lot-1"}`. Write the cost first: `{100.00 USD, 2024-01-01}`;
-- compound costs, `{100 # 9.95 USD}`, and `{*}`;
-- a flag on a posting, such as `  ! Assets:Cash -10 USD`. Move the flag to the transaction.
+- compound costs, `{100 # 9.95 USD}`, and `{*}`.
 
 ### Options
 

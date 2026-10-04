@@ -1,0 +1,101 @@
+[
+  {
+    "uri": "/api/errors",
+    "validations": [
+      [
+        "$.data.records.length()",
+        0
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Assets:Cash",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "70"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Assets:Bank",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "990"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Expenses:Food",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "25"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Expenses:Drinks",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "15"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Equity:Opening",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "-1100"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records.length()",
+        8
+      ],
+      [
+        "$.data.records[5].narration",
+        "Dinner"
+      ],
+      [
+        "$.data.records[5].postings.length()",
+        3
+      ],
+      [
+        "$.data.records[5].postings[0].metas[0].value",
+        "r-1"
+      ],
+      [
+        "$.data.records[5].postings[2].inferred_unit.number",
+        "5"
+      ],
+      [
+        "$.data.records[4].narration",
+        "Cafe"
+      ],
+      [
+        "$.data.records[4].postings.length()",
+        5
+      ],
+      [
+        "$.data.records[4].postings[4].inferred_unit.number",
+        "10"
+      ],
+      [
+        "$.data.records[6].narration",
+        "Lunch"
+      ],
+      [
+        "$.data.records[6].postings[1].inferred_unit.number",
+        "10"
+      ]
+    ]
+  }
+]

@@ -302,13 +302,9 @@ fn random_layouts_attach_by_the_zhang_rule() {
     let mut rng = XorShift(0x7a68_616e_6701);
     for _ in 0..1000 {
         let (text, expected) = random_layout(&mut rng, Rule::Zhang);
-        let mut txn = parse_one(&text);
+        let txn = parse_one(&text);
         assert_eq!(Shape::of(&txn), expected, "zhang format, text:\n{text}");
-        // and what was read is written and read back unchanged (the exporter drops posting
-        // comments, which is older and unrelated)
-        for posting in &mut txn.postings {
-            posting.comment = None;
-        }
+        // and what was read, posting comments included, is written and read back unchanged
         assert_round_trips(&txn);
     }
 }

@@ -1,0 +1,143 @@
+[
+  {
+    "date": "2020-01-02",
+    "flag": "*",
+    "narration": "Opening",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "flag": null
+      },
+      {
+        "account": "Assets:Bank",
+        "flag": null
+      },
+      {
+        "account": "Equity:Opening",
+        "flag": null
+      }
+    ]
+  },
+  {
+    "date": "2020-01-10",
+    "flag": "*",
+    "narration": "a posting flagged to check, the other elided",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "flag": "!"
+      },
+      {
+        "account": "Expenses:Food",
+        "flag": null
+      }
+    ]
+  },
+  {
+    "date": "2020-01-11",
+    "flag": "!",
+    "narration": "every posting flagged, the elided one too",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "flag": "*"
+      },
+      {
+        "account": "Expenses:Food",
+        "flag": "!"
+      },
+      {
+        "account": "Expenses:Drinks",
+        "flag": "#"
+      }
+    ]
+  },
+  {
+    "date": "2020-01-12",
+    "flag": "*",
+    "narration": "the other flags beancount takes",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "flag": "&"
+      },
+      {
+        "account": "Assets:Cash",
+        "flag": "?"
+      },
+      {
+        "account": "Assets:Cash",
+        "flag": "%"
+      },
+      {
+        "account": "Assets:Cash",
+        "flag": "P"
+      },
+      {
+        "account": "Assets:Cash",
+        "flag": "C"
+      },
+      {
+        "account": "Expenses:Food",
+        "flag": "X"
+      }
+    ]
+  },
+  {
+    "date": "2020-01-13",
+    "flag": "*",
+    "narration": "buy, with metadata",
+    "postings": [
+      {
+        "account": "Assets:Broker",
+        "flag": "!"
+      },
+      {
+        "account": "Assets:Bank",
+        "flag": "*"
+      }
+    ]
+  },
+  {
+    "date": "2020-01-14",
+    "flag": "*",
+    "narration": "sell at a price",
+    "postings": [
+      {
+        "account": "Assets:Broker",
+        "flag": "!"
+      },
+      {
+        "account": "Assets:Bank",
+        "flag": "!"
+      },
+      {
+        "account": "Expenses:Fees",
+        "flag": null
+      },
+      {
+        "account": "Income:Gains",
+        "flag": "!"
+      }
+    ]
+  },
+  {
+    "date": "2020-01-15",
+    "flag": "*",
+    "narration": "a total price",
+    "postings": [
+      {
+        "account": "Assets:Broker",
+        "flag": "?"
+      },
+      {
+        "account": "Assets:Bank",
+        "flag": null
+      },
+      {
+        "account": "Income:Gains",
+        "flag": null
+      }
+    ]
+  }
+]

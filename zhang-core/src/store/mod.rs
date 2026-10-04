@@ -184,6 +184,8 @@ pub struct PostingDomain {
     pub trx_id: Uuid,
     pub trx_sequence: i32,
     pub trx_datetime: DateTime<Tz>,
+    /// the posting's own flag, such as the `!` of `! Assets:Cash -10 CNY`; `None` when it has none
+    pub flag: Option<Flag>,
     pub account: Account,
     pub unit: Option<Amount>,
     pub cost: Option<Amount>,
@@ -420,7 +422,7 @@ mod posting_index_test {
                 let zero = Amount::new(BigDecimal::zero(), commodity);
                 let after = Amount::new(BigDecimal::from(sequence * 10 + posting_idx as i32), commodity);
                 operations
-                    .insert_transaction_posting(&id, posting_idx, account, None, None, zero.clone(), zero, after, Meta::default())
+                    .insert_transaction_posting(&id, posting_idx, None, account, None, None, zero.clone(), zero, after, Meta::default())
                     .unwrap();
             }
 

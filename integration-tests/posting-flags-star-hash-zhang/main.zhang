@@ -1,0 +1,33 @@
+; Lines that start with `*` or `#` inside a transaction (#474). In a zhang file a `*` line is a
+; posting flagged `*`, as in beancount, and books: `*` is not a comment prefix. A `#` line is a
+; comment, as it always was, and books nothing: Lunch infers its elided amount without it, and
+; Dinner's amounts balance without it. posting-flags-star-hash-beancount reads the same `*` and `#`
+; lines as beancount does, all as flagged postings.
+option "operating_currency" "USD"
+
+2020-01-01 commodity USD
+
+2020-01-01 open Assets:Cash
+2020-01-01 open Expenses:Food
+2020-01-01 open Expenses:Drinks
+2020-01-01 open Equity:Opening
+
+2020-01-02 * "Opening"
+  Assets:Cash  100 USD
+  Equity:Opening
+
+2020-01-10 * "Lunch"
+  Assets:Cash  -10 USD
+  Expenses:Food
+  * Assets:Cash  -5 USD
+  # Expenses:Food  5 USD
+
+2020-01-11 * "Dinner"
+  Assets:Cash  -27 USD
+  Expenses:Food  20 USD
+  # Assets:Cash  -7 USD ; a drink
+  *	Expenses:Drinks  7 USD
+
+2020-01-12 balance Assets:Cash  58 USD
+2020-01-12 balance Expenses:Food  35 USD
+2020-01-12 balance Expenses:Drinks  7 USD

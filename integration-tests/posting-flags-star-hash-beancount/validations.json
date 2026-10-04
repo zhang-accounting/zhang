@@ -1,0 +1,72 @@
+[
+  {
+    "uri": "/api/errors",
+    "validations": [
+      [
+        "$.data.records.length()",
+        0
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Assets:Cash",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "58"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Expenses:Food",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "35"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Expenses:Drinks",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "7"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Equity:Opening",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "-100"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records[3].narration",
+        "Dinner"
+      ],
+      [
+        "$.data.records[3].postings.length()",
+        4
+      ],
+      [
+        "$.data.records[4].narration",
+        "Lunch"
+      ],
+      [
+        "$.data.records[4].postings.length()",
+        4
+      ],
+      [
+        "$.data.records[4].postings[1].inferred_unit.number",
+        "10"
+      ]
+    ]
+  }
+]

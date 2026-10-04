@@ -58,9 +58,12 @@ pub fn blank_line(i: &str) -> IResult<&str, ()> {
     value((), pair(space0, line_ending))(i)
 }
 
-/// `comment_prefix = ";" | "*" | "#" | "//"`
+/// `comment_prefix = ";" | "#" | "//"`: the start of a comment in a zhang file. `*` is not one: it
+/// is a flag, of a transaction and, before an account, of a posting ([`posting_flag`]), and a line
+/// starting with `*` that is neither is an error, never a comment. The beancount parser has its own
+/// prefixes, `*` among them for the org-mode headings beancount ignores.
 fn comment_prefix(i: &str) -> IResult<&str, &str> {
-    alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
+    alt((tag("//"), tag(";"), tag("#")))(i)
 }
 
 /// An inline comment (prefix + rest of line), the whole of which is discarded.
@@ -329,25 +332,52 @@ fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)>
     Ok((i, (amount, Some(meta))))
 }
 
-/// `flag = "txn" | "!" | "*" | "#" | ASCII_ALPHA_UPPER`
+/// Whether `c` is a flag of its own: `*`, `!`, `#`, `&`, `?`, `%` or an uppercase ASCII letter, the
+/// characters beancount 3 reads as the flag of a transaction or of a posting.
+pub fn is_flag_char(c: char) -> bool {
+    matches!(c, '*' | '!' | '#' | '&' | '?' | '%') || c.is_ascii_uppercase()
+}
+
+/// Whether `c` is the flag of a posting in a zhang file: a [flag character](is_flag_char) other
+/// than `#`. An indented line starting with `#` is a comment in zhang, such as a posting commented
+/// out with `# Assets:Cash -10 CNY`, and stays one: a comment never becomes a posting. `*` is a
+/// posting flag, as in beancount: `* Assets:Cash -10 CNY` is a posting flagged `*`.
+pub fn is_posting_flag_char(c: char) -> bool {
+    is_flag_char(c) && c != '#'
+}
+
+/// `flag_char = "*" | "!" | "#" | "&" | "?" | "%" | ASCII_ALPHA_UPPER`
+pub fn flag_char(i: &str) -> IResult<&str, Flag> {
+    map(satisfy(is_flag_char), |c| Flag::from_str(&c.to_string()).expect("invalid flag"))(i)
+}
+
+/// `flag = "txn" | flag_char`
 fn flag(i: &str) -> IResult<&str, Flag> {
     alt((
         // beancount's `txn` keyword is the explicit form of a completed transaction
         map(tag("txn"), |_| Flag::Okay),
-        map(satisfy(|c: char| c == '!' || c == '*' || c == '#' || c.is_ascii_uppercase()), |c| {
-            Flag::from_str(&c.to_string()).expect("invalid flag")
-        }),
+        flag_char,
     ))(i)
 }
 
 /// `transaction_flag = space+ flag`
-fn transaction_flag(i: &str) -> IResult<&str, Flag> {
+pub fn transaction_flag(i: &str) -> IResult<&str, Flag> {
     preceded(space1, flag)(i)
 }
 
-/// `transaction_posting = transaction_flag? account_name (space+ posting_unit)?`
+/// `posting_flag = ("*" | "!" | "&" | "?" | "%" | ASCII_ALPHA_UPPER) space+`: the flag of a
+/// posting, before its account, such as the `!` of `! Assets:Cash -10 CNY`. Beancount takes no `txn`
+/// there, and `#` starts a comment (see [`is_posting_flag_char`]). The space is required.
+fn posting_flag(i: &str) -> IResult<&str, Flag> {
+    terminated(
+        map(satisfy(is_posting_flag_char), |c| Flag::from_str(&c.to_string()).expect("invalid flag")),
+        space1,
+    )(i)
+}
+
+/// `transaction_posting = posting_flag? account_name (space+ posting_unit)?`
 fn transaction_posting(i: &str) -> IResult<&str, Posting> {
-    let (i, flag) = opt(transaction_flag)(i)?;
+    let (i, flag) = opt(posting_flag)(i)?;
     let (i, account) = account_name(i)?;
     let (i, unit) = opt(preceded(space1, posting_unit))(i)?;
 
@@ -451,10 +481,13 @@ pub fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
 // metadata
 // ---------------------------------------------------------------------------
 
-/// An unquoted metadata key: a bare word that does not start with a comment
-/// prefix, so an indented line such as `;path: "C:\x"` stays a comment.
+/// An unquoted metadata key: a bare word that does not start with a comment prefix, so an
+/// indented line such as `;path: "C:\x"` stays a comment, nor with `*`. The exporter writes any
+/// other key quoted, for both formats, and `*` starts a comment in a beancount file: a key this
+/// grammar reads bare reads back as a key in either format. In a zhang file `*path: "x"` is then
+/// neither metadata nor a comment, and an error.
 pub fn meta_key(i: &str) -> IResult<&str, &str> {
-    verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err())(i)
+    verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err() && !key.starts_with('*'))(i)
 }
 
 /// `key_value_line = (meta_key | quote_string) space* ":" space* string`
@@ -1512,6 +1545,14 @@ mod test {
                 "#});
             assert_eq!(trx.flag, Some(Flag::Custom("#".to_string())));
         }
+        #[test]
+        fn should_support_every_beancount_flag() {
+            // beancount 3.2.3 reads `&`, `?` and `%` as flags too
+            for flag in ["&", "?", "%"] {
+                let trx = get_txn(&format!("2022-06-02 {flag} \"x\"\n  Assets:Card -1 USD\n  Expenses:Food\n"));
+                assert_eq!(trx.flag, Some(Flag::Custom(flag.to_string())));
+            }
+        }
 
         mod posting {
             use std::str::FromStr;
@@ -1833,6 +1874,217 @@ mod test {
                 assert_eq!(posting_pairs(&txn), vec![vec!["also=a", "deeper=d"]]);
             }
         }
+
+        /// A posting can carry its own flag before its account, as in beancount (#474), but not `*`
+        /// or `#`, which start a comment in a zhang file.
+        mod posting_flags {
+            use std::str::FromStr;
+
+            use bigdecimal::BigDecimal;
+            use indoc::indoc;
+            use zhang_ast::amount::Amount;
+            use zhang_ast::{Directive, Flag, PostingCost, SingleTotalPrice, ZhangString};
+
+            use crate::data_type::text::parser::parse;
+            use crate::data_type::text::parser::test::get_txn;
+
+            fn amount(number: &str, commodity: &str) -> Amount {
+                Amount::new(BigDecimal::from_str(number).unwrap(), commodity)
+            }
+
+            #[test]
+            fn a_posting_keeps_its_own_flag() {
+                let txn = get_txn(indoc! {r#"
+                    2024-01-10 * "Lunch"
+                      ! Assets:Cash  -10 USD
+                      & Expenses:Food 6 USD
+                      Expenses:Drinks 4 USD
+                "#});
+                assert_eq!(txn.flag, Some(Flag::Okay));
+                let flags = txn.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+                assert_eq!(flags, vec![Some(Flag::Warning), Some(Flag::Custom("&".to_owned())), None]);
+                let accounts = txn.postings.iter().map(|it| it.account.name()).collect::<Vec<_>>();
+                assert_eq!(accounts, vec!["Assets:Cash", "Expenses:Food", "Expenses:Drinks"]);
+                assert_eq!(txn.postings[0].units, Some(amount("-10", "USD")));
+                assert_eq!(txn.postings[1].units, Some(amount("6", "USD")));
+            }
+
+            #[test]
+            fn every_beancount_posting_flag_but_hash_is_read() {
+                // the flags beancount 3.2.3 takes on a posting, but `#`; one or more spaces or tabs
+                // follow it
+                for (written, flag) in [
+                    ("*", Flag::Okay),
+                    ("!", Flag::Warning),
+                    ("&", Flag::Custom("&".to_owned())),
+                    ("?", Flag::Custom("?".to_owned())),
+                    ("%", Flag::Custom("%".to_owned())),
+                    ("P", Flag::BalancePad),
+                    ("C", Flag::BalanceCheck),
+                    ("X", Flag::Custom("X".to_owned())),
+                ] {
+                    for space in [" ", "   ", "\t"] {
+                        let txn = get_txn(&format!("2024-01-10 * \"Lunch\"\n  {written}{space}Assets:Cash -10 USD\n  Expenses:Food\n"));
+                        assert_eq!(txn.postings.len(), 2, "{written:?}");
+                        assert_eq!(txn.postings[0].flag, Some(flag.clone()), "{written:?}");
+                        assert_eq!(txn.postings[0].account.name(), "Assets:Cash", "{written:?}");
+                        assert_eq!(txn.postings[1].flag, None, "{written:?}");
+                    }
+                }
+            }
+
+            #[test]
+            fn a_flagged_posting_keeps_its_cost_price_comment_and_metadata() {
+                let txn = get_txn(indoc! {r#"
+                    2024-01-10 * "Broker" "sell"
+                      ! Assets:Broker -5 AAPL {} @ 200 USD ; check the lot
+                        receipt: "r-1"
+                      ? Assets:Bank 1000 USD
+                      Income:Gains
+                "#});
+                let sold = &txn.postings[0];
+                assert_eq!(sold.flag, Some(Flag::Warning));
+                assert_eq!(sold.units, Some(amount("-5", "AAPL")));
+                assert_eq!(sold.cost, Some(PostingCost::default()));
+                assert_eq!(sold.price, Some(SingleTotalPrice::Single(amount("200", "USD"))));
+                assert_eq!(sold.comment.as_deref(), Some("check the lot"));
+                assert_eq!(sold.meta.get_one("receipt"), Some(&ZhangString::quote("r-1")));
+                assert_eq!(txn.postings[1].flag, Some(Flag::Custom("?".to_owned())));
+                assert!(txn.postings[1].meta.clone().get_flatten().is_empty());
+                assert!(txn.meta.clone().get_flatten().is_empty());
+            }
+
+            #[test]
+            fn a_flagged_posting_can_leave_out_its_amount() {
+                let txn = get_txn("2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  ! Expenses:Food\n");
+                assert_eq!(txn.postings[1].flag, Some(Flag::Warning));
+                assert_eq!(txn.postings[1].account.name(), "Expenses:Food");
+                assert_eq!(txn.postings[1].units, None);
+
+                let txn = get_txn("2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  ! Expenses:Food ; elided\n");
+                assert_eq!(txn.postings[1].flag, Some(Flag::Warning));
+                assert_eq!(txn.postings[1].units, None);
+                assert_eq!(txn.postings[1].comment.as_deref(), Some("elided"));
+            }
+
+            #[test]
+            fn a_flag_needs_a_space_before_the_account() {
+                assert!(parse("2024-01-10 * \"Lunch\"\n  !Assets:Cash -10 USD\n  Expenses:Food\n", None).is_err());
+                assert!(parse("2024-01-10 * \"Lunch\"\n  ?Assets:Cash -10 USD\n  Expenses:Food\n", None).is_err());
+                assert!(parse("2024-01-10 * \"Lunch\"\n  *Assets:Cash -10 USD\n  Expenses:Food\n", None).is_err());
+                // `txn` is a transaction flag only, as in beancount
+                assert!(parse("2024-01-10 * \"Lunch\"\n  txn Assets:Cash -10 USD\n  Expenses:Food\n", None).is_err());
+            }
+
+            /// The text `without` with `line` indented and inserted as its line `at`.
+            fn with_line_at(without: &str, line: &str, at: usize) -> String {
+                let mut lines = without.lines().collect::<Vec<_>>();
+                let indented = format!("  {line}");
+                lines.insert(at, &indented);
+                format!("{}\n", lines.join("\n"))
+            }
+
+            /// An indented line starting with `#` is a comment, as it always was in a zhang file,
+            /// even when it reads like a flagged posting: a posting commented out that way must not
+            /// come back and move a balance. The transaction is the same as without the line.
+            #[test]
+            fn indented_hash_lines_stay_comments() {
+                let without = "2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  Expenses:Food\n";
+                let expected = get_txn(without);
+                for line in [
+                    "# Assets:Cash -10 USD",
+                    "#   Expenses:Food",
+                    "#\tAssets:Broker -5 AAPL {} @ 200 USD ; note",
+                    "#Assets:Cash -10 USD",
+                    "# Assets",
+                    "#",
+                ] {
+                    for at in [1, 2, 3] {
+                        let text = with_line_at(without, line, at);
+                        assert_eq!(get_txn(&text), expected, "{text:?}");
+                    }
+                }
+                // and a whole ledger reads the same directives with the line or without it
+                let ledger = "2024-01-01 open Assets:Cash\n2024-01-01 open Expenses:Food\n\n";
+                let directives = |text: &str| parse(text, None).unwrap().into_iter().map(|it| it.data).collect::<Vec<Directive>>();
+                let commented = format!("{ledger}2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  # Assets:Cash -99 USD\n  Expenses:Food\n");
+                assert_eq!(directives(&commented), directives(&format!("{ledger}{without}")));
+            }
+
+            /// `*` does not start a comment in a zhang file: an indented `* Assets:Cash -5 USD` is a
+            /// posting flagged `*`, as in beancount, and books. An indented line starting with `*`
+            /// that is not a posting, such as a note or a flag without its space, is an error, not a
+            /// comment: a line dropped in silence could be a posting meant to book.
+            #[test]
+            fn an_indented_star_line_is_a_posting_or_an_error() {
+                let without = "2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  Expenses:Food\n";
+                for (line, units) in [
+                    ("* Assets:Cash -5 USD", Some(amount("-5", "USD"))),
+                    ("*\tExpenses:Food 3 USD ; note", Some(amount("3", "USD"))),
+                    ("* Assets:Broker -5 AAPL {} @ 200 USD", Some(amount("-5", "AAPL"))),
+                    ("* Expenses:Drinks", None),
+                ] {
+                    for at in [1, 2, 3] {
+                        let text = with_line_at(without, line, at);
+                        let txn = get_txn(&text);
+                        assert_eq!(txn.postings.len(), 3, "{text:?}");
+                        assert_eq!(txn.postings[at - 1].flag, Some(Flag::Okay), "{text:?}");
+                        assert_eq!(txn.postings[at - 1].units, units, "{text:?}");
+                        assert_eq!(txn.postings.iter().filter(|it| it.flag.is_some()).count(), 1, "{text:?}");
+                    }
+                }
+                let txn = get_txn("2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  *\tExpenses:Food 3 USD ; note\n  Expenses:Drinks\n");
+                assert_eq!(txn.postings[1].comment.as_deref(), Some("note"));
+                let txn = get_txn("2024-01-10 * \"Broker\"\n  * Assets:Broker -5 AAPL {} @ 200 USD\n  Assets:Bank\n");
+                assert_eq!(txn.postings[0].cost, Some(PostingCost::default()));
+                assert_eq!(txn.postings[0].price, Some(SingleTotalPrice::Single(amount("200", "USD"))));
+
+                for line in ["* a note", "*Assets:Cash -10 USD", "*Assets:Cash", "*path: \"x\"", "*", "** heading"] {
+                    for at in [1, 2, 3] {
+                        let text = with_line_at(without, line, at);
+                        let error = parse(&text, None).expect_err(&text).to_string();
+                        assert!(error.contains(&format!("unexpected input at line {}, column 3", at + 1)), "{text:?}: {error}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// The comment prefixes of a zhang file, `;`, `#` and `//`, at the start of a line or after a
+    /// directive. `*` is not one.
+    mod comment {
+        use zhang_ast::Directive;
+
+        use crate::data_type::text::parser::parse;
+
+        #[test]
+        fn semicolon_hash_and_slashes_start_a_comment() {
+            for prefix in [";", "#", "//"] {
+                let text = format!("{prefix} Options\n{prefix}{prefix} Banking\n2024-01-01 open Assets:Cash {prefix} opened\n");
+                let directives = parse(&text, None).unwrap();
+                assert_eq!(directives.len(), 3, "{prefix}");
+                assert!(
+                    matches!(&directives[0].data, Directive::Comment(comment) if comment.content == "Options"),
+                    "{prefix}"
+                );
+                assert!(matches!(directives[1].data, Directive::Comment(_)), "{prefix}");
+                assert!(matches!(directives[2].data, Directive::Open(_)), "{prefix}");
+            }
+        }
+
+        /// A line starting with `*` at the start of a zhang file, such as an org-mode heading, is an
+        /// error, not a comment: `*` is a flag, not a comment prefix. Such a file must use `;` or `#`.
+        #[test]
+        fn a_star_heading_is_a_parse_error() {
+            for heading in ["* Options", "** Tax Year 2015", "*", "*Options"] {
+                let text = format!("2024-01-01 open Assets:Cash\n\n{heading}\n\n2024-01-01 open Expenses:Food\n");
+                let error = parse(&text, None).expect_err(&text).to_string();
+                assert!(error.contains("unexpected input at line 3, column 1"), "{heading:?}: {error}");
+            }
+            // nor is `*` a comment after a directive or a metadata line
+            assert!(parse("2024-01-01 open Assets:Cash * opened\n", None).is_err());
+            assert!(parse("2024-01-01 open Assets:Cash\n  key: \"v\" * noted\n", None).is_err());
+        }
     }
     mod budget {
         use bigdecimal::{BigDecimal, One};
@@ -2041,7 +2293,7 @@ mod test {
 
         #[test]
         fn should_keep_indented_comment_like_lines_out_of_metadata() {
-            for prefix in [";", "#", "*", "//"] {
+            for prefix in [";", "#", "//"] {
                 let line = format!("  {prefix}path: \"C:\\Users\\me\"");
                 let txn = get_txn(&format!("2024-01-01 * \"x\"\n  Assets:Cash -5 CNY\n{line}\n  Expenses:Food\n"));
                 assert!(txn.meta.get_one(&format!("{prefix}path")).is_none(), "{line}");
@@ -2055,6 +2307,10 @@ mod test {
                 assert!(open.meta.get_one(&format!("{prefix}path")).is_none(), "{line}");
                 assert!(matches!(directives[1].data, Directive::Comment(_)), "{line}");
             }
+            // `*` starts no comment, and no bare metadata key either: such a line is an error
+            let line = "  *path: \"C:\\Users\\me\"";
+            assert!(parse(&format!("2024-01-01 * \"x\"\n  Assets:Cash -5 CNY\n{line}\n  Expenses:Food\n"), None).is_err());
+            assert!(parse(&format!("2024-01-01 open Assets:Cash\n{line}\n"), None).is_err());
         }
 
         #[test]
@@ -2154,10 +2410,10 @@ mod test {
 
         #[test]
         fn transaction_flags() {
-            for valid in ["*", "!", "#", "P", "C", "A", "txn"] {
+            for valid in ["*", "!", "#", "&", "?", "%", "P", "C", "A", "txn"] {
                 assert!(is_valid_transaction_flag(valid), "{valid}");
             }
-            for invalid in ["", "a", " ", "\"", "**", "?", "*!"] {
+            for invalid in ["", "a", " ", "\"", "**", "$", "^", "*!"] {
                 assert!(!is_valid_transaction_flag(invalid), "{invalid:?}");
             }
         }

@@ -58,7 +58,7 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" kilerd/zhang:l
 | `open` | 读取，包括其商品和记账方法（`open Assets:Broker HOOL "FIFO"`）。这些商品必须已声明，但使用其他商品的记账行不会被报告。 |
 | `close` | 读取。关闭仍有余额的账户会被报告为 [`CloseNonZeroAccount`](/zh-cn/reference/error-codes/#closenonzeroaccount)。 |
 | `commodity` | 读取，并且是必需的：见[商品必须声明](#商品必须声明)。 |
-| 交易 | 读取，支持标记 `*`、`!` 和其他字母、`txn` 关键字、标签、链接、成本（`{}`、`{{}}`，可带日期和批次标签）以及价格（`@`、`@@`）。 |
+| 交易 | 读取，支持标记 `*`、`!` 和其他 Beancount 标记（在交易上和[记账行上](/zh-cn/reference/directives/transaction/#记账行标记)）、`txn` 关键字、标签、链接、成本（`{}`、`{{}}`，可带日期和批次标签）以及价格（`@`、`@@`）。 |
 | `balance` | 读取，可以带 `~` 容差。没有容差时精确匹配：见[余额断言是精确的](#余额断言是精确的)。 |
 | `pad` | 读取，并与它所服务的 `balance` 配对：见[补齐](#补齐)。 |
 | `note`、`event` | 读取。 |
@@ -77,8 +77,7 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" kilerd/zhang:l
 
 - 金额形式的元数据值，例如 `limit: 10.00 USD`。请给它加上引号：`limit: "10.00 USD"`；
 - 只有日期或只有批次标签的成本，例如 `{2024-01-01}` 或 `{"lot-1"}`。请先写成本：`{100.00 USD, 2024-01-01}`；
-- 复合成本 `{100 # 9.95 USD}`，以及 `{*}`；
-- 记账行上的标记，例如 `  ! Assets:Cash -10 USD`。请把标记移到交易上。
+- 复合成本 `{100 # 9.95 USD}`，以及 `{*}`。
 
 ### 选项
 

@@ -703,6 +703,17 @@ pub static COLUMNS: &[ColumnDef] = &[
         borrow: Borrow::No,
     },
     ColumnDef {
+        name: "posting_flag",
+        ty: DataType::Str,
+        description: "Flag of the posting itself, such as '!'; NULL when the posting has none (as in beanquery).",
+        get: Get::Posting(|data, row| {
+            let posting = data.entry(row).txn.postings.get(row.posting_index);
+            posting.and_then(|it| it.flag.as_ref()).map_or(Value::Null, |flag| Value::Str(flag.to_string()))
+        }),
+        reads: Reads::POSTING,
+        borrow: Borrow::No,
+    },
+    ColumnDef {
         name: "account",
         ty: DataType::Str,
         description: "Account of the posting.",

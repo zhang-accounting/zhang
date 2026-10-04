@@ -4031,6 +4031,149 @@
      ]
     ]
    ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT date, flag, posting_flag, account, number FROM #postings ORDER BY date, account, number",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "date",
+     "type": "date"
+    },
+    {
+     "name": "flag",
+     "type": "str"
+    },
+    {
+     "name": "posting_flag",
+     "type": "str"
+    },
+    {
+     "name": "account",
+     "type": "str"
+    },
+    {
+     "name": "number",
+     "type": "decimal"
+    }
+   ],
+   "rows": [
+    [
+     "2020-01-02",
+     "*",
+     null,
+     "Assets:Bank",
+     "1000.00"
+    ],
+    [
+     "2020-01-02",
+     "*",
+     null,
+     "Income:Salary",
+     "-1000.00"
+    ],
+    [
+     "2020-01-03",
+     "!",
+     null,
+     "Assets:Bank",
+     "-12.50"
+    ],
+    [
+     "2020-01-03",
+     "*",
+     "&",
+     "Assets:Bank",
+     "-7.50"
+    ],
+    [
+     "2020-01-03",
+     "*",
+     "!",
+     "Expenses:Food",
+     "7.50"
+    ],
+    [
+     "2020-01-03",
+     "!",
+     null,
+     "Expenses:Food",
+     "12.50"
+    ],
+    [
+     "2020-02-01",
+     "*",
+     null,
+     "Assets:Bank",
+     "-600.00"
+    ],
+    [
+     "2020-02-01",
+     "*",
+     null,
+     "Assets:Broker",
+     "2"
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT posting_flag, count(*) AS n FROM #postings GROUP BY posting_flag ORDER BY posting_flag",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "posting_flag",
+     "type": "str"
+    },
+    {
+     "name": "n",
+     "type": "int"
+    }
+   ],
+   "rows": [
+    [
+     null,
+     6
+    ],
+    [
+     "!",
+     1
+    ],
+    [
+     "&",
+     1
+    ]
+   ]
+  },
+  {
+   "ledger": "extra",
+   "query": "SELECT payee, account FROM #postings WHERE posting_flag = '!' OR posting_flag IS NULL AND flag = '!' ORDER BY payee, account",
+   "ordered": true,
+   "columns": [
+    {
+     "name": "payee",
+     "type": "str"
+    },
+    {
+     "name": "account",
+     "type": "str"
+    }
+   ],
+   "rows": [
+    [
+     null,
+     "Expenses:Food"
+    ],
+    [
+     "Cafe",
+     "Assets:Bank"
+    ],
+    [
+     "Cafe",
+     "Expenses:Food"
+    ]
+   ]
   }
  ]
 }
