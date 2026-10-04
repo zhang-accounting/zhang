@@ -1,4 +1,6 @@
+use std::any::Any;
 use std::ops::Deref;
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -6,6 +8,7 @@ use std::time::{Duration, Instant};
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{any, get};
 use chrono::Utc;
+use futures::FutureExt;
 use gotcha::config::BasicConfig;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
 use log::{debug, error, info, trace};
@@ -349,16 +352,22 @@ fn start_reload_listener(
             info!("start reloading...");
             let start_time = Instant::now();
             let mut guard = ledger_for_reload.write().await;
-            match guard.async_reload().await {
-                Ok(_) => {
+            // a reload that panics must not end this task, which left the server on the ledger it had, never reloading
+            // again (#492): the panic is caught and logged like a failed reload. The ledger served stays the previous
+            // one, as a reload replaces it only once it loaded whole, so the guard is unwind safe
+            match AssertUnwindSafe(guard.async_reload()).catch_unwind().await {
+                Ok(Ok(_)) => {
                     let duration = start_time.elapsed();
                     info!("ledger is reloaded successfully in {:?}", duration);
                     // todo: add reload duration to reload event
                     cloned_broadcaster.broadcast(BroadcastEvent::Reload).await;
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     error!("error on reload: {}", err);
                     // todo: broadcast the error
+                }
+                Err(panic) => {
+                    error!("panic on reload, the previous ledger is kept: {}", panic_message(panic.as_ref()));
                 }
             }
             // replaced on every reload, for the ledger now served: a failed reload keeps the previous one
@@ -369,6 +378,15 @@ fn start_reload_listener(
             drop(guard);
         }
     });
+}
+
+/// the message a caught panic was raised with, for the log
+fn panic_message(panic: &(dyn Any + Send)) -> &str {
+    panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("a panic without a message")
 }
 
 /// reload `ledger` at the next local midnight in its timezone if it depends on the date
@@ -492,7 +510,9 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
 
 #[cfg(test)]
 mod reload_test {
-    use std::sync::Arc;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use axum::extract::{Path, State};
@@ -501,8 +521,11 @@ mod reload_test {
     use bigdecimal::BigDecimal;
     use tokio::sync::{mpsc, RwLock};
     use zhang_ast::amount::Amount;
-    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource};
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::data_type::DataType;
     use zhang_core::ledger::Ledger;
+    use zhang_core::ZhangResult;
 
     use super::start_reload_listener;
     use crate::broadcast::Broadcaster;
@@ -556,5 +579,82 @@ mod reload_test {
         }
         assert_eq!(assertions, 1, "the readers read the balance written");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// a source whose load panics while `panicking` is set, and otherwise reads `content` as the main file
+    struct Panicking {
+        panicking: AtomicBool,
+        content: Mutex<String>,
+        loads: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl DataSource for Panicking {
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            if self.panicking.load(Ordering::SeqCst) {
+                panic!("the load panicked");
+            }
+            let content = self.content.lock().unwrap().clone();
+            let directives = ZhangDataType {}.transform(content, Some(endpoint.clone()))?;
+            Ok(LoadResult {
+                directives,
+                visited_files: vec![PathBuf::from(entry).join(endpoint)],
+            })
+        }
+    }
+
+    /// the accounts of the ledger served, sorted
+    async fn accounts(ledger: &RwLock<Ledger>) -> Vec<String> {
+        let ledger = ledger.read().await;
+        let store = ledger.store.read().unwrap();
+        let mut accounts: Vec<String> = store.accounts.keys().cloned().collect();
+        accounts.sort();
+        accounts
+    }
+
+    /// A reload that panics, as an `include` outside the ledger made it (#492), does not end the reload task: the
+    /// ledger served stays the previous one, and the next change is reloaded.
+    #[tokio::test]
+    async fn a_panic_in_a_reload_does_not_stop_the_next_reload() {
+        let source = Arc::new(Panicking {
+            panicking: AtomicBool::new(false),
+            content: Mutex::new("1970-01-01 open Assets:A\n".to_owned()),
+            loads: AtomicUsize::new(0),
+        });
+        let loaded = Ledger::async_load(PathBuf::from("/panicking"), "main.zhang".to_owned(), source.clone())
+            .await
+            .expect("load ledger");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+
+        source.panicking.store(true, Ordering::SeqCst);
+        reload_sender.reload();
+        for _ in 0..100 {
+            if source.loads.load(Ordering::SeqCst) >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(source.loads.load(Ordering::SeqCst), 2, "the panicking reload ran");
+        // without a guard the task ends at the panic: leave it the time to, before checking it still listens
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!reload_sender.is_closed(), "the reload task is still listening after a panic");
+        assert_eq!(accounts(&ledger).await, vec!["Assets:A"], "the ledger served is the previous one");
+
+        source.panicking.store(false, Ordering::SeqCst);
+        *source.content.lock().unwrap() = "1970-01-01 open Assets:A\n1970-01-01 open Assets:B\n".to_owned();
+        reload_sender.reload();
+        let mut served = vec![];
+        for _ in 0..100 {
+            served = accounts(&ledger).await;
+            if served.len() == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(served, vec!["Assets:A", "Assets:B"], "the next change is reloaded");
     }
 }

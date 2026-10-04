@@ -121,7 +121,19 @@ impl DataSource for OpendalDataSource {
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {
-            let striped_pathbuf = &pathbuf.strip_prefix(&entry).expect("Cannot strip entry").to_path_buf();
+            // the `Fs` service is jailed to the ledger's directory and a remote service holds nothing outside its root:
+            // an `include` of an absolute path outside is a load error naming it, not a panic that aborts the start or
+            // kills the reload task (#492)
+            let striped_pathbuf = &pathbuf
+                .strip_prefix(&entry)
+                .map_err(|_| {
+                    ZhangError::CustomError(format!(
+                        "cannot include {}: it is outside the ledger's directory {}",
+                        pathbuf.display(),
+                        entry.display()
+                    ))
+                })?
+                .to_path_buf();
             if let Some(pattern) = IncludePattern::parse(striped_pathbuf) {
                 // listed through the blocking helper, as plugins list during a load; a directory that is not there
                 // holds nothing
@@ -501,6 +513,61 @@ mod test {
         let store = ledger.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 2);
+    }
+
+    /// the local source reading the ledger at `dir`, as `zhang serve` builds it
+    async fn local_source(dir: &Path, main: &str) -> Arc<OpendalDataSource> {
+        let mut opts = ServerOpts {
+            path: dir.to_path_buf(),
+            endpoint: main.to_owned(),
+            addr: String::new(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await)
+    }
+
+    /// An `include` of an absolute path outside the ledger's directory, which the `Fs` service can never read, is a
+    /// load error naming the path, not a panic that aborts `zhang serve` or kills its reload task (#492). Once the
+    /// include is gone, the ledger loads again.
+    #[tokio::test]
+    async fn an_include_outside_the_ledger_is_a_load_error() {
+        let dir = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let outside_file = outside.path().join("x.zhang");
+        std::fs::write(&outside_file, "1970-01-01 open Assets:Outside CNY\n").unwrap();
+        std::fs::write(dir.path().join("main.zhang"), format!("{OPENS}include \"{}\"\n", outside_file.display())).unwrap();
+        let source = local_source(dir.path(), "main.zhang").await;
+
+        let loaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).await;
+        let Err(error) = loaded else { panic!("an include outside the ledger loaded") };
+        let message = error.to_string();
+        assert!(message.contains(&format!("cannot include {}", outside_file.display())), "{message}");
+        assert!(message.contains("outside the ledger's directory"), "{message}");
+
+        std::fs::write(dir.path().join("main.zhang"), OPENS).unwrap();
+        let reloaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).await;
+        assert!(reloaded.is_ok(), "loads again once the include is gone");
+    }
+
+    /// the same on a remote source, whose root holds every file it can read
+    #[tokio::test]
+    async fn an_include_outside_a_remote_ledger_is_a_load_error() {
+        let operator = Operator::new(Memory::default()).unwrap();
+        operator.write("main.zhang", b"include \"/elsewhere/x.zhang\"\n".to_vec()).await.unwrap();
+        let source = OpendalDataSource {
+            operator,
+            data_type: Box::new(ZhangDataType {}),
+            is_beancount: false,
+            local_root: None,
+        };
+
+        let loaded = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.zhang".to_owned(), Arc::new(source)).await;
+        let Err(error) = loaded else { panic!("an include outside the ledger loaded") };
+        assert!(error.to_string().contains("cannot include /elsewhere/x.zhang"), "{error}");
     }
 
     #[tokio::test]
