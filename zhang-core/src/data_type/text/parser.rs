@@ -271,7 +271,7 @@ pub fn posting_amount(i: &str) -> IResult<&str, Amount> {
 }
 
 /// The `{ ... }` cost block of a posting.
-enum CostComponent {
+pub enum CostComponent {
     Date(Date),
     Label(String),
 }
@@ -305,14 +305,14 @@ fn cost_group(i: &str) -> IResult<&str, PostingCost> {
 }
 
 /// `posting_price = "@@" ... | "@" ...`
-fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
+pub fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
     alt((
         map(preceded(pair(tag("@@"), space0), posting_amount), SingleTotalPrice::Total),
         map(preceded(pair(char('@'), space0), posting_amount), SingleTotalPrice::Single),
     ))(i)
 }
 
-type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
+pub type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
 
 /// `posting_meta = ("{" ... "}")? space* posting_price?`
 fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
@@ -371,7 +371,7 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
 }
 
 /// One indented line inside a transaction.
-enum TransactionLine {
+pub enum TransactionLine {
     Posting(Posting),
     Meta((String, ZhangString)),
     /// a comment or a whitespace-only line
@@ -380,7 +380,7 @@ enum TransactionLine {
 
 /// The width in columns of the leading whitespace `indent` of a line; a tab advances to
 /// the next multiple of four columns.
-fn indentation_width(indent: &str) -> usize {
+pub fn indentation_width(indent: &str) -> usize {
     indent.chars().fold(0, |width, c| if c == '\t' { (width / 4 + 1) * 4 } else { width + 1 })
 }
 
