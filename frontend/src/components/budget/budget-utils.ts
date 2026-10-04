@@ -1,5 +1,4 @@
 import BigNumber from 'bignumber.js';
-import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 export interface AmountLike {
@@ -36,11 +35,6 @@ export function sumByCommodity(amounts: AmountLike[]): { commodity: string; numb
     totals.set(amount.commodity, (totals.get(amount.commodity) ?? new BigNumber(0)).plus(new BigNumber(amount.number)));
   });
   return Array.from(totals.entries()).map(([commodity, number]) => ({ commodity, number }));
-}
-
-/** `Oct 2026` / `2026年10月` */
-export function formatMonth(date: Date, language: string) {
-  return language.startsWith('zh') ? format(date, 'yyyy年M月') : format(date, 'MMM yyyy');
 }
 
 /** Reads `?year=2026&month=10` (month is 1-based); falls back to the current month. */
