@@ -65,9 +65,6 @@ importers:
       react-i18next:
         specifier: ^15.0.2
         version: 15.4.1(i18next@23.16.8)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      react-router:
-        specifier: ^6.23.1
-        version: 6.30.0(react@19.3.0)
       react-router-dom:
         specifier: ^6.23.1
         version: 6.30.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
