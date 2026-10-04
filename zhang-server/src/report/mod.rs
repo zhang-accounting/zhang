@@ -24,6 +24,7 @@ use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, Inventory, Params, PriceMap, QueryErrorKind, QueryResult, Value};
 
 use crate::builtin::{calculated_amount, compiled, execute, BuiltinQuery, LedgerDateRange};
+use crate::cells::Columns;
 use crate::error::ServerError;
 use crate::request::StatisticInterval;
 use crate::response::{ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
@@ -570,7 +571,7 @@ fn run_within(ledger: &Ledger, query: &BuiltinQuery, params: Params, limits: &Gr
 
 /// The rows of a result, their cells taken by column name.
 fn rows(result: QueryResult) -> Vec<Row> {
-    let columns: HashMap<String, usize> = result.columns.iter().enumerate().map(|(index, column)| (column.name.clone(), index)).collect();
+    let columns = Columns::of(&result);
     result
         .rows
         .into_iter()
@@ -583,17 +584,14 @@ fn rows(result: QueryResult) -> Vec<Row> {
 
 /// A row of a query result.
 struct Row {
-    columns: HashMap<String, usize>,
+    columns: Columns,
     cells: Vec<Value>,
 }
 
 impl Row {
     /// The cell of the column `name`; NULL if the query has no such column.
     fn take(&mut self, name: &str) -> Value {
-        match self.columns.get(name).and_then(|index| self.cells.get_mut(*index)) {
-            Some(cell) => std::mem::replace(cell, Value::Null),
-            None => Value::Null,
-        }
+        self.columns.take(&mut self.cells, name)
     }
 }
 

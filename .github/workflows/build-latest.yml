@@ -8,9 +8,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# a new push to a pull request cancels its running checks. A run on main or develop is left to finish instead: only
+# those runs save the caches every pull request restores, and with merges minutes apart cancelling them meant the
+# caches were rarely saved. GitHub still keeps at most one run waiting per branch, so runs on main do not pile up.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   frontend-style-check:
@@ -59,22 +62,22 @@ jobs:
       - name: frontend build
         run: pnpm build
         working-directory: ./frontend
-  # the tests of each crate run in their own job, in parallel. Every job builds the test binaries of all the default
+  # the tests run in three parallel jobs: zhang-query, zhang-server, and `others` (every other package, today zhang-core,
+  # zhang-ast, beancount, zhang, zhang-plugin-sdk and its examples and zhang-python, and any crate added later, plus the
+  # doctests and the zhang-core build without the plugin runtime). Every job builds the test binaries of all the default
   # members, exactly as `cargo test` at the root would, so the features are unified the same way (zhang-server turns
-  # on `plugin_runtime` of zhang-core) and every job builds the same artifacts. Each job then runs only its crate's
-  # tests, so every test runs exactly once overall.
+  # on `plugin_runtime` of zhang-core) and every job builds the same artifacts. Each job then runs only its own tests,
+  # so every test runs exactly once overall.
   test:
-    name: test (${{ matrix.os }}, ${{ matrix.crate }})
+    name: test (${{ matrix.os }}, ${{ matrix.group }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04 ]
-        # `others` runs the tests of every package not named here (today zhang-python, which has none, and any crate
-        # added later) and the doctests. A crate named here must also be in `named` of the `Run test` step.
-        crate: [ zhang-query, zhang-server, zhang-core, zhang-ast, beancount, zhang, zhang-plugin-sdk, others ]
+        group: [ zhang-query, zhang-server, others ]
         # macOS runners are scarce and slow: only on main, as one job running every test
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[]' || '[{"os":"macOS-latest","crate":"all"}]') }}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[]' || '[{"os":"macOS-latest","group":"all"}]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Install stable
@@ -85,8 +88,8 @@ jobs:
           # them; without the target that test fails on CI (it only skips locally)
           target: wasm32-unknown-unknown
           # the jobs share one cache (rust-cache keys it by the job id, not the matrix), as they build the same
-          # artifacts; the zhang-core job, which also builds zhang-core alone, is the only one that saves it
-          cache-save-if: ${{ github.ref == 'refs/heads/main' && (matrix.crate == 'zhang-core' || matrix.crate == 'all') }}
+          # artifacts; `others`, which also builds zhang-core alone and the doctests, is the only one that saves it
+          cache-save-if: ${{ github.ref == 'refs/heads/main' && (matrix.group == 'others' || matrix.group == 'all') }}
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
@@ -100,24 +103,21 @@ jobs:
       - name: Run test
         shell: bash
         env:
-          CRATE: ${{ matrix.crate }}
+          GROUP: ${{ matrix.group }}
         run: |
-          named='package(zhang-query) | package(zhang-server) | package(zhang-core) | package(zhang-ast) | package(beancount) | package(zhang) | package(zhang-plugin-*)'
-          case "$CRATE" in
+          case "$GROUP" in
             all) cargo nextest run ;;
-            # the other packages may have no tests at all
-            others) cargo nextest run --no-tests=pass -E "not ($named)" ;;
-            zhang-plugin-sdk) cargo nextest run -E 'package(zhang-plugin-*)' ;;
-            *) cargo nextest run -E "package($CRATE)" ;;
+            others) cargo nextest run -E 'not (package(zhang-query) | package(zhang-server))' ;;
+            *) cargo nextest run -E "package($GROUP)" ;;
           esac
       # nextest does not run doctests
       - name: Run doctests
-        if: matrix.crate == 'others' || matrix.crate == 'all'
+        if: matrix.group == 'others' || matrix.group == 'all'
         run: cargo test --doc
       # zhang-server enables `plugin_runtime` of zhang-core, so the workspace build above always has it on.
       # Test zhang-core alone to cover the build without the plugin runtime.
       - name: Run zhang-core test without plugin runtime
-        if: matrix.crate == 'zhang-core' || matrix.crate == 'all'
+        if: matrix.group == 'others' || matrix.group == 'all'
         run: cargo test -p zhang-core
   wasm-test:
     runs-on: ubuntu-22.04

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "zhang-core",
     "zhang-query",
+    "zhang-shared",
     "zhang-ast",
     "zhang-server",
     "zhang-cli",
@@ -18,6 +19,7 @@ members = [
 default-members = [
     "zhang-core",
     "zhang-query",
+    "zhang-shared",
     "zhang-ast",
     "zhang-server",
     "zhang-cli",
@@ -36,7 +38,9 @@ tokio = { version = "1", features = ['macros', "tracing", "signal", "rt-multi-th
 log = "0.4"
 itertools = "0.14"
 strum = { version = "0.26", features = ["derive"] }
-bigdecimal = { version = "0.4", features = ["serde"] }
+# pinned: from 0.4.8 on, a zero is displayed without its scale ("0" instead of "0.00"), which changes zhang's API JSON
+# and written ledgers
+bigdecimal = { version = "=0.4.3", features = ["serde"] }
 indexmap = { version = "2.2", features = ["serde"] }
 axum = { version = "0.7", features = ["macros", "multipart"] }
 gotcha = { version = "0.3", features = ["openapi"] }

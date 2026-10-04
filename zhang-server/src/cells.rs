@@ -1,22 +1,52 @@
 //! Reading the rows of a built-in query's result by column name, for the thin mappings of the
 //! endpoints into their response types.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use zhang_ast::amount::Amount;
 use zhang_query::{QueryResult, Value};
 
+/// A result's column indexes, shared by all its rows.
+#[derive(Clone)]
+pub(crate) struct Columns(Arc<HashMap<String, usize>>);
+
+impl Columns {
+    pub(crate) fn of(result: &QueryResult) -> Self {
+        Self(Arc::new(
+            result.columns.iter().enumerate().map(|(index, column)| (column.name.clone(), index)).collect(),
+        ))
+    }
+
+    /// Built-in queries are tested to select every column their mappings read.
+    pub(crate) fn get<'a>(&self, values: &'a [Value], name: &str) -> &'a Value {
+        &values[*self.0.get(name).unwrap_or_else(|| panic!("the query result has no column {}", name))]
+    }
+
+    /// Move a cell out of an owned row; NULL if the column is absent.
+    pub(crate) fn take(&self, values: &mut [Value], name: &str) -> Value {
+        match self.0.get(name).and_then(|index| values.get_mut(*index)) {
+            Some(value) => std::mem::replace(value, Value::Null),
+            None => Value::Null,
+        }
+    }
+}
+
 /// One row of a query result.
 pub(crate) struct Row<'a> {
-    result: &'a QueryResult,
+    columns: Columns,
     values: &'a [Value],
 }
 
 /// The rows of a query result.
 pub(crate) fn rows(result: &QueryResult) -> impl Iterator<Item = Row<'_>> {
-    result.rows.iter().map(move |values| Row { result, values })
+    let columns = Columns::of(result);
+    result.rows.iter().map(move |values| Row {
+        columns: columns.clone(),
+        values,
+    })
 }
 
 /// The first row of a query result, if it has one.
@@ -28,13 +58,7 @@ impl Row<'_> {
     /// the value of the column `name`. Built-in queries are tested to have the columns their
     /// mappings read, so a missing column is a bug
     pub(crate) fn get(&self, name: &str) -> &Value {
-        let idx = self
-            .result
-            .columns
-            .iter()
-            .position(|column| column.name == name)
-            .unwrap_or_else(|| panic!("the query result has no column {}", name));
-        &self.values[idx]
+        self.columns.get(self.values, name)
     }
 
     pub(crate) fn str(&self, name: &str) -> Option<String> {

@@ -9,6 +9,12 @@ on:
   # release binaries are built on main and tags only; run it manually to get binaries of a branch
   workflow_dispatch:
 
+# a newer push to main supersedes the binaries of an older one, so its run is cancelled instead of
+# holding runners that pull request checks wait for; a tag (release) run is never cancelled
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
   create-release:
     if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
@@ -115,10 +121,13 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # restores a cache but never saves one. Each lockfile change made these jobs save six new caches of about 1.2 GB,
+      # which pushed the repository over its 10 GB cache limit and evicted the caches the pull request checks restore.
+      # Saving on tags would not help either: a cache saved by a tag run can only be restored by runs of that tag.
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: false
 
       - run: sudo apt install musl-tools
         if: startsWith(matrix.os, 'ubuntu')
