@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useAsync } from 'react-use';
-import { executeQuery, exportQueryCsv, retrieveOptions } from '@/api/requests';
+import { executeQuery, exportQueryCsv, optionValue, retrieveOptions } from '@/api/requests';
 import { QueryError, QueryResult } from '@/api/types';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import QueryEditor from '@/components/query/QueryEditor';
@@ -128,10 +128,7 @@ export default function Explore() {
     }
   };
 
-  const { value: operatingCurrency } = useAsync(async () => {
-    const res = await retrieveOptions({});
-    return res.data.data.find((option) => option.key === 'operating_currency')?.value.trim() || undefined;
-  }, []);
+  const { value: operatingCurrency } = useAsync(async () => optionValue((await retrieveOptions({})).data.data, 'operating_currency'), []);
 
   const currentQuery = () => viewRef.current?.state.doc.toString() ?? query;
 

@@ -19,6 +19,11 @@ export const retrieveStatisticByAccountType = openAPIFetcher.path('/api/statisti
 
 export const retrieveOptions = openAPIFetcher.path('/api/options').method('get').create();
 
+/** A ledger option from `/api/options`, trimmed; `undefined` when it is unset or blank. The first one wins if it is set twice. */
+export function optionValue(options: { key: string; value: string }[] | undefined, key: string): string | undefined {
+  return options?.find((option) => option.key === key)?.value.trim() || undefined;
+}
+
 export const retrievePlugins = openAPIFetcher.path('/api/plugins').method('get').create();
 
 export const retrieveAccountInfo = openAPIFetcher.path('/api/accounts/{account_name}').method('get').create();

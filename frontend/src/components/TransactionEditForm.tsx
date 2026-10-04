@@ -5,7 +5,7 @@ import { CalendarIcon, Plus, TableProperties, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
-import { retrieveFiles, retrieveNewTransactionInfo, retrieveOptions } from '@/api/requests';
+import { optionValue, retrieveFiles, retrieveNewTransactionInfo, retrieveOptions } from '@/api/requests';
 import { JournalTransactionItem, MetaEntry } from '@/api/types';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { useDateFormat, useDateLocale } from '@/components/layout/use-date-format';
@@ -144,9 +144,8 @@ export default function TransactionEditForm(props: Props) {
 
   const accountItems = useAtomValue(accountSelectItemsAtom);
   const { value: options } = useAsync(async () => {
-    const res = await retrieveOptions({});
-    const find = (key: string) => res.data.data.find((option) => option.key === key)?.value;
-    return { operatingCurrency: find('operating_currency'), timezone: find('timezone') };
+    const options = (await retrieveOptions({})).data.data;
+    return { operatingCurrency: optionValue(options, 'operating_currency'), timezone: optionValue(options, 'timezone') };
   }, []);
   const operatingCurrency = options?.operatingCurrency;
   const { value: payees } = useAsync(async () => (await retrieveNewTransactionInfo({})).data.data.payee, []);
