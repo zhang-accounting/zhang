@@ -15,7 +15,7 @@ use crate::data_source::InMemoryDataSource;
 mod data_source;
 
 #[global_allocator]
-static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+static ALLOCATOR: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct PlayGroundParse {
