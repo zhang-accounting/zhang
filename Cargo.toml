@@ -53,6 +53,12 @@ openssl = { version = "0.10", features = ["vendored"] }
 [profile.dev]
 split-debuginfo = "unpacked"
 
+# optimize the dependencies but not the workspace crates, which stay quick to rebuild and easy to debug: the tests
+# spend much of their time in dependency code (bigdecimal, chrono, hashing, wasmtime), and a dependency only rebuilds
+# when it changes
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 # Tell `rustc` to optimize for small code size.
 opt-level = "s"
