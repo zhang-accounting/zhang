@@ -288,7 +288,10 @@ fn cost_component(i: &str) -> IResult<&str, CostComponent> {
     ))(i)
 }
 
-fn cost_group(i: &str) -> IResult<&str, PostingCost> {
+/// `posting_cost = "{" posting_amount? ("," cost_component)* "}" | "{{" ... "}}"`: the cost spec of a
+/// posting, such as `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot booking
+/// finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of the lot.
+pub fn posting_cost(i: &str) -> IResult<&str, PostingCost> {
     // `{{ }}` is a total cost, `{ }` is a per-unit cost.
     let (i, total) = alt((value(true, tag("{{")), value(false, char('{'))))(i)?;
     let (i, _) = space0(i)?;
@@ -320,7 +323,7 @@ pub type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
 
 /// `posting_meta = ("{" ... "}")? space* posting_price?`
 fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
-    let (i, cost) = opt(preceded(space0, cost_group))(i)?;
+    let (i, cost) = opt(preceded(space0, posting_cost))(i)?;
     let (i, _) = space0(i)?;
     let (i, price) = opt(posting_price)(i)?;
     Ok((i, (cost, price)))
@@ -971,6 +974,26 @@ fn content_item(i: &str) -> IResult<&str, Option<Directive>> {
 /// Whether `parser` reads the whole of `text`.
 fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> IResult<&'a str, O>, text: &'a str) -> bool {
     matches!(parser(text), Ok(("", _)))
+}
+
+/// `text` read whole as the cost spec of a posting ([`posting_cost`]): `{150 USD}`, `{{1500 USD}}`,
+/// `{}` or `{150 USD, 2024-01-15, "lot"}`. `None` when it is not one, such as `150 USD` without the
+/// braces or a cost followed by anything else: a caller that takes a cost as text (the server's
+/// transaction edit) writes exactly what the ledger reads back, or nothing.
+pub fn read_posting_cost(text: &str) -> Option<PostingCost> {
+    match posting_cost(text) {
+        Ok(("", cost)) => Some(cost),
+        _ => None,
+    }
+}
+
+/// `text` read whole as the price annotation of a posting ([`posting_price`]): `@ 6 USD` per unit or
+/// `@@ 60 USD` in total. `None` when it is not one, such as `6 USD` without the `@`.
+pub fn read_posting_price(text: &str) -> Option<SingleTotalPrice> {
+    match posting_price(text) {
+        Ok(("", price)) => Some(price),
+        _ => None,
+    }
 }
 
 /// Whether `name` is an account name, such as `Assets:Bank:Checking`, that reads
@@ -2490,9 +2513,62 @@ mod test {
 
     /// The checks for names written unquoted run the grammar on the name.
     mod names {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use chrono::NaiveDate;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Date, PostingCost, SingleTotalPrice};
+
         use crate::data_type::text::parser::{
             is_valid_account_name, is_valid_bare_meta_value, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
+            read_posting_cost, read_posting_price,
         };
+
+        /// A cost or a price given as text (the transaction edit of the server, #473) is read whole by the
+        /// posting grammar, in every form the ledger writes, and anything else is not a cost or a price.
+        #[test]
+        fn posting_costs_and_prices_as_text() {
+            let usd = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "USD");
+            let cost = |base: Option<&str>, date: Option<&str>, label: Option<&str>, total: bool| PostingCost {
+                base: base.map(usd),
+                date: date.map(|it| Date::Date(NaiveDate::from_str(it).unwrap())),
+                label: label.map(str::to_owned),
+                total,
+            };
+            assert_eq!(read_posting_cost("{150 USD}"), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{ 150 USD }"), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{{1500 USD}}"), Some(cost(Some("1500"), None, None, true)));
+            assert_eq!(read_posting_cost("{}"), Some(cost(None, None, None, false)));
+            assert_eq!(
+                read_posting_cost("{150 USD, 2024-01-15}"),
+                Some(cost(Some("150"), Some("2024-01-15"), None, false))
+            );
+            assert_eq!(
+                read_posting_cost("{150 USD, 2024-01-15, \"lot\"}"),
+                Some(cost(Some("150"), Some("2024-01-15"), Some("lot"), false))
+            );
+            for invalid in [
+                "",
+                "150 USD",
+                "{150 USD",
+                "150 USD}",
+                "{150 USD} x",
+                " {150 USD}",
+                "{150}",
+                "{{150 USD}",
+                "@ 150 USD",
+            ] {
+                assert_eq!(read_posting_cost(invalid), None, "{invalid:?}");
+            }
+
+            assert_eq!(read_posting_price("@ 6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@@ 60 USD"), Some(SingleTotalPrice::Total(usd("60"))));
+            for invalid in ["", "6 USD", "@ 6", "@ 6 USD x", " @ 6 USD", "@@", "{6 USD}"] {
+                assert_eq!(read_posting_price(invalid), None, "{invalid:?}");
+            }
+        }
 
         #[test]
         fn bare_meta_values() {

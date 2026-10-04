@@ -16,9 +16,12 @@ use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::Flag;
+use zhang_ast::{Directive, Flag, SpanInfo, Transaction};
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
+use zhang_core::data_type::is_beancount_endpoint;
+use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::ledger::Ledger;
+use zhang_core::utils::string_::QuoteStyle;
 use zhang_query::{Params, QueryResult, Value};
 
 use crate::builtin::execute;
@@ -27,7 +30,7 @@ use crate::error::ServerError;
 use crate::request::JournalRequest;
 use crate::response::{
     DocumentEntity, ErrorEntity, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
-    JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity, Pageable, SpanInfoEntity,
+    JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity, Pageable, SpanInfoEntity, WrittenPostingEntity,
 };
 use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
@@ -133,7 +136,13 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
     let balance_ids = ids_of("balance")?;
 
     // as written: tags and links in their order, which the engine's sets sort and the edit form writes back as
-    // listed, and a narration that is absent, which the engine reads as '' as beancount does
+    // listed, a narration that is absent, which the engine reads as '' as beancount does, and the cost, price and
+    // comment of each posting line, which the engine holds booked
+    let style = if is_beancount_endpoint(&ledger.entry.1) {
+        QuoteStyle::Beancount
+    } else {
+        QuoteStyle::Zhang
+    };
     let written: HashMap<String, Written> = {
         let store = ledger
             .store
@@ -147,6 +156,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                     narration: transaction.narration.clone(),
                     tags: transaction.tags.clone(),
                     links: transaction.links.clone(),
+                    postings: written_transaction(ledger, &transaction.span).map(|directive| written_postings(directive, style)),
                 };
                 Some((id.clone(), written))
             })
@@ -171,12 +181,23 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
     cells::rows(JOURNAL, page)
         .map(|row| {
             let mut entry = EntryRow::of(&row)?;
+            let mut postings = postings.remove(&entry.id).unwrap_or_default();
             if let Some(written) = written.get(&entry.id) {
                 entry.narration = written.narration.clone();
                 entry.tags = written.tags.clone();
                 entry.links = written.links.clone();
+                // the postings of the journal are the written ones in their order ([`JOURNAL_POSTINGS`] groups the
+                // booked legs by the posting they were written as); the written forms are attached only when they
+                // line up with them, account by account
+                if let Some(forms) = &written.postings {
+                    let aligned = forms.len() == postings.len() && forms.iter().zip(&postings).all(|((account, _), row)| *account == row.posting.account);
+                    if aligned {
+                        for ((_, form), row) in forms.iter().zip(&mut postings) {
+                            row.posting.written = Some(form.clone());
+                        }
+                    }
+                }
             }
-            let postings = postings.remove(&entry.id).unwrap_or_default();
             let check = checks.remove(&entry.id);
             Ok(journal_item(entry, postings, check))
         })
@@ -188,6 +209,36 @@ struct Written {
     narration: Option<String>,
     tags: Vec<String>,
     links: Vec<String>,
+    /// the postings as written, each with its account, when the transaction's directive is in the ledger: not for
+    /// one a plugin made
+    postings: Option<Vec<(String, WrittenPostingEntity)>>,
+}
+
+/// The transaction directive of `ledger` read from `span`: the one starting where it starts, in its file. `None` for
+/// a span in no file, such as a transaction a plugin made.
+pub(crate) fn written_transaction<'a>(ledger: &'a Ledger, span: &SpanInfo) -> Option<&'a Transaction> {
+    let file = span.filename.as_ref()?;
+    ledger.directives.iter().find_map(|directive| match &directive.data {
+        Directive::Transaction(transaction) if directive.span.start == span.start && directive.span.filename.as_ref() == Some(file) => Some(transaction),
+        _ => None,
+    })
+}
+
+/// The postings of `transaction` as written (#638: the ledger holds them booked), each with its account and the
+/// cost, price and comment of its line in the ledger's syntax, as the exporter writes them in `style`.
+fn written_postings(transaction: &Transaction, style: QuoteStyle) -> Vec<(String, WrittenPostingEntity)> {
+    transaction
+        .written_postings()
+        .into_iter()
+        .map(|posting| {
+            let written = WrittenPostingEntity {
+                cost: posting.cost.map(|cost| cost.export_as(style)),
+                price: posting.price.map(|price| price.export_as(style)),
+                comment: posting.comment,
+            };
+            (posting.account.name().to_owned(), written)
+        })
+        .collect()
 }
 
 /// A row of [`JOURNAL`]: a transaction or a balance assertion.
@@ -251,6 +302,7 @@ impl PostingRow {
                 account_before: in_currency("balance_before")?,
                 account_after: in_currency("balance_after")?,
                 metas: metas(row.get("metas")?),
+                written: None,
             },
         })
     }
@@ -320,6 +372,7 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
                 account_before: check.actual.unwrap_or_else(zero),
                 account_after: asserted,
                 metas: vec![],
+                written: None,
             }],
             tolerance: check.tolerance,
             passed: check.passed,
