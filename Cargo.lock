@@ -6716,13 +6716,10 @@ version = "0.1.1"
 dependencies = [
  "beancount",
  "console_error_panic_hook",
- "serde",
  "serde-wasm-bindgen",
- "serde_json",
  "talc",
  "wasm-bindgen",
  "wasm-bindgen-test",
- "zhang-ast",
  "zhang-core",
 ]
 
