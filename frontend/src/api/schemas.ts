@@ -1301,6 +1301,10 @@ export interface operations {
                   commodity: string;
                   number: string;
                 } | null;
+                /**
+                 * @description the lot's label, from the `{cost, "label"}` it was bought with; left out when the lot has
+                 * none, so unlabelled lots serialize as before
+                 */
                 label?: string | null;
                 price?: {
                   commodity: string;
@@ -1441,8 +1445,10 @@ export interface operations {
             data: {
               content: string;
               path: string;
-              /** @description the fingerprint of the file as served, the SHA-256 of its bytes in hex: a save sends it back as
-               * `expected_sha256`, to be refused when the file changed since it was loaded */
+              /**
+               * @description the fingerprint of the file as served, the SHA-256 of its bytes in hex: a save sends it back as
+               * `expected_sha256`, to be refused when the file changed since it was loaded
+               */
               sha256: string;
             };
           };
@@ -1461,8 +1467,10 @@ export interface operations {
       content: {
         'application/json': {
           content: string;
-          /** @description the `sha256` the file was served with (`GET /api/files/{path}`): the save is refused with 409, and writes
-           * nothing, when the file no longer has that content. Without it the file is overwritten as it is, as before */
+          /**
+           * @description the `sha256` the file was served with (`GET /api/files/{path}`): the save is refused with 409, and writes
+           * nothing, when the file no longer has that content. Without it the file is overwritten as it is, as before
+           */
           expected_sha256?: string | null;
         };
       };
