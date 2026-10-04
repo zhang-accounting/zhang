@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useLanguage } from '@/hooks/use-language';
-import { SETTINGS_LINK, UPGRADE_GUIDE_URL } from '@/layout/nav-links';
+import { GITHUB_REPO_URL, SETTINGS_LINK, UPGRADE_GUIDE_URL } from '@/layout/nav-links';
 import { THEMES } from '@/layout/themes';
 import { useReloadLedger } from '@/layout/use-reload-ledger';
 import { LANGUAGES } from '@/lib/languages';
@@ -135,6 +135,13 @@ export default function Settings() {
             )}
           </div>
         </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title={t('settings.github_repository')} description={t('settings.github_repository_description')} bare>
+        <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: 'outline' }), 'h-10 justify-between md:h-8')}>
+          zhang-accounting/zhang
+          <ExternalLink />
+        </a>
       </SettingsSection>
 
       <SettingsSection title={t('settings.options')} description={t('settings.options_description')}>
