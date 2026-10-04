@@ -292,7 +292,6 @@ pub async fn upload_transaction_document(
     let files = super::uploaded_files(&mut multipart).await?;
     let mut ledger = ledger.for_writing().await?;
     let mut operations = ledger.operations();
-    let entry = &ledger.entry.0;
     let mut documents = vec![];
 
     let span_info = operations.transaction_span(&transaction_id)?;
@@ -308,20 +307,12 @@ pub async fn upload_transaction_document(
             .async_get_unchanged(source_file_path, std::slice::from_ref(&span_info.span))
             .await?;
         for (file_name, content_buf) in files {
-            let v4 = Uuid::new_v4();
-            let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
-            let striped_buf = buf.strip_prefix(entry).unwrap();
-            let striped_path_string = striped_buf.to_string_lossy().to_string();
+            let (v4, path) = super::attachment_path(&file_name);
             info!("uploading document `{}`(id={}) to transaction {}", file_name, v4, transaction_id);
 
-            ledger.data_source.async_save(&ledger, striped_path_string, &content_buf).await?;
+            ledger.data_source.async_save(&ledger, path.clone(), &content_buf).await?;
 
-            let path = match buf.strip_prefix(entry) {
-                Ok(relative_path) => relative_path.to_str().unwrap(),
-                Err(_) => buf.to_str().unwrap(),
-            };
-
-            documents.push(path.to_string());
+            documents.push(path);
         }
         write_transaction_documents(&ledger, &span_info, &documents).await
     }

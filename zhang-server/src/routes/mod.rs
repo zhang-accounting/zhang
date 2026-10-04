@@ -78,6 +78,14 @@ pub struct Query<T>(pub T);
 /// the longest name of a file, in bytes, most file systems hold
 const MAX_FILE_NAME_BYTES: usize = 255;
 
+/// where an uploaded file is saved, relative to the ledger's root: `attachments/<a new uuid v4>/<file name>`, with the
+/// id of the folder
+pub(crate) fn attachment_path(file_name: &str) -> (uuid::Uuid, String) {
+    let id = uuid::Uuid::new_v4();
+    let path = std::path::Path::new("attachments").join(id.to_string()).join(file_name);
+    (id, path.to_string_lossy().to_string())
+}
+
 /// the files of an upload, each with its name, read before the ledger is held to write them. A file is saved by its
 /// name under the ledger's attachments, so the name is a plain file name the file systems hold: the upload is a 400
 /// otherwise, or when it cannot be read
