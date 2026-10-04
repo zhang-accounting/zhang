@@ -65,7 +65,7 @@ zhang serve ~/ledger
 docker run --name zhang -v "$HOME/ledger:/data" -p "8000:8000" kilerd/zhang:latest
 ```
 
-在浏览器中打开 `http://localhost:8000`。如果命令立刻退出，说明账本无法加载，例如语法中有笔误：用 `RUST_LOG=info zhang serve ~/ledger` 再运行一次，就能看到出错的文件和行。
+在浏览器中打开 `http://localhost:8000`。如果命令立刻退出，说明账本无法加载，例如语法中有笔误：错误信息会指出出错的文件和行。
 
 ## 网页界面导览
 

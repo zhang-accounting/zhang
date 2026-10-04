@@ -402,7 +402,7 @@ option "operating_currency" "EUR"
 
 ## 账本无法加载的情况
 
-以下问题会让张记账无法加载账本。`zhang serve` 以退出码 1 退出，并在日志中记录原因；设置环境变量 `RUST_LOG=info` 可以看到日志。服务器已在运行时，失败的重新加载会保持账本原样。
+以下问题会让张记账无法加载账本。`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出。服务器已在运行时，失败的重新加载会保持账本原样，并在日志中记录原因。
 
 - 文件中的**语法错误**。消息会指出文件、行和列，例如 `failed to parse zhang file: unexpected input at line 4, column 3`。
 - [`default_rounding`](/zh-cn/reference/directives/options/#default_rounding) 或 [`directive_output_path`](/zh-cn/reference/directives/options/#directive_output_path) 选项的**无效值**，或者[商品](/zh-cn/reference/directives/commodity/#舍入)的 `rounding` 元数据的无效值。消息为 `option value is invalid`。

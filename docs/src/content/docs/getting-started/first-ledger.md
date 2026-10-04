@@ -65,7 +65,7 @@ or with Docker:
 docker run --name zhang -v "$HOME/ledger:/data" -p "8000:8000" kilerd/zhang:latest
 ```
 
-Open `http://localhost:8000` in a browser. If the command stops right away, the ledger could not be loaded, for example because of a typo in the syntax: run it again with `RUST_LOG=info zhang serve ~/ledger` to see the file and the line.
+Open `http://localhost:8000` in a browser. If the command stops right away, the ledger could not be loaded, for example because of a typo in the syntax: the error message names the file and the line.
 
 ## A tour of the web UI
 

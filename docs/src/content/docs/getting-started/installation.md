@@ -112,7 +112,7 @@ Other environment variables:
 | `ZHANG_QUERY_MAX_RESULT_VALUES` | How many values a [query](/reference/query-language/) result may hold before the query is stopped. Default `1000000`. Lower it on a machine with little memory. |
 | `RUST_LOG` | The log level, such as `info` or `debug`. Without it, the binary prints no log. The Docker image sets `info`. |
 
-When the ledger cannot be loaded at startup, for example because of a syntax error, or the port is already in use, `zhang serve` exits with code 1, so systemd, Docker and hosting platforms see a failed start. Run it with `RUST_LOG=info` to see the reason. Problems in the books themselves, such as an unbalanced transaction, do not stop the server: they are listed in the web UI.
+When the ledger cannot be loaded at startup, for example because of a syntax error, or the port is already in use, `zhang serve` prints the reason on stderr and exits with code 1, so systemd, Docker and hosting platforms see a failed start. Problems in the books themselves, such as an unbalanced transaction, do not stop the server: they are listed in the web UI.
 
 ## Other commands
 
