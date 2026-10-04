@@ -110,7 +110,7 @@ Other environment variables:
 | `ZHANG_SESSION_SECRET`, `ZHANG_PASSKEY_ORIGIN`, `ZHANG_PASSKEY_RP_ID` | Sessions and passkeys, see [Authentication](/deployment/authentication/). |
 | `ZHANG_S3_*`, `ZHANG_WEBDAV_*`, `ZHANG_GITHUB_*` | The settings of the [S3](/deployment/data-sources/s3/), [WebDAV](/deployment/data-sources/webdav/) and [GitHub](/deployment/data-sources/github/) data sources. |
 | `ZHANG_QUERY_MAX_RESULT_VALUES` | How many values a [query](/reference/query-language/) result may hold before the query is stopped. Default `1000000`. Lower it on a machine with little memory. |
-| `RUST_LOG` | The log level, such as `info` or `debug`. Without it, the binary prints no log. The Docker image sets `info`. |
+| `ZHANG_LOG` | The log filter, such as `info`, `debug` or `zhang_core=trace` ([env_logger syntax](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)). When it is not set, `RUST_LOG` is used; without either, the level is `info`. The Docker image sets `RUST_LOG=info`. |
 
 When the ledger cannot be loaded at startup, for example because of a syntax error, or the port is already in use, `zhang serve` exits with code 1, so systemd, Docker and hosting platforms see a failed start. Run it with `RUST_LOG=info` to see the reason. Problems in the books themselves, such as an unbalanced transaction, do not stop the server: they are listed in the web UI.
 

@@ -106,7 +106,7 @@ Change the balance assertion to `4200.00 USD` and save the file. Zhang reloads t
 These errors do not stop Zhang: the rest of the ledger is still shown. A syntax error is different, because Zhang cannot read the file at all:
 
 - At startup, `zhang serve` exits with an error.
-- While the server is running, the reload fails and the web UI keeps showing the ledger as it was before the change, without an error in the list. The reason is only written to the log (with `RUST_LOG=info`, or `docker logs` with Docker). Fix the file and save it again.
+- While the server is running, the reload fails and the web UI keeps showing the ledger as it was before the change, without an error in the list. The reason is only written to the log (`docker logs zhang` with Docker). Fix the file and save it again.
 
 ## Next steps
 

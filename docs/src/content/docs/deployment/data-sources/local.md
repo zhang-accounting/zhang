@@ -64,7 +64,7 @@ Zhang recognizes the files it loaded by their path. Start it with an absolute pa
 
 ### When a reload fails
 
-If a file cannot be read at all, for example because of a syntax error, the reload fails and Zhang keeps serving the ledger as it was before the change. The web UI shows no error for this: the reason is only written to the log (with `RUST_LOG=info`, which the Docker image sets). Fix the file and save it again. Problems in the books, such as an unbalanced transaction, do not make the reload fail: they are listed in the web UI.
+If a file cannot be read at all, for example because of a syntax error, the reload fails and Zhang keeps serving the ledger as it was before the change. The web UI shows no error for this: the reason is only written to the log. Fix the file and save it again. Problems in the books, such as an unbalanced transaction, do not make the reload fail: they are listed in the web UI.
 
 At startup, a ledger that cannot be read makes `zhang serve` exit with code 1.
 
