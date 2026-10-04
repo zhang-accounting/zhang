@@ -3,8 +3,8 @@ import { useCallback, useState } from 'react';
 import { FileWithPath, useDropzone } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { apiBaseUrl } from '@/api/fetcher';
-import { apiErrorMessage, responseError } from '@/lib/api-error';
+import { uploadDocuments } from '@/api/requests';
+import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { Spinner } from './ui/spinner';
 
@@ -24,14 +24,9 @@ export default function AccountDocumentUpload({ type, id, onUploaded, className 
   const onDrop = useCallback(
     async (files: FileWithPath[]) => {
       if (files.length === 0) return;
-      const formData = new FormData();
-      files.forEach((file) => formData.append('file', file));
       setUploading(true);
       try {
-        // Plain fetch: the generated client JSON-encodes the body, which drops the multipart files.
-        const base = type === 'transaction' ? 'transactions' : 'accounts';
-        const response = await fetch(`${apiBaseUrl}/api/${base}/${encodeURIComponent(id)}/documents`, { method: 'POST', body: formData });
-        if (!response.ok) throw await responseError(response);
+        await uploadDocuments(type === 'transaction' ? 'transactions' : 'accounts', id, files);
         toast.success(t('ledger.documents.uploaded', { count: files.length }));
         onUploaded?.();
       } catch (error) {
