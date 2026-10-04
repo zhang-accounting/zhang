@@ -8,10 +8,14 @@ hero:
   image:
     file: ../../assets/logo.png
   actions:
+    - text: Try the online demo
+      link: https://zhang-demo.onrender.com/
+      icon: external
+      variant: primary
     - text: Get started
       link: /getting-started/introduction/
       icon: right-arrow
-      variant: primary
+      variant: secondary
     - text: Try the playground
       link: https://zhang-cloud.kilerd.me/playground
       icon: external
@@ -19,6 +23,10 @@ hero:
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Explore the [online demo](https://zhang-demo.onrender.com/) with a fictional, read-only ledger: multi-currency
+transactions, investment lots, budgets, saved queries and sample receipts. You can browse, run queries and export
+CSV; changes and uploads cannot be saved. See the [demo tour](/getting-started/introduction/#try-the-online-demo).
 
 <CardGrid>
 	<Card title="Plain text you own" icon="document">

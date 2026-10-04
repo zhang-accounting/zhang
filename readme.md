@@ -9,13 +9,20 @@
 ![Docker Pulls](https://img.shields.io/docker/pulls/kilerd/zhang)
 ![License](https://img.shields.io/github/license/zhang-accounting/zhang)
 
-[Online Playground](https://zhang-cloud.kilerd.me/playground) · [Documentation](https://zhang-accounting.kilerd.me/) · [Discord](https://discord.gg/EGjwhnV267)
+[Online Demo](https://zhang-demo.onrender.com/) · [Online Playground](https://zhang-cloud.kilerd.me/playground) · [Documentation](https://zhang-accounting.kilerd.me/) · [Discord](https://discord.gg/EGjwhnV267)
 
 Zhang keeps your books in plain text files that you own, and serves a web UI on top of them: a dashboard,
 journals, accounts, commodities, budgets, documents, reports and a query page. Edit the files in your editor or
 record transactions in the browser: Zhang writes new entries back to your files and reloads when local files change.
 
 ## Quick Start
+
+### Online demo
+
+Open the [online demo](https://zhang-demo.onrender.com/) to explore Zhang without installing anything. Its
+fictional, read-only ledger includes multi-currency transactions, investments with cost lots, budgets, saved
+queries and sample receipts. Browse the web UI, run queries and export CSV; changes to the shared ledger and
+attachment uploads cannot be saved.
 
 ### Docker
 

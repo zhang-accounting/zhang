@@ -9,6 +9,21 @@ Zhang (账, "ledger" in Chinese) is a plain text, double-entry accounting tool. 
 
 Zhang is for people who want to track their personal or household finances precisely, keep the data in a format they can read, diff and back up, and still have dashboards, reports and a form to record a purchase from the browser. You run it yourself, on your computer or on a server.
 
+## Try the online demo
+
+Open the [online demo](https://zhang-demo.onrender.com/) to explore the web UI before installing Zhang. It uses a
+fictional, read-only ledger, so changes to the shared ledger and attachment uploads cannot be saved.
+
+- Start with [Overview](https://zhang-demo.onrender.com/) and [Journals](https://zhang-demo.onrender.com/journals)
+  to explore income, expenses, multi-currency transactions, tags and links.
+- Open [Commodities](https://zhang-demo.onrender.com/commodities) to inspect investment lots and their costs,
+  then [Budget](https://zhang-demo.onrender.com/budgets) to see monthly allocations, spending and carry-over.
+- Browse [Documents](https://zhang-demo.onrender.com/documents) for sample receipts and statements. In
+  [Query](https://zhang-demo.onrender.com/explore), choose **Saved**, run a saved query and export its result as CSV.
+
+To record your own transactions, continue with [installation](/getting-started/installation/) and
+[your first ledger](/getting-started/first-ledger/).
+
 ## Core concepts
 
 **Ledger files.** A ledger is one or more text files made of *directives*: entries that start with a date and say what happened, such as opening an account or recording a transaction. Zhang starts from a main file (`main.zhang` by default) and follows its [`include`](/reference/directives/include/) directives into other files. The order of the directives does not matter, Zhang sorts them by date. Files ending in `.bean`, `.beancount` or `.bc` are read as beancount. The others use the Zhang format, which is close to beancount's and adds a few directives, such as [budgets](/reference/directives/budget/).
