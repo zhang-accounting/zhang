@@ -136,11 +136,6 @@ impl SplitDirectives {
 }
 
 impl Ledger {
-    pub fn load<T: DataSource + Default + 'static>(entry: PathBuf, endpoint: String) -> ZhangResult<Ledger> {
-        let data_source = Arc::new(T::default());
-        Ledger::load_with_data_source(entry, endpoint, data_source)
-    }
-
     pub fn load_with_data_source(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
         let entry = entry.canonicalize().with_path(&entry)?;
 
