@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use strum::{Display, EnumString};
+use strum::{Display, EnumDiscriminants, EnumString};
 
 use crate::account::Account;
 use crate::amount::Amount;
@@ -11,33 +11,9 @@ use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, N
 use crate::error::ErrorKind;
 use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Meta};
 
-#[derive(Debug, PartialEq, Eq, EnumString, Display)]
-pub enum DirectiveType {
-    Open,
-    Close,
-    Commodity,
-    Transaction,
-    BalancePad,
-    BalanceCheck,
-    Pad,
-    Note,
-    Document,
-    Price,
-    Event,
-    Custom,
-    Query,
-    Option,
-    Plugin,
-    Include,
-    Comment,
-
-    Budget,
-    BudgetAdd,
-    BudgetTransfer,
-    BudgetClose,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+/// [`DirectiveType`] is the kind of a directive, named like its variant
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, EnumDiscriminants)]
+#[strum_discriminants(name(DirectiveType), derive(EnumString, Display))]
 pub enum Directive {
     Open(Open),
     Close(Close),
@@ -91,54 +67,12 @@ impl Directive {
         }
     }
     pub fn directive_type(&self) -> DirectiveType {
-        match &self {
-            Directive::Open(_) => DirectiveType::Open,
-            Directive::Close(_) => DirectiveType::Close,
-            Directive::Commodity(_) => DirectiveType::Commodity,
-            Directive::Transaction(_) => DirectiveType::Transaction,
-            Directive::Note(_) => DirectiveType::Note,
-            Directive::Document(_) => DirectiveType::Document,
-            Directive::Price(_) => DirectiveType::Price,
-            Directive::Event(_) => DirectiveType::Event,
-            Directive::Custom(_) => DirectiveType::Custom,
-            Directive::Query(_) => DirectiveType::Query,
-            Directive::Option(_) => DirectiveType::Option,
-            Directive::Plugin(_) => DirectiveType::Plugin,
-            Directive::Include(_) => DirectiveType::Include,
-            Directive::Comment(_) => DirectiveType::Comment,
-            Directive::BalancePad(_) => DirectiveType::BalancePad,
-            Directive::BalanceCheck(_) => DirectiveType::BalanceCheck,
-            Directive::Pad(_) => DirectiveType::Pad,
-            Directive::Budget(_) => DirectiveType::Budget,
-            Directive::BudgetAdd(_) => DirectiveType::BudgetAdd,
-            Directive::BudgetTransfer(_) => DirectiveType::BudgetTransfer,
-            Directive::BudgetClose(_) => DirectiveType::BudgetClose,
-        }
+        self.into()
     }
 
     pub fn set_meta(mut self, meta: Meta) -> Self {
-        match &mut self {
-            Directive::Open(ref mut directive) => directive.meta = meta,
-            Directive::Close(ref mut directive) => directive.meta = meta,
-            Directive::Commodity(ref mut directive) => directive.meta = meta,
-            Directive::Transaction(ref mut directive) => directive.meta = meta,
-            Directive::BalancePad(ref mut directive) => directive.meta = meta,
-            Directive::BalanceCheck(ref mut directive) => directive.meta = meta,
-            Directive::Pad(ref mut directive) => directive.meta = meta,
-            Directive::Note(ref mut directive) => directive.meta = meta,
-            Directive::Document(ref mut directive) => directive.meta = meta,
-            Directive::Price(ref mut directive) => directive.meta = meta,
-            Directive::Event(ref mut directive) => directive.meta = meta,
-            Directive::Custom(ref mut directive) => directive.meta = meta,
-            Directive::Query(ref mut directive) => directive.meta = meta,
-            Directive::Budget(ref mut directive) => directive.meta = meta,
-            Directive::BudgetAdd(ref mut directive) => directive.meta = meta,
-            Directive::BudgetTransfer(ref mut directive) => directive.meta = meta,
-            Directive::BudgetClose(ref mut directive) => directive.meta = meta,
-            Directive::Option(_) => {}
-            Directive::Plugin(ref mut directive) => directive.meta = meta,
-            Directive::Include(_) => {}
-            Directive::Comment(_) => {}
+        if let Some(it) = self.meta_mut() {
+            *it = meta;
         }
         self
     }
