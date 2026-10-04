@@ -100,7 +100,42 @@ fn latest(history: &[(NaiveDate, BigDecimal)], date: Option<NaiveDate>, skip_zer
         .map(|(_, rate)| rate)
 }
 
-/// `1 / rate`; `None` for a zero rate
+/// `1 / rate`; `None` for a zero rate. A round quotient (`1 / 0.1`) comes out of the division
+/// with a negative scale, which prints as `1E+1`: it gets the scale 0, so it reads `10` wherever
+/// the rate is shown.
 fn invert(rate: &BigDecimal) -> Option<BigDecimal> {
-    div(&BigDecimal::one(), rate)
+    div(&BigDecimal::one(), rate).map(|rate| if rate.fractional_digit_count() < 0 { rate.with_scale(0) } else { rate })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    fn date(s: &str) -> NaiveDate {
+        NaiveDate::from_str(s).unwrap()
+    }
+
+    fn d(s: &str) -> BigDecimal {
+        BigDecimal::from_str(s).unwrap()
+    }
+
+    /// A round inverse rate is written as a plain number, not in E notation, both when the
+    /// opposite pair is inverted on lookup and when it is merged into a pair quoted both ways.
+    #[test]
+    fn a_round_inverse_rate_has_no_negative_scale() {
+        let only_inverse = PriceMap::from_points(vec![(date("2024-01-01"), "CNY", "USD", d("0.1"))]);
+        assert_eq!(only_inverse.rate("USD", "CNY", None).unwrap().to_string(), "10");
+        assert_eq!(only_inverse.rate("CNY", "USD", None).unwrap().to_string(), "0.1");
+        let both_ways = PriceMap::from_points(vec![
+            (date("2024-01-01"), "USD", "CNY", d("7.00")),
+            (date("2024-02-01"), "CNY", "USD", d("0.01")),
+        ]);
+        assert_eq!(both_ways.rate("USD", "CNY", None).unwrap().to_string(), "100");
+        assert_eq!(both_ways.rate("USD", "CNY", Some(date("2024-01-15"))).unwrap().to_string(), "7.00");
+        // an inexact inverse keeps Python's 28 significant digits
+        let inexact = PriceMap::from_points(vec![(date("2024-01-01"), "CNY", "USD", d("0.14"))]);
+        assert_eq!(inexact.rate("USD", "CNY", None).unwrap().to_string(), "7.142857142857142857142857143");
+    }
 }
