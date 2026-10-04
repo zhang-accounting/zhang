@@ -17,7 +17,6 @@ import { Skeleton } from './ui/skeleton';
 import { Spinner } from './ui/spinner';
 
 interface Props {
-  name?: string;
   path: string;
   /** Called whenever the buffer starts / stops differing from the saved file. */
   onDirtyChange?: (dirty: boolean) => void;

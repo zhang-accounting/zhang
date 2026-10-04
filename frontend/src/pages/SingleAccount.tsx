@@ -339,9 +339,7 @@ function AccountDocuments({ accountName, subAccounts }: { accountName: string; s
         <AccountDocumentUpload id={accountName} type="account" onUploaded={() => setReloadKey((key) => key + 1)} />
         {documents.loading && !documents.value
           ? Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="aspect-square rounded-lg" />)
-          : (documents.value ?? []).map((document, idx) => (
-              <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} uri={document.path} filename={document.path} />
-            ))}
+          : (documents.value ?? []).map((document, idx) => <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} filename={document.path} />)}
       </div>
     </Section>
   );

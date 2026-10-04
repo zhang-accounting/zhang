@@ -12,7 +12,6 @@ interface Props {
   text: string;
   amount: string;
   currency?: string;
-  detail?: unknown;
   /** Flip the sign (income and liabilities are stored as negative numbers). */
   negative?: boolean;
   /** Secondary line under the value. */
