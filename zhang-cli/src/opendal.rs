@@ -1273,14 +1273,14 @@ mod test {
         set_mode(&main, 0o644);
 
         let error = saved.expect_err("the main file is read-only");
-        assert!(error.to_string().contains("main.zhang"), "{error}");
+        assert!(error.to_string().contains("main.zhang"), "{}", error);
         let error = appended.expect_err("the folder is read-only");
-        assert!(error.to_string().contains(".zhang"), "{error}");
+        assert!(error.to_string().contains(".zhang"), "{}", error);
         assert_eq!(std::fs::read_to_string(&main).unwrap(), OPENS, "nothing was written");
         assert!(!dir.path().join("data").exists(), "no data folder was created");
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(status, 500, "{body}");
+        assert_eq!(status, 500, "{}", body);
         let message = body["message"].as_str().unwrap_or_default();
-        assert!(message.contains("main.zhang"), "{body}");
+        assert!(message.contains("main.zhang"), "{}", body);
     }
 }
