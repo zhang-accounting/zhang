@@ -58,7 +58,7 @@ use zhang_core::utils::id::FromSpan;
 use crate::error::{LocatedError, Span};
 use crate::params::{ParamRef, Params};
 use crate::table::{Dataset, Entry, MaybeOwned, Row};
-use crate::value::{Cost, Position, Value};
+use crate::value::{position_sort_key_cmp, Cost, Position, Value};
 
 /// A date of the period modifiers: a literal of the query or a parameter bound at execution.
 #[derive(Debug, Clone, PartialEq)]
@@ -256,27 +256,12 @@ impl Lots {
     }
 }
 
-/// The positions as beancount prints an inventory: by currency rank (the major currencies
-/// USD, EUR, JPY, CAD, GBP, AUD, NZD and CHF in this order, then the others by the length of
-/// their name), then by cost number (zero without a cost), cost currency and units; ties keep
-/// their order. Observed from beancount's output: the currency name, cost date and label do not
-/// take part.
+/// The positions as beancount prints an inventory: in beancount's position sort order
+/// ([`position_sort_key_cmp`]: the common currencies first, then by the length of the currency
+/// name, cost number, cost currency and units); ties keep their order. Observed from beancount's
+/// output: the currency name, cost date and label do not take part.
 fn beancount_order(mut positions: Vec<Position>) -> Vec<String> {
-    const MAJOR: [&str; 8] = ["USD", "EUR", "JPY", "CAD", "GBP", "AUD", "NZD", "CHF"];
-    let rank = |position: &Position| {
-        let currency = position.units.commodity.as_str();
-        MAJOR.iter().position(|it| *it == currency).unwrap_or(MAJOR.len() + currency.chars().count())
-    };
-    let zero = BigDecimal::zero();
-    let cost_number = |position: &Position| position.cost.as_ref().map_or(&zero, |cost| &cost.number).clone();
-    let cost_currency = |position: &Position| position.cost.as_ref().map_or("", |cost| cost.currency.as_str()).to_owned();
-    positions.sort_by(|a, b| {
-        rank(a)
-            .cmp(&rank(b))
-            .then_with(|| cost_number(a).cmp(&cost_number(b)))
-            .then_with(|| cost_currency(a).cmp(&cost_currency(b)))
-            .then_with(|| a.units.number.cmp(&b.units.number))
-    });
+    positions.sort_by(position_sort_key_cmp);
     positions.iter().map(ToString::to_string).collect()
 }
 
