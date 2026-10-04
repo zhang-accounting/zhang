@@ -1,0 +1,16 @@
+option "title" "Round inverse quote"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Equity:Opening
+
+2024-01-02 * "Opening"
+  Assets:Bank 100 USD
+  Equity:Opening -100 USD
+
+; only the opposite direction is quoted and its inverse is a round number: 1 CNY = 0.1 USD, so 1 USD = 10 CNY.
+; the rate is written as a plain 10, not in exponent notation, on the commodity page and in the valuation
+2024-01-01 price CNY 0.1 USD

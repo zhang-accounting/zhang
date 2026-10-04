@@ -21,9 +21,14 @@ use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
 use crate::{ApiResult, ServerResult};
 
-/// A commodity of the list, from the store's commodity, its group, its total and its latest price.
-fn commodity_item(commodity: CommodityDomain, group: Option<String>, total: BigDecimal, latest_price: Option<&Row<'_>>) -> CommodityListItemEntity {
-    let latest_price_amount = latest_price.and_then(|row| row.amount("price"));
+/// A commodity of the list, from the store's commodity, its group, its total and its latest
+/// price: a row of `commodities.latest_price(s)`, the engine's rate of one unit in `currency` as
+/// of today and the date and time of the quote it comes from.
+fn commodity_item(
+    commodity: CommodityDomain, group: Option<String>, total: BigDecimal, latest_price: Option<&Row<'_>>, currency: &str,
+) -> CommodityListItemEntity {
+    let latest_rate = latest_price.and_then(|row| row.decimal("rate"));
+    let latest_price_commodity = latest_rate.is_some().then(|| currency.to_owned());
     CommodityListItemEntity {
         name: commodity.name,
         precision: commodity.precision,
@@ -33,8 +38,8 @@ fn commodity_item(commodity: CommodityDomain, group: Option<String>, total: BigD
         group,
         total_amount: total,
         latest_price_date: latest_price.and_then(|row| row.datetime("date", "time")),
-        latest_price_amount: latest_price_amount.as_ref().map(|it| it.number.clone()),
-        latest_price_commodity: latest_price_amount.map(|it| it.commodity),
+        latest_price_amount: latest_rate,
+        latest_price_commodity,
     }
 }
 
@@ -77,7 +82,7 @@ pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<C
             .map(|(commodity, group)| {
                 let total = totals.get(&commodity.name).and_then(|row| row.decimal("total")).unwrap_or_default();
                 let latest_price = prices.get(&commodity.name);
-                commodity_item(commodity, group, total, latest_price)
+                commodity_item(commodity, group, total, latest_price, &ledger.options.operating_currency)
             })
             .collect_vec();
         Ok(items)
@@ -137,6 +142,6 @@ fn single_commodity(ledger: &Ledger, commodity: CommodityDomain, group: Option<S
         })
         .collect_vec();
 
-    let info = commodity_item(commodity, group, total, first_row(&latest_price).as_ref());
+    let info = commodity_item(commodity, group, total, first_row(&latest_price).as_ref(), &ledger.options.operating_currency);
     Ok(CommodityDetailEntity { info, lots, prices })
 }

@@ -680,23 +680,25 @@ HAVING sum(number) != 0
 
 #### `commodities.latest_prices`
 
-The latest price of each commodity quoted in a currency, with its date and time.
+The latest price of each commodity in a currency as of today, with its date and time. The rate is the one the valuations use, from the engine's price map: the latest quote of the pair on or before today, in either direction, inverted when it is quoted the other way round. A price dated in the future is not the latest price.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `currency` | `str` | the currency of the prices, the operating currency |
 
 ```sql
-SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency,
+       last(date) AS date, last(time) AS time,
+       getprice(last(CASE WHEN currency = :currency THEN currency(amount) ELSE currency END), :currency, today()) AS rate
 FROM #prices
-WHERE currency(amount) = :currency
-GROUP BY currency
-ORDER BY currency
+WHERE (currency = :currency OR currency(amount) = :currency) AND currency != currency(amount) AND date <= today()
+GROUP BY 1
+ORDER BY 1
 ```
 
 #### `commodities.latest_price`
 
-The latest price of one commodity quoted in a currency, with its date and time.
+The latest price of one commodity in a currency as of today, with its date and time. The rate is the one the valuations use, from the engine's price map: the latest quote of the pair on or before today, in either direction, inverted when it is quoted the other way round. A price dated in the future is not the latest price.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
@@ -704,10 +706,12 @@ The latest price of one commodity quoted in a currency, with its date and time.
 | `currency` | `str` | the currency of the price, the operating currency |
 
 ```sql
-SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency,
+       last(date) AS date, last(time) AS time, getprice(:commodity, :currency, today()) AS rate
 FROM #prices
-WHERE currency = :commodity AND currency(amount) = :currency
-GROUP BY currency
+WHERE ((currency = :commodity AND currency(amount) = :currency) OR (currency = :currency AND currency(amount) = :commodity))
+  AND currency != currency(amount) AND date <= today()
+GROUP BY 1
 ```
 
 #### `commodities.lots`

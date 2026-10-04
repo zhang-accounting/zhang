@@ -345,21 +345,25 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "commodities.latest_prices",
-        description: "The latest price of each commodity quoted in a currency, with its date and time.",
-        bql: "SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price \
+        description: "The latest price of each commodity in a currency as of today, with its date and time; the rate is the one the valuations use (the latest quote of the pair on or before today, in either direction, inverted when it is quoted the other way round).",
+        bql: "SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency, \
+              last(date) AS date, last(time) AS time, \
+              getprice(last(CASE WHEN currency = :currency THEN currency(amount) ELSE currency END), :currency, today()) AS rate \
               FROM #prices \
-              WHERE currency(amount) = :currency \
-              GROUP BY currency \
-              ORDER BY currency",
+              WHERE (currency = :currency OR currency(amount) = :currency) AND currency != currency(amount) AND date <= today() \
+              GROUP BY 1 \
+              ORDER BY 1",
         params: &[("currency", DataType::Str)],
     },
     BuiltinQuery {
         name: "commodities.latest_price",
-        description: "The latest price of a commodity quoted in a currency, with its date and time.",
-        bql: "SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price \
+        description: "The latest price of a commodity in a currency as of today, with its date and time; the rate is the one the valuations use (the latest quote of the pair on or before today, in either direction, inverted when it is quoted the other way round).",
+        bql: "SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency, \
+              last(date) AS date, last(time) AS time, getprice(:commodity, :currency, today()) AS rate \
               FROM #prices \
-              WHERE currency = :commodity AND currency(amount) = :currency \
-              GROUP BY currency",
+              WHERE ((currency = :commodity AND currency(amount) = :currency) OR (currency = :currency AND currency(amount) = :commodity)) \
+              AND currency != currency(amount) AND date <= today() \
+              GROUP BY 1",
         params: &[("commodity", DataType::Str), ("currency", DataType::Str)],
     },
     BuiltinQuery {

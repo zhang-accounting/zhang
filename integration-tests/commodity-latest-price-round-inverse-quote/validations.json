@@ -1,0 +1,25 @@
+[
+  {
+    "uri": "/api/accounts",
+    "validations": [
+      ["$.data[?(@.name=='Assets:Bank')].amount.calculated.number", "1000"],
+      ["$.data[?(@.name=='Assets:Bank')].amount.calculated.commodity", "CNY"]
+    ]
+  },
+  {
+    "uri": "/api/commodities",
+    "validations": [
+      ["$.data[?(@.name=='USD')].latest_price_date", "2024-01-01T00:00:00"],
+      ["$.data[?(@.name=='USD')].latest_price_amount", "10"],
+      ["$.data[?(@.name=='USD')].latest_price_commodity", "CNY"]
+    ]
+  },
+  {
+    "uri": "/api/commodities/USD",
+    "validations": [
+      ["$.data.info.latest_price_date", "2024-01-01T00:00:00"],
+      ["$.data.info.latest_price_amount", "10"],
+      ["$.data.info.latest_price_commodity", "CNY"]
+    ]
+  }
+]
