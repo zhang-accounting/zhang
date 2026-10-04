@@ -12,10 +12,11 @@
 //!   transactions are found by source position, which is how zhang derives their ids, so no id
 //!   is hashed; the records sharing a position, such as the padding transactions of a `pad`, one
 //!   for each commodity it pads, are taken in the order zhang stored them.
-//! - [`Postings`]: the booked rows of the `postings` table ([`CachedRow`]), the transactions
-//!   they belong to, and the rows of every account, so a query scoped to some accounts
-//!   ([`super::Scope`]) only visits theirs. Booking runs here, over every posting at cost; a
-//!   row keeps the cost of its lot and its price whatever a query projects.
+//! - [`Postings`]: the rows of the `postings` table ([`CachedRow`]), one per booked posting of
+//!   the ledger's directives (zhang books while it loads, so a sale across several lots is one
+//!   posting per lot already), the transactions they belong to, and the rows of every account,
+//!   so a query scoped to some accounts ([`super::Scope`]) only visits theirs. A row keeps the
+//!   cost of its lot and its price whatever a query projects.
 //! - The [`PriceMap`] of the ledger, the ids of the `#entries` rows, and the transactions that
 //!   name documents in their metadata (`#documents`).
 //!
@@ -32,7 +33,7 @@ use std::sync::{Arc, OnceLock};
 
 use chrono::NaiveDate;
 use uuid::Uuid;
-use zhang_ast::{Directive, Posting, SpanInfo, Transaction};
+use zhang_ast::{written_groups, Directive, SpanInfo, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{Store, TransactionDomain};
 use zhang_core::utils::id::FromSpan;
@@ -522,21 +523,20 @@ impl Postings {
         let mut entry_of_sequence = vec![NONE; usize::try_from(max_sequence).unwrap_or_default() + 1];
         let mut cached = Vec::with_capacity(transactions.len());
         let mut accounts = Accounts::default();
-        let mut drafts = Vec::with_capacity(store.postings.len());
+        let mut rows = Vec::with_capacity(store.postings.len());
         for (_, txn) in transactions {
             let directive = positions
                 .of(&txn.span, false)
                 .and_then(|position| parsed_at.get_mut(&position))
                 .and_then(Vec::pop);
-            // the ledger keeps the postings booked (one per lot a sale reduced, units interpolated);
-            // the store's rows are the postings as written, so the directive is read as written too,
-            // until this table reads the booked postings themselves instead of booking again
-            let parsed: Option<Vec<Posting>> = directive
+            // the directive holds the booked postings; the store has one row per posting as
+            // written, which the booked legs group into
+            let parsed: Option<&Transaction> = directive
                 .and_then(|idx| match &ledger.directives[idx].data {
-                    Directive::Transaction(parsed) => Some(parsed.written_postings()),
+                    Directive::Transaction(parsed) => Some(parsed),
                     _ => None,
                 })
-                .filter(|parsed| parsed.len() == txn.postings.len());
+                .filter(|parsed| written_groups(&parsed.postings).len() == txn.postings.len());
             let entry = cached.len();
             if let Ok(sequence) = usize::try_from(txn.sequence) {
                 entry_of_sequence[sequence] = entry as u32;
@@ -544,13 +544,15 @@ impl Postings {
             cached.push(CachedEntry {
                 id: txn.id,
                 date: txn.datetime.date_naive(),
-                parsed: parsed.as_ref().and(directive).map(|idx| idx as u32),
+                parsed: parsed.and(directive).map(|idx| idx as u32),
                 entry: directive.and_then(|idx| entries.of_directive(idx)).map(|it| it.seq),
             });
-            drafts.extend(postings::drafts(entry, txn, parsed, &mut accounts));
+            match parsed {
+                Some(parsed) => rows.extend(postings::booked_rows(entry, parsed, &mut accounts)),
+                None => rows.extend(postings::stored_rows(entry, txn, &mut accounts)),
+            }
         }
 
-        let rows = postings::book(drafts, ledger, store);
         let mut account_rows = vec![vec![]; accounts.names.len()];
         for (idx, row) in rows.iter().enumerate() {
             account_rows[row.account as usize].push(idx as u32);

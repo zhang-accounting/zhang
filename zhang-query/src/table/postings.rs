@@ -1,28 +1,30 @@
 //! The `postings` table: one row per posting, with the columns of its transaction.
 //!
-//! Rows are read directly from the ledger's in-memory [`Store`] (computed units, pads)
-//! and enriched from the parsed transaction directives where the store does not keep the
-//! information (price annotations, lot date and label, transaction metadata).
+//! Rows are read from the booked directives of the ledger (units, lots, price annotations,
+//! transaction metadata) and from its in-memory [`Store`] (the transaction they belong to, the
+//! posting metadata, and the rows of a transaction whose directive cannot be matched).
 //!
 //! Which entries produce rows follows beancount: transactions and padding transactions
 //! (flag `P`) do; balance assertions, which book nothing, do not.
 //!
-//! Lot booking runs once per loaded ledger, over every posting ([`book`], kept in the
-//! [`LedgerCache`]). A query then assembles its rows from the booked ones: only those of the
-//! accounts it is scoped to ([`Scope`]), each keeping only the parts its projected columns read
-//! (see [`crate::projector`]). Columns of the transaction are read from the store on access,
-//! never copied up front.
+//! The rows are the booked postings of the ledger ([`booked_rows`], kept in the [`LedgerCache`]):
+//! zhang books every transaction while it loads (the booking stage and the store fold, see
+//! `zhang_core::booking`), so a sale across several lots is already one posting per lot, each
+//! naming its lot, and an implicit posting has its units. The table books nothing itself. A query
+//! then assembles its rows from the cached ones: only those of the accounts it is scoped to
+//! ([`Scope`]), each keeping only the parts its projected columns read (see [`crate::projector`]).
+//! Columns of the transaction are read from the store on access, never copied up front.
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap};
+use std::num::NonZeroU64;
 
-use bigdecimal::{BigDecimal, Signed, Zero};
+use bigdecimal::{BigDecimal, RoundingMode};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Meta, Posting, PostingCost, SingleTotalPrice};
+use zhang_ast::{group_units, written_groups, Directive, Meta, Posting, PostingCost, SingleTotalPrice, Transaction};
 use zhang_core::domains::schemas::MetaType;
-use zhang_core::inventory::BookingMethod;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
 
@@ -134,75 +136,6 @@ impl Scope {
             }
         })
     }
-}
-
-/// The cost specification (`{...}`) of a posting before lot booking.
-///
-/// As in beancount, what a spec means depends on the side of the posting (see [`book`]): on
-/// a reduction its given fields are criteria matched against the open lots and the missing
-/// ones are wildcards; on an augmentation it describes the new lot.
-pub(super) struct CostSpec {
-    /// per-unit cost; `None` for `{}` and for specs with only a date or a label
-    per_unit: Option<Amount>,
-    date: Option<NaiveDate>,
-    label: Option<String>,
-}
-
-impl CostSpec {
-    /// Whether the open lot `lot` satisfies this spec as a reduction criterion.
-    fn matches(&self, lot: &Cost) -> bool {
-        self.per_unit
-            .as_ref()
-            .is_none_or(|cost| cost.number == lot.number && cost.commodity == lot.currency)
-            && self.date.is_none_or(|date| lot.date == Some(date))
-            && self.label.as_ref().is_none_or(|label| lot.label.as_ref() == Some(label))
-    }
-}
-
-/// A posting before booking.
-pub(super) struct Draft<'a> {
-    entry: u32,
-    posting_index: u32,
-    /// date of the transaction
-    date: NaiveDate,
-    account: &'a str,
-    /// the account's index in the [`Accounts`] of the cache
-    account_index: u32,
-    units: &'a Amount,
-    cost: Option<CostSpec>,
-    /// the per-unit price annotation
-    price: Option<Amount>,
-}
-
-/// The postings of the stored transaction `txn`, the entry `entry` of the table, before
-/// booking; `parsed` is its directive's postings as written, when it could be matched.
-pub(super) fn drafts<'a, 'c>(
-    entry: usize, txn: &'a TransactionDomain, parsed: Option<Vec<Posting>>, accounts: &'c mut Accounts,
-) -> impl Iterator<Item = Draft<'a>> + use<'a, 'c> {
-    let date = txn.datetime.date_naive();
-    txn.postings.iter().enumerate().map(move |(posting_index, posting)| {
-        let units = &posting.inferred_amount;
-        let parsed_posting = parsed.as_ref().and_then(|it| it.get(posting_index));
-        let cost = match parsed_posting {
-            Some(parsed_posting) => parsed_posting.cost.as_ref().map(|cost| cost_spec(cost, units)),
-            // without the parsed directive only the cost number kept by the store is known
-            None => posting.cost.as_ref().map(|cost| CostSpec {
-                per_unit: Some(cost.clone()),
-                date: None,
-                label: None,
-            }),
-        };
-        Draft {
-            entry: entry as u32,
-            posting_index: posting_index as u32,
-            date,
-            account: posting.account.name(),
-            account_index: accounts.index(posting.account.name()),
-            units,
-            cost,
-            price: parsed_posting.and_then(|it| it.price.as_ref()).and_then(|price| per_unit_price(price, units)),
-        }
-    })
 }
 
 impl<'a> Dataset<'a> {
@@ -375,142 +308,103 @@ impl<'a> Dataset<'a> {
     }
 }
 
-fn cost_spec(cost: &PostingCost, units: &Amount) -> CostSpec {
-    let per_unit = cost.base.as_ref().map(|base| {
-        let number = if cost.total {
-            decimal::div(&base.number, &units.number.abs()).unwrap_or_else(|| base.number.clone())
-        } else {
-            base.number.clone()
-        };
-        Amount::new(number, base.commodity.clone())
-    });
-    CostSpec {
-        per_unit,
+/// The rows of the stored transaction `txn`, the entry `entry` of the table, from the booked
+/// postings of its directive `parsed`: one row per booked leg, as beanquery lists a sale across
+/// several lots, with the lot the leg names and its per-unit price. The rows of a posting as
+/// written share its index, which is the store's row.
+pub(super) fn booked_rows(entry: usize, parsed: &Transaction, accounts: &mut Accounts) -> Vec<CachedRow> {
+    let mut rows = Vec::with_capacity(parsed.postings.len());
+    for (posting_index, group) in written_groups(&parsed.postings).into_iter().enumerate() {
+        let legs = group.legs;
+        // the units as written (the legs summed), which a total price (`@@`) is spread over
+        let written_units = group_units(legs);
+        for leg in legs {
+            // every posting of a stored transaction is booked, so it has units
+            let Some(units) = &leg.units else { continue };
+            let cost = leg.cost.as_ref().and_then(|cost| lot_cost(leg, cost, &written_units));
+            let price = leg.price.as_ref().and_then(|price| per_unit_price(price, &written_units));
+            rows.push(CachedRow {
+                entry: entry as u32,
+                posting_index: posting_index as u32,
+                account: accounts.index(leg.account.name()),
+                units: units.clone(),
+                lot: (cost.is_some() || price.is_some()).then(|| Box::new(Lot { cost, price })),
+            });
+        }
+    }
+    rows
+}
+
+/// The rows of the stored transaction `txn` whose directive could not be matched: one per stored
+/// posting, with the cost number the store keeps, dated by the transaction, and no price.
+pub(super) fn stored_rows(entry: usize, txn: &TransactionDomain, accounts: &mut Accounts) -> Vec<CachedRow> {
+    let date = txn.datetime.date_naive();
+    txn.postings
+        .iter()
+        .enumerate()
+        .map(|(posting_index, posting)| CachedRow {
+            entry: entry as u32,
+            posting_index: posting_index as u32,
+            account: accounts.index(posting.account.name()),
+            units: posting.inferred_amount.clone(),
+            lot: posting.cost.as_ref().map(|cost| {
+                Box::new(Lot {
+                    cost: Some(Cost {
+                        number: cost.number.clone(),
+                        currency: cost.commodity.clone(),
+                        date: Some(date),
+                        label: None,
+                    }),
+                    price: None,
+                })
+            }),
+        })
+        .collect()
+}
+
+/// The lot a booked leg names, as its row shows it. A cost the user wrote as a total
+/// (`{{1000 USD}}`) is divided over the written units in the query's decimal context
+/// ([`decimal::div`], 28 significant digits like beanquery); any other per-unit cost zhang-core
+/// derived by division is rounded to that context too. A cost without a number (the part of a
+/// `{}` reduction no lot covered) is no lot.
+fn lot_cost(leg: &Posting, cost: &PostingCost, written_units: &Amount) -> Option<Cost> {
+    let base = cost.base.as_ref()?;
+    let written_total = leg
+        .written
+        .as_ref()
+        .and_then(|written| written.cost.as_ref())
+        .filter(|written| written.total)
+        .and_then(|written| written.base.as_ref());
+    let number = match written_total {
+        Some(total) => decimal::div(&total.number, &written_units.number.abs()).unwrap_or_else(|| base.number.clone()),
+        None => in_context(&base.number),
+    };
+    Some(Cost {
+        number,
+        currency: base.commodity.clone(),
         date: cost.date.as_ref().map(|it| it.naive_date()),
         label: cost.label.clone(),
+    })
+}
+
+/// `number` in the query's decimal context: rounded half-even to [`decimal::DIVISION_PRECISION`]
+/// significant digits when it has more (a per-unit cost zhang-core divided at its own precision),
+/// trailing zeros dropped like a quotient's; unchanged otherwise
+fn in_context(number: &BigDecimal) -> BigDecimal {
+    if number.digits() > decimal::DIVISION_PRECISION {
+        let precision = NonZeroU64::new(decimal::DIVISION_PRECISION).expect("non zero precision");
+        number.with_precision_round(precision, RoundingMode::HalfEven).normalized()
+    } else {
+        number.clone()
     }
 }
 
+/// the per-unit price of a posting: a total price (`@@`) spread over the units as written
 fn per_unit_price(price: &SingleTotalPrice, units: &Amount) -> Option<Amount> {
     match price {
         SingleTotalPrice::Single(price) => Some(price.clone()),
         SingleTotalPrice::Total(total) => decimal::div(&total.number, &units.number.abs()).map(|number| Amount::new(number, total.commodity.clone())),
     }
-}
-
-/// A booked row: its units (the posting's unless booking split it), the cost of its lot and
-/// its price.
-fn booked_row(draft: &Draft<'_>, units: Option<Amount>, cost: Option<Cost>, price: Option<Amount>) -> CachedRow {
-    CachedRow {
-        entry: draft.entry,
-        posting_index: draft.posting_index,
-        account: draft.account_index,
-        units: units.unwrap_or_else(|| draft.units.clone()),
-        lot: (cost.is_some() || price.is_some()).then(|| Box::new(Lot { cost, price })),
-    }
-}
-
-/// Book the postings held at cost against the lots opened by earlier postings of the same
-/// account and currency, as beancount's booking does.
-///
-/// - A posting at cost whose sign is opposite to an open lot is a *reduction*. Its cost spec
-///   is matched against the open lots: the given fields (cost number and currency, date,
-///   label) are criteria and the missing ones are wildcards, so `{100 USD}` reduces lots
-///   bought at 100 USD on any date and `{}` reduces any lot. Matching lots are consumed FIFO,
-///   oldest acquisition date first, or LIFO, newest first, when the account (or the ledger
-///   default) uses the LIFO booking method; lots of the same date go in the order they were
-///   opened, reversed for LIFO. A reduction that spans several lots is split into one row per
-///   lot, each carrying the lot's cost.
-/// - Any other posting at cost, and the part of a reduction no lot covers, is an
-///   *augmentation*: it opens (or adds to) the lot of its cost, dated by its transaction
-///   when the spec has no date. A spec without a cost number cannot open a lot, so that
-///   part keeps no cost.
-///
-/// zhang-core books STRICT like FIFO (reporting ambiguous matches as ledger errors) and books the
-/// unsupported methods (NONE, AVERAGE, AVERAGE_ONLY) with the ledger's default method, so every
-/// method other than LIFO books FIFO here. Booking errors are reported by zhang-core, not by
-/// queries.
-///
-/// Lots are keyed by account and currency, so the rows of an account only depend on the earlier
-/// postings of that account. Every row keeps the cost of its lot and its price; a query keeps
-/// them only when its projection reads them.
-pub(super) fn book(drafts: Vec<Draft<'_>>, ledger: &Ledger, store: &Store) -> Vec<CachedRow> {
-    let mut account_methods: HashMap<&str, BookingMethod> = HashMap::new();
-    for meta in &store.metas {
-        if meta.meta_type == MetaType::AccountMeta.as_ref() && meta.key == "booking_method" {
-            if let Ok(method) = meta.value.parse::<BookingMethod>() {
-                account_methods.insert(meta.type_identifier.as_str(), method);
-            }
-        }
-    }
-    let default_method = ledger.options.default_booking_method;
-
-    let mut lots: HashMap<(&str, &str), Vec<(Cost, BigDecimal)>> = HashMap::new();
-    let mut rows = Vec::with_capacity(drafts.len());
-    for mut draft in drafts {
-        let Some(spec) = draft.cost.take() else {
-            let price = draft.price.take();
-            rows.push(booked_row(&draft, None, None, price));
-            continue;
-        };
-        let account_lots = lots.entry((draft.account, draft.units.commodity.as_str())).or_default();
-        let mut remaining = draft.units.number.clone();
-
-        // a reduction, like beancount's `Inventory.is_reduced_by`
-        let reducing = !remaining.is_zero() && account_lots.iter().any(|(_, number)| number.is_positive() != remaining.is_positive());
-        if reducing {
-            let lifo = matches!(account_methods.get(draft.account).copied().unwrap_or(default_method), BookingMethod::Lifo);
-            // oldest acquisition date first, lots of the same date in insertion order (a stable
-            // sort); LIFO is the exact reverse, like zhang-core's booking
-            let mut order = (0..account_lots.len()).collect::<Vec<_>>();
-            order.sort_by_key(|&idx| account_lots[idx].0.date);
-            if lifo {
-                order.reverse();
-            }
-            for idx in order {
-                if remaining.is_zero() {
-                    break;
-                }
-                let (lot, number) = &mut account_lots[idx];
-                if number.is_positive() == remaining.is_positive() || !spec.matches(lot) {
-                    continue;
-                }
-                let take = if remaining.abs() >= number.abs() {
-                    -number.clone()
-                } else {
-                    remaining.clone()
-                };
-                *number += &take;
-                remaining -= &take;
-                let units = Amount::new(take, draft.units.commodity.clone());
-                rows.push(booked_row(&draft, Some(units), Some(lot.clone()), draft.price.clone()));
-            }
-            account_lots.retain(|(_, number)| !number.is_zero());
-        }
-        if remaining.is_zero() {
-            continue;
-        }
-
-        // an augmentation (or the rest of a reduction no lot covers)
-        let cost = spec.per_unit.map(|per_unit| {
-            let cost = Cost {
-                number: per_unit.number,
-                currency: per_unit.commodity,
-                date: Some(spec.date.unwrap_or(draft.date)),
-                label: spec.label,
-            };
-            match account_lots.iter_mut().find(|(lot, _)| *lot == cost) {
-                Some((_, number)) => *number += &remaining,
-                None => account_lots.push((cost.clone(), remaining.clone())),
-            }
-            account_lots.retain(|(_, number)| !number.is_zero());
-            cost
-        });
-        let units = (remaining != draft.units.number).then(|| Amount::new(remaining, draft.units.commodity.clone()));
-        let price = draft.price.take();
-        rows.push(booked_row(&draft, units, cost, price));
-    }
-    rows
 }
 
 /// The `balance` column. The executor evaluates it as a running sum (see
