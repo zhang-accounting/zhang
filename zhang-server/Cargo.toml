@@ -34,7 +34,7 @@ bytes = { workspace = true }
 rust-embed = { version = "8.3", optional = true }
 futures = "0.3"
 futures-util = "0.3"
-notify = "6"
+notify = "8"
 reqwest = { version = "0.11", features = ["json"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }

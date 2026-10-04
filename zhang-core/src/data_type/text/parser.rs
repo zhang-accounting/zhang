@@ -1047,11 +1047,6 @@ mod test {
             zhang_ast::ZhangString::QuoteString($s.to_string())
         };
     }
-    // macro_rules! unquote {
-    //     ($s: expr) => {
-    //         crate::core::models::ZhangString::UnquoteString($s.to_string())
-    //     };
-    // }
     macro_rules! date {
         ($year: expr,$month: expr, $day: expr) => {
             zhang_ast::Date::Date(chrono::NaiveDate::from_ymd_opt($year, $month, $day).unwrap())
