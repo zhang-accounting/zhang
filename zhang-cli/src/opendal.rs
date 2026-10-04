@@ -12,13 +12,12 @@ use log::{debug, info};
 use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
-use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
-use zhang_core::data_source::{directive_output_file, included_file, written_into, DataSource, LoadResult, SourceEntry};
+use zhang_ast::{Directive, SpanInfo, Spanned};
+use zhang_core::data_source::{directive_output_file, include_for_append, included_file, written_into, DataSource, LoadResult, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
 use zhang_core::ledger::Ledger;
-use zhang_core::utils::has_path_visited;
 use zhang_core::{utils, ZhangError, ZhangResult};
 
 use crate::{FileSystem, ServerOpts};
@@ -377,23 +376,8 @@ impl OpendalDataSource {
             .strip_prefix(entry)
             .map_err(|_| ZhangError::CustomError(format!("{} is not in the ledger's directory", endpoint.display())))?;
 
-        // a file new to the ledger and to this append
-        let new_file = included.filter(|included| !has_path_visited(&ledger.visited_files, &endpoint) && !has_path_visited(included.iter(), &endpoint));
-        if let Some(included) = new_file {
-            included.push(endpoint.clone());
-            let path = match endpoint.strip_prefix(entry) {
-                Ok(relative_path) => relative_path.to_str().unwrap(),
-                Err(_) => endpoint.to_str().unwrap(),
-            };
-            self.append_directive(
-                ledger,
-                Directive::Include(Include {
-                    file: ZhangString::QuoteString(path.to_string()),
-                }),
-                None,
-                None,
-            )
-            .await?;
+        if let Some(include) = included.and_then(|included| include_for_append(ledger, &endpoint, included)) {
+            self.append_directive(ledger, include, None, None).await?;
         }
 
         let content_buf = ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await?;
