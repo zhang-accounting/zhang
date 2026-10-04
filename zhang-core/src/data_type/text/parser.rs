@@ -59,7 +59,7 @@ pub fn blank_line(i: &str) -> IResult<&str, ()> {
 }
 
 /// `comment_prefix = ";" | "*" | "#" | "//"`
-pub fn comment_prefix(i: &str) -> IResult<&str, &str> {
+fn comment_prefix(i: &str) -> IResult<&str, &str> {
     alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
 }
 
@@ -411,7 +411,7 @@ fn transaction_lines(i: &str) -> IResult<&str, Vec<(usize, TransactionLine)>> {
 
 /// A tag (`#name`) or link (`^name`) preceded by optional whitespace. The bool is
 /// `true` for a tag, `false` for a link.
-fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
+pub fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
     preceded(
         space0,
         alt((
@@ -422,7 +422,7 @@ fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
 }
 
 /// `tags_or_links = (space* (tag | link))*`
-fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
+pub fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
     let mut tags = Vec::new();
     let mut links = Vec::new();
     let mut rest = i;
@@ -441,7 +441,7 @@ fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
 /// them: `None` when there are none.
 type TagAndLinkSets = (Option<HashSet<String>>, Option<HashSet<String>>);
 
-fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
+pub fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
     let (i, (tags, links)) = tags_or_links(i)?;
     let set = |items: Vec<String>| (!items.is_empty()).then(|| items.into_iter().collect::<HashSet<_>>());
     Ok((i, (set(tags), set(links))))
@@ -453,12 +453,12 @@ fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
 
 /// An unquoted metadata key: a bare word that does not start with a comment
 /// prefix, so an indented line such as `;path: "C:\x"` stays a comment.
-fn meta_key(i: &str) -> IResult<&str, &str> {
+pub fn meta_key(i: &str) -> IResult<&str, &str> {
     verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err())(i)
 }
 
 /// `key_value_line = (meta_key | quote_string) space* ":" space* string`
-fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
+pub fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
     let (i, key) = alt((map(meta_key, str::to_owned), map(quote_string, |key| key.to_plain_string())))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = char(':')(i)?;
@@ -478,7 +478,7 @@ fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
 }
 
 /// `metas = (line space+ key_value_line comment?)+`
-fn metas_block(i: &str) -> IResult<&str, Meta> {
+pub fn metas_block(i: &str) -> IResult<&str, Meta> {
     map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
 }
 
@@ -486,7 +486,7 @@ fn metas_block(i: &str) -> IResult<&str, Meta> {
 // directive bodies (everything after `date keyword`)
 // ---------------------------------------------------------------------------
 
-fn comma_separator(i: &str) -> IResult<&str, ()> {
+pub fn comma_separator(i: &str) -> IResult<&str, ()> {
     value((), tuple((space0, char(','), space0)))(i)
 }
 
@@ -669,7 +669,7 @@ fn commodity_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
+pub fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
     alt((map(account_name, StringOrAccount::Account), map(string, StringOrAccount::String)))(i)
 }
 

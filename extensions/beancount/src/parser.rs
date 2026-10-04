@@ -12,7 +12,6 @@
 //! The token-level parsers both formats share are imported from
 //! [`zhang_core::data_type::text::parser`], so both data types read them the same way.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -21,16 +20,20 @@ use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, satisfy, space0, space1};
-use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
+use nom::combinator::{map, map_res, opt, peek, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, blank_line, comment_prefix, commodity_name, indentation_width, inline_comment, is_digit, line_trailer, number_expr, offset, posting_amount,
-    posting_price, quote_string, string, unquote_string_raw, valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
+    account_name, blank_line, comma_separator, commodity_name, indentation_width, inline_comment, is_digit, key_value_line, line_trailer, metas_block,
+    number_expr, offset, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, unquote_string_raw,
+    valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
 };
+// the name tests (`test::names`) read these against zhang-core's validators
+#[cfg(test)]
+use zhang_core::data_type::text::parser::{meta_key, spaced_tag_or_link};
 use zhang_core::utils::string_::invalid_escape_at;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
@@ -172,81 +175,9 @@ fn transaction_lines(i: &str) -> IResult<&str, Vec<(usize, TransactionLine)>> {
     many1(transaction_line)(i)
 }
 
-fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
-    preceded(
-        space0,
-        alt((
-            map(preceded(char('#'), unquote_string_raw), |s: &str| (true, s.to_string())),
-            map(preceded(char('^'), unquote_string_raw), |s: &str| (false, s.to_string())),
-        )),
-    )(i)
-}
-
-fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
-    let mut tags = Vec::new();
-    let mut links = Vec::new();
-    let mut rest = i;
-    while let Ok((next, (is_tag, value))) = spaced_tag_or_link(rest) {
-        if is_tag {
-            tags.push(value);
-        } else {
-            links.push(value);
-        }
-        rest = next;
-    }
-    Ok((rest, (tags, links)))
-}
-
-/// The tags and links after the string of a note or document, as the AST keeps
-/// them: `None` when there are none.
-type TagAndLinkSets = (Option<HashSet<String>>, Option<HashSet<String>>);
-
-fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
-    let (i, (tags, links)) = tags_or_links(i)?;
-    let set = |items: Vec<String>| (!items.is_empty()).then(|| items.into_iter().collect::<HashSet<_>>());
-    Ok((i, (set(tags), set(links))))
-}
-
-// ---------------------------------------------------------------------------
-// metadata
-// ---------------------------------------------------------------------------
-
-/// An unquoted metadata key: a bare word that does not start with a comment
-/// prefix, so an indented line such as `;path: "C:\x"` stays a comment.
-fn meta_key(i: &str) -> IResult<&str, &str> {
-    verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err())(i)
-}
-
-/// `key_value_line = (meta_key | quote_string) space* ":" space* string`
-fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
-    let (i, key) = alt((map(meta_key, str::to_owned), map(quote_string, |key| key.to_plain_string())))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = char(':')(i)?;
-    let (i, _) = space0(i)?;
-    let (i, value) = string(i)?;
-    Ok((i, (key, value)))
-}
-
-fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
-    let (i, _) = line_ending(i)?;
-    let (i, _) = space1(i)?;
-    let (i, pair) = key_value_line(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
-    Ok((i, pair))
-}
-
-fn metas_block(i: &str) -> IResult<&str, Meta> {
-    map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
-}
-
 // ---------------------------------------------------------------------------
 // directive bodies
 // ---------------------------------------------------------------------------
-
-fn comma_separator(i: &str) -> IResult<&str, ()> {
-    value((), tuple((space0, char(','), space0)))(i)
-}
 
 /// `booking_method = "\"" ("STRICT" | "FIFO" | "LIFO" | "AVERAGE" | "AVERAGE_ONLY" | "NONE") "\""`
 fn booking_method(i: &str) -> IResult<&str, String> {
@@ -431,10 +362,6 @@ fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
             meta: Meta::default(),
         })),
     ))
-}
-
-fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
-    alt((map(account_name, StringOrAccount::Account), map(string, StringOrAccount::String)))(i)
 }
 
 /// `custom` directives. `custom budget ...` (and its `budget-add` / `budget-transfer`
