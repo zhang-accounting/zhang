@@ -29,6 +29,7 @@ use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
 use super::cache::{Accounts, CachedRow, LedgerCache, Lot, Postings};
 use super::{render_pairs, Borrow, ColumnDef, Dataset, Get, Reads, POSTINGS};
 use crate::decimal;
+use crate::functions::is_under;
 use crate::projector::Projection;
 use crate::value::{Cost, DataType, Inventory, Position, Value};
 
@@ -133,11 +134,6 @@ impl Scope {
             }
         })
     }
-}
-
-/// `account` is `ancestor` or one of its sub-accounts.
-fn is_under(account: &str, ancestor: &str) -> bool {
-    account.strip_prefix(ancestor).is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
 }
 
 /// The cost specification (`{...}`) of a posting before lot booking.
