@@ -35,6 +35,16 @@ export function hasDocuments(data: JournalTransactionItem) {
   return transactionDocuments(data).length > 0;
 }
 
+/**
+ * The warning to confirm before an edit rewrites `data` from the form, or `null` when nothing is lost. The server says
+ * (`edit_drops_text`) whether the transaction's text has lines the exporter does not write back, such as a comment line between
+ * its postings or a comment on its header line; posting comments, flags, costs, prices and metadata all round-trip, so a
+ * transaction without such lines is rewritten without asking.
+ */
+export function rewriteWarning(data: Pick<JournalTransactionItem, 'edit_drops_text'>): 'edit_confirm_rewrite' | null {
+  return data.edit_drops_text === true ? 'edit_confirm_rewrite' : null;
+}
+
 /** The journal page size the Journals page asks for. */
 export const JOURNAL_PAGE_SIZE = 100;
 

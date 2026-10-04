@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { JournalBalanceCheckItem, MetaEntry } from '@/api/types';
-import { isBalanceCheckPassed, journalQueryParams, journalStatus, transactionDocuments } from './journal-utils.ts';
+import { isBalanceCheckPassed, journalQueryParams, journalStatus, rewriteWarning, transactionDocuments } from './journal-utils.ts';
 
 const doc = (value: string): MetaEntry => ({ key: 'document', value });
 const meta = (key: string, value: string): MetaEntry => ({ key, value });
@@ -86,4 +86,11 @@ test('journalQueryParams binds what the page filters by, and nothing for an empt
     size: 100,
     offset: 200,
   });
+});
+
+test('rewriteWarning asks for confirmation only when the server says an edit drops text of the transaction', () => {
+  // a comment line between the postings, or on the header line, is lost when the transaction is rewritten: ask first
+  assert.equal(rewriteWarning({ edit_drops_text: true }), 'edit_confirm_rewrite');
+  // everything else round-trips: no dialog
+  assert.equal(rewriteWarning({ edit_drops_text: false }), null);
 });

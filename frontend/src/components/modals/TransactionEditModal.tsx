@@ -9,6 +9,7 @@ import { JournalTransactionItem } from '@/api/types';
 import { apiErrorMessage } from '@/lib/api-error';
 import { accountFetcher } from '../../states/account';
 import { editTransactionAtom, journalFetcher } from '../../states/journals';
+import { rewriteWarning } from '../journalLines/journal-utils';
 import TransactionEditForm, { TransactionFormValue } from '../TransactionEditForm';
 import { AutoDrawer } from '../ui/auto-drawer';
 import { Button } from '../ui/button';
@@ -18,8 +19,9 @@ import { Spinner } from '../ui/spinner';
  * Edit an existing transaction: Dialog >= md, bottom Drawer < md. Opens whenever `editTransactionAtom` is set.
  *
  * The update API rewrites the whole transaction from the form: account, units, cost, price, comment and metadata per posting,
- * while the server keeps each posting's flag. Only the layout of the source text and comment lines between the postings are
- * not kept, which the note under the title says.
+ * while the server keeps each posting's flag. Only the layout of the source text and comment lines between the postings (or on
+ * the header line) are not kept: the note under the title says so, and when the server reports such lines (`edit_drops_text`)
+ * saving asks for confirmation first, so that nothing is lost silently; otherwise there is no dialog.
  */
 export const TransactionEditModal = () => {
   const { t } = useTranslation();
@@ -45,6 +47,8 @@ export const TransactionEditModal = () => {
 
   const onUpdate = async () => {
     if (!shown || !data) return;
+    const warning = rewriteWarning(shown);
+    if (warning && !window.confirm(t(`ledger.txn.${warning}`))) return;
     setSaving(true);
     try {
       await updateTransaction({ ...data, transaction_id: shown.id });

@@ -527,7 +527,8 @@
       "comment_placeholder": "comment",
       "cost_invalid": "Write the cost in braces: {150 USD} per unit, {{1500 USD}} in total, or {} for any lot.",
       "price_invalid": "Write the price after @: @ 6 USD per unit, or @@ 60 USD in total.",
-      "edit_rewrite_note": "Saving rewrites this transaction from the form, in its file. The postings keep their flags, costs, prices, comments and metadata; the layout of the text and any comment lines between the postings are not kept."
+      "edit_rewrite_note": "Saving rewrites this transaction from the form, in its file. The postings keep their flags, costs, prices, comments and metadata; the layout of the text and any comment lines between the postings are not kept.",
+      "edit_confirm_rewrite": "Save this transaction?\n\nIts text in the ledger file has comment lines (between the postings, or at the end of its first line) that the form cannot keep: they will be removed when the transaction is rewritten."
     },
     "accounts": {
       "description_one": "{{count}} account · {{closed}} closed",

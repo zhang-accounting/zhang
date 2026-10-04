@@ -92,7 +92,7 @@ Select **New transaction** at the top of the sidebar, and fill in:
 
 The form has no fields for tags or links. For those, write the transaction in a file, for example on the **Raw Editing** page, which edits the ledger files in the browser.
 
-To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form: each posting keeps its cost, price, comment, metadata and [flag](/reference/directives/transaction/#posting-flags), and a posting written without an amount stays that way. Only the layout of the text and comment lines between the postings are not kept. A transaction a plugin generated cannot be edited: it is in no file of the ledger, so the edit is refused and nothing is written.
+To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form: each posting keeps its cost, price, comment, metadata and [flag](/reference/directives/transaction/#posting-flags), and a posting written without an amount stays that way. Only the layout of the text and comment lines between the postings (or at the end of the first line) are not kept; before an edit that would drop such lines, Zhang asks you to confirm. A transaction a plugin generated cannot be edited: it is in no file of the ledger, so the edit is refused and nothing is written.
 
 The same holds for the API: `PUT /api/transactions/{id}` takes a `cost`, a `price` and a `comment` per posting in the same forms, keeps those of a posting when the fields are left out, and removes one sent as `null`.
 
