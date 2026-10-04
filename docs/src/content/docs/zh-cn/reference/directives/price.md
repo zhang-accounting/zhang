@@ -43,19 +43,19 @@ option "operating_currency" "CNY"
 
 ### 在网页界面中
 
-网页界面以[主货币](/zh-cn/reference/directives/options/#operating_currency)显示合计：账户列表上的合计，以及总览页面和统计报表页面中的数字。
+网页界面以[主货币](/zh-cn/reference/directives/options/#operating_currency)显示合计：账户列表和账户页面上的合计，以及总览页面和统计报表页面中的数字。
 
 - 主货币的金额按原值计入。
-- 总览页面和统计报表页面的数字和图表，用查询语言的 [`convert`](/zh-cn/reference/query-language/#估值函数) 换算：取日期在该数字所对应的日期（期末，或图表中某个点的最后一天）或之前的最新价格，价格可以反向使用，按成本持有、自身没有价格的持仓通过成本货币换算。它们的[内置查询](/zh-cn/reference/builtin-queries/#报表)展示了具体做法。
-- 账户列表用**该商品以主货币表示**、日期在今天或之前的最新价格换算其他商品的金额。这里只有这一对商品的价格才算数：反方向的价格不会被取倒数，所以 `price CNY 0.14 USD` 不会把 USD 换算成 CNY；换算也不会经过第三种商品。
+- 所有合计都用查询语言的 [`convert`](/zh-cn/reference/query-language/#估值函数) 换算：取日期在该数字所对应的日期或之前的最新价格，价格可以反向使用，按成本持有、自身没有价格的持仓通过成本货币换算。
+- 账户列表和账户页面按今天的价格为余额估值。总览页面和统计报表页面的数字和图表，使用期末（或图表中某个点的最后一天）的价格。[账户](/zh-cn/reference/builtin-queries/#账户)和[报表](/zh-cn/reference/builtin-queries/#报表)的内置查询展示了具体做法。
 - 任何价格都换算不了的金额不计入合计，但按商品列出的金额中仍会显示它。
 - 货币页面显示每种商品以主货币表示的最新价格：即账本中最新的那一条，即使它的日期在未来。商品自己的页面列出它的所有价格。
 
 ### 在查询中
 
-查询函数 `convert`、`value` 和 `getprice` 读取同样的 `price` 指令，但规则更宽：自身没有价格的一对商品使用反方向价格的倒数，两个方向都有报价的一对商品合并为一条价格历史，一种商品以它自己表示的价格为 1。见[估值函数](/zh-cn/reference/query-language/#估值函数)。
+查询函数 `convert`、`value` 和 `getprice` 读取同样的 `price` 指令，规则与网页界面相同：自身没有价格的一对商品使用反方向价格的倒数，两个方向都有报价的一对商品合并为一条价格历史，一种商品以它自己表示的价格为 1。见[估值函数](/zh-cn/reference/query-language/#估值函数)。
 
-所以账户列表和查询对同一笔持仓的估值可能不同。只有下面这条价格时，查询以及总览和统计报表页面会把 10 EUR 换算成 80 CNY，而账户列表在 CNY 合计中不计入这些 EUR：
+所以查询和网页界面对同一笔持仓的估值相同。只有下面这条价格时，两者都会把 10 EUR 换算成 80 CNY：
 
 ```zhang
 option "operating_currency" "CNY"
@@ -63,8 +63,6 @@ option "operating_currency" "CNY"
 2024-01-01 commodity EUR
 2024-01-02 price CNY 0.125 EUR
 ```
-
-要让账户列表为某种商品估值，请写下它以主货币表示的价格。
 
 插件不会收到预先算好的价格。需要汇率的插件，要根据指令流中的 `price` 指令自行构建；见[汇率](/zh-cn/developers/writing-plugins/#汇率)。
 
