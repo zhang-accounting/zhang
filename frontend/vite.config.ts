@@ -16,6 +16,11 @@ export default defineConfig({
       ext: '.gz',
     }),
   ],
+  build: {
+    // Vite 7+ defaults to "baseline widely available" (Chrome 111, Safari 16.4); keep the browser support of Vite 5's
+    // "modules" default instead.
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
+  },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),
