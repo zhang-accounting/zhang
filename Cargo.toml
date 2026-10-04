@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "zhang-core",
     "zhang-query",
-    "zhang-price-map",
+    "zhang-shared",
     "zhang-ast",
     "zhang-server",
     "zhang-cli",
@@ -19,7 +19,7 @@ members = [
 default-members = [
     "zhang-core",
     "zhang-query",
-    "zhang-price-map",
+    "zhang-shared",
     "zhang-ast",
     "zhang-server",
     "zhang-cli",

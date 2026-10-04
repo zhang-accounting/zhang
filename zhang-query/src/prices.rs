@@ -29,7 +29,7 @@ use crate::value::{Inventory, Position};
 /// uses the inverse of the opposite pair. When both directions are quoted, the direction
 /// with fewer price points is inverted and merged into the other one.
 #[derive(Debug, Default, Clone)]
-pub struct PriceMap(zhang_price_map::PriceMap);
+pub struct PriceMap(zhang_shared::prices::PriceMap);
 
 impl PriceMap {
     /// The price map of a loaded ledger: every `price` directive of its store. It takes the
@@ -58,7 +58,7 @@ impl PriceMap {
 
     /// Build from `(date, base, quote, rate)` points in ledger order.
     pub fn from_points<'a>(points: impl IntoIterator<Item = (NaiveDate, &'a str, &'a str, &'a BigDecimal)>) -> Self {
-        Self(zhang_price_map::PriceMap::from_points(
+        Self(zhang_shared::prices::PriceMap::from_points(
             points.into_iter().map(|(date, base, quote, rate)| (date, base, quote, rate.clone())),
         ))
     }

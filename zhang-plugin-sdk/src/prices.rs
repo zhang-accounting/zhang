@@ -61,22 +61,22 @@ use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Directive, SingleTotalPrice, Spanned};
-use zhang_price_map::decimal::{div, mul_in_context};
+use zhang_shared::decimal::{div, mul_in_context};
 
 /// Exchange rates of a plugin's stream. See the [module docs](self) for the
 /// input policy; price histories and precision are shared with the query engine.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PriceMap(zhang_price_map::PriceMap);
+pub struct PriceMap(zhang_shared::prices::PriceMap);
 
 impl PriceMap {
     /// The rates of the `price` directives in `stream`.
     pub fn from_stream(stream: &[Spanned<Directive>]) -> Self {
-        Self(zhang_price_map::PriceMap::from_points(price_points(stream, false)))
+        Self(zhang_shared::prices::PriceMap::from_points(price_points(stream, false)))
     }
 
     /// The rates of the `price` directives and of the `@`/`@@` posting prices.
     pub fn from_stream_with_implicit(stream: &[Spanned<Directive>]) -> Self {
-        Self(zhang_price_map::PriceMap::from_points(price_points(stream, true)))
+        Self(zhang_shared::prices::PriceMap::from_points(price_points(stream, true)))
     }
 
     /// Whether the map has no prices.

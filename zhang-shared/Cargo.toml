@@ -1,8 +1,8 @@
 [package]
-name = "zhang-price-map"
+name = "zhang-shared"
 version = "0.1.0"
 edition = "2021"
-description = "Shared price histories and decimal arithmetic for zhang valuation"
+description = "Portable logic shared by zhang crates"
 
 [dependencies]
 bigdecimal = { workspace = true }

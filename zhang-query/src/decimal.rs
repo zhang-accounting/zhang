@@ -1,8 +1,8 @@
 //! Decimal arithmetic of the query engine. Valuation and plugin prices use the same
-//! implementation; see [`zhang_price_map::decimal`] for precision and scale rules.
+//! implementation; see [`zhang_shared::decimal`] for precision and scale rules.
 
 use bigdecimal::BigDecimal;
-pub use zhang_price_map::decimal::{div, mul, mul_in_context, DIVISION_PRECISION};
+pub use zhang_shared::decimal::{div, mul, mul_in_context, DIVISION_PRECISION};
 
 /// Render a decimal without exponent notation, preserving its scale (`-12.50` stays `-12.50`), as
 /// zhang-core's [`zhang_core::utils::plain_decimal`] writes it.

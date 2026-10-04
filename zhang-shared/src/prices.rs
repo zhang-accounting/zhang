@@ -6,16 +6,15 @@
 //! inverted on lookup, skipping zero prices. Decimal division and valuation
 //! products follow Python's 28 significant digits and half-even rounding.
 //!
-//! This crate reads price points, with no ledger, AST, query engine or plugin host
-//! dependency. Callers adapt their inputs and keep their own conversion policies.
-
-pub mod decimal;
+//! The map reads price points. Callers adapt their inputs and keep their own
+//! conversion policies.
 
 use std::collections::HashMap;
 
 use bigdecimal::{BigDecimal, One, Zero};
 use chrono::NaiveDate;
-use decimal::div;
+
+use crate::decimal::div;
 
 type History = Vec<(NaiveDate, BigDecimal)>;
 
