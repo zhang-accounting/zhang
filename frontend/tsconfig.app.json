@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"
@@ -15,6 +14,9 @@
     ],
     "module": "ESNext",
     "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
