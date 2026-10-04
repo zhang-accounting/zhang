@@ -79,6 +79,8 @@
     "operating_currency_description": "Currency used for totals and reports.",
     "version": "Version",
     "build_date": "Built on {{date}}",
+    "github_repository": "GitHub repository",
+    "github_repository_description": "Source code, issues and contributions.",
     "options": "Options",
     "options_description": "All options declared in the ledger.",
     "plugins": "Plugins",

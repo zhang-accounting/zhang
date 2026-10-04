@@ -79,6 +79,8 @@
     "operating_currency_description": "用于汇总和报表的货币。",
     "version": "版本",
     "build_date": "构建于 {{date}}",
+    "github_repository": "GitHub 仓库",
+    "github_repository_description": "项目源码、问题反馈与贡献。",
     "options": "选项",
     "options_description": "账本中声明的所有选项。",
     "plugins": "插件",
