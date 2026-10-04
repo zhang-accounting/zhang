@@ -91,7 +91,7 @@ Select **New transaction** at the top of the sidebar, and fill in:
 
 The form has no fields for tags, links, costs or prices. For those, write the transaction in a file, for example on the **Raw Editing** page, which edits the ledger files in the browser.
 
-To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form, so comments on its postings are dropped. Transactions with a cost or a price cannot be edited in the form.
+To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form, so comments on its postings are dropped, while the [flags of its postings](/reference/directives/transaction/#posting-flags) stay. Transactions with a cost or a price cannot be edited in the form.
 
 ### Where new entries are written
 

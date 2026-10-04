@@ -621,6 +621,7 @@ WHERE account ~ '^Expenses'
 | `tags` | `set` | 交易的标签，不含开头的 `#`。 |
 | `links` | `set` | 交易的链接，不含开头的 `^`。 |
 | `id` | `str` | 张记账为交易生成的标识符，是一个 UUID。同一交易的所有分录共享这个值。 |
+| `posting_flag` | `str` | 分录自己的[标记](/zh-cn/reference/directives/transaction/#记账行标记)，例如 `! Assets:Cash -10 CNY` 中的 `!`；分录没有标记时为 `NULL`。 |
 | `account` | `str` | 分录的账户。 |
 | `number` | `decimal` | 分录的单位数量。 |
 | `currency` | `str` | 单位的货币（商品）。 |
@@ -1641,7 +1642,7 @@ ORDER BY date
 
 - **`PRINT`**，使用时会报错。
 - `FROM` 后面的**子查询**、beanquery 用双引号写的表名（`FROM "prices"`），以及它的单行表 `FROM #`。
-- postings 表中 **beanquery 的列** `posting_flag`、`filename`、`lineno`、`location`、`entry`、`accounts` 和 `type`，以及 `#entries` 的 `lineno`：张记账不保存行号。
+- postings 表中 **beanquery 的列** `filename`、`lineno`、`location`、`entry`、`accounts` 和 `type`，以及 `#entries` 的 `lineno`：张记账不保存行号。
 - **下标访问**，例如 `meta['name']`。请使用 `meta('name')`。
 - **`BETWEEN` 和 `%` 运算符**，以及 beanquery 的带引号标识符。
 - **本页未列出的函数**，例如 `round`、`safediv`、`has_account`、`grep`、`subst`、`upper`、`lower`、`joinstr`、`findfirst`、`parse_date`，以及类型转换函数 `int`、`decimal` 和 `date(date)`。调用它们会报错。

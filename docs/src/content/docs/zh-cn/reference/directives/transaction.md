@@ -12,15 +12,15 @@ sidebar:
 ```text
 YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link …]
   [<key>: <value>]
-  <Account> [<Amount>] [<Cost>] [@ <Price> | @@ <TotalPrice>]
+  [<Flag>] <Account> [<Amount>] [<Cost>] [@ <Price> | @@ <TotalPrice>] [; <comment>]
     [<key>: <value>]
-  <Account> …
+  [<Flag>] <Account> …
 ```
 
 | 部分 | 必填 | 说明 |
 |---|---|---|
 | 日期和时间 | 是 | 日期，后面可以跟一天中的时刻（`10:30` 或 `10:30:15`），按账本的[时区](/zh-cn/reference/directives/options/#timezone)理解。 |
-| `<Flag>` | 否 | `*` 表示已完成的交易，`!` 表示需要核对的交易。见[标记](#标记)。 |
+| `<Flag>` | 否 | 在首行上，`*` 表示已完成的交易，`!` 表示需要核对的交易。见[标记](#标记)。写在记账行的账户之前时，是记账行自己的标记。见[记账行标记](#记账行标记)。 |
 | `"<Payee>"`、`"<Narration>"` | 否 | 带引号的字符串。见[收款方与摘要](#收款方与摘要)。 |
 | `#tag`、`^link` | 否 | 标签和链接，顺序任意，写在首行末尾。 |
 | `<key>: <value>` | 否 | 交易的元数据，或者其上方记账行的元数据。见[元数据](#元数据)。 |
@@ -29,7 +29,7 @@ YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link �
 | `<Cost>` | 否 | 这些单位的成本：`{…}` 为单位成本，`{{…}}` 为总成本。见[成本与价格](#成本与价格)。 |
 | `@ <Price>`、`@@ <TotalPrice>` | 否 | 这些单位换算时所用的价格，按单位或按总额。 |
 
-记账行和元数据行紧跟在首行之后，中间不能有空行：空行会结束这笔交易。以 `;`、`#`、`*` 或 `//` 开头的缩进行是注释，记账行末尾也可以跟一个 `; comment` 注释。
+记账行和元数据行紧跟在首行之后，中间不能有空行：空行会结束这笔交易。以 `;`、`#`、`*` 或 `//` 开头的缩进行是注释，除非它是[带标记的记账行](#记账行标记)，例如 `* Assets:Cash -10 CNY`。记账行末尾也可以跟一个 `; comment` 注释。
 
 ## 示例
 
@@ -55,7 +55,7 @@ YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link �
 | `*` | 已完成的交易。与 Beancount 一样，`txn` 是同一个标记。 |
 | `!` | 需要核对的交易。 |
 | `P` | 补齐交易，由 [`balance … with pad`](/zh-cn/reference/directives/balance/#用-with-pad-补齐) 或 [`pad`](/zh-cn/reference/directives/balance/#pad-指令) 添加，或者由网页界面在 Beancount 文件中为补齐写入。张记账把用 `P` 写的交易与余额断言一起排序：排在 `open` 和 `commodity` 之后、同一日期和时间的其他条目之前。`pad` 的补齐交易紧跟在它之后。 |
-| 其他大写字母 | 你自己的标记，按原样保留。`C` 也是普通的标记。 |
+| 其他大写字母，或 `#`、`&`、`?`、`%` | 你自己的标记，按原样保留。`C` 也是普通的标记。这些是 Beancount 接受的其他标记。 |
 
 没有标记的交易视为已完成（`*`）。
 
@@ -73,6 +73,23 @@ YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link �
 有标记时，单个字符串是摘要。没有标记时，它是收款方。
 
 ## 记账行
+
+### 记账行标记
+
+与 Beancount 一样，记账行可以有自己的标记，写在账户之前，中间至少隔一个空格或制表符。导入工具和 Fava 用它标出需要核对的记账行：
+
+```zhang
+2024-01-10 * "Lunch"
+  ! Assets:Cash -10 CNY
+  Expenses:Food
+```
+
+记账行标记可以是除 `txn` 以外的任何[标记](#标记)：`*`、`!`、`#`、`&`、`?`、`%` 或一个大写字母。它不影响记账行如何入账。张记账会保留它：
+
+- 张记账写入这笔交易时，会把标记写回账户之前。在网页界面中编辑交易时，被编辑的每个记账行都保留自己的标记，虽然表单并不显示它。
+- 在[查询](/zh-cn/reference/query-language/#列)中，`posting_flag` 列给出这个标记；记账行没有标记时为 `NULL`，与 beanquery 相同。`flag` 列是交易的标记。
+
+标记之后的空格是必需的。在张记账文件中，`*Assets:Cash -10 CNY` 或 `#Assets:Cash` 这样的缩进行是注释，而 `# Assets:Cash -10 CNY` 是标记为 `#` 的记账行。要注释掉一个记账行，请在行首写 `;`。
 
 ### 金额
 
@@ -183,7 +200,7 @@ WASM 插件收到和返回的交易中，每个记账行的元数据位于该记
 
 - 在 Beancount 文件中，一天中的时刻写成 `time: "HH:MM:SS"` 元数据。张记账也这样写入。张记账与 Beancount 一样忽略 `balance` 和 `pad` 上的时刻。
 - Beancount 要求每笔交易都有标记或 `txn`。没有标记的首行，例如 `2024-01-02 "Cafe" "lunch"`，只在张记账中可用。
-- 张记账不读取记账行前面的标记，例如 `! Assets:Cash -10 CNY`：含有这种写法的账本无法加载。
+- 记账行前面的标记，例如 `! Assets:Cash -10 CNY`，按 Beancount 的方式读取。见[记账行标记](#记账行标记)。Beancount 也接受不带空格的写法，例如 `!Assets:Cash -10 CNY`；张记账会把这一行报告为错误。
 - Beancount 的 `pushtag` / `poptag` 和 `pushmeta` / `popmeta` 只能在 Beancount 文件中使用。张记账在读取文件时应用它们。
 - 在 Beancount 文件中，记账行元数据遵循 Beancount 的规则，见[哪些行属于记账行](#哪些行属于记账行)。
 

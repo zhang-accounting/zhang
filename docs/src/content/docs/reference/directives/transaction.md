@@ -14,15 +14,15 @@ commodity.
 ```text
 YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link …]
   [<key>: <value>]
-  <Account> [<Amount>] [<Cost>] [@ <Price> | @@ <TotalPrice>]
+  [<Flag>] <Account> [<Amount>] [<Cost>] [@ <Price> | @@ <TotalPrice>] [; <comment>]
     [<key>: <value>]
-  <Account> …
+  [<Flag>] <Account> …
 ```
 
 | Part | Required | Description |
 |---|---|---|
 | Date and time | yes | The date, optionally followed by a time of day (`10:30` or `10:30:15`) in the ledger's [timezone](/reference/directives/options/#timezone). |
-| `<Flag>` | no | `*` for a completed transaction, `!` for one to check. See [Flags](#flags). |
+| `<Flag>` | no | On the header, `*` for a completed transaction, `!` for one to check. See [Flags](#flags). Before the account of a posting, the posting's own flag. See [Posting flags](#posting-flags). |
 | `"<Payee>"`, `"<Narration>"` | no | Quoted strings. See [Payee and narration](#payee-and-narration). |
 | `#tag`, `^link` | no | Tags and links, in any order, at the end of the header line. |
 | `<key>: <value>` | no | Metadata of the transaction, or of the posting above it. See [Metadata](#metadata). |
@@ -32,7 +32,8 @@ YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link �
 | `@ <Price>`, `@@ <TotalPrice>` | no | The price the units were converted at, per unit or in total. |
 
 The postings and metadata lines follow the header without blank lines: an empty line ends the transaction. An indented
-line starting with `;`, `#`, `*` or `//` is a comment, and a posting can end with a `; comment`.
+line starting with `;`, `#`, `*` or `//` is a comment, unless it is a [flagged posting](#posting-flags) such as
+`* Assets:Cash -10 CNY`. A posting can end with a `; comment`.
 
 ## Examples
 
@@ -58,7 +59,7 @@ line starting with `;`, `#`, `*` or `//` is a comment, and a posting can end wit
 | `*` | A completed transaction. `txn` is the same flag, as in Beancount. |
 | `!` | A transaction to check. |
 | `P` | A padding transaction, which [`balance … with pad`](/reference/directives/balance/#padding-with-with-pad) or a [`pad`](/reference/directives/balance/#the-pad-directive) adds, or which the web UI writes for a pad in a Beancount file. Zhang orders transactions written with `P` like balance assertions: after `open` and `commodity`, before the other entries of their date and time. The padding transactions of a `pad` stay right after it. |
-| another uppercase letter | A flag of your own, kept as written. `C` is an ordinary flag too. |
+| another uppercase letter, `#`, `&`, `?` or `%` | A flag of your own, kept as written. `C` is an ordinary flag too. These are the other flags Beancount accepts. |
 
 A transaction without a flag is completed (`*`).
 
@@ -76,6 +77,28 @@ The header needs a flag or at least one quoted string.
 With a flag, a single string is the narration. Without a flag, it is the payee.
 
 ## Postings
+
+### Posting flags
+
+A posting can have a flag of its own, written before its account with at least one space or tab in between, as in
+Beancount. Importers and Fava use it to mark a posting to check:
+
+```zhang
+2024-01-10 * "Lunch"
+  ! Assets:Cash -10 CNY
+  Expenses:Food
+```
+
+A posting flag is any [flag](#flags) except `txn`: `*`, `!`, `#`, `&`, `?`, `%` or an uppercase letter. It changes
+nothing in how the posting is booked. Zhang keeps it:
+
+- When Zhang writes the transaction, the flag is written back before the account. Editing a transaction in the web UI
+  keeps the flag of each posting it edits, though the form does not show it.
+- In [queries](/reference/query-language/#columns), the `posting_flag` column holds it, and is `NULL` for a posting
+  without a flag, as in beanquery. The `flag` column is the transaction's.
+
+The space after the flag is required. In a zhang file, an indented line such as `*Assets:Cash -10 CNY` or `#Assets:Cash`
+is a comment, while `# Assets:Cash -10 CNY` is a posting flagged `#`. To comment out a posting, start its line with `;`.
 
 ### Amounts
 
@@ -224,7 +247,9 @@ not only the ones it changes. Rebuild such a plugin to keep it.
   ignores it on `balance` and `pad`, as Beancount does.
 - Beancount requires a flag or `txn` on every transaction. A header without one, such as `2024-01-02 "Cafe" "lunch"`,
   only works in Zhang.
-- Zhang does not read a flag in front of a posting, such as `! Assets:Cash -10 CNY`: a ledger with one does not load.
+- A flag in front of a posting, such as `! Assets:Cash -10 CNY`, is read as in Beancount. See
+  [Posting flags](#posting-flags). Beancount also reads it without the space, as in `!Assets:Cash -10 CNY`; Zhang
+  reports that line as an error.
 - Beancount's `pushtag` / `poptag` and `pushmeta` / `popmeta` work in Beancount files only. Zhang applies them while
   it reads the file.
 - Posting metadata follows Beancount's rule in Beancount files, as described in
