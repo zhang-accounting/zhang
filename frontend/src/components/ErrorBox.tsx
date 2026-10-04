@@ -1,25 +1,32 @@
 import { useAtomValue, useSetAtom } from 'jotai';
-import { ChevronLeft, ChevronRight, FileWarning, TriangleAlert } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FilePenLine, FileWarning, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { LedgerError } from '@/api/types';
 import { useDisclosure } from '@/hooks/use-disclosure';
+import { rawEditLink } from '@/lib/raw-edit-link';
+import { cn } from '@/lib/utils';
 import { errorAtom, errorPageAtom } from '../states/errors';
 import { errorLocation } from './error-location';
 import { Badge } from './ui/badge';
-import { Button } from './ui/button';
+import { Button, buttonVariants } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from './ui/item';
 import { Skeleton } from './ui/skeleton';
-import { Textarea } from './ui/textarea';
 
-/** Ledger error list (Home): tappable rows opening a detail dialog, compact pager, the otter + "healthy" when empty. */
+/**
+ * Ledger error list (Home): tappable rows opening a detail dialog, compact pager, the otter + "healthy" when empty.
+ *
+ * The dialog shows the directive as it is in the file and opens the file in Raw Editing at that line (#493): the fix is
+ * often elsewhere in the file (an account that was never opened, a commodity that is not declared), so the directive is
+ * not edited in place.
+ */
 export default function ErrorBox() {
   const { t } = useTranslation();
   const [isOpen, isOpenHandler] = useDisclosure(false);
 
   const [selectError, setSelectError] = useState<LedgerError | null>(null);
-  const [selectErrorContent, setSelectErrorContent] = useState<string>('');
 
   const errors = useAtomValue(errorAtom);
   const setErrorPage = useSetAtom(errorPageAtom);
@@ -45,27 +52,14 @@ export default function ErrorBox() {
 
   const toggleError = (error: LedgerError) => {
     setSelectError(error);
-    setSelectErrorContent(error.span?.content || '');
     isOpenHandler.open();
-  };
-
-  const saveErrorModifyData = () => {
-    //   modifyFile({
-    //     variables: {
-    //       file: selectError?.span.filename,
-    //       content: selectErrorContent,
-    //       start: selectError?.span.start,
-    //       end: selectError?.span.end,
-    //     },
-    //   });
-    isOpenHandler.close();
-  };
-  const onModalReset = () => {
-    setSelectErrorContent(selectError?.span?.content || '');
   };
 
   const { current_page: currentPage, total_page: totalPage, total_count: totalCount, records } = errors.data;
   const metas = Object.entries(selectError?.metas ?? {});
+  const span = selectError?.span;
+  // nothing to open for an error without a file (a directive a plugin generated); without a line the file opens at its start
+  const editorLink = rawEditLink(span?.filename, span?.line);
 
   return (
     <>
@@ -76,7 +70,7 @@ export default function ErrorBox() {
               <TriangleAlert className="size-4 shrink-0 text-destructive" />
               {selectError && errorTitle(selectError)}
             </DialogTitle>
-            <DialogDescription className="font-mono text-xs break-all">{errorLocation(selectError?.span, t)}</DialogDescription>
+            <DialogDescription className="font-mono text-xs break-all">{errorLocation(span, t)}</DialogDescription>
           </DialogHeader>
           {metas.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -88,24 +82,19 @@ export default function ErrorBox() {
               ))}
             </div>
           )}
-          <Textarea
-            aria-label={errorLocation(selectError?.span, t)}
-            className="min-h-32 font-mono text-base md:text-xs"
-            rows={Math.min(Math.max(selectErrorContent.split('\n').length, 4), 18)}
-            spellCheck={false}
-            value={selectErrorContent}
-            onChange={(event) => {
-              setSelectErrorContent(event.target.value);
-            }}
-          />
-          <DialogFooter>
-            <Button onClick={onModalReset} variant="outline" className="h-10 md:h-8">
-              {t('RESET')}
-            </Button>
-            <Button onClick={saveErrorModifyData} variant="default" className="h-10 md:h-8">
-              {t('SAVE')}
-            </Button>
-          </DialogFooter>
+          {span && span.content !== '' && (
+            <pre className="max-h-[50svh] overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
+              {span.content}
+            </pre>
+          )}
+          {editorLink && (
+            <DialogFooter>
+              <Link to={editorLink} className={cn(buttonVariants(), 'h-10 md:h-8')}>
+                <FilePenLine />
+                {t('ERROR_BOX_OPEN_EDITOR')}
+              </Link>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
 

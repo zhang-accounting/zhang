@@ -7,11 +7,12 @@ import { useNavigate } from 'react-router';
 import { JournalBalanceCheckItem, JournalBalancePadItem, JournalItem, JournalTransactionItem } from '@/api/types';
 import Amount from '@/components/Amount';
 import { useDateFormat } from '@/components/layout/use-date-format';
+import { RAW_EDIT_URI } from '@/lib/raw-edit-link';
 import { cn } from '@/lib/utils';
 import { editTransactionAtom, previewJournalAtom } from '@/states/journals';
 import { calculate } from '@/utils/trx-calculator';
 import { JournalChips, JournalStatusBadge, StatusEdge } from './JournalBits';
-import { isBalanceCheckPassed, RAW_EDIT_URI, transactionEditBlocker } from './journal-utils';
+import { isBalanceCheckPassed, transactionEditBlocker } from './journal-utils';
 import { LineMenu } from './LineMenu';
 
 type Posting = JournalTransactionItem['postings'][number];

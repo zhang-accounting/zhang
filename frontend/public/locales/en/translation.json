@@ -1,7 +1,6 @@
 {
   "ASSET_BALANCE": "Asset Balance",
   "LIABILITY": "Liability",
-  "RESET": "Reset",
   "SAVE": "Save",
   "REFRESH": "Refresh",
   "NAV_DASHBOARD": "Overview",
@@ -52,6 +51,7 @@
   },
   "ERROR_BOX_LOCATION": "{{file}} · lines {{start}}–{{end}}",
   "ERROR_BOX_LOCATION_LINE": "{{file}} · line {{line}}",
+  "ERROR_BOX_OPEN_EDITOR": "Open in Raw Editing",
   "LEDGER_IS_HEALTHY": "Ledger is healthy, no errors",
   "accounts": {
     "hide_closed_accounts": "Hide closed accounts"

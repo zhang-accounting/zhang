@@ -101,7 +101,7 @@ The date is written with the time of day, in the ledger's timezone. The path of 
 
 ## Where errors appear
 
-Change the balance assertion to `4200.00 USD` and save the file. Zhang reloads the ledger (if it does not, use the reload button and see [when files are reloaded](/deployment/data-sources/local/#when-zhang-reloads)), and an error appears: the error count is shown next to **Overview** in the navigation, and the Overview page lists the errors. Select one to see the file it comes from and the source of the entry. Here it is an [`AccountBalanceCheckError`](/reference/error-codes/#accountbalancecheckerror): the account holds 4300.00 USD, not 4200.00 USD. [Error Codes](/reference/error-codes/) explains each error and how to fix it.
+Change the balance assertion to `4200.00 USD` and save the file. Zhang reloads the ledger (if it does not, use the reload button and see [when files are reloaded](/deployment/data-sources/local/#when-zhang-reloads)), and an error appears: the error count is shown next to **Overview** in the navigation, and the Overview page lists the errors. Select one to see the file it comes from and the source of the entry; **Open in Raw Editing** opens that file in the editor at that line. Here it is an [`AccountBalanceCheckError`](/reference/error-codes/#accountbalancecheckerror): the account holds 4300.00 USD, not 4200.00 USD. [Error Codes](/reference/error-codes/) explains each error and how to fix it.
 
 These errors do not stop Zhang: the rest of the ledger is still shown. A syntax error is different, because Zhang cannot read the file at all:
 
