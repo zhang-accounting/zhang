@@ -26,8 +26,6 @@ default-members = [
     "zhang-plugin-sdk",
     "zhang-plugin-sdk/examples/*",
 ]
-# zhang-sql (DuckDB-backed SQL explore) is paused: kept in the repo but not built.
-exclude = ["zhang-sql"]
 
 [workspace.dependencies]
 base64 = "0.22"

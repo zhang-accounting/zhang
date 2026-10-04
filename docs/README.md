@@ -60,6 +60,6 @@ creates the redirect for the English page and for its `/zh-cn/` counterpart. The
 
 ## Deployment
 
-The `docs-build-deploy` job of `.github/workflows/build-latest.yml` builds the site and deploys it to Cloudflare
-Pages (project `zhang-docs`) on every push to `main` and `develop`. Pull requests do not build the documentation, so
-a broken page only shows up after the merge unless you run `pnpm build` yourself.
+The `docs` job of `.github/workflows/build-latest.yml` builds the site on every pull request, and a failed build
+blocks the merge. On pushes to `main` and `develop` it also deploys the site to Cloudflare Pages (project
+`zhang-docs`).
