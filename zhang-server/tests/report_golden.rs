@@ -11,7 +11,7 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Days, Months, NaiveDate, Utc};
 use serde_json::Value;
 use zhang_ast::amount::CalculatedAmount;
-use zhang_ast::AccountType;
+use zhang_ast::{AccountType, Flag};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
@@ -615,6 +615,71 @@ fn the_report_is_the_engines_on_every_ledger() {
         }
     }
     assert!(wrong.is_empty(), "wrong answers:\n{}", wrong.join("\n"));
+}
+
+/// The summary of `range` that the engine computes apart from the report's queries
+/// ([`engine_figure`]), and the store: the net worth and the liabilities at the end of the range
+/// and the income and the expenses of the range, by units and by value at the prices of its last
+/// day, and the number of the store's transactions dated in the range, padding transactions left
+/// out. What differs from `report::summary`, as `item: expected -> actual`.
+fn summary_differences(ledger: &Ledger, range: &LedgerDateRange) -> Vec<String> {
+    let summary = report::summary(ledger, range).unwrap();
+    let mut differences = vec![];
+    for (item, actual, types, from) in [
+        ("balance", &summary.balance, &[AccountType::Assets, AccountType::Liabilities][..], day_one()),
+        ("liability", &summary.liability, &[AccountType::Liabilities][..], day_one()),
+        ("income", &summary.income, &[AccountType::Income][..], range.from),
+        ("expense", &summary.expense, &[AccountType::Expenses][..], range.from),
+    ] {
+        let expected = engine_figure(ledger, types, None, from, range.to, range.to);
+        let actual = Fig::of(actual);
+        if actual != expected {
+            differences.push(format!("{}: {:?} -> {:?}", item, expected, actual));
+        }
+    }
+    let timezone = ledger.options.timezone;
+    let transactions = ledger
+        .store
+        .read()
+        .unwrap()
+        .transactions
+        .values()
+        .filter(|trx| trx.flag != Flag::BalancePad)
+        .filter(|trx| {
+            let date = trx.datetime.with_timezone(&timezone).date_naive();
+            range.from <= date && date <= range.to
+        })
+        .count() as i64;
+    if summary.transaction_number != transactions {
+        differences.push(format!("transaction_number: {} -> {}", transactions, summary.transaction_number));
+    }
+    differences
+}
+
+/// On every fixture, in UTC and east of it, and on the two hand ledgers, the summary of every
+/// range of [`ranges`] is the engine's and the store's ([`summary_differences`]).
+#[test]
+fn the_summary_is_the_engines_on_every_ledger() {
+    let mut wrong = vec![];
+    for timezone in ["UTC", "Asia/Shanghai"] {
+        for case in fixtures() {
+            if let Some(ledger) = load(&case, Some(timezone)) {
+                for (label, range, _) in ranges(&ledger) {
+                    for difference in summary_differences(&ledger, &range) {
+                        wrong.push(format!("{} ({}) {} {}..{}: {}", case.name, timezone, label, range.from, range.to, difference));
+                    }
+                }
+            }
+        }
+    }
+    for (name, ledger) in [("hand", hand_ledger()), ("carry", carry_ledger())] {
+        for (label, range, _) in ranges(&ledger).into_iter().chain([("april", APRIL, StatisticInterval::Day)]) {
+            for difference in summary_differences(&ledger, &range) {
+                wrong.push(format!("{} {} {}..{}: {}", name, label, range.from, range.to, difference));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "wrong summaries:\n{}", wrong.join("\n"));
 }
 
 /// A ledger whose weeks and months without postings see the price of the dollar change, and
