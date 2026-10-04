@@ -4,9 +4,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use zhang_core::data_source::LocalFileSystemDataSource;
+use zhang_ast::{Directive, Spanned};
+use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
+use zhang_core::ledger::{Ledger, LedgerProcessContext};
 
 /// Load a ledger from a directory and entry file.
 pub fn load_ledger(dir: PathBuf, entry: &str) -> Ledger {
@@ -29,7 +30,7 @@ pub fn load_text_at(content: &str, clock: zhang_core::clock::Clock) -> Ledger {
     let directives = ZhangDataType {}
         .transform(content.to_owned(), Some("main.zhang".to_owned()))
         .expect("parse ledger");
-    Ledger::process(zhang_core::ledger::LedgerProcessContext {
+    Ledger::process(LedgerProcessContext {
         directives,
         entry: (dir, "main.zhang".to_owned()),
         visited_files: vec![],
@@ -37,6 +38,25 @@ pub fn load_text_at(content: &str, clock: zhang_core::clock::Clock) -> Ledger {
         clock,
     })
     .expect("cannot load ledger")
+}
+
+/// Load a ledger from text, with `transform` changing its parsed directives first, as a plugin
+/// changes the stream it reads.
+pub fn load_transformed(content: &str, transform: impl FnOnce(Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>>) -> Ledger {
+    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
+    let source: Arc<dyn DataSource> = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    let loaded = source
+        .load(dir.to_string_lossy().into_owned(), "main.zhang".to_owned())
+        .expect("cannot read ledger");
+    Ledger::process(LedgerProcessContext {
+        directives: transform(loaded.directives),
+        entry: (dir, "main.zhang".to_owned()),
+        visited_files: loaded.visited_files,
+        data_source: source,
+        clock: zhang_core::clock::Clock::System,
+    })
+    .expect("cannot process ledger")
 }
 
 /// The fava demo ledger shipped with the integration tests.

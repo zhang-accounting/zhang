@@ -11,6 +11,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
+use zhang_ast::{Date, Directive, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_query::{Params, Query, Value};
 
@@ -219,6 +220,388 @@ fn passed_is_the_balance_check_of_zhang() {
     assert_eq!(failed.len(), 3);
 }
 
+/// An assertion has its place among the entries: `seq`, `id`, `time` and `timestamp` are those of its
+/// `#entries` row, so its `seq` orders it with the `seq` of the postings, and `pad` is the account a
+/// `balance ... with pad` pads from.
+#[test]
+fn balances_have_their_place_among_the_entries() {
+    let ledger = common::load_text(PARENT_ACCOUNTS);
+    assert_eq!(
+        run(&ledger, "SELECT seq, id, date, time, timestamp FROM #balances"),
+        run(&ledger, "SELECT seq, id, date, time, timestamp FROM #entries WHERE type = 'balance'")
+    );
+    // an assertion without a time is at midnight, and its timestamp is that of its day
+    assert_eq!(run(&ledger, "SELECT time FROM #balances LIMIT 1"), rows(&[&["00:00:00"]]));
+    let day = run(&ledger, "SELECT timestamp FROM #balances WHERE date = 2024-01-10 LIMIT 1")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    let next = run(&ledger, "SELECT timestamp FROM #balances WHERE date = 2024-01-11")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    assert_eq!(next - day, 24 * 60 * 60);
+    // the salary of the 3rd comes before the assertion of the 4th, the opening of the 2nd before both
+    let salary = run(&ledger, "SELECT seq FROM #postings WHERE narration = 'Salary' LIMIT 1")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    let first = run(&ledger, "SELECT seq FROM #balances LIMIT 1")[0][0].parse::<i64>().unwrap();
+    assert!(salary < first, "{salary} {first}");
+    assert_eq!(
+        run(&ledger, "SELECT date, account, pad FROM #balances WHERE date >= 2024-01-10"),
+        rows(&[
+            &["2024-01-10", "Assets:Bank", "Equity:Opening"],
+            &["2024-01-10", "Assets:Bank:Checking", "Equity:Opening"],
+            &["2024-01-11", "Assets:Bank", "NULL"],
+        ])
+    );
+}
+
+/// `seq` follows the order zhang processes the ledger in, so merging the postings and the
+/// assertions by `seq` puts every assertion right after the postings its balance includes:
+/// - a balance with a time is checked after the transactions of its day that come before that
+///   time (the 15:30 check after the lunch of midnight);
+/// - a directive without a balance, such as a document, keeps its place in the stream;
+/// - a `balance ... with pad` is checked after the other balance entries of its time, its
+///   padding among them, while a plain balance after the pad is checked where it stands.
+///
+/// `#entries` itself keeps beancount's order of a day: a balance first, a document last.
+#[test]
+fn seq_is_the_order_zhang_processes_the_ledger_in() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Cash:Sub
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+
+2024-01-01 * "Self" "opening"
+  Assets:Cash 100 CNY
+  Equity:Open
+
+2024-01-05 * "Shop" "lunch"
+  Assets:Cash -10 CNY
+  Expenses:Food
+
+2024-01-05 15:30:00 balance Assets:Cash 90 CNY
+
+2024-01-05 document Assets:Cash "a.pdf"
+
+2024-01-06 balance Assets:Cash 90 CNY
+2024-01-06 balance Assets:Cash:Sub 5 CNY with pad Equity:Open
+2024-01-06 balance Assets:Cash 95 CNY
+
+2024-01-06 * "Shop" "dinner"
+  Assets:Cash -5 CNY
+  Expenses:Food
+"#,
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT seq, type, time, narration, accounts FROM #entries WHERE date >= 2024-01-05 ORDER BY seq"
+        ),
+        rows(&[
+            &["6", "transaction", "00:00:00", "lunch", "Assets:Cash, Expenses:Food"],
+            &["7", "document", "00:00:00", "NULL", "Assets:Cash"],
+            &["8", "balance", "15:30:00", "NULL", "Assets:Cash"],
+            &["9", "balance", "00:00:00", "NULL", "Assets:Cash"],
+            &[
+                "10",
+                "transaction",
+                "00:00:00",
+                "pad Assets:Cash:Sub to Equity:Open",
+                "Assets:Cash:Sub, Equity:Open"
+            ],
+            &["11", "balance", "00:00:00", "NULL", "Assets:Cash"],
+            &["12", "balance", "00:00:00", "NULL", "Assets:Cash:Sub, Equity:Open"],
+            &["13", "transaction", "00:00:00", "dinner", "Assets:Cash, Expenses:Food"],
+        ])
+    );
+    // beancount's order of the rows
+    assert_eq!(
+        run(&ledger, "SELECT seq, type FROM #entries WHERE date >= 2024-01-05"),
+        rows(&[
+            &["8", "balance"],
+            &["6", "transaction"],
+            &["7", "document"],
+            &["9", "balance"],
+            &["12", "balance"],
+            &["11", "balance"],
+            &["10", "transaction"],
+            &["13", "transaction"],
+        ])
+    );
+    // each assertion's balance is the running balance of the postings with a lower seq
+    assert_eq!(
+        run(&ledger, "SELECT seq, account, actual FROM #balances ORDER BY seq"),
+        rows(&[
+            &["8", "Assets:Cash", "90 CNY"],
+            &["9", "Assets:Cash", "90 CNY"],
+            &["11", "Assets:Cash", "95 CNY"],
+            &["12", "Assets:Cash:Sub", "5 CNY"],
+        ])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT seq, balance WHERE under(account, 'Assets:Cash')"),
+        rows(&[&["5", "100 CNY"], &["6", "90 CNY"], &["10", "95 CNY"], &["13", "90 CNY"]])
+    );
+    // the documents of the stream have its order too
+    assert_eq!(run(&ledger, "SELECT seq FROM #documents"), rows(&[&["7"]]));
+}
+
+/// More cases of the processing order, each assertion right after the postings its balance includes:
+/// - a plain balance written after a pad of its time comes after the padding (it includes it), though
+///   `#entries` lists every balance of a day before its transactions;
+/// - a `balance ... with pad` of an account from itself books a padding that nets to zero, before
+///   which a plain balance written after it is checked;
+/// - two paddings of sub-accounts that net to zero come before the parent's check written after them;
+/// - a time skipped by daylight saving (02:30 in New York, stored as 03:30) is processed at the time
+///   written, before a balance at 03:15, while its timestamp is after that balance's.
+#[test]
+fn seq_puts_every_assertion_after_the_postings_it_includes() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "CNY"
+option "timezone" "America/New_York"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:A
+1970-01-01 open Assets:Bank:B
+1970-01-01 open Assets:Cash
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+
+2024-01-01 * "Self" "opening"
+  Assets:Bank 100 CNY
+  Equity:Open
+
+2024-01-02 balance Assets:Bank 120 CNY with pad Assets:Bank
+2024-01-02 balance Assets:Bank 100 CNY
+
+2024-01-03 balance Assets:Bank:A 30 CNY with pad Equity:Open
+2024-01-03 balance Assets:Bank:B -30 CNY with pad Equity:Open
+2024-01-03 balance Assets:Bank 100 CNY
+2024-01-03 balance Assets:Cash 0 CNY
+
+2024-03-10 02:30:00 * "Shop" "in the gap"
+  Assets:Bank -5 CNY
+  Expenses:Food
+
+2024-03-10 03:15:00 balance Assets:Bank 95 CNY
+"#,
+    );
+    // the postings of Assets:Bank and its sub-accounts and the assertions on it, merged by seq
+    let mut merged = run(&ledger, "SELECT seq, account, position, balance WHERE under(account, 'Assets:Bank')")
+        .into_iter()
+        .map(|row| (row[0].parse::<i64>().unwrap(), format!("{} {} -> {}", row[1], row[2], row[3])))
+        .chain(
+            run(
+                &ledger,
+                "SELECT seq, account, amount, actual, passed FROM #balances WHERE under(account, 'Assets:Bank')",
+            )
+            .into_iter()
+            .map(|row| (row[0].parse::<i64>().unwrap(), format!("check {} {}: {} {}", row[1], row[2], row[3], row[4]))),
+        )
+        .collect::<Vec<_>>();
+    merged.sort_by_key(|(seq, _)| *seq);
+    assert_eq!(
+        merged.into_iter().map(|(_, row)| row).collect::<Vec<_>>(),
+        [
+            "Assets:Bank 100 CNY -> 100 CNY",
+            // the padding of Assets:Bank from itself, then the plain balance written after the pad, then the pad's check
+            "Assets:Bank 20 CNY -> 120 CNY",
+            "Assets:Bank -20 CNY -> 100 CNY",
+            "check Assets:Bank 100 CNY: 100 CNY TRUE",
+            "check Assets:Bank 120 CNY: 100 CNY FALSE",
+            // the paddings of the sub-accounts net to zero before the parent's check
+            "Assets:Bank:A 30 CNY -> 130 CNY",
+            "Assets:Bank:B -30 CNY -> 100 CNY",
+            "check Assets:Bank 100 CNY: 100 CNY TRUE",
+            "check Assets:Bank:A 30 CNY: 30 CNY TRUE",
+            "check Assets:Bank:B -30 CNY: -30 CNY TRUE",
+            // the gap's transaction before the balance at 03:15, which includes it
+            "Assets:Bank -5 CNY -> 95 CNY",
+            "check Assets:Bank 95 CNY: 95 CNY TRUE",
+        ]
+    );
+    assert_eq!(
+        run(&ledger, "SELECT time, timestamp FROM #entries WHERE date = 2024-03-10 ORDER BY seq"),
+        rows(&[&["03:30:00", "1710055800"], &["03:15:00", "1710054900"]])
+    );
+    // the balance of another account written after the pads comes after their paddings too
+    let cash = run(&ledger, "SELECT seq FROM #balances WHERE account = 'Assets:Cash'")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    let paddings = run(&ledger, "SELECT max(seq) FROM #transactions WHERE flag = 'P' AND date = 2024-01-03")[0][0]
+        .parse::<i64>()
+        .unwrap();
+    assert!(paddings < cash, "{paddings} {cash}");
+}
+
+/// An entry without a number of its own comes right after the assertion before it, also after a
+/// `balance ... with pad`, whose number (where zhang checks it) is higher than that of its padding.
+#[test]
+fn an_entry_after_an_assertion_comes_after_its_check() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "t1"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-02 balance Assets:A 1 CNY
+2024-01-02 document Assets:A "after-balance.pdf"
+2024-01-03 balance Assets:A 5 CNY with pad Equity:Open
+2024-01-03 document Assets:A "after-pad.pdf"
+"#,
+    );
+    assert_eq!(
+        run(&ledger, "SELECT seq, type, date, flag FROM #entries WHERE year = 2024 ORDER BY seq"),
+        rows(&[
+            &["3", "transaction", "2024-01-01", "*"],
+            &["4", "balance", "2024-01-02", "NULL"],
+            &["5", "document", "2024-01-02", "NULL"],
+            &["6", "transaction", "2024-01-03", "P"],
+            &["7", "balance", "2024-01-03", "NULL"],
+            &["8", "document", "2024-01-03", "NULL"],
+        ])
+    );
+}
+
+/// A ledger with a balance assertion whose directive a plugin copied a week later, as a plugin that
+/// repeats an assertion does: the two share the position of the directive written.
+fn a_balance_and_its_copy() -> Ledger {
+    common::load_transformed(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "t1"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-02 balance Assets:A 1 CNY
+2024-01-03 * "Self" "t3"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-04 * "Self" "t4"
+  Assets:A 1 CNY
+  Equity:Open
+"#,
+        |mut directives| {
+            let copy = directives
+                .iter()
+                .find_map(|directive| match &directive.data {
+                    Directive::BalanceCheck(check) => {
+                        let mut check = check.clone();
+                        check.date = Date::Date(NaiveDate::from_ymd_opt(2024, 1, 9).unwrap());
+                        check.amount.number = 3.into();
+                        Some(Spanned::new(Directive::BalanceCheck(check), directive.span.clone()))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            directives.push(copy);
+            directives
+        },
+    )
+}
+
+/// Assertions that share a position each have their own check: their place in the processing order,
+/// their balance and whether they held, and the id zhang stored the check with.
+#[test]
+fn assertions_sharing_a_position_have_their_own_checks() {
+    let ledger = a_balance_and_its_copy();
+    assert_eq!(
+        run(&ledger, "SELECT seq, type, date, narration FROM #entries WHERE year = 2024 ORDER BY seq"),
+        rows(&[
+            &["3", "transaction", "2024-01-01", "t1"],
+            &["4", "balance", "2024-01-02", "NULL"],
+            &["5", "transaction", "2024-01-03", "t3"],
+            &["6", "transaction", "2024-01-04", "t4"],
+            &["7", "balance", "2024-01-09", "NULL"],
+        ])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT seq, date, amount, actual, passed FROM #balances ORDER BY seq"),
+        rows(&[&["4", "2024-01-02", "1 CNY", "1 CNY", "TRUE"], &["7", "2024-01-09", "3 CNY", "3 CNY", "TRUE"]])
+    );
+}
+
+/// A balance assertion has the id zhang stored its check with, the id `/api/journals` lists it with,
+/// in `#balances` and in `#entries`.
+#[test]
+fn balances_have_the_id_of_their_check() {
+    let ledger = common::load_text(PARENT_ACCOUNTS);
+    let ids = run(&ledger, "SELECT id FROM #balances ORDER BY seq")
+        .into_iter()
+        .map(|row| row[0].clone())
+        .collect::<Vec<_>>();
+    let mut stored = ledger
+        .store
+        .read()
+        .unwrap()
+        .balance_assertions
+        .iter()
+        .map(|it| (it.sequence, it.id.to_string()))
+        .collect::<Vec<_>>();
+    stored.sort();
+    assert_eq!(ids, stored.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
+    assert_eq!(
+        run(&ledger, "SELECT id FROM #entries WHERE type = 'balance' ORDER BY seq"),
+        run(&ledger, "SELECT id FROM #balances ORDER BY seq")
+    );
+}
+
+/// A transaction whose directive a plugin copied with its position: zhang stores the last of the two
+/// under the id of the position, and `#entries` lists the one it stored, with the date it stored it
+/// with, once.
+#[test]
+fn a_transaction_sharing_a_position_is_the_one_zhang_stored() {
+    let ledger = common::load_transformed(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+2024-01-01 * "Self" "t1"
+  Assets:A 1 CNY
+  Equity:Open
+2024-01-03 * "Self" "t3"
+  Assets:A 1 CNY
+  Equity:Open
+"#,
+        |mut directives| {
+            let copy = directives
+                .iter()
+                .find_map(|directive| match &directive.data {
+                    Directive::Transaction(txn) => {
+                        let mut txn = txn.clone();
+                        txn.date = Date::Date(NaiveDate::from_ymd_opt(2024, 1, 9).unwrap());
+                        Some(Spanned::new(Directive::Transaction(txn), directive.span.clone()))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            directives.push(copy);
+            directives
+        },
+    );
+    let stored = ledger.store.read().unwrap().transactions.len();
+    assert_eq!(stored, 2);
+    assert_eq!(
+        run(&ledger, "SELECT seq, date, narration FROM #entries WHERE type = 'transaction' ORDER BY seq"),
+        rows(&[&["3", "2024-01-03", "t3"], &["4", "2024-01-09", "t1"]])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT DISTINCT seq, date FROM #postings"),
+        rows(&[&["3", "2024-01-03"], &["4", "2024-01-09"]])
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // #documents: directives, then transaction and posting metadata
 
@@ -379,6 +762,30 @@ fn documents_are_the_directives_then_the_metadata_of_transactions() {
         ),
         rows(&[&["statements/jan.pdf", "NULL", "bank"], &["receipts/c.pdf", "lunch", "NULL"]])
     );
+}
+
+/// A document has the place of what declares it among the entries: a directive its own `#entries` row, a
+/// document named in metadata that of its transaction.
+#[test]
+fn documents_have_the_place_of_what_declares_them() {
+    let (ledger, _) = load_files(&[("main.zhang", DOCUMENTS_MAIN), ("sub/more.zhang", DOCUMENTS_MORE)]);
+    let directives = run(&ledger, "SELECT seq, date, time, timestamp FROM #entries WHERE type = 'document'");
+    assert_eq!(
+        run(&ledger, "SELECT seq, date, time, timestamp FROM #documents WHERE source = 'directive'"),
+        directives
+    );
+    let shop = run(
+        &ledger,
+        "SELECT DISTINCT seq, date, time, timestamp FROM #postings WHERE narration ~ 'documents of'",
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT DISTINCT seq, date, time, timestamp FROM #documents WHERE path IN ('receipts/a.pdf', 'receipts/b.pdf', 'receipts/c.pdf')"
+        ),
+        shop
+    );
+    assert_eq!(run(&ledger, "SELECT time FROM #documents LIMIT 1"), rows(&[&["00:00:00"]]));
 }
 
 /// A ledger without document metadata has the rows of its directives only, as before.

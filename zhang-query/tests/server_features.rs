@@ -276,6 +276,9 @@ fn d2_schema_has_the_new_columns_and_tables() {
             ("source", "str"),
             ("path", "str"),
             ("transaction_id", "str"),
+            ("seq", "int"),
+            ("time", "str"),
+            ("timestamp", "int"),
         ])
     );
     let wildcard = Query::compile("SELECT * FROM #documents").unwrap().columns();
@@ -312,6 +315,25 @@ fn d2_schema_has_the_new_columns_and_tables() {
             ("amount", "amount"),
         ])
     );
+}
+
+#[test]
+fn a_schema_has_the_columns_that_place_assertions_and_documents() {
+    assert_columns(&[
+        ("balances", "pad", "str"),
+        ("balances", "id", "str"),
+        ("balances", "seq", "int"),
+        ("balances", "time", "str"),
+        ("balances", "timestamp", "int"),
+        ("documents", "seq", "int"),
+        ("documents", "time", "str"),
+        ("documents", "timestamp", "int"),
+    ]);
+    // after beanquery's columns, which SELECT * keeps
+    let wildcard = Query::compile("SELECT * FROM #balances").unwrap().columns();
+    let wildcard = wildcard.iter().map(|it| it.name.as_str()).collect::<Vec<_>>();
+    assert_eq!(wildcard, ["date", "account", "amount", "tolerance", "discrepancy"]);
+    assert_documented(&["`pad`"]);
 }
 
 #[test]
@@ -497,21 +519,23 @@ fn d1_time_and_timestamp_of_entries_with_and_without_a_time() {
 }
 
 /// The 27 entries of the journal ledger in #entries order: the 9 opens in written order, the 2
-/// commodities (an open sorts before a commodity of the same day), then the dated entries. The
-/// three transactions of 2024-01-15 are ordered by time: Groceries (no time, 00:00:00), Bread
-/// (09:05), Morning coffee (10:30), although Morning coffee is written first.
+/// commodities (beancount sorts an open before a commodity of the same day), then the dated
+/// entries. `seq` is the position in the order zhang processes them, where the commodities, which
+/// the file has first, come before the opens. The three transactions of 2024-01-15 are ordered by
+/// time: Groceries (no time, 00:00:00), Bread (09:05), Morning coffee (10:30), although Morning
+/// coffee is written first.
 const JOURNAL_ENTRIES: &[&[&str]] = &[
-    &["0", "open", "1970-01-01", "NULL", "Assets:Bank"],
-    &["1", "open", "1970-01-01", "NULL", "Assets:Bank:Savings"],
-    &["2", "open", "1970-01-01", "NULL", "Assets:BankCard"],
-    &["3", "open", "1970-01-01", "NULL", "Assets:Broker"],
-    &["4", "open", "1970-01-01", "NULL", "Assets:Old"],
-    &["5", "open", "1970-01-01", "NULL", "Expenses:Food"],
-    &["6", "open", "1970-01-01", "NULL", "Expenses:Fun"],
-    &["7", "open", "1970-01-01", "NULL", "Income:Salary"],
-    &["8", "open", "1970-01-01", "NULL", "Income:Gains"],
-    &["9", "commodity", "1970-01-01", "NULL", ""],
-    &["10", "commodity", "1970-01-01", "NULL", ""],
+    &["2", "open", "1970-01-01", "NULL", "Assets:Bank"],
+    &["3", "open", "1970-01-01", "NULL", "Assets:Bank:Savings"],
+    &["4", "open", "1970-01-01", "NULL", "Assets:BankCard"],
+    &["5", "open", "1970-01-01", "NULL", "Assets:Broker"],
+    &["6", "open", "1970-01-01", "NULL", "Assets:Old"],
+    &["7", "open", "1970-01-01", "NULL", "Expenses:Food"],
+    &["8", "open", "1970-01-01", "NULL", "Expenses:Fun"],
+    &["9", "open", "1970-01-01", "NULL", "Income:Salary"],
+    &["10", "open", "1970-01-01", "NULL", "Income:Gains"],
+    &["0", "commodity", "1970-01-01", "NULL", ""],
+    &["1", "commodity", "1970-01-01", "NULL", ""],
     &["11", "transaction", "2023-12-31", "December salary", "Assets:Bank, Income:Salary"],
     &["12", "transaction", "2024-01-15", "Groceries", "Assets:Bank, Expenses:Food"],
     &["13", "transaction", "2024-01-15", "Bread", "Assets:Bank, Expenses:Food"],
@@ -530,14 +554,18 @@ const JOURNAL_ENTRIES: &[&[&str]] = &[
     &["26", "transaction", "2024-03-11", "ÄPFEL vom Markt", "Assets:Bank, Expenses:Food"],
 ];
 
-/// READING: `seq` is the 0-based row number of the entry in the unfiltered `#entries` table, so
-/// the seqs of `#entries` are exactly 0..n-1 and a transaction's seq counts the opens,
-/// commodities and other entries before it.
+/// `seq` is the 0-based position of the entry in the order zhang processes the ledger, so the
+/// seqs of `#entries` are exactly 0..n-1, and a transaction's seq counts the opens, commodities
+/// and other entries processed before it. The rows of `#entries` keep beancount's order.
 #[test]
-fn d1_seq_is_the_position_in_the_entries_order() {
+fn d1_seq_is_the_position_in_the_processing_order() {
     assert_eq!(
         query(journal(), "SELECT seq, type, date, narration, accounts FROM #entries"),
         rows(JOURNAL_ENTRIES)
+    );
+    assert_eq!(
+        query(journal(), "SELECT seq FROM #entries ORDER BY seq"),
+        (0..27).map(|seq| vec![seq.to_string()]).collect::<Vec<_>>()
     );
     // a transaction has its entry's seq in #transactions and on every one of its postings
     let transactions = JOURNAL_ENTRIES
@@ -591,15 +619,16 @@ fn d1_seq_is_the_position_in_the_entries_order() {
 }
 
 /// The assertions ledger has balance entries and the padding transaction of a
-/// `balance ... with pad` (flag P): 5 opens (seq 0-4), 4 commodities (5-8), Opening (9),
+/// `balance ... with pad` (flag P): 4 commodities (seq 0-3), 5 opens (4-8), Opening (9),
 /// the balances of 01-02 to 01-06 (10-15), on 01-10 the balance (16) before the Market
-/// transaction of the same day (17), the balance of 01-11 (18), on 01-15 the balance (19) and
-/// its padding transaction (20), Buy (21), the balance of 01-21 (22). The correcting
-/// transactions zhang inserts after balance checks are not entries and have no seq.
+/// transaction of the same day (17), the balance of 01-11 (18), on 01-15 the padding transaction
+/// (19) and the balance with pad (20), which zhang checks after its padding, Buy (21), the balance
+/// of 01-21 (22). `#entries` lists the balance before its padding, as beancount sorts a day. The
+/// correcting transactions zhang inserted after balance checks in the past are not entries.
 #[test]
 fn d1_seq_counts_balances_and_padding_transactions() {
     assert_eq!(
-        query(assertions(), "SELECT seq FROM #entries"),
+        query(assertions(), "SELECT seq FROM #entries ORDER BY seq"),
         (0..23).map(|seq| vec![seq.to_string()]).collect::<Vec<_>>()
     );
     assert_eq!(
@@ -611,13 +640,13 @@ fn d1_seq_counts_balances_and_padding_transactions() {
             &["16", "balance", "NULL", "NULL"],
             &["17", "transaction", "*", "Market"],
             &["18", "balance", "NULL", "NULL"],
-            &["19", "balance", "NULL", "NULL"],
-            &["20", "transaction", "P", "pad Assets:Cash to Equity:Opening"],
+            &["20", "balance", "NULL", "NULL"],
+            &["19", "transaction", "P", "pad Assets:Cash to Equity:Opening"],
         ])
     );
     assert_eq!(
         query(assertions(), "SELECT DISTINCT seq, flag FROM #postings WHERE date = 2024-01-15"),
-        rows(&[&["20", "P"]])
+        rows(&[&["19", "P"]])
     );
 }
 
