@@ -20,7 +20,7 @@ use crate::ServerResult;
 
 /// A result's column indexes, shared by all its rows, with the name of the query that produced it.
 #[derive(Clone)]
-pub(crate) struct Columns(Arc<Inner>);
+struct Columns(Arc<Inner>);
 
 struct Inner {
     query: String,
@@ -28,7 +28,7 @@ struct Inner {
 }
 
 impl Columns {
-    pub(crate) fn of(query: &str, result: &QueryResult) -> Self {
+    fn of(query: &str, result: &QueryResult) -> Self {
         Self(Arc::new(Inner {
             query: query.to_owned(),
             index: result.columns.iter().enumerate().map(|(index, column)| (column.name.clone(), index)).collect(),
@@ -44,13 +44,8 @@ impl Columns {
     }
 
     /// The cell of the column `name` of a row.
-    pub(crate) fn get<'a>(&self, values: &'a [Value], name: &str) -> ServerResult<&'a Value> {
+    fn get<'a>(&self, values: &'a [Value], name: &str) -> ServerResult<&'a Value> {
         Ok(&values[self.index(name)?])
-    }
-
-    /// Move the cell of the column `name` out of an owned row.
-    pub(crate) fn take(&self, values: &mut [Value], name: &str) -> ServerResult<Value> {
-        Ok(std::mem::replace(&mut values[self.index(name)?], Value::Null))
     }
 }
 
