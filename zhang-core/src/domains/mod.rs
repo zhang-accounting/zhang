@@ -138,7 +138,7 @@ impl Operations {
             after_amount,
             metas: PostingMetaDomain::of(meta),
         };
-        store.postings.push(posting.clone());
+        store.push_posting(posting.clone());
         let txn_header = store
             .transactions
             .get_mut(trx_id)
@@ -223,14 +223,7 @@ impl Operations {
 
         let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
 
-        let posting: Option<&PostingDomain> = store
-            .postings
-            .iter()
-            .filter(|posting| posting.account.eq(&account))
-            .filter(|posting| posting.after_amount.commodity.eq(&currency))
-            .filter(|posting| posting.trx_datetime.le(&datetime))
-            .sorted_by_key(|posting| posting.trx_datetime)
-            .next_back();
+        let posting = store.last_posting_at(account.name(), currency, datetime);
 
         Ok(posting.map(|it| Amount {
             number: it.after_amount.number.clone(),
