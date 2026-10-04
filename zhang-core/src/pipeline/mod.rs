@@ -12,6 +12,8 @@
 //! [`StageContext::now`] gives the current time of the load and records the date as
 //! an input itself.
 //!
+//! [`BookingStage`] books every transaction before the user's plugin stages see it
+//! (pass 1 of the booking split, #423); a plugin declared `stage: "raw"` runs before it.
 //! Built-in stages ([`builtin_stages`]) run after the user's plugin stages:
 //! [`ActiveAccountsStage`], which only reports references to inactive accounts,
 //! then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
@@ -25,6 +27,7 @@
 mod active_accounts;
 pub(crate) mod balance;
 mod balance_check;
+mod booking;
 mod pad;
 mod plugin_view;
 
@@ -32,6 +35,7 @@ use std::collections::{HashMap, VecDeque};
 
 pub use active_accounts::ActiveAccountsStage;
 pub use balance_check::BalanceCheckStage;
+pub use booking::BookingStage;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use indexmap::IndexSet;
@@ -49,6 +53,31 @@ use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
+
+/// where a plugin's processor and mapper run in the pipeline, relative to [`BookingStage`]
+/// (booking-split design, #423 §10): the `stage` meta of its `plugin` directive
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PluginStage {
+    /// after the booking stage, the default: the plugin sees booked postings, with the units of an
+    /// implicit posting filled in, every cost resolved to the lot's per-unit cost and date, and a
+    /// reduction split into one posting per lot, as a beancount plugin does
+    #[default]
+    Booked,
+    /// before the booking stage, the `stage: "raw"` opt-in: the plugin sees the transactions as
+    /// written, as plugins did before Zhang booked ahead of them
+    Raw,
+}
+
+impl PluginStage {
+    /// the stage a `stage` meta value names; `None` for any other value
+    pub fn parse(value: &str) -> Option<PluginStage> {
+        match value.trim() {
+            "booked" => Some(PluginStage::Booked),
+            "raw" => Some(PluginStage::Raw),
+            _ => None,
+        }
+    }
+}
 
 /// a problem reported by a stage; collected by the executor and materialized
 /// into the store after the pipeline finishes
@@ -189,9 +218,10 @@ pub trait ProcessStage {
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>>;
 }
 
-/// the native core stages, in execution order; they run after all plugin stages.
+/// the native core stages that run after all plugin stages, in execution order.
 /// [`ActiveAccountsStage`] checks the stream before the pad stage adds its `P`
-/// transactions; the pad/check stages report the accounts of their directives themselves
+/// transactions; the pad/check stages report the accounts of their directives themselves.
+/// [`BookingStage`] is not among them: it runs before the plugins
 pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {
     vec![Box::new(ActiveAccountsStage), Box::new(PadStage), Box::new(BalanceCheckStage)]
 }

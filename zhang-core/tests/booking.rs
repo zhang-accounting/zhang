@@ -1361,3 +1361,98 @@ fn a_total_cost_on_negative_units_reduces_the_lot_bought_at_that_cost() {
     assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-3".to_owned()))]);
     assert_eq!(lots(&ledger, "Assets:A"), vec!["-3 USD {33 CNY, 2024-05-19}"]);
 }
+
+/// Booking runs as a stage before the plugins (design §2): the stream the ledger keeps holds the
+/// booked postings, with the written form on those booking changed, and the store fold's pass 2
+/// completes what the stages left unbooked, such as the implicit leg of a padding transaction.
+#[test]
+fn the_ledger_keeps_the_booked_postings() {
+    let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:S
+        1970-01-01 open Equity:Open
+        2024-05-16 * "buy"
+          Assets:A 10 USD { 10 CNY }
+          Income:I -100 CNY
+        2024-05-17 * "buy"
+          Assets:A 10 USD { 11 CNY }
+          Income:I -110 CNY
+        2024-05-18 * "sell across both lots"
+          Assets:A -15 USD {}
+          Income:I
+        2024-05-19 pad Assets:S Equity:Open
+        2024-05-20 balance Assets:S 7 USD
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+
+    let show = |posting: &zhang_core::ast::Posting| {
+        let units = posting.units.as_ref().map_or("?".to_owned(), ToString::to_string);
+        let cost = posting
+            .cost
+            .as_ref()
+            .map(|cost| {
+                format!(
+                    " {{{}{}}}",
+                    cost.base.as_ref().map(ToString::to_string).unwrap_or_default(),
+                    cost.date.as_ref().map(|date| format!(", {}", date.naive_date())).unwrap_or_default()
+                )
+            })
+            .unwrap_or_default();
+        let written = posting
+            .written
+            .as_ref()
+            .map(|written| format!(" <- #{} {}", written.index, written.units.as_ref().map_or("?".to_owned(), ToString::to_string)))
+            .unwrap_or_default();
+        format!("{} {units}{cost}{written}", posting.account.name())
+    };
+    let transactions: Vec<Vec<String>> = ledger
+        .directives
+        .iter()
+        .filter_map(|it| match &it.data {
+            zhang_core::ast::Directive::Transaction(txn) => Some(txn.postings.iter().map(show).collect()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        transactions,
+        vec![
+            vec!["Assets:A 10 USD {10 CNY, 2024-05-16} <- #0 10 USD", "Income:I -100 CNY"],
+            vec!["Assets:A 10 USD {11 CNY, 2024-05-17} <- #0 10 USD", "Income:I -110 CNY"],
+            vec![
+                "Assets:A -10 USD {10 CNY, 2024-05-16} <- #0 -15 USD",
+                "Assets:A -5 USD {11 CNY, 2024-05-17} <- #0 -15 USD",
+                "Income:I 155 CNY <- #1 ?",
+            ],
+            // the padding transaction the pad stage emits after booking: its implicit leg is
+            // completed by the store fold
+            vec!["Assets:S 7 USD", "Equity:Open -7 USD <- #1 ?"],
+        ]
+    );
+
+    // the store still has one row per written posting, as written
+    let store = ledger.store.read().unwrap();
+    let rows: Vec<String> = store
+        .postings
+        .iter()
+        .map(|row| {
+            format!(
+                "{} {} = {}",
+                row.account.name(),
+                row.unit.as_ref().map_or("?".to_owned(), ToString::to_string),
+                row.inferred_amount
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            "Assets:A 10 USD = 10 USD",
+            "Income:I -100 CNY = -100 CNY",
+            "Assets:A 10 USD = 10 USD",
+            "Income:I -110 CNY = -110 CNY",
+            "Assets:A -15 USD = -15 USD",
+            "Income:I ? = 155 CNY",
+            "Assets:S 7 USD = 7 USD",
+            "Equity:Open ? = -7 USD",
+        ]
+    );
+}

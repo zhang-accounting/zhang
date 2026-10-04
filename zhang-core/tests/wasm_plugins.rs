@@ -23,7 +23,7 @@ use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource}
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
-use zhang_core::plugin::capabilities::plugin_seed;
+use zhang_core::plugin::capabilities::{plugin_seed, PluginStage};
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_core::plugin::PluginType;
@@ -145,8 +145,10 @@ fn echo_processor_stream_reaches_the_store() {
     let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{}{LEDGER}", plugin(&dir, "echo.wat")));
 
     assert_eq!(registered(&ledger), vec![("echo".to_owned(), vec![PluginType::Processor])]);
-    let stages = ledger.plugins.build_stages();
+    // without a `stage` meta the plugin runs after booking
+    let stages = ledger.plugins.build_stages(PluginStage::Booked);
     assert_eq!(stages.iter().map(|it| it.name()).collect_vec(), vec!["echo"]);
+    assert!(ledger.plugins.build_stages(PluginStage::Raw).is_empty());
 
     let plain = load(&ledger_dir(&[]), LEDGER);
     assert_eq!(store_summary(&ledger), store_summary(&plain));
@@ -221,6 +223,44 @@ fn invalid_timeout_is_reported_and_the_plugin_runs_with_the_default() {
     );
     drop(store);
     assert_eq!(registered(&ledger), vec![("echo".to_owned(), vec![PluginType::Processor])]);
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the echo processor still runs");
+}
+
+#[test]
+fn raw_stage_plugin_runs_before_booking() {
+    let dir = ledger_dir(&["echo.wat"]);
+    let ledger = load(&dir, &with_plugins(&format!("{}  stage: \"raw\"\n", plugin(&dir, "echo.wat"))));
+
+    assert_eq!(registered(&ledger), vec![("echo".to_owned(), vec![PluginType::Processor])]);
+    let raw = ledger.plugins.build_stages(PluginStage::Raw);
+    assert_eq!(raw.iter().map(|it| it.name()).collect_vec(), vec!["echo"]);
+    assert!(ledger.plugins.build_stages(PluginStage::Booked).is_empty());
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the echo processor still runs");
+    assert_eq!(store_summary(&ledger).2, Vec::<String>::new());
+}
+
+#[test]
+fn invalid_stage_is_reported_and_the_plugin_runs_booked() {
+    let dir = ledger_dir(&["echo.wat"]);
+    let ledger = load(&dir, &with_plugins(&format!("{}  stage: \"early\"\n", plugin(&dir, "echo.wat"))));
+
+    let store = ledger.store.read().unwrap();
+    let errors = store
+        .errors
+        .iter()
+        .map(|it| (it.error_type.clone(), it.span.as_ref().map(|span| span.content.clone()), it.metas.clone()))
+        .collect_vec();
+    let module = dir.path().join("echo.wat").display().to_string();
+    assert_eq!(
+        errors,
+        vec![(
+            ErrorKind::ParseInvalidMeta,
+            Some(format!("{}  stage: \"early\"", plugin(&dir, "echo.wat"))),
+            HashMap::from([("plugin".to_owned(), module), ("stage".to_owned(), "early".to_owned())])
+        )]
+    );
+    drop(store);
+    assert_eq!(ledger.plugins.build_stages(PluginStage::Booked).len(), 1);
     assert_eq!(store_summary(&ledger).1.len(), 2, "the echo processor still runs");
 }
 
@@ -1044,7 +1084,7 @@ fn a_plugin_of_the_oldest_contract_loads_a_ledger_with_a_pad() {
 
     // the plugin is called without the pad: handed one, it fails
     let pad = ledger.directives.iter().find(|it| matches!(it.data, Directive::Pad(_))).unwrap().clone();
-    for stage in ledger.plugins.build_stages() {
+    for stage in ledger.plugins.build_stages(PluginStage::Booked) {
         let mut ctx = zhang_core::pipeline::StageContext::new(&[]);
         assert!(stage.process(vec![pad.clone()], &mut ctx).is_err(), "{} fails on a pad", stage.name());
     }

@@ -32,7 +32,7 @@ use std::sync::{Arc, OnceLock};
 
 use chrono::NaiveDate;
 use uuid::Uuid;
-use zhang_ast::{Directive, SpanInfo, Transaction};
+use zhang_ast::{Directive, Posting, SpanInfo, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{Store, TransactionDomain};
 use zhang_core::utils::id::FromSpan;
@@ -528,12 +528,15 @@ impl Postings {
                 .of(&txn.span, false)
                 .and_then(|position| parsed_at.get_mut(&position))
                 .and_then(Vec::pop);
-            let parsed: Option<&Transaction> = directive
+            // the ledger keeps the postings booked (one per lot a sale reduced, units interpolated);
+            // the store's rows are the postings as written, so the directive is read as written too,
+            // until this table reads the booked postings themselves instead of booking again
+            let parsed: Option<Vec<Posting>> = directive
                 .and_then(|idx| match &ledger.directives[idx].data {
-                    Directive::Transaction(parsed) => Some(parsed),
+                    Directive::Transaction(parsed) => Some(parsed.written_postings()),
                     _ => None,
                 })
-                .filter(|parsed| parsed.postings.len() == txn.postings.len());
+                .filter(|parsed| parsed.len() == txn.postings.len());
             let entry = cached.len();
             if let Ok(sequence) = usize::try_from(txn.sequence) {
                 entry_of_sequence[sequence] = entry as u32;
@@ -541,7 +544,7 @@ impl Postings {
             cached.push(CachedEntry {
                 id: txn.id,
                 date: txn.datetime.date_naive(),
-                parsed: parsed.and(directive).map(|idx| idx as u32),
+                parsed: parsed.as_ref().and(directive).map(|idx| idx as u32),
                 entry: directive.and_then(|idx| entries.of_directive(idx)).map(|it| it.seq),
             });
             drafts.extend(postings::drafts(entry, txn, parsed, &mut accounts));

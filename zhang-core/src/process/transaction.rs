@@ -5,13 +5,13 @@ use std::sync::atomic::Ordering;
 
 use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
-use log::trace;
+use log::{trace, warn};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
-use crate::booking::{group_units, written_groups, BookOutcome};
+use crate::booking::{group_units, is_booked, written_groups, BookOutcome};
 use crate::constants::TXN_ID;
 use crate::domains::schemas::MetaType;
 use crate::ledger::Ledger;
@@ -28,9 +28,29 @@ impl DirectiveProcess for Transaction {
         let txn_meta = || HashMap::of(TXN_ID, id.to_string());
 
         // booking first: the lots decide the weights the implicit posting is interpolated from (E4).
-        // A copy is booked: the stream keeps the postings as written
-        let mut booked_txn = self.clone();
-        let booked = match ledger.booker_mut().book(&mut booked_txn) {
+        // This is pass 2 of booking (design #423 §5.2, V3): the booking stage booked the transaction
+        // before the plugins ran, unless a stage emitted it since or left it unbooked. Booking it
+        // again leaves a booked posting as it is and completes an unbooked one, so the stream the
+        // ledger keeps is the booked one; the errors are reported here, once. A plugin may have
+        // changed the lots a leg depends on since (an earlier sale added, a lot relabelled): this
+        // pass is then the booking that counts, and says so in the log
+        let before = is_booked(self).then(|| self.postings.clone());
+        let outcome = ledger.booker_mut().book(self);
+        if let Some(before) = before.filter(|before| *before != self.postings) {
+            let leg = before
+                .iter()
+                .zip(&self.postings)
+                .position(|(before, after)| before != after)
+                .unwrap_or(before.len().min(self.postings.len()));
+            warn!(
+                "booking the final stream changed transaction {id} ({} {}), booked before the plugins: a stage changed the lots its legs depend on. Leg {leg}: {:?} before, {:?} now",
+                self.date.naive_date(),
+                self.narration.as_ref().map(|it| it.as_str()).unwrap_or_default(),
+                before.get(leg).map(|it| (&it.account.content, &it.units, &it.cost)),
+                self.postings.get(leg).map(|it| (&it.account.content, &it.units, &it.cost)),
+            );
+        }
+        let booked = match outcome {
             BookOutcome::Booked(booked) => booked,
             // the transaction is rejected: it never reaches the store, nor its lots
             BookOutcome::Unbookable { kind, errors } => {
@@ -66,7 +86,7 @@ impl DirectiveProcess for Transaction {
         // `written.index`, are summed into it, so the rows, their ids and the balances are those
         // of the written postings. A split a stage broke apart (`written_groups`) is one row per
         // leg, as booked, like the exporter shows it
-        for (posting_idx, group) in written_groups(&booked_txn.postings).into_iter().enumerate() {
+        for (posting_idx, group) in written_groups(&self.postings).into_iter().enumerate() {
             let legs = group.legs;
             let posting = &legs[0];
             let inferred_amount = group_units(legs);
@@ -125,9 +145,10 @@ impl DirectiveProcess for Transaction {
 
         // extract documents from meta. A `document` of a posting is a document of its
         // transaction too: older zhang appended uploaded documents after the postings, which
-        // a beancount ledger reads as metadata of the last posting
+        // a beancount ledger reads as metadata of the last posting. The legs of a split posting
+        // share its meta: counted once
         let documents = std::iter::once(&self.meta)
-            .chain(self.postings.iter().map(|posting| &posting.meta))
+            .chain(written_groups(&self.postings).into_iter().map(|group| &group.legs[0].meta))
             .flat_map(|meta| meta.get_all("document"))
             .collect_vec();
         for document_file_name in documents {

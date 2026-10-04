@@ -52,8 +52,9 @@ plugin "plugins/guard.wasm" "strict"
 | `allowed_paths` | 对账本中这些文件和目录的只读访问。多个时重复这个键。 | 不能访问文件 |
 | `timeout` | 对插件的一次调用最多可以运行多久：整数秒（`"90"`），或者带单位 `ms`、`s`、`m` 或 `h` 的数字（`"500ms"`、`"2m"`），最长一天 | 60 秒 |
 | `seed` | 不授予任何东西；任意文本，混入插件的[种子](#确定性) | 无 |
+| `stage` | 插件的 processor 和 mapper 在哪个阶段运行：`"booked"`，在张记账完成记账之后；或 `"raw"`，在记账之前，看到的是按原样写下的交易（见[阶段顺序约定](#阶段顺序约定)） | `"booked"` |
 
-无效的 `timeout` 或 `allowed_paths` 值会在该指令上报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) 错误，插件则使用默认值。
+无效的 `timeout`、`allowed_paths` 或 `stage` 值会在该指令上报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) 错误，插件则使用默认值。
 
 #### `allowed_paths`
 
@@ -90,18 +91,21 @@ plugin "plugins/receipts.wasm"
 
 张记账加载账本时，指令流按以下顺序依次经过这些阶段：
 
-1. **你的插件**，按照它们的 `plugin` 指令声明的顺序；
-2. **活跃账户**：报告对未开设账户的记账行；
-3. **补齐**：为每条 `pad` 和 `balance … with pad` 添加其断言所需的补齐交易（标记为 `P`）；
-4. **余额检查**：检查每条余额断言。这一阶段不做任何记账：不成立的断言是一条错误。
+1. **声明了 `stage: "raw"` 的插件**，按照它们的 `plugin` 指令声明的顺序；
+2. **记账**：对每笔交易记账，就像 Beancount 在运行插件之前先记账一样。没有写金额的记账行得到由其他记账行推算出的金额；成本变成它所匹配批次的单位成本和取得日期；跨多个批次的卖出变成每个批次一行。张记账无法记账的交易（例如有两行没写金额）保持原样；
+3. **你的其他插件**，按照它们的 `plugin` 指令声明的顺序；
+4. **活跃账户**：报告对未开设账户的记账行；
+5. **补齐**：为每条 `pad` 和 `balance … with pad` 添加其断言所需的补齐交易（标记为 `P`）；
+6. **余额检查**：检查每条余额断言。这一阶段不做任何记账：不成立的断言是一条错误。
 
-然后对交易进行记账，并构建账本。
+然后由最终的指令流构建账本：各阶段留下的未记账内容（插件添加的、带有没写金额记账行的交易，补齐交易）在这里补记，报告记账错误，并检查每笔交易是否平衡。
 
 插件能看到的内容：
 
 - **完整的指令流**，按日期排序：没有日期的指令（`option`、`plugin`、`include`、注释）在最前；同一日期内，先是 `open` 和 `commodity`，然后是余额指令，最后是其他所有指令。张记账在每个阶段之后都会重新排序，所以插件可以按任意日期顺序返回指令；同一日期、同一种类的指令保持插件返回它们的顺序，也就是它们在当天的顺序。
 - 所有类型的指令，包括 `custom`、`option` 和 `plugin` 指令。选项和插件在各阶段运行之前就已应用，所以插件添加的 `option` 或 `plugin` 指令不起作用。
-- **按原样写下、尚未记账的交易。** 没有写金额的记账行此时还没有金额，成本也还没有与批次匹配。张记账的后续版本也会为插件提供记账后的视图；届时本指南会加以说明。
+- **记账后的交易**，与 Beancount 插件看到的一样：每个记账行都有金额，每个成本都有单位成本数字和日期，跨多个批次的卖出是多行，每个批次一行。被记账改动过的记账行带有 [`written`](#导出函数) 字段，记录用户原本写下的内容；请原样传递它。声明了 `stage: "raw"` 的插件看到的则是**按原样写下**的交易：没有写金额的记账行此时还没有金额，成本也还没有与批次匹配。在记账之前改写记账行的插件（例如补全账户或金额的插件）应选择它。
+- **记账后的行保持不变。** 每一行记录的是你的插件运行之前记账所匹配到的批次。插件如果改动了指令流，使这一行本可以匹配到别的批次（例如插入了一笔更早卖出该批次的交易），张记账也不会重新为它记账：构建账本时张记账会对最终的指令流再记账一次，把不再成立的部分作为该交易上的错误报告（卖空的批次报告为 [`NoEnoughCommodityLot`](/zh-cn/reference/error-codes/#noenoughcommoditylot)），并保留这一行，就像 Beancount 保留插件返回的内容一样。以总成本买入的行（例如 3 个单位的 `{{1000 USD}}`）的单位成本是精确的商，可能很长；原样写下的总成本在该行的 `written.cost` 中。
 - `balance` 指令本身，但看不到补齐阶段创建的补齐交易（标记为 `P`）：补齐阶段在插件之后运行。
 - **看不到 `pad` 指令。** ABI v1 早于 [`pad` 指令](/zh-cn/reference/directives/balance/#pad-指令)，基于较旧 `zhang-ast` 构建的插件无法读取它。所以张记账在调用插件之前会把每条 `pad` 放到一边。由某条 `pad` 补齐的 `balance` 会以张记账支持 `pad` 之前的样子，即带有该 `pad` 填充账户的 `balance … with pad`，交给插件：插件看到的指令流与以前 Beancount 账本给它的一样。插件返回的内容以插件为准，张记账只在 `pad` 仍然补齐插件所返回内容的地方把它放回：
   - 如果一条 `pad` 的所有 `balance … with pad` 都以同一账户、同一填充账户的 `balance … with pad` 返回，这条 `pad` 会以该账户和填充账户放回，所以插件可以重命名二者之一或更换填充账户。这些余额会变回带着原有容差的 `balance`，并保留插件对它们做的其他所有修改。什么都不改的插件会原样拿回它收到的指令流；
@@ -202,7 +206,7 @@ SDK 提供的内容：
 | `prices` | 用于[汇率](#汇率)的 `PriceMap::from_stream(&stream)`、`rate(base, quote, date)`、`convert(amount, target, date)` |
 | `router` | `Request`、`Response`、`query(bql)`、`ledger_info()` |
 
-在原生 target 上 SDK 依然可以编译：`plugin!` 不导出任何东西，宿主函数返回 `unavailable`，所以 `cargo test` 可以在没有张记账的情况下运行你的插件逻辑，并用 `Config::from_map(...)` 代替宿主提供的配置。[`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples) 中有两个完整的插件，一个 processor 和一个 router；张记账自己的测试会构建并运行它们。
+在原生 target 上 SDK 依然可以编译：`plugin!` 不导出任何东西，宿主函数返回 `unavailable`，所以 `cargo test` 可以在没有张记账的情况下运行你的插件逻辑，并用 `Config::from_map(...)` 代替宿主提供的配置。[`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples) 中有三个完整的插件，两个 processor（`guard`，以及展示记账后视图的 `lots`）和一个 router；张记账自己的测试会构建并运行它们。
 
 ## 确定性
 
@@ -254,7 +258,7 @@ let value = prices.convert(&posting_units, "CNY", date); // Option<Amount>
 
 **精度：** 来自 `price` 指令的汇率是精确的。能除尽的倒数也是精确的（`1 / 8 = 0.125`）；除不尽的倒数按银行家舍入法（half-even）保留 28 位有效数字，与 Beancount 的 decimal 上下文和张记账的查询引擎相同（`1 / 7 = 0.1428571428571428571428571429`）。`convert` 只有在乘积超过 28 位有效数字时才会将其舍入到 28 位。
 
-**隐含价格：** `PriceMap::from_stream_with_implicit` 还会采用记账行上写的价格，即单价 `@` 和总价 `@@`，与 Beancount 的 `implicit_prices` 插件相同。张记账本身不使用这些价格，所以它们添加的汇率与张记账显示的不同；这是为从 Beancount 移植过来的插件提供的可选功能。没有写数量的记账行会被跳过：插件看到的是记账之前的交易，此时它还没有价格。
+**隐含价格：** `PriceMap::from_stream_with_implicit` 还会采用记账行上写的价格，即单价 `@` 和总价 `@@`，与 Beancount 的 `implicit_prices` 插件相同。张记账本身不使用这些价格，所以它们添加的汇率与张记账显示的不同；这是为从 Beancount 移植过来的插件提供的可选功能。没有写数量的记账行会被跳过：只有以 `stage: "raw"` 运行的插件才会看到这样的记账行，它此时还没有价格。
 
 ## 报告错误
 

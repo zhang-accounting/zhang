@@ -6819,6 +6819,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zhang-plugin-example-lots"
+version = "0.1.0"
+dependencies = [
+ "zhang-plugin-sdk",
+]
+
+[[package]]
 name = "zhang-plugin-example-summary"
 version = "0.1.0"
 dependencies = [

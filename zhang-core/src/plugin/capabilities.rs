@@ -33,6 +33,10 @@
 //!   default.
 //! - `seed` is mixed into the plugin's seed, [`SEED_CONFIG_KEY`] below; a repeated key keeps its
 //!   last value.
+//! - `stage` chooses the stream a processor or mapper runs on ([`PluginStage`]): `"booked"`, the
+//!   default, runs it after the booking stage, on booked postings; `"raw"` runs it before, on the
+//!   transactions as written. A repeated key keeps its last value. Any other value is a
+//!   `ParseInvalidMeta` error on the directive, and the plugin runs booked.
 //! - every other key reaches the plugin as a flat config entry; a repeated key keeps its last value.
 //! - keys starting with [`RESERVED_CONFIG_PREFIX`] are reserved for values the host sets. A meta
 //!   entry (or a ledger option) may still use one, but the host's value wins. The host sets
@@ -41,8 +45,8 @@
 //!   [`PluginDirectiveConfig`]), and [`SEED_CONFIG_KEY`] (`zhang.seed`) to the plugin's seed (see
 //!   [`plugin_seed`]).
 //!
-//! Every other capability key (`allowed_paths`, `timeout`, `seed`, and later `stage`) is read here
-//! *and* still passed through as config, so a plugin that already uses a meta key with that name
+//! Every other capability key (`allowed_paths`, `timeout`, `seed`, `stage`) is read here *and*
+//! still passed through as config, so a plugin that already uses a meta key with that name
 //! sees no change, and a plugin can see what it was granted.
 
 use std::collections::{BTreeMap, HashMap};
@@ -55,6 +59,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::Plugin;
 
 use crate::domains::schemas::OptionDomain;
+pub use crate::pipeline::PluginStage;
 use crate::plugin::files::clean_path;
 use crate::utils::hashmap::HashMapOfExt;
 
@@ -75,6 +80,9 @@ const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// meta key on a `plugin` directive mixed into the plugin's seed, [`SEED_CONFIG_KEY`]
 const SEED_KEY: &str = "seed";
+
+/// meta key on a `plugin` directive choosing the stream its processor or mapper runs on, a [`PluginStage`]
+const STAGE_KEY: &str = "stage";
 
 /// prefix of the config keys reserved for values the host sets
 pub const RESERVED_CONFIG_PREFIX: &str = "zhang.";
@@ -107,6 +115,8 @@ pub struct PluginCapabilities {
     pub timeout: Duration,
     /// the `seed` meta, mixed into the plugin's seed; `None` without one
     pub seed: Option<String>,
+    /// where the plugin's processor and mapper run, the `stage` meta
+    pub stage: PluginStage,
 }
 
 impl Default for PluginCapabilities {
@@ -116,6 +126,7 @@ impl Default for PluginCapabilities {
             allowed_paths: vec![],
             timeout: DEFAULT_TIMEOUT,
             seed: None,
+            stage: PluginStage::Booked,
         }
     }
 }
@@ -190,6 +201,7 @@ impl PluginDeclaration {
             ..PluginDeclaration::default()
         };
         let mut timeout = None;
+        let mut stage = None;
         // `get_flatten` yields the values of one key together, in source order
         for (key, value) in directive.meta.clone().get_flatten() {
             let value = value.to_plain_string();
@@ -216,6 +228,10 @@ impl PluginDeclaration {
                     declaration.capabilities.seed = Some(value.clone());
                     declaration.config.insert(key, value);
                 }
+                STAGE_KEY => {
+                    stage = Some(value.clone());
+                    declaration.config.insert(key, value);
+                }
                 _ => {
                     if key.starts_with(RESERVED_CONFIG_PREFIX) {
                         warn!(
@@ -233,6 +249,15 @@ impl PluginDeclaration {
                 None => declaration.errors.push(DeclarationError {
                     kind: ErrorKind::ParseInvalidMeta,
                     metas: HashMap::of2("plugin", directive.module.as_str(), TIMEOUT_KEY, value),
+                }),
+            }
+        }
+        if let Some(value) = stage {
+            match PluginStage::parse(&value) {
+                Some(stage) => declaration.capabilities.stage = stage,
+                None => declaration.errors.push(DeclarationError {
+                    kind: ErrorKind::ParseInvalidMeta,
+                    metas: HashMap::of2("plugin", directive.module.as_str(), STAGE_KEY, value),
                 }),
             }
         }
@@ -327,7 +352,9 @@ mod test {
     use zhang_ast::{Meta, Plugin, ZhangString};
 
     use crate::domains::schemas::OptionDomain;
-    use crate::plugin::capabilities::{plugin_seed, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig, DEFAULT_TIMEOUT};
+    use crate::plugin::capabilities::{
+        plugin_seed, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig, PluginStage, DEFAULT_TIMEOUT,
+    };
     use crate::utils::hashmap::HashMapOfExt;
 
     fn directive(meta: &[(&str, &str)]) -> Plugin {
@@ -437,6 +464,46 @@ mod test {
 
         assert_eq!(declaration.capabilities.timeout, Duration::from_secs(5));
         assert_eq!(declaration.errors, vec![]);
+    }
+
+    #[test]
+    fn should_run_a_plugin_without_stage_booked() {
+        let declaration = PluginDeclaration::parse(&directive(&[("base_currency", "USD")]));
+
+        assert_eq!(declaration.capabilities.stage, PluginStage::Booked);
+        assert_eq!(declaration.errors, vec![]);
+    }
+
+    #[test]
+    fn should_read_the_stage_and_still_pass_it_through() {
+        for (value, stage) in [("raw", PluginStage::Raw), (" raw ", PluginStage::Raw), ("booked", PluginStage::Booked)] {
+            let declaration = PluginDeclaration::parse(&directive(&[("stage", value)]));
+
+            assert_eq!(declaration.capabilities.stage, stage, "stage {value:?}");
+            assert_eq!(declaration.errors, vec![], "stage {value:?}");
+            assert_eq!(declaration.config, map(&[("stage", value)]), "stage {value:?}");
+        }
+        // the last value counts
+        let declaration = PluginDeclaration::parse(&directive(&[("stage", "raw"), ("stage", "booked")]));
+        assert_eq!(declaration.capabilities.stage, PluginStage::Booked);
+    }
+
+    #[test]
+    fn should_report_an_invalid_stage_and_run_the_plugin_booked() {
+        for value in ["RAW", "early", "", "before booking"] {
+            let declaration = PluginDeclaration::parse(&directive(&[("stage", value)]));
+
+            assert_eq!(declaration.capabilities.stage, PluginStage::Booked, "stage {value:?}");
+            assert_eq!(
+                declaration.errors,
+                vec![DeclarationError {
+                    kind: ErrorKind::ParseInvalidMeta,
+                    metas: HashMap::of2("plugin", "fx-rate.wasm", "stage", value),
+                }],
+                "stage {value:?}"
+            );
+            assert_eq!(declaration.config, map(&[("stage", value)]), "stage {value:?}");
+        }
     }
 
     #[test]

@@ -331,7 +331,7 @@ option "operating_currency" "EUR"
 张记账读取的某个元数据或选项，它的值无法理解：
 
 - `open` 的 `booking_method` 元数据，或者 `default_booking_method` 选项，不是一种记账方法。账户按账本的默认记账方法记账，无效的选项使默认值保持为 `FIFO`；
-- [`plugin`](/zh-cn/reference/directives/plugin/#能力) 指令的 `timeout` 或 `allowed_paths` 元数据无效。插件以该能力的默认值运行。
+- [`plugin`](/zh-cn/reference/directives/plugin/#能力) 指令的 `timeout`、`allowed_paths` 或 `stage` 元数据无效。插件以该能力的默认值运行。
 
 ```zhang
 2024-01-01 open Assets:Cash
