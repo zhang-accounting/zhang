@@ -34,7 +34,7 @@
     "DocumentNotFound": "文档文件 {{meta.path}} 不存在",
     "AccountClosed": "尝试使用一个已经关闭的账户",
     "CommodityDoesNotDefine": "尝试使用一个未定义的货币",
-    "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推倒金额的行",
+    "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推导金额的行",
     "CloseNonZeroAccount": "尝试关闭一个余额非零的账户",
     "MultipleOperatingCurrencyDetect": "账本中存在多项 operating currency 的配置，这是 zhang 中不推荐的用法",
     "DefineDuplicatedBudget": "尝试创建一个重复的预算",
