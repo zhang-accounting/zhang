@@ -1,11 +1,11 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { CircleAlert, NotebookText, RefreshCw, Search, X } from 'lucide-react';
+import { NotebookText, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { parseISO } from 'date-fns';
 import { journalQueryParams } from '@/components/journalLines/journal-utils';
 import { JournalRow } from '@/components/journalLines/JournalRow';
-import { EmptyState, PageHeader, PageShell } from '@/components/layout';
+import { EmptyState, LoadFailedState, PageHeader, PageShell } from '@/components/layout';
 import { PagePagination } from '@/components/layout/PagePagination';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { TransactionEditModal } from '@/components/modals/TransactionEditModal';
@@ -65,18 +65,7 @@ function Journals() {
 
   let content;
   if (journalItems.state === 'hasError') {
-    content = (
-      <EmptyState
-        icon={CircleAlert}
-        title={t('ledger.common.load_failed')}
-        description={String(journalItems.error)}
-        action={
-          <Button variant="outline" className="h-10 md:h-8" onClick={() => refreshJournals()}>
-            {t('ledger.common.retry')}
-          </Button>
-        }
-      />
-    );
+    content = <LoadFailedState description={String(journalItems.error)} onRetry={refreshJournals} />;
   } else if (journalItems.state === 'loading') {
     content = <JournalDaysSkeleton />;
   } else if ((data?.records.length ?? 0) === 0) {
