@@ -86,6 +86,18 @@ function truncate(text: string, maxWidth: number, fontWeight = 400): string {
   return end > 0 ? `${text.slice(0, end).trimEnd()}…` : '';
 }
 
+/**
+ * Axes of the horizontal bar charts. Bars grow from zero, so the value axis always includes it: all-positive [0, max],
+ * all-negative [min, 0], mixed [min, max]; the data side stays 'auto' so recharts rounds it to nice ticks. The label axis
+ * fits the longest label: it draws the tick text 8px (tick size + margin) left of the bars, `labelSpace` is the rest.
+ */
+function barAxes(bars: { label: string }[], hasNegative: boolean, hasPositive: boolean, isMobile: boolean) {
+  const valueDomain: [number | 'auto', number | 'auto'] = [hasNegative ? 'auto' : 0, hasPositive ? 'auto' : 0];
+  const longestLabel = Math.max(...bars.map((bar) => textWidth(bar.label || '—')));
+  const labelWidth = Math.min(isMobile ? 112 : 200, Math.max(40, Math.ceil(longestLabel) + 12));
+  return { valueDomain, labelWidth, labelSpace: labelWidth - 12 };
+}
+
 function TooltipBox({ title, value, negative }: { title: string; value: string; negative?: boolean }) {
   return (
     <div className="grid max-w-xs gap-1 rounded-lg bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-xl ring-1 ring-foreground/10">
@@ -233,13 +245,7 @@ function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: s
   const shown = bars.slice(0, MAX_BARS);
   const hasNegative = shown.some((bar) => bar.value < 0);
   const hasPositive = shown.some((bar) => bar.value > 0);
-  // Bars grow from zero, so the value axis always includes it: all-positive [0, max], all-negative [min, 0], mixed
-  // [min, max]. The data side stays 'auto' so recharts rounds it to nice ticks.
-  const valueDomain: [number | 'auto', number | 'auto'] = [hasNegative ? 'auto' : 0, hasPositive ? 'auto' : 0];
-  // the axis draws the tick text 8px (tick size + margin) left of the bars: the rest of the width is for the label
-  const longestLabel = Math.max(...shown.map((bar) => textWidth(bar.label || '—')));
-  const labelWidth = Math.min(isMobile ? 112 : 200, Math.max(40, Math.ceil(longestLabel) + 12));
-  const labelSpace = labelWidth - 12;
+  const { valueDomain, labelWidth, labelSpace } = barAxes(shown, hasNegative, hasPositive, isMobile);
 
   const tooltip = ({ active, payload }: ChartTooltipProps) => {
     const datum = payload?.[0]?.payload as BarDatum | undefined;
@@ -390,11 +396,7 @@ function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: str
   const values = shown.flatMap((datum) => datum.values.filter((value): value is number => value !== null));
   const hasNegative = values.some((value) => value < 0);
   const hasPositive = values.some((value) => value > 0);
-  // as in the bar chart, the value axis always includes zero
-  const valueDomain: [number | 'auto', number | 'auto'] = [hasNegative ? 'auto' : 0, hasPositive ? 'auto' : 0];
-  const longestLabel = Math.max(...shown.map((datum) => textWidth(datum.label || '—')));
-  const labelWidth = Math.min(isMobile ? 112 : 200, Math.max(40, Math.ceil(longestLabel) + 12));
-  const labelSpace = labelWidth - 12;
+  const { valueDomain, labelWidth, labelSpace } = barAxes(shown, hasNegative, hasPositive, isMobile);
   // thinner bars for more series, with a 2px gap between the bars of a group
   const barSize = series.length > 3 ? 7 : 10;
   const groupHeight = Math.max(BAR_HEIGHT, series.length * (barSize + 2) + 12);
