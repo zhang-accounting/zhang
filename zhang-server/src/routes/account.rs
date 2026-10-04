@@ -4,11 +4,10 @@ use gotcha::api;
 use log::info;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Date, Directive, Document, ZhangString};
-use zhang_core::domains::schemas::AccountJournalDomain;
 
 use crate::balance_writes::{balance_directives, BalanceRow, BalanceWriteEntity};
 use crate::request::{AccountBalanceRequest, AccountJournalRequest, BatchAccountBalanceRequest};
-use crate::response::{AccountBalanceHistoryEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, Paged, ResponseWrapper};
+use crate::response::{AccountBalanceHistoryEntity, AccountEntity, AccountInfoEntity, AccountJournalEntity, Created, DocumentEntity, Paged, ResponseWrapper};
 use crate::routes::Query;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::validate::Rules;
@@ -115,7 +114,7 @@ pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(St
 #[api(group = "account")]
 pub async fn get_account_journals(
     ledger: State<SharedLedger>, params: Path<(String,)>, page: Query<AccountJournalRequest>,
-) -> ServerResult<Paged<Vec<AccountJournalDomain>>> {
+) -> ServerResult<Paged<Vec<AccountJournalEntity>>> {
     let account_name = params.0 .0;
     let window = page.0.window()?;
     let journal = account_queries::with_ledger(&ledger, move |ledger| account_queries::account_journals(ledger, &account_name, window)).await?;

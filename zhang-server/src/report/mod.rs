@@ -19,7 +19,6 @@ use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveTime, TimeZone, U
 use chrono_tz::Tz;
 use zhang_ast::amount::CalculatedAmount;
 use zhang_ast::AccountType;
-use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, Inventory, Params, PriceMap, QueryErrorKind, QueryResult, Value};
 
@@ -27,7 +26,7 @@ use crate::builtin::{calculated_amount, compiled, execute, BuiltinQuery, LedgerD
 use crate::cells::{self, Row};
 use crate::error::ServerError;
 use crate::request::StatisticInterval;
-use crate::response::{ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
+use crate::response::{AccountJournalEntity, ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
 use crate::routes::query::{execute_options, max_result_values};
 use crate::ServerResult;
 
@@ -429,7 +428,7 @@ pub fn rank(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange)
 }
 
 /// A row of `report.top_postings` as a journal item.
-fn top_posting(row: &Row<'_>) -> ServerResult<Option<AccountJournalDomain>> {
+fn top_posting(row: &Row<'_>) -> ServerResult<Option<AccountJournalEntity>> {
     let (Some(datetime), Some(timestamp), Some(account), Some(id), Some(units), Some(account_balance)) = (
         row.datetime("date", "time")?,
         row.int("timestamp")?,
@@ -440,7 +439,7 @@ fn top_posting(row: &Row<'_>) -> ServerResult<Option<AccountJournalDomain>> {
     ) else {
         return Ok(None);
     };
-    Ok(Some(AccountJournalDomain {
+    Ok(Some(AccountJournalEntity {
         datetime,
         timestamp,
         account,

@@ -16,12 +16,12 @@ use chrono::{NaiveDate, NaiveTime};
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::Account;
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus};
+use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
 use zhang_query::{Inventory, Params, QueryResult};
 
 use crate::builtin::{self, calculated_amount};
-use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, DocumentEntity};
+use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, AccountJournalEntity, DocumentEntity};
 use crate::state::SharedLedger;
 use crate::{cells, ServerResult};
 
@@ -248,14 +248,14 @@ pub struct JournalWindow {
 
 /// A journal: its rows, and with a [`JournalWindow`] the number of rows of the whole journal.
 pub struct Journal {
-    pub rows: Vec<AccountJournalDomain>,
+    pub rows: Vec<AccountJournalEntity>,
     pub total: Option<u64>,
 }
 
 /// A row of `accounts.journal`: one posting, with its `seq`.
 struct PostingRow {
     seq: i64,
-    journal: AccountJournalDomain,
+    journal: AccountJournalEntity,
 }
 
 /// The units of `currency` in an inventory, zero if it has none.
@@ -275,7 +275,7 @@ fn posting_rows(query: &str, result: &QueryResult) -> ServerResult<Vec<PostingRo
             let currency = row.str("currency")?.unwrap_or_default();
             Ok(PostingRow {
                 seq: row.int("seq")?.unwrap_or_default(),
-                journal: AccountJournalDomain {
+                journal: AccountJournalEntity {
                     datetime: row.datetime("date", "time")?.unwrap_or_default(),
                     timestamp: row.int("timestamp")?.unwrap_or_default(),
                     account: row.str("account")?.unwrap_or_default(),
@@ -295,7 +295,7 @@ fn posting_rows(query: &str, result: &QueryResult) -> ServerResult<Vec<PostingRo
 }
 
 /// The rows of `accounts.balance_assertions`, with their `seq`.
-fn assertion_rows(result: &QueryResult) -> ServerResult<Vec<(i64, AccountJournalDomain)>> {
+fn assertion_rows(result: &QueryResult) -> ServerResult<Vec<(i64, AccountJournalEntity)>> {
     cells::rows(BALANCE_ASSERTIONS, result)
         .map(|row| {
             let asserted = row.amount("amount")?.expect("an assertion asserts an amount");
@@ -304,7 +304,7 @@ fn assertion_rows(result: &QueryResult) -> ServerResult<Vec<(i64, AccountJournal
                 .unwrap_or_else(|| Amount::new(BigDecimal::zero(), asserted.commodity.clone()));
             // zero, written with the decimals of the asserted amount and the balance
             let nothing = BigDecimal::zero().with_scale((&asserted.number - &actual.number).fractional_digit_count());
-            let journal = AccountJournalDomain {
+            let journal = AccountJournalEntity {
                 datetime: row.datetime("date", "time")?.unwrap_or_default(),
                 timestamp: row.int("timestamp")?.unwrap_or_default(),
                 account: row.str("account")?.unwrap_or_default(),
@@ -386,14 +386,14 @@ fn too_large_unpaged(error: crate::error::ServerError) -> crate::error::ServerEr
 }
 
 /// The number of the assertions newer than `seq` (`assertions` newest first).
-fn newer_assertions(assertions: &[(i64, AccountJournalDomain)], seq: i64) -> u64 {
+fn newer_assertions(assertions: &[(i64, AccountJournalEntity)], seq: i64) -> u64 {
     assertions.partition_point(|(assertion, _)| *assertion > seq) as u64
 }
 
 /// The rows `offset..end` of the journal: the postings `first..` of `accounts.journal` from the
 /// newest, which run to row `end` or to the oldest, merged with all the assertions by `seq`,
 /// newest first.
-fn merge(postings: Vec<PostingRow>, first: u64, assertions: Vec<(i64, AccountJournalDomain)>, offset: u64, end: u64) -> Vec<AccountJournalDomain> {
+fn merge(postings: Vec<PostingRow>, first: u64, assertions: Vec<(i64, AccountJournalEntity)>, offset: u64, end: u64) -> Vec<AccountJournalEntity> {
     let in_window = |row: u64| (offset..end).contains(&row);
     // the row of every posting in the whole journal: its index plus the assertions newer than it
     let posting_rows = postings
