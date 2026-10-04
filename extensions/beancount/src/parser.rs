@@ -185,6 +185,7 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
         price: None,
         comment: None,
         meta: Meta::default(),
+        written: None,
     };
     if let Some((amount, meta)) = unit {
         posting.units = amount;
@@ -202,14 +203,14 @@ fn transaction_line(i: &str) -> IResult<&str, (usize, TransactionLine)> {
     let (i, _) = line_ending(i)?;
     let (i, indent) = space1(i)?;
     let (i, content) = opt(alt((
-        map(transaction_posting, TransactionLine::Posting),
+        map(transaction_posting, |posting| TransactionLine::Posting(Box::new(posting))),
         map(key_value_line, TransactionLine::Meta),
     )))(i)?;
     let (i, _) = space0(i)?;
     let (i, comment) = opt(valuable_comment_body)(i)?;
 
     let line = match (content, comment) {
-        (Some(TransactionLine::Posting(posting)), Some(comment)) => TransactionLine::Posting(posting.set_comment(comment)),
+        (Some(TransactionLine::Posting(posting)), Some(comment)) => TransactionLine::Posting(Box::new(posting.set_comment(comment))),
         (Some(line), _) => line,
         (None, _) => TransactionLine::Other,
     };
@@ -648,7 +649,7 @@ fn transaction(original: &str) -> IResult<&str, BeancountDirective> {
     for (indent, line) in lines {
         match line {
             TransactionLine::Posting(posting) => {
-                transaction.postings.push(posting);
+                transaction.postings.push(*posting);
                 posting_indent = indent;
             }
             TransactionLine::Meta((key, value)) => match transaction.postings.len().checked_sub(1) {

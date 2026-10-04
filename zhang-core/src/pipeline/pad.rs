@@ -390,6 +390,7 @@ fn padding_transaction(date: Date, account: &Account, pad: &Account, distance: A
                 price: None,
                 comment: None,
                 meta: Default::default(),
+                written: None,
             },
             Posting {
                 flag: None,
@@ -399,6 +400,7 @@ fn padding_transaction(date: Date, account: &Account, pad: &Account, distance: A
                 price: None,
                 comment: None,
                 meta: Default::default(),
+                written: None,
             },
         ],
         meta: Default::default(),

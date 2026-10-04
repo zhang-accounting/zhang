@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
@@ -127,12 +127,87 @@ pub struct Posting {
     /// transaction that passes through it loses the metadata of its postings.
     #[serde(default)]
     pub meta: Meta,
+    /// What the user wrote, when booking changed this posting (booking-split design, #423):
+    /// filled in the units of a posting written without them, resolved its cost spec to the
+    /// per-unit cost and acquisition date of a lot, or split a reduction into one posting per
+    /// lot. The legs of a split are adjacent and share the `index` of the posting they came
+    /// from. `None` for a posting booking left as written.
+    ///
+    /// Advisory: nothing reads it for balances, lots or errors. Journal rows, the edit form and
+    /// the exporter ([`written_postings`]) show the posting as written when it is here. A
+    /// missing field reads as `None`, and `None` is not serialized, so a posting booking left
+    /// alone serializes exactly as it did before the field existed; a plugin built against an
+    /// older zhang-ast drops it, which only changes how such rows look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written: Option<WrittenPosting>,
 }
 impl Posting {
     pub fn set_comment(mut self, comment: String) -> Self {
         self.comment = Some(comment);
         self
     }
+}
+
+/// The written form of a posting booking changed; see [`Posting::written`].
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct WrittenPosting {
+    /// position of the written posting in its transaction; all the legs of a split share it
+    pub index: usize,
+    /// the units as written; `None` for a posting written without units, which booking
+    /// interpolated
+    pub units: Option<Amount>,
+    /// the cost spec as written: `{}`, `{{1000 USD}}`, `{185 USD}` without a date, ...
+    pub cost: Option<PostingCost>,
+}
+
+/// `postings` as written: the legs booking split from one posting, adjacent and sharing
+/// [`WrittenPosting::index`], merged back into that posting, with its units and cost as written
+/// and the flag, price, comment and metadata of its first leg (booking copies the written
+/// posting's onto every leg, so none is lost). A posting without [`Posting::written`] is kept as
+/// it is.
+///
+/// A written posting is restored only when its legs are complete: its index occurs in exactly one
+/// run of adjacent legs, all of one account. A stage may have moved a leg away from the others, or
+/// given two different postings the same index (duplicating a posting and keeping its `written`);
+/// restoring the written form would then double the posting, or lose one. Such legs are kept as
+/// booked, each on its own, with their `written` dropped.
+pub fn written_postings(postings: Vec<Posting>) -> Vec<Posting> {
+    // the runs of adjacent legs sharing an index and an account, counted per index
+    let mut runs: HashMap<usize, usize> = HashMap::new();
+    let mut last_run: Option<(usize, &Account)> = None;
+    for posting in &postings {
+        match &posting.written {
+            Some(form) => {
+                let run = (form.index, &posting.account);
+                if last_run != Some(run) {
+                    *runs.entry(form.index).or_default() += 1;
+                }
+                last_run = Some(run);
+            }
+            None => last_run = None,
+        }
+    }
+
+    let mut written: Vec<Posting> = Vec::with_capacity(postings.len());
+    let mut last_index: Option<usize> = None;
+    for mut posting in postings {
+        let index = match posting.written.take() {
+            Some(form) if runs.get(&form.index) == Some(&1) => {
+                if last_index == Some(form.index) {
+                    // another leg of the posting merged last
+                    continue;
+                }
+                posting.units = form.units;
+                posting.cost = form.cost;
+                Some(form.index)
+            }
+            // no written form, or an incomplete one: the leg as booked
+            _ => None,
+        };
+        written.push(posting);
+        last_index = index;
+    }
+    written
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
@@ -160,6 +235,11 @@ pub struct Transaction {
 impl Transaction {
     pub fn has_account(&self, name: &String) -> bool {
         self.postings.iter().any(|posting| posting.account.content.eq(name))
+    }
+
+    /// the postings as written ([`written_postings`])
+    pub fn written_postings(&self) -> Vec<Posting> {
+        written_postings(self.postings.clone())
     }
 }
 

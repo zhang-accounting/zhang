@@ -387,6 +387,7 @@ fn padding(date: Date, account: &Account, source: &Account, difference: Amount) 
         price: None,
         comment: None,
         meta: Default::default(),
+        written: None,
     };
     let negated = Amount::new(-difference.number.clone(), difference.commodity.clone());
     Directive::Transaction(Transaction {

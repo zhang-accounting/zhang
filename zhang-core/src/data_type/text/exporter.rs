@@ -128,9 +128,11 @@ impl ZhangDataTypeExportable for Transaction {
         // the transaction's metadata goes before the postings: beancount attaches a
         // metadata line that follows a posting to that posting. A posting's own metadata
         // follows it two levels deeper, which beancount and zhang (where it must be
-        // indented deeper than the posting) both read as the posting's
+        // indented deeper than the posting) both read as the posting's.
+        // Postings booking changed are written as the user wrote them: the legs of a split
+        // merged back, implicit units left out, the cost spec as written
         let meta = self.meta.export_as(style).into_iter().map(|it| format!("  {}", it));
-        let postings = self.postings.into_iter().flat_map(|mut posting| {
+        let postings = written_postings(self.postings).into_iter().flat_map(|mut posting| {
             let meta = std::mem::take(&mut posting.meta).export_as(style).into_iter().map(|it| format!("    {}", it));
             std::iter::once(format!("  {}", posting.export_as(style))).chain(meta)
         });
@@ -850,6 +852,139 @@ mod test {
     }
 
     #[test]
+    fn booked_postings_are_exported_as_written() {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Account, Date, Directive, Posting, PostingCost, WrittenPosting};
+
+        use crate::data_type::text::exporter::ZhangDataTypeExportable;
+        use crate::utils::string_::QuoteStyle;
+
+        let source = indoc! {r#"
+            2024-05-18 * "sell"
+              Assets:S -15 USD {}
+              Income:I
+        "#};
+        let directives = ZhangDataType {}.transform(source.to_owned(), None).unwrap();
+        let Directive::Transaction(mut txn) = directives.into_iter().next().unwrap().data else {
+            panic!("a transaction")
+        };
+        // what booking makes of it: one leg per lot, the implicit posting interpolated
+        let leg = |units: i64, cost: i64, date: &str| Posting {
+            flag: None,
+            account: Account::from_str("Assets:S").unwrap(),
+            units: Some(Amount::new(BigDecimal::from(units), "USD")),
+            cost: Some(PostingCost {
+                base: Some(Amount::new(BigDecimal::from(cost), "CNY")),
+                date: Some(Date::Date(chrono::NaiveDate::from_str(date).unwrap())),
+                label: None,
+                total: false,
+            }),
+            price: None,
+            comment: None,
+            meta: Default::default(),
+            written: Some(WrittenPosting {
+                index: 0,
+                units: txn.postings[0].units.clone(),
+                cost: txn.postings[0].cost.clone(),
+            }),
+        };
+        let income = Posting {
+            units: Some(Amount::new(BigDecimal::from(155), "CNY")),
+            written: Some(WrittenPosting {
+                index: 1,
+                units: None,
+                cost: None,
+            }),
+            ..txn.postings[1].clone()
+        };
+        txn.postings = vec![leg(-10, 10, "2024-05-16"), leg(-5, 11, "2024-05-17"), income];
+
+        // the legs merged back into the written posting, the implicit posting without units
+        // (the exporter writes an empty cost spec as `{ }`)
+        assert_eq!(
+            Directive::Transaction(txn).export_as(QuoteStyle::Zhang),
+            indoc! {r#"
+                2024-05-18 * "sell"
+                  Assets:S -15 USD { }
+                  Income:I
+            "#}
+            .trim()
+        );
+    }
+
+    #[test]
+    fn booked_total_cost_label_and_price_are_exported_as_written_and_parse_back() {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Date, Directive, PostingCost, WrittenPosting};
+
+        use crate::data_type::text::exporter::ZhangDataTypeExportable;
+        use crate::utils::string_::QuoteStyle;
+
+        let source = indoc! {r#"
+            2024-05-18 * "buy"
+              Assets:A 10 USD {{ 110 CNY }} @ 12 CNY
+              Assets:B 5 USD { 10 CNY, "a" }
+              Income:I
+        "#};
+        let parse = |text: &str| match (ZhangDataType {}).transform(text.to_owned(), None).unwrap().into_iter().next().unwrap().data {
+            Directive::Transaction(txn) => txn,
+            _ => panic!("a transaction"),
+        };
+        let written = parse(source);
+        // what booking makes of it: the per-unit cost and the transaction date on every lot, the
+        // income interpolated
+        let date = Date::Date(chrono::NaiveDate::from_str("2024-05-18").unwrap());
+        let mut booked = written.clone();
+        booked.postings[0].cost = Some(PostingCost {
+            base: Some(Amount::new(BigDecimal::from(11), "CNY")),
+            date: Some(date.clone()),
+            label: None,
+            total: false,
+        });
+        booked.postings[0].written = Some(WrittenPosting {
+            index: 0,
+            units: written.postings[0].units.clone(),
+            cost: written.postings[0].cost.clone(),
+        });
+        booked.postings[1].cost = Some(PostingCost {
+            base: Some(Amount::new(BigDecimal::from(10), "CNY")),
+            date: Some(date),
+            label: Some("a".to_owned()),
+            total: false,
+        });
+        booked.postings[1].written = Some(WrittenPosting {
+            index: 1,
+            units: written.postings[1].units.clone(),
+            cost: written.postings[1].cost.clone(),
+        });
+        booked.postings[2].units = Some(Amount::new(BigDecimal::from(-160), "CNY"));
+        booked.postings[2].written = Some(WrittenPosting {
+            index: 2,
+            units: None,
+            cost: None,
+        });
+
+        let exported = Directive::Transaction(booked).export_as(QuoteStyle::Zhang);
+        assert_eq!(
+            exported,
+            indoc! {r#"
+                2024-05-18 * "buy"
+                  Assets:A 10 USD {{ 110 CNY }} @ 12 CNY
+                  Assets:B 5 USD { 10 CNY , "a" }
+                  Income:I
+            "#}
+            .trim()
+        );
+        assert_eq!(parse(&exported), written, "the export parses back to the transaction as written");
+    }
+
+    #[test]
     fn posting_meta_is_written_under_its_posting_two_levels_deeper() {
         use zhang_ast::{Directive, SpanInfo, Spanned};
 
@@ -1209,6 +1344,7 @@ mod test {
                         price: None,
                         comment: None,
                         meta: posting_meta,
+                        written: None,
                     },
                     Posting {
                         flag: None,
@@ -1218,6 +1354,7 @@ mod test {
                         price: None,
                         comment: None,
                         meta: Default::default(),
+                        written: None,
                     },
                 ],
                 meta: txn_meta,
