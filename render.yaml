@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+services:
+  - type: web
+    name: zhang-demo
+    runtime: rust
+    plan: free
+    region: singapore
+    autoDeployTrigger: "off"
+    buildCommand: bash deploy/render/build.sh
+    startCommand: bash deploy/render/start.sh
+    healthCheckPath: /api/info
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: RUSTUP_TOOLCHAIN
+        value: stable
+      - key: RUST_LOG
+        value: info
+      - key: ZHANG_DATA_SOURCE
+        value: s3
+      - key: ZHANG_S3_BUCKET
+        sync: false
+      - key: ZHANG_S3_ENDPOINT
+        sync: false
+      - key: ZHANG_S3_REGION
+        sync: false
+      - key: ZHANG_S3_ROOT
+        value: /
+      - key: ZHANG_S3_ACCESS_KEY_ID
+        sync: false
+      - key: ZHANG_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: ZHANG_DEMO_ENDPOINT
+        value: main.zhang
+      - key: ZHANG_QUERY_MAX_RESULT_VALUES
+        value: "100000"
