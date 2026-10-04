@@ -232,6 +232,8 @@ async fn a_transaction_keeps_every_value_of_a_repeated_key_and_its_postings_thei
                 "account_before": amount("0.00", "CNY"),
                 "account_after": amount("-10.00", "CNY"),
                 "metas": [],
+                // the rest of the posting line as written (#473): none here
+                "written": {"cost": null, "price": null, "comment": null},
             },
             {
                 // written without an amount: `unit` is null, `inferred_unit` what balances the transaction
@@ -242,6 +244,7 @@ async fn a_transaction_keeps_every_value_of_a_repeated_key_and_its_postings_thei
                 "account_before": amount("0.00", "CNY"),
                 "account_after": amount("10.00", "CNY"),
                 "metas": [{"key": "note", "value": "x"}],
+                "written": {"cost": null, "price": null, "comment": null},
             },
         ])
     );
@@ -404,6 +407,8 @@ async fn balance_assertions_and_pads_keep_their_shape() {
                 "account_before": amount(actual, "CNY"),
                 "account_after": amount(asserted, "CNY"),
                 "metas": [],
+                // a check's entry is no posting line: nothing is written on it
+                "written": null,
             }])
         );
     };
