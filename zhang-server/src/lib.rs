@@ -41,6 +41,7 @@ use crate::state::AppState;
 pub mod auth;
 pub mod broadcast;
 pub mod builtin;
+mod cells;
 pub mod error;
 pub mod request;
 pub mod response;

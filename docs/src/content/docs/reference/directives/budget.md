@@ -24,7 +24,7 @@ YYYY-MM-DD budget-close <Name>
 | `budget` | Creates the budget `<Name>`, counted in `<Commodity>`. |
 | `budget-add` | Assigns an amount to the budget in the month of its date. A negative amount takes money away. |
 | `budget-transfer` | Moves an assigned amount from one budget to another in the month of its date. |
-| `budget-close` | Marks the budget as closed. |
+| `budget-close` | Closes the budget from the month of its date. |
 
 A budget name is a single word without spaces, quotes, colons, parentheses or commas, such as `Food` or
 `Daily-Groceries`. Each directive takes a date, optionally with a time of day, and metadata lines below.
@@ -39,7 +39,8 @@ A `budget` directive reads two metadata keys:
 ### Linking accounts
 
 An account counts toward a budget through the `budget` metadata of its `open` directive. Repeat the key to link the
-account to several budgets.
+account to several budgets. A posting counts toward the budgets of the account's `open` in effect at its date, so an
+account closed and opened again with other `budget` metadata counts toward the new budgets from its reopening on.
 
 ```text
 YYYY-MM-DD open <Account>
@@ -90,10 +91,11 @@ Some details:
 
 - A budget exists from the date of its `budget` directive. A posting to a linked account before that date is not
   counted, and is reported once as [`BudgetDoesNotExist`](/reference/error-codes/#budgetdoesnotexist).
-- Zhang adds the numbers of `budget-add`, `budget-transfer` and the postings without converting or checking their
-  commodity. Keep a budget's amounts and its linked accounts in the budget's commodity.
-- `budget-close` only marks the budget as closed: the budget page shows it as closed, and the budget card of the home
-  page leaves it out. Later directives and postings still count toward it.
+- The amounts of `budget-add` and `budget-transfer`, and the postings, are converted to the budget's commodity at
+  their date, with the prices of the ledger. An amount that no price converts is left out.
+- `budget-close` closes the budget from the month of its date: the budget page shows it as closed in that month and
+  the months after, and the budget card of the home page leaves it out from then on. A later `budget-close` changes
+  nothing. Later directives and postings still count toward it.
 - The budget page of the web UI shows the assigned, activity and available amounts of each budget for a month, and
   the events of a budget in a month. In queries, `#budgets` and `#budget_events` hold the same figures; see
   [Zhang-specific tables](/reference/query-language/#zhang-specific-tables).

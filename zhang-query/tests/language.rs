@@ -720,3 +720,161 @@ fn metas_and_sets_count_their_text_against_the_result_budget() {
         assert_eq!(run(sql, 100_000).unwrap().rows.len(), 50, "{sql}");
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// CASE
+// ---------------------------------------------------------------------------------------
+
+/// `CASE WHEN ... THEN ... [ELSE ...] END` picks the value of the first condition that is
+/// TRUE, else the ELSE value, else NULL. The postings are 4.50 and -4.50 USD, 20 and -20 USD,
+/// 10 and -10 USD.
+#[test]
+fn case_picks_the_first_true_condition() {
+    assert_eq!(
+        rows("SELECT number, CASE WHEN number >= 10 THEN 'big' WHEN number > 0 THEN 'small' ELSE 'refund' END WHERE number > -5"),
+        expected(&[&["4.50", "small"], &["-4.50", "refund"], &["20", "big"], &["10", "big"]])
+    );
+    // without ELSE, no TRUE condition gives NULL
+    assert_eq!(
+        rows("SELECT CASE WHEN number > 0 THEN account END WHERE year = 2024 AND month = 1"),
+        expected(&[&["Expenses:Food:Coffee"], &["NULL"]])
+    );
+    // the keywords are case-insensitive and the expression nests
+    assert_eq!(
+        rows("select case when month = 1 then case when number > 0 then 'in' else 'out' end else 'later' end as kind WHERE month <= 2"),
+        expected(&[&["in"], &["out"], &["later"], &["later"]])
+    );
+}
+
+/// A NULL condition is not TRUE, as in WHERE: the CASE goes on to the next branch.
+#[test]
+fn case_treats_a_null_condition_as_not_true() {
+    // payee = NULL is NULL for every row
+    assert_eq!(
+        rows("SELECT CASE WHEN payee = NULL THEN 'null' WHEN NULL THEN 'null again' ELSE 'else' END WHERE month = 2"),
+        expected(&[&["else"], &["else"]])
+    );
+    // a NULL value is returned as it is
+    assert_eq!(
+        rows("SELECT CASE WHEN TRUE THEN NULL ELSE 'x' END, CASE WHEN FALSE THEN 'x' END LIMIT 1"),
+        expected(&[&["NULL", "NULL"]])
+    );
+}
+
+/// The values of a CASE have one type: NULL fits any, and an integer is widened to a decimal
+/// when another value is a decimal. The conditions must be booleans.
+#[test]
+fn case_values_have_one_type() {
+    assert_eq!(
+        rows("SELECT CASE WHEN number > 0 THEN 1 ELSE 0.5 END WHERE month = 3"),
+        expected(&[&["1"], &["0.5"]])
+    );
+    let columns = Query::compile("SELECT CASE WHEN TRUE THEN 1 ELSE 0.5 END, CASE WHEN TRUE THEN NULL ELSE date END")
+        .unwrap()
+        .columns();
+    assert_eq!(columns.iter().map(|it| it.ty).collect::<Vec<_>>(), vec![DataType::Decimal, DataType::Date]);
+
+    let err = Query::compile("SELECT CASE WHEN TRUE THEN 'x' ELSE 1 END").err().unwrap();
+    assert_eq!((err.kind, err.column), (QueryErrorKind::Compile, Some(37)), "{err}");
+    assert_eq!(
+        err.message,
+        "the values of a CASE must have one type, but this one is int and an earlier one str"
+    );
+    let err = Query::compile("SELECT CASE WHEN number THEN 1 END").err().unwrap();
+    assert_eq!((err.kind, err.column), (QueryErrorKind::Compile, Some(18)), "{err}");
+    assert_eq!(err.message, "a WHEN condition must be a boolean, got decimal");
+    // END is required
+    let err = Query::compile("SELECT CASE WHEN TRUE THEN 1").err().unwrap();
+    assert_eq!((err.kind, err.column), (QueryErrorKind::Parse, Some(29)), "{err}");
+    assert_eq!(err.message, "expected WHEN, ELSE or END in CASE, found end of query");
+    let err = Query::compile("SELECT CASE WHEN TRUE THEN 1 ELSE 2 FROM #prices").err().unwrap();
+    assert_eq!(err.message, "expected END in CASE, found 'FROM'");
+    let err = Query::compile("SELECT CASE WHEN TRUE 1 END").err().unwrap();
+    assert_eq!((err.kind, err.column), (QueryErrorKind::Parse, Some(23)), "{err}");
+    assert_eq!(err.message, "expected THEN after the WHEN condition, found '1'");
+}
+
+/// Only the chosen value is evaluated: a value that would fail (an integer overflow) is never
+/// computed for the rows that do not choose it.
+#[test]
+fn case_evaluates_only_the_chosen_value() {
+    assert_eq!(
+        rows("SELECT CASE WHEN year < 1900 THEN 9223372036854775807 + year ELSE 1 END WHERE month = 1"),
+        expected(&[&["1"], &["1"]])
+    );
+    let err = run_on(
+        ledger(),
+        "SELECT CASE WHEN year > 1900 THEN 9223372036854775807 + year ELSE 1 END",
+        &Params::new(),
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Eval, "{err}");
+    // an aggregate adds up every row of its group, whichever branch the group chooses, as in
+    // SQL: its argument is computed, and fails, on every row
+    let sql = "SELECT account, CASE WHEN count(*) < 0 THEN sum(9223372036854775807 + year) ELSE count(*) END GROUP BY account";
+    let err = run_on(ledger(), sql, &Params::new(), false).unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Eval, "{err}");
+    assert!(err.message.contains("overflow"), "{err}");
+}
+
+/// A CASE can choose between aggregates, the way a built-in query carries a budget over, and
+/// between parameters; constant conditions are decided when the query is compiled.
+#[test]
+fn case_works_with_aggregates_and_parameters() {
+    assert_eq!(
+        rows("SELECT account, CASE WHEN count(*) > 1 THEN sum(number) ELSE max(number) * 100 END GROUP BY account ORDER BY account"),
+        expected(&[
+            &["Assets:Bank", "-450.00"],
+            &["Assets:Bank:Savings", "-2000"],
+            &["Assets:Banking", "-1000"],
+            &["Expenses:Food", "30"],
+            &["Expenses:Food:Coffee", "450.00"],
+        ])
+    );
+    let sql = "SELECT CASE WHEN last(date) < :month THEN 'carried' ELSE 'own' END GROUP BY account ORDER BY account LIMIT 1";
+    let at = |month: NaiveDate| rows_with(sql, &Params::new().bind("month", month));
+    assert_eq!(at(NaiveDate::from_ymd_opt(2024, 1, 31).unwrap()), expected(&[&["own"]]));
+    assert_eq!(at(NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()), expected(&[&["carried"]]));
+    // a constant TRUE after a condition of the row ends the CASE there, as its ELSE: the
+    // condition of the row is still tested on every row
+    assert_eq!(
+        rows("SELECT account, CASE WHEN account ~ 'Bank' THEN 'bank' WHEN TRUE THEN 'other' WHEN account ~ 'Food' THEN 'never' END WHERE month = 2"),
+        expected(&[&["Expenses:Food", "other"], &["Assets:Bank:Savings", "bank"]])
+    );
+    let explain = Query::compile("SELECT CASE WHEN account ~ 'Bank' THEN 'bank' WHEN TRUE THEN 'other' END")
+        .unwrap()
+        .explain();
+    assert!(explain.contains("CASE WHEN (account ~ /Bank/i) THEN 'bank' ELSE 'other' END"), "{explain}");
+    // a constant condition leaves the chosen value alone in the plan
+    let explain = Query::compile("SELECT CASE WHEN 1 > 2 THEN 'a' WHEN year > 2000 THEN 'b' ELSE 'c' END")
+        .unwrap()
+        .explain();
+    assert!(explain.contains("CASE WHEN (year > 2000) THEN 'b' ELSE 'c' END"), "{explain}");
+    let explain = Query::compile("SELECT CASE WHEN 1 < 2 THEN 'a' ELSE account END").unwrap().explain();
+    assert!(explain.contains("target 0: CASE WHEN 1 < 2 THEN 'a' ELSE account END = 'a'"), "{explain}");
+}
+
+/// `case` is a keyword only before WHEN, so it still names a target; CASE expressions nest to
+/// the depth limit on a small stack, and deeper ones are a parse error.
+#[test]
+fn case_is_a_keyword_only_before_when_and_nests_to_the_limit() {
+    assert_eq!(rows("SELECT month AS case ORDER BY case DESC LIMIT 1"), expected(&[&["3"]]));
+    let on_small_stack = |sql: String| {
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || {
+                Query::compile(&sql)
+                    .and_then(|query| query.execute_with_options(ledger(), &Params::new(), &options(false)))
+                    .map(|result| table(&result))
+            })
+            .unwrap()
+            .join()
+            .expect("the query thread crashed")
+    };
+    let nested = |depth: usize| format!("SELECT {}month{} LIMIT 1", "CASE WHEN month > 0 THEN ".repeat(depth), " END".repeat(depth));
+    assert_eq!(on_small_stack(nested(zhang_query::MAX_DEPTH / 2 - 4)).unwrap(), expected(&[&["1"]]));
+    let err = on_small_stack(nested(2_000)).unwrap_err();
+    assert_eq!(err.kind, QueryErrorKind::Parse, "{err}");
+    assert!(err.message.contains("nested too deeply"), "{err}");
+}

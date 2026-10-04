@@ -22,6 +22,24 @@ pub fn load_text(content: &str) -> Ledger {
     load_ledger(dir, "main.zhang")
 }
 
+/// Load a ledger from text, with the current time read from `clock`.
+pub fn load_text_at(content: &str, clock: zhang_core::clock::Clock) -> Ledger {
+    use zhang_core::data_type::DataType;
+    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
+    let directives = ZhangDataType {}
+        .transform(content.to_owned(), Some("main.zhang".to_owned()))
+        .expect("parse ledger");
+    Ledger::process(LedgerProcessContext {
+        directives,
+        entry: (dir, "main.zhang".to_owned()),
+        visited_files: vec![],
+        data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+        clock,
+    })
+    .expect("cannot load ledger")
+}
+
 /// Load a ledger from text, with `transform` changing its parsed directives first, as a plugin
 /// changes the stream it reads.
 pub fn load_transformed(content: &str, transform: impl FnOnce(Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>>) -> Ledger {

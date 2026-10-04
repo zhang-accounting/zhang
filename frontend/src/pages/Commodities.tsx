@@ -8,6 +8,7 @@ import { retrieveOptions } from '@/api/requests';
 import Amount from '@/components/Amount';
 import CommodityBox, { CommodityLatestPrice, CommoditySymbol, type CommodityBoxProps } from '@/components/CommodityBox';
 import { EmptyState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -85,7 +86,11 @@ export default function Commodities() {
 
   return (
     <PageShell>
-      <PageHeader title={t('NAV_COMMODITIES')} description={t('commodities.description')} />
+      <PageHeader
+        title={t('NAV_COMMODITIES')}
+        description={t('commodities.description')}
+        actions={<OpenInExplore name="commodities.totals" iconOnly className="size-10 md:size-8" />}
+      />
       {commodities.state === 'hasError' ? (
         <EmptyState
           icon={TriangleAlert}
