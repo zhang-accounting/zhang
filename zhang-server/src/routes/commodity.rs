@@ -26,10 +26,13 @@ use crate::{ApiResult, ServerResult};
 /// of today and the date and time of the quote it comes from.
 fn commodity_item(
     commodity: CommodityDomain, group: Option<String>, total: BigDecimal, latest_price: Option<&Row<'_>>, currency: &str,
-) -> CommodityListItemEntity {
-    let latest_rate = latest_price.and_then(|row| row.decimal("rate"));
+) -> ServerResult<CommodityListItemEntity> {
+    let (latest_rate, latest_price_date) = match latest_price {
+        Some(row) => (row.decimal("rate")?, row.datetime("date", "time")?),
+        None => (None, None),
+    };
     let latest_price_commodity = latest_rate.is_some().then(|| currency.to_owned());
-    CommodityListItemEntity {
+    Ok(CommodityListItemEntity {
         name: commodity.name,
         precision: commodity.precision,
         prefix: commodity.prefix,
@@ -37,10 +40,10 @@ fn commodity_item(
         rounding: commodity.rounding.to_string(),
         group,
         total_amount: total,
-        latest_price_date: latest_price.and_then(|row| row.datetime("date", "time")),
+        latest_price_date,
         latest_price_amount: latest_rate,
         latest_price_commodity,
-    }
+    })
 }
 
 /// The commodities of the store (all of them, or the one named `name`), in the store's order,
@@ -62,8 +65,15 @@ fn stored_commodities(ledger: &Ledger, name: Option<&str>) -> Vec<(CommodityDoma
         .collect_vec()
 }
 
-fn by_currency(result: &QueryResult) -> HashMap<String, Row<'_>> {
-    rows(result).filter_map(|row| Some((row.str("currency")?, row))).collect()
+/// The rows of the result of `query` by their `currency`.
+fn by_currency<'a>(query: &str, result: &'a QueryResult) -> ServerResult<HashMap<String, Row<'a>>> {
+    let mut by_currency = HashMap::new();
+    for row in rows(query, result) {
+        if let Some(currency) = row.str("currency")? {
+            by_currency.insert(currency, row);
+        }
+    }
+    Ok(by_currency)
 }
 
 /// Every commodity, with how much of it the Assets and Liabilities accounts hold and its latest
@@ -73,19 +83,21 @@ pub async fn get_all_commodities(ledger: State<SharedLedger>) -> ApiResult<Vec<C
     let items = with_ledger(&ledger, |ledger| {
         let commodities = stored_commodities(ledger, None);
         let totals = execute(ledger, "commodities.totals", &Params::new(), false)?;
-        let totals = by_currency(&totals);
+        let totals = by_currency("commodities.totals", &totals)?;
         let params = Params::new().bind("currency", ledger.options.operating_currency.as_str());
         let prices = execute(ledger, "commodities.latest_prices", &params, false)?;
-        let prices = by_currency(&prices);
-        let items = commodities
+        let prices = by_currency("commodities.latest_prices", &prices)?;
+        commodities
             .into_iter()
             .map(|(commodity, group)| {
-                let total = totals.get(&commodity.name).and_then(|row| row.decimal("total")).unwrap_or_default();
+                let total = match totals.get(&commodity.name) {
+                    Some(row) => row.decimal("total")?.unwrap_or_default(),
+                    None => BigDecimal::default(),
+                };
                 let latest_price = prices.get(&commodity.name);
                 commodity_item(commodity, group, total, latest_price, &ledger.options.operating_currency)
             })
-            .collect_vec();
-        Ok(items)
+            .collect()
     })
     .await?;
     ResponseWrapper::json(items)
@@ -112,36 +124,45 @@ pub async fn get_single_commodity(ledger: State<SharedLedger>, params: Path<(Str
 fn single_commodity(ledger: &Ledger, commodity: CommodityDomain, group: Option<String>) -> ServerResult<CommodityDetailEntity> {
     let commodity_param = || Params::new().bind("commodity", commodity.name.as_str());
     let total = execute(ledger, "commodities.total", &commodity_param(), false)?;
-    let total = first_row(&total).and_then(|row| row.decimal("total")).unwrap_or_default();
+    let total = match first_row("commodities.total", &total) {
+        Some(row) => row.decimal("total")?.unwrap_or_default(),
+        None => BigDecimal::default(),
+    };
     let params = commodity_param().bind("currency", ledger.options.operating_currency.as_str());
     let latest_price = execute(ledger, "commodities.latest_price", &params, false)?;
 
     let lots = execute(ledger, "commodities.lots", &commodity_param(), false)?;
-    let lots = rows(&lots)
-        .map(|row| CommodityLotEntity {
-            account: row.str("account").unwrap_or_default(),
-            amount: row.decimal("units").unwrap_or_default(),
-            cost: row
-                .decimal("cost_number")
-                .zip(row.str("cost_currency"))
-                .map(|(number, currency)| Amount::new(number, currency)),
-            price: None,
-            acquisition_date: row.date("cost_date"),
-            // `cost_label` is "" for a lot held without cost and NULL for a cost lot without a label
-            label: row.str("cost_label").filter(|label| !label.is_empty()),
-        })
-        .collect_vec();
-
-    let prices = execute(ledger, "commodities.prices", &commodity_param(), false)?;
-    let prices = rows(&prices)
-        .filter_map(|row| {
-            Some(CommodityPriceEntity {
-                datetime: row.datetime("date", "time")?,
-                amount: row.amount("amount")?,
+    let lots = rows("commodities.lots", &lots)
+        .map(|row| {
+            Ok(CommodityLotEntity {
+                account: row.str("account")?.unwrap_or_default(),
+                amount: row.decimal("units")?.unwrap_or_default(),
+                cost: row
+                    .decimal("cost_number")?
+                    .zip(row.str("cost_currency")?)
+                    .map(|(number, currency)| Amount::new(number, currency)),
+                price: None,
+                acquisition_date: row.date("cost_date")?,
+                // `cost_label` is "" for a lot held without cost and NULL for a cost lot without a label
+                label: row.str("cost_label")?.filter(|label| !label.is_empty()),
             })
         })
-        .collect_vec();
+        .collect::<ServerResult<Vec<_>>>()?;
 
-    let info = commodity_item(commodity, group, total, first_row(&latest_price).as_ref(), &ledger.options.operating_currency);
+    let quotes = execute(ledger, "commodities.prices", &commodity_param(), false)?;
+    let mut prices = vec![];
+    for row in rows("commodities.prices", &quotes) {
+        if let Some((datetime, amount)) = row.datetime("date", "time")?.zip(row.amount("amount")?) {
+            prices.push(CommodityPriceEntity { datetime, amount });
+        }
+    }
+
+    let info = commodity_item(
+        commodity,
+        group,
+        total,
+        first_row("commodities.latest_price", &latest_price).as_ref(),
+        &ledger.options.operating_currency,
+    )?;
     Ok(CommodityDetailEntity { info, lots, prices })
 }

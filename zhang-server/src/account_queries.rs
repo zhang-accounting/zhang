@@ -96,28 +96,29 @@ impl Balance {
 }
 
 /// The accounts of an `accounts.list`-shaped result and the balances of an `accounts.balances`-shaped
-/// one, by name: the accounts with a directive and those with postings. Each account's subtree
-/// totals add up the rows of the account and of the accounts under it, as the account tree does.
-fn summaries(accounts: &QueryResult, balances: &QueryResult) -> BTreeMap<String, Summary> {
+/// one (each with the name of its query), by name: the accounts with a directive and those with
+/// postings. Each account's subtree totals add up the rows of the account and of the accounts under
+/// it, as the account tree does.
+fn summaries(accounts: (&str, &QueryResult), balances: (&str, &QueryResult)) -> ServerResult<BTreeMap<String, Summary>> {
     let mut summaries: BTreeMap<String, Summary> = BTreeMap::new();
-    for row in cells::rows(accounts) {
-        let summary = summaries.entry(row.str("account").unwrap_or_default()).or_default();
-        summary.open = row.date("open");
-        summary.close = row.date("close");
-        summary.alias = row.str("alias");
+    for row in cells::rows(accounts.0, accounts.1) {
+        let summary = summaries.entry(row.str("account")?.unwrap_or_default()).or_default();
+        summary.open = row.date("open")?;
+        summary.close = row.date("close")?;
+        summary.alias = row.str("alias")?;
     }
-    for row in cells::rows(balances) {
-        let summary = summaries.entry(row.str("account").unwrap_or_default()).or_default();
-        let currency = row.str("currency").unwrap_or_default();
+    for row in cells::rows(balances.0, balances.1) {
+        let summary = summaries.entry(row.str("account")?.unwrap_or_default()).or_default();
+        let currency = row.str("currency")?.unwrap_or_default();
         summary
             .own
             .units
-            .add_amount(&Amount::new(row.decimal("units").unwrap_or_default(), currency.clone()));
+            .add_amount(&Amount::new(row.decimal("units")?.unwrap_or_default(), currency.clone()));
         summary.own.currencies.insert(currency);
-        if let Some(value) = row.get("value").as_inventory() {
+        if let Some(value) = row.get("value")?.as_inventory() {
             summary.own.value.add_inventory(value);
         }
-        let first = row.date("first_date");
+        let first = row.date("first_date")?;
         summary.first_posting = match (summary.first_posting, first) {
             (Some(earlier), Some(first)) => Some(earlier.min(first)),
             (earlier, first) => earlier.or(first),
@@ -136,7 +137,7 @@ fn summaries(accounts: &QueryResult, balances: &QueryResult) -> BTreeMap<String,
         }
         summaries.get_mut(name).expect("a summary of every name").own = own;
     }
-    summaries
+    Ok(summaries)
 }
 
 /// The subtree units per currency, as the response's `balance_with_sub_accounts`.
@@ -158,7 +159,7 @@ pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
     let operating_currency = ledger.options.operating_currency.as_str();
     let accounts = run(ledger, LIST, &Params::new())?;
     let balances = run(ledger, BALANCES, &Params::new().bind("operating_currency", operating_currency))?;
-    Ok(summaries(&accounts, &balances)
+    Ok(summaries((LIST, &accounts), (BALANCES, &balances))?
         .into_iter()
         .map(|(name, summary)| AccountEntity {
             status: status(&summary),
@@ -175,8 +176,15 @@ pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
 /// postings; a name that is no account name is a 400.
 fn has_page(ledger: &Ledger, account: &str) -> ServerResult<bool> {
     crate::validate::account(account, &crate::validate::Rules::Zhang)?;
-    let named = |result: &QueryResult| cells::rows(result).any(|row| row.str("account").as_deref() == Some(account));
-    if named(&run(ledger, SUBTREE, &Params::new().bind("account", account))?) {
+    let named = |query: &str, result: &QueryResult| -> ServerResult<bool> {
+        for row in cells::rows(query, result) {
+            if row.str("account")?.as_deref() == Some(account) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    };
+    if named(SUBTREE, &run(ledger, SUBTREE, &Params::new().bind("account", account))?)? {
         return Ok(true);
     }
     // an account without a directive is one with postings
@@ -186,7 +194,7 @@ fn has_page(ledger: &Ledger, account: &str) -> ServerResult<bool> {
         SUBTREE_BALANCES,
         &Params::new().bind("account", account).bind("operating_currency", operating_currency),
     )?;
-    Ok(named(&balances))
+    named(SUBTREE_BALANCES, &balances)
 }
 
 /// The page of `account` exists: a 400 for a name that is no account name, a 404 for an account
@@ -209,7 +217,7 @@ pub fn account_info(ledger: &Ledger, account: &str) -> ServerResult<Option<Accou
         SUBTREE_BALANCES,
         &Params::new().bind("account", account).bind("operating_currency", operating_currency),
     )?;
-    let mut summaries = summaries(&accounts, &balances);
+    let mut summaries = summaries((SUBTREE, &accounts), (SUBTREE_BALANCES, &balances))?;
     let Some(summary) = summaries.remove(account) else {
         return Ok(None);
     };
@@ -260,56 +268,57 @@ fn units_of(inventory: Option<&Inventory>, currency: &str) -> Amount {
     Amount::new(number, currency)
 }
 
-fn posting_rows(result: &QueryResult) -> Vec<PostingRow> {
-    cells::rows(result)
+/// The rows of `accounts.journal` or `accounts.journal_page` (`query`).
+fn posting_rows(query: &str, result: &QueryResult) -> ServerResult<Vec<PostingRow>> {
+    cells::rows(query, result)
         .map(|row| {
-            let currency = row.str("currency").unwrap_or_default();
-            PostingRow {
-                seq: row.int("seq").unwrap_or_default(),
+            let currency = row.str("currency")?.unwrap_or_default();
+            Ok(PostingRow {
+                seq: row.int("seq")?.unwrap_or_default(),
                 journal: AccountJournalDomain {
-                    datetime: row.datetime("date", "time").unwrap_or_default(),
-                    timestamp: row.int("timestamp").unwrap_or_default(),
-                    account: row.str("account").unwrap_or_default(),
-                    trx_id: row.str("id").unwrap_or_default(),
-                    payee: row.str("payee"),
-                    narration: row.str("narration"),
-                    inferred_unit: Amount::new(row.decimal("units").unwrap_or_default(), currency.clone()),
+                    datetime: row.datetime("date", "time")?.unwrap_or_default(),
+                    timestamp: row.int("timestamp")?.unwrap_or_default(),
+                    account: row.str("account")?.unwrap_or_default(),
+                    trx_id: row.str("id")?.unwrap_or_default(),
+                    payee: row.str("payee")?,
+                    narration: row.str("narration")?,
+                    inferred_unit: Amount::new(row.decimal("units")?.unwrap_or_default(), currency.clone()),
                     // the balance of the subtree after the posting, in its currency
-                    account_after: units_of(row.get("balance").as_inventory(), &currency),
+                    account_after: units_of(row.get("balance")?.as_inventory(), &currency),
                     asserted: None,
                     checked_balance: None,
                     passed: None,
                 },
-            }
+            })
         })
         .collect()
 }
 
 /// The rows of `accounts.balance_assertions`, with their `seq`.
-fn assertion_rows(result: &QueryResult) -> Vec<(i64, AccountJournalDomain)> {
-    cells::rows(result)
+fn assertion_rows(result: &QueryResult) -> ServerResult<Vec<(i64, AccountJournalDomain)>> {
+    cells::rows(BALANCE_ASSERTIONS, result)
         .map(|row| {
-            let asserted = row.amount("amount").expect("an assertion asserts an amount");
+            let asserted = row.amount("amount")?.expect("an assertion asserts an amount");
             let actual = row
-                .amount("actual")
+                .amount("actual")?
                 .unwrap_or_else(|| Amount::new(BigDecimal::zero(), asserted.commodity.clone()));
             // zero, written with the decimals of the asserted amount and the balance
             let nothing = BigDecimal::zero().with_scale((&asserted.number - &actual.number).fractional_digit_count());
             let journal = AccountJournalDomain {
-                datetime: row.datetime("date", "time").unwrap_or_default(),
-                timestamp: row.int("timestamp").unwrap_or_default(),
-                account: row.str("account").unwrap_or_default(),
-                trx_id: row.str("id").unwrap_or_default(),
+                datetime: row.datetime("date", "time")?.unwrap_or_default(),
+                timestamp: row.int("timestamp")?.unwrap_or_default(),
+                account: row.str("account")?.unwrap_or_default(),
+                trx_id: row.str("id")?.unwrap_or_default(),
                 payee: Some(BALANCE_CHECK_PAYEE.to_owned()),
-                narration: row.str("account"),
+                narration: row.str("account")?,
                 inferred_unit: Amount::new(nothing, asserted.commodity.clone()),
                 // the running balance where it stands: the balance it was checked against
                 account_after: actual.clone(),
                 asserted: Some(asserted),
                 checked_balance: Some(actual),
-                passed: row.bool("passed"),
+                passed: row.bool("passed")?,
             };
-            (row.int("seq").unwrap_or_default(), journal)
+            Ok((row.int("seq")?.unwrap_or_default(), journal))
         })
         .collect()
 }
@@ -329,10 +338,10 @@ fn assertion_rows(result: &QueryResult) -> Vec<(i64, AccountJournalDomain)> {
 /// returns, and whose total is the number of postings.
 pub fn account_journals(ledger: &Ledger, account: &str, window: Option<JournalWindow>) -> ServerResult<Journal> {
     require_page(ledger, account)?;
-    let assertions = assertion_rows(&run(ledger, BALANCE_ASSERTIONS, &Params::new().bind("account", account))?);
+    let assertions = assertion_rows(&run(ledger, BALANCE_ASSERTIONS, &Params::new().bind("account", account))?)?;
     let Some(window) = window else {
         let postings = run(ledger, JOURNAL, &Params::new().bind("account", account)).map_err(too_large_unpaged)?;
-        let mut postings = posting_rows(&postings);
+        let mut postings = posting_rows(JOURNAL, &postings)?;
         postings.reverse();
         let rows = merge(postings, 0, assertions, 0, u64::MAX);
         return Ok(Journal { rows, total: None });
@@ -352,7 +361,7 @@ pub fn account_journals(ledger: &Ledger, account: &str, window: Option<JournalWi
     let first = window.offset.saturating_sub(assertion_count).min(postings_total);
     let last = end.min(postings_total);
     let mut postings = match last.checked_sub(first) {
-        Some(limit) if limit > 0 => posting_rows(&page(limit, postings_total - last, false)?),
+        Some(limit) if limit > 0 => posting_rows(JOURNAL_PAGE, &page(limit, postings_total - last, false)?)?,
         _ => vec![],
     };
     postings.reverse();
@@ -421,11 +430,11 @@ pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<A
     require_page(ledger, account)?;
     let result = run(ledger, BALANCE_HISTORY, &Params::new().bind("account", account))?;
     let mut balance: HashMap<String, Vec<AccountBalanceItemEntity>> = HashMap::new();
-    for row in cells::rows(&result) {
-        let currency = row.str("currency").unwrap_or_default();
+    for row in cells::rows(BALANCE_HISTORY, &result) {
+        let currency = row.str("currency")?.unwrap_or_default();
         let item = AccountBalanceItemEntity {
-            date: row.date("date").unwrap_or_default(),
-            balance: row.amount("balance").unwrap_or_else(|| Amount::new(BigDecimal::zero(), currency.clone())),
+            date: row.date("date")?.unwrap_or_default(),
+            balance: row.amount("balance")?.unwrap_or_else(|| Amount::new(BigDecimal::zero(), currency.clone())),
         };
         balance.entry(currency).or_default().push(item);
     }
@@ -437,17 +446,17 @@ pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<A
 pub fn account_documents(ledger: &Ledger, account: &str) -> ServerResult<Vec<DocumentEntity>> {
     require_page(ledger, account)?;
     let result = run(ledger, DOCUMENTS, &Params::new().bind("account", account))?;
-    Ok(cells::rows(&result)
+    cells::rows(DOCUMENTS, &result)
         .map(|row| {
-            let path = row.str("path").unwrap_or_default();
-            DocumentEntity {
-                datetime: row.datetime("date", "time").unwrap_or_default(),
+            let path = row.str("path")?.unwrap_or_default();
+            Ok(DocumentEntity {
+                datetime: row.datetime("date", "time")?.unwrap_or_default(),
                 filename: Path::new(&path).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default(),
                 path,
                 extension: None,
-                account: row.str("account"),
+                account: row.str("account")?,
                 trx_id: None,
-            }
+            })
         })
-        .collect())
+        .collect()
 }

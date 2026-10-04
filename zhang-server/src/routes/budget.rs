@@ -36,16 +36,16 @@ struct MonthFigures {
 impl MonthFigures {
     /// The figures of a row of `budgets.month` or `budgets.budget_month`, as the query gives them
     /// (it carries a budget over to a month after its last row).
-    fn from_row(row: &Row<'_>) -> MonthFigures {
-        let currency = row.str("currency").unwrap_or_default();
-        let amount = |name: &str| row.amount(name).unwrap_or_else(|| Amount::zero(&currency));
-        MonthFigures {
-            closed: row.bool("closed").unwrap_or(false),
-            assigned: amount("assigned"),
+    fn from_row(row: &Row<'_>) -> ServerResult<MonthFigures> {
+        let currency = row.str("currency")?.unwrap_or_default();
+        let amount = |name: &str| -> ServerResult<Amount> { Ok(row.amount(name)?.unwrap_or_else(|| Amount::zero(&currency))) };
+        Ok(MonthFigures {
+            closed: row.bool("closed")?.unwrap_or(false),
+            assigned: amount("assigned")?,
             // a number in the budget's currency, `0` in a month the query carries the budget over to
-            activity: Amount::new(row.decimal("activity").unwrap_or_default(), &currency),
-            available: amount("available"),
-        }
+            activity: Amount::new(row.decimal("activity")?.unwrap_or_default(), &currency),
+            available: amount("available")?,
+        })
     }
 
     /// The figures of a month before the budget's first one, which has no row: nothing assigned
@@ -70,21 +70,20 @@ pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetLi
     let budgets = with_ledger(&ledger, move |ledger| {
         let month = requested_month(ledger, &params)?;
         let result = execute(ledger, "budgets.month", &Params::new().bind("month", month), false)?;
-        let budgets = rows(&result)
+        rows("budgets.month", &result)
             .map(|row| {
-                let figures = MonthFigures::from_row(&row);
-                BudgetListItemEntity {
-                    name: row.str("name").unwrap_or_default(),
-                    alias: row.str("alias"),
-                    category: row.str("category"),
+                let figures = MonthFigures::from_row(&row)?;
+                Ok(BudgetListItemEntity {
+                    name: row.str("name")?.unwrap_or_default(),
+                    alias: row.str("alias")?,
+                    category: row.str("category")?,
                     closed: figures.closed,
                     assigned_amount: figures.assigned,
                     activity_amount: figures.activity,
                     available_amount: figures.available,
-                }
+                })
             })
-            .collect_vec();
-        Ok(budgets)
+            .collect()
     })
     .await?;
     ResponseWrapper::json(budgets)
@@ -99,21 +98,21 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
     let budget = with_ledger(&ledger, move |ledger| {
         let month = requested_month(ledger, &params)?;
         let budget = execute(ledger, "budgets.budget", &Params::new().bind("name", budget_name.as_str()), false)?;
-        let Some(budget) = first_row(&budget) else {
+        let Some(budget) = first_row("budgets.budget", &budget) else {
             return Ok(None);
         };
         let params = Params::new().bind("name", budget_name.as_str()).bind("month", month);
         let figures = execute(ledger, "budgets.budget_month", &params, false)?;
-        let figures = match first_row(&figures) {
-            Some(row) => MonthFigures::from_row(&row),
-            None => MonthFigures::before_start(&budget.str("currency").unwrap_or_default()),
+        let figures = match first_row("budgets.budget_month", &figures) {
+            Some(row) => MonthFigures::from_row(&row)?,
+            None => MonthFigures::before_start(&budget.str("currency")?.unwrap_or_default()),
         };
         Ok(Some(BudgetInfoEntity {
-            name: budget.str("name").unwrap_or(budget_name),
-            alias: budget.str("alias"),
-            category: budget.str("category"),
+            name: budget.str("name")?.unwrap_or(budget_name),
+            alias: budget.str("alias")?,
+            category: budget.str("category")?,
             closed: figures.closed,
-            related_accounts: budget.set("accounts").unwrap_or_default().into_iter().collect_vec(),
+            related_accounts: budget.set("accounts")?.unwrap_or_default().into_iter().collect_vec(),
             assigned_amount: figures.assigned,
             activity_amount: figures.activity,
             available_amount: figures.available,
@@ -135,49 +134,49 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
     let month = BudgetListRequest::month_of(year, month)?;
     let detail = with_ledger(&ledger, move |ledger| {
         let budget = execute(ledger, "budgets.budget", &Params::new().bind("name", budget_name.as_str()), false)?;
-        let Some(budget) = first_row(&budget) else {
+        let Some(budget) = first_row("budgets.budget", &budget) else {
             return Ok(None);
         };
-        let accounts = budget.set("accounts").unwrap_or_default();
+        let accounts = budget.set("accounts")?.unwrap_or_default();
 
         let params = Params::new().bind("name", budget_name.as_str()).bind("month", month);
         let events = execute(ledger, "budgets.events", &params, false)?;
-        let events = rows(&events)
+        let events = rows("budgets.events", &events)
             .map(|row| {
-                let event_type = match row.str("type").as_deref() {
+                let event_type = match row.str("type")?.as_deref() {
                     Some("assign") => BudgetEventType::AddAssignedAmount,
                     _ => BudgetEventType::Transfer,
                 };
-                BudgetIntervalEventEntity::BudgetEvent(BudgetEventEntity {
-                    timestamp: row.int("timestamp").unwrap_or_default(),
-                    amount: row.amount("amount").unwrap_or_else(|| Amount::zero("")),
+                Ok(BudgetIntervalEventEntity::BudgetEvent(BudgetEventEntity {
+                    timestamp: row.int("timestamp")?.unwrap_or_default(),
+                    amount: row.amount("amount")?.unwrap_or_else(|| Amount::zero("")),
                     event_type,
-                })
+                }))
             })
-            .collect_vec();
+            .collect::<ServerResult<Vec<_>>>()?;
         let params = Params::new()
             .bind("accounts", Value::Set(accounts))
             .bind("month", month)
             .bind("name", budget_name.as_str());
         let postings = execute(ledger, "budgets.postings", &params, false)?;
-        let postings = rows(&postings)
+        let postings = rows("budgets.postings", &postings)
             .map(|row| {
-                let units = row.amount("units").unwrap_or_else(|| Amount::zero(""));
-                BudgetIntervalEventEntity::Posting(AccountJournalDomain {
-                    datetime: row.datetime("date", "time").unwrap_or_default(),
-                    timestamp: row.int("timestamp").unwrap_or_default(),
-                    account: row.str("account").unwrap_or_default(),
-                    trx_id: row.str("id").unwrap_or_default(),
-                    payee: row.str("payee"),
-                    narration: row.str("narration").filter(|it| !it.is_empty()),
-                    account_after: row.amount("balance").unwrap_or_else(|| Amount::zero(&units.commodity)),
+                let units = row.amount("units")?.unwrap_or_else(|| Amount::zero(""));
+                Ok(BudgetIntervalEventEntity::Posting(AccountJournalDomain {
+                    datetime: row.datetime("date", "time")?.unwrap_or_default(),
+                    timestamp: row.int("timestamp")?.unwrap_or_default(),
+                    account: row.str("account")?.unwrap_or_default(),
+                    trx_id: row.str("id")?.unwrap_or_default(),
+                    payee: row.str("payee")?,
+                    narration: row.str("narration")?.filter(|it| !it.is_empty()),
+                    account_after: row.amount("balance")?.unwrap_or_else(|| Amount::zero(&units.commodity)),
                     inferred_unit: units,
                     asserted: None,
                     checked_balance: None,
                     passed: None,
-                })
+                }))
             })
-            .collect_vec();
+            .collect::<ServerResult<Vec<_>>>()?;
         // both lists are newest first; of the same time, the budget's own entries come first
         Ok(Some(
             events
