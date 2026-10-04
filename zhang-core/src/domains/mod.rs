@@ -531,37 +531,6 @@ impl Operations {
         }
         Ok(ret)
     }
-    pub fn accounts_dated_journals(&self, accounts: &[String], from: DateTime<Tz>, to: DateTime<Tz>) -> ZhangResult<Vec<AccountJournalDomain>> {
-        let store = self.read();
-
-        let mut ret = vec![];
-        for posting in store
-            .postings
-            .iter()
-            .filter(|posting| posting.trx_datetime.ge(&from))
-            .filter(|posting| posting.trx_datetime.le(&to))
-            .filter(|posting| accounts.contains(&posting.account.content))
-            .cloned()
-        {
-            let trx = store.transactions.get(&posting.trx_id).cloned().expect("cannot find trx");
-
-            ret.push(AccountJournalDomain {
-                datetime: posting.trx_datetime.naive_local(),
-                timestamp: posting.trx_datetime.timestamp(),
-                account: posting.account.name().to_owned(),
-                trx_id: posting.trx_id.to_string(),
-                payee: trx.payee,
-                narration: trx.narration,
-                inferred_unit: posting.inferred_amount,
-                account_after: posting.after_amount,
-                asserted: None,
-                checked_balance: None,
-                passed: None,
-            })
-        }
-        Ok(ret)
-    }
-
     pub fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
@@ -720,12 +689,6 @@ impl Operations {
 
 /// Budget Related Operations
 impl Operations {
-    /// list all budgets
-    pub fn all_budgets(&self) -> ZhangResult<Vec<BudgetDomain>> {
-        let store = self.read();
-        Ok(store.budgets.values().cloned().collect_vec())
-    }
-
     /// check if budget exists
     pub fn contains_budget(&self, name: impl AsRef<str>) -> bool {
         let store = self.read();
