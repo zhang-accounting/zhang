@@ -6,7 +6,7 @@ use std::sync::Arc;
 use clap::{Args, Parser};
 use env_logger::Env;
 use log::{error, info};
-use self_update::Status;
+use self_update::{UpdateStrategy, VersionStatus};
 use tokio::task::spawn_blocking;
 use zhang_server::ServeConfig;
 
@@ -175,6 +175,8 @@ impl Opts {
                         .show_download_progress(verbose)
                         .show_output(verbose)
                         .current_version(env!("ZHANG_BUILD_VERSION"))
+                        // install the newest release, as self_update 0.x did; 1.x defaults to the newest semver-compatible one
+                        .update_strategy(UpdateStrategy::Latest)
                         .build()
                         .unwrap()
                         .update()
@@ -182,12 +184,17 @@ impl Opts {
                 .await
                 .unwrap();
                 match update_result {
-                    Ok(Status::UpToDate(version)) => {
+                    Ok(VersionStatus::UpToDate(version)) => {
                         info!("zhang is already up to dated with version {}", version);
                         true
                     }
-                    Ok(Status::Updated(version)) => {
+                    Ok(VersionStatus::Updated(version)) => {
                         info!("zhang is updated to version {}", version);
+                        true
+                    }
+                    // `VersionStatus` is non-exhaustive
+                    Ok(status) => {
+                        info!("zhang self update finished: {}", status);
                         true
                     }
                     Err(e) => {
