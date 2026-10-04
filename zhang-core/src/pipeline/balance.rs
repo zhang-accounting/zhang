@@ -21,7 +21,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Commodity, Directive, Open, Rounding, Transaction};
 
 use super::StageContext;
-use crate::booking::{BookOutcome, Booker};
+use crate::booking::{group_units, written_groups, BookOutcome, Booker};
 use crate::constants::{DEFAULT_BOOKING_METHOD, KEY_DEFAULT_BOOKING_METHOD, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::inventory::BookingMethod;
@@ -96,14 +96,21 @@ impl UnitBalances {
     /// interpolated from the other postings. Returns the units of each posting, none
     /// for a transaction skipped
     pub fn apply_transaction(&mut self, txn: &Transaction) -> Vec<Amount> {
-        // a rejected transaction does not reach the store; nothing to book here
-        let BookOutcome::Booked(booked) = self.booker.book(txn) else {
+        // a rejected transaction does not reach the store; nothing to book here. A copy is
+        // booked: the stream keeps the postings as written
+        let mut booked = txn.clone();
+        let BookOutcome::Booked(_) = self.booker.book(&mut booked) else {
             return vec![];
         };
-        for (posting, amount) in txn.postings.iter().zip(&booked.units) {
-            self.add(&posting.account, amount);
-        }
-        booked.units
+        // the units of every posting as written: the legs booking split from it summed
+        written_groups(&booked.postings)
+            .into_iter()
+            .map(|group| {
+                let units = group_units(group.legs);
+                self.add(&group.legs[0].account, &units);
+                units
+            })
+            .collect()
     }
 
     fn add(&mut self, account: &Account, amount: &Amount) {

@@ -285,7 +285,7 @@ impl Ledger {
                     booker.apply_open(open);
                 }
                 Directive::Transaction(transaction) if transaction.date.naive_date() <= day => {
-                    booker.book(transaction);
+                    booker.book(&mut transaction.clone());
                 }
                 _ => {}
             }

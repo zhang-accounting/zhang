@@ -23,6 +23,18 @@
 //! 4. the sum of all weights, per commodity, is the residual the store fold checks against each
 //!    commodity's precision.
 //!
+//! Booking rewrites the postings in place, beancount-style (design §3, §4): the implicit posting
+//! gets its interpolated units, a cost spec becomes the per-unit cost, acquisition date and label
+//! of the lot, and a reduction spanning several lots becomes one posting per lot, adjacent. A
+//! posting booking changed carries what was written in [`Posting::written`]: the index of the
+//! written posting, which the legs of a split share, its units and its cost spec. The store fold
+//! groups the legs back into one row per written posting ([`written_groups`], the rule the
+//! exporter follows too: a split a stage broke apart is shown as booked). The part of a `{}`
+//! reduction no lot covers keeps `{}`, so it books the same lot again (E9). Booking a booked
+//! transaction again changes nothing: every leg matches exactly the lot it was booked against, and
+//! STRICT's ambiguity check and the error metas use the written form, so the errors are the same.
+//! An unbookable transaction is left untouched.
+//!
 //! Lot matching follows beancount (E5, [`LotFilter`]): the fields a cost spec gives are criteria
 //! and the missing ones wildcards, so a reduction `{10 CNY}` matches the lots held at 10 CNY from any
 //! acquisition date, and `{, "a"}` the lots labelled `a` whatever their cost (#498). An
@@ -42,7 +54,7 @@
 //!   value, gets an error at its `open` ([`Booker::apply_open`]) and books with the ledger's default
 //!   method.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::{Add, AddAssign, Mul, Neg};
 
 use bigdecimal::{BigDecimal, RoundingMode, Signed, Zero};
@@ -50,10 +62,11 @@ use chrono::NaiveDate;
 use itertools::Itertools;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Currency, Open, Posting, PostingCost, Rounding, SingleTotalPrice, Transaction};
+pub(crate) use zhang_ast::{group_units, written_groups};
+use zhang_ast::{Currency, Date, Open, Posting, PostingCost, Rounding, SingleTotalPrice, Transaction, WrittenPosting};
 
 use crate::constants::DEFAULT_ROUNDING;
-use crate::inventory::{BookingMethod, TransactionInference, TxnPosting};
+use crate::inventory::{normalise_cost, BookingMethod, TransactionInference, TxnPosting};
 use crate::store::CommodityLotRecord;
 use crate::utils::hashmap::HashMapOfExt;
 
@@ -109,11 +122,9 @@ pub(crate) enum BookOutcome {
     },
 }
 
-/// a booked transaction
+/// what booking a transaction produced, besides its booked postings (written into the transaction)
 #[derive(Debug)]
 pub(crate) struct BookedTransaction {
-    /// the units of every posting, in written order; the implicit posting's are interpolated
-    pub units: Vec<Amount>,
     /// the sum of the weights of all postings, per weight commodity in commodity order. A
     /// commodity whose weights cancel out is still listed, with zero
     pub residual: BTreeMap<Currency, BigDecimal>,
@@ -128,6 +139,15 @@ struct PostingBooking {
     weight: Vec<Amount>,
     /// booking problems to report against the transaction, in order
     errors: Vec<BookingError>,
+    /// the booked form of the posting: one leg per lot it booked against
+    legs: Vec<Leg>,
+}
+
+/// one booked posting: `units` booked against one lot, with that lot's cost
+#[derive(Debug)]
+struct Leg {
+    units: Amount,
+    cost: Option<PostingCost>,
 }
 
 /// a booking problem, reported as a store error of the transaction
@@ -198,8 +218,10 @@ impl Booker {
     }
 
     /// book a transaction: interpolate its implicit posting from the weights of the other postings,
-    /// then book every posting against the lots of its account, in written order
-    pub(crate) fn book(&mut self, txn: &Transaction) -> BookOutcome {
+    /// then book every posting against the lots of its account, in written order, and rewrite the
+    /// postings into their booked form (see the module docs). An unbookable transaction is left as
+    /// it is
+    pub(crate) fn book(&mut self, txn: &mut Transaction) -> BookOutcome {
         let postings = txn.txn_postings();
         let interpolated = match postings.iter().filter(|it| it.posting.units.is_none()).count() {
             0 => None,
@@ -215,21 +237,27 @@ impl Booker {
             }
         };
 
+        let indexes = fresh_indexes(&txn.postings);
         let mut booked = BookedTransaction {
-            units: Vec::with_capacity(postings.len()),
             residual: BTreeMap::new(),
             errors: vec![],
         };
-        for posting in &postings {
+        let mut rewritten: Vec<Posting> = Vec::with_capacity(postings.len());
+        let mut previous_index: Option<usize> = None;
+        for (position, posting) in postings.iter().enumerate() {
             let (units, implicit_weight) = match (posting.units(), &interpolated) {
                 (Some(units), _) => (units, None),
                 (None, Some(interpolated)) => (interpolated.units.clone(), Some(interpolated.weight.clone())),
                 (None, None) => unreachable!("only the implicit posting has no units, and it is interpolated"),
             };
-            let booking = self.book_posting(posting, &units);
+            // the first leg of a booked posting stands for the posting as written
+            let index = posting.posting.written.as_ref().map(|it| it.index);
+            let first_of_group = index.is_none() || index != previous_index;
+            previous_index = index;
+            let booking = self.book_posting(posting, &units, first_of_group);
             add_weight(&mut booked.residual, implicit_weight.map(|it| vec![it]).unwrap_or(booking.weight));
             booked.errors.extend(booking.errors);
-            booked.units.push(units);
+            rewritten.extend(booked_postings(posting.posting, booking.legs, indexes[position]));
         }
         if let Some(interpolated) = &interpolated {
             // the dry run in `interpolate` booked the explicit postings exactly as this pass did
@@ -239,6 +267,7 @@ impl Booker {
                 booked.residual
             );
         }
+        txn.postings = rewritten;
         BookOutcome::Booked(booked)
     }
 
@@ -257,9 +286,13 @@ impl Booker {
         let mut errors = vec![];
         if explicit.iter().any(|it| weighs_by_lots(it.posting)) {
             let snapshot = self.snapshot(postings);
+            let mut previous_index: Option<usize> = None;
             for posting in &explicit {
                 let units = posting.units().expect("an explicit posting has units");
-                let booking = self.book_posting(posting, &units);
+                let index = posting.posting.written.as_ref().map(|it| it.index);
+                let first_of_group = index.is_none() || index != previous_index;
+                previous_index = index;
+                let booking = self.book_posting(posting, &units, first_of_group);
                 add_weight(&mut residual, booking.weight);
                 errors.extend(booking.errors);
             }
@@ -331,22 +364,29 @@ impl Booker {
 
     /// book one posting of a transaction against the lots of its account. `units` are the
     /// posting's units, or its interpolated amount when it was written without units.
-    fn book_posting(&mut self, txn_posting: &TxnPosting<'_>, units: &Amount) -> PostingBooking {
+    /// `first_of_group` says whether the posting is the first leg of the posting it was written
+    /// as (always, for a posting booking never changed): the leg STRICT's check and the error
+    /// metas refer to the written form from
+    fn book_posting(&mut self, txn_posting: &TxnPosting<'_>, units: &Amount, first_of_group: bool) -> PostingBooking {
+        let posting = txn_posting.posting;
         let account = txn_posting.account_name();
         let lot_meta = txn_posting.lot_meta();
         let booking_method = self.booking_method(&account);
         let txn_date = txn_posting.txn.date.naive_date();
+        // the error metas name the units as written, those of the posting a leg came from
+        let written_units = posting.written.as_ref().and_then(|it| it.units.as_ref()).unwrap_or(units);
 
         // the weight of every lot the posting books against
         let mut lot_weights = vec![];
+        let mut legs = vec![];
         let mut errors = vec![];
 
         // handle implicit posting cost
         if let Some(cost) = lot_meta.cost {
-            let filter = self.lot_filter(&account, units, &cost, txn_date);
-            if booking_method == BookingMethod::Strict {
-                errors.extend(self.ambiguous_reduction(&account, units, &filter));
+            if booking_method == BookingMethod::Strict && first_of_group {
+                errors.extend(self.ambiguous_reduction_of(posting, &account, units, &cost, txn_date));
             }
+            let filter = self.lot_filter(&account, units, &cost, txn_date);
             let mut accr_amount = units.number.clone();
             loop {
                 let target_lot_record = self.lot_by_meta(&account, &filter, &cost, txn_date, booking_method);
@@ -355,7 +395,8 @@ impl Booker {
                     // the calculated amount is positive, means it is normal case
                     self.update_lot(&account, &target_lot_record, &calculated);
 
-                    lot_weights.push(lot_weight(&target_lot_record, accr_amount));
+                    lot_weights.push(lot_weight(&target_lot_record, accr_amount.clone()));
+                    legs.push(leg(&target_lot_record, accr_amount, &cost, &units.commodity));
                     break;
                 } else if target_lot_record.amount.is_zero() {
                     // insert error no enough lot record
@@ -365,19 +406,22 @@ impl Booker {
                             // "original_amount",
                             // target_lot_record.amount.to_string(),
                             "transaction_amount",
-                            units.number.to_string(),
+                            written_units.number.to_string(),
                         ),
                     });
                     // persist the calculated result even if there is an error
                     self.update_lot(&account, &target_lot_record, &calculated);
-                    lot_weights.push(lot_weight(&target_lot_record, accr_amount));
+                    lot_weights.push(lot_weight(&target_lot_record, accr_amount.clone()));
+                    legs.push(leg(&target_lot_record, accr_amount, &cost, &units.commodity));
                     break;
                 } else {
                     // if calculated amount is negative, means the matched lots record has no enough amount to do reduction
                     // then set lots record's amount to zero( delete it)
                     self.update_lot(&account, &target_lot_record, &BigDecimal::zero());
 
-                    lot_weights.push(lot_weight(&target_lot_record, (&target_lot_record.amount).neg()));
+                    let taken = (&target_lot_record.amount).neg();
+                    lot_weights.push(lot_weight(&target_lot_record, taken.clone()));
+                    legs.push(leg(&target_lot_record, taken, &cost, &units.commodity));
                     // subtract the accr amount
                     accr_amount.add_assign(&target_lot_record.amount);
                 }
@@ -387,15 +431,43 @@ impl Booker {
             let target_lot_record = self.default_lot(&account, &units.commodity);
 
             self.update_lot(&account, &target_lot_record, &(&target_lot_record.amount).add(&units.number));
+            legs.push(Leg {
+                units: units.clone(),
+                // an implicit posting books the default lot whatever cost spec it wrote (the lot
+                // meta drops the spec without units): its leg carries none, so booking it again
+                // books the same lot, and the spec stays in the written form
+                cost: posting.units.as_ref().and(posting.cost.clone()),
+            });
         }
 
-        let weight = if weighs_by_lots(txn_posting.posting) {
+        let weight = if weighs_by_lots(posting) {
             lot_weights
         } else {
             // as written; an implicit posting weighs its interpolated units
             vec![txn_posting.trade_amount().unwrap_or_else(|| units.clone())]
         };
-        PostingBooking { weight, errors }
+        PostingBooking {
+            weight,
+            errors,
+            legs: merge_legs(legs),
+        }
+    }
+
+    /// STRICT's check of a reduction ([`Booker::ambiguous_reduction`]) for `posting` as written. A
+    /// leg booked against a lot carries that lot's full cost and date, so it alone never matches
+    /// several lots: for a leg, the check uses the units and cost spec of the posting it came from,
+    /// so booking a booked transaction again reports what booking it the first time did
+    fn ambiguous_reduction_of(&self, posting: &Posting, account: &str, units: &Amount, cost: &PostingCost, txn_date: NaiveDate) -> Option<BookingError> {
+        let (units, cost) = match &posting.written {
+            Some(WrittenPosting {
+                units: Some(written_units),
+                cost: Some(written_cost),
+                ..
+            }) => (written_units.clone(), normalise_cost(written_cost.clone(), &written_units.number)),
+            _ => (units.clone(), cost.clone()),
+        };
+        let filter = self.lot_filter(account, &units, &cost, txn_date);
+        self.ambiguous_reduction(account, &units, &filter)
     }
 
     /// whether `account` or one of its sub-accounts holds `currency` at cost: a lot of it with a cost
@@ -605,18 +677,96 @@ fn lot_weight(lot: &CommodityLotRecord, units: BigDecimal) -> Amount {
     }
 }
 
+/// the leg of a posting booked against `lot`: `units` of `commodity` at the lot's cost, acquisition
+/// date and label. A lot without a cost, the one a `{}` reduction no lot covers opens (E9), gives
+/// the leg the cost spec as `written`, so booking the leg again opens that lot again
+fn leg(lot: &CommodityLotRecord, units: BigDecimal, written: &PostingCost, commodity: &str) -> Leg {
+    let cost = match &lot.cost {
+        Some(cost) => PostingCost {
+            base: Some(cost.clone()),
+            date: lot.acquisition_date.map(Date::Date),
+            label: lot.label.clone(),
+            total: false,
+        },
+        None => written.clone(),
+    };
+    Leg {
+        units: Amount::new(units, commodity),
+        cost: Some(cost),
+    }
+}
+
+/// `legs` with those booked against the same lot (the same cost) summed into one, in first order
+fn merge_legs(legs: Vec<Leg>) -> Vec<Leg> {
+    let mut merged: Vec<Leg> = Vec::with_capacity(legs.len());
+    for leg in legs {
+        match merged.iter_mut().find(|it| it.cost == leg.cost) {
+            Some(same) => same.units.number.add_assign(leg.units.number),
+            None => merged.push(leg),
+        }
+    }
+    merged
+}
+
+/// the booked form of `posting`: one posting per leg, each carrying the written form when booking
+/// changed anything (a posting already carrying one keeps it); the posting itself when its single
+/// leg is what was written
+fn booked_postings(posting: &Posting, legs: Vec<Leg>, index: usize) -> Vec<Posting> {
+    if let [only] = legs.as_slice() {
+        if Some(&only.units) == posting.units.as_ref() && only.cost == posting.cost {
+            return vec![posting.clone()];
+        }
+    }
+    let written = posting.written.clone().unwrap_or_else(|| WrittenPosting {
+        index,
+        units: posting.units.clone(),
+        cost: posting.cost.clone(),
+    });
+    legs.into_iter()
+        .map(|leg| Posting {
+            units: Some(leg.units),
+            cost: leg.cost,
+            written: Some(written.clone()),
+            ..posting.clone()
+        })
+        .collect()
+}
+
+/// the `written.index` the posting at each position gets if booking changes it: its position,
+/// unless a posting already carries that index (a stage removed postings before a booked one),
+/// then an index no posting has, so the legs of different postings never group together
+fn fresh_indexes(postings: &[Posting]) -> Vec<usize> {
+    let used: HashSet<usize> = postings.iter().filter_map(|it| it.written.as_ref().map(|written| written.index)).collect();
+    let mut next = used.iter().max().map_or(0, |max| max + 1).max(postings.len());
+    (0..postings.len())
+        .map(|position| {
+            if used.contains(&position) {
+                next += 1;
+                next - 1
+            } else {
+                position
+            }
+        })
+        .collect()
+}
+
 /// the most decimals written in the transaction per commodity: of the units, and of the cost and
 /// price numbers, per-unit or total, of every posting. `@ 7.12345 CNY` counts 5 for CNY and
-/// `{{1000 USD}}` 0 for USD
+/// `{{1000 USD}}` 0 for USD. A booked leg counts what its posting was written as: the lot cost it
+/// carries may be a long division (`{{100 CNY}}` over 3 units), which is not a written scale
 fn written_scales<'a>(postings: &[TxnPosting<'a>]) -> HashMap<&'a str, i64> {
     let mut scales: HashMap<&str, i64> = HashMap::new();
     for posting in postings {
         let posting = posting.posting;
-        let cost = posting.cost.as_ref().and_then(|cost| cost.base.as_ref());
+        let (units, cost) = match &posting.written {
+            Some(written) => (written.units.as_ref(), written.cost.as_ref()),
+            None => (posting.units.as_ref(), posting.cost.as_ref()),
+        };
+        let cost = cost.and_then(|cost| cost.base.as_ref());
         let price = posting.price.as_ref().map(|price| match price {
             SingleTotalPrice::Single(amount) | SingleTotalPrice::Total(amount) => amount,
         });
-        for amount in posting.units.iter().chain(cost).chain(price) {
+        for amount in units.into_iter().chain(cost).chain(price) {
             let scale = scales.entry(amount.commodity.as_str()).or_insert(0);
             *scale = (*scale).max(amount.number.fractional_digit_count());
         }
@@ -702,3 +852,6 @@ mod test {
         assert!(!booker.holds_at_cost("Assets:Stocks", "AAPL"));
     }
 }
+
+#[cfg(test)]
+mod tests;

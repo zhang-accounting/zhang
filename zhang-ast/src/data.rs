@@ -160,22 +160,29 @@ pub struct WrittenPosting {
     pub cost: Option<PostingCost>,
 }
 
-/// `postings` as written: the legs booking split from one posting, adjacent and sharing
-/// [`WrittenPosting::index`], merged back into that posting, with its units and cost as written
-/// and the flag, price, comment and metadata of its first leg (booking copies the written
-/// posting's onto every leg, so none is lost). A posting without [`Posting::written`] is kept as
-/// it is.
-///
-/// A written posting is restored only when its legs are complete: its index occurs in exactly one
-/// run of adjacent legs, all of one account. A stage may have moved a leg away from the others, or
-/// given two different postings the same index (duplicating a posting and keeping its `written`);
-/// restoring the written form would then double the posting, or lose one. Such legs are kept as
-/// booked, each on its own, with their `written` dropped.
-pub fn written_postings(postings: Vec<Posting>) -> Vec<Posting> {
+/// A group of adjacent booked postings standing for one posting as written: the legs booking
+/// split a reduction into, one per lot, or a single posting. [`written_groups`] yields them; the
+/// store's rows, the exporter and the query engine count postings by these groups.
+pub struct WrittenGroup<'a> {
+    /// the legs, adjacent in the transaction; never empty
+    pub legs: &'a [Posting],
+    /// the written form the legs restore to, when they are all of their written posting: they
+    /// share its index and account, and no other run of adjacent legs carries that index. `None`
+    /// for a posting booking left as written, and for a leg a stage moved away from the others,
+    /// or gave an index another posting carries (a duplicated posting keeping its `written`):
+    /// restoring the written form would double the posting or lose one, so such legs stand on
+    /// their own, as booked, and nothing is lost
+    pub written: Option<&'a WrittenPosting>,
+}
+
+/// `postings` grouped by the posting they were written as. A complete written posting (see
+/// [`WrittenGroup::written`]) is one group with all its legs; every other posting is a group of
+/// its own.
+pub fn written_groups(postings: &[Posting]) -> Vec<WrittenGroup<'_>> {
     // the runs of adjacent legs sharing an index and an account, counted per index
     let mut runs: HashMap<usize, usize> = HashMap::new();
     let mut last_run: Option<(usize, &Account)> = None;
-    for posting in &postings {
+    for posting in postings {
         match &posting.written {
             Some(form) => {
                 let run = (form.index, &posting.account);
@@ -188,26 +195,62 @@ pub fn written_postings(postings: Vec<Posting>) -> Vec<Posting> {
         }
     }
 
-    let mut written: Vec<Posting> = Vec::with_capacity(postings.len());
-    let mut last_index: Option<usize> = None;
-    for mut posting in postings {
-        let index = match posting.written.take() {
+    let mut groups = Vec::with_capacity(postings.len());
+    let mut start = 0;
+    while start < postings.len() {
+        let posting = &postings[start];
+        match &posting.written {
             Some(form) if runs.get(&form.index) == Some(&1) => {
-                if last_index == Some(form.index) {
-                    // another leg of the posting merged last
-                    continue;
+                let mut end = start + 1;
+                while end < postings.len()
+                    && postings[end].written.as_ref().is_some_and(|it| it.index == form.index)
+                    && postings[end].account == posting.account
+                {
+                    end += 1;
                 }
-                posting.units = form.units;
-                posting.cost = form.cost;
-                Some(form.index)
+                groups.push(WrittenGroup {
+                    legs: &postings[start..end],
+                    written: Some(form),
+                });
+                start = end;
             }
-            // no written form, or an incomplete one: the leg as booked
-            _ => None,
-        };
-        written.push(posting);
-        last_index = index;
+            _ => {
+                groups.push(WrittenGroup {
+                    legs: &postings[start..=start],
+                    written: None,
+                });
+                start += 1;
+            }
+        }
     }
-    written
+    groups
+}
+
+/// The units of a group of booked legs ([`written_groups`]): their sum, in the commodity of the
+/// posting they were written as. Every leg of a booked group has units.
+pub fn group_units(legs: &[Posting]) -> Amount {
+    let units = legs.iter().map(|leg| leg.units.as_ref().expect("a booked posting has units"));
+    let commodity = legs[0].units.as_ref().expect("a booked posting has units").commodity.clone();
+    Amount::new(units.map(|it| &it.number).sum(), commodity)
+}
+
+/// `postings` as written: each complete group of [`written_groups`] merged back into the posting
+/// it was written as, with its units and cost as written and the flag, price, comment and
+/// metadata of its first leg (booking copies the written posting's onto every leg, so none is
+/// lost); every other posting as it is, its `written` dropped.
+pub fn written_postings(postings: Vec<Posting>) -> Vec<Posting> {
+    written_groups(&postings)
+        .into_iter()
+        .map(|group| {
+            let mut posting = group.legs[0].clone();
+            if let Some(form) = group.written {
+                posting.units = form.units.clone();
+                posting.cost = form.cost.clone();
+            }
+            posting.written = None;
+            posting
+        })
+        .collect()
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
