@@ -53,7 +53,11 @@ const BAR_HEIGHT = 28;
 /** Average glyph width of the 12px chart labels, used when they cannot be measured. */
 const CHAR_WIDTH = 6.5;
 
-const compactNumber = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+/** Compact axis and cell labels (`44.5K`, `44.5万`) in the app language, as `Amount` and the ledger charts write them. */
+function useCompactNumber() {
+  const { i18n } = useTranslation();
+  return useMemo(() => new Intl.NumberFormat(i18n.language, { notation: 'compact', maximumFractionDigits: 1 }), [i18n.language]);
+}
 
 /** The exact signed value as the table shows it, trailing zeros included. */
 function formatExact(signed: string, currency: string): string {
@@ -166,13 +170,14 @@ interface TreemapCellProps {
   signed?: string;
   children?: unknown[] | null;
   root?: { x: number; y: number; width: number; height: number; depth: number };
+  compactNumber: Intl.NumberFormat;
 }
 
 /**
  * Draws a leaf cell. Group nodes are not drawn: their leaves cover them. Leaves are inset to leave a 2px gap, and
  * twice that along the border of their parent account, so sibling groups read as groups.
  */
-function TreemapCell({ x = 0, y = 0, width = 0, height = 0, depth = 0, name = '', negative, signed, children, root }: TreemapCellProps) {
+function TreemapCell({ x = 0, y = 0, width = 0, height = 0, depth = 0, name = '', negative, signed, children, root, compactNumber }: TreemapCellProps) {
   if (depth === 0 || (children && children.length > 0)) return <g />;
   const nested = root !== undefined && root.depth > 0;
   const near = (a: number, b: number) => nested && Math.abs(a - b) < 0.5;
@@ -207,6 +212,7 @@ function TreemapCell({ x = 0, y = 0, width = 0, height = 0, depth = 0, name = ''
 function QueryTreemap({ points, currency }: { points: ChartPoint[]; currency: string }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const compactNumber = useCompactNumber();
   const { nodes, hasPositive, hasNegative } = useMemo(() => buildTreemap(points, currency), [points, currency]);
   if (nodes.length === 0) return <NothingToPlot />;
 
@@ -219,7 +225,7 @@ function QueryTreemap({ points, currency }: { points: ChartPoint[]; currency: st
   return (
     <div className="flex flex-col gap-2">
       <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: isMobile ? 280 : 360 }}>
-        <Treemap data={nodes} dataKey="size" nameKey="account" type="flat" isAnimationActive={false} content={<TreemapCell />}>
+        <Treemap data={nodes} dataKey="size" nameKey="account" type="flat" isAnimationActive={false} content={<TreemapCell compactNumber={compactNumber} />}>
           <ChartTooltip content={tooltip} isAnimationActive={false} />
         </Treemap>
       </ChartContainer>
@@ -239,6 +245,7 @@ function QueryTreemap({ points, currency }: { points: ChartPoint[]; currency: st
 function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: string }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const compactNumber = useCompactNumber();
   const bars = useMemo(() => buildBars(points, currency), [points, currency]);
   if (bars.length === 0) return <NothingToPlot />;
 
@@ -330,6 +337,7 @@ function timeAxis(first: number, last: number, isMobile: boolean) {
 
 function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: string }) {
   const isMobile = useIsMobile();
+  const compactNumber = useCompactNumber();
   const data = useMemo(() => buildLine(points, currency), [points, currency]);
   if (data.length === 0) return <NothingToPlot />;
 
@@ -389,6 +397,7 @@ function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: 
 function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: string }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const compactNumber = useCompactNumber();
   const { series, data } = useMemo(() => buildSeriesBars(set, currency), [set, currency]);
   if (series.length === 0 || data.length === 0) return <NothingToPlot />;
 
@@ -453,6 +462,7 @@ function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: str
 
 function QueryMultiLineChart({ set, currency }: { set: SeriesSet; currency: string }) {
   const isMobile = useIsMobile();
+  const compactNumber = useCompactNumber();
   const { series, data } = useMemo(() => buildSeriesLines(set, currency), [set, currency]);
   if (series.length === 0 || data.length === 0) return <NothingToPlot />;
 
