@@ -9,6 +9,16 @@ sidebar:
 
 张记账适合这样的人：想要精确地记录个人或家庭的财务，希望数据保存为可以阅读、比较差异和备份的格式，同时又想要仪表盘、报表，以及在浏览器里记一笔消费的表单。它由你自己运行，可以在自己的电脑上，也可以在服务器上。
 
+## 体验在线 Demo
+
+打开[在线 Demo](https://zhang-demo.onrender.com/)，可以在安装前体验网页界面。它使用一套虚构的只读账本，对共享账本的修改和附件上传无法保存。
+
+- 从[总览](https://zhang-demo.onrender.com/)和[流水](https://zhang-demo.onrender.com/journals)开始，浏览收入、支出、多币种交易、标签和链接。
+- 打开[货币](https://zhang-demo.onrender.com/commodities)查看投资批次及其成本，再到[预算](https://zhang-demo.onrender.com/budgets)查看月度分配、支出和结余滚存。
+- 在[文档](https://zhang-demo.onrender.com/documents)中浏览示例收据和对账单；打开[查询](https://zhang-demo.onrender.com/explore)，点击**已保存**选择一个查询，执行后将结果导出为 CSV。
+
+要记录自己的交易，请继续阅读[安装](/zh-cn/getting-started/installation/)和[你的第一个账本](/zh-cn/getting-started/first-ledger/)。
+
 ## 核心概念
 
 **账本文件。** 账本由一个或多个文本文件组成，文件内容是一条条*指令*：以日期开头、说明发生了什么的条目，例如开设一个账户或记录一笔交易。张记账从主文件（默认为 `main.zhang`）开始，顺着其中的 [`include`](/zh-cn/reference/directives/include/) 指令读取其他文件。指令的先后顺序无关紧要，张记账会按日期排序。以 `.bean`、`.beancount` 或 `.bc` 结尾的文件按 Beancount 格式读取。其他文件使用张记账格式，它与 Beancount 的格式很接近，并增加了几种指令，例如[预算](/zh-cn/reference/directives/budget/)。

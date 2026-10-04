@@ -8,17 +8,23 @@ hero:
   image:
     file: ../../../assets/logo.png
   actions:
+    - text: 打开在线 Demo
+      link: https://zhang-demo.onrender.com/
+      icon: external
+      variant: primary
     - text: 开始使用
       link: /zh-cn/getting-started/introduction/
       icon: right-arrow
-      variant: primary
-    - text: 在线试用
+      variant: secondary
+    - text: 在线 Playground
       link: https://zhang-cloud.kilerd.me/playground
       icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
+
+打开[在线 Demo](https://zhang-demo.onrender.com/)，无需安装即可浏览一套虚构的只读账本：多币种交易、投资批次、预算、保存查询和示例收据。可以浏览、执行查询和导出 CSV；修改和上传无法保存。见[Demo 导览](/zh-cn/getting-started/introduction/#体验在线-demo)。
 
 <CardGrid>
 	<Card title="纯文本，归你所有" icon="document">
