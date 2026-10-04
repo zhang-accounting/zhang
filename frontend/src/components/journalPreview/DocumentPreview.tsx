@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils';
 import { isDocumentAnImage } from '../../utils/documents';
 
 interface Props {
-  uri: string;
   filename: string;
   onClick: (path: string) => void;
   className?: string;

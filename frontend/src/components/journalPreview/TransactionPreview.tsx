@@ -111,7 +111,7 @@ export default function TransactionPreview({ data }: Props) {
         <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {documents.map((meta, idx) => (
-            <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} uri={meta.value} filename={meta.value} />
+            <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} filename={meta.value} />
           ))}
           <AccountDocumentUpload id={data.id} type="transaction" onUploaded={() => refreshJournals()} />
         </div>

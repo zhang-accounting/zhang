@@ -89,7 +89,7 @@ function RawEdit() {
               </div>
             </div>
             {selectedFile ? (
-              <SingleFileEdit key={selectedFile} name={selectedFile} path={selectedFile} onDirtyChange={setDirty} className="flex-1" />
+              <SingleFileEdit key={selectedFile} path={selectedFile} onDirtyChange={setDirty} className="flex-1" />
             ) : (
               <div className="flex flex-col gap-2 p-4">
                 <Skeleton className="h-4 w-1/2" />
