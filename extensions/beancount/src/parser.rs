@@ -23,13 +23,13 @@ use nom::bytes::complete::{tag, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, satisfy, space0, space1};
 use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
-use nom::sequence::{delimited, pair, preceded, terminated, tuple};
+use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, blank_line, comment_prefix, commodity_name, inline_comment, is_digit, line_trailer, number_expr, offset, posting_amount, quote_string,
-    string, unquote_string_raw, valuable_comment, valuable_comment_body,
+    account_name, blank_line, comment_prefix, commodity_name, indentation_width, inline_comment, is_digit, line_trailer, number_expr, offset, posting_amount,
+    posting_price, quote_string, string, unquote_string_raw, valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
 };
 use zhang_core::utils::string_::invalid_escape_at;
 
@@ -72,11 +72,6 @@ fn parse_date(i: &str) -> IResult<&str, Date> {
 // postings
 // ---------------------------------------------------------------------------
 
-enum CostComponent {
-    Date(Date),
-    Label(String),
-}
-
 /// A `,`-separated component of a cost spec: an acquisition date or a lot label.
 fn cost_component(i: &str) -> IResult<&str, CostComponent> {
     alt((
@@ -104,15 +99,6 @@ fn cost_group(i: &str) -> IResult<&str, PostingCost> {
     }
     Ok((i, PostingCost { base, date, label, total }))
 }
-
-fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
-    alt((
-        map(preceded(pair(tag("@@"), space0), posting_amount), SingleTotalPrice::Total),
-        map(preceded(pair(char('@'), space0), posting_amount), SingleTotalPrice::Single),
-    ))(i)
-}
-
-type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
 
 fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
     let (i, cost) = opt(preceded(space0, cost_group))(i)?;
@@ -160,20 +146,6 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
         }
     }
     Ok((i, posting))
-}
-
-/// One indented line inside a transaction.
-enum TransactionLine {
-    Posting(Posting),
-    Meta((String, ZhangString)),
-    /// a comment or a whitespace-only line
-    Other,
-}
-
-/// The width in columns of the leading whitespace `indent` of a line; a tab advances to
-/// the next multiple of four columns.
-fn indentation_width(indent: &str) -> usize {
-    indent.chars().fold(0, |width, c| if c == '\t' { (width / 4 + 1) * 4 } else { width + 1 })
 }
 
 /// A single indented line inside a transaction: a posting, a metadata pair, or an
