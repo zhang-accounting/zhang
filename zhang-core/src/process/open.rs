@@ -13,7 +13,7 @@ impl DirectiveProcess for Open {
         Ok(true)
     }
 
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
+    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         let mut operations = ledger.operations();
 
         operations.insert_or_update_account(
@@ -24,12 +24,6 @@ impl DirectiveProcess for Open {
         )?;
 
         operations.insert_meta(MetaType::AccountMeta, self.account.name(), self.meta.clone())?;
-        // an invalid or unsupported `booking_method` is reported here; the account books with the
-        // default method (E1, E7)
-        if let Some(error) = ledger.booker_mut().apply_open(self) {
-            operations.new_error(error.kind, span, error.metas)?;
-        }
-
         Ok(())
     }
 }

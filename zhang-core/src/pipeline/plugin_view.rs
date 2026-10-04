@@ -402,7 +402,8 @@ mod test {
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::ledger::Ledger;
-    use crate::pipeline::{builtin_stages, run_pipeline, ProcessStage, StageContext};
+    use crate::pipeline::test::balance_stages;
+    use crate::pipeline::{run_pipeline, ProcessStage, StageContext};
     use crate::ZhangResult;
 
     /// a plugin of ABI v1: it records the stream it is given, and returns it changed by `change`
@@ -458,7 +459,7 @@ mod test {
             }
         }
         let stages: Vec<Box<dyn ProcessStage>> = std::iter::once(Box::new(AbiV1View::new(Box::new(Shared(plugin)))) as Box<dyn ProcessStage>)
-            .chain(builtin_stages())
+            .chain(balance_stages())
             .collect();
         let mut ctx = StageContext::new(&[]);
         let out = run_pipeline(&stages, parse(content), &mut ctx).unwrap();

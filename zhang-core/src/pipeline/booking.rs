@@ -15,7 +15,7 @@ use crate::ZhangResult;
 ///
 /// Like beancount's booking, which runs before the plugins and whose balances are dropped, this
 /// pass keeps nothing: the lots it builds are stale as soon as a later stage adds a transaction,
-/// and its errors are those of a stream the plugins have not seen yet. The store fold books the
+/// and its errors are those of a stream the plugins have not seen yet. [`ValidateStage`](super::ValidateStage) books the
 /// final stream again (pass 2): it leaves what is booked unchanged, completes what a stage left
 /// unbooked, reports every booking error once, and its lots become the store's.
 pub struct BookingStage;
@@ -30,11 +30,11 @@ impl ProcessStage for BookingStage {
         for directive in &mut directives {
             match &mut directive.data {
                 Directive::Open(open) => {
-                    let _reported_by_the_fold = booker.apply_open(open);
+                    let _reported_by_validation = booker.apply_open(open);
                 }
                 Directive::Commodity(commodity) => define_commodity(&mut booker, commodity, ctx.options),
                 Directive::Transaction(txn) => {
-                    let _reported_by_the_fold = booker.book(txn);
+                    let _reported_by_validation = booker.book(txn);
                 }
                 _ => {}
             }
@@ -88,7 +88,7 @@ mod test {
                 vec!["Assets:A -25 USD {}", "Income:I 260 CNY"],
             ]
         );
-        // the lots run short on the sale: the error is the store fold's to report, not this stage's
+        // the lots run short on the sale: the error is final validation's to report, not this stage's
         assert_eq!(errors, 0);
     }
 

@@ -30,7 +30,7 @@ struct Booked {
     residuals: Vec<Vec<String>>,
 }
 
-/// fold `directives` through a fresh booker, as the store fold does
+/// fold `directives` through a fresh booker, as the final validation stage does
 fn book_stream(default_method: BookingMethod, commodities: &[(String, i32, Rounding)], directives: &[Spanned<Directive>]) -> Booked {
     let mut booker = Booker::new(default_method);
     for (name, precision, rounding) in commodities {

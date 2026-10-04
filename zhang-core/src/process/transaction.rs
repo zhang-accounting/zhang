@@ -3,13 +3,11 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use itertools::Itertools;
-use log::{trace, warn};
 use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
-use crate::booking::{group_units, is_booked, written_groups, BookOutcome};
-use crate::constants::TXN_ID;
+use crate::booking::{group_units, written_groups};
 use crate::domains::schemas::MetaType;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
@@ -22,49 +20,12 @@ impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         // a stage may synthesize several transactions at one place: the paddings of a `pad` serving several currencies
         let id = ledger.operations().unused_id(Uuid::from_span(span));
-        let txn_meta = || HashMap::of(TXN_ID, id.to_string());
-
-        // booking first: the lots decide the weights the implicit posting is interpolated from (E4).
-        // This is pass 2 of booking (design #423 §5.2, V3): the booking stage booked the transaction
-        // before the plugins ran, unless a stage emitted it since or left it unbooked. Booking it
-        // again leaves a booked posting as it is and completes an unbooked one, so the stream the
-        // ledger keeps is the booked one; the errors are reported here, once. A plugin may have
-        // changed the lots a leg depends on since (an earlier sale added, a lot relabelled): this
-        // pass is then the booking that counts, and says so in the log
-        let before = is_booked(self).then(|| self.postings.clone());
-        let outcome = ledger.booker_mut().book(self);
-        if let Some(before) = before.filter(|before| *before != self.postings) {
-            let leg = before
-                .iter()
-                .zip(&self.postings)
-                .position(|(before, after)| before != after)
-                .unwrap_or(before.len().min(self.postings.len()));
-            warn!(
-                "booking the final stream changed transaction {id} ({} {}), booked before the plugins: a stage changed the lots its legs depend on. Leg {leg}: {:?} before, {:?} now",
-                self.date.naive_date(),
-                self.narration.as_ref().map(|it| it.as_str()).unwrap_or_default(),
-                before.get(leg).map(|it| (&it.account.content, &it.units, &it.cost)),
-                self.postings.get(leg).map(|it| (&it.account.content, &it.units, &it.cost)),
-            );
+        // Final validation already booked the stream and rejected unbookable transactions. Bind
+        // its errors to this candidate ID, which rejected transactions do not reserve in the store.
+        if !ledger.take_validated_transaction(span, id) {
+            return Ok(());
         }
-        let booked = match outcome {
-            BookOutcome::Booked(booked) => booked,
-            // the transaction is rejected: it never reaches the store, nor its lots
-            BookOutcome::Unbookable { kind, errors } => {
-                let mut operations = ledger.operations();
-                for error in errors {
-                    operations.new_error(error.kind, span, error.metas)?;
-                }
-                operations.new_error(kind, span, txn_meta())?;
-                return Ok(());
-            }
-        };
-
         let mut operations = ledger.operations();
-        let balance_error = operations.check_transaction_balance(&booked.residual)?;
-        if balance_error == Some(ErrorKind::CommodityDoesNotDefine) {
-            operations.new_error(ErrorKind::CommodityDoesNotDefine, span, txn_meta())?;
-        }
 
         let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
         operations.insert_transaction(
@@ -116,14 +77,6 @@ impl DirectiveProcess for Transaction {
                 }
             }
         }
-        for error in booked.errors {
-            operations.new_error(error.kind, span, error.metas)?;
-        }
-        trace!("residual of transaction {}: {:?}", id, booked.residual);
-        if balance_error == Some(ErrorKind::UnbalancedTransaction) {
-            operations.new_error(ErrorKind::UnbalancedTransaction, span, txn_meta())?;
-        }
-
         // extract documents from meta. A `document` of a posting is a document of its
         // transaction too: older zhang appended uploaded documents after the postings, which
         // a beancount ledger reads as metadata of the last posting. The legs of a split posting

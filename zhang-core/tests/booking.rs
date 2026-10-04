@@ -1,6 +1,6 @@
 //! Characterization tests for today's booking (booking-split design, #423).
 //!
-//! They pin what the store fold does now, bugs included, so the booking refactor can prove it
+//! They pin booking and materialization behavior, so the booking refactor can prove it
 //! changes only what it means to change. A `current_behavior_eN_*` test pins quirk EN of the
 //! design and is expected to flip in the PR that fixes EN; an `eN_*` test is the fixed behavior.
 
@@ -890,7 +890,7 @@ fn undefined_commodity_is_reported_before_unbalanced() {
 
 #[test]
 fn balance_stages_count_the_booked_amount_of_an_implicit_posting() {
-    // pad and balance check size the account like the store fold, with the same booking method:
+    // pad and balance check size the account like final validation, with the same booking method:
     // the implicit income of the empty cost sale is 155 CNY with FIFO and 160 CNY with LIFO, so
     // Income:I holds -55 or -50 CNY before the pad
     for (option, meta, held) in [
@@ -1562,7 +1562,7 @@ fn a_cover_larger_than_the_short_opens_only_the_remaining_units() {
 }
 
 /// Booking runs as a stage before the plugins (design §2): the stream the ledger keeps holds the
-/// booked postings, with the written form on those booking changed, and the store fold's pass 2
+/// booked postings, with the written form on those booking changed, and final validation's pass 2
 /// completes what the stages left unbooked, such as the implicit leg of a padding transaction.
 #[test]
 fn the_ledger_keeps_the_booked_postings() {
@@ -1622,7 +1622,7 @@ fn the_ledger_keeps_the_booked_postings() {
                 "Income:I 155 CNY <- #1 ?",
             ],
             // the padding transaction the pad stage emits after booking: its implicit leg is
-            // completed by the store fold
+            // completed by final validation
             vec!["Assets:S 7 USD", "Equity:Open -7 USD <- #1 ?"],
         ]
     );
@@ -1656,7 +1656,7 @@ fn the_ledger_keeps_the_booked_postings() {
     );
 }
 
-/// A transaction the store fold rejects (its explicit postings weigh in several commodities) is
+/// A transaction final validation rejects (its explicit postings weigh in several commodities) is
 /// not stored, and the pad and balance-check stages skip it too, so an assertion on an account it
 /// names agrees with the store, not with the rejected transaction.
 #[test]
@@ -1686,4 +1686,27 @@ fn a_rejected_transaction_counts_for_no_balance_assertion() {
     let store = ledger.store.read().unwrap();
     assert!(store.balance_assertions.iter().all(|it| it.passed));
     assert_eq!(store.transactions.len(), 1);
+}
+
+/// Final booking errors belong to the stage channel, before materialization errors. Both errors
+/// retain the transaction's span and metadata, even when their order changes from the old fold.
+#[test]
+fn final_validation_errors_precede_undefined_budget_activity() {
+    let ledger = load(indoc! {r#"
+        1970-01-01 open Expenses:Food
+          budget: missing
+        2024-01-01 * "unbalanced budget activity"
+          Expenses:Food 10 CNY
+          Income:I -9 CNY
+    "#});
+    let store = ledger.store.read().unwrap();
+    assert_eq!(
+        store.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>(),
+        [&ErrorKind::UnbalancedTransaction, &ErrorKind::BudgetDoesNotExist]
+    );
+    let txn = store.transactions.values().next().unwrap();
+    assert_eq!(store.errors[0].metas["txn_id"], txn.id.to_string());
+    assert_eq!(store.errors[1].metas["budget_name"], "missing");
+    assert_eq!(store.errors[1].metas["account_name"], "Expenses:Food");
+    assert!(store.errors.iter().all(|it| it.span.as_ref() == Some(&txn.span)));
 }
