@@ -22,6 +22,7 @@ use zhang_core::ledger::Ledger;
 use zhang_query::{Params, QueryResult, Value};
 
 use crate::builtin::execute;
+use crate::cells::Columns;
 use crate::error::ServerError;
 use crate::request::JournalRequest;
 use crate::response::{
@@ -40,19 +41,6 @@ pub const PAYEES: &str = "journals.payees";
 pub const OPEN_ACCOUNTS: &str = "journals.accounts";
 pub const DOCUMENTS: &str = "journals.documents";
 pub const ERRORS: &str = "journals.errors";
-
-/// The columns of a result by name.
-struct Columns(HashMap<String, usize>);
-
-impl Columns {
-    fn of(result: &QueryResult) -> Columns {
-        Columns(result.columns.iter().enumerate().map(|(idx, column)| (column.name.clone(), idx)).collect())
-    }
-
-    fn get<'r>(&self, row: &'r [Value], name: &str) -> &'r Value {
-        &row[*self.0.get(name).unwrap_or_else(|| panic!("the built-in query selects {}", name))]
-    }
-}
 
 fn string(value: &Value) -> String {
     value.as_str().unwrap_or_default().to_owned()
