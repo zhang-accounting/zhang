@@ -5,7 +5,8 @@
 //! ([`ledger_order`]). `#documents` adds, after its directives, the documents that
 //! transactions and postings name in their metadata.
 
-use std::collections::BTreeSet;
+use std::borrow::Cow;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use bigdecimal::BigDecimal;
@@ -13,8 +14,9 @@ use chrono::{Datelike, NaiveDate};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{resolve_local_datetime, Account, Directive, Meta, Posting, Spanned, Transaction};
+use zhang_core::data_type::{document_path_in_ledger, file_in_ledger, is_beancount_endpoint};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{BalanceAssertionDomain, Store};
+use zhang_core::store::{BalanceAssertionDomain, DocumentType, Store};
 
 use super::postings::time_value;
 use super::{directive_meta, ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
@@ -380,8 +382,8 @@ pub(crate) struct DocumentRow<'a> {
     source: DocumentSource<'a>,
     /// the path as written in the ledger
     filename: &'a str,
-    /// the path relative to the ledger's directory
-    path: &'a Path,
+    /// the path relative to the ledger's directory, the one zhang keeps the document with
+    path: Cow<'a, Path>,
     /// the id of the transaction the store keeps, for a document named in metadata
     transaction_id: Option<Uuid>,
     /// the position in `#entries` of the document directive, or of the transaction
@@ -404,16 +406,17 @@ impl<'a> DocumentRow<'a> {
 /// transactions the store keeps (those of `#transactions`), in ledger order: a transaction's own
 /// first, then those of its postings in order. A repeated key gives one row per value.
 fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    let row = |directive, source, filename: &'a str, transaction_id, seq| {
+    let row = |directive, source, filename: &'a str, path, transaction_id, seq| {
         Record::Document(DocumentRow {
             directive,
             source,
             filename,
-            path: ledger_file(ledger, Path::new(filename)),
+            path,
             transaction_id,
             seq,
         })
     };
+    let paths = DirectivePaths::of(ledger, store);
     let cache = LedgerCache::of(ledger, store);
     let entries = cache.entries(ledger, store);
     let mut rows = entries
@@ -422,7 +425,17 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
         .filter_map(|entry| {
             let directive = &ledger.directives[entry.directive as usize];
             match &directive.data {
-                Directive::Document(document) => Some(row(directive, DocumentSource::Directive(document), document.filename.as_str(), None, entry.seq)),
+                Directive::Document(document) => {
+                    let path = paths.of_directive(directive, document);
+                    Some(row(
+                        directive,
+                        DocumentSource::Directive(document),
+                        document.filename.as_str(),
+                        path,
+                        None,
+                        entry.seq,
+                    ))
+                }
                 _ => None,
             }
         })
@@ -440,11 +453,60 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
         );
         for (source, meta) in holders {
             for filename in meta.get_all("document") {
-                rows.push(row(directive, source, filename.as_str(), entry.txn, entry.seq));
+                let path = Cow::Borrowed(ledger_file(ledger, Path::new(filename.as_str())));
+                rows.push(row(directive, source, filename.as_str(), path, entry.txn, entry.seq));
             }
         }
     }
     rows
+}
+
+/// The paths of the `document` directives, as zhang keeps them. In a zhang ledger a path is relative to the
+/// ledger's directory. In a beancount ledger it is relative to the file of the directive, as beancount reads it,
+/// unless zhang found the document relative to the ledger's directory, where earlier versions wrote it: the path
+/// is then the one the store keeps for the account.
+struct DirectivePaths<'a> {
+    ledger: &'a Ledger,
+    /// for a beancount ledger, the accounts and paths of the stored documents of directives
+    stored: Option<HashSet<(&'a str, &'a str)>>,
+}
+
+impl<'a> DirectivePaths<'a> {
+    fn of(ledger: &'a Ledger, store: &'a Store) -> Self {
+        let stored = is_beancount_endpoint(&ledger.entry.1).then(|| {
+            store
+                .documents
+                .iter()
+                .filter_map(|document| match &document.document_type {
+                    DocumentType::Account(account) => Some((account.name(), document.path.as_str())),
+                    DocumentType::Trx(_) => None,
+                })
+                .collect()
+        });
+        DirectivePaths { ledger, stored }
+    }
+
+    fn of_directive(&self, directive: &'a Spanned<Directive>, document: &'a zhang_ast::Document) -> Cow<'a, Path> {
+        let written = document.filename.as_str();
+        let Some(stored) = &self.stored else {
+            return Cow::Borrowed(ledger_file(self.ledger, Path::new(written)));
+        };
+        let file = directive
+            .span
+            .filename
+            .as_ref()
+            .map(|file| file_in_ledger(&self.ledger.entry.0, file))
+            .unwrap_or_default();
+        let from_file = document_path_in_ledger(written, &file);
+        let from_root = document_path_in_ledger(written, Path::new(""));
+        let account = document.account.name();
+        let path = if !stored.contains(&(account, from_file.as_str())) && stored.contains(&(account, from_root.as_str())) {
+            from_root
+        } else {
+            from_file
+        };
+        Cow::Owned(PathBuf::from(path))
+    }
 }
 
 fn document<'r, 'a>(record: &'r Record<'a>) -> Option<&'r DocumentRow<'a>> {
@@ -552,7 +614,9 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "path",
         DataType::Str,
-        "Path of the document as written, relative to the ledger's directory: the path the web UI downloads it with. A zhang extension.",
+        "Path of the document relative to the ledger's directory, the one the web UI downloads it with: in a beancount ledger, the path \
+         of a `document` directive is relative to the directive's file, as beancount reads it, unless zhang found the file relative \
+         to the ledger's directory. A zhang extension.",
         |_, record| document(record).map_or(Value::Null, |it| Value::Str(it.path.to_string_lossy().into_owned())),
     ),
     ColumnDef::record(

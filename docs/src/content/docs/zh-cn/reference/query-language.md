@@ -792,7 +792,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | | `filename` | `str` | 文件的路径。与 beancount 一样，相对路径相对于声明它的账本文件所在的目录。 |
 | | `tags`、`links` | `set` | `document` 指令的标签和链接，或者引用该文档的交易的标签和链接。 |
 | | `source` | `str` | 文档的来源：`document` 指令为 `'directive'`，交易或其分录的 `document` 元数据分别为 `'transaction'` 和 `'posting'`。张记账扩展。 |
-| | `path` | `str` | 按原样书写、相对于账本目录的文件路径：张记账相对于账本目录解析文档路径，网页界面也用这个路径下载文件。位于账本目录内的绝对路径会转换为相对于该目录的路径。张记账扩展。 |
+| | `path` | `str` | 相对于账本目录的文件路径，网页界面用这个路径下载文件。张记账文件中写的路径和交易的 `document` 元数据相对于账本目录；Beancount 文件中 `document` 指令的路径相对于该文件，与 Beancount 的读法一致，除非张记账是在相对于账本目录的位置找到该文件的（早期版本写在那里，见[路径](/zh-cn/reference/directives/document/#路径)）。位于账本目录内的绝对路径会转换为相对于该目录的路径。张记账扩展。 |
 | | `transaction_id` | `str` | 元数据中的文档所属交易的 `id`，与 postings 表中的一致。`document` 指令为 `NULL`。张记账扩展。 |
 | | `seq` | `int` | `document` 指令，或在元数据中提到该文档的交易的 [`seq`](#处理顺序)。张记账扩展。 |
 | | `time`、`timestamp` | `str`、`int` | `document` 指令，或在元数据中提到该文档的交易的时刻（`HH:MM:SS`，与 [`#entries`](#entries) 中相同）及其 Unix 时间（秒）。张记账扩展。 |
