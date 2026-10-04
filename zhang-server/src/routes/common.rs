@@ -6,7 +6,6 @@ use axum::response::sse::{Event, KeepAlive};
 use axum::response::Sse;
 use futures_util::Stream;
 use gotcha::api;
-use itertools::Itertools;
 use zhang_core::domains::schemas::OptionDomain;
 
 use crate::request::JournalRequest;
@@ -60,23 +59,6 @@ pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfoE
 #[api(group = "error")]
 pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
     ResponseWrapper::json(journals::errors(&ledger, params.0).await?)
-}
-
-/// The hand-written [`get_errors`] the built-in query replaces, kept to compare them until it is
-/// removed (#479).
-pub async fn get_errors_legacy(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
-    let ledger = ledger.read().await;
-    let mut operations = ledger.operations();
-    let errors = operations.errors()?;
-    let total_count = errors.len();
-    let ret = errors
-        .iter()
-        .skip(params.offset() as usize)
-        .take(params.limit() as usize)
-        .cloned()
-        .map(|it| it.into())
-        .collect_vec();
-    ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
 #[api(group = "common")]

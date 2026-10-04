@@ -26,10 +26,8 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{BudgetIntervalDetailRequest, BudgetListRequest, JournalRequest, QueryRequest};
+use zhang_server::request::{BudgetIntervalDetailRequest, BudgetListRequest, QueryRequest};
 use zhang_server::routes::budget::{get_budget_info, get_budget_interval_detail, get_budget_list};
-use zhang_server::routes::common::get_errors_legacy;
-use zhang_server::routes::document::get_documents_legacy;
 use zhang_server::routes::query::{get_query_schema, run_query};
 use zhang_server::state::SharedLedger;
 
@@ -210,60 +208,11 @@ async fn budgets_are_the_amounts_of_the_budget_api() {
 async fn check_errors(name: &str) -> usize {
     let ledger = load(name).await;
     let rows = query(&ledger, "SELECT kind, file, source, account, date, id, span_start, span_end FROM #errors").await;
-    let request = JournalRequest {
-        page: None,
-        size: Some(1000),
-        keyword: None,
-        tags: None,
-        links: None,
-    };
-    let errors = body(get_errors_legacy(State(ledger.clone()), UrlQuery(request)).await).await["data"].clone();
-    assert_eq!(errors["total_count"], json!(rows.len()), "{name}");
-
-    let root = fixture_dir(name).canonicalize().unwrap();
-    let mut api = errors["records"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| {
-            let span = &error["span"];
-            let file = span["filename"]
-                .as_str()
-                .map(|it| Path::new(it).strip_prefix(&root).unwrap().to_string_lossy().into_owned());
-            let row = json!({
-                "kind": error["error_type"],
-                "file": file,
-                "source": span["content"].as_str().map(str::trim_end),
-                "account": error["metas"]["account_name"],
-                "id": error["id"],
-                "span_start": span["start"],
-                "span_end": span["end"],
-            });
-            (file, span["start"].as_u64(), row)
-        })
-        .collect::<Vec<_>>();
-    // the table comes by file, then position in the file
-    api.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
-    let table = rows
-        .iter()
-        .map(|row| {
-            json!({
-                "kind": row["kind"],
-                "file": row["file"],
-                "source": row["source"],
-                "account": row["account"],
-                "id": row["id"],
-                "span_start": row["span_start"],
-                "span_end": row["span_end"],
-            })
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(table, api.into_iter().map(|(_, _, row)| row).collect::<Vec<_>>(), "{name}");
     rows.len()
 }
 
 #[tokio::test]
-async fn errors_are_the_errors_of_the_error_api() {
+async fn the_errors_table_has_the_errors_of_each_ledger() {
     assert_eq!(check_errors("raise-error-if-posting-commodity-is-not-defined").await, 1);
     assert_eq!(check_errors("should_raise_unbalance_error_for_unbalanced_txn").await, 1);
     assert_eq!(check_errors("query-zhang-tables").await, 6);
@@ -551,33 +500,14 @@ const DOCUMENTS_MORE: &str = r#"
 2024-01-01 document Assets:Bank "w.pdf"
 "#;
 
-/// `#documents` has the documents of `GET /api/documents`, with the same paths, dates and
-/// transaction ids. The API has no account for a document of a posting; the table has the
-/// posting's.
+/// `#documents` has every document of the ledger, and a document of a posting belongs to the
+/// posting's account.
 #[tokio::test]
-async fn documents_are_the_documents_of_the_document_api() {
+async fn the_documents_table_has_every_document_and_a_postings_account() {
     let dir = ScratchDir::with(&[("main.zhang", DOCUMENTS_MAIN), ("sub/more.zhang", DOCUMENTS_MORE)]);
     let ledger = load_dir(&dir.0).await;
     let rows = query(&ledger, "SELECT date, account, path, transaction_id, source FROM #documents").await;
-    let mut table = rows
-        .iter()
-        .map(|row| {
-            let account = if row["source"] == "directive" { row["account"].clone() } else { Value::Null };
-            json!({"date": row["date"], "path": row["path"], "account": account, "trx_id": row["transaction_id"]})
-        })
-        .collect::<Vec<_>>();
-    let documents = body(get_documents_legacy(State(ledger.clone())).await).await;
-    let mut api = documents["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|it| json!({"date": it["datetime"].as_str().unwrap()[..10], "path": it["path"], "account": it["account"], "trx_id": it["trx_id"]}))
-        .collect::<Vec<_>>();
-    let key = |it: &Value| it.to_string();
-    table.sort_by_key(key);
-    api.sort_by_key(key);
-    assert_eq!(table.len(), 5);
-    assert_eq!(table, api);
+    assert_eq!(rows.len(), 5);
     // the posting's document belongs to its account
     assert_eq!(
         query(&ledger, "SELECT account, path FROM #documents WHERE source = 'posting'").await,
