@@ -12,6 +12,7 @@ import PayeeNarration from '../basic/PayeeNarration';
 import { ImageLightBox } from '../ImageLightBox';
 import { JournalStatusBadge, JournalTypeBadge } from '../journalLines/JournalBits';
 import { transactionDocuments } from '../journalLines/journal-utils';
+import { DOCUMENT_KEY } from '../transaction-form-utils';
 import DocumentPreview from './DocumentPreview';
 import { PostingRow, PreviewHeader, PreviewList, PreviewRow, PreviewSection } from './PreviewParts';
 
@@ -25,7 +26,7 @@ export default function TransactionPreview({ data }: Props) {
   const refreshJournals = useSetAtom(journalFetcher);
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
   const summary = Array.from(calculate(data).values());
-  const metas = (data.metas ?? []).filter((meta) => meta.key !== 'document');
+  const metas = (data.metas ?? []).filter((meta) => meta.key !== DOCUMENT_KEY);
   // the server links a posting's `document` to its transaction too: list them with the transaction's documents
   const documents = transactionDocuments(data);
   const tags = data.tags ?? [];
@@ -60,7 +61,7 @@ export default function TransactionPreview({ data }: Props) {
             <PostingRow
               key={idx}
               account={posting.account}
-              metas={posting.metas.filter((meta) => meta.key !== 'document')}
+              metas={posting.metas.filter((meta) => meta.key !== DOCUMENT_KEY)}
               metasLabel={t('ledger.preview.posting_metas', { account: posting.account })}
               amount={<Amount amount={posting.inferred_unit.number} currency={posting.inferred_unit.commodity} />}
               balance={

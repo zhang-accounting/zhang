@@ -1,5 +1,6 @@
 // Type-only imports keep this module runnable by `node --test` (journal-utils.test.ts).
 import type { JournalBalanceCheckItem, JournalItem, JournalTransactionItem, MetaEntry } from '@/api/types';
+import { DOCUMENT_KEY } from '../transaction-form-utils.ts';
 
 /** `true` when the balance assertion held, within its tolerance. The server decides it: a check within its tolerance passes. */
 export function isBalanceCheckPassed(data: Pick<JournalBalanceCheckItem, 'passed'>) {
@@ -24,7 +25,7 @@ export function journalStatus(data: JournalItem): 'ok' | 'warning' | 'error' {
 export function transactionDocuments(data: { metas: MetaEntry[]; postings: { metas: MetaEntry[] }[] }): MetaEntry[] {
   const seen = new Set<string>();
   return [data.metas, ...data.postings.map((posting) => posting.metas)].flat().filter((meta) => {
-    if (meta.key !== 'document' || seen.has(meta.value)) return false;
+    if (meta.key !== DOCUMENT_KEY || seen.has(meta.value)) return false;
     seen.add(meta.value);
     return true;
   });

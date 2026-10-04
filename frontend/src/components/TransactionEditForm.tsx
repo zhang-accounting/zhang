@@ -20,6 +20,7 @@ import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import {
   directiveText,
+  DOCUMENT_KEY,
   ledgerFormat,
   parseAmount,
   PostingDraft,
@@ -137,7 +138,7 @@ export default function TransactionEditForm(props: Props) {
   const [payee, setPayee] = useState<string>(props.data?.payee ?? '');
   const [narration, setNarration] = useState(props.data?.narration ?? '');
   const [postings, postingsHandler] = useListState<PostingDraft>(toPostingDrafts(props.data?.postings));
-  const [metas, metaHandler] = useListState<MetaEntry>((props.data?.metas ?? []).filter((meta) => meta.key !== 'document'));
+  const [metas, metaHandler] = useListState<MetaEntry>((props.data?.metas ?? []).filter((meta) => meta.key !== DOCUMENT_KEY));
   // Posting metadata editors are collapsed by default; ids of the expanded postings.
   const [openPostingMetas, setOpenPostingMetas] = useState<ReadonlySet<number>>(() => new Set());
 
@@ -178,7 +179,7 @@ export default function TransactionEditForm(props: Props) {
       postings: postings.map((it, idx) => toPostingRequest(it, parsed[idx])),
       tags: props.data?.tags ?? [],
       links: props.data?.links ?? [],
-      metas: [...toRequestMetas(metas), ...(props.data?.metas ?? []).filter((meta) => meta.key === 'document')],
+      metas: [...toRequestMetas(metas), ...(props.data?.metas ?? []).filter((meta) => meta.key === DOCUMENT_KEY)],
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [date, payee, narration, postings, metas, parsed],
