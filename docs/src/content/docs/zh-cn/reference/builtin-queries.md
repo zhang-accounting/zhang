@@ -680,23 +680,25 @@ HAVING sum(number) != 0
 
 #### `commodities.latest_prices`
 
-每种商品以某种货币报价的最新价格，及其日期和时间。
+每种商品以某种货币计价、截至今日的最新价格，及其日期和时间。汇率与估值所用的一致，来自引擎的价格表：该货币对在今日或之前、任一方向的最新报价，反向报价取其倒数。日期在未来的价格不是最新价格。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `currency` | `str` | 报价货币，即运营货币 |
 
 ```sql
-SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency,
+       last(date) AS date, last(time) AS time,
+       getprice(last(CASE WHEN currency = :currency THEN currency(amount) ELSE currency END), :currency, today()) AS rate
 FROM #prices
-WHERE currency(amount) = :currency
-GROUP BY currency
-ORDER BY currency
+WHERE (currency = :currency OR currency(amount) = :currency) AND currency != currency(amount) AND date <= today()
+GROUP BY 1
+ORDER BY 1
 ```
 
 #### `commodities.latest_price`
 
-某一种商品以某种货币报价的最新价格，及其日期和时间。
+某一种商品以某种货币计价、截至今日的最新价格，及其日期和时间。汇率与估值所用的一致，来自引擎的价格表：该货币对在今日或之前、任一方向的最新报价，反向报价取其倒数。日期在未来的价格不是最新价格。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
@@ -704,10 +706,12 @@ ORDER BY currency
 | `currency` | `str` | 报价货币，即运营货币 |
 
 ```sql
-SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency,
+       last(date) AS date, last(time) AS time, getprice(:commodity, :currency, today()) AS rate
 FROM #prices
-WHERE currency = :commodity AND currency(amount) = :currency
-GROUP BY currency
+WHERE ((currency = :commodity AND currency(amount) = :currency) OR (currency = :currency AND currency(amount) = :commodity))
+  AND currency != currency(amount) AND date <= today()
+GROUP BY 1
 ```
 
 #### `commodities.lots`

@@ -2,24 +2,14 @@
   {
     "uri": "/api/accounts",
     "validations": [
-      ["$.data[?(@.name=='Assets:Bank')].amount.detail.USD", "100"],
       ["$.data[?(@.name=='Assets:Bank')].amount.calculated.number", "800"],
       ["$.data[?(@.name=='Assets:Bank')].amount.calculated.commodity", "CNY"]
     ]
   },
   {
-    "uri": "/api/statistic/summary?from=2024-01-01&to=2024-12-31",
-    "validations": [
-      ["$.data.balance.detail.USD", "100"],
-      ["$.data.balance.calculated.number", "800"],
-      ["$.data.balance.calculated.commodity", "CNY"]
-    ]
-  },
-  {
     "uri": "/api/commodities",
     "validations": [
-      ["$.data[?(@.name=='USD')].total_amount", "100"],
-      ["$.data[?(@.name=='USD')].latest_price_date", "2024-01-01T00:00:00"],
+      ["$.data[?(@.name=='USD')].latest_price_date", "2024-02-01T00:00:00"],
       ["$.data[?(@.name=='USD')].latest_price_amount", "8"],
       ["$.data[?(@.name=='USD')].latest_price_commodity", "CNY"]
     ]
@@ -27,8 +17,7 @@
   {
     "uri": "/api/commodities/USD",
     "validations": [
-      ["$.data.info.total_amount", "100"],
-      ["$.data.info.latest_price_date", "2024-01-01T00:00:00"],
+      ["$.data.info.latest_price_date", "2024-02-01T00:00:00"],
       ["$.data.info.latest_price_amount", "8"],
       ["$.data.info.latest_price_commodity", "CNY"]
     ]

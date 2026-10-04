@@ -1,0 +1,16 @@
+option "title" "Future prices"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Equity:Opening
+
+2024-01-02 * "Opening"
+  Assets:Bank 100 USD
+  Equity:Opening -100 USD
+
+2024-01-01 price USD 7.00 CNY
+; a price in the future is not the latest price: the holdings are valued, and the commodity page prices USD, at the 7.00 of 2024-01-01
+2099-01-01 price USD 9.90 CNY
