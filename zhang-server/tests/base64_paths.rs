@@ -21,6 +21,7 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::ZhangResult;
 use zhang_server::broadcast::Broadcaster;
+use zhang_server::util::sha256_hex;
 use zhang_server::{create_server_app, ReloadSender, ServeConfig};
 
 /// a document whose standard base64, `YXR0YWNobWVudHMvdTEwL+S/nemZqS5wZGY=`, has a `+` and a `/`
@@ -241,7 +242,10 @@ async fn a_file_whose_base64_path_has_a_slash_reads_and_saves() {
 
     let reply = get(&router, &format!("/api/files/{encoded}")).await;
     assert_eq!(reply.status, StatusCode::OK, "{:?}", String::from_utf8_lossy(&reply.body));
-    assert_eq!(reply.json()["data"], json!({"path": FILE, "content": INCLUDED}));
+    assert_eq!(
+        reply.json()["data"],
+        json!({"path": FILE, "content": INCLUDED, "sha256": sha256_hex(INCLUDED.as_bytes())})
+    );
 
     let content = "1970-01-01 open Expenses:Insurance\n1970-01-01 open Expenses:Health\n";
     let reply = put(&router, &format!("/api/files/{encoded}"), json!({ "content": content })).await;
@@ -267,7 +271,10 @@ async fn a_file_whose_base64_path_ends_with_a_slash_reads_and_saves() {
 
     let reply = get(&router, &format!("/api/files/{encoded}")).await;
     assert_eq!(reply.status, StatusCode::OK);
-    assert_eq!(reply.json()["data"], json!({"path": TRAILING_SLASH_FILE, "content": "a note\n"}));
+    assert_eq!(
+        reply.json()["data"],
+        json!({"path": TRAILING_SLASH_FILE, "content": "a note\n", "sha256": sha256_hex(b"a note\n")})
+    );
 }
 
 #[tokio::test]
@@ -279,7 +286,10 @@ async fn a_file_whose_base64_path_has_no_slash_reads_and_saves() {
 
     let reply = get(&router, &format!("/api/files/{encoded}")).await;
     assert_eq!(reply.status, StatusCode::OK);
-    assert_eq!(reply.json()["data"], json!({"path": "main.zhang", "content": MAIN}));
+    assert_eq!(
+        reply.json()["data"],
+        json!({"path": "main.zhang", "content": MAIN, "sha256": sha256_hex(MAIN.as_bytes())})
+    );
 
     let content = format!("{MAIN}1970-01-01 open Assets:Bank\n");
     let reply = put(&router, &format!("/api/files/{encoded}"), json!({ "content": content })).await;
