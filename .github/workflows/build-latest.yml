@@ -8,9 +8,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# a new push to a pull request cancels its running checks. A run on main or develop is left to finish instead: only
+# those runs save the caches every pull request restores, and with merges minutes apart cancelling them meant the
+# caches were rarely saved. GitHub still keeps at most one run waiting per branch, so runs on main do not pile up.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   frontend-style-check:
