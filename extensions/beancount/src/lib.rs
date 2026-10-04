@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use itertools::{Either, Itertools};
 use zhang_ast::*;
-use zhang_core::data_type::text::exporter::{append_meta_as, ZhangDataTypeExportable};
+use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::DataType;
 use zhang_core::utils::plain_decimal;
 use zhang_core::utils::string_::QuoteStyle;
 use zhang_core::{ZhangError, ZhangResult};
 
-use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
+use crate::directives::{BeancountDirective, BeancountOnlyDirective};
 use crate::parser::{parse, parse_time};
 
 #[allow(clippy::upper_case_acronyms)]
@@ -87,15 +87,6 @@ impl DataType for Beancount {
         const STYLE: QuoteStyle = QuoteStyle::Beancount;
         let Spanned { data, .. } = convert_datetime_to_date(directive);
         match data {
-            Directive::BalanceCheck(check) => BalanceDirective {
-                date: check.date,
-                account: check.account,
-                amount: check.amount,
-                tolerance: check.tolerance,
-
-                meta: check.meta,
-            }
-            .bc_to_string(),
             Directive::BalancePad(pad) => {
                 let balance_date = pad.date.naive_date();
                 let pad_date = balance_date.pred_opt().unwrap_or(balance_date);
@@ -105,15 +96,14 @@ impl DataType for Beancount {
                     pad: pad.pad,
                     meta: Meta::default(),
                 };
-                let balance_directive = BalanceDirective {
+                let balance_directive = BalanceCheck {
                     date: pad.date,
                     account: pad.account,
                     amount: pad.amount,
                     tolerance: None,
-
                     meta: pad.meta,
                 };
-                [pad_directive.export_as(STYLE), balance_directive.bc_to_string()].join("\n")
+                [pad_directive.export_as(STYLE), balance_directive.export_as(STYLE)].join("\n")
             }
             Directive::Budget(budget) => Directive::Custom(Custom {
                 date: budget.date,
@@ -163,35 +153,6 @@ impl DataType for Beancount {
             .export_as(STYLE),
             _ => data.export_as(STYLE),
         }
-    }
-}
-
-trait BeancountOnlyExportable {
-    fn bc_to_string(self) -> String;
-}
-
-impl BeancountOnlyExportable for BalanceDirective {
-    fn bc_to_string(self) -> String {
-        let BalanceDirective {
-            date,
-            account,
-            amount,
-            tolerance,
-            meta,
-            ..
-        } = self;
-        let amount_str = match tolerance {
-            Some(tolerance) => format!("{} ~ {} {}", plain_decimal(&amount.number), plain_decimal(&tolerance), amount.commodity),
-            None => ZhangDataTypeExportable::export(amount),
-        };
-        let line = [
-            ZhangDataTypeExportable::export(date),
-            "balance".to_string(),
-            ZhangDataTypeExportable::export(account),
-            amount_str,
-        ]
-        .join(" ");
-        append_meta_as(meta, line, QuoteStyle::Beancount)
     }
 }
 
