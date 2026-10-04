@@ -371,7 +371,6 @@
       "load_failed": "Could not load data",
       "no_match": "No matches",
       "remove_filter": "Remove filter {{value}}",
-      "retry": "Retry",
       "updating": "Updating…",
       "close": "Close",
       "show_options": "Show options"

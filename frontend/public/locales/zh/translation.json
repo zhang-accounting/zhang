@@ -360,7 +360,6 @@
       "load_failed": "数据加载失败",
       "no_match": "无匹配项",
       "remove_filter": "移除筛选 {{value}}",
-      "retry": "重试",
       "updating": "正在更新…",
       "close": "关闭",
       "show_options": "显示选项"

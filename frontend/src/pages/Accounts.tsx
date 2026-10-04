@@ -1,8 +1,8 @@
 import { useAtomValue, useSetAtom } from 'jotai';
-import { ChevronsDownUp, ChevronsUpDown, CircleAlert, RefreshCw, Search, WalletMinimal, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown, RefreshCw, Search, WalletMinimal, X } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { EmptyState, PageHeader, PageShell } from '@/components/layout';
+import { EmptyState, LoadFailedState, PageHeader, PageShell } from '@/components/layout';
 import { AccountListSkeleton } from '@/components/skeletons/accountListSkeleton';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -66,17 +66,7 @@ export default function Accounts() {
   if (accounts.state === 'loading') {
     content = <AccountListSkeleton />;
   } else if (accounts.state === 'hasError') {
-    content = (
-      <EmptyState
-        icon={CircleAlert}
-        title={t('ledger.common.load_failed')}
-        action={
-          <Button variant="outline" className="h-10 md:h-8" onClick={() => refreshAccounts()}>
-            {t('ledger.common.retry')}
-          </Button>
-        }
-      />
-    );
+    content = <LoadFailedState onRetry={refreshAccounts} />;
   } else if (types.length === 0) {
     content = (
       <EmptyState
