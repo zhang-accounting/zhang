@@ -1,25 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { WifiOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNetworkState } from 'react-use';
 import { cn } from '@/lib/utils';
 
 /** Fixed banner shown while the browser is offline; sits above the mobile tab bar. */
 const NetworkStatus: React.FC = () => {
   const { t } = useTranslation();
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+  const { online: isOnline = true } = useNetworkState();
 
   if (isOnline) return null;
 
