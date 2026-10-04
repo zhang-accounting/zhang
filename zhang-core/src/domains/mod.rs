@@ -120,16 +120,16 @@ impl Operations {
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
-        let trx = store
+        let (trx_sequence, trx_datetime) = store
             .transactions
             .get(trx_id)
-            .cloned()
+            .map(|trx| (trx.sequence, trx.datetime))
             .expect("invalid context: cannot find txn header when inserting postings");
         let posting = PostingDomain {
             id: Uuid::from_txn_posting(trx_id, posting_idx),
             trx_id: *trx_id,
-            trx_sequence: trx.sequence,
-            trx_datetime: trx.datetime,
+            trx_sequence,
+            trx_datetime,
             flag,
             account: Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?,
             unit,
