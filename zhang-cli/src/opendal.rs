@@ -1213,4 +1213,74 @@ mod test {
         let ledger = append_coffee(dir.path(), "main.bean").await;
         assert_coffee_written_to(dir.path(), "main.bean", &ledger, "books/2024.beancount");
     }
+
+    /// A write the storage refuses, as a read-only folder or a file of another user makes it, is an error naming the
+    /// file, never a panic, and the server answers it with a message the web UI shows (#494).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_refused_write_is_an_error_the_server_answers() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use axum::extract::State;
+        use axum::response::IntoResponse;
+        use zhang_server::request::FileUpdateRequest;
+        use zhang_server::routes::file::update_file_content;
+        use zhang_server::routes::Base64Path;
+        use zhang_server::state::{SharedLedger, SharedReloadSender};
+        use zhang_server::ReloadSender;
+
+        let dir = tempdir().unwrap();
+        let main = dir.path().join("main.zhang");
+        std::fs::write(&main, OPENS).unwrap();
+        let mut opts = ServerOpts {
+            path: dir.path().to_path_buf(),
+            endpoint: "main.zhang".to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_string(), source.clone())
+            .await
+            .unwrap();
+        let coffee = zhang_parse("2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n", None)
+            .unwrap()
+            .remove(0)
+            .data;
+        let set_mode = |path: &Path, mode: u32| std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+        // neither the main file nor the folder can be written: no file is saved, no `data/` folder created
+        set_mode(&main, 0o444);
+        set_mode(dir.path(), 0o555);
+
+        let saved = source.async_save(&ledger, "main.zhang".to_owned(), b"1970-01-01 open Assets:Cash\n").await;
+        let appended = source.async_append(&ledger, vec![coffee]).await;
+        let state = State(SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        let (sender, _receiver) = tokio::sync::mpsc::channel(8);
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+        let request = axum::Json(FileUpdateRequest {
+            content: "1970-01-01 open Assets:Cash\n".to_owned(),
+        });
+        let response = update_file_content(state, reload, Base64Path("main.zhang".to_owned()), request)
+            .await
+            .into_response();
+        let status = response.status().as_u16();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        // writable again, so the folder can be removed, whatever the assertions below find
+        set_mode(dir.path(), 0o755);
+        set_mode(&main, 0o644);
+
+        let error = saved.expect_err("the main file is read-only");
+        assert!(error.to_string().contains("main.zhang"), "{error}");
+        let error = appended.expect_err("the folder is read-only");
+        assert!(error.to_string().contains(".zhang"), "{error}");
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), OPENS, "nothing was written");
+        assert!(!dir.path().join("data").exists(), "no data folder was created");
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(status, 500, "{body}");
+        let message = body["message"].as_str().unwrap_or_default();
+        assert!(message.contains("main.zhang"), "{body}");
+    }
 }
