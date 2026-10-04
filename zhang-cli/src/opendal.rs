@@ -1346,6 +1346,7 @@ mod test {
         let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
         let request = axum::Json(FileUpdateRequest {
             content: "1970-01-01 open Assets:Cash\n".to_owned(),
+            expected_sha256: None,
         });
         let response = update_file_content(state, reload, Base64Path("main.zhang".to_owned()), request)
             .await
