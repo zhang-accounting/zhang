@@ -44,11 +44,15 @@
       ],
       [
         "$.data.postings[5].flag",
-        "Okay"
+        "Warning"
+      ],
+      [
+        "$.data.postings[6].flag.Custom",
+        "X"
       ],
       [
         "$.data.postings[7].flag.Custom",
-        "#"
+        "?"
       ],
       [
         "$.data.postings[7].inferred_amount.number",
@@ -63,8 +67,8 @@
         "BalancePad"
       ],
       [
-        "$.data.postings[12].flag.Custom",
-        "X"
+        "$.data.postings[12].flag",
+        "BalanceCheck"
       ],
       [
         "$.data.postings[12].inferred_amount.number",

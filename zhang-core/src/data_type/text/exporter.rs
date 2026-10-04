@@ -1,8 +1,9 @@
 use itertools::Itertools;
+use log::warn;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
-use crate::data_type::text::parser::is_valid_meta_key;
+use crate::data_type::text::parser::{is_flag_char, is_posting_flag_char, is_valid_meta_key};
 use crate::utils::plain_decimal;
 use crate::utils::string_::{quote_as, QuoteStyle};
 
@@ -141,9 +142,10 @@ impl ZhangDataTypeExportable for Transaction {
 impl ZhangDataTypeExportable for Posting {
     type Output = String;
     fn export_as(self, style: QuoteStyle) -> String {
+        let flag = self.flag.and_then(|flag| posting_flag(flag, &self.account, style));
         let vec1 = vec![
             // the posting's own flag goes before the account, a space apart: `! Assets:Cash -10 CNY`
-            self.flag.map(|it| it.export_as(style)),
+            flag,
             Some(self.account.export_as(style)),
             self.units.map(|it| it.export_as(style)),
             self.cost.map(|it| it.export_as(style)),
@@ -151,6 +153,33 @@ impl ZhangDataTypeExportable for Posting {
             self.comment.map(posting_comment),
         ];
         vec1.into_iter().flatten().join(" ")
+    }
+}
+
+/// The flag of a posting as written before its account, when the format reads it back as the
+/// posting's flag: a single [flag character](is_flag_char), which in zhang is not `*` or `#`, as an
+/// indented line starting with either is a comment there ([`is_posting_flag_char`]).
+///
+/// Any other flag is left out, with a warning, and the posting is written without it: its line must
+/// stay a posting, as a comment would drop its amount from the balances, and as an unreadable line
+/// would stop the whole file from loading. The zhang parser never reads such a flag, so in a zhang
+/// file it can only come from a plugin, which sets it again on every load.
+fn posting_flag(flag: Flag, account: &Account, style: QuoteStyle) -> Option<String> {
+    let text = flag.export_as(style);
+    let mut chars = text.chars();
+    let readable = match (chars.next(), chars.next(), style) {
+        (Some(c), None, QuoteStyle::Zhang) => is_posting_flag_char(c),
+        (Some(c), None, QuoteStyle::Beancount) => is_flag_char(c),
+        _ => false,
+    };
+    if readable {
+        Some(text)
+    } else {
+        warn!(
+            "the flag {text:?} of a posting to {} is left out: the {style:?} format would not read it back as the posting's flag",
+            account.name()
+        );
+        None
     }
 }
 
@@ -875,9 +904,10 @@ mod test {
               note: "t"
               ! Assets:Broker -5 AAPL {} @ 200 USD   ; check the lot
                 receipt: "r-1"
-              *   Assets:Bank 1000 USD
+              &   Assets:Bank 1000 USD
               ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD // fees
-              # Income:Gains ;
+              X Income:Gains ;
+              # Income:Gains -1 USD ; a posting commented out
               Expenses:Fees 2 USD
         "#};
         let expected = indoc! {r#"
@@ -885,9 +915,9 @@ mod test {
               note: "t"
               ! Assets:Broker -5 AAPL { } @ 200 USD ; check the lot
                 receipt: "r-1"
-              * Assets:Bank 1000 USD
+              & Assets:Bank 1000 USD
               ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD ; fees
-              # Income:Gains ;
+              X Income:Gains ;
               Expenses:Fees 2 USD
         "#}
         .trim();
@@ -898,11 +928,50 @@ mod test {
         let Directive::Transaction(txn) = &directive else { unreachable!() };
         let flags = txn.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
         let custom = |flag: &str| Some(Flag::Custom(flag.to_owned()));
-        assert_eq!(flags, vec![Some(Flag::Warning), Some(Flag::Okay), custom("?"), custom("#"), None]);
+        assert_eq!(flags, vec![Some(Flag::Warning), custom("&"), custom("?"), custom("X"), None]);
         assert_eq!(txn.postings[3].comment.as_deref(), Some(""));
         // the beancount style writes the same text
         assert_eq!(txn.clone().export_as(QuoteStyle::Beancount), expected);
         assert_round_trips(directive);
+    }
+
+    /// `*` and `#` start a comment in a zhang file, so the zhang style leaves out such a posting flag,
+    /// which only a plugin can set there, and keeps the posting: a comment would drop its amount. The
+    /// beancount style writes them, as beancount reads them. A flag no format reads is left out of both.
+    #[test]
+    fn a_posting_flag_that_would_read_back_as_a_comment_is_left_out() {
+        use zhang_ast::{Directive, Flag, SpanInfo, Spanned};
+
+        use crate::utils::string_::QuoteStyle;
+
+        let data_type = ZhangDataType {};
+        let mut directive = data_type
+            .transform(
+                "2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  Expenses:Food 6 USD\n  Expenses:Drinks\n".to_owned(),
+                None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap()
+            .data;
+        let Directive::Transaction(txn) = &mut directive else { unreachable!() };
+        txn.postings[0].flag = Some(Flag::Okay);
+        txn.postings[1].flag = Some(Flag::Custom("#".to_owned()));
+        txn.postings[2].flag = Some(Flag::Custom("ab".to_owned()));
+
+        let zhang = data_type.export(Spanned::new(directive.clone(), SpanInfo::default()));
+        assert_eq!(zhang, "2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  Expenses:Food 6 USD\n  Expenses:Drinks");
+        let Directive::Transaction(reread) = data_type.transform(zhang, None).unwrap().pop().unwrap().data else {
+            unreachable!()
+        };
+        assert_eq!(reread.postings.len(), 3);
+        assert!(reread.postings.iter().all(|it| it.flag.is_none()));
+
+        let Directive::Transaction(txn) = directive else { unreachable!() };
+        assert_eq!(
+            txn.export_as(QuoteStyle::Beancount),
+            "2024-01-10 * \"Lunch\"\n  * Assets:Cash -10 USD\n  # Expenses:Food 6 USD\n  Expenses:Drinks"
+        );
     }
 
     #[test]

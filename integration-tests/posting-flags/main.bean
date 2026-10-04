@@ -1,4 +1,4 @@
-; Postings with a flag of their own (#474): every flag beancount takes on a posting, on a
+; Postings with a flag of their own (#474): the flags both formats take on a posting, on a
 ; posting with metadata, a comment or an elided amount. bean-check 3.2.3 accepts this file.
 option "operating_currency" "USD"
 
@@ -20,17 +20,17 @@ option "operating_currency" "USD"
   Expenses:Food
 
 2020-01-11 ! "Dinner"
-  * Assets:Cash  -20 USD ; paid in cash
+  ! Assets:Cash  -20 USD ; paid in cash
     receipt: "r-1"
-  ! Expenses:Food  15 USD
-  #	Expenses:Drinks
+  X Expenses:Food  15 USD
+  ?	Expenses:Drinks
 
 2020-01-12 * "Cafe"
   & Assets:Bank  -1 USD
   ? Assets:Bank  -2 USD
   % Assets:Bank  -3 USD
   P Assets:Bank  -4 USD
-  X   Expenses:Drinks
+  C   Expenses:Drinks
 
 2020-01-13 balance Assets:Cash  70 USD
 2020-01-13 balance Assets:Bank  990 USD

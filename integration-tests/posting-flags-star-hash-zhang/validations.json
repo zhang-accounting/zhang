@@ -1,0 +1,64 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      [
+        "$.data.errors.length()",
+        0
+      ],
+      [
+        "$.data.postings.length()",
+        6
+      ],
+      [
+        "$.data.commodity_lots.['Assets:Cash'].[0].amount",
+        "70"
+      ],
+      [
+        "$.data.commodity_lots.['Expenses:Food'].[0].amount",
+        "30"
+      ],
+      [
+        "$.data.balance_assertions[0].passed",
+        true
+      ],
+      [
+        "$.data.balance_assertions[1].passed",
+        true
+      ],
+      [
+        "$.data.postings[2].flag",
+        null
+      ],
+      [
+        "$.data.postings[3].flag",
+        null
+      ],
+      [
+        "$.data.postings[3].inferred_amount.number",
+        "10"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals",
+    "validations": [
+      [
+        "$.data.records[2].narration",
+        "Dinner"
+      ],
+      [
+        "$.data.records[2].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[3].narration",
+        "Lunch"
+      ],
+      [
+        "$.data.records[3].postings.length()",
+        2
+      ]
+    ]
+  }
+]

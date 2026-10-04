@@ -171,7 +171,9 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
             validate::amount(unit, &rules)?;
         }
         postings.push(Posting {
-            // a request carries no posting flag: the posting it edits keeps its own, such as `!`
+            // a request carries no posting flag: the posting it edits keeps its own, such as `!`. The
+            // exporter leaves out one the ledger's format would not read back, such as a `*` a plugin
+            // set in a zhang ledger, where the line would read back as a comment
             flag: original_posting.and_then(|it| it.flag.clone()),
             account: validate::account(&posting.account, &rules)?,
             units: posting.unit,
@@ -1224,6 +1226,12 @@ mod string_round_trip_test {
     /// `update` to its only transaction and return the file written, after checking it reloads
     /// without errors, with the ledger it reloads to.
     async fn edit_ledger(main: &str, ledger: &str, update: CreateTransactionRequest) -> (String, Ledger) {
+        edit_loaded_ledger(main, ledger, |_| {}, update).await
+    }
+
+    /// [`edit_ledger`], with `prepare` applied to the loaded ledger before the update, as a plugin
+    /// could have changed it.
+    async fn edit_loaded_ledger(main: &str, ledger: &str, prepare: impl FnOnce(&mut Ledger), update: CreateTransactionRequest) -> (String, Ledger) {
         let dir = std::env::temp_dir().join(format!("zhang-edit-ledger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
@@ -1237,7 +1245,8 @@ mod string_round_trip_test {
             };
             Ledger::async_load(dir.clone(), main.to_owned(), source).await.expect("load ledger")
         };
-        let loaded = load().await;
+        let mut loaded = load().await;
+        prepare(&mut loaded);
         let id = loaded.operations().read().transactions.values().next().unwrap().id;
         let (state, reload) = states(loaded);
         let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
@@ -1255,14 +1264,14 @@ mod string_round_trip_test {
     /// flag, so the posting it is matched to, as for metadata, gives it.
     #[tokio::test]
     async fn an_edit_keeps_the_flags_of_the_postings() {
-        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  ! Assets:Cash -5 CNY\n    rate: 1.5\n  * Expenses:Food 5 CNY\n";
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  ! Assets:Cash -5 CNY\n    rate: 1.5\n  & Expenses:Food 5 CNY\n";
         for main in ["main.zhang", "main.bean"] {
             // amounts changed and postings reordered, each keeps its flag
             let update = edit(&[("Expenses:Food", 6, &[]), ("Assets:Cash", -6, &[("rate", "1.5")])]);
             let (written, reloaded) = edit_ledger(main, ledger, update).await;
-            let postings = &written[written.find("\n  * Expenses:Food").expect(&written)..];
+            let postings = &written[written.find("\n  & Expenses:Food").expect(&written)..];
             assert_eq!(
-                postings, "\n  * Expenses:Food 6 CNY\n  ! Assets:Cash -6 CNY\n    rate: 1.5\n",
+                postings, "\n  & Expenses:Food 6 CNY\n  ! Assets:Cash -6 CNY\n    rate: 1.5\n",
                 "{main}: {written}"
             );
             let flags = reloaded
@@ -1274,7 +1283,10 @@ mod string_round_trip_test {
                 .collect::<Vec<_>>();
             assert_eq!(
                 flags,
-                vec![("Expenses:Food".to_owned(), Some(Flag::Okay)), ("Assets:Cash".to_owned(), Some(Flag::Warning))],
+                vec![
+                    ("Expenses:Food".to_owned(), Some(Flag::Custom("&".to_owned()))),
+                    ("Assets:Cash".to_owned(), Some(Flag::Warning))
+                ],
                 "{main}"
             );
 
@@ -1283,10 +1295,47 @@ mod string_round_trip_test {
             let (written, _) = edit_ledger(main, ledger, update).await;
             let postings = &written[written.find("\n  Assets:Cash -2 CNY").expect(&written)..];
             assert_eq!(
-                postings, "\n  Assets:Cash -2 CNY\n  Assets:Cash -3 CNY\n  * Expenses:Food 5 CNY\n",
+                postings, "\n  Assets:Cash -2 CNY\n  Assets:Cash -3 CNY\n  & Expenses:Food 5 CNY\n",
                 "{main}: {written}"
             );
         }
+    }
+
+    /// A posting flag `*` or `#`, which a zhang file reads as the start of a comment, can only come
+    /// from a plugin in a zhang ledger. An edit then writes the posting without it, so that it stays
+    /// a posting and the file keeps what it had; a beancount ledger writes it, as beancount reads it.
+    #[tokio::test]
+    async fn an_edit_never_writes_a_posting_as_a_comment() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n";
+        // what a plugin could do: flag the postings `*` and `#`
+        let flag_by_plugin = |ledger: &mut Ledger| {
+            let transaction = ledger.directives.iter_mut().find_map(|it| match &mut it.data {
+                Directive::Transaction(transaction) => Some(transaction),
+                _ => None,
+            });
+            let postings = &mut transaction.unwrap().postings;
+            postings[0].flag = Some(Flag::Okay);
+            postings[1].flag = Some(Flag::Custom("#".to_owned()));
+        };
+        let update = || edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
+
+        let (written, reloaded) = edit_loaded_ledger("main.zhang", ledger, flag_by_plugin, update()).await;
+        let postings = &written[written.find("\n  Assets:Cash").expect(&written)..];
+        assert_eq!(postings, "\n  Assets:Cash -6 CNY\n  Expenses:Food 6 CNY\n", "{written}");
+        let store = reloaded
+            .operations()
+            .read()
+            .postings
+            .iter()
+            .map(|it| (it.flag.clone(), it.after_amount.number.to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(store, vec![(None, "-6".to_owned()), (None, "6".to_owned())]);
+
+        let (written, reloaded) = edit_loaded_ledger("main.bean", ledger, flag_by_plugin, update()).await;
+        let postings = &written[written.find("\n  * Assets:Cash").expect(&written)..];
+        assert_eq!(postings, "\n  * Assets:Cash -6 CNY\n  # Expenses:Food 6 CNY\n", "{written}");
+        let flags = reloaded.operations().read().postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+        assert_eq!(flags, vec![Some(Flag::Okay), Some(Flag::Custom("#".to_owned()))]);
     }
 
     /// A posting of an [`edit`]: an account, a number of CNY and its metadata.
