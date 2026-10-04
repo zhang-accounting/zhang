@@ -27,6 +27,9 @@ pub enum AccountBalanceRequest {
 #[derive(Schematic, Deserialize)]
 pub struct FileUpdateRequest {
     pub content: String,
+    /// the `sha256` the file was served with (`GET /api/files/{path}`): the save is refused with 409, and writes
+    /// nothing, when the file no longer has that content. Without it the file is overwritten as it is, as before
+    pub expected_sha256: Option<String>,
 }
 
 /// The buckets of the report graph: calendar days, weeks starting on Monday, or months.

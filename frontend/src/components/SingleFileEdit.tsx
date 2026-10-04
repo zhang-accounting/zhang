@@ -1,12 +1,13 @@
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
-import { Check, RotateCcw, Save, TriangleAlert } from 'lucide-react';
+import { Check, RefreshCw, RotateCcw, Save, TriangleAlert } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { toast } from 'sonner';
 import { base64Path, retrieveFile, updateFile } from '@/api/requests';
 import { EmptyState } from '@/components/layout';
+import { editorReducer, initialEditorState, isConflict, isDirty } from '@/components/single-file-edit-state';
 import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
@@ -29,41 +30,59 @@ const EDITOR_THEME = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
 });
 
-/** CodeMirror editor for one ledger file, filling its container, with a save bar (Ctrl/Cmd+S) at the bottom. */
+/**
+ * CodeMirror editor for one ledger file, filling its container, with a save bar (Ctrl/Cmd+S) at the bottom.
+ *
+ * A save carries the fingerprint of the file as loaded, so the server refuses to overwrite a file that changed since (a
+ * transaction recorded in the app, an uploaded document, an edit outside). The editor then offers to reload the file,
+ * discarding the buffer, or to keep editing; it never overwrites the change silently.
+ */
 export default function SingleFileEdit({ path, onDirtyChange, className }: Props) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
   const encodedPath = useMemo(() => base64Path(path), [path]);
-  const [content, setContent] = useState('');
-  const [saved, setSaved] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [state, dispatch] = useReducer(editorReducer, initialEditorState);
+  const { content, saved, sha256, saving, conflict } = state;
+  // bumped to load the file again on the user's request, after a refused save
+  const [reloads, setReloads] = useState(0);
 
   const { error, loading } = useAsync(async () => {
     const response = await retrieveFile({ file_path: encodedPath });
-    setContent(response.data.data.content);
-    setSaved(response.data.data.content);
+    dispatch({ type: 'loaded', content: response.data.data.content, sha256: response.data.data.sha256 });
     return response.data.data;
-  }, [encodedPath]);
+  }, [encodedPath, reloads]);
 
-  const dirty = saved !== null && content !== saved;
+  const dirty = isDirty(state);
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   useUnsavedChangesGuard(dirty, t('raw_edit.leave_confirm'));
 
   const onUpdate = useCallback(async () => {
-    if (!dirty || saving) return;
-    setSaving(true);
+    if (!dirty || saving || sha256 === null) return;
+    dispatch({ type: 'save_started' });
     try {
-      await updateFile({ file_path: encodedPath, content });
-      setSaved(content);
+      await updateFile({ file_path: encodedPath, content, expected_sha256: sha256 });
+      // the save answers with no body: the file is read back for the fingerprint the next save needs
+      const written = await retrieveFile({ file_path: encodedPath })
+        .then((response) => response.data.data)
+        .catch(() => null);
+      dispatch({ type: 'saved', saved: written?.content ?? content, sha256: written?.sha256 ?? null });
       toast.success(t('raw_edit.saved_toast'), { description: t('raw_edit.saved_toast_description') });
     } catch (e) {
-      toast.error(t('raw_edit.save_failed'), { description: await apiErrorMessage(e) });
-    } finally {
-      setSaving(false);
+      if (isConflict(e)) {
+        dispatch({ type: 'save_refused' });
+      } else {
+        dispatch({ type: 'save_failed' });
+        toast.error(t('raw_edit.save_failed'), { description: await apiErrorMessage(e) });
+      }
     }
-  }, [content, dirty, encodedPath, saving, t]);
+  }, [content, dirty, encodedPath, saving, sha256, t]);
+
+  const reloadFile = useCallback(() => {
+    if (!window.confirm(t('raw_edit.conflict_reload_confirm'))) return;
+    setReloads((count) => count + 1);
+  }, [t]);
 
   const extensions = useMemo(() => [EditorView.lineWrapping, EDITOR_THEME], []);
   const lineCount = useMemo(() => content.split('\n').length, [content]);
@@ -97,11 +116,29 @@ export default function SingleFileEdit({ path, onDirtyChange, className }: Props
             className="h-full [&_.cm-editor]:bg-card! [&_.cm-gutters]:bg-card! [&_.cm-activeLine]:bg-muted/40! [&_.cm-activeLineGutter]:bg-muted!"
             theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
             extensions={extensions}
-            onChange={(value) => setContent(value)}
+            onChange={(value) => dispatch({ type: 'edited', content: value })}
             aria-label={path}
           />
         )}
       </div>
+      {conflict && (
+        <div role="alert" className="flex shrink-0 flex-col gap-2 border-t border-warning/40 bg-warning/10 px-3 py-2 text-xs sm:flex-row sm:items-center">
+          <TriangleAlert className="hidden size-4 shrink-0 text-warning sm:block" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">{t('raw_edit.conflict_title')}</p>
+            <p className="text-muted-foreground">{t('raw_edit.conflict_description')}</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" size="sm" onClick={() => dispatch({ type: 'keep_editing' })}>
+              {t('raw_edit.conflict_keep_editing')}
+            </Button>
+            <Button size="sm" onClick={reloadFile}>
+              <RefreshCw />
+              {t('raw_edit.conflict_reload')}
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="flex shrink-0 items-center gap-2 border-t bg-muted/40 px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
           {dirty ? (
@@ -122,7 +159,7 @@ export default function SingleFileEdit({ path, onDirtyChange, className }: Props
           className="h-10 md:h-8"
           aria-label={t('raw_edit.discard')}
           disabled={!dirty || saving}
-          onClick={() => saved !== null && setContent(saved)}
+          onClick={() => saved !== null && dispatch({ type: 'edited', content: saved })}
         >
           <RotateCcw />
           <span className="hidden sm:inline">{t('raw_edit.discard')}</span>

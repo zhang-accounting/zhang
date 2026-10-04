@@ -40,7 +40,7 @@ ledger/
 - 新的交易、余额断言或文档会追加到 [`directive_output_path`](/zh-cn/reference/directives/options/) 选项为其日期指定的文件中，默认为 `data/{year}/{month}.zhang`（扩展名与主文件相同）。某个文件第一次被使用时，张记账会向主文件追加一条引入它的 `include`。
 - 编辑交易时，会在它所在的文件中重写这笔交易。
 - 上传的文档保存为 `attachments/<random id>/<file name>`，并关联到对应的账户或交易。
-- **编辑**页面会保存你编辑的整个文件。
+- **编辑**页面会保存你编辑的整个文件。如果文件在你打开之后被修改过（在网页界面中记录了交易或余额断言、上传了文档，或者在外部编辑过），它不会覆盖文件：保存会被拒绝，编辑器会让你选择重新加载文件（丢弃你的修改）或继续编辑。通过 API，`GET /api/files/{path}` 会随内容返回它的 `sha256`；`PUT` 以 `expected_sha256` 带回它时，若文件已不再匹配，就会以 409 拒绝且不写入任何内容；不带它的 `PUT` 会覆盖文件。
 - 注册通行密钥时会写入 `.zhang/passkeys.json`，见[身份认证](/zh-cn/deployment/authentication/#通行密钥的存储位置)。
 
 ## 张记账何时重新加载

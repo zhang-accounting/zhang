@@ -316,6 +316,11 @@
     "saved_toast_description": "账本即将重新加载。",
     "save_failed": "保存文件失败",
     "load_failed": "加载文件失败",
+    "conflict_title": "文件在你打开之后被修改过",
+    "conflict_description": "有其他操作写入了这个文件：在应用中记录的交易或余额断言、上传的文档，或者外部的编辑。你的修改没有保存。重新加载文件可以查看它现在的内容并重新修改，或者继续编辑，先把你的改动复制出来。",
+    "conflict_reload": "重新加载文件",
+    "conflict_reload_confirm": "重新加载文件现在的内容？编辑器中未保存的修改会被丢弃。",
+    "conflict_keep_editing": "继续编辑",
     "no_files_title": "没有文件",
     "no_files_description": "账本中没有可编辑的源文件。",
     "leave_confirm": "有未保存的修改。确定离开此页面并放弃修改？"

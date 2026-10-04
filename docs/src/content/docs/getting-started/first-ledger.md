@@ -78,7 +78,7 @@ The web UI has these pages:
 - **Budget**: your [budgets](/guides/budgets/) month by month: what you assigned, what you spent and what is left.
 - **Commodities**: the currencies and assets of the ledger, with holdings, lots and price history.
 - **Documents**: the receipts and statements attached to accounts and transactions. You can upload new ones, see [Documents](/guides/documents/).
-- **Raw Editing**: edit the ledger files in the browser. Saving a file reloads the ledger.
+- **Raw Editing**: edit the ledger files in the browser. Saving a file reloads the ledger. A file that changed since you opened it is not overwritten: the editor asks you to reload it first.
 - **Query**: run queries in a [BQL-compatible language](/reference/query-language/), see [Querying](/guides/querying/).
 - **Tools**: utilities, such as checking or padding the balances of many accounts at once.
 - **Settings**: language and theme, the ledger's title, operating currency and options, the Zhang version, the loaded plugins, a link to the API documentation, and your passkeys when [passkey sign-in](/deployment/authentication/#passkeys) is enabled.

@@ -238,6 +238,9 @@ pub struct CommodityDetailEntity {
 pub struct FileDetailEntity {
     pub path: String,
     pub content: String,
+    /// the fingerprint of the file as served, the SHA-256 of its bytes in hex: a save sends it back as
+    /// `expected_sha256`, to be refused when the file changed since it was loaded
+    pub sha256: String,
 }
 
 #[derive(Serialize, Schematic)]
