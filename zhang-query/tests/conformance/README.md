@@ -329,8 +329,12 @@ Phase 1 decisions, and are worth deciding on explicitly.
   are accepted and grouped by the non-aggregate targets (035). With an explicit
   `GROUP BY`, every non-aggregate target must be covered, otherwise it is an
   error (057). `GROUP BY` may use an expression that is not selected (036).
-- An aggregate query that matches **no rows returns zero rows**, not one row
-  with `0`/NULL (031).
+- In beanquery 0.2.0 an aggregate query that matches **no rows returns zero rows**
+  (031). Zhang deliberately returns one row when there are no group keys (#647):
+  counts and numeric sums are zero, inventory sums are empty, and
+  `first`/`last`/`min`/`max` are NULL. `HAVING` and pagination still apply.
+  The original oracle fixture is retained and the harness checks the exact
+  Zhang result as an accepted deviation.
 - `sum(amount)` and `sum(position)` produce an `Inventory`; `sum(int)` stays
   `int`; `sum(decimal)` stays `decimal`. `count(x)` counts non-NULL values.
 - NULL logic: `TRUE AND NULL` = NULL, `FALSE AND NULL` = FALSE, `TRUE OR NULL`

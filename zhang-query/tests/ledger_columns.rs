@@ -233,7 +233,7 @@ fn automatic_postings_are_those_written_without_an_amount() {
          0 | -2 | FALSE
          1 | 740 | FALSE",
     );
-    expect(&ledger, "SELECT count(*) FROM OPEN ON 2024-01-08 WHERE flag = 'S' AND automatic", "");
+    expect(&ledger, "SELECT count(*) FROM OPEN ON 2024-01-08 WHERE flag = 'S' AND automatic", "0");
 }
 
 /// A balance assertion of `#balances` has the `id`, `seq`, `time` and `timestamp` of its

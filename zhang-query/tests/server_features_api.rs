@@ -149,6 +149,34 @@ fn l_total_counts_groups_and_distinct_rows() {
 }
 
 #[test]
+fn l_empty_aggregate_counts_its_group_before_paging() {
+    for (suffix, visible) in [
+        ("", true),
+        ("LIMIT 1", true),
+        ("LIMIT 0", false),
+        ("LIMIT 1 OFFSET 1", false),
+        ("ORDER BY count(*) LIMIT 1", true),
+        ("ORDER BY count(*) LIMIT 1 OFFSET 1", false),
+    ] {
+        let sql = format!("SELECT count(*) FROM #postings WHERE FALSE {suffix}");
+        let (rows, total) = counted(&sql, &Params::new());
+        assert_eq!(rows, if visible { texts(&["0"]) } else { vec![] }, "{}", sql);
+        assert_eq!(total, Some(1), "{}", sql);
+    }
+    let (rows, total) = counted("SELECT DISTINCT count(*) WHERE FALSE ORDER BY 1 LIMIT 1", &Params::new());
+    assert_eq!(rows, texts(&["0"]));
+    assert_eq!(total, Some(1));
+    for sql in [
+        "SELECT count(*) WHERE FALSE GROUP BY account LIMIT 1",
+        "SELECT count(*) WHERE FALSE GROUP BY account HAVING count(*) = 0 LIMIT 1",
+    ] {
+        let (rows, total) = counted(sql, &Params::new());
+        assert!(rows.is_empty(), "{}", sql);
+        assert_eq!(total, Some(0), "{}", sql);
+    }
+}
+
+#[test]
 fn l_total_is_only_computed_when_asked() {
     let sql = "SELECT narration FROM #transactions LIMIT 3";
     assert_eq!(run(journal(), sql, &Params::new(), &options(false)).total, None);

@@ -200,7 +200,7 @@ A query is an aggregate query when one of its targets uses an [aggregate functio
 - Values of type `set` (such as `tags`) and `inventory` cannot be group keys.
 - A group key cannot contain an aggregate function, and aggregate functions cannot be nested (`sum(count(*))` is an error).
 - A single target cannot mix an aggregate with a column used outside of it, even a grouped one. `number - sum(number)` and `possign(sum(position), account)` are errors; write the second one as `sum(possign(position, account))`. Expressions built only from aggregates and constants, such as `sum(number) / 12` or `units(sum(position))`, are aggregates themselves and are fine.
-- An aggregate query that matches no postings returns no rows at all. Even `SELECT count(*) WHERE FALSE` returns an empty result, not a row containing `0`.
+- An aggregate query without group keys returns one row even when no postings match: `count` and numeric `sum` return `0`, inventory `sum` returns an empty inventory, and `first`, `last`, `min` and `max` return `NULL`. `HAVING`, `LIMIT` and `OFFSET` still apply. A query with explicit or implicit group keys returns no rows when nothing matches.
 
 ```sql
 SELECT root(account, 2) AS category, sum(position) AS total
@@ -1658,6 +1658,7 @@ One row per day with postings, with the account's balance at the end of the day.
 - **Limits.** Queries are limited in length, nesting depth, regular-expression size, execution time and result size. See [Limits](#limits).
 - **Errors carry a position.** Every query error reports the line and column where it was found, whenever it can be located.
 - **Exact decimals throughout.** Numbers are arbitrary-precision decimals, and amounts are never stored with a fixed number of decimal places.
+- **Aggregates over empty input.** Without group keys, Zhang returns one row with the aggregate's initial value before `HAVING` and pagination; beanquery 0.2.0 returns no rows.
 - **Column names of `BALANCES` and `JOURNAL`** are those of the equivalent `SELECT`: `sum(position)`, `sum(cost(position))` and `maxwidth(payee, 48)`. beanquery names them `SUM((position))`, `SUM(cost(position))` and `MAXWIDTH(payee, 48)`.
 - **The running balance.** `balance` cannot be used in `FROM` or `WHERE`, and it adds up exactly the rows that pass them. beanquery updates its balance each time it evaluates the column, so in a `WHERE` clause it would count the rows it tests rather than the rows it keeps.
 - **`account_sortkey`** of a name whose first component is not an account type returns a key that sorts after all the types. beanquery raises an error.

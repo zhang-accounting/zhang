@@ -1327,7 +1327,7 @@ pub(crate) fn execute_within(
                 (Some(_), Some(limits)) => execution.group_runs(keys, deferred, limits, &mut budget)?,
                 _ => None,
             };
-            let (mut groups, counted) = match runs {
+            let (mut groups, mut counted) = match runs {
                 Some(runs) => {
                     filtered = runs.filtered;
                     // the groups before OFFSET were not built, so they are no longer there to skip
@@ -1396,6 +1396,16 @@ pub(crate) fn execute_within(
                     (groups, counted)
                 }
             };
+            // An aggregate without group keys has one group even when no row passed the filter.
+            // Seed it after either scan path, so HAVING and paging see the initial aggregate values.
+            if keys.is_empty() && filtered.count == 0 {
+                let accumulators = new_accumulators(plan, deferred);
+                budget.charge(accumulators.iter().map(Accumulator::weight).sum())?;
+                groups.insert(Vec::new(), accumulators);
+                if let Some(count) = &mut counted {
+                    *count = 1;
+                }
+            }
             if !deferred.is_empty() {
                 // the groups that HAVING drops never get the values of their deferred aggregates
                 drop_before_replay(plan, keys, deferred, &mut groups, &mut budget, &base)?;
