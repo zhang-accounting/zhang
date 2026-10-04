@@ -1,10 +1,15 @@
 //! The `prices` table: one row per `price` directive, in ledger order, as in beanquery.
+//!
+//! zhang directives can carry a time of day, and a ledger may quote a price several times a day:
+//! `time` and `timestamp` (zhang extensions, like those of `#entries`) tell those quotes apart. They
+//! are not part of `SELECT *`, which stays beanquery's.
 
 use zhang_ast::{Directive, Price, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
 use super::directives::{directives_where, meta_value};
+use super::entries::{time, timestamp};
 use super::{ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -43,4 +48,16 @@ static COLUMNS: &[ColumnDef] = &[
     ColumnDef::record("meta", DataType::Str, "Metadata of the price, as `key: \"value\"` pairs.", |_, record| {
         meta_value(record)
     }),
+    ColumnDef::record(
+        "time",
+        DataType::Str,
+        "Time of day of the price in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        time,
+    ),
+    ColumnDef::record(
+        "timestamp",
+        DataType::Int,
+        "Unix time, in seconds, of the price's date and time. A zhang extension.",
+        timestamp,
+    ),
 ];

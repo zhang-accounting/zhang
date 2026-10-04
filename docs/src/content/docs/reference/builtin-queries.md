@@ -127,7 +127,149 @@ ORDER BY seq
 
 ### Report
 
-No queries yet.
+The **Report** page and the dashboard (`GET /api/statistic/summary`, `/api/statistic/graph` and `/api/statistic/{account_type}`). Their range is two ledger dates, `from` and `to`, both included; the endpoints also accept an instant, which stands for its day in the ledger's timezone. `currency` is the ledger's operating currency.
+
+- **Valuation.** The summary and the rankings are valued at the prices of `to`. Each point of the graph is valued at the prices of its own last day, or of `to` for the last one. A price is used in either direction, and a holding at cost without a price of its own is valued through its cost currency (see [`convert`](/reference/query-language/#valuation-functions)). Amounts that no price converts keep their currency and are left out of the totals in the operating currency.
+- **The graph** has one point per day, per week (Monday to Sunday) or per month, named by its first day, so its first and last weeks or months may reach outside the range; the Report page labels the first one by the first day of the range. A point without postings in the range has the net worth of the point before, or the net worth on the day before `from`, valued at its own last day (see `report.net_worth_trend`).
+- **Limits.** A graph has at most 50,000 points, about 137 years of days; a longer range by day is answered with HTTP 400, so ask for weeks or months. The figures also obey the [limits](/reference/query-language/#limits) of every query: the graph's points, with a value per currency, count against the result size limit (`ZHANG_QUERY_MAX_RESULT_VALUES`), and a graph that goes over it, or over the time limit, is answered with HTTP 400 too. What a graph costs grows with its range, not with the history of the ledger before it.
+
+#### `report.net_worth`
+
+The net worth, the balance of the assets and the liabilities, at the end of `to`, valued in `currency` at the prices of that day: the summary's balance. `balance` keeps the lots.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `to` | `date` | the day of the balance |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
+```
+
+#### `report.liabilities`
+
+The balance of the liabilities at the end of `to`, valued in `currency` at the prices of that day. It is negative, as in the ledger.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `to` | `date` | the day of the balance |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE under(account, 'Liabilities') AND date <= :to
+```
+
+#### `report.flows`
+
+The income and the expenses of the range, valued in `currency` at the prices of `to`. Income is negative, as in the ledger.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `from` | `date` | the first day |
+| `to` | `date` | the last day |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT root(account, 1) AS type, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE (under(account, 'Income') OR under(account, 'Expenses')) AND date >= :from AND date <= :to
+GROUP BY type
+ORDER BY type
+```
+
+#### `report.transaction_count`
+
+The number of transactions of the range. The padding transactions of `balance ... with pad` (flag `P`) are not counted, and balance assertions are not transactions.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `from` | `date` | the first day |
+| `to` | `date` | the last day |
+
+```sql
+SELECT count(*) AS transactions
+FROM #transactions
+WHERE flag != 'P' AND date >= :from AND date <= :to
+```
+
+#### `report.net_worth_trend`
+
+The net worth, the balance of the assets and the liabilities, at the end of every day, week or month of the range that has postings, valued in `currency` at the prices of its last day in the range. [`OPEN ON :from`](/reference/query-language/#accounting-periods) replaces everything before `from` with opening balances dated the day before, lot by lot, so the running `balance` starts from them and the query only groups the days of the range, plus the bucket of that day before. `interval` is `'1 day'`, `'1 week'` or `'1 month'`: the bins of [`date_bin`](/reference/query-language/#date-functions) from 2001-01-01, a Monday and the first of a month, are calendar days, weeks starting on Monday and months, each named by its first day. [`least`](/reference/query-language/#comparison-functions) keeps the last bin's valuation date within the range. `balance` keeps the lots, to value the points without postings.
+
+The query lists only the days, weeks or months with postings, so **Open query** shows fewer rows than the chart has points. The chart fills a day, week or month without postings with the last balance before it, the opening balance included, valued at its own last day in the range, as `report.net_worth` of that day values it. The query language cannot list days without postings yet.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `from` | `date` | the first day |
+| `to` | `date` | the last day |
+| `interval` | `str` | `'1 day'`, `'1 week'` or `'1 month'` |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT date_bin(:interval, date, 2001-01-01) AS bucket, last(balance) AS balance, units(last(balance)) AS units,
+  convert(last(balance), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+FROM OPEN ON :from
+WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
+GROUP BY bucket
+ORDER BY bucket
+```
+
+#### `report.changes`
+
+What each account type changed by in every day, week or month of the range, valued in `currency` at the prices of its last day in the range: the bars of the income and expenses chart. The bins are those of `report.net_worth_trend`; the first one only counts the postings from `from` on.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `from` | `date` | the first day |
+| `to` | `date` | the last day |
+| `interval` | `str` | `'1 day'`, `'1 week'` or `'1 month'` |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT date_bin(:interval, date, 2001-01-01) AS bucket, root(account, 1) AS type, units(sum(position)) AS units,
+  convert(sum(position), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+WHERE date >= :from AND date <= :to
+GROUP BY bucket, type
+ORDER BY bucket, type
+```
+
+#### `report.account_totals`
+
+What every account of one type, such as `'Expenses'`, changed by in the range, valued in `currency` at the prices of `to`, smallest value first: the income and expense breakdowns.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `type` | `str` | `'Assets'`, `'Liabilities'`, `'Equity'`, `'Income'` or `'Expenses'` |
+| `from` | `date` | the first day |
+| `to` | `date` | the last day |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT account, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE under(account, :type) AND date >= :from AND date <= :to
+GROUP BY account
+ORDER BY number(only(:currency, convert(sum(position), :currency, :to))), account
+```
+
+#### `report.top_postings`
+
+The ten largest postings to accounts of one type in the range, by their value in `currency` at the prices of `to`: the top expenses and incomes. [`possign`](/reference/query-language/#amounts-and-numbers) turns income and liabilities positive, so the largest income comes first. Postings that no price converts to `currency` come last. `account_balance` is the balance of the posting's account right after it, in the posting's currency.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `type` | `str` | `'Assets'`, `'Liabilities'`, `'Equity'`, `'Income'` or `'Expenses'` |
+| `from` | `date` | the first day |
+| `to` | `date` | the last day |
+| `currency` | `str` | the currency of the values |
+
+```sql
+SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+  only(currency, account_balance) AS account_balance, convert(position, :currency, :to) AS value
+WHERE under(account, :type) AND date >= :from AND date <= :to
+ORDER BY currency(convert(position, :currency, :to)) = :currency DESC, number(possign(convert(position, :currency, :to), account)) DESC
+LIMIT 10
+```
 
 ### Accounts
 
@@ -264,4 +406,183 @@ The error list shows where each error is as its file and the byte offsets of its
 
 ### Budgets and commodities
 
-No queries yet.
+The budget pages read [`#budgets`](/reference/query-language/#budgets), [`#budget_definitions`](/reference/query-language/#budget-definitions) and [`#budget_events`](/reference/query-language/#budget-events). A month is given as its first day, such as `2024-06-01`; without one, the pages ask for the current month in the ledger's timezone.
+
+#### `budgets.month`
+
+Every budget as of a month: its last month in `#budgets` up to that month, as the budgets page lists them. `#budgets` has a row for every month of a budget through the current month, so `last_month` is the requested month, unless it is a later one. Nothing can have happened to the budget since `last_month`, so the [`CASE`](/reference/query-language/#case) carries it over: the month starts with `available` and spends nothing. `activity` is a number, in the budget's `currency`. Budgets that start after the month are not listed. `WHERE date <= :month` also makes `#budgets` generate no later month, so a date typo far ahead in the ledger does not get in the way.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `month` | `date` | the first day of the month |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE date <= :month
+GROUP BY name
+ORDER BY name
+```
+
+#### `budgets.budget`
+
+One budget: its display name, category, commodity, and the accounts whose postings are its activity, from `#budget_definitions`, which has no months. No row if there is no such budget.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `name` | `str` | the budget |
+
+```sql
+SELECT name, alias, category, currency, accounts
+FROM #budget_definitions
+WHERE name = :name
+```
+
+#### `budgets.budget_month`
+
+One budget as of a month, as in `budgets.month`. No row if the budget starts after the month; its page then shows nothing assigned or spent.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `name` | `str` | the budget |
+| `month` | `date` | the first day of the month |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE name = :name AND date <= :month
+GROUP BY name
+```
+
+#### `budgets.events`
+
+What the `budget-add` and `budget-transfer` directives put into a budget in a month, newest first, as written: a transfer out is negative.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `name` | `str` | the budget |
+| `month` | `date` | the first day of the month |
+
+```sql
+SELECT date, time, timestamp, type, amount
+FROM #budget_events
+WHERE name = :name AND type != 'close' AND yearmonth(date) = :month
+ORDER BY timestamp DESC
+```
+
+#### `budgets.postings`
+
+The postings of a budget in a month, newest first, each with its account's balance in the posting's currency after it: those of its accounts that count in it at their date, by [`account_budgets`](/reference/query-language/#account-and-commodity-directives), so a posting of an account closed and opened again with another budget is listed in the budget it counts in. The budget's page lists them together with the events of `budgets.events`, newest first.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `accounts` | `set` | the budget's accounts, the `accounts` of `budgets.budget` |
+| `month` | `date` | the first day of the month |
+| `name` | `str` | the budget |
+
+```sql
+SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+       only(currency, account_balance) AS balance
+WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
+ORDER BY timestamp DESC
+```
+
+What a commodity is (its precision, prefix, suffix, rounding and group) comes from its `commodity` directive. How much of it the ledger holds, in which lots, and its prices come from the queries below. Holdings are those of the Assets and Liabilities accounts, chosen with [`under`](/reference/query-language/#account-functions) so that the query reads only their postings.
+
+#### `commodities.totals`
+
+How many units of each commodity the Assets and Liabilities accounts hold, for the commodities they hold. A commodity without a row holds nothing.
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE under(account, 'Assets') OR under(account, 'Liabilities')
+GROUP BY currency
+HAVING sum(number) != 0
+ORDER BY currency
+```
+
+#### `commodities.total`
+
+How many units of one commodity the Assets and Liabilities accounts hold. No row if they hold none.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY currency
+HAVING sum(number) != 0
+```
+
+#### `commodities.latest_prices`
+
+The latest price of each commodity quoted in a currency, with its date and time.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `currency` | `str` | the currency of the prices, the operating currency |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency(amount) = :currency
+GROUP BY currency
+ORDER BY currency
+```
+
+#### `commodities.latest_price`
+
+The latest price of one commodity quoted in a currency, with its date and time.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+| `currency` | `str` | the currency of the price, the operating currency |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency = :commodity AND currency(amount) = :currency
+GROUP BY currency
+```
+
+#### `commodities.lots`
+
+The lots of a commodity that the Assets and Liabilities accounts hold: the units per account, cost and acquisition date, by account, then oldest first. Units held without a cost are one lot per account.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+
+```sql
+SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY account, cost_date, cost_number, cost_currency
+HAVING sum(number) != 0
+ORDER BY account, cost_date, cost_number
+```
+
+#### `commodities.prices`
+
+Every price of a commodity, in any currency, oldest first.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `commodity` | `str` | the commodity |
+
+```sql
+SELECT date, time, amount
+FROM #prices
+WHERE currency = :commodity
+ORDER BY date, time
+```

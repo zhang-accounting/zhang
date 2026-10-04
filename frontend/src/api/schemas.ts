@@ -98,23 +98,48 @@ export interface paths {
     get: operations['get_auth_status'];
   };
   '/api/budgets': {
-    /** Get Budget List */
+    /**
+     * Get Budget List
+     * @description Every budget as of a month, by default the current one in the ledger's timezone, ordered by
+     * name. Budgets that start after the month are not listed.
+     *
+     * The figures are those of `#budgets`: activity is converted to the budget's commodity at each
+     * posting's date, and `closed` is whether the budget was closed in or before the month.
+     */
     get: operations['get_budget_list'];
   };
   '/api/budgets/{budget_name}': {
-    /** Get Budget Info */
+    /**
+     * Get Budget Info
+     * @description One budget as of a month, by default the current one in the ledger's timezone, with the
+     * accounts whose postings are its activity, in name order. Before the budget's first month
+     * nothing is assigned or spent.
+     */
     get: operations['get_budget_info'];
   };
   '/api/budgets/{budget_name}/interval/{year}/{month}': {
-    /** Get Budget Interval Detail */
+    /**
+     * Get Budget Interval Detail
+     * @description What happened to a budget in a month, newest first: what its `budget-add` and
+     * `budget-transfer` directives put in, and the postings of its accounts, with their times in
+     * the ledger's timezone.
+     */
     get: operations['get_budget_interval_detail'];
   };
   '/api/commodities': {
-    /** Get All Commodities */
+    /**
+     * Get All Commodities
+     * @description Every commodity, with how much of it the Assets and Liabilities accounts hold and its latest
+     * price in the operating currency.
+     */
     get: operations['get_all_commodities'];
   };
   '/api/commodities/{commodity_name}': {
-    /** Get Single Commodity */
+    /**
+     * Get Single Commodity
+     * @description One commodity: how much of it the Assets and Liabilities accounts hold and in which lots, its
+     * latest price in the operating currency, and all its prices. An unknown commodity is a 404.
+     */
     get: operations['get_single_commodity'];
   };
   '/api/documents': {
@@ -245,15 +270,35 @@ export interface paths {
     post: operations['reload'];
   };
   '/api/statistic/graph': {
-    /** Get Statistic Graph */
+    /**
+     * Get Statistic Graph
+     * @description The net worth at the end of every day, week or month of the range, and what each account
+     * type changed by in it, keyed by the bucket's first day (built-in queries
+     * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
+     *
+     * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+     */
     get: operations['get_statistic_graph'];
   };
   '/api/statistic/summary': {
-    /** Get Statistic Summary */
+    /**
+     * Get Statistic Summary
+     * @description The net worth and the liabilities at the end of the range, and the income, the expenses and
+     * the number of transactions of the range (built-in queries `report.net_worth`,
+     * `report.liabilities`, `report.flows` and `report.transaction_count`).
+     *
+     * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+     */
     get: operations['get_statistic_summary'];
   };
   '/api/statistic/{account_type}': {
-    /** Get Statistic Rank Detail By Account Type */
+    /**
+     * Get Statistic Rank Detail By Account Type
+     * @description What every account of the type changed by in the range, and its ten largest postings by
+     * value (built-in queries `report.account_totals` and `report.top_postings`).
+     *
+     * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+     */
     get: operations['get_statistic_rank_detail_by_account_type'];
   };
   '/api/transactions': {
@@ -861,7 +906,14 @@ export interface operations {
       };
     };
   };
-  /** Get Budget List */
+  /**
+   * Get Budget List
+   * @description Every budget as of a month, by default the current one in the ledger's timezone, ordered by
+   * name. Budgets that start after the month are not listed.
+   *
+   * The figures are those of `#budgets`: activity is converted to the budget's commodity at each
+   * posting's date, and `closed` is whether the budget was closed in or before the month.
+   */
   get_budget_list: {
     parameters: {
       query?: {
@@ -897,7 +949,12 @@ export interface operations {
       };
     };
   };
-  /** Get Budget Info */
+  /**
+   * Get Budget Info
+   * @description One budget as of a month, by default the current one in the ledger's timezone, with the
+   * accounts whose postings are its activity, in name order. Before the budget's first month
+   * nothing is assigned or spent.
+   */
   get_budget_info: {
     parameters: {
       query?: {
@@ -937,7 +994,12 @@ export interface operations {
       };
     };
   };
-  /** Get Budget Interval Detail */
+  /**
+   * Get Budget Interval Detail
+   * @description What happened to a budget in a month, newest first: what its `budget-add` and
+   * `budget-transfer` directives put in, and the postings of its accounts, with their times in
+   * the ledger's timezone.
+   */
   get_budget_interval_detail: {
     parameters: {
       path: {
@@ -1005,7 +1067,11 @@ export interface operations {
       };
     };
   };
-  /** Get All Commodities */
+  /**
+   * Get All Commodities
+   * @description Every commodity, with how much of it the Assets and Liabilities accounts hold and its latest
+   * price in the operating currency.
+   */
   get_all_commodities: {
     responses: {
       /** @description default return */
@@ -1030,7 +1096,11 @@ export interface operations {
       };
     };
   };
-  /** Get Single Commodity */
+  /**
+   * Get Single Commodity
+   * @description One commodity: how much of it the Assets and Liabilities accounts hold and in which lots, its
+   * latest price in the operating currency, and all its prices. An unknown commodity is a 404.
+   */
   get_single_commodity: {
     parameters: {
       path: {
@@ -1796,7 +1866,14 @@ export interface operations {
       };
     };
   };
-  /** Get Statistic Graph */
+  /**
+   * Get Statistic Graph
+   * @description The net worth at the end of every day, week or month of the range, and what each account
+   * type changed by in it, keyed by the bucket's first day (built-in queries
+   * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
+   *
+   * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+   */
   get_statistic_graph: {
     parameters: {
       query: {
@@ -1845,7 +1922,14 @@ export interface operations {
       };
     };
   };
-  /** Get Statistic Summary */
+  /**
+   * Get Statistic Summary
+   * @description The net worth and the liabilities at the end of the range, and the income, the expenses and
+   * the number of transactions of the range (built-in queries `report.net_worth`,
+   * `report.liabilities`, `report.flows` and `report.transaction_count`).
+   *
+   * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+   */
   get_statistic_summary: {
     parameters: {
       query: {
@@ -1904,7 +1988,13 @@ export interface operations {
       };
     };
   };
-  /** Get Statistic Rank Detail By Account Type */
+  /**
+   * Get Statistic Rank Detail By Account Type
+   * @description What every account of the type changed by in the range, and its ten largest postings by
+   * value (built-in queries `report.account_totals` and `report.top_postings`).
+   *
+   * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+   */
   get_statistic_rank_detail_by_account_type: {
     parameters: {
       query: {

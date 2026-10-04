@@ -127,7 +127,149 @@ ORDER BY seq
 
 ### 报表
 
-暂无查询。
+**报表**页和首页（`GET /api/statistic/summary`、`/api/statistic/graph` 和 `/api/statistic/{account_type}`）。范围是两个账本日期 `from` 和 `to`，含首尾两天；这些接口也接受时间点，表示该时间点在账本时区中所在的那一天。`currency` 是账本的运营货币。
+
+- **估值。**汇总和排行按 `to` 当天的价格估值。图表的每个点按它自己最后一天的价格估值，最后一个点按 `to` 的价格估值。价格可以反向使用；按成本持有、自身没有价格的持仓通过成本货币估值（见 [`convert`](/zh-cn/reference/query-language/#估值函数)）。任何价格都换算不了的金额保留原货币，不计入以运营货币表示的合计。
+- **图表**每天、每周（周一到周日）或每月一个点，以它的第一天命名，因此第一周（月）和最后一周（月）可能超出范围；报表页面用范围的第一天标注第一个点。范围内没有分录的点沿用前一个点的净资产，最前面的点沿用 `from` 前一天的净资产，并按它自己最后一天的价格估值（见 `report.net_worth_trend`）。
+- **限制。**图表最多 50,000 个点，约合 137 年的每日数据；按日请求更长的范围会得到 HTTP 400，请改为按周或按月。这些数字也遵守所有查询的[限制](/zh-cn/reference/query-language/#限制)：图表的点（每种货币一个值）计入结果大小限制（`ZHANG_QUERY_MAX_RESULT_VALUES`），超出它或超出时间限制的图表同样得到 HTTP 400。图表的开销随所请求的范围增长，而不随范围之前的账本历史增长。
+
+#### `report.net_worth`
+
+`to` 当天结束时的净资产（资产与负债的余额），按当天的价格以 `currency` 估值，即汇总中的余额。`balance` 保留批次。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `to` | `date` | 余额的日期 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
+```
+
+#### `report.liabilities`
+
+`to` 当天结束时负债的余额，按当天的价格以 `currency` 估值。与账本中一样，它是负数。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `to` | `date` | 余额的日期 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE under(account, 'Liabilities') AND date <= :to
+```
+
+#### `report.flows`
+
+范围内的收入和支出，按 `to` 当天的价格以 `currency` 估值。与账本中一样，收入为负数。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT root(account, 1) AS type, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE (under(account, 'Income') OR under(account, 'Expenses')) AND date >= :from AND date <= :to
+GROUP BY type
+ORDER BY type
+```
+
+#### `report.transaction_count`
+
+范围内的交易笔数。`balance ... with pad` 生成的补齐交易（标记 `P`）不计入，余额断言不是交易。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+
+```sql
+SELECT count(*) AS transactions
+FROM #transactions
+WHERE flag != 'P' AND date >= :from AND date <= :to
+```
+
+#### `report.net_worth_trend`
+
+范围内每个有分录的日、周或月结束时的净资产（资产与负债的余额），按它在范围内最后一天的价格以 `currency` 估值。[`OPEN ON :from`](/zh-cn/reference/query-language/#会计期间) 把 `from` 之前的一切逐批次替换为前一天的期初余额，因此累计的 `balance` 从期初余额开始，查询只对范围内的日期以及前一天所在的区间分组。`interval` 为 `'1 day'`、`'1 week'` 或 `'1 month'`：[`date_bin`](/zh-cn/reference/query-language/#日期函数) 从 2001-01-01（既是周一，又是月初）开始划分的区间，就是日历上的日、从周一开始的周和月，每个区间以它的第一天命名。[`least`](/zh-cn/reference/query-language/#比较函数) 让最后一个区间的估值日期不超出范围。`balance` 保留批次，用于给没有分录的点估值。
+
+这个查询只列出有分录的日、周或月，因此**打开查询**显示的行比图表的点少。图表把没有分录的日、周或月补上它之前的最后一个余额（包括期初余额），并按它自己在范围内的最后一天估值，与当天的 `report.net_worth` 的估值相同。查询语言目前还不能列出没有分录的日期。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `interval` | `str` | `'1 day'`、`'1 week'` 或 `'1 month'` |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT date_bin(:interval, date, 2001-01-01) AS bucket, last(balance) AS balance, units(last(balance)) AS units,
+  convert(last(balance), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+FROM OPEN ON :from
+WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to
+GROUP BY bucket
+ORDER BY bucket
+```
+
+#### `report.changes`
+
+范围内每日、每周或每月各账户类型的变动，按它在范围内最后一天的价格以 `currency` 估值，即收支图表中的柱。区间与 `report.net_worth_trend` 相同；第一个区间只计入 `from` 当天及以后的分录。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `interval` | `str` | `'1 day'`、`'1 week'` 或 `'1 month'` |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT date_bin(:interval, date, 2001-01-01) AS bucket, root(account, 1) AS type, units(sum(position)) AS units,
+  convert(sum(position), :currency, least(max(date_bin(:interval, date, 2001-01-01)) + interval(:interval) - 1, :to)) AS value
+WHERE date >= :from AND date <= :to
+GROUP BY bucket, type
+ORDER BY bucket, type
+```
+
+#### `report.account_totals`
+
+某一类型（例如 `'Expenses'`）的每个账户在范围内的变动，按 `to` 当天的价格以 `currency` 估值，按估值从小到大排列，即收入和支出的构成。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `type` | `str` | `'Assets'`、`'Liabilities'`、`'Equity'`、`'Income'` 或 `'Expenses'` |
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT account, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
+WHERE under(account, :type) AND date >= :from AND date <= :to
+GROUP BY account
+ORDER BY number(only(:currency, convert(sum(position), :currency, :to))), account
+```
+
+#### `report.top_postings`
+
+范围内某一类型账户的十笔最大分录，按 `to` 当天的价格以 `currency` 估值排序，即最大的支出和收入。[`possign`](/zh-cn/reference/query-language/#金额与数值) 把收入和负债变为正数，因此最大的收入排在最前。任何价格都无法换算为 `currency` 的分录排在最后。`account_balance` 是该分录之后其账户以分录货币计的余额。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `type` | `str` | `'Assets'`、`'Liabilities'`、`'Equity'`、`'Income'` 或 `'Expenses'` |
+| `from` | `date` | 第一天 |
+| `to` | `date` | 最后一天 |
+| `currency` | `str` | 估值所用的货币 |
+
+```sql
+SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+  only(currency, account_balance) AS account_balance, convert(position, :currency, :to) AS value
+WHERE under(account, :type) AND date >= :from AND date <= :to
+ORDER BY currency(convert(position, :currency, :to)) = :currency DESC, number(possign(convert(position, :currency, :to), account)) DESC
+LIMIT 10
+```
 
 ### 账户
 
@@ -264,4 +406,183 @@ LIMIT :size OFFSET :offset
 
 ### 预算与商品
 
-暂无查询。
+预算页面读取 [`#budgets`](/zh-cn/reference/query-language/#预算表)、[`#budget_definitions`](/zh-cn/reference/query-language/#预算定义表) 和 [`#budget_events`](/zh-cn/reference/query-language/#预算变动表)。月份以其第一天表示，例如 `2024-06-01`；没有指定月份时，页面使用账本时区中的当前月份。
+
+#### `budgets.month`
+
+截至某个月的每个预算：该预算在 `#budgets` 中到这个月为止的最后一个月，即预算页面列出的内容。`#budgets` 中每个预算都有直到当前月份的每一个月，所以 `last_month` 就是所请求的月份，除非请求的是更晚的月份。预算在 `last_month` 之后不可能再有变动，所以 [`CASE`](/zh-cn/reference/query-language/#case) 把它顺延过来：这个月以 `available` 开始，支出为零。`activity` 是一个数值，以预算的 `currency` 计。在该月之后才开始的预算不会列出。`WHERE date <= :month` 还让 `#budgets` 不再生成更晚的月份，所以账本中日期写到遥远未来的笔误不会造成影响。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `month` | `date` | 该月的第一天 |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE date <= :month
+GROUP BY name
+ORDER BY name
+```
+
+#### `budgets.budget`
+
+单个预算：它的显示名称、分类、商品，以及其分录计入该预算支出的账户，来自没有月份的 `#budget_definitions`。没有这个预算时没有结果行。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `name` | `str` | 预算 |
+
+```sql
+SELECT name, alias, category, currency, accounts
+FROM #budget_definitions
+WHERE name = :name
+```
+
+#### `budgets.budget_month`
+
+截至某个月的单个预算，与 `budgets.month` 相同。如果预算在该月之后才开始，则没有结果行，预算页面显示为没有分配、也没有支出。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `name` | `str` | 预算 |
+| `month` | `date` | 该月的第一天 |
+
+```sql
+SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency,
+       last(date) AS last_month,
+       CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned,
+       CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity,
+       last(available) AS available, last(closed) AS closed
+FROM #budgets
+WHERE name = :name AND date <= :month
+GROUP BY name
+```
+
+#### `budgets.events`
+
+某个月中 `budget-add` 和 `budget-transfer` 指令为预算放入的金额，最新的在前，金额按原样给出：转出为负数。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `name` | `str` | 预算 |
+| `month` | `date` | 该月的第一天 |
+
+```sql
+SELECT date, time, timestamp, type, amount
+FROM #budget_events
+WHERE name = :name AND type != 'close' AND yearmonth(date) = :month
+ORDER BY timestamp DESC
+```
+
+#### `budgets.postings`
+
+某个月中预算的分录，最新的在前，每条分录附带其账户在该分录之后、以该分录货币计的余额：即其日期当时计入该预算的预算账户分录，由 [`account_budgets`](/zh-cn/reference/query-language/#账户与商品指令) 判断，所以关闭后以其他预算重新开启的账户，其分录列在它所计入的预算中。预算页面把它们和 `budgets.events` 的事件按时间合并列出，最新的在前。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `accounts` | `set` | 预算的账户，即 `budgets.budget` 的 `accounts` |
+| `month` | `date` | 该月的第一天 |
+| `name` | `str` | 预算 |
+
+```sql
+SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
+       only(currency, account_balance) AS balance
+WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
+ORDER BY timestamp DESC
+```
+
+商品的精度、前缀、后缀、舍入方式和分组来自它的 `commodity` 指令。账本持有多少该商品、持有在哪些批次中，以及它的价格，来自下面这些查询。持有量指资产（Assets）和负债（Liabilities）账户中的持有量，这些账户用 [`under`](/zh-cn/reference/query-language/#账户函数) 选出，查询因此只读取它们的分录。
+
+#### `commodities.totals`
+
+资产和负债账户持有的每种商品的数量，只列出有持有量的商品。没有结果行的商品持有量为零。
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE under(account, 'Assets') OR under(account, 'Liabilities')
+GROUP BY currency
+HAVING sum(number) != 0
+ORDER BY currency
+```
+
+#### `commodities.total`
+
+资产和负债账户持有的某一种商品的数量。没有持有量时没有结果行。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+
+```sql
+SELECT currency, sum(number) AS total
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY currency
+HAVING sum(number) != 0
+```
+
+#### `commodities.latest_prices`
+
+每种商品以某种货币报价的最新价格，及其日期和时间。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `currency` | `str` | 报价货币，即运营货币 |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency(amount) = :currency
+GROUP BY currency
+ORDER BY currency
+```
+
+#### `commodities.latest_price`
+
+某一种商品以某种货币报价的最新价格，及其日期和时间。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+| `currency` | `str` | 报价货币，即运营货币 |
+
+```sql
+SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price
+FROM #prices
+WHERE currency = :commodity AND currency(amount) = :currency
+GROUP BY currency
+```
+
+#### `commodities.lots`
+
+资产和负债账户持有的某种商品的批次：每个账户、每种成本和取得日期的数量，按账户排序，同一账户内最早取得的在前。不按成本持有的数量在每个账户中算作一个批次。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+
+```sql
+SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
+WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
+GROUP BY account, cost_date, cost_number, cost_currency
+HAVING sum(number) != 0
+ORDER BY account, cost_date, cost_number
+```
+
+#### `commodities.prices`
+
+某种商品以任何货币报价的所有价格，最早的在前。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `commodity` | `str` | 商品 |
+
+```sql
+SELECT date, time, amount
+FROM #prices
+WHERE currency = :commodity
+ORDER BY date, time
+```

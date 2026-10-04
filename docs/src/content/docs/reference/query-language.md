@@ -546,6 +546,24 @@ WHERE payee IN ('Amazon')
 - `NOT IN` is the opposite of `IN`.
 - If the left-hand side is `NULL`, the result is `NULL`. If the value is not found in a list that contains a `NULL`, the result is `NULL` too, as in standard SQL.
 
+### CASE
+
+`CASE` chooses a value by conditions:
+
+```sql
+SELECT date, payee, position,
+       CASE WHEN number >= 100 THEN 'large' WHEN number > 0 THEN 'small' ELSE 'refund' END AS size
+WHERE account ~ '^Expenses'
+```
+
+- Its value is the value after `THEN` of the first `WHEN` condition that is `TRUE`, or the value after `ELSE` if no condition is. Without `ELSE`, it is `NULL` then.
+- A condition that is `NULL` is not `TRUE`, as in `WHERE`, so the next `WHEN` is tried.
+- Each condition must be a boolean. The values must have one type: `NULL` fits any type, and an `int` is widened to a `decimal` when another value is a `decimal`.
+- Only the chosen value is computed, so a value that would fail, such as an integer overflow, only fails for the rows that choose it.
+- The conditions and the values can be aggregates in an aggregate query: `CASE WHEN count(*) > 1 THEN sum(number) ELSE 0 END`. As in SQL, every aggregate of the query adds up every row of its group, whichever branch the group chooses, so the argument of an aggregate inside a `CASE` is computed for every row, and fails there if it fails: only the plain expressions of the branches are computed for the chosen branch alone.
+- `CASE`, `WHEN`, `THEN`, `ELSE` and `END` are keywords only inside a `CASE` expression, which starts with `CASE WHEN`. Elsewhere they are ordinary names. The form `CASE x WHEN value THEN ...` is not supported; write `CASE WHEN x = value THEN ...`.
+- `CASE` is a Zhang extension. beanquery has no conditional expression.
+
 ### NULL and three-valued logic
 
 A value is `NULL` when it is missing, for example the payee of a transaction that has none, or the cost of a posting that is not held at cost.
@@ -680,7 +698,7 @@ Besides `postings`, a query can read one of the tables below with `FROM #name`. 
 | `#accounts` | account with an `open` or `close` directive | `account, open, close` |
 | `#commodities` | `commodity` directive | `meta, date, name` |
 
-Zhang adds three tables of its own, `#budgets`, `#budget_events` and `#errors`, described in [Zhang-specific tables](#zhang-specific-tables).
+Zhang adds four tables of its own, `#budgets`, `#budget_definitions`, `#budget_events` and `#errors`, described in [Zhang-specific tables](#zhang-specific-tables).
 
 ```sql
 SELECT currency, last(amount) AS latest
@@ -694,7 +712,7 @@ ORDER BY currency
 - **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
 - **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries` and `#transactions` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
 - **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
-- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual`, `passed`, `pad`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
+- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `time` and `timestamp` on `#prices`; `actual`, `passed`, `pad`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_definitions`, `#budget_events` and `#errors` are Zhang's own tables.
 
 ### Processing order
 
@@ -752,6 +770,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `#prices` | `date` | `date` | Date of the price. |
 | | `currency` | `str` | The commodity being priced. |
 | | `amount` | `amount` | The price of one unit. |
+| | `time`, `timestamp` | `str`, `int` | Time of day of the price in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none) and the Unix time of its date and time, in seconds, as in [`#entries`](#entries). They tell apart several prices of one day, which come in time order. Zhang extension. |
 | `#balances` | `date` | `date` | Date of the assertion. |
 | | `account` | `str` | The account whose balance is asserted. |
 | | `amount` | `amount` | The asserted balance. |
@@ -817,19 +836,19 @@ An attribute of a missing directive is `NULL`. An unknown attribute, such as `op
 
 ## Zhang-specific tables
 
-Zhang has three tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/reference/directives/budget/), `#budget_events`, what your budget directives did, and `#errors`, the problems Zhang found in your ledger. They are read like the [other tables](#other-tables), with `FROM #budgets`, `FROM #budget_events` and `FROM #errors`, and the same rules apply: a table has only its own columns, so `account` is not a column of `#budgets`, and every clause and function works on it. Unlike the directive tables, they have no `meta` column, and their rows come in the order given below for each table. `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
+Zhang has four tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/reference/directives/budget/), `#budget_definitions`, what each budget is, `#budget_events`, what your budget directives did, and `#errors`, the problems Zhang found in your ledger. They are read like the [other tables](#other-tables), with `FROM #budgets`, `FROM #budget_definitions`, `FROM #budget_events` and `FROM #errors`, and the same rules apply: a table has only its own columns, so `account` is not a column of `#budgets`, and every clause and function works on it. Unlike the directive tables, they have no `meta` column, and their rows come in the order given below for each table. `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
 
 ### Budgets
 
 `#budgets` has one row per budget per month, with the figures the budget page of the web UI shows for that month.
 
-- A budget has a row for every month from the month of its `budget` directive through the later of two months: the month of the budget's last `budget-add`, `budget-transfer` or `budget-close`, and the last month with a transaction in the ledger. A budget planned ahead with a `budget-add` in a future month therefore shows that month. Other directives, such as prices, events, notes and balance assertions, do not extend the months. Months without budget entries or spending have a row too, with the available amount carried over, as on the budget page. The rows only depend on the ledger, not on today's date: a later month is the budget's last row carried over, with nothing spent.
-- The months are generated rather than read from the ledger, so each one counts toward the [result size limit](#limits), even if `WHERE` drops it. If a transaction or a budget directive is dated far in the future by mistake, the query fails with a "too large" error instead of using up memory. The error names the budget with the longest series and the directive whose date ends it, such as `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`. Fix the date to query the table again.
+- A budget has a row for every month from the month of its `budget` directive through the latest of three months: the month of the budget's last `budget-add`, `budget-transfer` or `budget-close`, the last month with a transaction in the ledger, and the current month, the month of [`today()`](#date-functions) in the ledger's timezone. A budget planned ahead with a `budget-add` in a future month therefore shows that month, and `WHERE date = yearmonth(today())` lists every budget for this month, even before anything happened in it. Other directives, such as prices, events, notes and balance assertions, do not extend the months. Months without budget entries or spending have a row too, with the available amount carried over, as on the budget page. A month after the last row has none: it would be the budget's last row carried over, with nothing spent.
+- The months are generated rather than read from the ledger, so each one counts toward the [result size limit](#limits), even if `WHERE` drops it. The exception is a `WHERE` that keeps only the months up to a date, with a condition joined by `AND` such as `date <= 2024-06-01`, `date < :month`, `date = :month` or `yearmonth(date) = :month`: no later month is generated. Asking for the months up to the one you look at keeps such a query fast, and working whatever date typos the ledger has. If a transaction or a budget directive is dated far in the future by mistake, or a `budget` directive far in the past, the query fails with a "too large" error instead of using up memory. The error names the budget with the longest series and the directive whose date ends it, such as `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`, or its `budget` directive when the series runs through the current month. Fix the date to query the table again.
 - `assigned`, `activity` and `available` are the Assigned, Activity and Available columns of the budget page. `assigned` is what the month starts with, the amount still available at the end of the previous month, plus what the month's `budget-add` and `budget-transfer` directives put in (`added`). `activity` is what the budget's accounts spent in the month, and `available`, which is `assigned - activity`, carries over to the next month.
 - All amounts are in the budget's commodity. `activity` adds up the postings of the budget's accounts, each converted to the budget's commodity at the posting's date, as [`convert(position, currency, date)`](#valuation-functions) does with the prices of the ledger: `activity` is what `sum(convert(position, 'CNY', date))` gives over those postings. A `budget-add` or `budget-transfer` amount in another commodity is converted the same way at the directive's date. A posting or amount that no price converts is left out, instead of being added as a number of another commodity.
 - A budget exists from its `budget` directive on. A `budget-add`, `budget-transfer` or `budget-close` of a budget that does not exist yet has no effect, and postings before the budget's `budget` directive are not its spending; Zhang reports both as errors. A second `budget` directive of the same name is a duplicate and is ignored.
 - Because `assigned` includes the carry-over, adding it up over several months counts the same money more than once. Add up `added` instead to see how much was budgeted over a period.
-- A budget's accounts are the accounts whose `open` directive has a `budget` metadata entry naming it, such as `budget: food`. Their postings are the budget's activity.
+- A budget's accounts are the accounts whose `open` directive has a `budget` metadata entry naming it, such as `budget: food`. Their postings are the budget's activity. Every entry counts, so an account whose `open` has `budget: food` and `budget: fun` is an account of both budgets. A posting counts in the budgets of its account's `open` in effect at its date: an account closed and opened again with other budgets counts in those from its reopening on, and its earlier postings stay in the earlier budgets. [`account_budgets(account, date)`](#account-and-commodity-directives) tells which.
 - `meta(key)` reads the metadata of the `budget` directive.
 - Rows are ordered by budget name, then by month. `SELECT *` is short for `SELECT name, date, assigned, activity, available`.
 
@@ -846,7 +865,7 @@ Zhang has three tables of its own, for data that Beancount does not have: `#budg
 | `added` | `amount` | Amount the month's `budget-add` and `budget-transfer` directives put into the budget, converted to its commodity at their date. A transfer out of the budget counts as negative. |
 | `activity` | `amount` | Amount the budget's accounts spent in the month, each posting converted to the budget's commodity at its date. A refund counts as negative. |
 | `available` | `amount` | Amount left at the end of the month, `assigned - activity`. It carries over to the next month, and is negative when the budget is overspent. |
-| `accounts` | `set` | Accounts whose postings count as the budget's activity. |
+| `accounts` | `set` | Accounts whose postings count as the budget's activity: those an `open` names the budget in, at any time. |
 | `closed` | `bool` | Whether the budget was closed with `budget-close` in or before the month. It is `FALSE` in the months before. |
 
 What is left in each budget, grouped as on the budget page:
@@ -883,6 +902,31 @@ SELECT name, last(available) AS available, last(closed) AS closed
 FROM #budgets
 GROUP BY name
 ORDER BY name
+```
+
+### Budget definitions
+
+`#budget_definitions` has one row per budget, with what its directives define. It has no months and reads no transaction, so it answers what a budget is whatever the dates in the ledger.
+
+- Rows are ordered by budget name. `SELECT *` gives every column.
+- `meta(key)` reads the metadata of the `budget` directive.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `name` | `str` | Name of the budget. |
+| `date` | `date` | Date of the `budget` directive, from which the budget exists. |
+| `currency` | `str` | Commodity the budget is kept in. |
+| `alias` | `str` | Display name of the budget, from its `alias` metadata, or `NULL` if it has none. |
+| `category` | `str` | Category of the budget, from its `category` metadata, or `NULL` if it has none. |
+| `accounts` | `set` | Accounts whose postings count as the budget's activity, as in [`#budgets`](#budgets). |
+| `close` | `date` | Date of the budget's first `budget-close`, which closes it, or `NULL` while it is open. A later `budget-close` changes nothing. |
+
+The open budgets and their accounts:
+
+```sql
+SELECT name, currency, accounts
+FROM #budget_definitions
+WHERE close IS NULL
 ```
 
 ### Budget events
@@ -1105,6 +1149,7 @@ These functions read the `open`, `close` and `commodity` directives of the ledge
 | `commodity_meta(str, str) -> str` | A metadata value of the currency's `commodity` directive, such as `commodity_meta(currency, 'name')`. |
 | `commodity_meta(str) -> metas` | All the metadata of the currency's `commodity` directive: an empty list when it has none, `NULL` without a `commodity` directive. |
 | `currency_meta(str, str) -> str`, `currency_meta(str) -> metas` | The same as `commodity_meta`. |
+| `account_budgets(str, date) -> set` | The budgets an account counts in at a date: those the `budget` metadata of its latest `open` on or before the date names, so an account closed and opened again with other budgets counts in those from its reopening on. Empty before its first `open`. Zhang extension. |
 
 Metadata is not inherited: `open_meta('Assets:Bank:Checking', 'institution')` is `NULL` even if `Assets:Bank` has an `institution`. beanquery's one-argument forms return dictionaries that also hold `filename` and `lineno`; Zhang returns only the directive's own metadata.
 
@@ -1189,6 +1234,28 @@ Zhang extensions for keyword search. "Ignoring case" compares the texts after co
 ```sql
 SELECT date, payee, narration, account, position
 WHERE icontains(payee, 'coffee') OR icontains(narration, 'coffee') OR any_icontains(tags, 'coffee')
+```
+
+### Comparison functions
+
+Zhang extensions that pick one of two values of the same type. The arguments can be `bool`, `int`, `decimal`, `str` or `date`, the types that `<` compares, and an `int` and a `decimal` compare as numbers.
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| `least(T, T) -> T` | The smaller of the two values, the first one when they are equal. | `least(date_add(date, 6), 2024-12-31)` |
+| `greatest(T, T) -> T` | The larger of the two values, the first one when they are equal. | `greatest(date, 2024-01-01)` |
+
+- As every other function, they are `NULL` when an argument is `NULL`. PostgreSQL's `LEAST` and `GREATEST` skip `NULL` arguments instead.
+- They take exactly two arguments. Nest them for more: `least(a, least(b, c))`.
+- beanquery has neither.
+
+This values the balance of each month at the prices of its last day, but at most of today, so the current month is valued at today's prices rather than at those of the end of the month:
+
+```sql
+SELECT date_trunc('month', date) AS month,
+       convert(last(balance), 'USD', least(max(date_trunc('month', date)) + interval('1 month') - 1, today())) AS value
+WHERE account ~ '^Assets:'
+GROUP BY month ORDER BY month
 ```
 
 ### String functions
@@ -1300,6 +1367,7 @@ These limits protect the server from queries that would take too much memory or 
 - The result size counts each cell as one value, plus one for each position of an inventory, each element of a set, each pair of a `metas` value and each 64 bytes of text, including the text of those elements and pairs. The rows that a query collects before `ORDER BY`, `DISTINCT` and `LIMIT` count too, and so do the groups of an aggregate query while they are built and the months that [`#budgets`](#budgets) generates, one value each. A `PIVOT BY` table counts all of its cells, including the empty ones, and is checked before it is built. A query that goes over the limit fails with an error that suggests narrowing it with `FROM` or `WHERE`, or adding a `LIMIT`.
 - Server operators can raise or lower the result size limit with the environment variable `ZHANG_QUERY_MAX_RESULT_VALUES`.
 - `LIMIT` keeps a result small, and so does the way the [running balance](#the-running-balance) is computed. `balance` is only built for the rows that end up in the result, unless the query sorts, groups or de-duplicates by it. `units(balance)` and `cost(balance)`, and so `JOURNAL ... AT units` and `AT cost`, are added up per currency without keeping the lots.
+- An aggregate written more than once, such as `last(balance)` in `last(balance), units(last(balance))`, is computed and held once. In a query grouped by date, `first(balance)` and `last(balance)` are only built for the groups that `HAVING` keeps when `HAVING` does not read them, as in `GROUP BY date HAVING max(date) >= 2024-01-01`, so such a query costs what its kept groups hold, however long the history before them.
 - The same limits apply to [CSV export](#export-as-csv).
 
 ### Export as CSV
@@ -1377,7 +1445,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 
 - `columns` has one entry per column, 34 in all, in the order of the [column table](#columns).
 - `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets`, `budget_events` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
-- `functions` has one entry per overload, 89 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
+- `functions` has one entry per overload, 100 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
 ## Examples
 
@@ -1594,11 +1662,13 @@ One row per day with postings, with the account's balance at the end of the day.
 - **`account_sortkey`** of a name whose first component is not an account type returns a key that sorts after all the types. beanquery raises an error.
 - **`date_bin` lays its bins from the origin.** With a stride of months or years, beanquery adds each stride to the previous bin, so bins from a month end drift (`01-31`, `02-28`, `03-28`, ...), and it puts a date exactly on a bin boundary other than the origin into the previous bin: `date_bin('1 month', 2000-02-01, 2000-01-01)` is `2000-01-01` there. In Zhang the bins are `origin + k × stride` (`01-31`, `02-28`, `03-31`, ...) and a date on a boundary starts its bin (`2000-02-01`). A zero stride, or a stride text that `interval()` cannot read, is `NULL`; beanquery fails.
 - **`interval()` accepts weeks**, seven days each. beanquery returns `NULL` for them.
+- **`least` and `greatest`** are Zhang extensions; beanquery has neither. See [Comparison functions](#comparison-functions).
 - **`NULL` arguments.** A `NULL` literal is accepted wherever a value is, and a function given `NULL` returns `NULL`: `date_add(NULL, 1)` is `NULL`. beanquery types `NULL` apart and rejects such a call.
 - **Interval arithmetic.** `interval - interval` is an interval; beanquery declares it a date. `interval - date` is an error; beanquery accepts it and fails while running.
 - **Interval comparison.** Intervals can be compared with `=`, `!=` and `IN`, which beanquery rejects, by their months and days, so `GROUP BY` and `DISTINCT` treat `interval('1 year') + interval('-1 month')` and `interval('11 months')` as one value (beanquery keeps them apart). Ordering them, which beanquery fails on while running, is an error when the query is checked.
 - **Dates are years 1 to 9999.** A date function or date arithmetic whose result falls outside gives `NULL`; beanquery raises an error.
 - **`OFFSET`** is a Zhang extension; beanquery has only `LIMIT`.
+- **`CASE WHEN ... END`** is a Zhang extension; beanquery has no conditional expression. See [CASE](#case).
 - **Parameters.** The `JOURNAL` pattern, the `OPEN ON` and `CLOSE ON` dates, and `LIMIT` and `OFFSET` can be [parameters](#parameters). beanquery only accepts literals there.
 - **The `FROM` expression filters after the period clauses.** This is what beanquery does. In BQL v2, the expression chose the transactions before `OPEN`, `CLOSE` and `CLEAR` were applied.
 - **Equity accounts.** An `account_previous_*` or `account_current_*` option whose value is not a valid account name is ignored, and the default account is used.

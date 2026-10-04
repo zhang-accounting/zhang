@@ -69,7 +69,8 @@ In April, `Food` starts with the 80 CNY left from March, plus the 2,000 CNY assi
 
 - Every posting to a linked account adds to the activity of the budget in the month of its transaction. A refund, a negative posting, takes activity away.
 - A posting counts only from the date of the `budget` directive on. A posting to a linked account before the budget exists is skipped, and reported once per account as [`BudgetDoesNotExist`](/reference/error-codes/#budgetdoesnotexist).
-- The amount is added as it is, without converting it. Keep the accounts of a budget in the budget's commodity.
+- A posting in another commodity is converted to the budget's commodity at its date, with the prices of your ledger. A posting that no price converts is left out.
+- A posting counts toward the budgets of its account's `open` at the posting's date. If you close an account and open it again with other `budget` metadata, its later postings count toward the new budgets, and its earlier ones stay where they were.
 
 ## Close a budget
 
@@ -77,12 +78,12 @@ In April, `Food` starts with the 80 CNY left from March, plus the 2,000 CNY assi
 2024-12-31 budget-close Fun
 ```
 
-`budget-close` marks the budget closed, and the **Budget** page shows it as **Closed**, in every month. Accounts that name it still add their spending to it, so remove their `budget` metadata too.
+`budget-close` closes the budget from the month of its date: the **Budget** page shows it as **Closed** in that month and the months after. A second `budget-close` changes nothing. Accounts that name it still add their spending to it, so remove their `budget` metadata too.
 
 ## Follow your budgets in the web UI
 
 - The **Budget** page shows one month at a time, with the **Assigned**, **Activity** and **Available** amounts of each budget, grouped by category (budgets without one are **Uncategorized**). Use the arrows to change month. **Hide budgets with nothing assigned** hides the budgets with no money assigned that month.
-- Select a budget to see its linked accounts and its activity in the month: the money assigned and transferred, and the postings to its accounts.
+- Select a budget to see its linked accounts and its activity in the month: the money assigned and transferred, and the postings that count toward it.
 - The **Overview** page shows this month's budgets and how much of each is used.
 
 The budgets are also available to [queries](/guides/querying/), in the `#budgets` table. See [Budgets](/reference/query-language/#budgets) in the query language reference.

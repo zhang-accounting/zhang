@@ -176,7 +176,7 @@ pub(crate) fn infallible(expr: &CExpr) -> bool {
     let node = match expr {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
-        CExpr::InConst { .. } | CExpr::StrTest { .. } => true,
+        CExpr::InConst { .. } | CExpr::StrTest { .. } | CExpr::Case { .. } => true,
         CExpr::Scalar { .. } => total_function(expr),
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
     };
@@ -477,6 +477,7 @@ option "operating_currency" "USD"
             today,
             projection.unwrap_or(query.projection),
             &Scope::All,
+            None,
             &mut Limits::new(None, &mut budget),
         )
         .unwrap();
@@ -518,6 +519,7 @@ option "operating_currency" "USD"
                 today,
                 Query::compile(sql).unwrap().projection,
                 &Scope::All,
+                None,
                 &mut Limits::new(None, &mut budget),
             )
             .unwrap();

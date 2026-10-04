@@ -1,10 +1,9 @@
 use axum::extract::State;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine as _;
 use gotcha::api;
 
 use crate::request::FileUpdateRequest;
 use crate::response::{Created, FileDetailEntity, ResponseWrapper};
+use crate::routes::Base64Path;
 use crate::state::{SharedLedger, SharedReloadSender};
 use crate::{ApiResult, ServerResult};
 
@@ -23,9 +22,7 @@ pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<Stri
 }
 
 #[api(group = "file")]
-pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::Path<(String,)>) -> ApiResult<FileDetailEntity> {
-    let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
+pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename): Base64Path) -> ApiResult<FileDetailEntity> {
     let ledger = ledger.read().await;
 
     let content = ledger.data_source.async_get(filename.to_owned()).await?;
@@ -36,11 +33,9 @@ pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::
 
 #[api(group = "file")]
 pub async fn update_file_content(
-    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: axum::extract::Path<(String,)>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Base64Path(filename): Base64Path,
     axum::extract::Json(payload): axum::extract::Json<FileUpdateRequest>,
 ) -> ServerResult<Created> {
-    let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     let ledger = ledger.read().await;
 
     // todo(refact) check if the syntax valid
