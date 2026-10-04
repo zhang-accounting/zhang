@@ -35,8 +35,9 @@ enum Format {
 }
 
 /// A ledger directory under the system temp dir, removed on drop. The API appends January
-/// 2024 transactions to `data/2024/1.zhang`, which the main file includes; the local file
-/// system data source only appends to an existing file, so it is created empty.
+/// 2024 transactions to `data/2024/01.zhang` (`01.bean` in a beancount ledger), which the
+/// main file includes; the local file system data source only appends to an existing file,
+/// so it is created empty.
 struct Scratch {
     dir: PathBuf,
     format: Format,
@@ -54,7 +55,7 @@ impl Scratch {
         };
         std::fs::write(
             scratch.main_file(),
-            format!("option \"operating_currency\" \"CNY\"\ninclude \"data/2024/1.zhang\"\n{OPENS}{extra}"),
+            format!("option \"operating_currency\" \"CNY\"\ninclude \"{}\"\n{OPENS}{extra}", scratch.data_name()),
         )
         .unwrap();
         std::fs::write(scratch.data_file(), "").unwrap();
@@ -84,8 +85,15 @@ impl Scratch {
         self.dir.join(self.main_name())
     }
 
+    fn data_name(&self) -> &'static str {
+        match self.format {
+            Format::Zhang => "data/2024/01.zhang",
+            Format::Beancount => "data/2024/01.bean",
+        }
+    }
+
     fn data_file(&self) -> PathBuf {
-        self.dir.join("data/2024/1.zhang")
+        self.dir.join(self.data_name())
     }
 
     fn written(&self) -> String {

@@ -537,7 +537,7 @@ async fn a_new_account_gets_a_row_in_the_operating_currency() {
 #[tokio::test]
 async fn a_batch_pads_sub_accounts_before_their_parents() {
     let today = chrono::Utc::now().date_naive();
-    let data_file = format!("data/{}/{}.zhang", chrono::Datelike::year(&today), chrono::Datelike::month(&today));
+    let data_file = format!("data/{}/{:02}.zhang", chrono::Datelike::year(&today), chrono::Datelike::month(&today));
     let scratch = Scratch::new(&format!(
         r#"option "operating_currency" "CNY"
 option "timezone" "UTC"

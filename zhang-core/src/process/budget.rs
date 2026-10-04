@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Budget, BudgetAdd, BudgetClose, BudgetTransfer, SpanInfo};
 
+use crate::domains::Operations;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::store::BudgetEventType;
@@ -34,13 +35,7 @@ impl DirectiveProcess for Budget {
 
 impl DirectiveProcess for BudgetAdd {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        let mut operations = ledger.operations();
-        if !operations.contains_budget(&self.name) {
-            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+        budget_exists(&mut ledger.operations(), &self.name, span)
     }
 
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
@@ -59,16 +54,7 @@ impl DirectiveProcess for BudgetAdd {
 impl DirectiveProcess for BudgetTransfer {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
         let mut operations = ledger.operations();
-        if !operations.contains_budget(&self.from) {
-            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
-            return Ok(false);
-        };
-        if !operations.contains_budget(&self.to) {
-            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
-            return Ok(false);
-        };
-
-        Ok(true)
+        Ok(budget_exists(&mut operations, &self.from, span)? && budget_exists(&mut operations, &self.to, span)?)
     }
 
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
@@ -85,13 +71,7 @@ impl DirectiveProcess for BudgetTransfer {
 
 impl DirectiveProcess for BudgetClose {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        let mut operations = ledger.operations();
-        if !operations.contains_budget(&self.name) {
-            operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+        budget_exists(&mut ledger.operations(), &self.name, span)
     }
 
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
@@ -100,5 +80,15 @@ impl DirectiveProcess for BudgetClose {
 
         operations.budget_close(&self.name, self.date.clone())?;
         Ok(())
+    }
+}
+
+/// whether the budget `name` exists; a [`ErrorKind::BudgetDoesNotExist`] error is recorded at `span` when it does not
+fn budget_exists(operations: &mut Operations, name: &str, span: &SpanInfo) -> ZhangResult<bool> {
+    if operations.contains_budget(name) {
+        Ok(true)
+    } else {
+        operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
+        Ok(false)
     }
 }

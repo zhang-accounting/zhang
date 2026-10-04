@@ -7,15 +7,13 @@ use std::time::Duration;
 
 use async_recursion::async_recursion;
 use beancount::Beancount;
-use chrono::Datelike;
 use futures::TryStreamExt;
-use log::{debug, info, warn};
-use minijinja::{context, Environment};
+use log::{debug, info};
 use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
-use zhang_core::data_source::{written_into, DataSource, LoadResult, SourceEntry};
+use zhang_core::data_source::{directive_output_file, included_file, written_into, DataSource, LoadResult, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -221,7 +219,7 @@ impl DataSource for OpendalDataSource {
             let file_content = self.get_file_content(striped_pathbuf.clone()).await?;
             let entity_directives = self.parse(&file_content, striped_pathbuf.clone())?;
 
-            entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
+            entity_directives.iter().filter_map(included_file).for_each(|buf| {
                 let fullpath = if buf.starts_with('/') {
                     PathBuf::from_str(&buf).unwrap()
                 } else {
@@ -362,44 +360,18 @@ impl OpendalDataSource {
         })
     }
 
-    /// append `directive` to `file`, or to the file `directive_output_path` gives it, which the main file then
-    /// includes unless the ledger or this append (`included`) has it already. Without `included`, no include
+    /// append `directive` to `file`, or to the file `directive_output_path` gives it ([`directive_output_file`]), which
+    /// the main file then includes unless the ledger or this append (`included`) has it already. Without `included`, no
+    /// include
     // `async_recursion` adds a `#[must_use]` to the boxed future it returns
     #[allow(clippy::double_must_use)]
     #[async_recursion]
     async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, included: Option<&mut Vec<PathBuf>>) -> ZhangResult<()> {
-        let (entry, main_file_endpoint) = &ledger.entry;
+        let (entry, _) = &ledger.entry;
 
-        let endpoint = if let Some(file) = file {
-            file
-        } else if let Some(datetime) = directive.datetime() {
-            let date = datetime.date();
-            let mut env = Environment::new();
-            env.add_template("directive_output_path", &ledger.options.directive_output_path).map_err(|e| {
-                warn!("{}", e);
-                ZhangError::InvalidOptionValue
-            })?;
-
-            let tmpl = env.get_template("directive_output_path").map_err(|_e| {
-                warn!("{}", _e);
-                ZhangError::InvalidOptionValue
-            })?;
-
-            let save_path = tmpl
-                .render(&context! {
-                    type => directive.directive_type().to_string(),
-                    year => date.year(),
-                    month => date.month(),
-                    month_str => date.format("%m").to_string(),
-                    day => date.day(),
-                    day_str => date.format("%d").to_string(),
-                    ext => Path::new(main_file_endpoint).extension().and_then(|it| it.to_str()).unwrap_or("zhang"),
-                })
-                .map_err(|_e| ZhangError::InvalidOptionValue)?;
-            let path = PathBuf::from(save_path);
-            entry.join(path)
-        } else {
-            entry.join(main_file_endpoint)
+        let endpoint = match file {
+            Some(file) => file,
+            None => directive_output_file(ledger, &directive)?,
         };
         let striped_endpoint = endpoint
             .strip_prefix(entry)
@@ -519,12 +491,6 @@ impl OpendalDataSource {
                 path: path_string,
                 msg: it.to_string(),
             })
-        }
-    }
-    fn go_next(&self, directive: &Spanned<Directive>) -> Option<String> {
-        match &directive.data {
-            Directive::Include(include) => Some(include.file.clone().to_plain_string()),
-            _ => None,
         }
     }
     fn transform(&self, directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {

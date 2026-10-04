@@ -217,7 +217,7 @@ impl Account {
     /// assert!(Account::from_str("Equity:A").unwrap().is_invert_account());
     /// ```
     pub fn is_invert_account(&self) -> bool {
-        self.is_income() || self.is_liabilities() || self.is_equity()
+        !self.account_type.positive_type()
     }
     /// Return the sign of the normal balance of a particular account.
     /// ```rust
@@ -230,12 +230,10 @@ impl Account {
     /// assert_eq!(Account::from_str("Equity:A").unwrap().get_account_sign(), -1);
     /// ```
     pub fn get_account_sign(&self) -> i8 {
-        match self.account_type {
-            AccountType::Assets => 1,
-            AccountType::Liabilities => -1,
-            AccountType::Equity => -1,
-            AccountType::Income => -1,
-            AccountType::Expenses => 1,
+        if self.account_type.positive_type() {
+            1
+        } else {
+            -1
         }
     }
 }
