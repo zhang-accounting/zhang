@@ -46,7 +46,7 @@ serde_qs = "0.13.0"
 webauthn-rs = "0.5"
 hmac = "0.13"
 sha2 = "0.11"
-rand = "0.8"
+rand = "0.10"
 percent-encoding = "2"
 form_urlencoded = "1"
 
