@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveTime};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -255,40 +255,20 @@ impl Operations {
             .transpose()
     }
 
-    pub fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
-        let store = self.read();
-        let price = store
-            .prices
-            .iter()
-            .filter(|price| price.commodity.eq(from.as_ref()))
-            .filter(|price| price.target_commodity.eq(to.as_ref()))
-            .filter(|price| price.datetime.le(&date))
-            // `max_by_key` returns the last of several equal maxima, so the last same-day price wins
-            .max_by_key(|price| price.datetime)
-            .cloned();
-        Ok(price)
-    }
-
+    /// the metas of `type_identifier` of `type_`, in store order
     pub fn metas(&self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
         let store = self.read();
-        Ok(store
-            .metas
-            .iter()
-            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
-            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
-            .cloned()
-            .collect_vec())
+        Ok(store.metas_of(type_.as_ref(), type_identifier.as_ref()).cloned().collect_vec())
     }
 
+    /// the first meta of `type_identifier` of `type_` with `key`
     pub fn meta(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> ZhangResult<Option<MetaDomain>> {
         let store = self.read();
-        Ok(store
-            .metas
-            .iter()
-            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
-            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
+        let meta = store
+            .metas_of(type_.as_ref(), type_identifier.as_ref())
             .find(|meta| meta.key.eq(key.as_ref()))
-            .cloned())
+            .cloned();
+        Ok(meta)
     }
 
     pub fn commodity(&self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
@@ -405,22 +385,17 @@ impl Operations {
     pub fn insert_meta(&mut self, type_: MetaType, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
         let mut store = self.write();
 
+        // a key the owner already has is updated in place (its first entry, as the scan found it); a new one is
+        // appended
         for (meta_key, meta_value) in meta.get_flatten() {
-            let option = store
-                .metas
-                .iter_mut()
-                .filter(|it| it.type_identifier.eq(type_identifier.as_ref()))
-                .filter(|it| it.meta_type.eq(type_.as_ref()))
-                .find(|it| it.key.eq(&meta_key));
-            if let Some(meta) = option {
-                meta.value = meta_value.to_plain_string()
-            } else {
-                store.metas.push(MetaDomain {
+            match store.meta_position(type_.as_ref(), type_identifier.as_ref(), &meta_key) {
+                Some(position) => store.metas[position].value = meta_value.to_plain_string(),
+                None => store.push_meta(MetaDomain {
                     meta_type: type_.as_ref().to_string(),
                     type_identifier: type_identifier.as_ref().to_owned(),
                     key: meta_key,
                     value: meta_value.to_plain_string(),
-                });
+                }),
             }
         }
         Ok(())

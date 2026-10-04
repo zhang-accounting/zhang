@@ -30,14 +30,14 @@ default-members = [
 ]
 
 [workspace.dependencies]
-base64 = "0.22"
+base64 = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ['macros', "tracing", "signal", "rt-multi-thread"] }
 log = "0.4"
-itertools = "0.14"
-strum = { version = "0.26", features = ["derive"] }
+itertools = "0.15"
+strum = { version = "0.28", features = ["derive"] }
 # pinned: from 0.4.8 on, a zero is displayed without its scale ("0" instead of "0.00"), which changes zhang's API JSON
 # and written ledgers
 bigdecimal = { version = "=0.4.3", features = ["serde"] }
@@ -46,7 +46,7 @@ axum = { version = "0.7", features = ["macros", "multipart"] }
 gotcha = { version = "0.3", features = ["openapi"] }
 gotcha_core = { version = "0.3" }
 bytes = "1.6.0"
-chrono-tz = "0.8"
+chrono-tz = "0.10"
 http = "1.1"
 async-trait = "0.1"
 
