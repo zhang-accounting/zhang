@@ -117,7 +117,9 @@ A plugin can also read settings that change over time from [`custom`](/reference
   under the directory you start `zhang serve` from. When a local module changes, `zhang serve` reloads the ledger.
 - Plugins run in the order of their `plugin` directives, every time the ledger loads, before Zhang's own steps: the
   check of accounts that are not open, then [padding](/reference/directives/balance/#padding-with-with-pad), then
-  balance checks. A plugin therefore sees the transactions as written, before the padding transactions exist.
+  balance checks. A plugin therefore sees the transactions as written, before the padding transactions exist. It
+  never sees a `pad` directive: a `balance` a `pad` serves is shown to it as a `balance … with pad` (see
+  [the stage order contract](/developers/writing-plugins/#the-stage-order-contract)).
 - Declaring the same module twice gives two separate plugins, each with its own settings and seed.
 - A module that is missing or cannot be loaded, or a plugin call that fails or runs past its `timeout`, stops the
   ledger from loading. If `zhang serve` is already running, it keeps serving the ledger as it was before the reload.

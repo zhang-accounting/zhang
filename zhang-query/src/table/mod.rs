@@ -404,6 +404,7 @@ pub(crate) fn directive_meta(directive: &Directive) -> Option<&Meta> {
         Directive::Transaction(it) => &it.meta,
         Directive::BalancePad(it) => &it.meta,
         Directive::BalanceCheck(it) => &it.meta,
+        Directive::Pad(it) => &it.meta,
         Directive::Note(it) => &it.meta,
         Directive::Document(it) => &it.meta,
         Directive::Price(it) => &it.meta,

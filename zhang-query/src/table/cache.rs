@@ -10,7 +10,8 @@
 //!   the order zhang processed the ledger (the `seq` column), the rows of `#transactions`, and
 //!   for every transaction its stored id and the kinds of the errors recorded for it. Stored
 //!   transactions are found by source position, which is how zhang derives their ids, so no id
-//!   is hashed.
+//!   is hashed; the records sharing a position, such as the padding transactions of a `pad`, one
+//!   for each commodity it pads, are taken in the order zhang stored them.
 //! - [`Postings`]: the booked rows of the `postings` table ([`CachedRow`]), the transactions
 //!   they belong to, and the rows of every account, so a query scoped to some accounts
 //!   ([`super::Scope`]) only visits theirs. Booking runs here, over every posting at cost; a
@@ -172,7 +173,7 @@ impl LedgerCache {
     /// The `id` of the `#entries` row `seq`: a transaction has its stored id (the `id` of its
     /// postings), a checked balance assertion the id zhang stored its check with (the id
     /// `/api/journals` lists it with); another directive an id derived from its source position,
-    /// distinct from the id of the padding transaction that shares the position of a
+    /// distinct from the ids of the padding transactions that share the position of a `pad` or a
     /// `balance ... with pad`. The derivation does not depend on the platform's `usize`.
     pub fn entry_id(&self, ledger: &Ledger, store: &Store, entries: &Entries, seq: u32) -> &str {
         let ids = self.entry_ids.get_or_init(|| {
@@ -500,13 +501,15 @@ pub(crate) struct Lot {
 
 impl Postings {
     fn build(ledger: &Ledger, store: &Store, entries: &Entries) -> Postings {
-        // the parsed transaction directives by position; the last directive of a position wins
+        // the parsed transaction directives by position, in the order of the ledger's directives: the padding
+        // transactions of a `pad` share its position, and are stored in that order
         let mut positions = Positions::default();
-        let mut parsed_at: HashMap<Position, usize> = HashMap::new();
-        for (idx, directive) in ledger.directives.iter().enumerate() {
+        let mut parsed_at: HashMap<Position, Vec<usize>> = HashMap::new();
+        for (idx, directive) in ledger.directives.iter().enumerate().rev() {
             if let Directive::Transaction(_) = &directive.data {
                 if let Some(position) = positions.of(&directive.span, true) {
-                    parsed_at.insert(position, idx);
+                    // the first last, to pop
+                    parsed_at.entry(position).or_default().push(idx);
                 }
             }
         }
@@ -521,7 +524,10 @@ impl Postings {
         let mut accounts = Accounts::default();
         let mut drafts = Vec::with_capacity(store.postings.len());
         for (_, txn) in transactions {
-            let directive = positions.of(&txn.span, false).and_then(|position| parsed_at.get(&position)).copied();
+            let directive = positions
+                .of(&txn.span, false)
+                .and_then(|position| parsed_at.get_mut(&position))
+                .and_then(Vec::pop);
             let parsed: Option<&Transaction> = directive
                 .and_then(|idx| match &ledger.directives[idx].data {
                     Directive::Transaction(parsed) => Some(parsed),

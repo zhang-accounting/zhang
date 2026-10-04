@@ -47,10 +47,22 @@ export function subAccountsFirst<T extends { account_name: string }>(balances: T
     .map(({ balance }) => balance);
 }
 
-/**
- * Whether a batch pads an account and also asserts one of its sub-accounts. A beancount ledger fails such a batch whichever
- * balance is written first: beancount lets the sub-account's balance use up the parent's pad (see the balance assertion docs).
- */
-export function padsAnAccountWithItsSubAccount(balances: { account_name: string; pad: string }[]): boolean {
-  return balances.some((parent) => parent.pad !== '' && balances.some((balance) => balance.account_name.startsWith(`${parent.account_name}:`)));
+/** A balance a request replaced: one of the same account and commodity for the same date (`replaced` of the answer). */
+export interface ReplacedBalance {
+  date: string;
+  account: string;
+  amount: { number: string; commodity: string };
+  /** the tolerance (`~`) it was written with, which the new, exact balance does not keep */
+  tolerance?: string | null;
+}
+
+/** How a toast says which balances a request replaced, one per line, each with the amount it asserted, written as in the
+ * ledger (`100 ~ 5 CNY` with a tolerance); empty when it replaced none. */
+export function replacedBalancesText(replaced: ReplacedBalance[], line: (balance: { date: string; account: string; amount: string }) => string): string {
+  return replaced
+    .map((it) => {
+      const tolerance = it.tolerance ? ` ~ ${it.tolerance}` : '';
+      return line({ date: it.date, account: it.account, amount: `${it.amount.number}${tolerance} ${it.amount.commodity}` });
+    })
+    .join('\n');
 }

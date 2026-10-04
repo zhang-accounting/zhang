@@ -1002,3 +1002,363 @@ fn router_gets_no_file_access_even_with_allowed_paths() {
     assert_eq!(error_kind(&answer), "denied", "{answer}");
     assert!(answer["Err"]["message"].as_str().unwrap().contains("processor or mapper"), "{answer}");
 }
+
+const PADDED: &str = indoc! {r#"
+    1970-01-01 commodity CNY
+    1970-01-01 open Assets:Cash
+    1970-01-01 open Equity:Open
+    1970-01-01 open Expenses:Food
+    2024-01-01 pad Assets:Cash Equity:Open
+    2024-01-02 * "lunch"
+      Assets:Cash -10 CNY
+      Expenses:Food 10 CNY
+    2024-02-01 balance Assets:Cash 100 CNY
+"#};
+
+#[test]
+fn a_plugin_of_the_oldest_contract_loads_a_ledger_with_a_pad() {
+    // `old_contract.wat` fails on a `pad` directive, like a plugin built before `pad` existed
+    let dir = ledger_dir(&["old_contract.wat"]);
+    let ledger = load(
+        &dir,
+        &format!("option \"features.plugin\" \"true\"\n{}{PADDED}", plugin(&dir, "old_contract.wat")),
+    );
+    assert_eq!(
+        registered(&ledger),
+        vec![("old-contract".to_owned(), vec![PluginType::Processor, PluginType::Mapper])]
+    );
+
+    // the pad still works: it pads the 110 the cash lacks on the day of the pad, and the balance holds
+    assert_eq!(store_summary(&ledger), store_summary(&load(&ledger_dir(&[]), PADDED)));
+    assert!(errors(&ledger).is_empty(), "{:?}", errors(&ledger));
+    let store = ledger.store.read().unwrap();
+    let padding = store.transactions.values().find(|it| it.flag == zhang_ast::Flag::BalancePad).unwrap();
+    assert_eq!(padding.datetime.date_naive().to_string(), "2024-01-01");
+    assert_eq!(padding.postings[0].inferred_amount.to_string(), "110 CNY");
+    assert!(store.balance_assertions.iter().all(|it| it.passed));
+    drop(store);
+    assert!(
+        ledger.directives.iter().any(|it| matches!(it.data, Directive::Pad(_))),
+        "the pad is back in the stream"
+    );
+
+    // the plugin is called without the pad: handed one, it fails
+    let pad = ledger.directives.iter().find(|it| matches!(it.data, Directive::Pad(_))).unwrap().clone();
+    for stage in ledger.plugins.build_stages() {
+        let mut ctx = zhang_core::pipeline::StageContext::new(&[]);
+        assert!(stage.process(vec![pad.clone()], &mut ctx).is_err(), "{} fails on a pad", stage.name());
+    }
+}
+
+/// the shell of the plugins [`edit_plugin`] writes: a processor reading the stream it is shown into its own
+/// memory at 65536, whose `@PROCESSOR@` writes the stream it returns. See echo.wat for the kernel ABI
+const EDIT_WAT: &str = r#"
+(module
+  (import "extism:host/env" "input_offset" (func $input_offset (result i64)))
+  (import "extism:host/env" "input_length" (func $input_length (result i64)))
+  (import "extism:host/env" "load_u8" (func $load_u8 (param i64) (result i32)))
+  (import "extism:host/env" "alloc" (func $alloc (param i64) (result i64)))
+  (import "extism:host/env" "store_u8" (func $store_u8 (param i64 i32)))
+  (import "extism:host/env" "output_set" (func $output_set (param i64 i64)))
+  (memory 2)
+  (global $o (mut i64) (i64.const 0))
+  (global $first (mut i32) (i32.const 1))
+  (data (i32.const 0) "@NAME@")
+  (data (i32.const 256) "\"0.1.0\"")
+  (data (i32.const 512) "[\"Processor\"]")
+  (data (i32.const 1024) "@NEEDLE@")
+  (data (i32.const 16384) "@REPLACEMENT@")
+
+  (func $output_bytes (param $ptr i32) (param $len i32)
+    (local $block i64) (local $i i32)
+    (local.set $block (call $alloc (i64.extend_i32_u (local.get $len))))
+    (block $done (loop $copy
+      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
+      (call $store_u8 (i64.add (local.get $block) (i64.extend_i32_u (local.get $i))) (i32.load8_u (i32.add (local.get $ptr) (local.get $i))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $copy)))
+    (call $output_set (local.get $block) (i64.extend_i32_u (local.get $len))))
+  (func (export "name") (result i32) (call $output_bytes (i32.const 0) (i32.const @NAME_LEN@)) (i32.const 0))
+  (func (export "version") (result i32) (call $output_bytes (i32.const 256) (i32.const 7)) (i32.const 0))
+  (func (export "supported_type") (result i32) (call $output_bytes (i32.const 512) (i32.const 13)) (i32.const 0))
+
+  ;; read the input into this module's memory at 65536; returns its end
+  (func $read_input (result i32)
+    (local $len i32) (local $i i32)
+    (local.set $len (i32.wrap_i64 (call $input_length)))
+    (drop (memory.grow (i32.add (i32.shr_u (local.get $len) (i32.const 16)) (i32.const 1))))
+    (block $done (loop $copy
+      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
+      (i32.store8 (i32.add (i32.const 65536) (local.get $i)) (call $load_u8 (i64.add (call $input_offset) (i64.extend_i32_u (local.get $i)))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $copy)))
+    (i32.add (i32.const 65536) (local.get $len)))
+
+  ;; whether the needle is at `at`, before `end`
+  (func $matches (param $at i32) (param $end i32) (result i32)
+    (local $j i32)
+    (if (i32.gt_u (i32.add (local.get $at) (i32.const @NEEDLE_LEN@)) (local.get $end)) (then (return (i32.const 0))))
+    (block $differs (loop $compare
+      (if (i32.eq (local.get $j) (i32.const @NEEDLE_LEN@)) (then (return (i32.const 1))))
+      (br_if $differs (i32.ne (i32.load8_u (i32.add (local.get $at) (local.get $j))) (i32.load8_u (i32.add (i32.const 1024) (local.get $j)))))
+      (local.set $j (i32.add (local.get $j) (i32.const 1)))
+      (br $compare)))
+    (i32.const 0))
+
+  ;; write `byte` to the output
+  (func $write (param $byte i32)
+    (call $store_u8 (global.get $o) (local.get $byte))
+    (global.set $o (i64.add (global.get $o) (i64.const 1))))
+
+  @PROCESSOR@)
+"#;
+
+/// copies the stream, replacing every needle with the replacement
+const REPLACE_WAT: &str = r#"
+  (func (export "processor") (result i32)
+    (local $end i32) (local $i i32) (local $j i32) (local $count i32) (local $out i64) (local $len i64)
+    (local.set $end (call $read_input))
+    (local.set $i (i32.const 65536))
+    (block $done (loop $scan
+      (br_if $done (i32.ge_u (local.get $i) (local.get $end)))
+      (if (call $matches (local.get $i) (local.get $end))
+        (then
+          (local.set $count (i32.add (local.get $count) (i32.const 1)))
+          (local.set $i (i32.add (local.get $i) (i32.const @NEEDLE_LEN@))))
+        (else (local.set $i (i32.add (local.get $i) (i32.const 1)))))
+      (br $scan)))
+    (local.set $len (i64.sub
+      (i64.extend_i32_u (i32.add (i32.sub (local.get $end) (i32.const 65536)) (i32.mul (local.get $count) (i32.const @REPLACEMENT_LEN@))))
+      (i64.extend_i32_u (i32.mul (local.get $count) (i32.const @NEEDLE_LEN@)))))
+    (local.set $out (call $alloc (local.get $len)))
+    (global.set $o (local.get $out))
+    (local.set $i (i32.const 65536))
+    (block $done (loop $copy
+      (br_if $done (i32.ge_u (local.get $i) (local.get $end)))
+      (if (call $matches (local.get $i) (local.get $end))
+        (then
+          (local.set $j (i32.const 0))
+          (block $written (loop $replace
+            (br_if $written (i32.ge_u (local.get $j) (i32.const @REPLACEMENT_LEN@)))
+            (call $write (i32.load8_u (i32.add (i32.const 16384) (local.get $j))))
+            (local.set $j (i32.add (local.get $j) (i32.const 1)))
+            (br $replace)))
+          (local.set $i (i32.add (local.get $i) (i32.const @NEEDLE_LEN@))))
+        (else
+          (call $write (i32.load8_u (local.get $i)))
+          (local.set $i (i32.add (local.get $i) (i32.const 1)))))
+      (br $copy)))
+    (call $output_set (local.get $out) (local.get $len))
+    (i32.const 0))
+"#;
+
+/// copies the stream, a JSON array, leaving out every directive holding the needle
+const DROP_WAT: &str = r#"
+  ;; write the directive in [start, stop) to the output, after a comma unless it is the first, unless it holds the needle
+  (func $emit (param $start i32) (param $stop i32)
+    (local $i i32)
+    (if (i32.ge_u (local.get $start) (local.get $stop)) (then (return)))
+    (local.set $i (local.get $start))
+    (block $absent (loop $scan
+      (br_if $absent (i32.ge_u (local.get $i) (local.get $stop)))
+      (if (call $matches (local.get $i) (local.get $stop)) (then (return)))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $scan)))
+    (if (i32.eqz (global.get $first)) (then (call $write (i32.const 44))))
+    (global.set $first (i32.const 0))
+    (local.set $i (local.get $start))
+    (block $done (loop $copy
+      (br_if $done (i32.ge_u (local.get $i) (local.get $stop)))
+      (call $write (i32.load8_u (local.get $i)))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $copy))))
+
+  (func (export "processor") (result i32)
+    (local $end i32) (local $i i32) (local $c i32) (local $depth i32) (local $string i32) (local $start i32) (local $out i64)
+    (local.set $end (call $read_input))
+    (local.set $out (call $alloc (i64.extend_i32_u (i32.sub (local.get $end) (i32.const 65536)))))
+    (global.set $o (local.get $out))
+    (global.set $first (i32.const 1))
+    (call $write (i32.const 91))
+    ;; after the `[`: directives separated by commas outside strings and nested values, up to the `]`
+    (local.set $i (i32.const 65537))
+    (local.set $start (local.get $i))
+    (block $done (loop $scan
+      (br_if $done (i32.ge_u (local.get $i) (local.get $end)))
+      (local.set $c (i32.load8_u (local.get $i)))
+      (if (local.get $string)
+        (then
+          (if (i32.eq (local.get $c) (i32.const 92))
+            (then (local.set $i (i32.add (local.get $i) (i32.const 1))))
+            (else (if (i32.eq (local.get $c) (i32.const 34)) (then (local.set $string (i32.const 0)))))))
+        (else
+          (if (i32.eq (local.get $c) (i32.const 34)) (then (local.set $string (i32.const 1))))
+          (if (i32.or (i32.eq (local.get $c) (i32.const 123)) (i32.eq (local.get $c) (i32.const 91)))
+            (then (local.set $depth (i32.add (local.get $depth) (i32.const 1)))))
+          (if (i32.or (i32.eq (local.get $c) (i32.const 125)) (i32.eq (local.get $c) (i32.const 93)))
+            (then
+              (if (i32.eqz (local.get $depth))
+                (then (call $emit (local.get $start) (local.get $i)) (br $done)))
+              (local.set $depth (i32.sub (local.get $depth) (i32.const 1)))))
+          (if (i32.and (i32.eq (local.get $c) (i32.const 44)) (i32.eqz (local.get $depth)))
+            (then
+              (call $emit (local.get $start) (local.get $i))
+              (local.set $start (i32.add (local.get $i) (i32.const 1)))))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $scan)))
+    (call $write (i32.const 93))
+    (call $output_set (local.get $out) (i64.sub (global.get $o) (local.get $out)))
+    (i32.const 0))
+"#;
+
+/// what a plugin [`edit_plugin`] writes does to the JSON of the stream it is shown
+enum Edit<'a> {
+    /// replace every needle with the replacement
+    Replace(&'a str, &'a str),
+    /// leave out every directive holding the needle
+    Drop(&'a str),
+}
+
+/// write a processor plugin named `name` editing the stream it is shown into `dir`; returns its `plugin` directive
+fn edit_plugin(dir: &TempDir, name: &str, edit: Edit) -> String {
+    // every byte escaped, as WAT data strings take them
+    let data = |text: &str| text.bytes().map(|byte| format!("\\{byte:02x}")).collect::<String>();
+    let (processor, needle, replacement) = match edit {
+        Edit::Replace(needle, replacement) => (REPLACE_WAT, needle, replacement),
+        Edit::Drop(needle) => (DROP_WAT, needle, ""),
+    };
+    let quoted = format!("\"{name}\"");
+    let module = EDIT_WAT
+        .replace("@PROCESSOR@", processor)
+        .replace("@NAME@", &data(&quoted))
+        .replace("@NAME_LEN@", &quoted.len().to_string())
+        .replace("@NEEDLE@", &data(needle))
+        .replace("@NEEDLE_LEN@", &needle.len().to_string())
+        .replace("@REPLACEMENT@", &data(replacement))
+        .replace("@REPLACEMENT_LEN@", &replacement.len().to_string());
+    let file = format!("{name}.wat");
+    std::fs::write(dir.path().join(&file), module).unwrap();
+    plugin(dir, &file)
+}
+
+/// the JSON of an account, as a plugin is shown it
+fn account_json(name: &str) -> String {
+    serde_json::to_string(&<zhang_ast::Account as std::str::FromStr>::from_str(name).unwrap()).unwrap()
+}
+
+/// a pad serving a balance in two currencies, and a later balance of the account it does not serve
+const SERVED: &str = indoc! {r#"
+    1970-01-01 commodity CNY
+    1970-01-01 commodity USD
+    1970-01-01 open Assets:Bank
+    1970-01-01 open Equity:Open
+    1970-01-01 open Equity:Other
+    2024-01-01 pad Assets:Bank Equity:Open
+    2024-01-02 balance Assets:Bank 100 CNY
+    2024-01-02 balance Assets:Bank 20 USD
+    2024-01-06 balance Assets:Bank 100 CNY
+"#};
+
+/// load [`SERVED`] with the plugin edit; returns the paddings (date, padded account, units, account padded from),
+/// the pads (account, account padded from) and the errors
+fn load_served(name: &str, edit: Edit) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let dir = ledger_dir(&[]);
+    let directive = edit_plugin(&dir, name, edit);
+    let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{directive}{SERVED}"));
+    assert_eq!(registered(&ledger), vec![(name.to_owned(), vec![PluginType::Processor])]);
+    let store = ledger.store.read().unwrap();
+    let paddings = store
+        .transactions
+        .values()
+        .filter(|it| it.flag == zhang_ast::Flag::BalancePad)
+        .sorted_by_key(|it| it.sequence)
+        .map(|it| {
+            format!(
+                "{} {} {} from {}",
+                it.datetime.date_naive(),
+                it.postings[0].account.name(),
+                it.postings[0].inferred_amount,
+                it.postings[1].account.name()
+            )
+        })
+        .collect();
+    let pads = ledger
+        .directives
+        .iter()
+        .filter_map(|it| match &it.data {
+            Directive::Pad(pad) => Some(format!("{} from {}", pad.account.name(), pad.pad.name())),
+            _ => None,
+        })
+        .collect();
+    let errors = store.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
+    (paddings, pads, errors)
+}
+
+#[test]
+fn a_plugin_giving_a_served_balance_another_pad_account_pads_from_it() {
+    let (paddings, pads, errors) = load_served(
+        "repad",
+        Edit::Replace(
+            &format!("\"pad\":{}", account_json("Equity:Open")),
+            &format!("\"pad\":{}", account_json("Equity:Other")),
+        ),
+    );
+    assert_eq!(
+        paddings,
+        vec![
+            "2024-01-01 Assets:Bank 100 CNY from Equity:Other",
+            "2024-01-01 Assets:Bank 20 USD from Equity:Other"
+        ]
+    );
+    assert_eq!(pads, vec!["Assets:Bank from Equity:Other"]);
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn a_plugin_renaming_the_pad_account_renames_it_in_the_pad() {
+    let (paddings, pads, errors) = load_served("rename", Edit::Replace(&account_json("Equity:Open"), &account_json("Equity:Renamed")));
+    assert_eq!(
+        paddings,
+        vec![
+            "2024-01-01 Assets:Bank 100 CNY from Equity:Renamed",
+            "2024-01-01 Assets:Bank 20 USD from Equity:Renamed"
+        ]
+    );
+    assert_eq!(pads, vec!["Assets:Bank from Equity:Renamed"]);
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn a_plugin_stripping_the_pad_of_the_served_balances_leaves_their_pad_out() {
+    let (paddings, pads, errors) = load_served("strip", Edit::Replace("{\"BalancePad\":", "{\"BalanceCheck\":"));
+    // three plain balances of an account holding nothing; the pad left out pads nothing
+    assert!(paddings.is_empty(), "{paddings:?}");
+    assert!(pads.is_empty(), "{pads:?}");
+    assert_eq!(
+        errors,
+        vec!["UnusedPad", "AccountBalanceCheckError", "AccountBalanceCheckError", "AccountBalanceCheckError"]
+    );
+}
+
+#[test]
+fn a_plugin_dropping_the_served_balances_leaves_their_pad_out() {
+    let (paddings, pads, errors) = load_served("drop", Edit::Drop("{\"BalancePad\":"));
+    // the pad does not move on to the later balance, which fails; left out, it pads nothing
+    assert!(paddings.is_empty(), "{paddings:?}");
+    assert!(pads.is_empty(), "{pads:?}");
+    assert_eq!(errors, vec!["UnusedPad", "AccountBalanceCheckError"]);
+}
+
+#[test]
+fn a_plugin_editing_nothing_it_is_shown_keeps_the_pad() {
+    let (paddings, pads, errors) = load_served("noop", Edit::Replace("{\"Nothing\":", "{\"Never\":"));
+    assert_eq!(
+        paddings,
+        vec![
+            "2024-01-01 Assets:Bank 100 CNY from Equity:Open",
+            "2024-01-01 Assets:Bank 20 USD from Equity:Open"
+        ]
+    );
+    assert_eq!(pads, vec!["Assets:Bank from Equity:Open"]);
+    assert!(errors.is_empty(), "{errors:?}");
+}

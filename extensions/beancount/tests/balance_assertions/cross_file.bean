@@ -1,0 +1,15 @@
+; A pad in one file serves a balance in another, as beancount pads across the files
+; of a ledger: `cross_file/pads.bean` pads Assets:Bank for the balance here, and the
+; pad here serves the balance of Assets:Cash in that file.
+option "operating_currency" "CNY"
+
+include "cross_file/pads.bean"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Cash
+1970-01-01 open Equity:Open
+
+2024-01-02 pad Assets:Cash Equity:Open
+
+2024-01-05 balance Assets:Bank  1000 CNY

@@ -99,6 +99,8 @@ pub struct TransactionInfoDomain {
     pub source_file: PathBuf,
     pub span_start: usize,
     pub span_end: usize,
+    /// where the transaction is, with the text the ledger loaded there
+    pub span: zhang_ast::SpanInfo,
 }
 
 /// the balance of an account with its sub-accounts, which a balance assertion on the account is checked against

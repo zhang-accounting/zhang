@@ -92,23 +92,33 @@ While Zhang loads a ledger, the directive stream runs through these stages, in t
 
 1. **your plugins**, in the order their `plugin` directives are declared;
 2. **active accounts**: postings to accounts that are not open are reported;
-3. **pad**: each `balance … with pad` is filled with a padding transaction (flag `P`);
-4. **balance check**: each `balance` assertion is checked against the account's balance. This stage books nothing.
+3. **pad**: each `pad` and `balance … with pad` adds the padding transaction (flag `P`) its assertion needs;
+4. **balance check**: each balance assertion is checked. It books nothing: a failing one is an error.
 
 Then the transactions are booked and the ledger is built.
 
 What a plugin sees:
 
-- **The full stream**, sorted by date: undated directives (`option`, `plugin`, `include`, comments) first; within one date, `open` and `commodity`, then balance directives, then everything else. Zhang re-sorts the stream after every stage, so a plugin may return directives in any order.
+- **The full stream**, sorted by date: undated directives (`option`, `plugin`, `include`, comments) first; within one date, `open` and `commodity`, then balance directives, then everything else. Zhang re-sorts the stream after every stage, so a plugin may return directives in any order of dates; directives of the same date and kind keep the order the plugin returns them in, which is the order of their day.
 - Every directive kind, including `custom`, `option` and `plugin` directives. Options and plugins are applied before the stages run, so an `option` or `plugin` directive a plugin adds has no effect.
 - **Transactions as written, before booking.** A posting written without an amount has no amount yet, and costs are not matched to lots. A later version of Zhang will offer plugins a booked view as well; this guide will say so when it lands.
 - The `balance` directives themselves, but not the padding transactions (flag `P`) the pad stage creates: it runs after the plugins.
+- **No `pad` directives.** ABI v1 predates the [`pad` directive](/reference/directives/balance/#the-pad-directive), and a plugin built against an older `zhang-ast` cannot read it. So Zhang sets every `pad` aside before it calls a plugin. A `balance` that a `pad` serves is shown to the plugin as the `balance … with pad` it was before Zhang had `pad`, with the pad's account: a plugin sees the stream a Beancount ledger gave it before. What the plugin returns is its word, and Zhang puts each `pad` back only where it pads what the plugin returned:
+  - a `pad` whose `balance … with pad`s all come back as `balance … with pad`, of one account from one pad account, is put back with that account and pad account, so a plugin may rename either or change the pad account. Its balances turn back into `balance`s, with their tolerance, and keep everything else the plugin changed in them. A plugin that changes nothing gets exactly the stream it was given;
+  - a `pad` one of whose `balance … with pad`s the plugin dropped, turned into a plain `balance`, or gave another account or pad account than the others, is left out, and so is a `pad` that, put back, would serve other balances than the ones it stood for (when a plugin moves one to another date, or adds a balance of the account before one). Every `balance … with pad` the plugin returned then pads its own assertion, as a `balance … with pad` does;
+  - a `pad` that serves no balance is invisible to a plugin, which cannot change or drop it. It is put back as it is, and must still serve none: put back where it would serve one, it is left out.
 
-**Why plugins run before pad and balance check.** In Zhang, `balance … with pad` is a single assert-and-fill directive. Running plugins first means a pad is sized after every transaction a plugin adds, so the account always ends at the amount you wrote. Beancount runs `pad` before plugins and checks `balance` after them, so there a transaction a plugin adds to a padded account makes the assertion fail. For a working beancount ledger the padded amount is the same either way. Only a plugin that inspects the padding transactions themselves notices the difference, and it still sees the `balance` directive.
+  A `pad` left out pads nothing, and is reported as an [`UnusedPad`](/reference/error-codes/#unusedpad) error, as a `pad` put back that pads nothing is.
+
+  A `pad` put back serves only the balances it stood for. Any other `balance` the plugin returns, such as one it adds or one it turned into a plain `balance`, is not padded by a `pad` it could not see, and is checked as it is.
+
+  Pads are not visible to plugins yet; exposing them is future ABI work.
+
+**Why plugins run before pad and balance check.** Running plugins first means a pad is sized after every transaction a plugin adds, so the account always ends at the amount you wrote. Beancount runs `pad` before plugins and checks `balance` after them, so there a transaction a plugin adds to a padded account makes the assertion fail. For a working beancount ledger the padded amount is the same either way. Only a plugin that inspects the padding transactions themselves notices the difference, and it still sees the `balance` directive.
 
 ## Quickstart with the Rust SDK
 
-`zhang-plugin-sdk` lives in the Zhang repository and is versioned with it; it is not on crates.io yet. Pin it to the Zhang release you run: the directives cross the boundary in `zhang-ast`'s JSON shape, and a plugin built against an older `zhang-ast` cannot read a directive kind a newer Zhang added.
+`zhang-plugin-sdk` lives in the Zhang repository and is versioned with it; it is not on crates.io yet. Pin it to the Zhang release you run: the directives cross the boundary in `zhang-ast`'s JSON shape, and a plugin built against an older `zhang-ast` cannot read a directive kind a newer Zhang added. Zhang keeps the kinds added since ABI v1 (the `pad` directive) away from v1 plugins.
 
 1. Create a library crate and make it a `cdylib`:
 
@@ -299,7 +309,7 @@ Inputs and outputs are Extism plug-in input and output, as JSON.
 | `mapper` | one directive | an array of directives |
 | `router` | the request | the response |
 
-A directive is the serde JSON of `zhang-ast`'s `Spanned<Directive>`, for example:
+A directive is the serde JSON of `zhang-ast`'s `Spanned<Directive>`, of a kind ABI v1 knows: Zhang never hands a plugin a `pad` directive (see [the stage order contract](#the-stage-order-contract)). For example:
 
 ```json
 {"data": {"Comment": {"content": "; a note"}}, "span": {"start": 0, "end": 8, "content": "; a note", "filename": "/ledger/main.zhang"}}

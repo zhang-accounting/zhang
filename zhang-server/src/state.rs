@@ -3,12 +3,13 @@ use std::sync::Arc;
 
 use axum::extract::FromRef;
 use gotcha::GotchaContext;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use zhang_core::ledger::Ledger;
 
 use crate::auth::SharedAuth;
 use crate::broadcast::Broadcaster;
-use crate::ReloadSender;
+use crate::error::ServerError;
+use crate::{ReloadSender, ServerResult};
 
 #[derive(Clone)]
 pub struct SharedLedger(pub Arc<RwLock<Ledger>>);
@@ -19,6 +20,30 @@ impl Deref for SharedLedger {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+impl SharedLedger {
+    /// The ledger, to write its files: held exclusively until the write is done, so no other write reads or saves a
+    /// file in between, and a write's places in a file cannot be made stale by another. A ledger an earlier write left
+    /// [stale](Ledger::stale) is reloaded first, so the write reads the files as they are; files that cannot be
+    /// loaded are [`ServerError::UnloadableLedger`]. A writer hands what its write came to to [`wrote`]. A write that
+    /// edits no place the ledger loaded, such as the save of a whole file, needs no reload: it holds the lock itself.
+    pub async fn for_writing(&self) -> ServerResult<RwLockWriteGuard<'_, Ledger>> {
+        let mut ledger = self.write().await;
+        if ledger.stale {
+            ledger.async_reload().await.map_err(ServerError::UnloadableLedger)?;
+        }
+        Ok(ledger)
+    }
+}
+
+/// `result`, what a write to the files of `ledger` came to. Whatever it is, the files may have changed, or were found
+/// changed since the load: the ledger is [stale](Ledger::stale), so the next write reloads it first, and the reload
+/// that serves the readers is asked for. A write refused for a file changed since the load works when tried again.
+pub fn wrote<T>(ledger: &mut Ledger, reload_sender: &ReloadSender, result: ServerResult<T>) -> ServerResult<T> {
+    ledger.stale = true;
+    reload_sender.reload();
+    result
 }
 
 #[derive(Clone)]

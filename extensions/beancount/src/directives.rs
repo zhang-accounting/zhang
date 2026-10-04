@@ -11,7 +11,6 @@ pub enum BeancountOnlyDirective {
     PopTag(String),
     PushMeta(String, ZhangString),
     PopMeta(String),
-    Pad(PadDirective),
     Balance(BalanceDirective),
 }
 
@@ -22,20 +21,10 @@ impl BeancountOnlyDirective {
             BeancountOnlyDirective::PopTag(_) => {}
             BeancountOnlyDirective::PushMeta(..) => {}
             BeancountOnlyDirective::PopMeta(_) => {}
-            BeancountOnlyDirective::Pad(directive) => directive.meta = meta,
             BeancountOnlyDirective::Balance(directive) => directive.meta = meta,
         }
         self
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct PadDirective {
-    pub date: Date,
-    pub account: Account,
-    pub pad: Account,
-
-    pub meta: Meta,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

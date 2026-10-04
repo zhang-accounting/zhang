@@ -54,7 +54,7 @@ YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link �
 |---|---|
 | `*` | 已完成的交易。与 Beancount 一样，`txn` 是同一个标记。 |
 | `!` | 需要核对的交易。 |
-| `P` | 补齐交易，由 [`balance … with pad`](/zh-cn/reference/directives/balance/#用-with-pad-补齐) 添加。张记账把用 `P` 写的交易与余额断言一起排序：排在 `open` 和 `commodity` 之后、同一日期和时间的其他条目之前。 |
+| `P` | 补齐交易，由 [`balance … with pad`](/zh-cn/reference/directives/balance/#用-with-pad-补齐) 或 [`pad`](/zh-cn/reference/directives/balance/#pad-指令) 添加，或者由网页界面在 Beancount 文件中为补齐写入。张记账把用 `P` 写的交易与余额断言一起排序：排在 `open` 和 `commodity` 之后、同一日期和时间的其他条目之前。`pad` 的补齐交易紧跟在它之后。 |
 | 其他大写字母 | 你自己的标记，按原样保留。`C` 也是普通的标记。 |
 
 没有标记的交易视为已完成（`*`）。
@@ -181,7 +181,7 @@ WASM 插件收到和返回的交易中，每个记账行的元数据位于该记
 
 ## Beancount 兼容性
 
-- 在 Beancount 文件中，一天中的时刻写成 `time: "HH:MM:SS"` 元数据。张记账也这样写入。
+- 在 Beancount 文件中，一天中的时刻写成 `time: "HH:MM:SS"` 元数据。张记账也这样写入。张记账与 Beancount 一样忽略 `balance` 和 `pad` 上的时刻。
 - Beancount 要求每笔交易都有标记或 `txn`。没有标记的首行，例如 `2024-01-02 "Cafe" "lunch"`，只在张记账中可用。
 - 张记账不读取记账行前面的标记，例如 `! Assets:Cash -10 CNY`：含有这种写法的账本无法加载。
 - Beancount 的 `pushtag` / `poptag` 和 `pushmeta` / `popmeta` 只能在 Beancount 文件中使用。张记账在读取文件时应用它们。

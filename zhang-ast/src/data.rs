@@ -84,6 +84,7 @@ pub struct BalanceCheck {
     pub tolerance: Option<BigDecimal>,
     pub meta: Meta,
 }
+/// `balance ... with pad`: pads its account from `pad` to exactly the asserted amount
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BalancePad {
     pub date: Date,
@@ -91,6 +92,17 @@ pub struct BalancePad {
     pub amount: Amount,
     pub pad: Account,
 
+    pub meta: Meta,
+}
+
+/// beancount's `pad`: pads `account` from `pad` to exactly the amount the next balance assertion of
+/// `account` in each currency asserts. The padding transaction is dated on the pad
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct Pad {
+    pub date: Date,
+    pub account: Account,
+    /// the account the padding comes from
+    pub pad: Account,
     pub meta: Meta,
 }
 

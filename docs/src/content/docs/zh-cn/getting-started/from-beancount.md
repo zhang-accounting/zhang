@@ -62,7 +62,7 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" kilerd/zhang:l
 | `balance` | 读取，可以带 `~` 容差。没有容差时精确匹配：见[余额断言是精确的](#余额断言是精确的)。 |
 | `pad` | 读取，并与它所服务的 `balance` 配对：见[补齐](#补齐)。 |
 | `note`、`event` | 读取。 |
-| `document` | 读取。路径相对于账本根目录。见[文档](/zh-cn/guides/documents/)。 |
+| `document` | 读取。路径与 Beancount 一样相对于该指令所在的文件：见[文档路径](#文档路径)。 |
 | `price` | 读取，用于查询和货币页面中的估值。 |
 | `query` | 读取：这些查询出现在[查询](/zh-cn/guides/querying/)页面的**已保存**菜单中。 |
 | `custom` | 读取。`custom budget …` 定义[预算](/zh-cn/guides/budgets/)：见[预算](#预算)。 |
@@ -71,7 +71,7 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" kilerd/zhang:l
 | `include` | 读取，包括 `*` 模式，例如 `include "2024/*.bean"`。 |
 | `pushtag`、`poptag`、`pushmeta`、`popmeta` | 读取。 |
 
-`time: "HH:MM:SS"` 元数据可以为任何指令加上一天中的时间。
+`time: "HH:MM:SS"` 元数据可以为指令加上一天中的时间，但 `balance` 和 `pad` 除外：张记账与 Beancount 一样忽略它们的时间，见[余额断言的时间](#余额断言的时间)。
 
 张记账无法读取以下内容。使用了它们的文件完全无法加载：
 
@@ -114,13 +114,21 @@ Beancount 允许 `balance` 在差额不超过某个容差时通过，这个容�
 
 #### 补齐
 
-张记账像 Beancount 一样，把每条 `pad` 与它所服务的 `balance` 条目配对：该账户在每种商品上的下一条 `balance`，直到该账户的下一条 `pad` 为止，但绝不包括与 `pad` 同一天的 `balance`。不同之处在于：
+张记账像 Beancount 一样，把每条 `pad` 与它所服务的 `balance` 条目配对：该账户在每种商品上、日期更晚的下一条 `balance`，直到该账户的下一条 `pad` 为止，但绝不包括与 `pad` 同一天的 `balance`。补齐交易的日期是 `pad` 的日期，`pad` 和它的 `balance` 可以在不同的文件中，不服务任何 `balance` 的 `pad` 会报告为 [`UnusedPad`](/zh-cn/reference/error-codes/#unusedpad)。不同之处在于：
 
-- 补齐交易的日期是 `balance` 的日期，而不是 `pad` 的日期。从那天起的余额与 Beancount 相同，但在两个日期之间，账户还不包含补齐的金额。
-- `pad` 只服务于同一文件中的 `balance`。
-- 不服务任何 `balance` 的 `pad` 会被忽略。Beancount 会把它报告为未使用。
+- 补齐总是使账户精确等于断言金额，即使差额在明确写出的 `~` 容差之内，而 Beancount 此时不补齐。
+- 只有对被补齐账户本身的断言会使用这条 `pad`：Beancount 还允许子账户上的断言用掉其父账户的 `pad`。
+- 同一账户在不同文件中同一天的两条 `pad`，由张记账排在最后的那条补齐，它可能不是 Beancount 使用的那条。
 
-见[余额](/zh-cn/guides/balances/#beancount-的-pad)；父账户与子账户的情况见 [`balance`](/zh-cn/reference/directives/balance/#beancount-兼容性)。
+见 [`pad` 指令](/zh-cn/guides/balances/#pad-指令)；父账户与子账户的情况见 [`balance`](/zh-cn/reference/directives/balance/#beancount-兼容性)。
+
+#### 余额断言的时间
+
+张记账与 Beancount 一样，在日期开始时、当天的交易之前检查 `balance`，并忽略它的 `time` 元数据。早期版本的张记账会在那个时刻检查它，即在当天该时刻之前的交易之后：当这改变了一条余额断言所检查的金额时，它会附带一条 [`BalanceTimeIgnored`](/zh-cn/reference/error-codes/#balancetimeignored) 提示。要在当天的交易之后检查，请把这条余额断言的日期写成下一天。
+
+#### 文档路径
+
+张记账与 Beancount 一样，相对于 `document` 所在的文件读取它的路径，你上传的文档也是这样写入的。早期版本的张记账把上传文档的路径写成相对于账本根目录，写入 `data/2026/10.bean` 这类文件中，Beancount 会报告这些文件不存在。张记账仍然能打开这些文档。在本地磁盘上，它会在每一条上附带一条 [`DocumentPathRelativeToRoot`](/zh-cn/reference/error-codes/#documentpathrelativetoroot) 提示，给出应改写成的路径，并把在任何位置都找不到的文档报告为 [`DocumentNotFound`](/zh-cn/reference/error-codes/#documentnotfound)。见[文档](/zh-cn/reference/directives/document/#路径)。
 
 #### 价格
 

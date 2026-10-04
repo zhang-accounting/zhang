@@ -57,7 +57,7 @@ line starting with `;`, `#`, `*` or `//` is a comment, and a posting can end wit
 |---|---|
 | `*` | A completed transaction. `txn` is the same flag, as in Beancount. |
 | `!` | A transaction to check. |
-| `P` | A padding transaction, which [`balance … with pad`](/reference/directives/balance/#padding-with-with-pad) adds. Zhang orders transactions written with `P` like balance assertions: after `open` and `commodity`, before the other entries of their date and time. |
+| `P` | A padding transaction, which [`balance … with pad`](/reference/directives/balance/#padding-with-with-pad) or a [`pad`](/reference/directives/balance/#the-pad-directive) adds, or which the web UI writes for a pad in a Beancount file. Zhang orders transactions written with `P` like balance assertions: after `open` and `commodity`, before the other entries of their date and time. The padding transactions of a `pad` stay right after it. |
 | another uppercase letter | A flag of your own, kept as written. `C` is an ordinary flag too. |
 
 A transaction without a flag is completed (`*`).
@@ -220,7 +220,8 @@ not only the ones it changes. Rebuild such a plugin to keep it.
 
 ## Beancount compatibility
 
-- A time of day is written as `time: "HH:MM:SS"` metadata in a Beancount file. Zhang writes it that way too.
+- A time of day is written as `time: "HH:MM:SS"` metadata in a Beancount file. Zhang writes it that way too. Zhang
+  ignores it on `balance` and `pad`, as Beancount does.
 - Beancount requires a flag or `txn` on every transaction. A header without one, such as `2024-01-02 "Cafe" "lunch"`,
   only works in Zhang.
 - Zhang does not read a flag in front of a posting, such as `! Assets:Cash -10 CNY`: a ledger with one does not load.

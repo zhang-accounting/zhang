@@ -1,6 +1,7 @@
-; Accepted deviation: a pad is sized from the balance with every padding before it.
-; Beancount sizes the pad of the parent account without the padding of its
-; sub-account, so it pads 60 where 40 are missing, and the parent's assertion fails.
+; Accepted deviation: a pad is sized from the balance at the assertion it serves,
+; with the padding of every assertion served before it. Beancount sizes the pad of
+; the parent account without the padding of its sub-account, served first, so it
+; pads 60 where 40 are missing, and the parent's assertion fails.
 ; Zhang pads the sub-account by 60 and the parent by 40, and both assertions hold.
 option "operating_currency" "CNY"
 
