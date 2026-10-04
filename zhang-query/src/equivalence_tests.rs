@@ -22,7 +22,7 @@ fn load(dir: PathBuf) -> Ledger {
 }
 
 fn load_text(content: &str) -> Ledger {
-    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    let dir = tempfile::tempdir().expect("tempdir").keep();
     std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
     load(dir)
 }

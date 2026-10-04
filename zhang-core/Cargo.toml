@@ -53,4 +53,4 @@ libc = { version = "0.2", optional = true }
 [dev-dependencies]
 indoc = "2"
 serde_json_path = "0.6"
-tempfile = "3.3.0"
+tempfile = "3.20"

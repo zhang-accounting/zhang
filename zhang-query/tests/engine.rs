@@ -159,7 +159,7 @@ fn entry_columns() {
 /// same offset of two files keep their own price annotations and metadata.
 #[test]
 fn directives_are_matched_by_file_and_offset() {
-    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    let dir = tempfile::tempdir().expect("tempdir").keep();
     let transaction = |name: &str, price: &str| format!("2024-01-01 * \"{name}\"\n  k: \"{name}\"\n  Assets:A  1 EUR @ {price} USD\n  Assets:B\n");
     let opens = "1970-01-01 open Assets:A\n1970-01-01 open Assets:B\n";
     std::fs::write(

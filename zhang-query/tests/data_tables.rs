@@ -40,7 +40,7 @@ fn rows(rows: &[&[&str]]) -> Vec<Vec<String>> {
 /// directory. Returns the ledger and the directory.
 fn load_files(files: &[(&str, &str)]) -> (Ledger, PathBuf) {
     // canonical, as the ledger names its directory
-    let dir = tempfile::tempdir().expect("tempdir").into_path().canonicalize().unwrap();
+    let dir = tempfile::tempdir().expect("tempdir").keep().canonicalize().unwrap();
     for (name, content) in files {
         let path = dir.join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -817,7 +817,7 @@ fn documents_without_metadata_are_the_directives() {
 /// document with, which the web UI downloads it with.
 #[test]
 fn the_documents_of_a_beancount_ledger_have_the_paths_zhang_keeps() {
-    let dir = tempfile::tempdir().expect("tempdir").into_path().canonicalize().unwrap();
+    let dir = tempfile::tempdir().expect("tempdir").keep().canonicalize().unwrap();
     for (name, content) in [
         (
             "main.bean",

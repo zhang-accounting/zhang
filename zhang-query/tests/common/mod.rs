@@ -17,7 +17,7 @@ pub fn load_ledger(dir: PathBuf, entry: &str) -> Ledger {
 
 /// Load a ledger from text written to a temporary directory.
 pub fn load_text(content: &str) -> Ledger {
-    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    let dir = tempfile::tempdir().expect("tempdir").keep();
     std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
     load_ledger(dir, "main.zhang")
 }
@@ -25,7 +25,7 @@ pub fn load_text(content: &str) -> Ledger {
 /// Load a ledger from text, with the current time read from `clock`.
 pub fn load_text_at(content: &str, clock: zhang_core::clock::Clock) -> Ledger {
     use zhang_core::data_type::DataType;
-    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    let dir = tempfile::tempdir().expect("tempdir").keep();
     std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
     let directives = ZhangDataType {}
         .transform(content.to_owned(), Some("main.zhang".to_owned()))
@@ -43,7 +43,7 @@ pub fn load_text_at(content: &str, clock: zhang_core::clock::Clock) -> Ledger {
 /// Load a ledger from text, with `transform` changing its parsed directives first, as a plugin
 /// changes the stream it reads.
 pub fn load_transformed(content: &str, transform: impl FnOnce(Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>>) -> Ledger {
-    let dir = tempfile::tempdir().expect("tempdir").into_path();
+    let dir = tempfile::tempdir().expect("tempdir").keep();
     std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
     let source: Arc<dyn DataSource> = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
     let loaded = source

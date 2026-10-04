@@ -40,14 +40,14 @@ mod test {
     use crate::ledger::Ledger;
 
     fn load_from_text(content: &str) -> Ledger {
-        let temp_dir = tempdir().unwrap().into_path();
+        let temp_dir = tempdir().unwrap().keep();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
     }
     fn load_store(content: &str) -> StoreTest {
-        let temp_dir = tempdir().unwrap().into_path();
+        let temp_dir = tempdir().unwrap().keep();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
