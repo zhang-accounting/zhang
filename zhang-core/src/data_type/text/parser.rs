@@ -4,6 +4,9 @@
 //! the previous `pest` + `pest_consume` grammar (`zhang.pest`) while producing
 //! exactly the same [`Directive`] AST — the shared test module below is the
 //! behavioural contract.
+//!
+//! The `pub` token-level parsers are shared with the beancount data type, which
+//! imports them instead of keeping copies.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -38,11 +41,11 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// Byte offset of `sub` (which must be a sub-slice of `original`) within `original`.
-fn offset(original: &str, sub: &str) -> usize {
+pub fn offset(original: &str, sub: &str) -> usize {
     sub.as_ptr() as usize - original.as_ptr() as usize
 }
 
-fn is_digit(c: char) -> bool {
+pub fn is_digit(c: char) -> bool {
     c.is_ascii_digit()
 }
 
@@ -51,35 +54,35 @@ fn is_digit(c: char) -> bool {
 // ---------------------------------------------------------------------------
 
 /// A whitespace-only line together with its terminating newline.
-fn blank_line(i: &str) -> IResult<&str, ()> {
+pub fn blank_line(i: &str) -> IResult<&str, ()> {
     value((), pair(space0, line_ending))(i)
 }
 
 /// `comment_prefix = ";" | "*" | "#" | "//"`
-fn comment_prefix(i: &str) -> IResult<&str, &str> {
+pub fn comment_prefix(i: &str) -> IResult<&str, &str> {
     alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
 }
 
 /// An inline comment (prefix + rest of line), the whole of which is discarded.
-fn inline_comment(i: &str) -> IResult<&str, ()> {
+pub fn inline_comment(i: &str) -> IResult<&str, ()> {
     value((), pair(comment_prefix, not_line_ending))(i)
 }
 
 /// Trailing `space* comment?` allowed after a single-line directive.
-fn line_trailer(i: &str) -> IResult<&str, ()> {
+pub fn line_trailer(i: &str) -> IResult<&str, ()> {
     value((), pair(space0, opt(inline_comment)))(i)
 }
 
 /// `valuable_comment = space* comment_prefix space* comment_value`, returning the
 /// comment body (`comment_value`).
-fn valuable_comment(i: &str) -> IResult<&str, String> {
+pub fn valuable_comment(i: &str) -> IResult<&str, String> {
     let (i, _) = space0(i)?;
     valuable_comment_body(i)
 }
 
 /// The `comment_prefix space* comment_value` portion, assuming any leading spaces
 /// are already consumed.
-fn valuable_comment_body(i: &str) -> IResult<&str, String> {
+pub fn valuable_comment_body(i: &str) -> IResult<&str, String> {
     let (i, _) = comment_prefix(i)?;
     let (i, _) = space0(i)?;
     let (i, body) = not_line_ending(i)?;
@@ -88,7 +91,7 @@ fn valuable_comment_body(i: &str) -> IResult<&str, String> {
 
 /// `unquote_string`: a bare word terminated by whitespace, quote, colon, paren or
 /// comma.
-fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
+pub fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
     take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
 }
 
@@ -97,17 +100,17 @@ fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
 /// escapes older zhang versions wrote (`\$`, `` \` ``, `\u{a0}`) are still read. A
 /// malformed `\u` escape is a [`nom::Err::Failure`] at its backslash. See
 /// [`crate::utils::string_`] for the full rules.
-fn quote_string(i: &str) -> IResult<&str, ZhangString> {
+pub fn quote_string(i: &str) -> IResult<&str, ZhangString> {
     map(quoted_string, ZhangString::QuoteString)(i)
 }
 
 /// `string = unquote_string | quote_string`
-fn string(i: &str) -> IResult<&str, ZhangString> {
+pub fn string(i: &str) -> IResult<&str, ZhangString> {
     alt((map(unquote_string_raw, |s: &str| ZhangString::UnquoteString(s.to_string())), quote_string))(i)
 }
 
 /// `commodity_name = ASCII_ALPHA (ASCII_ALPHANUMERIC | "." | "_" | "-" | "'")*`
-fn commodity_name(i: &str) -> IResult<&str, String> {
+pub fn commodity_name(i: &str) -> IResult<&str, String> {
     map(
         recognize(pair(
             satisfy(|c: char| c.is_ascii_alphabetic()),
@@ -123,7 +126,7 @@ fn account_type(i: &str) -> IResult<&str, &str> {
 }
 
 /// `account_name = account_type (":" unquote_string)+`
-fn account_name(i: &str) -> IResult<&str, Account> {
+pub fn account_name(i: &str) -> IResult<&str, Account> {
     let (i, account_type) = account_type(i)?;
     let (i, components) = many1(preceded(char(':'), map(unquote_string_raw, |s: &str| s.to_string())))(i)?;
     let content = format!("{}:{}", account_type, components.join(":"));

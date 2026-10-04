@@ -8,6 +8,9 @@
 //! beancount-only directives (`balance`, `pad`, `pushtag`, `poptag`) are returned
 //! as [`Either::Right`]; everything else maps onto zhang's [`Directive`] as
 //! [`Either::Left`].
+//!
+//! The token-level parsers both formats share are imported from
+//! [`zhang_core::data_type::text::parser`], so both data types read them the same way.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -18,14 +21,18 @@ use chrono::{NaiveDate, NaiveTime};
 use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
-use nom::character::complete::{char, line_ending, not_line_ending, one_of, satisfy, space0, space1};
+use nom::character::complete::{char, line_ending, one_of, satisfy, space0, space1};
 use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
-use zhang_core::utils::string_::{invalid_escape_at, quoted_string};
+use zhang_core::data_type::text::parser::{
+    account_name, blank_line, comment_prefix, commodity_name, inline_comment, is_digit, line_trailer, offset, quote_string, string, unquote_string_raw,
+    valuable_comment, valuable_comment_body,
+};
+use zhang_core::utils::string_::invalid_escape_at;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 
@@ -43,92 +50,9 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-fn offset(original: &str, sub: &str) -> usize {
-    sub.as_ptr() as usize - original.as_ptr() as usize
-}
-
-fn is_digit(c: char) -> bool {
-    c.is_ascii_digit()
-}
-
 // ---------------------------------------------------------------------------
-// low level tokens (shared shape with zhang-core's parser)
+// low level tokens; strings, accounts, commodities and comments are read by zhang-core's parser
 // ---------------------------------------------------------------------------
-
-fn blank_line(i: &str) -> IResult<&str, ()> {
-    value((), pair(space0, line_ending))(i)
-}
-
-fn comment_prefix(i: &str) -> IResult<&str, &str> {
-    alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
-}
-
-fn inline_comment(i: &str) -> IResult<&str, ()> {
-    value((), pair(comment_prefix, not_line_ending))(i)
-}
-
-fn line_trailer(i: &str) -> IResult<&str, ()> {
-    value((), pair(space0, opt(inline_comment)))(i)
-}
-
-fn valuable_comment(i: &str) -> IResult<&str, String> {
-    let (i, _) = space0(i)?;
-    valuable_comment_body(i)
-}
-
-fn valuable_comment_body(i: &str) -> IResult<&str, String> {
-    let (i, _) = comment_prefix(i)?;
-    let (i, _) = space0(i)?;
-    let (i, body) = not_line_ending(i)?;
-    Ok((i, body.to_string()))
-}
-
-fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
-    take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
-}
-
-/// `quote_string = "\"" inner "\""`, decoded by zhang-core's [`quoted_string`] so
-/// that both data types read strings the same way: only `\"` and `\\` must be
-/// escaped, unknown escapes such as `\d` are kept verbatim (Python beancount drops
-/// the backslash instead) and the escapes older zhang versions wrote (`\$`,
-/// `` \` ``, `\u{a0}`) are still read. A malformed `\u` escape is a
-/// [`nom::Err::Failure`] at its backslash. See [`zhang_core::utils::string_`] for
-/// the full rules.
-fn quote_string(i: &str) -> IResult<&str, ZhangString> {
-    map(quoted_string, ZhangString::QuoteString)(i)
-}
-
-fn string(i: &str) -> IResult<&str, ZhangString> {
-    alt((map(unquote_string_raw, |s: &str| ZhangString::UnquoteString(s.to_string())), quote_string))(i)
-}
-
-fn commodity_name(i: &str) -> IResult<&str, String> {
-    map(
-        recognize(pair(
-            satisfy(|c: char| c.is_ascii_alphabetic()),
-            take_while(|c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '\'')),
-        )),
-        |s: &str| s.to_string(),
-    )(i)
-}
-
-fn account_type(i: &str) -> IResult<&str, &str> {
-    alt((tag("Assets"), tag("Liabilities"), tag("Equity"), tag("Income"), tag("Expenses")))(i)
-}
-
-fn account_name(i: &str) -> IResult<&str, Account> {
-    let (i, account_type) = account_type(i)?;
-    let (i, components) = many1(preceded(char(':'), map(unquote_string_raw, |s: &str| s.to_string())))(i)?;
-    let content = format!("{}:{}", account_type, components.join(":"));
-    Ok((
-        i,
-        Account {
-            account_type: AccountType::from_str(account_type).expect("invalid account type"),
-            content,
-            components,
-        },
-    ))
-}
 
 /// beancount dates are date-only; time (when present) is carried in metadata and
 /// re-attached by the caller.
