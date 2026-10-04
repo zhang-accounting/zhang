@@ -9,6 +9,12 @@ on:
   # release binaries are built on main and tags only; run it manually to get binaries of a branch
   workflow_dispatch:
 
+# a newer push to main supersedes the binaries of an older one, so its run is cancelled instead of
+# holding runners that pull request checks wait for; a tag (release) run is never cancelled
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
   create-release:
     if: (startsWith(github.ref_name, 'v') && github.ref_type == 'tag')
