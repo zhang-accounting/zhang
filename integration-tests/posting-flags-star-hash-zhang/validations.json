@@ -13,7 +13,7 @@
     "validations": [
       [
         "$.data.amount.detail.USD",
-        "70"
+        "58"
       ]
     ]
   },
@@ -22,7 +22,16 @@
     "validations": [
       [
         "$.data.amount.detail.USD",
-        "30"
+        "35"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Expenses:Drinks",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "7"
       ]
     ]
   },
@@ -39,24 +48,24 @@
     "uri": "/api/journals",
     "validations": [
       [
-        "$.data.records[2].narration",
+        "$.data.records[3].narration",
         "Dinner"
       ],
       [
-        "$.data.records[2].postings.length()",
-        2
+        "$.data.records[3].postings.length()",
+        3
       ],
       [
-        "$.data.records[3].narration",
+        "$.data.records[4].narration",
         "Lunch"
       ],
       [
-        "$.data.records[3].postings.length()",
-        2
+        "$.data.records[4].postings.length()",
+        3
       ],
       [
-        "$.data.records[3].postings[1].inferred_unit.number",
-        "10"
+        "$.data.records[4].postings[1].inferred_unit.number",
+        "15"
       ]
     ]
   }

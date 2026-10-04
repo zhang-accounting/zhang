@@ -1,9 +1,9 @@
 //! Posting flags (#474) through `POST /api/query`, on the `integration-tests` posting flag ledgers:
 //! the `posting_flag` column has the flag written before each posting, and is NULL for a posting
-//! without one, as in beanquery. In a zhang file an indented line starting with `*` or `#` is a
-//! comment, so `posting-flags-star-hash-zhang` books none of those lines, while
-//! `posting-flags-star-hash-beancount`, the same text in a beancount file, books them as postings
-//! flagged `*` and `#`, as beancount does.
+//! without one, as in beanquery. An indented line starting with `*` is a posting flagged `*` in both
+//! formats. One starting with `#` is a comment in a zhang file, so `posting-flags-star-hash-zhang`
+//! books none of those lines, while `posting-flags-star-hash-beancount` books them as postings
+//! flagged `#`, as beancount does.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -73,8 +73,9 @@ async fn both_formats_read_the_flags_they_share() {
 }
 
 #[tokio::test]
-async fn star_and_hash_lines_are_comments_in_zhang_and_postings_in_beancount() {
-    // in a zhang file the `*` and `#` lines are comments: the postings are those without them
+async fn star_lines_are_postings_in_both_formats_and_hash_lines_only_in_beancount() {
+    // in a zhang file the `*` lines are postings flagged `*` and the `#` lines are comments: the
+    // elided Lunch posting is inferred without the `#` line, and the Dinner amounts balance without it
     let zhang = rows("posting-flags-star-hash-zhang", "main.zhang", POSTINGS).await;
     assert_eq!(
         zhang,
@@ -82,13 +83,15 @@ async fn star_and_hash_lines_are_comments_in_zhang_and_postings_in_beancount() {
             ["2020-01-02", "*", null, "Assets:Cash", "100"],
             ["2020-01-02", "*", null, "Equity:Opening", "-100"],
             ["2020-01-10", "*", null, "Assets:Cash", "-10"],
-            ["2020-01-10", "*", null, "Expenses:Food", "10"],
-            ["2020-01-11", "*", null, "Assets:Cash", "-20"],
+            ["2020-01-10", "*", null, "Expenses:Food", "15"],
+            ["2020-01-10", "*", "*", "Assets:Cash", "-5"],
+            ["2020-01-11", "*", null, "Assets:Cash", "-27"],
             ["2020-01-11", "*", null, "Expenses:Food", "20"],
+            ["2020-01-11", "*", "*", "Expenses:Drinks", "7"],
         ])
     );
 
-    // the same lines in a beancount file are postings flagged `*` and `#`, as beancount reads them
+    // in a beancount file the `*` and `#` lines are all postings, flagged `*` and `#`, as beancount reads them
     let beancount = rows("posting-flags-star-hash-beancount", "main.bean", POSTINGS).await;
     assert_eq!(
         beancount,

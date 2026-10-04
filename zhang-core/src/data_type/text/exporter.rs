@@ -157,8 +157,9 @@ impl ZhangDataTypeExportable for Posting {
 }
 
 /// The flag of a posting as written before its account, when the format reads it back as the
-/// posting's flag: a single [flag character](is_flag_char), which in zhang is not `*` or `#`, as an
-/// indented line starting with either is a comment there ([`is_posting_flag_char`]).
+/// posting's flag: a single [flag character](is_flag_char), which in zhang is not `#`, as an
+/// indented line starting with `#` is a comment there ([`is_posting_flag_char`]). `*` is written
+/// in both styles: `* Assets:Cash -10 CNY` is a posting flagged `*` in either format.
 ///
 /// Any other flag is left out, with a warning, and the posting is written without it: its line must
 /// stay a posting, as a comment would drop its amount from the balances, and as an unreadable line
@@ -908,6 +909,7 @@ mod test {
               ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD // fees
               X Income:Gains ;
               # Income:Gains -1 USD ; a posting commented out
+              *	Expenses:Tax 1 USD
               Expenses:Fees 2 USD
         "#};
         let expected = indoc! {r#"
@@ -918,6 +920,7 @@ mod test {
               & Assets:Bank 1000 USD
               ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD ; fees
               X Income:Gains ;
+              * Expenses:Tax 1 USD
               Expenses:Fees 2 USD
         "#}
         .trim();
@@ -928,16 +931,17 @@ mod test {
         let Directive::Transaction(txn) = &directive else { unreachable!() };
         let flags = txn.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
         let custom = |flag: &str| Some(Flag::Custom(flag.to_owned()));
-        assert_eq!(flags, vec![Some(Flag::Warning), custom("&"), custom("?"), custom("X"), None]);
+        assert_eq!(flags, vec![Some(Flag::Warning), custom("&"), custom("?"), custom("X"), Some(Flag::Okay), None]);
         assert_eq!(txn.postings[3].comment.as_deref(), Some(""));
         // the beancount style writes the same text
         assert_eq!(txn.clone().export_as(QuoteStyle::Beancount), expected);
         assert_round_trips(directive);
     }
 
-    /// `*` and `#` start a comment in a zhang file, so the zhang style leaves out such a posting flag,
-    /// which only a plugin can set there, and keeps the posting: a comment would drop its amount. The
-    /// beancount style writes them, as beancount reads them. A flag no format reads is left out of both.
+    /// `#` starts a comment in a zhang file, so the zhang style leaves out a `#` posting flag, which
+    /// only a plugin can set there, and keeps the posting: a comment would drop its amount. A `*`
+    /// flag is written, as both formats read it back. The beancount style writes `#` too, as
+    /// beancount reads it. A flag no format reads is left out of both.
     #[test]
     fn a_posting_flag_that_would_read_back_as_a_comment_is_left_out() {
         use zhang_ast::{Directive, Flag, SpanInfo, Spanned};
@@ -960,12 +964,15 @@ mod test {
         txn.postings[2].flag = Some(Flag::Custom("ab".to_owned()));
 
         let zhang = data_type.export(Spanned::new(directive.clone(), SpanInfo::default()));
-        assert_eq!(zhang, "2024-01-10 * \"Lunch\"\n  Assets:Cash -10 USD\n  Expenses:Food 6 USD\n  Expenses:Drinks");
+        assert_eq!(
+            zhang,
+            "2024-01-10 * \"Lunch\"\n  * Assets:Cash -10 USD\n  Expenses:Food 6 USD\n  Expenses:Drinks"
+        );
         let Directive::Transaction(reread) = data_type.transform(zhang, None).unwrap().pop().unwrap().data else {
             unreachable!()
         };
-        assert_eq!(reread.postings.len(), 3);
-        assert!(reread.postings.iter().all(|it| it.flag.is_none()));
+        let flags = reread.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+        assert_eq!(flags, vec![Some(Flag::Okay), None, None]);
 
         let Directive::Transaction(txn) = directive else { unreachable!() };
         assert_eq!(

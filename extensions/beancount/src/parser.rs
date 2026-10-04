@@ -18,17 +18,17 @@ use chrono::{NaiveDate, NaiveTime};
 use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
-use nom::character::complete::{char, line_ending, space0, space1};
+use nom::character::complete::{char, line_ending, not_line_ending, space0, space1};
 use nom::combinator::{map, map_res, opt, peek, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
-use nom::sequence::{delimited, preceded, terminated, tuple};
+use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, comma_separator, commodity_name, flag_char, indentation_width, inline_comment, is_digit, key_value_line, line_trailer, metas_block,
-    number_expr, offset, parse_items, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links,
-    transaction_flag, unquote_string_raw, valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
+    account_name, comma_separator, commodity_name, flag_char, indentation_width, is_digit, key_value_line, number_expr, offset, parse_items, posting_amount,
+    posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag, unquote_string_raw, CostComponent, PostingMeta,
+    TransactionLine,
 };
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
@@ -51,8 +51,57 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 // ---------------------------------------------------------------------------
-// low level tokens; strings, accounts, commodities and comments are read by zhang-core's parser
+// low level tokens; strings, accounts and commodities are read by zhang-core's parser, comments
+// with beancount's own prefixes below
 // ---------------------------------------------------------------------------
+
+/// `comment_prefix = ";" | "*" | "#" | "//"`: the start of a comment in a beancount file. `*` is
+/// one here, for the org-mode headings beancount ignores at the start of a line, such as
+/// `* Banking`, and not in a zhang file, where zhang-core's parser reads `*` as a flag only. Inside
+/// a transaction a posting is read before a comment, so `* Assets:Cash -10 USD` is a posting flagged
+/// `*` all the same ([`posting_flag`]).
+fn comment_prefix(i: &str) -> IResult<&str, &str> {
+    alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
+}
+
+/// An inline comment (prefix + rest of line), the whole of which is discarded.
+fn inline_comment(i: &str) -> IResult<&str, ()> {
+    value((), pair(comment_prefix, not_line_ending))(i)
+}
+
+/// Trailing `space* comment?` allowed after a single-line directive.
+fn line_trailer(i: &str) -> IResult<&str, ()> {
+    value((), pair(space0, opt(inline_comment)))(i)
+}
+
+/// `valuable_comment = space* comment_prefix space* comment_value`, returning the comment body.
+fn valuable_comment(i: &str) -> IResult<&str, String> {
+    preceded(space0, valuable_comment_body)(i)
+}
+
+/// The `comment_prefix space* comment_value` portion, assuming any leading spaces are already
+/// consumed.
+fn valuable_comment_body(i: &str) -> IResult<&str, String> {
+    let (i, _) = comment_prefix(i)?;
+    let (i, _) = space0(i)?;
+    let (i, body) = not_line_ending(i)?;
+    Ok((i, body.to_string()))
+}
+
+/// A single indented metadata line following a directive, with its trailing comment.
+fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
+    let (i, _) = line_ending(i)?;
+    let (i, _) = space1(i)?;
+    let (i, pair) = key_value_line(i)?;
+    let (i, _) = space0(i)?;
+    let (i, _) = opt(inline_comment)(i)?;
+    Ok((i, pair))
+}
+
+/// `metas = (line space+ key_value_line comment?)+`
+fn metas_block(i: &str) -> IResult<&str, Meta> {
+    map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
+}
 
 /// beancount dates are date-only; time (when present) is carried in metadata and
 /// re-attached by the caller.
@@ -115,10 +164,10 @@ fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)>
 }
 
 /// `posting_flag = flag_char space+`: the flag of a posting, before its account, such as the `!`
-/// of `! Assets:Cash -10 USD`. Unlike a zhang file, a beancount file takes every flag beancount 3
-/// reads on a posting, `*` and `#` included, as beancount does. Beancount takes no `txn` there.
-/// The space is required, so an indented `*` or `#` comment such as `*Assets:Cash -10 USD` stays
-/// a comment.
+/// of `! Assets:Cash -10 USD`. A beancount file takes every flag beancount 3 reads on a posting, as
+/// beancount does, `#` included, which a zhang file reads as a comment. Beancount takes no `txn`
+/// there. The space is required, so an indented `*` or `#` comment such as `*Assets:Cash -10 USD`
+/// stays a comment.
 fn posting_flag(i: &str) -> IResult<&str, Flag> {
     terminated(flag_char, space1)(i)
 }

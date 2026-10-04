@@ -1189,9 +1189,10 @@ mod string_round_trip_test {
         }
     }
 
-    /// A posting flag `*` or `#`, which a zhang file reads as the start of a comment, can only come
-    /// from a plugin in a zhang ledger. An edit then writes the posting without it, so that it stays
-    /// a posting and the file keeps what it had; a beancount ledger writes it, as beancount reads it.
+    /// A posting flag `#`, which a zhang file reads as the start of a comment, can only come from a
+    /// plugin in a zhang ledger. An edit then writes the posting without it, so that it stays a
+    /// posting and the file keeps what it had. A `*` flag is written in a zhang ledger as in a
+    /// beancount one, where `#` is written too, as beancount reads it.
     #[tokio::test]
     async fn an_edit_never_writes_a_posting_as_a_comment() {
         let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n";
@@ -1208,8 +1209,8 @@ mod string_round_trip_test {
         let update = || edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
 
         let (written, reloaded) = edit_loaded_ledger("main.zhang", ledger, flag_by_plugin, update()).await;
-        let postings = &written[written.find("\n  Assets:Cash").expect(&written)..];
-        assert_eq!(postings, "\n  Assets:Cash -6 CNY\n  Expenses:Food 6 CNY\n", "{written}");
+        let postings = &written[written.find("\n  * Assets:Cash").expect(&written)..];
+        assert_eq!(postings, "\n  * Assets:Cash -6 CNY\n  Expenses:Food 6 CNY\n", "{written}");
         let store = reloaded
             .operations()
             .read()
@@ -1217,7 +1218,7 @@ mod string_round_trip_test {
             .iter()
             .map(|it| (it.flag.clone(), it.after_amount.number.to_string()))
             .collect::<Vec<_>>();
-        assert_eq!(store, vec![(None, "-6".to_owned()), (None, "6".to_owned())]);
+        assert_eq!(store, vec![(Some(Flag::Okay), "-6".to_owned()), (None, "6".to_owned())]);
 
         let (written, reloaded) = edit_loaded_ledger("main.bean", ledger, flag_by_plugin, update()).await;
         let postings = &written[written.find("\n  * Assets:Cash").expect(&written)..];
