@@ -6,7 +6,7 @@ use axum::response::{AppendHeaders, IntoResponse};
 use bytes::Bytes;
 use gotcha::api;
 use itertools::Itertools;
-use log::info;
+use log::{info, warn};
 use zhang_core::ledger::Ledger;
 use zhang_core::ZhangError;
 
@@ -14,7 +14,7 @@ use crate::error::ServerError;
 use crate::response::{DocumentEntity, ResponseWrapper};
 use crate::routes::Base64Path;
 use crate::state::SharedLedger;
-use crate::util::{cache_document, cached_document, document_cache_key};
+use crate::util::{cache_document, cached_document, document_cache_key, DOCUMENT_CACHE};
 use crate::{journals, ApiResult, ServerResult};
 
 /// The document at a path within the ledger, given as its base64, as the documents are listed: the file at that path,
@@ -116,16 +116,22 @@ async fn read_local(root: &std::path::Path, requested: &str, paths: &[String]) -
 
 /// the content of the file at the first of `paths` there is one at, within `ledger` on a remote source; `None` when
 /// there is none. A path read once is kept in the cache, by itself: a document read at its alternate is read at its
-/// path again first next time, so a file put there since is served.
+/// path again first next time, so a file put there since is served. The cache is a convenience: when it cannot be
+/// read or written, as in a working directory the server cannot write to, the document is read from the source and
+/// served all the same, and the log says so.
 async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<Vec<u8>>> {
     for path in paths {
         let key = document_cache_key(&ledger.entry.0, path);
-        if let Some(content) = cached_document(&key).await {
-            return Ok(Some(content));
+        match cached_document(&key).await {
+            Ok(Some(content)) => return Ok(Some(content)),
+            Ok(None) => {}
+            Err(error) => warn!("the copy of the document {path:?} in {DOCUMENT_CACHE} cannot be read, reading it from the source: {error}"),
         }
         info!("loading the document {:?} from the source...", path);
         if let Some(content) = ledger.data_source.async_get_existing(path.clone()).await? {
-            cache_document(&key, &content).await?;
+            if let Err(error) = cache_document(&key, &content).await {
+                warn!("the document {path:?} is served but not kept in {DOCUMENT_CACHE}, which cannot be written to: {error}");
+            }
             return Ok(Some(content));
         }
     }

@@ -62,6 +62,6 @@ A file name must be a plain name, without a directory, of at most 255 bytes. The
 - An account's **Documents** tab lists the `document` directives of that account and of its sub-accounts. A document named in a transaction's `document:` metadata shows on the **Documents** page and in the transaction's preview, not on an account's page.
 - A transaction's preview on the Journals page shows its documents, and the journal marks the transactions that have some.
 
-For a ledger on a remote data source, Zhang keeps a copy of each document it has shown in `.cache/documents/`, in the directory it runs in, and serves that copy from then on. If you replace a file but keep its name, delete the copy, or give the new file another name. Documents on the local disk are read from the disk each time. Copies that earlier versions kept in `.cache/data/` are no longer used; you can delete that directory.
+For a ledger on a remote data source, Zhang keeps a copy of each document it has shown in `.cache/documents/`, in the directory it runs in, and serves that copy from then on. If you replace a file but keep its name, delete the copy, or give the new file another name. If Zhang cannot write to that directory, it serves the document anyway, without keeping a copy, and says so in its log. Documents on the local disk are read from the disk each time. Copies that earlier versions kept in `.cache/data/` are no longer used; you can delete that directory.
 
 Documents are also available to [queries](/guides/querying/), in the `#documents` table.
