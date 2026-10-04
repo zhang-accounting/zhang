@@ -205,9 +205,10 @@ SDK 提供的内容：
 | `fs` | `read_file`、`read_to_string`、`list_dir` |
 | `errors` | `emit_error(message)`、`emit_error_at(span, message, metas)` |
 | `prices` | 用于[汇率](#汇率)的 `PriceMap::from_stream(&stream)`、`rate(base, quote, date)`、`convert(amount, target, date)` |
+| `realization` | 用于[指定账户数量和成本汇总](#指定账户余额)的 `SparseRealization` |
 | `router` | `Request`、`Response`、`query(bql)`、`ledger_info()` |
 
-在原生 target 上 SDK 依然可以编译：`plugin!` 不导出任何东西，宿主函数返回 `unavailable`，所以 `cargo test` 可以在没有张记账的情况下运行你的插件逻辑，并用 `Config::from_map(...)` 代替宿主提供的配置。[`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples) 中有三个完整的插件，两个 processor（`guard`，以及展示记账后视图的 `lots`）和一个 router；张记账自己的测试会构建并运行它们。
+在原生 target 上 SDK 依然可以编译：`plugin!` 不导出任何东西，宿主函数返回 `unavailable`，所以 `cargo test` 可以在没有张记账的情况下运行你的插件逻辑，并用 `Config::from_map(...)` 代替宿主提供的配置。[`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples) 中有四个完整的插件：三个 processor（`guard`、展示记账后视图的 `lots`、记录数量和成本累计值的 `balances`）和一个 router。张记账自己的测试会构建并运行它们。
 
 ## 确定性
 
@@ -260,6 +261,31 @@ let value = prices.convert(&posting_units, "CNY", date); // Option<Amount>
 **精度：** 来自 `price` 指令的汇率是精确的。能除尽的倒数也是精确的（`1 / 8 = 0.125`）；除不尽的倒数按银行家舍入法（half-even）保留 28 位有效数字，与 Beancount 的 decimal 上下文和张记账的查询引擎相同（`1 / 7 = 0.1428571428571428571428571429`）。`convert` 只有在乘积超过 28 位有效数字时才会将其舍入到 28 位。
 
 **隐含价格：** `PriceMap::from_stream_with_implicit` 还会采用记账行上写的价格，即单价 `@` 和总价 `@@`，与 Beancount 的 `implicit_prices` 插件相同。张记账本身不使用这些价格，所以它们添加的汇率与张记账显示的不同；这是为从 Beancount 移植过来的插件提供的可选功能。没有写数量的记账行会被跳过：只有以 `stage: "raw"` 运行的插件才会看到这样的记账行，它此时还没有价格。
+
+## 指定账户余额
+
+插件只需要少数账户的余额时，可以从收到的已记账指令流构建 `SparseRealization`。宿主不会预先计算它，helper 只保留指定账户的累计值：
+
+```rust
+use zhang_plugin_sdk::realization::{AccountScope, SparseRealization};
+
+let balances = SparseRealization::from_stream(
+    &stream,
+    ["Assets:Broker", "Income:Gains"],
+    AccountScope::Subtree,
+)?;
+let broker = balances.get("Assets:Broker").unwrap();
+let shares = broker.units.get("AAPL").cloned().unwrap_or_default();
+let usd_cost = broker.cost.get("USD").cloned().unwrap_or_default();
+```
+
+- `Exact` 只累计指定账户自身的分录；`Subtree` 还包含子账户。`Assets:Bank:Cash` 属于 `Assets:Bank`，`Assets:Banking` 则不属于。重叠的目标账户各自独立累计，重复的目标账户只计算一次。
+- `units` 和 `cost` 是按币种排序的映射。数量取已记账数量，成本取数量乘以每个 lot 解析后的单价；没有成本时使用数量本身。例如分别以 100 USD 和 110 USD 买入各 10 AAPL，再卖出 15，剩余数量为 `5 AAPL`、成本为 `550 USD`。每条拆分分录只计算一次，补全的隐含分录也会计算。分录价格（`@` / `@@`）和 `Posting.written` 不影响累计值。
+- 运算保持精确。归零的累计值会删除，缺失的币种表示零。指定但没有分录的账户仍有空余额；未指定的账户，`get` 返回 `None`。`accounts()` 只列出指定账户，按名称排序。
+- 需要逐条累计时，先调用 `SparseRealization::new(accounts, scope)`，再按指令流顺序调用 `apply(&entry.data)`。包括余额断言在内的非交易指令不改变余额。补账只有在其交易已存在于指令流中时才会计算：普通插件运行在内置 pad stage 之前，看不到它尚未生成的补账交易。
+- helper 不执行 booking，也不推断金额。匹配的分录缺少数量，或成本缺少金额、日期或仍是总成本时，会返回 `UnbookedPosting`，包含账户和当前分录索引。**该交易不会改变任何账户的累计值。** 校验插件可以用 `errors::emit_error_at` 报告问题并继续。指定账户之外的未记账分录会忽略。raw stage 插件不应使用此 helper 推断余额。
+
+`balances` 示例 processor 将这些累计值写入交易元数据，并把未记账输入报告为插件错误。此 helper 汇总成本；需要按某日汇率换算金额时，使用 `PriceMap`。
 
 ## 报告错误
 

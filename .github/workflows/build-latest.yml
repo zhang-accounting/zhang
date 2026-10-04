@@ -230,7 +230,7 @@ jobs:
         run: cargo clippy --all-features --all-targets -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
       # the plugin SDK's Extism bindings and the exports of `plugin!` only exist on wasm32
       - name: Clippy the plugin SDK for wasm32
-        run: cargo clippy --target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
+        run: cargo clippy --target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -p zhang-plugin-example-balances -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
 
   typo-checker:
     runs-on: ubuntu-22.04

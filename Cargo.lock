@@ -6812,6 +6812,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zhang-plugin-example-balances"
+version = "0.1.0"
+dependencies = [
+ "zhang-plugin-sdk",
+]
+
+[[package]]
 name = "zhang-plugin-example-guard"
 version = "0.1.0"
 dependencies = [

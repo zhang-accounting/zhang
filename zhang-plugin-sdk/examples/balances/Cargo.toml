@@ -1,0 +1,12 @@
+[package]
+name = "zhang-plugin-example-balances"
+version = "0.1.0"
+edition = "2021"
+description = "Example zhang processor plugin: running quantities and costs for selected accounts"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zhang-plugin-sdk = { path = "../.." }
