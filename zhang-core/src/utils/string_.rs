@@ -54,19 +54,13 @@ use nom::error::{Error as NomError, ErrorKind};
 use nom::multi::fold_many0;
 use nom::sequence::delimited;
 use nom::{Err as NomErr, IResult};
-use zhang_ast::{SpanInfo, ZhangString};
+use zhang_ast::SpanInfo;
 
 pub trait StringExt {
-    fn to_quote(&self) -> ZhangString;
-
     fn replace_by_span(&mut self, span: &SpanInfo, content: &str);
 }
 
 impl StringExt for String {
-    fn to_quote(&self) -> ZhangString {
-        ZhangString::QuoteString(self.to_owned())
-    }
-
     fn replace_by_span(&mut self, span: &SpanInfo, content: &str) {
         self.replace_range(span.start..span.end, "");
         self.insert_str(span.start, content);
