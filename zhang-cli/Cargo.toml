@@ -40,7 +40,7 @@ regex = "1"
 gotcha = { workspace = true }
 axum = { workspace = true }
 jsonpath-rust = "0.5"
-tower = "0.4"
+tower = { version = "0.4", features = ["util"] }
 mime = "0.3"
 http-body-util = "0.1"
 walkdir = "2"
