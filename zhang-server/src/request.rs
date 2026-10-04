@@ -65,10 +65,6 @@ impl JournalRequest {
     pub fn page(&self) -> u32 {
         max(self.page.unwrap_or(1), 1)
     }
-    pub fn offset(&self) -> u32 {
-        let page = self.page();
-        (page - 1) * self.limit()
-    }
     pub fn limit(&self) -> u32 {
         self.size.unwrap_or(100)
     }

@@ -10,11 +10,10 @@ use serde::Serialize;
 use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{AccountType, Currency, Flag, SpanInfo};
-use zhang_core::constants::BALANCE_CHECK_PAYEE;
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, ErrorDomain, MetaDomain, QueryDomain};
+use zhang_ast::{AccountType, Currency};
+use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, QueryDomain};
 use zhang_core::plugin::PluginType;
-use zhang_core::store::{BalanceAssertionDomain, BudgetEvent, BudgetEventType, PostingDomain};
+use zhang_core::store::BudgetEventType;
 
 use crate::error::ServerError;
 use crate::ServerResult;
@@ -122,31 +121,12 @@ pub struct MetaEntity {
     pub key: String,
     pub value: String,
 }
-impl From<MetaDomain> for MetaEntity {
-    fn from(value: MetaDomain) -> Self {
-        MetaEntity {
-            key: value.key,
-            value: value.value,
-        }
-    }
-}
-
 #[derive(Serialize, Schematic)]
 #[serde(tag = "type")]
 pub enum JournalItemEntity {
     Transaction(JournalTransactionItemEntity),
     BalanceCheck(JournalBalanceCheckItemEntity),
     BalancePad(JournalBalanceItemEntity),
-}
-
-impl JournalItemEntity {
-    pub fn sequence(&self) -> i32 {
-        match self {
-            JournalItemEntity::Transaction(inner) => inner.sequence,
-            JournalItemEntity::BalanceCheck(inner) => inner.sequence,
-            JournalItemEntity::BalancePad(inner) => inner.sequence,
-        }
-    }
 }
 
 #[derive(Serialize, Schematic)]
@@ -173,27 +153,6 @@ pub struct JournalTransactionPostingEntity {
     pub account_after: Amount,
     /// metadata of the posting, sorted by key
     pub metas: Vec<MetaEntity>,
-}
-
-impl From<PostingDomain> for JournalTransactionPostingEntity {
-    fn from(arm: PostingDomain) -> Self {
-        JournalTransactionPostingEntity {
-            account: arm.account.name().to_owned(),
-            unit: arm.unit,
-            cost: arm.cost,
-            inferred_unit: arm.inferred_amount,
-            account_before: arm.previous_amount,
-            account_after: arm.after_amount,
-            metas: arm
-                .metas
-                .into_iter()
-                .map(|meta| MetaEntity {
-                    key: meta.key,
-                    value: meta.value,
-                })
-                .collect(),
-        }
-    }
 }
 
 #[derive(Serialize, Schematic)]
@@ -226,33 +185,6 @@ pub struct JournalBalanceCheckItemEntity {
     pub tolerance: Option<BigDecimal>,
     /// whether the balance is within the tolerance of the asserted amount
     pub passed: bool,
-}
-
-impl From<BalanceAssertionDomain> for JournalBalanceCheckItemEntity {
-    fn from(assertion: BalanceAssertionDomain) -> Self {
-        let difference = Amount::new(&assertion.amount.number - &assertion.balance.number, assertion.amount.commodity.clone());
-        // the asserted amount, written with the decimals of the balance too
-        let asserted = Amount::new(&assertion.balance.number + &difference.number, assertion.amount.commodity.clone());
-        JournalBalanceCheckItemEntity {
-            id: assertion.id,
-            sequence: assertion.sequence,
-            datetime: assertion.datetime.naive_local(),
-            payee: BALANCE_CHECK_PAYEE.to_owned(),
-            narration: Some(assertion.account.name().to_owned()),
-            type_: Flag::BalanceCheck.to_string(),
-            postings: vec![JournalTransactionPostingEntity {
-                account: assertion.account.name().to_owned(),
-                unit: Some(difference.clone()),
-                cost: None,
-                inferred_unit: difference,
-                account_before: assertion.balance,
-                account_after: asserted,
-                metas: vec![],
-            }],
-            tolerance: assertion.tolerance,
-            passed: assertion.passed,
-        }
-    }
 }
 
 #[derive(Serialize, Schematic)]
@@ -405,15 +337,6 @@ pub struct BudgetEventEntity {
     pub event_type: BudgetEventType,
 }
 
-impl From<BudgetEvent> for BudgetEventEntity {
-    fn from(value: BudgetEvent) -> Self {
-        BudgetEventEntity {
-            timestamp: value.timestamp,
-            amount: value.amount,
-            event_type: value.event_type,
-        }
-    }
-}
 #[derive(Serialize, Schematic)]
 #[serde(tag = "type")]
 pub enum BudgetIntervalEventEntity {
@@ -485,34 +408,12 @@ pub struct SpanInfoEntity {
     pub filename: Option<String>,
 }
 
-impl From<SpanInfo> for SpanInfoEntity {
-    fn from(value: SpanInfo) -> Self {
-        SpanInfoEntity {
-            start: value.start,
-            end: value.end,
-            content: value.content,
-            filename: value.filename.map(|it| it.to_string_lossy().to_string()),
-        }
-    }
-}
-
 #[derive(Serialize, Schematic)]
 pub struct ErrorEntity {
     pub id: String,
     pub span: Option<SpanInfoEntity>,
     pub error_type: ErrorKind,
     pub metas: HashMap<String, String>,
-}
-
-impl From<ErrorDomain> for ErrorEntity {
-    fn from(value: ErrorDomain) -> Self {
-        ErrorEntity {
-            id: value.id,
-            span: value.span.map(|it| it.into()),
-            error_type: value.error_type,
-            metas: value.metas,
-        }
-    }
 }
 
 #[derive(Serialize, Schematic)]

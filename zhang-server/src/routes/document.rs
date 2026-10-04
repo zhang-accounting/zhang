@@ -138,31 +138,6 @@ pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<Documen
     ResponseWrapper::json(journals::documents(&ledger).await?)
 }
 
-/// The hand-written [`get_documents`] the built-in query replaces, kept to compare them until it is
-/// removed (#479).
-pub async fn get_documents_legacy(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
-    let ledger = ledger.read().await;
-    let operations = ledger.operations();
-    let store = operations.read();
-
-    let rows = store
-        .documents
-        .iter()
-        .cloned()
-        .rev()
-        .map(|doc| DocumentEntity {
-            datetime: doc.datetime.naive_local(),
-            filename: doc.filename.unwrap_or_default(),
-            path: doc.path.clone(),
-            extension: mime_guess::from_path(doc.path).first().map(|it| it.to_string()),
-            account: doc.document_type.as_account(),
-            trx_id: doc.document_type.as_trx(),
-        })
-        .collect_vec();
-
-    ResponseWrapper::json(rows)
-}
-
 #[cfg(test)]
 mod download_test {
     use std::sync::Arc;

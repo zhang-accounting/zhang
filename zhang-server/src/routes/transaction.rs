@@ -5,26 +5,20 @@ use axum::extract::{Multipart, Path, State};
 use axum::Json;
 use gotcha::api;
 use indexmap::IndexSet;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
-use zhang_ast::error::ErrorKind;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
-use zhang_core::constants::TXN_ID;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
-use zhang_core::domains::schemas::{MetaType, TransactionInfoDomain};
+use zhang_core::domains::schemas::TransactionInfoDomain;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{BalanceAssertionDomain, TransactionDomain};
 use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
 use zhang_core::ZhangError;
 
 use super::Query;
 use crate::error::ServerError;
 use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, JournalRequest, MetaRequest};
-use crate::response::{
-    InfoForNewTransaction, JournalBalanceItemEntity, JournalItemEntity, JournalTransactionItemEntity, JournalTransactionPostingEntity, Pageable,
-    ResponseWrapper,
-};
+use crate::response::{InfoForNewTransaction, JournalItemEntity, Pageable, ResponseWrapper};
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::{journals, validate, ApiResult, ServerResult};
 
@@ -36,27 +30,6 @@ pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>) -> ApiRe
     ResponseWrapper::json(journals::info_for_new_transaction(&ledger).await?)
 }
 
-/// The hand-written [`get_info_for_new_transactions`] the built-in queries replace, kept to compare
-/// them with it until it is removed (#479).
-pub async fn get_info_for_new_transactions_legacy(ledger: State<SharedLedger>) -> ApiResult<InfoForNewTransaction> {
-    let guard = ledger.read().await;
-    let mut operations = guard.operations();
-
-    let all_open_accounts = operations.all_open_accounts()?;
-    let account_names = all_open_accounts.into_iter().map(|it| it.name).collect_vec();
-
-    ResponseWrapper::json(InfoForNewTransaction {
-        payee: operations.all_payees()?,
-        account_name: account_names,
-    })
-}
-
-/// a journal entry before it is mapped into its response item
-enum JournalEntry {
-    Transaction(TransactionDomain),
-    Assertion(BalanceAssertionDomain),
-}
-
 /// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
 /// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
 /// of a page from `journals.postings` and `journals.balance_checks`.
@@ -66,91 +39,6 @@ enum JournalEntry {
 #[api(group = "transaction")]
 pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     ResponseWrapper::json(journals::journal(&ledger, params.0).await?)
-}
-
-/// The hand-written [`get_journals`] the built-in queries replace, kept to compare them with it until
-/// it is removed (#479).
-pub async fn get_journals_legacy(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
-    let ledger = ledger.read().await;
-    let mut operations = ledger.operations();
-    let params = params.0;
-
-    let store = operations.read();
-
-    let transactions = store
-        .transactions
-        .values()
-        .filter(|it| it.match_keywords(params.keyword.as_ref(), &params.tags, &params.links))
-        .map(|it| (it.sequence, Either::Left(it)));
-    let assertions = store
-        .balance_assertions
-        .iter()
-        .filter(|it| it.match_keywords(params.keyword.as_ref(), &params.tags, &params.links))
-        .map(|it| (it.sequence, Either::Right(it)));
-    let matched = transactions.chain(assertions).collect_vec();
-    let total_count = matched.len();
-
-    let journals = matched
-        .into_iter()
-        .sorted_by_key(|(sequence, _)| -sequence)
-        .skip(params.offset() as usize)
-        .take(params.limit() as usize)
-        .map(|(_, entry)| match entry {
-            Either::Left(transaction) => JournalEntry::Transaction(transaction.clone()),
-            Either::Right(assertion) => JournalEntry::Assertion(assertion.clone()),
-        })
-        .collect_vec();
-
-    drop(store);
-    let mut ret = vec![];
-    for journal_item in journals {
-        let item = match journal_item {
-            JournalEntry::Assertion(assertion) => JournalItemEntity::BalanceCheck(assertion.into()),
-            JournalEntry::Transaction(journal_item) if journal_item.flag == Flag::BalancePad => {
-                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
-                JournalItemEntity::BalancePad(JournalBalanceItemEntity {
-                    id: journal_item.id,
-                    sequence: journal_item.sequence,
-                    datetime: journal_item.datetime.naive_local(),
-                    payee: journal_item.payee.unwrap_or_default(),
-                    narration: journal_item.narration,
-                    type_: journal_item.flag.to_string(),
-                    postings,
-                })
-            }
-            JournalEntry::Transaction(journal_item) => {
-                let postings = journal_item.postings.into_iter().map(JournalTransactionPostingEntity::from).collect_vec();
-                let metas = operations
-                    .metas(MetaType::TransactionMeta, journal_item.id.to_string())
-                    .unwrap()
-                    .into_iter()
-                    .map(|it| it.into())
-                    .collect();
-                let has_unbalanced_error = operations
-                    .errors_by_meta(TXN_ID, &journal_item.id.to_string())?
-                    .iter()
-                    .any(|error| error.error_type == ErrorKind::UnbalancedTransaction);
-
-                JournalItemEntity::Transaction(JournalTransactionItemEntity {
-                    id: journal_item.id,
-                    sequence: journal_item.sequence,
-                    datetime: journal_item.datetime.naive_local(),
-                    payee: journal_item.payee.unwrap_or_default(),
-                    narration: journal_item.narration,
-                    tags: journal_item.tags,
-                    links: journal_item.links,
-                    flag: journal_item.flag.to_string(),
-                    is_balanced: !has_unbalanced_error,
-                    postings,
-                    metas,
-                })
-            }
-        };
-        ret.push(item);
-    }
-    ret.sort_by_key(|item| item.sequence());
-    ret.reverse();
-    ResponseWrapper::json(Pageable::new(total_count as u32, params.page(), params.limit(), ret))
 }
 
 /// Build the transaction a create or update request describes, rejecting with a

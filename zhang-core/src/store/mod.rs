@@ -10,7 +10,6 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Flag, Meta, SpanInfo};
 
-use crate::constants::BALANCE_CHECK_PAYEE;
 use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain, QueryDomain};
 
 #[derive(Default, serde::Serialize)]
@@ -93,63 +92,6 @@ pub struct TransactionDomain {
     pub postings: Vec<PostingDomain>,
 }
 
-impl TransactionDomain {
-    pub fn match_keywords(&self, keyword: Option<&String>, tags: &Option<HashSet<String>>, links: &Option<HashSet<String>>) -> bool {
-        let keyword = keyword.map(|it| it.to_lowercase());
-        let tag_matched = if let Some(tag_candidates) = tags.as_ref() {
-            // if one of the tags matched, return the transaction
-            self.tags.iter().any(|trx_tag| tag_candidates.contains(trx_tag))
-        } else {
-            // if tags are not specified, all transactions are matched
-            true
-        };
-        let link_matched = if let Some(link_candidates) = links.as_ref() {
-            // if one of the links matched, return the transaction
-            self.links.iter().any(|trx_link| link_candidates.contains(trx_link))
-        } else {
-            // if tags are not specified, all transactions are matched
-            true
-        };
-        let keyword_matched = ({
-            if let Some(keyword) = keyword.as_ref() {
-                let is_payee_matched = self.payee.as_ref().map(|it| it.to_lowercase().contains(keyword)).unwrap_or(false);
-                is_payee_matched
-            } else {
-                true
-            }
-        }) || ({
-            if let Some(keyword) = keyword.as_ref() {
-                let is_narration_matched = self.narration.as_ref().map(|it| it.to_lowercase().contains(keyword)).unwrap_or(false);
-                is_narration_matched
-            } else {
-                true
-            }
-        }) || ({
-            if let Some(keyword) = keyword.as_ref() {
-                let is_any_tags_matched = self.tags.iter().any(|it| it.to_lowercase().contains(keyword));
-                is_any_tags_matched
-            } else {
-                true
-            }
-        }) || ({
-            if let Some(keyword) = keyword.as_ref() {
-                let is_any_links_matched = self.links.iter().any(|it| it.to_lowercase().contains(keyword));
-                is_any_links_matched
-            } else {
-                true
-            }
-        }) || ({
-            if let Some(keyword) = keyword.as_ref() {
-                let is_any_posting_account_matched = self.postings.iter().any(|posting| posting.account.name().to_lowercase().contains(keyword));
-                is_any_posting_account_matched
-            } else {
-                true
-            }
-        });
-        tag_matched && link_matched && keyword_matched
-    }
-}
-
 /// A `balance` assertion as the load checked it: the asserted amount next to the account's balance
 /// where the assertion stands.
 ///
@@ -175,21 +117,6 @@ pub struct BalanceAssertionDomain {
     /// whether `balance` is within `tolerance` of `amount`
     pub passed: bool,
     pub span: SpanInfo,
-}
-
-impl BalanceAssertionDomain {
-    /// whether a journal search matches the assertion, the way [`TransactionDomain::match_keywords`] matches a
-    /// transaction. The journal lists an assertion with the payee `Balance Check` and its account as the narration
-    /// and the only account; it has no tags or links, so a search by tag or link never matches it
-    pub fn match_keywords(&self, keyword: Option<&String>, tags: &Option<HashSet<String>>, links: &Option<HashSet<String>>) -> bool {
-        if tags.is_some() || links.is_some() {
-            return false;
-        }
-        let Some(keyword) = keyword.map(|it| it.to_lowercase()) else {
-            return true;
-        };
-        BALANCE_CHECK_PAYEE.to_lowercase().contains(&keyword) || self.account.name().to_lowercase().contains(&keyword)
-    }
 }
 
 #[derive(Clone, serde::Serialize, Debug)]

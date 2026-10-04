@@ -355,29 +355,11 @@ impl Operations {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
     }
-    pub fn errors_by_meta(&mut self, key: &str, value: &str) -> ZhangResult<Vec<ErrorDomain>> {
-        let store = self.read();
-        Ok(store
-            .errors
-            .iter()
-            .filter(|error| error.metas.get(key).map(|v| v.eq(value)).unwrap_or(false))
-            .cloned()
-            .collect_vec())
-    }
 
     pub fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
         let store = self.read();
 
         Ok(store.accounts.get(account_name).cloned())
-    }
-    pub fn all_open_accounts(&mut self) -> ZhangResult<Vec<AccountDomain>> {
-        let store = self.read();
-        Ok(store
-            .accounts
-            .values()
-            .filter(|account| account.status == AccountStatus::Open)
-            .cloned()
-            .collect_vec())
     }
     pub fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
         let store = self.read();
