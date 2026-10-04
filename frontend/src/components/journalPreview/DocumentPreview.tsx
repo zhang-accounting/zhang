@@ -1,15 +1,13 @@
-import { Buffer } from 'buffer';
 import { FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isDocumentAnImage } from '../../utils/documents';
+import { documentUrl } from '../documentLines/document-utils';
 
 interface Props {
   filename: string;
   onClick: (path: string) => void;
   className?: string;
 }
-
-const documentUrl = (path: string) => `/api/documents/${Buffer.from(path).toString('base64')}`;
 
 /** Square document tile: image thumbnail (opens the lightbox) or a file card that opens the document in a new tab. */
 export default function DocumentPreview({ filename, onClick, className }: Props) {
