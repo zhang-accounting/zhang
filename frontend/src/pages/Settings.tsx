@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { serverBaseUrl } from '@/api/fetcher';
-import { retrieveOptions, retrievePlugins } from '@/api/requests';
+import { optionValue, retrieveOptions, retrievePlugins } from '@/api/requests';
 import { PasskeySettings } from '@/components/auth/PasskeySettings';
 import { SettingRow, SettingsSection } from '@/components/basic/Setting';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
@@ -51,7 +51,7 @@ export default function Settings() {
   const basicInfo = useAtomValue(basicInfoAtom);
   const updatableVersion = useAtomValue(updatableVersionAtom);
   const buildDate = basicInfo.state === 'hasData' ? basicInfo.data.build_date : undefined;
-  const operatingCurrency = options?.find((option) => option.key === 'operating_currency')?.value;
+  const operatingCurrency = optionValue(options, 'operating_currency');
 
   useDocumentTitle(`${t('settings.title')} - ${ledgerTitle}`);
   useEffect(() => {
