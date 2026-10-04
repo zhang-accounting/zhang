@@ -141,7 +141,7 @@ WHERE under(account, 'Assets:Bank')
 GROUP BY currency
 ```
 
-账户页面的流水按 [`seq`](/zh-cn/user-guide/query-language/#处理顺序)（张记账处理账本的顺序）合并 `accounts.journal` 和 `accounts.balance_assertions` 的行，最新的在前。因此一个断言紧跟在它的余额所包含的分录之后，也就是张记账检查它的位置：写了时刻的余额断言在当天该时刻之前的交易之后，普通的余额断言在写在它之前的补齐之后，`balance ... with pad` 在同一时刻的其他余额记录之后。它的余额就是所在位置的累计余额。按多个批次记账的一笔分录显示为一行。
+账户页面的流水按 [`seq`](/zh-cn/user-guide/query-language/#处理顺序)（张记账处理账本的顺序）合并 `accounts.journal` 和 `accounts.balance_assertions` 的行，最新的在前。因此一个断言紧跟在它的余额所包含的分录之后，也就是张记账检查它的位置：写了时刻的余额断言在当天该时刻之前的交易之后，普通的余额断言在写在它之前的补齐之后，`balance ... with pad` 在同一时刻的其他余额记录之后。它的余额就是所在位置的累计余额，它的 `trx_id` 是其检查结果的 id，与 `GET /api/journals` 列出它时使用的 id 相同；分录行的 `trx_id` 是其交易的 id。同一交易的各行按分录最新的在前，按多个批次记账的一笔分录显示为一行。在夏令时跳过某段时间的那天，决定顺序的是写下的时刻，所以写在跳过时段中的行可能排在存储时刻更早的行之前。
 
 页面按每页 100 行列出流水（`GET /api/accounts/{account}/journals?page=1&size=100`），`accounts.journal` 的每一行和每个断言各算一行；一页用 `accounts.journal_rows` 和 `accounts.journal_page` 从流水的末尾读取它的行。
 

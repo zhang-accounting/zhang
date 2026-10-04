@@ -19,8 +19,8 @@
 //!    - a parent account's page is its subtree (decision 6);
 //!    - the narration of a transaction written without one is `""`, as the engine has it, where it was null.
 //!
-//!    A leaf account's journal must be the hand-written one but for these: its rows in the same order,
-//!    except that the rows of one transaction may be reordered among themselves.
+//!    A leaf account's journal must be exactly the hand-written one but for these: its rows in the same
+//!    order, the rows of one transaction newest first, by posting.
 //! 3. **Pages**: the pages of every journal, put together, are the whole journal.
 //!
 //! The tests after the golden diff check each difference and the journal order of the ledgers of
@@ -245,7 +245,7 @@ impl Reason {
             Reason::ListedWithoutOpen => "bug: accounts without `open` were missing",
             Reason::DeterministicOrder => "deterministic order: accounts by name, history by date, a transaction's rows newest first",
             Reason::Valuation => "decision 3: engine valuation (inverse rates, via the cost currency, latest of both directions)",
-            Reason::TransactionId => "bug: `trx_id` was the posting id; an assertion row has its entry id",
+            Reason::TransactionId => "bug: `trx_id` was the posting id; an assertion row has the id of its check, as in /api/journals",
             Reason::Subtree => "decision 6: a parent account's page is its subtree",
             Reason::EmptyNarration => "accepted: a transaction without a narration has \"\" (was null)",
             Reason::Unexplained => "UNEXPLAINED",
@@ -371,6 +371,8 @@ struct StoredPosting {
 /// A balance assertion as zhang checked it.
 struct StoredAssertion {
     account: String,
+    /// the id zhang stored the check with, which /api/journals lists it with
+    id: String,
     sequence: i32,
     asserted: (BigDecimal, String),
     balance: BigDecimal,
@@ -417,6 +419,7 @@ impl Stored {
             .iter()
             .map(|assertion| StoredAssertion {
                 account: assertion.account.name().to_owned(),
+                id: assertion.id.to_string(),
                 sequence: assertion.sequence,
                 asserted: (assertion.amount.number.clone(), assertion.amount.commodity.clone()),
                 balance: assertion.balance.number.clone(),
@@ -462,7 +465,8 @@ impl Stored {
     /// The journal of `account` as the store says it, newest first, as the canonical rows the endpoint
     /// returns them: its postings and those of its sub-accounts, each with the running balance of the
     /// subtree in its currency, and the assertions on the account itself, each where zhang checked it,
-    /// with the running balance there. Ids, dates and descriptions are left out.
+    /// with the running balance there and the id of its check. Dates and descriptions are left out; a
+    /// posting row has the id of its transaction.
     fn journal(&self, account: &str) -> Vec<Value> {
         // (sequence, then the postings of a transaction in their order and an assertion after them, row)
         let mut rows: Vec<((i32, usize), Value)> = vec![];
@@ -475,6 +479,7 @@ impl Stored {
                 (assertion.sequence, 0),
                 json!({
                     "account": assertion.account,
+                    "id": assertion.id,
                     "units": format!("0 {currency}"),
                     "after": format!("{} {currency}", decimal_string(&at)),
                     "asserted": format!("{} {currency}", decimal_string(asserted)),
@@ -574,6 +579,7 @@ fn as_stored(journal: &[Value]) -> Vec<Value> {
             } else {
                 json!({
                     "account": row["account"],
+                    "id": row["trx_id"],
                     "units": amount(&row["inferred_unit"]),
                     "after": amount(&row["account_after"]),
                     "asserted": amount(&row["asserted"]),
@@ -638,16 +644,11 @@ fn blocks(rows: &[Value]) -> Vec<Vec<Value>> {
     blocks
 }
 
-fn sorted(mut rows: Vec<Value>) -> Vec<Value> {
-    rows.sort_by_key(|row| row.to_string());
-    rows
-}
-
 /// Why the engine's journal of `account` differs from the hand-written one, both canonical, `after`
 /// already checked against the store. The hand-written rows are those of the account itself, with its
 /// own running balance; the engine's rows of the account itself (all of them for a leaf account) must be
-/// the same rows in the same order, but for the rows of one transaction among themselves, once the
-/// expected differences are taken out.
+/// exactly the same rows in the same order, once the expected differences are taken out: the rows of one
+/// transaction are newest first, by posting, where the hand-written journal had them in posting order.
 fn journal_reasons(account: &str, before: &[Value], after: &[Value], stored: &Stored) -> Vec<Reason> {
     let mut reasons = BTreeSet::new();
     let subtree = after.iter().any(|row| row["account"] != account);
@@ -698,10 +699,11 @@ fn journal_reasons(account: &str, before: &[Value], after: &[Value], stored: &St
         return vec![Reason::Unexplained];
     }
     for (before, after) in before.iter().zip(&after) {
+        let newest_first = before.iter().rev().cloned().collect::<Vec<_>>();
+        if &newest_first != after {
+            return vec![Reason::Unexplained];
+        }
         if before != after {
-            if sorted(before.clone()) != sorted(after.clone()) {
-                return vec![Reason::Unexplained];
-            }
             reasons.insert(Reason::DeterministicOrder);
         }
     }
