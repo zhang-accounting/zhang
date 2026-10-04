@@ -99,7 +99,6 @@ impl GotchaApp for ServerApp {
             .get("/api/sse", sse)
             .post("/api/reload", reload)
             .get("/api/info", get_basic_info)
-            .get("/api/store", get_store_data)
             .get("/api/options", get_all_options)
             .get("/api/errors", get_errors)
             .get("/api/files", get_files)

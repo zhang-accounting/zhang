@@ -68,10 +68,3 @@ pub async fn get_all_options(ledger: State<SharedLedger>) -> ApiResult<Vec<Optio
     let options = operations.options()?;
     ResponseWrapper::json(options)
 }
-
-pub async fn get_store_data(ledger: State<SharedLedger>) -> ApiResult<serde_json::Value> {
-    let ledger = ledger.read().await;
-    let store = ledger.store.read().unwrap();
-    let value = serde_json::to_value(&*store).unwrap();
-    ResponseWrapper::json(value)
-}
