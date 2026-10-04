@@ -32,8 +32,8 @@ YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag â€¦] [^link â
 | `@ <Price>`, `@@ <TotalPrice>` | no | The price the units were converted at, per unit or in total. |
 
 The postings and metadata lines follow the header without blank lines: an empty line ends the transaction. An indented
-line starting with `;`, `#`, `*` or `//` is a comment, unless it is a [flagged posting](#posting-flags) such as
-`* Assets:Cash -10 CNY`. A posting can end with a `; comment`.
+line starting with `;`, `#`, `*` or `//` is a comment, and a posting can end with a `; comment`. In a Beancount file,
+an indented line such as `* Assets:Cash -10 CNY` is a [flagged posting](#posting-flags) instead, as Beancount reads it.
 
 ## Examples
 
@@ -89,16 +89,17 @@ Beancount. Importers and Fava use it to mark a posting to check:
   Expenses:Food
 ```
 
-A posting flag is any [flag](#flags) except `txn`: `*`, `!`, `#`, `&`, `?`, `%` or an uppercase letter. It changes
-nothing in how the posting is booked. Zhang keeps it:
+A posting flag is `!`, `&`, `?`, `%` or an uppercase letter. In a zhang file it cannot be `*` or `#`: an indented line
+starting with either is a comment there, so `* Assets:Cash -10 CNY` stays a comment and books nothing. In a Beancount
+file a posting flag can also be `*` or `#`, as in Beancount, where that line is a posting flagged `*`. `txn` is a flag
+of the header only. The space after the flag is required.
+
+A posting flag changes nothing in how the posting is booked. Zhang keeps it:
 
 - When Zhang writes the transaction, the flag is written back before the account. Editing a transaction in the web UI
   keeps the flag of each posting it edits, though the form does not show it.
 - In [queries](/reference/query-language/#columns), the `posting_flag` column holds it, and is `NULL` for a posting
   without a flag, as in beanquery. The `flag` column is the transaction's.
-
-The space after the flag is required. In a zhang file, an indented line such as `*Assets:Cash -10 CNY` or `#Assets:Cash`
-is a comment, while `# Assets:Cash -10 CNY` is a posting flagged `#`. To comment out a posting, start its line with `;`.
 
 ### Amounts
 
@@ -228,6 +229,10 @@ plugin built against an older version of Zhang, from before posting metadata, st
 back every directive it is given, so **every** transaction that passes through it loses the metadata of its postings,
 not only the ones it changes. Rebuild such a plugin to keep it.
 
+A plugin can also set the `flag` of a posting. In a zhang ledger, a posting flag that a zhang file cannot hold, such
+as `*` or `#`, is left out when Zhang writes the transaction, for example after an edit in the web UI: the posting is
+written without it, so that it stays a posting rather than a comment.
+
 ## Errors
 
 | Error | When | Booked? |
@@ -247,8 +252,8 @@ not only the ones it changes. Rebuild such a plugin to keep it.
   ignores it on `balance` and `pad`, as Beancount does.
 - Beancount requires a flag or `txn` on every transaction. A header without one, such as `2024-01-02 "Cafe" "lunch"`,
   only works in Zhang.
-- A flag in front of a posting, such as `! Assets:Cash -10 CNY`, is read as in Beancount. See
-  [Posting flags](#posting-flags). Beancount also reads it without the space, as in `!Assets:Cash -10 CNY`; Zhang
+- A flag in front of a posting, such as `! Assets:Cash -10 CNY` or `* Assets:Cash -10 CNY`, is read as in Beancount.
+  See [Posting flags](#posting-flags). Beancount also reads it without the space, as in `!Assets:Cash -10 CNY`; Zhang
   reports that line as an error.
 - Beancount's `pushtag` / `poptag` and `pushmeta` / `popmeta` work in Beancount files only. Zhang applies them while
   it reads the file.
