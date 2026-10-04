@@ -2,7 +2,7 @@ import { ChartNoAxesColumn } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts';
-import { GraphInterval, GraphRow, StatisticGraphResponse, useAxisFormatter, useGraphRows } from '@/components/layout/chart-utils';
+import { GraphRow, useAxisFormatter } from '@/components/layout/chart-utils';
 import { cn } from '@/lib/utils';
 import Amount from './Amount';
 import { ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from './ui/chart';
@@ -111,25 +111,5 @@ export function CashFlowChart({ rows, commodity, className }: ChartProps) {
         <Bar dataKey="expense" stackId="flow" fill="var(--color-expense)" radius={[3, 3, 0, 0]} maxBarSize={28} isAnimationActive={false} />
       </BarChart>
     </ChartContainer>
-  );
-}
-
-interface Props {
-  data?: StatisticGraphResponse;
-  /** Kept for compatibility; height is now controlled with `className`. */
-  height?: number;
-  interval?: GraphInterval;
-  className?: string;
-}
-
-/** Both statistic charts stacked (net worth trend, then income vs. expenses). */
-export default function ReportGraph({ data, interval = 'Day', className }: Props) {
-  const { rows, commodity } = useGraphRows(data, interval);
-  if (data === undefined) return null;
-  return (
-    <div className="flex flex-col gap-6">
-      <BalanceTrendChart rows={rows} commodity={commodity} className={className} />
-      <CashFlowChart rows={rows} commodity={commodity} className={className} />
-    </div>
   );
 }
