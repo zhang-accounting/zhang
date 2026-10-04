@@ -43,7 +43,8 @@
 //! 9. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
 //!    LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
 //!    aggregates its first LIMIT groups (unless HAVING may drop some of them), or, when the rows
-//!    of each group come one after another, only the groups of its window, past OFFSET; with
+//!    of each group come one after another in the order of their keys, only the groups of its
+//!    window, past OFFSET; with
 //!    ORDER BY (and no DISTINCT) the scan keeps the top LIMIT rows instead of sorting them all.
 //! 10. [`account_scope`]: when the filter of a `postings` query can only hold for the rows of
 //!     some accounts (`account = :account`), the execution only builds their rows.

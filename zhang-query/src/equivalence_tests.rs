@@ -349,7 +349,7 @@ fn totals_count_the_rows_before_the_window() {
 }
 
 /// Grouped queries whose LIMIT keeps their first groups: the rows of a posting's lots, of a day and of a month come
-/// one after another, in one run, those of an account do not.
+/// one after another, in one run, and the runs in the order of their keys; those of an account or a payee do not.
 const GROUPED: &[&str] = &[
     "SELECT seq, posting_index, sum(number) AS units, first(currency), last(only(currency, units(balance))) GROUP BY seq, posting_index",
     "SELECT seq, posting_index, sum(number), first(account) WHERE account ~ 'Assets' GROUP BY seq, posting_index",
@@ -360,8 +360,8 @@ const GROUPED: &[&str] = &[
 ];
 
 /// LIMIT and OFFSET keep the groups of their window out of all the groups in the order of their first row, and the
-/// total counts all of them, whether the groups come in runs, when only those of the window are built and the scan
-/// stops after it, or not, when every group is built.
+/// total counts all of them, whether the groups come in runs, when only those of the window are built, or not, when
+/// every group is built.
 #[test]
 fn a_window_of_groups_is_that_window_of_all_the_groups() {
     for ledger in [fava_demo_ledger(), load_text(&random_lots_ledger(7, 150))] {

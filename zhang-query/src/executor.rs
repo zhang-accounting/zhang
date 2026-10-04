@@ -2,9 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeSet, BinaryHeap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -1003,15 +1001,16 @@ impl<'x, 'a> Execution<'x, 'a> {
     }
 
     /// The groups of the window of an aggregate query whose LIMIT keeps its first groups, when
-    /// the rows of every group come one after another in ledger order, in one run: the lot rows
-    /// of a posting grouped by `seq` and `posting_index`, or the rows of a day grouped by `date`.
-    /// Only the groups of the window are built; the others are counted, so a page deep into a
-    /// long history holds only its own groups.
+    /// the rows of every group come one after another in ledger order, in one run, and the runs
+    /// in the order of their keys: the lot rows of a posting grouped by `seq` and
+    /// `posting_index`, or the rows of a day grouped by `date`. Only the groups of the window are
+    /// built; the others are only counted, so a page deep into a long history holds only its own
+    /// groups.
     ///
-    /// The scan goes to the end, as a later row could belong to a group of the window. A key that
-    /// comes back after another one means a group in more than one run, which only building
-    /// every group as usual gets right: then it gives back what it charged and returns `None`. It
-    /// tells keys apart by their hash, so a collision costs that fallback, never a wrong group.
+    /// The scan goes to the end, as a later row could belong to a group of the window. A run
+    /// whose key does not come after that of the run before it, in the order ORDER BY sorts by,
+    /// may continue an earlier group, which only building every group as usual gets right: then
+    /// it gives back what it charged and returns `None`.
     fn group_runs(&self, keys: &[usize], deferred: &[usize], window: Window, budget: &mut Budget) -> Result<Option<Runs>, LocatedError> {
         let plan = self.plan;
         let strategy = &plan.execution;
@@ -1022,8 +1021,6 @@ impl<'x, 'a> Execution<'x, 'a> {
             count: 0,
         };
         let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
-        // the hash of the key of every run so far
-        let mut seen: HashSet<u64> = HashSet::new();
         let mut current: Option<Vec<Value>> = None;
         // the runs so far, and whether the current one is in the window
         let mut runs = 0u64;
@@ -1052,7 +1049,7 @@ impl<'x, 'a> Execution<'x, 'a> {
             };
             let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
             if current.as_ref() != Some(&key) {
-                if !seen.insert(key_hash(&key)) {
+                if current.as_ref().is_some_and(|current| !comes_after(&key, current)) {
                     budget.used = used;
                     return Ok(None);
                 }
@@ -1099,11 +1096,14 @@ struct Runs {
     count: u64,
 }
 
-/// The hash a run's key is told apart by.
-fn key_hash(key: &[Value]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    hasher.finish()
+/// Whether the key of a group comes after `previous` in the order ORDER BY sorts by, so the
+/// two are different groups and so are all the groups before `previous`.
+fn comes_after(key: &[Value], previous: &[Value]) -> bool {
+    key.iter()
+        .zip(previous)
+        .map(|(value, other)| value.sort_cmp(other))
+        .find(|ordering| *ordering != Ordering::Equal)
+        == Some(Ordering::Greater)
 }
 
 /// The accumulators of a new group: a deferred `first()` / `last()` remembers the row it picks.
