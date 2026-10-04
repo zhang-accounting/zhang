@@ -31,6 +31,7 @@ use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use zhang_core::data_source::DataSource;
+use zhang_core::error::IoErrorIntoZhangError;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::Ledger;
 use zhang_core::{ZhangError, ZhangResult};
@@ -244,9 +245,9 @@ impl ReloadSender {
     }
 }
 
-pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
+pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
-    let ledger = Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone()).await?;
+    let ledger = load_served_ledger(&mut opts).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
     let (tx, rx) = mpsc::channel::<i32>(1);
@@ -267,6 +268,19 @@ pub async fn serve(opts: ServeConfig) -> ZhangResult<()> {
         start_report_tasker();
     }
     start_server(opts, ledger_data, broadcaster.clone(), reload_sender.clone()).await
+}
+
+/// The ledger `opts` serves, loaded. The root of a ledger on the local file system is made canonical first, in
+/// `opts.path` and so in the ledger's entry: the load lists the files it read by joining them onto the root, and the
+/// watcher compares that list with the paths the filesystem reports, which are canonical (macOS) or joined onto the
+/// watched root (other platforms). A root as typed, `.` or through a symlink such as `/tmp` on macOS, spelled the
+/// files differently, and no edit ever reloaded the ledger (#492). A remote root is a path on the remote storage, and
+/// stays as it is.
+pub async fn load_served_ledger(opts: &mut ServeConfig) -> ZhangResult<Ledger> {
+    if opts.is_local_fs {
+        opts.path = opts.path.canonicalize().with_path(&opts.path)?;
+    }
+    Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone()).await
 }
 
 fn start_report_tasker() {
@@ -656,5 +670,106 @@ mod reload_test {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         assert_eq!(served, vec!["Assets:A", "Assets:B"], "the next change is reloaded");
+    }
+}
+
+/// The root `zhang serve` is given, as typed, spelled the files the load listed differently from the paths the
+/// filesystem reports, and no edit reloaded a ledger served as `zhang serve .` or through a symlink (#492).
+#[cfg(all(test, unix))]
+mod served_root_test {
+    use std::path::{Component, Path, PathBuf};
+    use std::sync::Arc;
+
+    use notify::event::{DataChange, ModifyKind};
+    use notify::{Event, EventKind};
+    use zhang_core::data_source::{DataSource, LoadResult};
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::data_type::DataType;
+    use zhang_core::ZhangResult;
+
+    use super::{load_served_ledger, watch, ServeConfig};
+
+    /// a source listing the files it loads as the CLI's does: the file joined onto the root as it was given
+    struct Joined;
+
+    #[async_trait::async_trait]
+    impl DataSource for Joined {
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+            let file = PathBuf::from(entry).join(endpoint);
+            let content = std::fs::read_to_string(&file)?;
+            let directives = ZhangDataType {}.transform(content, Some(file.to_string_lossy().into_owned()))?;
+            Ok(LoadResult {
+                directives,
+                visited_files: vec![file],
+            })
+        }
+    }
+
+    /// what `zhang serve <root>` on the local file system hands to `serve`
+    fn local_serve_config(root: PathBuf) -> ServeConfig {
+        ServeConfig {
+            path: root,
+            endpoint: "main.zhang".to_owned(),
+            addr: String::new(),
+            port: 0,
+            no_report: true,
+            data_source: Arc::new(Joined),
+            auth_credential: None,
+            passkey_secret: None,
+            passkey_rp_id: None,
+            passkey_origin: None,
+            session_secret: None,
+            is_local_fs: true,
+        }
+    }
+
+    /// a ledger directory `ledger` with a main file under `dir`, and a symlink `link` to it
+    fn ledger_and_link(dir: &Path) -> (PathBuf, PathBuf) {
+        let ledger = dir.join("ledger");
+        std::fs::create_dir(&ledger).unwrap();
+        std::fs::write(ledger.join("main.zhang"), "1970-01-01 open Assets:A\n").unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&ledger, &link).unwrap();
+        (ledger, link)
+    }
+
+    /// whether the ledger served from `root`, loaded as `serve` loads it, is stale after an edit of `main`, which
+    /// the filesystem reports by the canonical path
+    async fn edit_reloads_ledger_served_from(root: PathBuf, main: &Path) -> bool {
+        let mut opts = local_serve_config(root);
+        let ledger = load_served_ledger(&mut opts).await.expect("load ledger");
+        assert_eq!(opts.path, ledger.entry.0, "the root served is the root loaded");
+        let roots = watch::watch_roots(&ledger.entry.0);
+        let edit = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content))).add_path(main.canonicalize().unwrap());
+        watch::should_reload(&edit, &roots, &ledger.visited_files, &ledger.extra_inputs)
+    }
+
+    /// `target`, absolute, relative to the working directory, as `zhang serve .` or `zhang serve ../ledger` name a root
+    fn relative_to_cwd(target: &Path) -> PathBuf {
+        let cwd = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let mut relative = PathBuf::new();
+        for component in cwd.components() {
+            if let Component::Normal(_) = component {
+                relative.push("..");
+            }
+        }
+        relative.join(target.strip_prefix("/").unwrap())
+    }
+
+    #[tokio::test]
+    async fn should_reload_an_edit_of_a_ledger_served_through_a_symlinked_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let (ledger, link) = ledger_and_link(dir.path());
+        assert!(edit_reloads_ledger_served_from(link, &ledger.join("main.zhang")).await);
+    }
+
+    #[tokio::test]
+    async fn should_reload_an_edit_of_a_ledger_served_through_a_relative_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().canonicalize().unwrap();
+        std::fs::write(ledger.join("main.zhang"), "1970-01-01 open Assets:A\n").unwrap();
+        let relative = relative_to_cwd(&ledger);
+        assert!(relative.is_relative(), "{}", relative.display());
+        assert!(edit_reloads_ledger_served_from(relative, &ledger.join("main.zhang")).await);
     }
 }

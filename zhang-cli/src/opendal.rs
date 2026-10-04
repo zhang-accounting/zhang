@@ -1368,4 +1368,58 @@ mod test {
         let message = body["message"].as_str().unwrap_or_default();
         assert!(message.contains("main.zhang"), "{}", body);
     }
+
+    /// `zhang serve` given the root through a symlink, as `/tmp` is on macOS, lists the files it loads by their
+    /// canonical path, the one the watcher compares with the paths the filesystem reports: an edit reloads (#492)
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_local_root_through_a_symlink_lists_its_files_canonically() {
+        use zhang_server::ServeConfig;
+
+        let dir = tempdir().unwrap();
+        let ledger_dir = dir.path().join("ledger");
+        std::fs::create_dir(&ledger_dir).unwrap();
+        std::fs::write(ledger_dir.join("main.zhang"), OPENS).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&ledger_dir, &link).unwrap();
+        let mut opts = ServerOpts {
+            path: link.clone(),
+            endpoint: "main.zhang".to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let mut config = ServeConfig {
+            path: opts.path,
+            endpoint: opts.endpoint,
+            addr: opts.addr,
+            port: opts.port,
+            no_report: true,
+            data_source: source,
+            auth_credential: None,
+            passkey_secret: None,
+            passkey_rp_id: None,
+            passkey_origin: None,
+            session_secret: None,
+            is_local_fs: true,
+        };
+        let ledger = zhang_server::load_served_ledger(&mut config).await.unwrap();
+
+        let canonical = ledger_dir.canonicalize().unwrap();
+        assert_eq!(ledger.entry.0, canonical, "the ledger is served from the canonical root");
+        assert_eq!(config.path, canonical, "the server is configured with the canonical root");
+        assert_eq!(
+            ledger.visited_files,
+            vec![canonical.join("main.zhang")],
+            "the files loaded are listed canonically"
+        );
+        assert!(
+            ledger.data_source.async_get("main.zhang".to_owned()).await.is_ok(),
+            "the files are still read relative to the root"
+        );
+    }
 }

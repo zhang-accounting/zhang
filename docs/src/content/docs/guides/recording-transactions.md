@@ -119,6 +119,6 @@ Zhang checks the ledger every time it loads it.
 
 ## Reloading
 
-For a ledger on the local disk, `zhang serve` watches the ledger directory and reloads when one of the ledger's files changes, so an edit in your text editor shows up within a second or two. This works only when Zhang is given the ledger directory as an absolute path that does not go through a symbolic link: see [Local File System](/deployment/data-sources/local/). Recording something in the web UI, or saving a file on the Raw Editing page, reloads the ledger too.
+For a ledger on the local disk, `zhang serve` watches the ledger directory and reloads when one of the ledger's files changes, so an edit in your text editor shows up within a second or two: see [Local File System](/deployment/data-sources/local/) for what triggers a reload. Recording something in the web UI, or saving a file on the Raw Editing page, reloads the ledger too.
 
 The **Reload ledger** button, the circular arrow next to the ledger's title in the sidebar, reloads it on demand. Use it for a ledger on [S3, WebDAV or GitHub](/deployment/data-sources/s3/): there Zhang does not notice changes made by other programs.

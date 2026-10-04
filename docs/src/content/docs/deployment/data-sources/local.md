@@ -60,9 +60,7 @@ Some changes do not trigger a reload:
 - A new file that matches a wildcard include, such as `include "data/*.zhang"`, is loaded with the next reload only. Use the reload button, or save one of the ledger's files.
 - Changes in `.zhang/` and `.cache/` inside the ledger folder, and in files that are not part of the ledger.
 
-:::caution[Give an absolute path]
-Zhang recognizes the files it loaded by their path. Start it with an absolute path that contains no symbolic links, such as `zhang serve /home/me/ledger` or `zhang serve "$(realpath ledger)"`. With a relative path such as `zhang serve .`, or on macOS a path through a symbolic link such as `/tmp/…`, edits to the ledger files do not trigger a reload, and you have to use the reload button. The Docker image serves `/data`, which is fine.
-:::
+The folder can be named any way: `zhang serve .`, a relative path such as `zhang serve ../ledger`, or a path through a symbolic link such as `/tmp/…` on macOS. Zhang resolves it to its real location when it starts, and watches that.
 
 ### When a reload fails
 
