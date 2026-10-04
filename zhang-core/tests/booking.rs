@@ -1370,6 +1370,101 @@ fn a_total_cost_on_negative_units_reduces_the_lot_bought_at_that_cost() {
     assert_eq!(lots(&ledger, "Assets:A"), vec!["-3 USD {33 CNY, 2024-05-19}"]);
 }
 
+#[test]
+fn covering_a_short_lot_keeps_its_cost_date_and_label() {
+    for (cost, label) in [("{}", ""), ("{10 CNY}", ""), ("{, \"short\"}", ", \"short\"")] {
+        for cover in [4, 10] {
+            for cash in [format!("Income:I -{} CNY", cover * 10), "Income:I".to_owned()] {
+                let ledger = load(&formatdoc! {r#"
+                    2024-05-16 * "open a short"
+                      Assets:A -10 USD {{10 CNY{label}}}
+                      Income:I 100 CNY
+                    2024-05-17 * "cover the short"
+                      Assets:A {cover} USD {cost}
+                      {cash}
+                "#});
+                // Opening a short still reports the existing insufficient-lot warning. Covering
+                // it must neither add a warning nor lose the cost basis (#614).
+                assert_eq!(
+                    errors(&ledger),
+                    vec![(ErrorKind::NoEnoughCommodityLot, Some("-10".to_owned()))],
+                    "{cost}, {cover}, {cash}"
+                );
+                let expected = if cover == 10 {
+                    vec![]
+                } else {
+                    vec![format!("-6 USD {{10 CNY, 2024-05-16{label}}}")]
+                };
+                assert_eq!(lots(&ledger, "Assets:A"), expected, "{cost}, {cover}, {cash}");
+                assert_eq!(inferred(&ledger, 2), vec![format!("{cover} USD"), format!("-{} CNY", cover * 10)]);
+            }
+        }
+    }
+}
+
+#[test]
+fn covering_several_short_lots_uses_the_booking_method() {
+    for (method, cost, remaining, ambiguity) in [
+        ("FIFO", 83, "-2 USD {11 CNY, 2024-05-17}", false),
+        ("LIFO", 85, "-2 USD {10 CNY, 2024-05-16}", false),
+        ("STRICT", 83, "-2 USD {11 CNY, 2024-05-17}", true),
+    ] {
+        let ledger = load(&formatdoc! {r#"
+            1970-01-01 open Assets:A
+              booking_method: "{method}"
+            2024-05-16 * "first short"
+              Assets:A -5 USD {{10 CNY}}
+              Income:I 50 CNY
+            2024-05-17 * "second short"
+              Assets:A -5 USD {{11 CNY}}
+              Income:I 55 CNY
+            2024-05-18 * "cover both"
+              Assets:A 8 USD {{}}
+              Income:I
+        "#});
+        let mut expected_errors = vec![(ErrorKind::NoEnoughCommodityLot, Some("-5".to_owned())); 2];
+        if ambiguity {
+            expected_errors.push((ErrorKind::AmbiguousLotMatch, Some("8".to_owned())));
+        }
+        assert_eq!(errors(&ledger), expected_errors, "{method}");
+        assert_eq!(lots(&ledger, "Assets:A"), vec![remaining], "{method}");
+        assert_eq!(inferred(&ledger, 3), vec!["8 USD".to_owned(), format!("-{cost} CNY")], "{method}");
+    }
+}
+
+#[test]
+fn a_cover_reduces_short_lots_before_augmenting_matching_long_lots() {
+    let ledger = load(indoc! {r#"
+        2024-05-15 * "long lot"
+          Assets:A 10 USD {10 CNY}
+          Income:I -100 CNY
+        2024-05-16 * "short of the same cost on another date"
+          Assets:A -10 USD {10 CNY, 2024-05-16}
+          Income:I 100 CNY
+        2024-05-17 * "cover"
+          Assets:A 4 USD {}
+          Income:I
+    "#});
+    assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-10".to_owned()))]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {10 CNY, 2024-05-15}", "-6 USD {10 CNY, 2024-05-16}"]);
+    assert_eq!(inferred(&ledger, 3), vec!["4 USD", "-40 CNY"]);
+}
+
+#[test]
+fn a_cover_larger_than_the_short_opens_only_the_remaining_units() {
+    let ledger = load(indoc! {r#"
+        2024-05-16 * "short at a total cost"
+          Assets:A -10 USD {{100 CNY}}
+          Income:I 100 CNY
+        2024-05-17 * "cover and buy"
+          Assets:A 14 USD {10 CNY} @ 12 CNY
+          Income:I -140 CNY
+    "#});
+    assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-10".to_owned()))]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["4 USD {10 CNY, 2024-05-17}"]);
+    assert_eq!(inferred(&ledger, 2), vec!["14 USD", "-140 CNY"]);
+}
+
 /// Booking runs as a stage before the plugins (design §2): the stream the ledger keeps holds the
 /// booked postings, with the written form on those booking changed, and the store fold's pass 2
 /// completes what the stages left unbooked, such as the implicit leg of a padding transaction.

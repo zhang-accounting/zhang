@@ -521,3 +521,40 @@ fn labelled_lot_splits_rebook_to_the_same_lots() {
     assert!(once.reports.iter().all(Vec::is_empty), "{:?}", once.reports);
     assert_same_booking(&again, &once, "labelled lots");
 }
+
+#[test]
+fn short_covers_split_and_rebook_without_losing_the_cost_basis() {
+    let (once, again) = book_twice(indoc! {r#"
+        1970-01-01 open Assets:A
+        1970-01-01 open Income:I
+        2024-05-16 * "first short"
+          Assets:A -5 USD {10 CNY, "a"}
+          Income:I 50 CNY
+        2024-05-17 * "second short"
+          Assets:A -5 USD {11 CNY, "b"}
+          Income:I 55 CNY
+        2024-05-18 * "cover across both"
+          Assets:A 8 USD {} @ 12 CNY
+            note: "cover"
+          Income:I
+        2024-05-19 * "cover the rest by label"
+          Assets:A 2 USD {, "b"}
+          Income:I
+    "#});
+    assert_eq!(
+        postings(&once.directives)[2],
+        vec![
+            "Assets:A 5 USD {10 CNY, 2024-05-16, \"a\"} <- #0 8 USD {}",
+            "Assets:A 3 USD {11 CNY, 2024-05-17, \"b\"} <- #0 8 USD {}",
+            "Income:I -83 CNY <- #1 ?",
+        ]
+    );
+    assert_eq!(
+        postings(&once.directives)[3][0],
+        "Assets:A 2 USD {11 CNY, 2024-05-17, \"b\"} <- #0 2 USD {\"b\"}"
+    );
+    assert!(lots(&once, "Assets:A").is_empty());
+    assert!(once.reports[2..].iter().all(Vec::is_empty));
+    assert!(once.residuals.iter().all(|residual| residual == &["0 CNY"]));
+    assert_same_booking(&again, &once, "short covers");
+}
