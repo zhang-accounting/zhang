@@ -7099,6 +7099,7 @@ dependencies = [
  "zhang-ast",
  "zhang-core",
  "zhang-query",
+ "zhang-shared",
 ]
 
 [[package]]
@@ -7125,6 +7126,7 @@ dependencies = [
  "uuid",
  "zhang-ast",
  "zhang-core",
+ "zhang-shared",
 ]
 
 [[package]]
@@ -7172,6 +7174,14 @@ dependencies = [
  "zhang-ast",
  "zhang-core",
  "zhang-query",
+]
+
+[[package]]
+name = "zhang-shared"
+version = "0.1.0"
+dependencies = [
+ "bigdecimal",
+ "chrono",
 ]
 
 [[package]]

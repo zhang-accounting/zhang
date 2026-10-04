@@ -1,0 +1,9 @@
+[package]
+name = "zhang-shared"
+version = "0.1.0"
+edition = "2021"
+description = "Portable logic shared by zhang crates"
+
+[dependencies]
+bigdecimal = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std"] }

@@ -57,105 +57,40 @@
 //! assert_eq!(prices.convert(&lunch, "CNY", day("2024-03-01")), Some(Amount::new(number("20.00"), "CNY")));
 //! ```
 
-use std::collections::HashMap;
-use std::num::NonZeroU64;
-
-use bigdecimal::{BigDecimal, One, RoundingMode, Zero};
+use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Directive, SingleTotalPrice, Spanned};
+use zhang_shared::decimal::{div, mul_in_context};
 
-/// the significant digits a rounded division or product keeps: Python's default decimal context
-const PRECISION: u64 = 28;
-
-/// a pair's prices, sorted by date, one per date
-type History = Vec<(NaiveDate, BigDecimal)>;
-
-/// Exchange rates between commodities, built from `price` directives. See the [module docs](self) for the
-/// semantics and the precision.
+/// Exchange rates of a plugin's stream. See the [module docs](self) for the
+/// input policy; price histories and precision are shared with the query engine.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PriceMap {
-    /// base → quote → history; only one direction of a pair is kept, the other is inverted on lookup
-    rates: HashMap<String, HashMap<String, History>>,
-}
+pub struct PriceMap(zhang_shared::prices::PriceMap);
 
 impl PriceMap {
-    /// the rates of the `price` directives in `stream`
-    pub fn from_stream(stream: &[Spanned<Directive>]) -> PriceMap {
-        PriceMap::from_points(price_points(stream, false))
+    /// The rates of the `price` directives in `stream`.
+    pub fn from_stream(stream: &[Spanned<Directive>]) -> Self {
+        Self(zhang_shared::prices::PriceMap::from_points(price_points(stream, false)))
     }
 
-    /// the rates of the `price` directives in `stream` and of the `@`/`@@` prices of its postings
-    pub fn from_stream_with_implicit(stream: &[Spanned<Directive>]) -> PriceMap {
-        PriceMap::from_points(price_points(stream, true))
+    /// The rates of the `price` directives and of the `@`/`@@` posting prices.
+    pub fn from_stream_with_implicit(stream: &[Spanned<Directive>]) -> Self {
+        Self(zhang_shared::prices::PriceMap::from_points(price_points(stream, true)))
     }
 
-    /// build from `(date, base, quote, rate)` points in stream order
-    fn from_points(points: Vec<(NaiveDate, String, String, BigDecimal)>) -> PriceMap {
-        let mut forward: HashMap<(String, String), History> = HashMap::new();
-        let mut first_seen: Vec<(String, String)> = vec![];
-        for (date, base, quote, rate) in points {
-            let key = (base, quote);
-            if !forward.contains_key(&key) {
-                first_seen.push(key.clone());
-            }
-            forward.entry(key).or_default().push((date, rate));
-        }
-
-        // a pair quoted in both directions keeps the direction with more prices (the first seen on a tie), and the
-        // other one is inverted into it, after the kept prices
-        let mut rates: HashMap<String, HashMap<String, History>> = HashMap::new();
-        for key in first_seen {
-            let Some(points) = forward.remove(&key) else {
-                continue;
-            };
-            let inverse_key = (key.1.clone(), key.0.clone());
-            let ((base, quote), mut history) = match forward.remove(&inverse_key) {
-                None => (key, points),
-                Some(inverse_points) => {
-                    let (keep_key, mut keep, other) = if points.len() >= inverse_points.len() {
-                        (key, points, inverse_points)
-                    } else {
-                        (inverse_key, inverse_points, points)
-                    };
-                    keep.extend(other.into_iter().filter_map(|(date, rate)| invert(&rate).map(|rate| (date, rate))));
-                    (keep_key, keep)
-                }
-            };
-            // a stable sort keeps stream order within a day, so the last price of the day wins
-            history.sort_by_key(|(date, _)| *date);
-            let mut deduped: History = Vec::with_capacity(history.len());
-            for (date, rate) in history {
-                match deduped.last_mut() {
-                    Some(last) if last.0 == date => last.1 = rate,
-                    _ => deduped.push((date, rate)),
-                }
-            }
-            rates.entry(base).or_default().insert(quote, deduped);
-        }
-        PriceMap { rates }
-    }
-
-    /// whether the map has no prices
+    /// Whether the map has no prices.
     pub fn is_empty(&self) -> bool {
-        self.rates.is_empty()
+        self.0.is_empty()
     }
 
-    /// The rate converting one unit of `base` into `quote` on `date`: the latest price on or before it, directly
-    /// or inverted; 1 when `base` is `quote`; `None` without a price on or before `date`.
+    /// The latest rate on or before `date`; one for the same commodity and
+    /// `None` without a price on or before that date.
     pub fn rate(&self, base: &str, quote: &str, date: NaiveDate) -> Option<BigDecimal> {
-        if base == quote {
-            return Some(BigDecimal::one());
-        }
-        if let Some(history) = self.rates.get(base).and_then(|quotes| quotes.get(quote)) {
-            return latest(history, date, false).cloned();
-        }
-        let history = self.rates.get(quote).and_then(|quotes| quotes.get(base))?;
-        latest(history, date, true).and_then(invert)
+        self.0.rate(base, quote, Some(date))
     }
 
-    /// `amount` in `target` at the rate of `date`; `None` without a rate. The number is rounded as the
-    /// [module docs](self#precision) say.
+    /// `amount` in `target` on `date`; `None` without a rate.
     pub fn convert(&self, amount: &Amount, target: &str, date: NaiveDate) -> Option<Amount> {
         let rate = self.rate(&amount.commodity, target, date)?;
         Some(Amount::new(mul_in_context(&amount.number, &rate), target))
@@ -191,60 +126,6 @@ fn price_points(stream: &[Spanned<Directive>], implicit: bool) -> Vec<(NaiveDate
         }
     }
     points
-}
-
-/// the latest rate on or before `date`, skipping zero rates if `skip_zero`
-fn latest(history: &[(NaiveDate, BigDecimal)], date: NaiveDate, skip_zero: bool) -> Option<&BigDecimal> {
-    let end = history.partition_point(|(day, _)| *day <= date);
-    history[..end]
-        .iter()
-        .rev()
-        .find(|(_, rate)| !skip_zero || !rate.is_zero())
-        .map(|(_, rate)| rate)
-}
-
-/// `1 / rate`; `None` for a zero rate
-fn invert(rate: &BigDecimal) -> Option<BigDecimal> {
-    div(&BigDecimal::one(), rate)
-}
-
-/// `lhs / rhs` in Python's default decimal context, like beancount: an exact quotient keeps the ideal scale
-/// `lhs.scale - rhs.scale` when that fits (`10.00 / 2` is `5.00`), an inexact one is rounded half-even to
-/// [`PRECISION`] significant digits; `None` for a zero `rhs`. The same computation as zhang's query engine.
-fn div(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
-    if rhs.is_zero() {
-        return None;
-    }
-    let quotient = lhs / rhs;
-    let quotient = if quotient.digits() > PRECISION {
-        quotient.with_precision_round(precision(), RoundingMode::HalfEven)
-    } else {
-        quotient
-    };
-    let ideal_scale = lhs.fractional_digit_count() - rhs.fractional_digit_count();
-    let normalized = quotient.normalized();
-    if normalized.fractional_digit_count() < ideal_scale && normalized.digits() + (ideal_scale - normalized.fractional_digit_count()) as u64 <= PRECISION {
-        Some(normalized.with_scale(ideal_scale))
-    } else {
-        Some(normalized)
-    }
-}
-
-/// `lhs × rhs` keeping the scale `lhs.scale + rhs.scale` (`-1000.00 × 1` is `-1000.00`), rounded half-even to
-/// [`PRECISION`] significant digits when it has more
-fn mul_in_context(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
-    let (lhs_digits, lhs_scale) = lhs.as_bigint_and_exponent();
-    let (rhs_digits, rhs_scale) = rhs.as_bigint_and_exponent();
-    let mut product = BigDecimal::new(lhs_digits * rhs_digits, lhs_scale + rhs_scale);
-    // a carry (9.99… → 10.00…) adds a digit; the second pass drops it
-    while product.digits() > PRECISION {
-        product = product.with_precision_round(precision(), RoundingMode::HalfEven);
-    }
-    product
-}
-
-fn precision() -> NonZeroU64 {
-    NonZeroU64::new(PRECISION).expect("the precision is not zero")
 }
 
 #[cfg(test)]

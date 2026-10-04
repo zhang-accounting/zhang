@@ -5,6 +5,7 @@ edition = "2021"
 description = "A BQL-compatible query engine that evaluates directly over zhang's in-memory ledger store"
 
 [dependencies]
+zhang-shared = { version = "0.1", path = "../zhang-shared" }
 zhang-core = { version = "0.1", path = "../zhang-core" }
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
 bigdecimal = { workspace = true }
