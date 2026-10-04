@@ -375,7 +375,7 @@ dependencies = [
  "bigdecimal",
  "chrono",
  "indoc 2.0.7",
- "itertools",
+ "itertools 0.15.0",
  "nom",
  "serde_json",
  "zhang-ast",
@@ -2403,6 +2403,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2848,7 +2857,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fcc6ee827775cad0e021fc05f7f715d35258be0d69cc4d96c8010e976176b9"
 dependencies = [
- "itertools",
+ "itertools 0.14.0",
  "regex",
  "serde",
  "toml 0.8.23",
@@ -3517,7 +3526,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -5914,7 +5923,7 @@ dependencies = [
  "cranelift-frontend",
  "cranelift-native",
  "gimli",
- "itertools",
+ "itertools 0.14.0",
  "log",
  "object",
  "pulley-interpreter",
@@ -6765,7 +6774,7 @@ dependencies = [
  "gotcha_core",
  "indexmap 2.14.2",
  "indoc 2.0.7",
- "itertools",
+ "itertools 0.15.0",
  "serde",
  "serde_json",
  "strum",
@@ -6788,7 +6797,7 @@ dependencies = [
  "iana-time-zone",
  "indexmap 2.14.2",
  "indoc 2.0.7",
- "itertools",
+ "itertools 0.15.0",
  "libc",
  "log",
  "minijinja",
@@ -6884,7 +6893,7 @@ dependencies = [
  "gotcha_core",
  "hmac 0.12.1",
  "indexmap 2.14.2",
- "itertools",
+ "itertools 0.15.0",
  "log",
  "mime_guess",
  "notify",
