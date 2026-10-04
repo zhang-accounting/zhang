@@ -49,6 +49,8 @@ Zhang infers it. See [How a transaction balances](/reference/directives/transact
 One posting leaves out its amount, and there is nothing to infer it from: the other postings have no amounts, or they
 balance in several commodities.
 
+This also reports a cost that cannot be resolved: a purchase with both its cost and cash amount omitted, multiple missing costs, a cost requiring division by zero or a negative cost, or a `{}` reduction with no matching cost lots. An unmatched reduction also reports [`NoEnoughCommodityLot`](#noenoughcommoditylot). The entire transaction is rejected and its previous holdings are retained.
+
 ```zhang
 2024-01-01 open Assets:Cash
 2024-01-01 open Expenses:Food
@@ -107,10 +109,7 @@ so Zhang cannot tell which commodity the missing amount is in.
   Assets:Cash
 ```
 
-The posting without an amount is inferred from the weights of the other postings, after their lots are matched. A
-`{}` sale that reduces more units than its lots hold leaves a part without cost, which weighs its units: that is a
-second commodity, so the transaction also gets this error, after
-[`NoEnoughCommodityLot`](#noenoughcommoditylot).
+The posting without an amount is inferred from the weights of the other postings, after their lots are matched. An unmatched `{}` reduction instead reports [`TransactionCannotInferTradeAmount`](#transactioncannotinfertradeamount) after [`NoEnoughCommodityLot`](#noenoughcommoditylot), because its cost cannot be resolved.
 
 The transaction is **not booked**. **Fix:** write every amount, or convert with a price (`@`) so the weights are in
 one commodity.
@@ -328,7 +327,7 @@ A posting with a cost reduces more units than the matching lots of the account h
   Assets:Cash 1000 USD
 ```
 
-The transaction is still booked, and the lot goes negative. **Fix:** check the number of units and the cost the
+With an explicit cost as above, the transaction is still booked and the lot goes negative. With `{}`, the entire transaction is rejected, also reports [`TransactionCannotInferTradeAmount`](#transactioncannotinfertradeamount), and keeps the previous holdings. **Fix:** check the number of units and the cost the
 posting names; a missing purchase is a common cause. See [Lots and cost basis](/guides/lots-and-cost-basis/).
 
 ## CloseNonZeroAccount

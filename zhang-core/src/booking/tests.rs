@@ -248,12 +248,12 @@ fn booking_rewrites_the_postings_into_their_booked_form() {
             ],
             // postings without a cost are left as written
             vec!["Assets:B 6 USD", "Assets:B 1 USD", "Income:I -13 CNY"],
-            // a `{}` remainder keeps its `{}` (E9), so the posting is as written
+            // an unmatched `{}` reduction is rejected and stays as written (E9)
             vec!["Assets:B -3 USD {}", "Income:I 3 USD"],
         ]
     );
     assert_eq!(lots(&booked, "Assets:A"), vec!["-3 USD {11 CNY, 2024-05-19}"]);
-    assert_eq!(lots(&booked, "Assets:B"), vec!["7 USD", "-3 USD"]);
+    assert_eq!(lots(&booked, "Assets:B"), vec!["7 USD"]);
     // every leg of a split carries the meta of the posting it was written as: the written form
     // merges the legs back with the first leg's meta, and nothing is lost on the others
     let Directive::Transaction(sale) = &booked.directives[5].data else {
@@ -270,7 +270,10 @@ fn booking_rewrites_the_postings_into_their_booked_form() {
             vec![],
             vec!["NoEnoughCommodityLot {\"transaction_amount\": \"-8\"}".to_owned()],
             vec![],
-            vec!["NoEnoughCommodityLot {\"transaction_amount\": \"-3\"}".to_owned()],
+            vec![
+                "unbookable TransactionCannotInferTradeAmount".to_owned(),
+                "NoEnoughCommodityLot {\"transaction_amount\": \"-3\"}".to_owned(),
+            ],
         ]
     );
 
@@ -557,4 +560,33 @@ fn short_covers_split_and_rebook_without_losing_the_cost_basis() {
     assert!(once.reports[2..].iter().all(Vec::is_empty));
     assert!(once.residuals.iter().all(|residual| residual == &["0 CNY"]));
     assert_same_booking(&again, &once, "short covers");
+}
+
+#[test]
+fn inferred_costs_and_rejected_reductions_rebook_without_changing_the_written_form() {
+    let (once, again) = book_twice(indoc! {r#"
+        1970-01-01 open Assets:A
+        1970-01-01 open Income:I
+        2024-05-16 * "buy"
+          Assets:A 10 USD {10 CNY}
+          Income:I -100 CNY
+        2024-05-17 * "infer a labelled total cost"
+          Assets:A 3 USD {{, "a"}} @ 100 CNY
+          Income:I -33 CNY
+        2024-05-18 * "reject an unmatched reduction after cash"
+          Income:I 1000 CNY
+          Assets:A -100 USD {}
+        2024-05-19 * "sell the new lot by label"
+          Assets:A -3 USD {, "a"}
+          Income:I
+    "#});
+    assert_eq!(
+        postings(&once.directives)[1][0],
+        "Assets:A 3 USD {11 CNY, 2024-05-17, \"a\"} <- #0 3 USD {{\"a\"}}"
+    );
+    assert_eq!(postings(&once.directives)[2], vec!["Income:I 1000 CNY", "Assets:A -100 USD {}"]);
+    assert_eq!(lots(&once, "Assets:A"), vec!["10 USD {10 CNY, 2024-05-16}"]);
+    assert_eq!(lots(&once, "Income:I"), vec!["-100 CNY"]);
+    assert_eq!(once.reports[2][0], "unbookable TransactionCannotInferTradeAmount");
+    assert_same_booking(&again, &once, "inferred and unmatched costs");
 }

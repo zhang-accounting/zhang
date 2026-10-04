@@ -38,6 +38,8 @@ sidebar:
 
 一个记账行省略了金额，但没有可以推断它的依据：其他记账行没有金额，或者它们在多种商品上配平。
 
+成本无法确定时，也会报告这个错误：买入同时省略成本和现金金额、缺少多个成本、推导需要除以零或得到负成本，或者用 `{}` 减持却没有匹配的成本批次。无法匹配的减持还会报告 [`NoEnoughCommodityLot`](#noenoughcommoditylot)。整笔交易会被拒绝，之前的持仓保持不变。
+
 ```zhang
 2024-01-01 open Assets:Cash
 2024-01-01 open Expenses:Food
@@ -89,7 +91,7 @@ sidebar:
   Assets:Cash
 ```
 
-省略金额的记账行，是在其他记账行匹配批次之后，根据它们的权重推断的。减掉的数量多于批次持有量的 `{}` 卖出，会留下一部分没有成本，这部分按其数量计算权重：这就是第二种商品，所以这笔交易在 [`NoEnoughCommodityLot`](#noenoughcommoditylot) 之后还会得到这个错误。
+省略金额的记账行，是在其他记账行匹配批次之后，根据它们的权重推断的。无法匹配的 `{}` 减持会在 [`NoEnoughCommodityLot`](#noenoughcommoditylot) 之后报告 [`TransactionCannotInferTradeAmount`](#transactioncannotinfertradeamount)，因为无法确定其成本。
 
 交易**不记账**。**修正方法**：写出每个金额，或者用价格（`@`）换算，让权重都使用同一种商品。
 
@@ -262,7 +264,7 @@ Beancount 账本中的一条 `document` 指向的文件不存在：相对于 `do
   Assets:Cash 1000 USD
 ```
 
-交易仍会记账，批次变为负数。**修正方法**：检查记账行写出的数量和成本；漏记买入是常见原因。见[批次与成本](/zh-cn/guides/lots-and-cost-basis/)。
+像上例那样写了明确成本时，交易仍会记账，批次变为负数。使用 `{}` 时，整笔交易会被拒绝，还会报告 [`TransactionCannotInferTradeAmount`](#transactioncannotinfertradeamount)，之前的持仓保持不变。**修正方法**：检查记账行写出的数量和成本；漏记买入是常见原因。见[批次与成本](/zh-cn/guides/lots-and-cost-basis/)。
 
 ## CloseNonZeroAccount
 

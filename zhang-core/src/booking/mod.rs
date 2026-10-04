@@ -33,8 +33,8 @@
 //! posting booking changed carries what was written in [`Posting::written`]: the index of the
 //! written posting, which the legs of a split share, its units and its cost spec. The store fold
 //! groups the legs back into one row per written posting ([`written_groups`], the rule the
-//! exporter follows too: a split a stage broke apart is shown as booked). The part of a `{}`
-//! reduction no lot covers keeps `{}`, so it books the same lot again (E9). Booking a booked
+//! exporter follows too: a split a stage broke apart is shown as booked). A `{}` reduction no lot
+//! covers rejects the entire transaction without changing its lots (E9). Booking a booked
 //! transaction again changes nothing: every leg matches exactly the lot it was booked against, and
 //! STRICT's ambiguity check and the error metas use the written form, so the errors are the same.
 //! An unbookable transaction is left untouched.
@@ -43,9 +43,8 @@
 //! and the missing ones wildcards, so a reduction `{10 CNY}` matches the lots held at 10 CNY from any
 //! acquisition date, and `{, "a"}` the lots labelled `a` whatever their cost (#498). An
 //! augmentation opens or extends the lot of exactly what it writes, label included: lots that
-//! differ only by label are distinct. Its other known quirks (E6, E8 and E9 in the design, pinned
-//! by `tests/booking.rs`) are kept on purpose; fixing them is left to separate, behavior-changing
-//! PRs.
+//! differ only by label are distinct. An augmentation with no cost number infers its cost from
+//! the other postings' weights (E6), provided the transaction has exactly one missing number.
 //!
 //! Booking methods (E1, E7, E10):
 //! - `FIFO` and `LIFO` take the matching lots by acquisition date, oldest or newest first, like
@@ -59,7 +58,7 @@
 //!   method.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::{Add, AddAssign, Mul, Neg};
+use std::ops::{Add, AddAssign, Div, Mul, Neg};
 
 use bigdecimal::{BigDecimal, RoundingMode, Signed, Zero};
 use chrono::NaiveDate;
@@ -113,7 +112,7 @@ struct Interpolated {
 pub(crate) enum BookOutcome {
     /// the transaction is booked against the lots
     Booked(BookedTransaction),
-    /// the implicit posting cannot be interpolated
+    /// the implicit posting or a cost cannot be resolved
     Unbookable {
         /// one of [`ErrorKind::TransactionHasMultipleImplicitPosting`],
         /// [`ErrorKind::TransactionCannotInferTradeAmount`] and
@@ -163,6 +162,8 @@ pub(crate) struct BookingError {
 
 /// the lots of some accounts, saved to undo a dry run; `None` for an account without lots
 type LotsSnapshot = Vec<(String, Option<Vec<CommodityLotRecord>>)>;
+
+type BookingFailure = (ErrorKind, Vec<BookingError>);
 
 /// the lots a cost posting books against ([`Booker::lot_filter`]). As in beancount, the fields its
 /// cost spec gives are criteria and the missing ones wildcards (E5): a reduction `{10 CNY}` matches
@@ -228,7 +229,12 @@ impl Booker {
     /// postings into their booked form (see the module docs). An unbookable transaction is left as
     /// it is
     pub(crate) fn book(&mut self, txn: &mut Transaction) -> BookOutcome {
-        let postings = txn.txn_postings();
+        let prepared = match self.infer_missing_cost(txn) {
+            Ok(prepared) => prepared,
+            Err((kind, errors)) => return BookOutcome::Unbookable { kind, errors },
+        };
+        let input = prepared.as_ref().unwrap_or(txn);
+        let postings = input.txn_postings();
         let interpolated = match postings.iter().filter(|it| it.posting.units.is_none()).count() {
             0 => None,
             1 => match self.interpolate(&postings) {
@@ -243,7 +249,10 @@ impl Booker {
             }
         };
 
-        let indexes = fresh_indexes(&txn.postings);
+        // An unresolved cost reduction can fail after earlier postings changed lots. Commit
+        // none of the transaction in that case, including a partially consumed lot (E9).
+        let snapshot = postings.iter().any(|it| weighs_by_lots(it.posting)).then(|| self.snapshot(&postings));
+        let indexes = fresh_indexes(&input.postings);
         let mut booked = BookedTransaction {
             residual: BTreeMap::new(),
             errors: vec![],
@@ -260,7 +269,17 @@ impl Booker {
             let index = posting.posting.written.as_ref().map(|it| it.index);
             let first_of_group = index.is_none() || index != previous_index;
             previous_index = index;
-            let booking = self.book_posting(posting, &units, first_of_group);
+            let booking = match self.book_posting(posting, &units, first_of_group) {
+                Ok(booking) => booking,
+                Err(errors) => {
+                    self.restore(snapshot.expect("only a posting with an unresolved cost can fail"));
+                    booked.errors.extend(errors);
+                    return BookOutcome::Unbookable {
+                        kind: ErrorKind::TransactionCannotInferTradeAmount,
+                        errors: booked.errors,
+                    };
+                }
+            };
             add_weight(&mut booked.residual, implicit_weight.map(|it| vec![it]).unwrap_or(booking.weight));
             booked.errors.extend(booking.errors);
             rewritten.extend(booked_postings(posting.posting, booking.legs, indexes[position]));
@@ -277,6 +296,88 @@ impl Booker {
         BookOutcome::Booked(booked)
     }
 
+    /// Infer the one missing cost of an augmentation from the other postings' weights (E6).
+    /// A reduction must match existing cost lots instead (E9). The common case, one reduction
+    /// on each account, needs no extra booking pass; repeated postings on an account are checked
+    /// in written order so an earlier purchase can supply the lot a later sale reduces.
+    fn infer_missing_cost(&mut self, txn: &Transaction) -> Result<Option<Transaction>, BookingFailure> {
+        if !txn.postings.iter().any(weighs_by_lots) {
+            return Ok(None);
+        }
+        let postings = txn.txn_postings();
+        let mut seen = HashSet::new();
+        let needs_inference = postings.iter().any(|posting| {
+            let account = posting.posting.account.name();
+            let touched = !seen.insert(account);
+            weighs_by_lots(posting.posting) && (touched || !self.is_reduction(account, posting.posting.units.as_ref().expect("explicit units")))
+        });
+        if !needs_inference {
+            return Ok(None);
+        }
+        let snapshot = self.snapshot(&postings);
+        let result = (|| {
+            let mut missing = None;
+            let mut residual = BTreeMap::new();
+            for (index, posting) in postings.iter().enumerate() {
+                let Some(units) = posting.units() else { continue };
+                if weighs_by_lots(posting.posting) && !self.is_reduction(posting.posting.account.name(), &units) {
+                    if missing.is_some() || units.number.is_zero() {
+                        return Err((ErrorKind::TransactionCannotInferTradeAmount, vec![]));
+                    }
+                    missing = Some(index);
+                    continue;
+                }
+                let booking = self
+                    .book_posting(posting, &units, true)
+                    .map_err(|errors| (ErrorKind::TransactionCannotInferTradeAmount, errors))?;
+                add_weight(&mut residual, booking.weight);
+            }
+            let Some(index) = missing else { return Ok(None) };
+            if postings.iter().any(|posting| posting.posting.units.is_none()) {
+                return Err((ErrorKind::TransactionCannotInferTradeAmount, vec![]));
+            }
+            let written = written_scales(&postings);
+            let mut unbalanced = residual
+                .iter()
+                .filter(|(commodity, number)| !round(number, self.scale(commodity, &written)).is_zero());
+            let (commodity, weight) = match (unbalanced.next(), unbalanced.next()) {
+                (Some(weight), None) => weight,
+                (None, _) if residual.len() == 1 => residual.iter().next().expect("one weight commodity"),
+                (Some(_), Some(_)) => return Err((ErrorKind::TransactionExplicitPostingHaveMultipleCommodity, vec![])),
+                _ => return Err((ErrorKind::TransactionCannotInferTradeAmount, vec![])),
+            };
+            let units = postings[index].posting.units.as_ref().expect("explicit units");
+            let rate = weight.neg().div(&units.number);
+            if rate.is_negative() {
+                return Err((ErrorKind::TransactionCannotInferTradeAmount, vec![]));
+            }
+            let mut prepared = txn.clone();
+            let indexes = fresh_indexes(&txn.postings);
+            let posting = &mut prepared.postings[index];
+            posting.written.get_or_insert_with(|| WrittenPosting {
+                index: indexes[index],
+                units: posting.units.clone(),
+                cost: posting.cost.clone(),
+            });
+            let cost = posting.cost.as_mut().expect("a missing cost");
+            cost.base = Some(Amount::new(rate, commodity.clone()));
+            cost.total = false;
+            Ok(Some(prepared))
+        })();
+        self.restore(snapshot);
+        result
+    }
+
+    /// Whether units of this commodity reduce any holding, including a holding without cost.
+    /// An empty cost on a reduction cannot turn uncosted units into a new cost lot (E9).
+    fn is_reduction(&self, account: &str, units: &Amount) -> bool {
+        self.lots
+            .get(account)
+            .into_iter()
+            .flatten()
+            .any(|lot| lot.commodity == units.commodity && reduces(lot, &units.number))
+    }
+
     /// the units of the transaction's single implicit posting: the negated sum of the weights of
     /// the explicit postings, which must be unbalanced in exactly one commodity, without its
     /// division dust ([`round`]). A commodity whose sum is zero once its dust is gone is balanced.
@@ -286,23 +387,34 @@ impl Booker {
     /// The weight of a cost posting without a number is only known once it is booked, so when
     /// there is one, the explicit postings are booked as a dry run, and the lots restored after.
     /// On failure, the booking problems of that dry run come with the error
-    fn interpolate(&mut self, postings: &[TxnPosting<'_>]) -> Result<Interpolated, (ErrorKind, Vec<BookingError>)> {
+    fn interpolate(&mut self, postings: &[TxnPosting<'_>]) -> Result<Interpolated, BookingFailure> {
         let explicit = postings.iter().filter(|it| it.posting.units.is_some()).collect_vec();
         let mut residual = BTreeMap::new();
         let mut errors = vec![];
         if explicit.iter().any(|it| weighs_by_lots(it.posting)) {
             let snapshot = self.snapshot(postings);
+            let mut failed = false;
             let mut previous_index: Option<usize> = None;
             for posting in &explicit {
                 let units = posting.units().expect("an explicit posting has units");
                 let index = posting.posting.written.as_ref().map(|it| it.index);
                 let first_of_group = index.is_none() || index != previous_index;
                 previous_index = index;
-                let booking = self.book_posting(posting, &units, first_of_group);
+                let booking = match self.book_posting(posting, &units, first_of_group) {
+                    Ok(booking) => booking,
+                    Err(failure) => {
+                        errors.extend(failure);
+                        failed = true;
+                        break;
+                    }
+                };
                 add_weight(&mut residual, booking.weight);
                 errors.extend(booking.errors);
             }
             self.restore(snapshot);
+            if failed {
+                return Err((ErrorKind::TransactionCannotInferTradeAmount, errors));
+            }
         } else {
             for posting in &explicit {
                 add_weight(&mut residual, posting.trade_amount());
@@ -373,7 +485,7 @@ impl Booker {
     /// `first_of_group` says whether the posting is the first leg of the posting it was written
     /// as (always, for a posting booking never changed): the leg STRICT's check and the error
     /// metas refer to the written form from
-    fn book_posting(&mut self, txn_posting: &TxnPosting<'_>, units: &Amount, first_of_group: bool) -> PostingBooking {
+    fn book_posting(&mut self, txn_posting: &TxnPosting<'_>, units: &Amount, first_of_group: bool) -> Result<PostingBooking, Vec<BookingError>> {
         let posting = txn_posting.posting;
         let account = txn_posting.account_name();
         let lot_meta = txn_posting.lot_meta();
@@ -440,11 +552,20 @@ impl Booker {
             // as written; an implicit posting weighs its interpolated units
             vec![txn_posting.trade_amount().unwrap_or_else(|| units.clone())]
         };
-        PostingBooking {
+        if weighs_by_lots(posting) && legs.iter().any(|leg| leg.cost.as_ref().is_some_and(|cost| cost.base.is_none())) {
+            if !errors.iter().any(|error| error.kind == ErrorKind::NoEnoughCommodityLot) {
+                errors.push(BookingError {
+                    kind: ErrorKind::NoEnoughCommodityLot,
+                    metas: HashMap::of("transaction_amount", written_units.number.to_string()),
+                });
+            }
+            return Err(errors);
+        }
+        Ok(PostingBooking {
             weight,
             errors,
             legs: merge_legs(legs),
-        }
+        })
     }
 
     /// STRICT's check of a reduction ([`Booker::ambiguous_reduction`]) for `posting` as written. A
@@ -673,8 +794,8 @@ fn lot_weight(lot: &CommodityLotRecord, units: BigDecimal) -> Amount {
 }
 
 /// the leg of a posting booked against `lot`: `units` of `commodity` at the lot's cost, acquisition
-/// date and label. A lot without a cost, the one a `{}` reduction no lot covers opens (E9), gives
-/// the leg the cost spec as `written`, so booking the leg again opens that lot again
+/// date and label. A lot without a cost gives the leg the cost spec as `written`; an unresolved
+/// cost leg then rejects the transaction, and its tentative lot changes are rolled back (E9)
 fn leg(lot: &CommodityLotRecord, units: BigDecimal, written: &PostingCost, commodity: &str) -> Leg {
     let cost = match &lot.cost {
         Some(cost) => PostingCost {
@@ -747,8 +868,7 @@ fn fresh_indexes(postings: &[Posting]) -> Vec<usize> {
 
 /// whether every posting of the transaction is booked, structurally (design §5.2): it has units,
 /// and its cost, if any, has a number and a date. The written form plays no part, so a plugin that
-/// drops it changes nothing here. A `{}` leg no lot covered (E9) is not booked by this definition,
-/// and books to itself again
+/// drops it changes nothing here. A rejected transaction with an unresolved cost is not booked
 pub(crate) fn is_booked(txn: &Transaction) -> bool {
     txn.postings
         .iter()

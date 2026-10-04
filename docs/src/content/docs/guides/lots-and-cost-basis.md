@@ -48,7 +48,7 @@ Write the cost of the units in braces:
 - `{185.00 USD}` is the cost of one unit. `{{860.00 USD}}` is the cost of all the units of the posting: Zhang keeps the lot at 860 / 5 = 172.00 USD per unit.
 - A posting with a cost weighs its units times the cost, `10 × 185.00 = 1,850.00 USD`, and the transaction balances in USD.
 - The lot is acquired on the date of the transaction. To give it another date, add it after the cost: `{185.00 USD, 2024-01-09}`. A label can follow too, `{185.00 USD, 2024-01-09, "first"}`. Zhang cannot read a cost written with only a date or only a label, such as `{2024-01-09}`, and the file does not load: put the cost first.
-- Always write the cost when you buy. An empty `{}` is for selling: a purchase written with `{}` is added to a lot you already hold instead of opening a new one.
+- An empty `{}` on a purchase infers the cost from the other postings' amounts and opens a lot on the purchase date. For example, `3 AAPL {}` balanced by `-600 USD` has a cost of `200 USD` per share. Only one number can be missing: combining an unspecified cost with an implicit cash amount, or with another unspecified cost, is rejected with [`TransactionCannotInferTradeAmount`](/reference/error-codes/#transactioncannotinfertradeamount).
 
 The account now holds three lots: 10 AAPL at 185.00 USD, 5 at 172.00 and 5 at 190.00.
 
@@ -92,10 +92,9 @@ To sell from particular lots, write their cost instead of `{}`:
 
 ### Selling more than you hold
 
-A sale of more units than the matching lots hold is reported as [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot). The units no lot covers have no cost, so the transaction cannot balance:
+A sale written with `{}` must be covered by matching cost lots. Otherwise Zhang reports [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot) and [`TransactionCannotInferTradeAmount`](/reference/error-codes/#transactioncannotinfertradeamount), leaves the entire transaction out of the ledger and keeps the previous holdings. This also applies when the account only holds units without cost.
 
-- with every amount written, it is also reported as unbalanced, and the account is left with a negative amount of `AAPL` without a cost;
-- with an amount left for Zhang to fill in, Zhang leaves the transaction out of the ledger altogether.
+If you write an explicit cost on a sale that exceeds the matching lots, Zhang reports `NoEnoughCommodityLot` and keeps the remainder as a short lot at that cost. A later positive posting with `{}` can cover that short and retains its cost basis.
 
 ## Choose a booking method
 

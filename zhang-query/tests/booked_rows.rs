@@ -82,7 +82,7 @@ fn the_sale_booked() -> Vec<Vec<String>> {
 }
 
 /// A stage duplicates the sale before it, at the same position, onto an account that holds no
-/// lots: the copy cannot be booked (`{}` leaves it unbalanced in two commodities), so the ledger
+/// lots: the copy cannot be booked (its cost cannot be resolved), so the ledger
 /// reports it and never stores it, but it stays among the directives. The stored sale must be
 /// read from its own directive, not from the copy, whose legs have no units to make rows of.
 #[test]
@@ -105,7 +105,7 @@ fn an_unbookable_copy_at_the_same_position_is_passed_over() {
     };
     assert_eq!(stored, 3, "the copy is not stored");
     assert!(
-        errors.iter().any(|it| it == "TransactionExplicitPostingHaveMultipleCommodity"),
+        errors.iter().any(|it| it == "TransactionCannotInferTradeAmount"),
         "the copy is reported as unbookable: {errors:?}"
     );
     assert_eq!(sale_rows(&ledger), the_sale_booked());

@@ -48,7 +48,7 @@ option "operating_currency" "USD"
 - `{185.00 USD}` 是一个单位的成本。`{{860.00 USD}}` 是该记账行全部单位的成本：张记账按每单位 860 / 5 = 172.00 USD 保存这个批次。
 - 带成本的记账行，其权重是单位数乘以成本，即 `10 × 185.00 = 1,850.00 USD`，交易在 USD 上平衡。
 - 批次在交易的日期取得。要指定另一个日期，把它写在成本之后：`{185.00 USD, 2024-01-09}`。后面还可以再加一个批次标签：`{185.00 USD, 2024-01-09, "first"}`。张记账无法读取只写了日期或只写了批次标签的成本，例如 `{2024-01-09}`，整个文件都无法加载：请把成本写在最前面。
-- 买入时一定要写成本。空的 `{}` 用于卖出：用 `{}` 写的买入会加到你已持有的批次中，而不是开立一个新批次。
+- 买入时写空的 `{}`，会根据其他记账行的金额推导成本，并按买入日期开立新批次。例如，`3 AAPL {}` 对应 `-600 USD`，每股成本就是 `200 USD`。只能缺少一个数字：同时省略成本和现金金额，或者省略多个成本，会报告 [`TransactionCannotInferTradeAmount`](/zh-cn/reference/error-codes/#transactioncannotinfertradeamount) 并拒绝整笔交易。
 
 账户现在持有三个批次：10 AAPL，成本 185.00 USD；5 AAPL，成本 172.00；5 AAPL，成本 190.00。
 
@@ -92,10 +92,9 @@ option "operating_currency" "USD"
 
 ### 卖出超过持有的数量
 
-卖出的单位多于匹配批次持有的数量时，会报告 [`NoEnoughCommodityLot`](/zh-cn/reference/error-codes/#noenoughcommoditylot)。没有批次覆盖的单位没有成本，因此交易无法平衡：
+用 `{}` 卖出时，匹配的成本批次必须覆盖全部数量。否则张记账会报告 [`NoEnoughCommodityLot`](/zh-cn/reference/error-codes/#noenoughcommoditylot) 和 [`TransactionCannotInferTradeAmount`](/zh-cn/reference/error-codes/#transactioncannotinfertradeamount)，把整笔交易排除在账本之外，并保留之前的持仓。账户只持有不带成本的单位时，同样适用。
 
-- 如果所有金额都已写出，交易还会被报告为不平衡，账户会剩下没有成本的负数 `AAPL`；
-- 如果有金额留给张记账填写，张记账会把整笔交易排除在账本之外。
+如果卖出时写了明确的成本，但数量超过匹配批次，张记账会报告 `NoEnoughCommodityLot`，并按该成本保留剩余数量的空头批次。之后可用带 `{}` 的正数记账行回补空头，保留原成本。
 
 ## 选择记账方法
 
