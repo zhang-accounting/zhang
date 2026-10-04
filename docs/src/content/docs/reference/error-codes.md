@@ -455,8 +455,8 @@ like `FIFO` among the matching lots, so the ledger keeps its numbers until the a
   Assets:Cash 500 USD
 ```
 
-**Fix:** name the lot to reduce with its cost and acquisition date, such as `-5 AAPL {100 USD, 2024-01-02}`, reduce
-all matching lots at once, or use the `FIFO` or `LIFO` booking method on the account.
+**Fix:** name the lot to reduce with its cost and acquisition date, such as `-5 AAPL {100 USD, 2024-01-02}`, or with
+its label, reduce all matching lots at once, or use the `FIFO` or `LIFO` booking method on the account.
 
 ## PluginError
 

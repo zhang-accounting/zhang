@@ -269,6 +269,12 @@ pub struct CommodityLotRecord {
 
     // acquisition date
     pub acquisition_date: Option<NaiveDate>,
+
+    /// the lot's label, written on the cost that opened it (`{100 USD, "a"}`); lots differing only
+    /// by label are distinct. Left out of the serialized store when the lot has none, so a store
+    /// without labels serializes as before
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]

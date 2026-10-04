@@ -1301,6 +1301,7 @@ export interface operations {
                   commodity: string;
                   number: string;
                 } | null;
+                label?: string | null;
                 price?: {
                   commodity: string;
                   number: string;

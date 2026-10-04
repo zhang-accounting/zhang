@@ -122,6 +122,8 @@ fn single_commodity(ledger: &Ledger, commodity: CommodityDomain, group: Option<S
                 .map(|(number, currency)| Amount::new(number, currency)),
             price: None,
             acquisition_date: row.date("cost_date"),
+            // `cost_label` is "" for a lot held without cost and NULL for a cost lot without a label
+            label: row.str("cost_label").filter(|label| !label.is_empty()),
         })
         .collect_vec();
 

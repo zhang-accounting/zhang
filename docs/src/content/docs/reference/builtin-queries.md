@@ -708,18 +708,18 @@ GROUP BY currency
 
 #### `commodities.lots`
 
-The lots of a commodity that the Assets and Liabilities accounts hold: the units per account, cost and acquisition date, by account, then oldest first. Units held without a cost are one lot per account.
+The lots of a commodity that the Assets and Liabilities accounts hold: the units per account, cost and acquisition date, by account, then oldest first. Lots differing only by label are kept apart. Units held without a cost are one lot per account.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `commodity` | `str` | the commodity |
 
 ```sql
-SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
+SELECT account, cost_date, cost_number, cost_currency, cost_label, sum(number) AS units
 WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
-GROUP BY account, cost_date, cost_number, cost_currency
+GROUP BY account, cost_date, cost_number, cost_currency, cost_label
 HAVING sum(number) != 0
-ORDER BY account, cost_date, cost_number
+ORDER BY account, cost_date, cost_number, cost_label
 ```
 
 #### `commodities.prices`

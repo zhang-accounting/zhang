@@ -231,6 +231,113 @@ fn reduction_with_label_matches_only_that_lot() {
     );
 }
 
+/// Issue #498: a sale naming only a label reduces the lot of that label in the store as in
+/// queries, so the gain is booked against that lot and the rows of the sale sum to zero.
+#[test]
+fn reduction_by_label_alone_reduces_that_lot_in_the_store_and_in_queries() {
+    let ledger = r#"
+1970-01-01 open Assets:Broker
+
+2024-01-10 * "Broker" "buy a"
+  Assets:Broker    10 AAPL {100 USD, "a"}
+  Assets:Bank   -1000 USD
+
+2024-01-20 * "Broker" "buy b"
+  Assets:Broker    10 AAPL {110 USD, "b"}
+  Assets:Bank   -1100 USD
+
+2024-02-01 * "Broker" "sell one of b"
+  Assets:Broker    -1 AAPL {, "b"}
+  Assets:Bank     120 USD
+  Income:Gains
+"#;
+    let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    let store = loaded.store.read().unwrap();
+    assert_eq!(store.errors.len(), 0);
+    let lots = store.commodity_lots["Assets:Broker"]
+        .iter()
+        .map(|lot| {
+            format!(
+                "{} {} {{{}, {:?}}}",
+                lot.amount,
+                lot.commodity,
+                lot.cost.as_ref().unwrap(),
+                lot.label.as_deref().unwrap()
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(lots, vec!["10 AAPL {100 USD, \"a\"}", "9 AAPL {110 USD, \"b\"}"]);
+    let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
+    assert_eq!(gains.inferred_amount.to_string(), "-10 USD");
+    drop(store);
+
+    // beanquery: the sale's row carries lot b, and its weights sum to zero
+    assert_eq!(postings(ledger, "Assets:Broker")[2], row(&["-1", "110", "2024-01-20", "b", "NULL"]));
+    assert_eq!(
+        query(ledger, "SELECT account, weight WHERE narration = 'sell one of b'"),
+        vec![
+            row(&["Assets:Broker", "-110 USD"]),
+            row(&["Assets:Bank", "120 USD"]),
+            row(&["Income:Gains", "-10 USD"])
+        ]
+    );
+    // an inventory summing to zero shows no position, as in beanquery
+    assert_eq!(query(ledger, "SELECT sum(weight) WHERE narration = 'sell one of b'"), vec![row(&[""])]);
+}
+
+/// A reduction without a label matches labelled lots (a label is a wildcard when left out), in
+/// the store and in queries alike.
+#[test]
+fn unlabelled_reduction_books_labelled_lots_in_the_store_and_in_queries() {
+    let ledger = r#"
+1970-01-01 open Assets:Broker
+
+2024-01-10 * "Broker" "buy a"
+  Assets:Broker    10 AAPL {100 USD, "a"}
+  Assets:Bank   -1000 USD
+
+2024-01-20 * "Broker" "buy b"
+  Assets:Broker    10 AAPL {110 USD, "b"}
+  Assets:Bank   -1100 USD
+
+2024-02-01 * "Broker" "sell across both"
+  Assets:Broker   -15 AAPL {}
+  Assets:Bank    1800 USD
+  Income:Gains
+"#;
+    let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    let store = loaded.store.read().unwrap();
+    assert_eq!(store.errors.len(), 0);
+    let lots = store.commodity_lots["Assets:Broker"]
+        .iter()
+        .map(|lot| {
+            format!(
+                "{} {} {{{}, {:?}}}",
+                lot.amount,
+                lot.commodity,
+                lot.cost.as_ref().unwrap(),
+                lot.label.as_deref().unwrap()
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(lots, vec!["5 AAPL {110 USD, \"b\"}"]);
+    let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
+    // 10 × 100 + 5 × 110 = 1550 at cost, sold for 1800
+    assert_eq!(gains.inferred_amount.to_string(), "-250 USD");
+    drop(store);
+
+    assert_eq!(
+        query(ledger, "SELECT account, number, cost_label, weight WHERE narration = 'sell across both'"),
+        vec![
+            row(&["Assets:Broker", "-10", "a", "-1000 USD"]),
+            row(&["Assets:Broker", "-5", "b", "-550 USD"]),
+            row(&["Assets:Bank", "1800", "", "1800 USD"]),
+            row(&["Income:Gains", "-250", "", "-250 USD"])
+        ]
+    );
+    assert_eq!(query(ledger, "SELECT sum(weight) WHERE narration = 'sell across both'"), vec![row(&[""])]);
+}
+
 #[test]
 fn augmentation_with_cost_and_no_date_is_dated_by_its_transaction() {
     let ledger = r#"

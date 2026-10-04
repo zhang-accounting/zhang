@@ -364,12 +364,13 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "commodities.lots",
-        description: "The lots of a commodity the Assets and Liabilities accounts hold, by account, then oldest first.",
-        bql: "SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units \
+        description:
+            "The lots of a commodity the Assets and Liabilities accounts hold, by account, then oldest first; lots differing only by label are kept apart.",
+        bql: "SELECT account, cost_date, cost_number, cost_currency, cost_label, sum(number) AS units \
               WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities')) \
-              GROUP BY account, cost_date, cost_number, cost_currency \
+              GROUP BY account, cost_date, cost_number, cost_currency, cost_label \
               HAVING sum(number) != 0 \
-              ORDER BY account, cost_date, cost_number",
+              ORDER BY account, cost_date, cost_number, cost_label",
         params: &[("commodity", DataType::Str)],
     },
     BuiltinQuery {
