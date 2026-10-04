@@ -1,0 +1,48 @@
+---
+title: 张记账文档
+description: 一款自托管的纯文本复式记账工具，读取 Beancount 账本，并在你的文件之上提供网页界面。
+template: splash
+hero:
+  title: 张记账
+  tagline: 一款自托管、兼容 Beancount 的纯文本复式记账工具。
+  image:
+    file: ../../../assets/logo.png
+  actions:
+    - text: 开始使用
+      link: /zh-cn/getting-started/introduction/
+      icon: right-arrow
+      variant: primary
+    - text: 在线试用
+      link: https://zhang-cloud.kilerd.me/playground
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+	<Card title="纯文本，归你所有" icon="document">
+		账本就是放在你自己掌控的文件夹里的文本文件：可以用任何编辑器修改，也可以放进 Git。张记账原样读取 Beancount 账本。从[你的第一个账本](/zh-cn/getting-started/first-ledger/)开始，或者[导入 Beancount 账本](/zh-cn/getting-started/from-beancount/)。
+	</Card>
+	<Card title="建在文件之上的网页界面" icon="laptop">
+		总览、流水、报表、资产负债、预算、货币、文档和查询。在浏览器中记录的内容会写回你的文件。[浏览网页界面](/zh-cn/getting-started/first-ledger/#网页界面导览)。
+	</Card>
+	<Card title="批次与成本" icon="list-format">
+		按成本持有投资，并用 FIFO、LIFO 或 STRICT 记账方法卖出，金额都是精确的十进制数。见[批次与成本](/zh-cn/guides/lots-and-cost-basis/)。
+	</Card>
+	<Card title="预算" icon="pen">
+		按月的信封预算：把钱分配给预算，再查看花了多少、还剩多少。见[预算](/zh-cn/guides/budgets/)。
+	</Card>
+	<Card title="文档" icon="add-document">
+		把收据和账单关联到账户和交易，可以写在文件中，也可以在网页界面中上传。见[文档](/zh-cn/guides/documents/)。
+	</Card>
+	<Card title="查询" icon="magnifier">
+		兼容 BQL 的查询语言，支持 `SELECT`、`BALANCES` 和 `JOURNAL`，可在网页界面和 API 中使用，并能导出 CSV。见[查询](/zh-cn/guides/querying/)。
+	</Card>
+	<Card title="插件" icon="puzzle">
+		需要手动启用的 WebAssembly 插件可以检查或转换账本，也可以提供自己的页面和 API，并且只拥有你授予的能力。见[插件](/zh-cn/guides/plugins/)和[编写插件](/zh-cn/developers/writing-plugins/)。
+	</Card>
+	<Card title="随处部署" icon="rocket">
+		提供 Docker 镜像以及 Linux 和 macOS 的二进制文件。账本可以放在[本地磁盘](/zh-cn/deployment/data-sources/local/)、[S3](/zh-cn/deployment/data-sources/s3/)、[WebDAV](/zh-cn/deployment/data-sources/webdav/) 或 [GitHub](/zh-cn/deployment/data-sources/github/) 上，并通过[密码或通行密钥](/zh-cn/deployment/authentication/)登录。
+	</Card>
+</CardGrid>

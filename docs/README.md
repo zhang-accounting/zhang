@@ -1,86 +1,65 @@
-# Starlight Starter Kit: Basics
+# Zhang documentation
 
-[![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
+The source of <https://zhang-accounting.kilerd.me>, built with [Astro](https://astro.build) and
+[Starlight](https://starlight.astro.build).
 
-```
-npm create astro@latest -- --template starlight
-```
+## Running the site locally
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/withastro/starlight/tree/main/examples/basics)
-[![Open with CodeSandbox](https://assets.codesandbox.io/github/button-edit-lime.svg)](https://codesandbox.io/p/sandbox/github/withastro/starlight/tree/main/examples/basics)
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fwithastro%2Fstarlight%2Ftree%2Fmain%2Fexamples%2Fbasics&project-name=my-starlight-docs&repository-name=my-starlight-docs)
+You need Node.js and pnpm 9. Without pnpm, prefix each command with `npx --yes pnpm@9` instead of `pnpm`.
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
-
-## 🚀 Project Structure
-
-Inside of your Astro + Starlight project, you'll see the following folders and files:
-
-```
-.
-├── public/
-├── src/
-│   ├── assets/
-│   ├── content/
-│   │   ├── docs/
-│   │   └── config.ts
-│   └── env.d.ts
-├── astro.config.mjs
-├── package.json
-└── tsconfig.json
+```shell
+cd docs
+npx --yes pnpm@9 install
+pnpm dev      # serves the site at http://localhost:4321 and reloads on changes
+pnpm build    # runs `astro check`, then builds the static site into dist/
 ```
 
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory. Each file is exposed as a route based on its file name.
+Run `pnpm build` before you open a pull request: it checks the project with `astro check` and renders every page, so
+it catches errors that `pnpm dev` only shows when you open the broken page.
 
-Images can be added to `src/assets/` and embedded in Markdown with a relative link.
+## Where pages live
 
-Static assets, like favicons, can be placed in the `public/` directory.
+- English pages are in `src/content/docs/`. The file `guides/budgets.md` is served at `/guides/budgets/`.
+- Simplified Chinese pages are in `src/content/docs/zh-cn/` and mirror the English tree with the same file names, so
+  `zh-cn/guides/budgets.md` is served at `/zh-cn/guides/budgets/`. A page without a translation falls back to the
+  English one. When you add or move an English page, add or move its Chinese counterpart at the same path.
+- Images go in `src/assets/`.
 
-## 🧞 Commands
+Every page has a `title` and a `description` in its frontmatter, and a `sidebar: { order: N }` that orders it
+within its group. Quote a `description` that contains `: `.
 
-All commands are run from the root of the project, from a terminal:
+## How the sidebar is built
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+The sidebar is defined in `astro.config.mjs`:
 
-## 👀 Want to learn more?
+- **Getting Started**, **Guides** and **Developers** list their folders automatically, in `sidebar.order` order.
+- **Deployment** and **Reference** contain an automatic group for a nested folder (`deployment/data-sources/`,
+  `reference/directives/`), and list the pages next to it by slug (`deployment/authentication`,
+  `deployment/upgrading`, `reference/query-language`, `reference/error-codes`). A new page directly in
+  `deployment/` or `reference/` must be added to that list, or it does not appear in the sidebar.
+- Group labels have a `translations` entry for `zh-CN`. Translate the label of any group you add.
 
-Check out [Starlight's docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+## Moving a page
 
-## Deploying to Cloudflare Workers
+Old URLs must keep working: links from the README, from the web UI of older releases and from search engines point to
+them. When you move or rename a page, add the old slug and the new one to `movedPages` in `astro.config.mjs`. It
+creates the redirect for the English page and for its `/zh-cn/` counterpart. Then update the links to the page.
 
-This documentation site is configured to be deployed to Cloudflare Workers. The deployment happens automatically via GitHub Actions when changes are pushed to the `main` or `develop` branches.
+## Writing pages
 
-### GitHub Secrets Required
+- Link to other pages with absolute paths and a trailing slash, such as `[balance](/reference/directives/balance/)`.
+  Chinese pages link to the `/zh-cn/` pages. An anchor is the slug of a heading, such as `#file-permissions`.
+- Write ledger examples in a ```` ```zhang ```` code block, which is highlighted as beancount (see
+  `expressiveCode` in `astro.config.mjs`), and commands in ```` ```shell ````.
+- Check that every ledger example loads in Zhang without unexpected errors: put it in a `main.zhang`, start
+  `zhang serve` on it and look at the error list.
+- Use Starlight asides (`:::note`, `:::tip`, `:::caution`, `:::danger`) in Markdown. Components such as `Card`,
+  `Tabs` or `Steps` need an `.mdx` file and an import from `@astrojs/starlight/components`.
+- Describe the behavior of the `main` branch, and check it against the code or by running Zhang.
+- CI checks the spelling of the whole repository with [typos](https://github.com/crate-ci/typos).
 
-To enable automatic deployment, add the following secrets to your GitHub repository:
+## Deployment
 
-- `CF_API_TOKEN`: Cloudflare API token with Workers and Pages permissions
-- `CF_ACCOUNT_ID`: Your Cloudflare account ID
-
-### Manual Deployment
-
-To deploy manually:
-
-1. Install dependencies: `pnpm install`
-2. Build the site: `pnpm build`
-3. Deploy to production: `pnpm deploy`
-4. Or deploy to development environment: `pnpm deploy:dev`
-
-### Environment-specific URLs
-
-- Production (main branch): `https://docs.zhang.finance`
-- Development (develop branch): `https://docs-dev.zhang.finance`
-
-### Configuring Custom Domains
-
-1. In your Cloudflare account, go to Workers & Pages
-2. Find your project (`zhang-docs-prod` or `zhang-docs-dev`)
-3. Go to the "Custom domains" tab
-4. Add your custom domain
+The `docs-build-deploy` job of `.github/workflows/build-latest.yml` builds the site and deploys it to Cloudflare
+Pages (project `zhang-docs`) on every push to `main` and `develop`. Pull requests do not build the documentation, so
+a broken page only shows up after the merge unless you run `pnpm build` yourself.

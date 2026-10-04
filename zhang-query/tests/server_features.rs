@@ -379,7 +379,7 @@ fn l_schema_has_the_new_functions() {
 /// `name(...)`.
 fn assert_documented(names: &[&str]) {
     let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../docs/src/content/docs");
-    for file in ["user-guide/query-language.md", "zh-cn/user-guide/query-language.md"] {
+    for file in ["reference/query-language.md", "zh-cn/reference/query-language.md"] {
         let text = std::fs::read_to_string(docs.join(file)).unwrap_or_else(|err| panic!("{}: {}", file, err));
         let missing = names.iter().filter(|name| !text.contains(*name)).collect::<Vec<_>>();
         assert!(missing.is_empty(), "{} does not mention {:?}", file, missing);
