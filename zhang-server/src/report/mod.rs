@@ -10,8 +10,6 @@
 //! rankings are valued at the prices of the last day of the range, and each point of the
 //! graph at the prices of its own last day in the range.
 
-pub mod legacy;
-
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use std::sync::Arc;

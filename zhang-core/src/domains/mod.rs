@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -12,7 +12,7 @@ use log::debug;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo};
+use zhang_ast::{Account, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo};
 
 use crate::constants::BALANCE_CHECK_PAYEE;
 use crate::domains::schemas::{
@@ -491,46 +491,6 @@ impl Operations {
         Ok(ret)
     }
 
-    pub fn dated_journals(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<PostingDomain>> {
-        let store = self.read();
-        Ok(store
-            .postings
-            .iter()
-            .filter(|posting| posting.trx_datetime.ge(&from))
-            .filter(|posting| posting.trx_datetime.le(&to))
-            .cloned()
-            .collect_vec())
-    }
-    pub fn account_type_dated_journals(&mut self, account_type: AccountType, from: DateTime<Utc>, to: DateTime<Utc>) -> ZhangResult<Vec<AccountJournalDomain>> {
-        let store = self.read();
-
-        let mut ret = vec![];
-        for posting in store
-            .postings
-            .iter()
-            .filter(|posting| posting.trx_datetime.ge(&from))
-            .filter(|posting| posting.trx_datetime.le(&to))
-            .filter(|posting| posting.account.account_type == account_type)
-            .cloned()
-        {
-            let trx = store.transactions.get(&posting.trx_id).cloned().expect("cannot find trx");
-
-            ret.push(AccountJournalDomain {
-                datetime: posting.trx_datetime.naive_local(),
-                timestamp: posting.trx_datetime.timestamp(),
-                account: posting.account.name().to_owned(),
-                trx_id: posting.trx_id.to_string(),
-                payee: trx.payee,
-                narration: trx.narration,
-                inferred_unit: posting.inferred_amount,
-                account_after: posting.after_amount,
-                asserted: None,
-                checked_balance: None,
-                passed: None,
-            })
-        }
-        Ok(ret)
-    }
     pub fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
@@ -575,42 +535,6 @@ impl Operations {
             .collect();
 
         Ok(payees.into_iter().collect_vec())
-    }
-
-    pub fn account_target_date_balance(&self, account_name: impl AsRef<str>, date: DateTime<Utc>) -> ZhangResult<Vec<AccountBalanceDomain>> {
-        let store = self.read();
-
-        let account = Account::from_str(account_name.as_ref()).map_err(|_| ZhangError::InvalidAccount)?;
-
-        let mut ret: IndexMap<Currency, BTreeMap<NaiveDate, Amount>> = IndexMap::new();
-
-        for posting in store
-            .postings
-            .iter()
-            .filter(|posting| posting.account.eq(&account))
-            .filter(|positing| positing.trx_datetime.le(&date))
-            .cloned()
-            .sorted_by_key(|posting| posting.trx_datetime)
-        {
-            let posting: PostingDomain = posting;
-            let date = posting.trx_datetime.naive_local().date();
-
-            let dated_amount = ret.entry(posting.after_amount.commodity.clone()).or_default();
-            dated_amount.insert(date, posting.after_amount);
-        }
-
-        Ok(ret
-            .into_iter()
-            .map(|(_, mut balance)| {
-                let (date, amount) = balance.pop_last().expect("");
-                AccountBalanceDomain {
-                    datetime: date.and_time(NaiveTime::default()),
-                    account: account.name().to_owned(),
-                    account_status: AccountStatus::Open,
-                    balance: amount,
-                }
-            })
-            .collect_vec())
     }
 }
 
