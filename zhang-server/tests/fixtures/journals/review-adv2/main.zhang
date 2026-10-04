@@ -1,0 +1,20 @@
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+2024-01-01 open Assets:Bank
+2024-01-01 open Assets:Closed
+2024-01-01 open Equity:Open
+2024-01-01 open Income:Salary
+
+2024-01-10 * "Employer" "salary"
+  Assets:Bank 100 CNY
+  Income:Salary
+
+2024-01-15 close Assets:Closed
+
+2024-02-01 balance Assets:Nowhere 0 CNY
+2024-02-01 balance Assets:Bank 100 XYZ
+2024-02-01 balance Assets:Closed 0 CNY
+2023-12-01 balance Assets:Bank 0 CNY
+2024-02-02 balance Assets:Ghost 10 CNY with pad Equity:Open
+2024-02-03 balance Assets:Bank 100 CNY with pad Assets:Bank
+2024-02-04 balance Assets:Bank 120 CNY with pad Assets:Bank

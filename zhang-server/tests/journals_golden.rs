@@ -319,12 +319,13 @@ async fn journal(implementation: Implementation, ledger: &SharedLedger, search: 
 /// defines where the hand-written code had no definition of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Reason {
-    /// `sequence` is the position in `#entries` (`seq`), not the store's counter
+    /// `sequence` is the position in the processing order (`seq`), not the store's counter of transactions and
+    /// assertions; checked to keep the order of the old one, newest first
     Sequence,
-    /// the id of a balance assertion is that of its `#entries` row
-    BalanceCheckId,
-    /// a narration that is absent is '' in the engine, as in beancount
-    AbsentNarration,
+    /// the old running balance of an account broke its own chain, an item's balance before not being the balance
+    /// after the item before it, as at a time skipped by daylight saving (stored after the gap, but processed where it
+    /// is written); the new one is the sum of the postings in the journal's order
+    RunningBalance,
     /// decision 7: a repeated metadata key keeps every value; metadata is sorted by key, as posting metadata is (#471)
     RepeatedMetadata,
     /// the cost is the per-unit cost of the posting's lots: a `{{total}}` cost is divided by the units, and a reduction
@@ -518,15 +519,6 @@ fn per_unit_cost_holds(index: usize, old_record: &Value, new_record: &Value, eve
 /// The reason of a difference within a journal item, `path` relative to the item.
 fn journal_field_reason(path: &str, old_record: &Value, new_record: &Value, old: &Value, new: &Value, everything: &[Value]) -> Option<Reason> {
     let field = path.rsplit('.').next().unwrap_or_default();
-    if path == "sequence" {
-        return Some(Reason::Sequence);
-    }
-    if path == "id" && old_record["type"] == "BalanceCheck" {
-        return Some(Reason::BalanceCheckId);
-    }
-    if path == "narration" && old.is_null() && new == "" {
-        return Some(Reason::AbsentNarration);
-    }
     if let (Some(a), Some(b)) = (number(old), number(new)) {
         if a == b && field == "number" {
             return Some(Reason::Scale);
@@ -539,7 +531,48 @@ fn journal_field_reason(path: &str, old_record: &Value, new_record: &Value, old:
     None
 }
 
-fn compare_journal(report: &mut Report, ledger: &str, search: &Search, old: &[Value], new: &[Value], everything: &[Value]) {
+/// The postings, `(item id, posting index)`, of the transactions and paddings of a whole journal (newest first) whose
+/// account's running balance in their currency broke its chain at them or before: their balance before is not the
+/// balance after the previous posting of the account in that currency.
+fn broken_chains(journal: &[Value]) -> BTreeSet<(String, usize)> {
+    let mut after: BTreeMap<(String, String), bigdecimal::BigDecimal> = BTreeMap::new();
+    let mut broken_accounts: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut broken = BTreeSet::new();
+    for item in journal.iter().rev().filter(|it| it["type"] != "BalanceCheck") {
+        for (index, posting) in item["postings"].as_array().into_iter().flatten().enumerate() {
+            let account = (
+                posting["account"].as_str().unwrap_or_default().to_owned(),
+                posting["account_before"]["commodity"].as_str().unwrap_or_default().to_owned(),
+            );
+            let before = number(&posting["account_before"]["number"]).unwrap_or_default();
+            let previous = after.get(&account).cloned().unwrap_or_default();
+            if before != previous {
+                broken_accounts.insert(account.clone());
+            }
+            if broken_accounts.contains(&account) {
+                broken.insert((item["id"].as_str().unwrap_or_default().to_owned(), index));
+            }
+            after.insert(account, number(&posting["account_after"]["number"]).unwrap_or_default());
+        }
+    }
+    broken
+}
+
+/// Whether the `sequence`s of a journal list (newest first) keep its order, and the old list's do too.
+fn sequences_keep_the_order(old: &[&Value], new: &[&Value]) -> bool {
+    let decreasing = |items: &[&Value]| {
+        items
+            .windows(2)
+            .all(|pair| pair[0]["sequence"].as_i64().zip(pair[1]["sequence"].as_i64()).is_some_and(|(a, b)| a > b))
+    };
+    decreasing(old) && decreasing(new)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compare_journal(
+    report: &mut Report, ledger: &str, search: &Search, old: &[Value], new: &[Value], everything: &[Value], new_chains_hold: bool,
+    old_broken: &BTreeSet<(String, usize)>,
+) {
     let call = search.to_string();
     let (old_keyed, new_keyed) = (keyed(old, journal_key), keyed(new, journal_key));
     let old_keys: BTreeMap<String, &Value> = old_keyed.iter().cloned().collect();
@@ -574,6 +607,10 @@ fn compare_journal(report: &mut Report, ledger: &str, search: &Search, old: &[Va
             .collect::<Vec<_>>()
     };
     let (old_common, new_common) = (common(&old_keyed, &new_keys), common(&new_keyed, &old_keys));
+    fn in_order<'a>(keys: &[String], items: &BTreeMap<String, &'a Value>) -> Vec<&'a Value> {
+        keys.iter().map(|key| items[key]).collect()
+    }
+    let sequences_hold = sequences_keep_the_order(&in_order(&old_common, &old_keys), &in_order(&new_common, &new_keys));
     let order = |keys: &[String]| keys.to_vec();
     if order(&old_common) != order(&new_common) {
         let reason = None;
@@ -600,8 +637,15 @@ fn compare_journal(report: &mut Report, ledger: &str, search: &Search, old: &[Va
         let mut differences = vec![];
         diff("", old_record, new_record, &mut differences);
         for (path, old_value, new_value) in differences {
+            let balance_field = path.ends_with(".account_before.number") || path.ends_with(".account_after.number");
             let reason = if path == "metas" || path.starts_with("metas[") {
                 repeated_metadata(&old_record["metas"], &new_record["metas"]).then_some(Reason::RepeatedMetadata)
+            } else if path == "sequence" {
+                sequences_hold.then_some(Reason::Sequence)
+            } else if balance_field && old_record["type"] != "BalanceCheck" && number(&old_value) != number(&new_value) {
+                let index = path["postings[".len()..].split(']').next().and_then(|it| it.parse::<usize>().ok());
+                let broken = index.is_some_and(|index| old_broken.contains(&(old_record["id"].as_str().unwrap_or_default().to_owned(), index)));
+                (new_chains_hold && broken).then_some(Reason::RunningBalance)
             } else {
                 journal_field_reason(&path, old_record, new_record, &old_value, &new_value, everything)
             };
@@ -628,6 +672,18 @@ fn compare_page_counts(report: &mut Report, ledger: &str, call: &str, old: &Valu
 async fn compare_journals(report: &mut Report, timings: &mut Timings, fixture: &Fixture, ledger: &SharedLedger) {
     let name = fixture.name.as_str();
     let (everything, _, _) = journal(Implementation::New, ledger, &Search::default()).await;
+    let (old_everything, _, _) = journal(Implementation::Old, ledger, &Search::default()).await;
+    let new_chains_hold = broken_chains(&everything).is_empty();
+    let old_broken = broken_chains(&old_everything);
+    if !new_chains_hold {
+        report.add(
+            "/api/journals",
+            name,
+            "",
+            None,
+            format!("the new running balances break: {:?}", broken_chains(&everything)),
+        );
+    }
     let large = !fixture.dir.starts_with(workspace());
     for search in searches(ledger, large).await {
         let (old, old_first, old_time) = journal(Implementation::Old, ledger, &search).await;
@@ -642,7 +698,7 @@ async fn compare_journals(report: &mut Report, timings: &mut Timings, fixture: &
             old_time,
             new_time,
         );
-        compare_journal(report, name, &search, &old, &new, &everything);
+        compare_journal(report, name, &search, &old, &new, &everything, new_chains_hold, &old_broken);
         // a search that finds a balance ... with pad by its pad account counts it
         let pad_search = new.len() > old.len() && search.keyword.is_some();
         compare_page_counts(
