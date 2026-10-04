@@ -734,8 +734,8 @@ option "operating_currency" "USD"
         assert_eq!(
             new["lots"],
             json!([
-                {"account": "Assets:Broker", "amount": "6", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02"},
-                {"account": "Assets:Broker", "amount": "5", "cost": {"number": "120", "commodity": "USD"}, "price": null, "acquisition_date": "2024-02-01"},
+                {"account": "Assets:Broker", "amount": "6", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": null},
+                {"account": "Assets:Broker", "amount": "5", "cost": {"number": "120", "commodity": "USD"}, "price": null, "acquisition_date": "2024-02-01", "label": null},
             ])
         );
         assert_eq!(
@@ -752,14 +752,57 @@ option "operating_currency" "USD"
         assert_eq!(
             new["lots"],
             json!([
-                {"account": "Assets:Cash", "amount": "3880", "cost": null, "price": null, "acquisition_date": null},
-                {"account": "Liabilities:Loan", "amount": "-5000", "cost": null, "price": null, "acquisition_date": null},
+                {"account": "Assets:Cash", "amount": "3880", "cost": null, "price": null, "acquisition_date": null, "label": null},
+                {"account": "Liabilities:Loan", "amount": "-5000", "cost": null, "price": null, "acquisition_date": null, "label": null},
             ])
         );
         assert_eq!(new["info"]["total_amount"], json!("-1120"));
 
         // an unknown commodity
         assert_eq!(commodity(&ledger, "NOPE").await, Outcome::Status(404));
+    }
+
+    /// Lots that differ only by label are the store's lots (#498): the page keeps them apart too.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn commodity_lots_keep_labelled_lots_apart() {
+        let ledger = ledger_of(
+            r#"
+option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Income:Gains
+
+2024-01-02 "Broker" "buy"
+  Assets:Broker 10 AAPL {100 USD, "a"}
+  Assets:Broker 10 AAPL {100 USD, "b"}
+  Assets:Broker 10 AAPL {100 USD}
+  Assets:Cash -3000 USD
+
+2024-03-01 "Broker" "sell from b"
+  Assets:Broker -4 AAPL {, "b"}
+  Assets:Cash 480 USD
+  Income:Gains -80 USD
+"#,
+        )
+        .await;
+        let new = commodity_json(&ledger, "AAPL").await;
+        assert_eq!(
+            new["lots"],
+            json!([
+                {"account": "Assets:Broker", "amount": "10", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": null},
+                {"account": "Assets:Broker", "amount": "10", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": "a"},
+                {"account": "Assets:Broker", "amount": "6", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": "b"},
+            ])
+        );
+        let new = commodity_json(&ledger, "USD").await;
+        assert_eq!(
+            new["lots"],
+            json!([
+                {"account": "Assets:Cash", "amount": "-2520", "cost": null, "price": null, "acquisition_date": null, "label": null},
+            ])
+        );
     }
 }
 

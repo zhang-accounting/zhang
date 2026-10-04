@@ -109,7 +109,7 @@ Beancount 允许 `balance` 在差额不超过某个容差时通过，这个容�
 
 #### 记账方法
 
-除非另行指定，张记账按 `FIFO` 记账，而 Beancount 的默认方法是 `STRICT`。要得到 Beancount 的行为，请添加 `option "default_booking_method" "STRICT"`；Beancount 自己的 `booking_method` 选项不会被读取。`NONE`、`AVERAGE` 和 `AVERAGE_ONLY` 尚未实现：使用其中之一的账户会得到一个错误，并按默认方法记账。批次标签会被读取并显示在查询中，但张记账不用它们来选择批次。见[批次与成本](/zh-cn/guides/lots-and-cost-basis/#选择记账方法)。
+除非另行指定，张记账按 `FIFO` 记账，而 Beancount 的默认方法是 `STRICT`。要得到 Beancount 的行为，请添加 `option "default_booking_method" "STRICT"`；Beancount 自己的 `booking_method` 选项不会被读取。`NONE`、`AVERAGE` 和 `AVERAGE_ONLY` 尚未实现：使用其中之一的账户会得到一个错误，并按默认方法记账。批次标签与 Beancount 一样用于选择批次：写成 `{, "first"}` 的卖出会扣减标签为 `first` 的批次。见[批次与成本](/zh-cn/guides/lots-and-cost-basis/#选择记账方法)。
 
 #### 补齐
 

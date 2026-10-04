@@ -109,7 +109,7 @@ A transaction balances when, in each commodity, its weights add up to zero once 
 
 #### Booking
 
-Zhang books with `FIFO` unless told otherwise, while beancount's default is `STRICT`. For beancount's behavior, add `option "default_booking_method" "STRICT"`; beancount's own `booking_method` option is not read. `NONE`, `AVERAGE` and `AVERAGE_ONLY` are not implemented: an account using one gets an error and books with the default method. Lot labels are read and shown in queries, but Zhang does not use them to choose lots. See [Lots and Cost Basis](/guides/lots-and-cost-basis/#choose-a-booking-method).
+Zhang books with `FIFO` unless told otherwise, while beancount's default is `STRICT`. For beancount's behavior, add `option "default_booking_method" "STRICT"`; beancount's own `booking_method` option is not read. `NONE`, `AVERAGE` and `AVERAGE_ONLY` are not implemented: an account using one gets an error and books with the default method. Lot labels select lots as in beancount: a sale written `{, "first"}` reduces the lot labelled `first`. See [Lots and Cost Basis](/guides/lots-and-cost-basis/#choose-a-booking-method).
 
 #### Pads
 

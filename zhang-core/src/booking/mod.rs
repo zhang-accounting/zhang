@@ -481,6 +481,8 @@ impl Booker {
             .filter(|lot| lot.commodity.eq(currency))
             // default lots have none cost
             .filter(|it| it.cost.is_none())
+            // nor a label: `{, "a"}` without a cost opens a labelled lot of its own (#498)
+            .filter(|it| it.label.is_none())
             // default lots have none acquisition date
             .find(|it| it.acquisition_date.is_none())
             .cloned();

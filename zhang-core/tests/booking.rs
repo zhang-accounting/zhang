@@ -448,6 +448,67 @@ fn augmentations_of_different_labels_open_distinct_lots() {
 }
 
 #[test]
+fn strict_label_matching_several_lots_is_ambiguous() {
+    // two lots labelled `a` at different costs: the label alone does not pick one
+    let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "STRICT"
+        2024-05-16 * "buy"
+          Assets:S 10 USD { 10 CNY, "a" }
+          Assets:S 10 USD { 11 CNY, "a" }
+          Income:I -210 CNY
+        2024-05-18 * "sell"
+          Assets:S -5 USD {, "a"}
+          Income:I
+    "#});
+    assert_eq!(errors(&ledger), vec![(ErrorKind::AmbiguousLotMatch, Some("-5".to_owned()))]);
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec!["5 USD {10 CNY, 2024-05-16, \"a\"}", "10 USD {11 CNY, 2024-05-16, \"a\"}"]
+    );
+}
+
+#[test]
+fn lifo_takes_the_newest_lot_whether_labelled_or_not() {
+    // a labelled lot and an unlabelled one at the same cost: a reduction without a label matches
+    // both, and the booking method picks among them by date, as among any lots
+    let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "LIFO"
+        2024-05-16 * "buy"
+          Assets:S 10 USD { 10 CNY, "a" }
+          Income:I -100 CNY
+        2024-05-17 * "buy"
+          Assets:S 10 USD { 10 CNY }
+          Income:I -100 CNY
+        2024-05-18 * "sell"
+          Assets:S -5 USD { 10 CNY }
+          Income:I
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec!["10 USD {10 CNY, 2024-05-16, \"a\"}", "5 USD {10 CNY, 2024-05-17}"]
+    );
+}
+
+#[test]
+fn a_labelled_lot_without_cost_is_not_the_default_lot() {
+    // `{, "a"}` without a cost opens a labelled lot; units booked without a cost spec go to the
+    // default lot, which carries no label
+    let ledger = load(indoc! {r#"
+        2024-05-16 * "buy"
+          Assets:A 10 USD {, "a"}
+          Income:I -10 USD
+        2024-05-17 * "transfer"
+          Assets:A 5 USD
+          Income:I -5 USD
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {\"a\"}", "5 USD"]);
+}
+
+#[test]
 fn strict_ambiguous_match_lists_the_labels_of_the_lots() {
     let ledger = load(indoc! {r#"
         1970-01-01 open Assets:S

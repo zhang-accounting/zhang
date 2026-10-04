@@ -216,6 +216,8 @@ pub struct CommodityLotEntity {
     pub cost: Option<Amount>,
     pub price: Option<Amount>,
     pub acquisition_date: Option<NaiveDate>,
+    /// the lot's label, from the `{cost, "label"}` it was bought with
+    pub label: Option<String>,
 }
 
 #[derive(Serialize, Schematic)]
