@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import { ApiError } from 'openapi-typescript-fetch';
 import { responseError } from '@/lib/api-error';
 import { apiBaseUrl, openAPIFetcher, reportUnauthorized } from './fetcher';
@@ -35,6 +36,11 @@ export const retrieveBudgetEvent = openAPIFetcher.path('/api/budgets/{budget_nam
 export const retrieveCommodityInfo = openAPIFetcher.path('/api/commodities/{commodity_name}').method('get').create();
 
 export const retrieveNewTransactionInfo = openAPIFetcher.path('/api/for-new-transaction').method('get').create();
+
+/** A ledger path as the API's path parameters take it (`/api/files/{file_path}`, `/api/documents/{path}`): base64 of its UTF-8 bytes. */
+export function base64Path(path: string): string {
+  return Buffer.from(path).toString('base64');
+}
 
 export const retrieveFile = openAPIFetcher.path('/api/files/{file_path}').method('get').create();
 
