@@ -204,11 +204,22 @@ fn env_value(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|it| !it.trim().is_empty())
 }
 
+/// The log filter, in env_logger syntax: `ZHANG_LOG`, else `RUST_LOG`, else `info`, so that errors, warnings and
+/// the server's start-up lines show without any configuration
+fn log_filter(zhang_log: Option<&str>, rust_log: Option<&str>) -> String {
+    zhang_log.or(rust_log).unwrap_or("info").to_owned()
+}
+
+fn init_logger() {
+    let filter = log_filter(std::env::var("ZHANG_LOG").ok().as_deref(), std::env::var("RUST_LOG").ok().as_deref());
+    // `Env::new()` keeps `RUST_LOG_STYLE` for the colours; `ZHANG_LOG`, when it is set, is `filter` already
+    env_logger::Builder::from_env(Env::new().filter_or("ZHANG_LOG", filter)).init();
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     // console_subscriber::init();
-    let env = Env::new().filter("ZHANG_LOG").default_filter_or("RUST_LOG");
-    env_logger::Builder::default().parse_env(env).init();
+    init_logger();
     let opts = Opts::parse();
 
     tokio::select! {
@@ -263,6 +274,15 @@ mod test {
 
     };
 }
+    #[test]
+    fn log_filter_reads_zhang_log_then_rust_log_then_defaults_to_info() {
+        use crate::log_filter;
+        assert_eq!(log_filter(Some("debug"), None), "debug");
+        assert_eq!(log_filter(Some("zhang_core=trace"), Some("info")), "zhang_core=trace");
+        assert_eq!(log_filter(None, Some("zhang_core=trace,warn")), "zhang_core=trace,warn");
+        assert_eq!(log_filter(None, None), "info");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn integration_test() {
         env_logger::try_init().ok();

@@ -110,7 +110,7 @@ zhang serve [OPTIONS] <PATH>
 | `ZHANG_SESSION_SECRET`、`ZHANG_PASSKEY_ORIGIN`、`ZHANG_PASSKEY_RP_ID` | 会话和通行密钥，见[身份认证](/zh-cn/deployment/authentication/)。 |
 | `ZHANG_S3_*`、`ZHANG_WEBDAV_*`、`ZHANG_GITHUB_*` | [S3](/zh-cn/deployment/data-sources/s3/)、[WebDAV](/zh-cn/deployment/data-sources/webdav/) 和 [GitHub](/zh-cn/deployment/data-sources/github/) 数据源的设置。 |
 | `ZHANG_QUERY_MAX_RESULT_VALUES` | 一条[查询](/zh-cn/reference/query-language/)的结果最多能包含多少个值，超出后查询会被中止。默认为 `1000000`。在内存较小的机器上可以调低。 |
-| `RUST_LOG` | 日志级别，例如 `info` 或 `debug`。不设置时，二进制文件不输出任何日志。Docker 镜像设置为 `info`。 |
+| `ZHANG_LOG` | 日志过滤器，例如 `info`、`debug` 或 `zhang_core=trace`（[env_logger 语法](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)）。不设置时使用 `RUST_LOG`；两者都不设置时级别为 `info`。Docker 镜像设置了 `RUST_LOG=info`。 |
 
 如果启动时账本无法加载（例如存在语法错误），或者端口已被占用，`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出，这样 systemd、Docker 和托管平台都能识别出启动失败。账目本身的问题，例如不平衡的交易，不会让服务器停止：它们会列在网页界面中。
 
