@@ -93,15 +93,17 @@ impl UnitBalances {
     /// book a transaction the way the store fold does: transactions the fold
     /// rejects (their implicit posting cannot be interpolated) are skipped,
     /// every other posting adds its units, or for an implicit posting the amount
-    /// interpolated from the other postings
-    pub fn apply_transaction(&mut self, txn: &Transaction) {
+    /// interpolated from the other postings. Returns the units of each posting, none
+    /// for a transaction skipped
+    pub fn apply_transaction(&mut self, txn: &Transaction) -> Vec<Amount> {
         // a rejected transaction does not reach the store; nothing to book here
         let BookOutcome::Booked(booked) = self.booker.book(txn) else {
-            return;
+            return vec![];
         };
-        for (posting, amount) in txn.postings.iter().zip(booked.units) {
-            self.add(&posting.account, &amount);
+        for (posting, amount) in txn.postings.iter().zip(&booked.units) {
+            self.add(&posting.account, amount);
         }
+        booked.units
     }
 
     fn add(&mut self, account: &Account, amount: &Amount) {
@@ -121,6 +123,11 @@ impl UnitBalances {
             .chain(sub_accounts)
             .filter_map(|(_, commodities)| commodities.get(commodity))
             .fold(BigDecimal::zero(), |sum, units| sum + units)
+    }
+
+    /// whether the account or one of its sub-accounts holds `commodity` at cost, in a lot with a cost
+    pub fn holds_at_cost(&self, account: &Account, commodity: &str) -> bool {
+        self.booker.holds_at_cost(account.name(), commodity)
     }
 
     /// [`UnitBalances::balance`] as an amount
@@ -235,7 +242,9 @@ mod test {
         for directive in parse(content) {
             match directive {
                 Directive::Open(open) => balances.apply_open(&open),
-                Directive::Transaction(txn) => balances.apply_transaction(&txn),
+                Directive::Transaction(txn) => {
+                    balances.apply_transaction(&txn);
+                }
                 _ => {}
             }
         }

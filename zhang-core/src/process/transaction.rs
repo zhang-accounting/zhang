@@ -23,7 +23,8 @@ use crate::ZhangResult;
 
 impl DirectiveProcess for Transaction {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        let id = Uuid::from_span(span);
+        // a stage may synthesize several transactions at one place: the paddings of a `pad` serving several currencies
+        let id = ledger.operations().unused_id(Uuid::from_span(span));
         let txn_meta = || HashMap::of(TXN_ID, id.to_string());
 
         // booking first: the lots decide the weights the implicit posting is interpolated from (E4)
@@ -122,6 +123,7 @@ impl DirectiveProcess for Transaction {
                 self.date.to_timezone_datetime(&ledger.options.timezone),
                 document_pathbuf.file_name().and_then(|it| it.to_str()),
                 document_path,
+                None,
                 DocumentType::Trx(id),
             )?;
         }

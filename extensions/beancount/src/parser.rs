@@ -27,7 +27,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::utils::string_::{invalid_escape_at, quoted_string};
 
-use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective, PadDirective};
+use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 
 /// Error returned when the input cannot be parsed as beancount text.
 #[derive(Debug, Clone)]
@@ -508,7 +508,7 @@ fn pad_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     let (i, pad) = account_name(i)?;
     Ok((
         i,
-        Either::Right(BeancountOnlyDirective::Pad(PadDirective {
+        Either::Left(Directive::Pad(Pad {
             date,
             account,
             pad,
@@ -1028,10 +1028,10 @@ mod test {
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
         use zhang_ast::amount::Amount;
-        use zhang_ast::{Account, Date};
+        use zhang_ast::{Account, Date, Directive, Pad};
 
-        use crate::directives::{BalanceDirective, BeancountOnlyDirective, PadDirective};
-        use crate::parser::test::get_right_directive;
+        use crate::directives::{BalanceDirective, BeancountOnlyDirective};
+        use crate::parser::test::{get_left_directive, get_right_directive};
 
         #[test]
         fn should_support_push_tag() {
@@ -1060,9 +1060,9 @@ mod test {
         }
         #[test]
         fn should_parse_pad() {
-            let directive = get_right_directive("1970-01-01 pad Assets:BankAccount Assets:BankAccount2");
+            let directive = get_left_directive("1970-01-01 pad Assets:BankAccount Assets:BankAccount2");
             assert_eq!(
-                BeancountOnlyDirective::Pad(PadDirective {
+                Directive::Pad(Pad {
                     date: Date::Date(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()),
                     account: Account::from_str("Assets:BankAccount").unwrap(),
                     pad: Account::from_str("Assets:BankAccount2").unwrap(),

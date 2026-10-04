@@ -62,7 +62,7 @@ When Zhang writes a transaction, for example after you edit it in the web UI, it
 | `balance` | Read, with an optional `~` tolerance. Exact without one: see [Balance assertions are exact](#balance-assertions-are-exact). |
 | `pad` | Read, paired with the `balance` it serves: see [Pads](#pads). |
 | `note`, `event` | Read. |
-| `document` | Read. The path is relative to the ledger's root directory. See [Documents](/guides/documents/). |
+| `document` | Read. The path is relative to the file that holds the directive, as in beancount: see [Document paths](#document-paths). |
 | `price` | Read, for valuations in queries and the Commodities page. |
 | `query` | Read: the queries appear in the **Saved** menu of the [Query](/guides/querying/) page. |
 | `custom` | Read. `custom budget …` defines [budgets](/guides/budgets/): see [Budgets](#budgets). |
@@ -71,7 +71,7 @@ When Zhang writes a transaction, for example after you edit it in the web UI, it
 | `include` | Read, including `*` patterns such as `include "2024/*.bean"`. |
 | `pushtag`, `poptag`, `pushmeta`, `popmeta` | Read. |
 
-A `time: "HH:MM:SS"` metadata entry gives any directive a time of day.
+A `time: "HH:MM:SS"` metadata entry gives a directive a time of day, except a `balance` or a `pad`, whose time Zhang ignores, as beancount does: see [Balance times](#balance-times).
 
 Zhang cannot read the following. A file using them does not load at all:
 
@@ -114,13 +114,21 @@ Zhang books with `FIFO` unless told otherwise, while beancount's default is `STR
 
 #### Pads
 
-Zhang pairs each `pad` with the `balance` entries it serves as beancount does: the next `balance` of the account in each commodity, up to the account's next `pad`, never one on the same day as the `pad`. The differences:
+Zhang pairs each `pad` with the `balance` entries it serves as beancount does: the next `balance` of the account in each commodity on a later day, up to the account's next `pad`, never one on the same day as the `pad`. The padding transaction is dated on the `pad`, the `pad` and its `balance` may be in different files, and a `pad` that serves no `balance` is reported as [`UnusedPad`](/reference/error-codes/#unusedpad). The differences:
 
-- The padding transaction is dated on the day of the `balance`, not of the `pad`. The balance from that day on is the same as in beancount, but between the two dates the account does not include the padding yet.
-- A `pad` serves only a `balance` in the same file.
-- A `pad` that serves no `balance` is ignored. Beancount reports it as unused.
+- A pad brings the account to exactly the asserted amount, even within an explicit `~` tolerance, where beancount pads nothing.
+- Only an assertion on the padded account itself uses the `pad`: beancount also lets an assertion on a sub-account use up the `pad` of its parent account.
+- Of two `pad`s of an account on the same day in different files, the one Zhang orders last pads, which may not be the one beancount uses.
 
-See [Balances and Padding](/guides/balances/#beancounts-pad), and [Balance](/reference/directives/balance/#beancount-compatibility) for the cases of parent accounts and sub-accounts.
+See [The `pad` directive](/guides/balances/#the-pad-directive), and [Balance](/reference/directives/balance/#beancount-compatibility) for the cases of parent accounts and sub-accounts.
+
+#### Balance times
+
+Zhang checks a `balance` at the start of its date, before the transactions of that day, as beancount does, and ignores its `time` metadata. Earlier versions of Zhang checked it at that time, after the transactions of the day before it: where that changes what a balance checks, it is listed with a [`BalanceTimeIgnored`](/reference/error-codes/#balancetimeignored) notice. Date such a balance on the next day to check it after the day's transactions.
+
+#### Document paths
+
+Zhang reads the path of a `document` relative to the file that holds it, as beancount does, and the documents you upload are written that way. Earlier versions of Zhang wrote the paths of uploaded documents relative to the ledger root, into files like `data/2026/10.bean`, which beancount reports as missing. Zhang still opens those documents. On the local disk, it lists a [`DocumentPathRelativeToRoot`](/reference/error-codes/#documentpathrelativetoroot) notice on each, with the path to write instead, and reports a document found nowhere as [`DocumentNotFound`](/reference/error-codes/#documentnotfound). See [Document](/reference/directives/document/#paths).
 
 #### Prices
 

@@ -4,6 +4,7 @@ use zhang_ast::*;
 
 use crate::data_type::text::parser::is_valid_meta_key;
 use crate::ledger::Ledger;
+use crate::utils::plain_decimal;
 use crate::utils::string_::{quote_as, QuoteStyle};
 
 pub trait ZhangDataTypeExportable: Sized {
@@ -57,7 +58,7 @@ impl ZhangDataTypeExportable for Account {
 impl ZhangDataTypeExportable for Amount {
     type Output = String;
     fn export_as(self, _style: QuoteStyle) -> String {
-        format!("{} {}", self.number, self.commodity)
+        format!("{} {}", plain_decimal(&self.number), self.commodity)
     }
 }
 
@@ -249,11 +250,23 @@ impl ZhangDataTypeExportable for BalanceCheck {
             ..
         } = self;
         let amount_str = match tolerance {
-            Some(tolerance) => format!("{} ~ {} {}", amount.number, tolerance, amount.commodity),
+            Some(tolerance) => format!("{} ~ {} {}", plain_decimal(&amount.number), plain_decimal(&tolerance), amount.commodity),
             None => amount.export_as(style),
         };
         let line = [date.export_as(style), "balance".to_string(), account.export_as(style), amount_str];
         append_meta_as(meta, line.join(" "), style)
+    }
+}
+impl ZhangDataTypeExportable for Pad {
+    type Output = String;
+    fn export_as(self, style: QuoteStyle) -> String {
+        let line = [
+            self.date.export_as(style),
+            "pad".to_string(),
+            self.account.export_as(style),
+            self.pad.export_as(style),
+        ];
+        append_meta_as(self.meta, line.join(" "), style)
     }
 }
 
@@ -420,6 +433,7 @@ impl ZhangDataTypeExportable for Directive {
             Directive::Transaction(txn) => txn.export_as(style),
             Directive::BalancePad(pad) => pad.export_as(style),
             Directive::BalanceCheck(check) => check.export_as(style),
+            Directive::Pad(pad) => pad.export_as(style),
             Directive::Note(note) => note.export_as(style),
             Directive::Document(document) => document.export_as(style),
             Directive::Price(price) => price.export_as(style),
@@ -451,6 +465,7 @@ mod test {
 
     use indoc::indoc;
 
+    use super::ZhangDataTypeExportable;
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
 
@@ -501,6 +516,12 @@ mod test {
             "balance pad",
             indoc! {r#"
             1970-01-01 balance Assets:hello 10 CNY with pad Income:Salary
+        "#}
+        );
+        assert_parse!(
+            "pad",
+            indoc! {r#"
+            1970-01-01 pad Assets:hello Equity:Opening-Balances
         "#}
         );
     }
@@ -643,6 +664,37 @@ mod test {
               Expenses:TestCategory:One 1 CCC @@ 1 CNY
         "#}
         );
+    }
+
+    /// numbers are written in plain notation, as they were written, never with an exponent: very small, very large and
+    /// of a high scale
+    #[test]
+    fn numbers_are_written_in_plain_notation() {
+        for number in [
+            "0.000000001",
+            "-0.000000001",
+            "1200000000000000000000000000000",
+            "0.1234567890123456789012345678",
+            "-12345678901234567890.123456789",
+            "100.50",
+        ] {
+            for text in [
+                format!("1970-01-01 balance Assets:A {number} CNY"),
+                format!("1970-01-01 balance Assets:A {number} ~ 0.000000001 CNY"),
+                format!("1970-01-01 balance Assets:A {number} CNY with pad Equity:Open"),
+                format!("1970-01-01 price USD {number} CNY"),
+                format!("1970-01-01 * \"Payee\" \"Narration\"\n  Assets:A {number} CNY\n  Assets:B 1 CCC @@ {number} CNY"),
+                format!("1970-01-01 budget-add Food {number} CNY"),
+            ] {
+                assert_eq!(parse_and_export(&text), text);
+            }
+        }
+        // numbers with an exponent, as arithmetic or a request can leave them
+        let amount = |number: &str| zhang_ast::amount::Amount::new(number.parse().unwrap(), "CNY").export();
+        assert_eq!(amount("1E-9"), "0.000000001 CNY");
+        assert_eq!(amount("1.2E+30"), "1200000000000000000000000000000 CNY");
+        assert_eq!(amount("123456789E-20"), "0.00000000000123456789 CNY");
+        assert_eq!(amount("-5E+3"), "-5000 CNY");
     }
 
     #[test]

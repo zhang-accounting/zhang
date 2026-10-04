@@ -92,7 +92,7 @@ plugin "plugins/receipts.wasm"
 ### 加载与顺序
 
 - 张记账通过账本的数据源，从账本根目录读取模块。它在启动 `zhang serve` 的目录下的 `.cache/plugins` 中保留一份副本。本地模块发生变化时，`zhang serve` 会重新加载账本。
-- 插件按其 `plugin` 指令的顺序运行，每次加载账本时都会运行，并且在张记账自己的步骤之前：先检查未开立的账户，然后[补齐](/zh-cn/reference/directives/balance/#用-with-pad-补齐)，然后检查余额。因此插件看到的是写下的交易，此时补齐交易还不存在。
+- 插件按其 `plugin` 指令的顺序运行，每次加载账本时都会运行，并且在张记账自己的步骤之前：先检查未开立的账户，然后[补齐](/zh-cn/reference/directives/balance/#用-with-pad-补齐)，然后检查余额。因此插件看到的是写下的交易，此时补齐交易还不存在。插件从不会看到 `pad` 指令：由某条 `pad` 补齐的 `balance` 会以 `balance … with pad` 的样子交给它（见[阶段顺序约定](/zh-cn/developers/writing-plugins/#阶段顺序约定)）。
 - 同一个模块声明两次，会得到两个独立的插件，各自有自己的设置和种子。
 - 模块缺失或无法加载，或者插件调用失败或运行超过 `timeout`，都会让账本无法加载。如果 `zhang serve` 已经在运行，它会继续提供重新加载之前的账本。
 - 网页界面的设置页面列出已加载的插件。router 插件在 `/api/plugins/<name>` 提供服务；见 [Router 插件](/zh-cn/guides/router-plugins/)。

@@ -11,6 +11,8 @@ ledgers in this directory (a ledger may include files from a sub-directory).
 - ``assertions``: every ``balance`` directive in ledger order, with the balance beancount
   checked it against (the account and its sub-accounts) and whether it passed;
 - ``unused_pads``: the date and account of every ``pad`` beancount reports as unused;
+- ``pads_with_cost``: the date and account of every ``balance`` whose pad beancount reports as
+  padding a commodity held at cost;
 - ``errors``: the other errors beancount reports;
 - ``accepted_deviation``: why zhang deliberately differs from beancount on the ledger, or
   ``null`` when it agrees. Such a ledger is checked against zhang's own rules instead.
@@ -42,15 +44,35 @@ from beancount.ops.pad import PadError
 HERE = os.path.dirname(os.path.abspath(__file__))
 ORACLE = os.path.join(HERE, "oracle.json")
 
+NO_INFERRED_TOLERANCE = (
+    "zhang never infers a tolerance: an assertion without `~` must match exactly, and a pad brings the "
+    "account to exactly the asserted amount. Beancount tolerates one unit of the last decimal place of "
+    "the asserted amount, and pads nothing within it"
+)
+
 # the ledgers zhang deliberately checks differently, and why
 ACCEPTED_DEVIATIONS = {
     "child_assertion_after_parent_pad": (
         "a pad serves the assertions on its own account only: beancount also lets an assertion on a sub-account "
         "use up the pad of its parent account, which then pads nothing for the parent's own assertion"
     ),
+    "inferred_tolerance": NO_INFERRED_TOLERANCE,
     "nested_pads": (
-        "a pad is sized from the balance with every padding before it: beancount sizes the pad of a parent account "
-        "without the padding of its sub-accounts, and the parent's assertion then fails"
+        "a pad is sized with the padding of every assertion served before it: beancount sizes the pad of a parent "
+        "account without the padding of its sub-accounts, and the parent's assertion then fails"
+    ),
+    "pad_with_cost_lots": (
+        "padding a commodity held at cost is reported once for the balance the pad serves: beancount reports it once "
+        "for each lot held at cost"
+    ),
+    "pad_within_tolerance": (
+        "a pad brings the account to exactly the asserted amount: zhang pads the difference even within an "
+        "explicit `~` tolerance, where beancount pads nothing and reports the pad unused"
+    ),
+    "same_day_pads_in_two_files": (
+        "zhang orders the directives of a day by file, in the order the ledger includes them, then by line: "
+        "beancount orders them by line whatever their file, so of two pads of an account on one day in two files, "
+        "another one is the last and pads"
     ),
 }
 
@@ -65,6 +87,15 @@ def case(path):
         {"date": str(error.entry.date), "account": error.entry.account}
         for error in errors
         if isinstance(error, PadError) and error.message == "Unused Pad entry"
+    ]
+    balances_at = {(entry.meta["filename"], entry.meta["lineno"]): entry for entry in entries if isinstance(entry, data.Balance)}
+    pads_with_cost = [
+        {"date": str(balance.date), "account": balance.account}
+        for balance in (
+            balances_at[(error.source["filename"], error.source["lineno"])]
+            for error in errors
+            if isinstance(error, PadError) and error.message.startswith("Attempt to pad an entry with cost")
+        )
     ]
     other_errors = [error.message for error in errors if not isinstance(error, (BalanceError, PadError))]
 
@@ -115,6 +146,7 @@ def case(path):
         "pads": pads,
         "assertions": assertions,
         "unused_pads": unused_pads,
+        "pads_with_cost": pads_with_cost,
         "errors": other_errors,
         "accepted_deviation": ACCEPTED_DEVIATIONS.get(name),
     }

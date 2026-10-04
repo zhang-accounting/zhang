@@ -39,6 +39,7 @@ use crate::response::ResponseWrapper;
 use crate::state::AppState;
 
 pub mod auth;
+mod balance_writes;
 pub mod broadcast;
 pub mod builtin;
 mod cells;
@@ -483,4 +484,73 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod reload_test {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use axum::extract::{Path, State};
+    use axum::response::IntoResponse;
+    use axum::Json;
+    use bigdecimal::BigDecimal;
+    use tokio::sync::{mpsc, RwLock};
+    use zhang_ast::amount::Amount;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::ledger::Ledger;
+
+    use super::start_reload_listener;
+    use crate::broadcast::Broadcaster;
+    use crate::request::AccountBalanceRequest;
+    use crate::routes::account::create_account_balance;
+    use crate::state::{SharedLedger, SharedReloadSender};
+    use crate::ReloadSender;
+
+    /// A write asks for the reload that serves the readers: they read what it wrote, with no other write after it.
+    #[tokio::test]
+    async fn the_readers_read_what_a_write_wrote() {
+        let dir = std::env::temp_dir().join(format!("zhang-reload-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("main.bean"),
+            "option \"operating_currency\" \"CNY\"\n2020-01-01 commodity CNY\n2024-01-01 open Assets:A\n2024-01-01 open Income:X\n\
+             2024-06-01 * \"seed\"\n  Assets:A 50 CNY\n  Income:X\n",
+        )
+        .unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+        let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+
+        let check = AccountBalanceRequest::Check {
+            amount: Amount::new(BigDecimal::from(50), "CNY"),
+        };
+        let response = create_account_balance(
+            State(SharedLedger(ledger.clone())),
+            State(SharedReloadSender(reload_sender)),
+            Path(("Assets:A".to_owned(),)),
+            Json(check),
+        )
+        .await
+        .into_response();
+        assert!(response.status().is_success(), "{}", response.status());
+
+        let mut assertions = 0;
+        for _ in 0..100 {
+            let ledger = ledger.read().await;
+            assertions = ledger.store.read().unwrap().balance_assertions.len();
+            if assertions == 1 {
+                assert!(!ledger.stale, "the ledger readers read is the one reloaded");
+                break;
+            }
+            drop(ledger);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(assertions, 1, "the readers read the balance written");
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

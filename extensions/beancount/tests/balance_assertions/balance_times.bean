@@ -1,0 +1,99 @@
+; Balances with a `time` in a beancount file: zhang checks each at the start of its
+; date, as beancount does. A balance whose time earlier versions of zhang read, and
+; which transactions of its day before that time changed in its commodity, is
+; reported as BalanceTimeIgnored (see the test).
+option "operating_currency" "CNY"
+2020-01-01 commodity CNY
+2020-01-01 commodity USD
+2024-01-01 open Assets:A
+2024-01-01 open Assets:A:Sub
+2024-01-01 open Assets:AB
+2024-01-01 open Assets:B
+2024-01-01 open Assets:C
+2024-01-01 open Assets:D
+2024-01-01 open Assets:E
+2024-01-01 open Assets:F
+2024-01-01 open Assets:G
+2024-01-01 open Assets:H
+2024-01-01 open Equity:Open
+2024-01-01 open Expenses:X
+; W1 equal time: txn 09:30, balance 09:30 -> no change, expect no warning
+2024-03-01 * "eq"
+  Assets:A 1 CNY
+  Expenses:X
+  time: "09:30:00"
+2024-03-01 balance Assets:A 0 CNY
+  time: "09:30:00"
+; W2 sub-account txn 08:00, parent balance 09:30 -> warning expected
+2024-03-02 * "sub"
+  Assets:A:Sub 1 CNY
+  Expenses:X
+  time: "08:00:00"
+2024-03-02 balance Assets:A 1 CNY
+  time: "09:30:00"
+; W3 name-prefix account Assets:AB txn 08:00, balance of Assets:A 09:30 -> no warning expected
+2024-03-03 * "prefix"
+  Assets:AB 1 CNY
+  Expenses:X
+  time: "08:00:00"
+2024-03-03 balance Assets:A 2 CNY
+  time: "09:30:00"
+; W4 other commodity: USD txn 08:00, CNY balance 09:30 -> nothing changed for CNY
+2024-03-04 * "usd"
+  Assets:B 5 USD
+  Expenses:X
+  time: "08:00:00"
+2024-03-04 balance Assets:B 0 CNY
+  time: "09:30:00"
+; W5 hand-written P transaction 08:00 then balance 09:30 -> changed, warning expected
+2024-03-05 P "Balance Pad" "pad Assets:C to Equity:Open"
+  Assets:C 7 CNY
+  Equity:Open -7 CNY
+  time: "08:00:00"
+2024-03-05 balance Assets:C 7 CNY
+  time: "09:30:00"
+; W6 untimed txn, timed balance 09:30 -> warning expected
+2024-03-06 * "untimed"
+  Assets:D 3 CNY
+  Expenses:X
+2024-03-06 balance Assets:D 3 CNY
+  time: "09:30:00"
+; W7 two-part time "09:30": the old loader ignored it (time needs H:M:S) -> nothing changed
+2024-03-07 * "two part"
+  Assets:E 4 CNY
+  Expenses:X
+  time: "08:00:00"
+2024-03-07 balance Assets:E 4 CNY
+  time: "09:30"
+; W8 padded spaces " 09:30:00 ": the old loader trimmed and honoured it -> changed, warning expected
+2024-03-08 * "spaces"
+  Assets:F 5 CNY
+  Expenses:X
+  time: "08:00:00"
+2024-03-08 balance Assets:F 5 CNY
+  time: " 09:30:00 "
+; W9 single-digit hour "9:30:00": old loader honoured it -> changed, warning expected
+2024-03-09 * "single digit"
+  Assets:G 6 CNY
+  Expenses:X
+  time: "08:00:00"
+2024-03-09 balance Assets:G 6 CNY
+  time: "9:30:00"
+; W10 txn zero-sum within the account at 08:00 -> nothing changed, no warning ideal
+2024-03-10 * "internal"
+  Assets:H 5 CNY
+  Assets:H -5 CNY
+  time: "08:00:00"
+2024-03-10 balance Assets:H 0 CNY
+  time: "09:30:00"
+; W11 two transactions before the time: reported once
+2024-03-11 * "first"
+  Assets:A 1 CNY
+  Expenses:X
+  time: "07:00:00"
+2024-03-11 * "second"
+  Assets:A 1 CNY
+  Expenses:X
+  time: "08:00:00"
+2024-03-11 balance Assets:A 4 CNY
+  time: "09:30:00"

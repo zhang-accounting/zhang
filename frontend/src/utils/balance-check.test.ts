@@ -2,7 +2,7 @@
 //   pnpm run test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { balanceCheckRows, batchBalanceRows, padsAnAccountWithItsSubAccount, subAccountsFirst } from './balance-check.ts';
+import { balanceCheckRows, batchBalanceRows, replacedBalancesText, subAccountsFirst } from './balance-check.ts';
 
 const calculated = { number: '0', commodity: 'CNY' };
 
@@ -57,12 +57,18 @@ test('a batch writes the balances of sub-accounts before their parents', () => {
   );
 });
 
-test('a batch padding an account and asserting one of its sub-accounts is flagged', () => {
-  const check = (account_name: string) => ({ account_name, pad: '' });
-  const pad = (account_name: string) => ({ account_name, pad: 'Equity:Open' });
-  assert.equal(padsAnAccountWithItsSubAccount([pad('Assets:Bank'), check('Assets:Bank:Checking')]), true);
-  assert.equal(padsAnAccountWithItsSubAccount([pad('Assets:Bank:Checking'), pad('Assets:Bank')]), true);
-  // a parent checked without a pad is fine, and so is a sibling that is no sub-account
-  assert.equal(padsAnAccountWithItsSubAccount([check('Assets:Bank'), pad('Assets:Bank:Checking')]), false);
-  assert.equal(padsAnAccountWithItsSubAccount([pad('Assets:Bank'), pad('Assets:Banking')]), false);
+test('the balances a request replaced are told one per line', () => {
+  const line = ({ date, account, amount }: { date: string; account: string; amount: string }) => `${account} ${date}: ${amount}`;
+  assert.equal(replacedBalancesText([], line), '');
+  assert.equal(
+    replacedBalancesText(
+      [
+        { date: '2026-10-05', account: 'Assets:A', amount: { number: '100', commodity: 'CNY' }, tolerance: null },
+        { date: '2026-10-05', account: 'Assets:B', amount: { number: '7', commodity: 'USD' } },
+        { date: '2026-10-05', account: 'Assets:C', amount: { number: '50', commodity: 'CNY' }, tolerance: '5' },
+      ],
+      line,
+    ),
+    'Assets:A 2026-10-05: 100 CNY\nAssets:B 2026-10-05: 7 USD\nAssets:C 2026-10-05: 50 ~ 5 CNY',
+  );
 });

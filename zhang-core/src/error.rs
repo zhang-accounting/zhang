@@ -23,7 +23,7 @@ pub enum ZhangError {
     #[error("ip addr error: {0}")]
     IpAddrError(#[from] AddrParseError),
 
-    #[error("Parse Error \nPath: {path}{msg}")]
+    #[error("cannot parse {path}: {msg}")]
     PestError { path: String, msg: String },
     #[error("Process Error: {kind} \n file: {:?}[{}:{}] \n content: {}", span.filename,span.start, span.end, span.content)]
     ProcessError { span: SpanInfo, kind: zhang_ast::error::ErrorKind },
@@ -47,6 +47,15 @@ pub enum ZhangError {
     /// a file or directory larger than the caller allows
     #[error("too large: {0}")]
     TooLarge(String),
+
+    /// a file a writer edits in place changed since the ledger was loaded: the places of its directives are stale, and
+    /// nothing is written
+    #[error("the file {0} changed since the ledger was loaded, so nothing was written: try again, on the ledger reloaded")]
+    FileChanged(String),
+    /// the storage of the ledger refused to read the file at this path, as a scoped access policy or an expired token
+    /// makes it: whether the file is there is not known
+    #[error("the storage refused to read {0}")]
+    ReadRefused(String),
 }
 
 pub trait IoErrorIntoZhangError<T> {

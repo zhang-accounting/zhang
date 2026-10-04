@@ -9,7 +9,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 use axum::Router;
-use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE as BASE64_URL_SAFE};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use bytes::Bytes;
 use gotcha::{GotchaApp, GotchaContext};
@@ -125,13 +125,14 @@ fn encode(path: &str) -> String {
     BASE64_STANDARD.encode(path)
 }
 
-/// The document cache file of `path`, which the download writes under the working directory: removed
-/// when created and dropped, so a run neither reads a stale one nor leaves it behind.
+/// The document cache file of `path` in the ledger at `root`, which the download of a document of a source without a
+/// local root (as [`RootedFileSystem`]) writes under the working directory: removed when created and dropped, so a
+/// run neither reads a stale one nor leaves it behind.
 struct CacheFile(PathBuf);
 
 impl CacheFile {
-    fn of(path: &str) -> Self {
-        let file = PathBuf::from(".cache/data").join(BASE64_URL_SAFE.encode(path));
+    fn of(root: &Path, path: &str) -> Self {
+        let file = PathBuf::from(".cache/documents").join(zhang_server::util::document_cache_key(root, path));
         std::fs::remove_file(&file).ok();
         CacheFile(file)
     }
@@ -183,7 +184,7 @@ async fn put(router: &Router, uri: &str, body: Value) -> Reply {
 async fn a_document_whose_base64_path_has_a_slash_downloads() {
     let dir = ledger_dir();
     let router = server(dir.path()).await;
-    let _cache = CacheFile::of(DOCUMENT);
+    let _cache = CacheFile::of(dir.path(), DOCUMENT);
     let encoded = encode(DOCUMENT);
     assert_eq!(encoded, "YXR0YWNobWVudHMvdTEwL+S/nemZqS5wZGY=");
 
@@ -194,8 +195,9 @@ async fn a_document_whose_base64_path_has_a_slash_downloads() {
         reply.headers[header::CONTENT_DISPOSITION].as_bytes(),
         "inline; filename=\"保险.pdf\"".as_bytes()
     );
-    // the cache file is one file, named after the url-safe encoding of the path
+    // the cache file is one flat file, named by the hash of the ledger root and the path, whatever the path holds
     assert!(_cache.0.is_file(), "the download should cache {:?}", _cache.0);
+    assert_eq!(_cache.0.parent(), Some(Path::new(".cache/documents")));
 
     // the frontend's API client percent encodes a path parameter
     let percent_encoded = encoded.replace('+', "%2B").replace('/', "%2F").replace('=', "%3D");
@@ -208,7 +210,7 @@ async fn a_document_whose_base64_path_has_a_slash_downloads() {
 async fn a_document_whose_base64_path_has_no_slash_downloads() {
     let dir = ledger_dir();
     let router = server(dir.path()).await;
-    let _cache = CacheFile::of(ASCII_DOCUMENT);
+    let _cache = CacheFile::of(dir.path(), ASCII_DOCUMENT);
     let encoded = encode(ASCII_DOCUMENT);
     assert!(!encoded.contains(['/', '+']), "{encoded}");
 

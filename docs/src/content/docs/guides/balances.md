@@ -9,7 +9,7 @@ A balance assertion states what an account held at a moment, as your bank statem
 
 Padding is the other half: it fills in an amount you cannot or do not want to account for in detail, such as the money an account held before you started your ledger.
 
-The exact syntax of both is in [Balance](/reference/directives/balance/), and the details of padding in [Padding with `with pad`](/reference/directives/balance/#padding-with-with-pad).
+The exact syntax of both is in [Balance](/reference/directives/balance/), and the details of padding in [Padding with `with pad`](/reference/directives/balance/#padding-with-with-pad) and [The `pad` directive](/reference/directives/balance/#the-pad-directive).
 
 ## Assert a balance
 
@@ -36,7 +36,7 @@ Your bank statement for January ends with a balance of 16,643.60 CNY:
 ```
 
 - An assertion is checked at the start of its date: it counts everything dated before it and nothing dated that day. To check a statement that ends on 31 January, date the assertion 1 February.
-- With a time of day, `2024-01-31 23:59:59 balance …`, it counts the entries dated earlier that day too. An entry without a time counts as `00:00:00`, and an assertion comes before any other entry with the same date and time.
+- With a time of day, `2024-01-31 23:59:59 balance …`, it counts the entries dated earlier that day too. An entry without a time counts as `00:00:00`, and an assertion comes before any other entry with the same date and time. In a beancount ledger the time of a `balance` is ignored, as beancount ignores it: the assertion is checked at the start of its date, and a [`BalanceTimeIgnored`](/reference/error-codes/#balancetimeignored) notice tells you when that changes what it checks.
 - The balance of an account includes its sub-accounts: `balance Assets:Bank …` checks `Assets:Bank`, `Assets:Bank:Checking` and every other account under `Assets:Bank` together.
 - An assertion checks one commodity. Write one line per commodity for an account that holds several. A commodity the account does not hold counts as zero.
 
@@ -83,18 +83,20 @@ Your bank account already held money when you started the ledger. Instead of rec
 
 Here Zhang moves 32 CNY from `Assets:Cash` to `Expenses:Misc` on 1 February.
 
-### Beancount's `pad`
+### The `pad` directive
 
-A beancount ledger writes the pad and the assertion as two directives:
+A `pad` and the assertion it serves can also be two directives, as in beancount. This works in Zhang files and beancount files alike:
 
 ```beancount title="main.bean"
 2024-01-01 pad Assets:Bank:Checking Equity:Opening-Balances
 2024-01-02 balance Assets:Bank:Checking 1000.00 USD
 ```
 
-Zhang pairs them the way beancount does: a `pad` serves the next `balance` of its account in each commodity, up to the account's next `pad`. Both must be in the same file. A `balance` on the same day as the `pad` is not padded, and a `pad` that no `balance` follows does nothing.
+Zhang pairs them the way beancount does: a `pad` serves the next `balance` of its account in each commodity on a later day, up to the account's next `pad`. The two may be in different files. A `balance` on the same day as the `pad` is not padded.
 
-Each pair works like `balance … with pad`, so the padding transaction is dated on the day of the `balance`, here 2 January, while beancount dates it on the day of the `pad`. The balance on and after 2 January is the same. The `pad` directive only exists in beancount files; in a Zhang file, write `with pad`.
+- The padding transaction is dated on the `pad`, here 1 January, as beancount dates it, so the account holds the padded balance from that day on.
+- A `pad` that no `balance` needs is reported as [`UnusedPad`](/reference/error-codes/#unusedpad), as beancount reports it.
+- Padding a commodity the account holds at cost, such as shares bought with a cost, is reported as [`PadWithCost`](/reference/error-codes/#padwithcost): book those units with their cost instead.
 
 ## When an assertion fails
 
@@ -127,8 +129,13 @@ When you have found and fixed the transactions, the assertion holds again. If yo
 - On an account's page, the **Balance check** tab lists the commodities the account holds. Enter the actual balance of one and select **Check balance**. To pad the difference, pick an account under **Pad from** and select **Pad & check**.
 - **Tools** → **Batch balance** does the same for many accounts at once. Rows left empty are skipped.
 
-The web UI dates these assertions with the current date and time, so they count everything recorded up to now, today's entries included. It writes them to the file the [`directive_output_path`](/guides/recording-transactions/#where-new-entries-are-written) option names.
+The web UI writes them to the file the [`directive_output_path`](/guides/recording-transactions/#where-new-entries-are-written) option names:
+
+- In a Zhang ledger, it writes `balance` or `balance … with pad` dated with the current date and time, so they count everything recorded up to now, today's entries included.
+- In a beancount ledger, which knows no times, "my balance now" is a `balance` dated tomorrow, after every entry of today. A pad writes the difference as a padding transaction dated now, not a `pad` directive. Checking the same account and commodity again the same day replaces that balance in place, without its `~` tolerance, and the web UI lists the balances it replaced.
+
+Zhang refuses, and writes nothing for, a balance it could only report as an error once written: an account that is not open, a pad from the account itself or one of its sub-accounts, a pad of a commodity held at cost, or, in a beancount ledger, a balance that a `pad` you wrote would serve. The message tells you why and what to change. See [From the web UI](/reference/directives/balance/#from-the-web-ui).
 
 ## Plugins, pads and assertions
 
-Zhang processes a ledger in this order: first the [plugins](/guides/plugins/), in the order they are declared, then the check that every account is open, then the pads, then the assertions. So a transaction a plugin adds is part of the balance a pad fills up to and an assertion checks. A plugin sees your `balance … with pad` directives, but not the padding transactions, which do not exist yet when it runs.
+Zhang processes a ledger in this order: first the [plugins](/guides/plugins/), in the order they are declared, then the check that every account is open, then the pads, then the assertions. So a transaction a plugin adds is part of the balance a pad fills up to and an assertion checks. A plugin sees your `balance … with pad` directives, but not the padding transactions, which do not exist yet when it runs. A plugin does not see `pad` directives either: a `balance` a `pad` serves is shown to it as a `balance … with pad`. See [Writing plugins](/developers/writing-plugins/#the-stage-order-contract).

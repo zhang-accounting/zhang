@@ -114,6 +114,78 @@ sidebar:
 
 **修正方法**：找到缺失或错误的交易并改正它。注意，没有时间的断言在当天的交易之前检查。要有意设置余额，请使用 [`balance … with pad`](/zh-cn/reference/directives/balance/#用-with-pad-补齐)。
 
+## UnusedPad
+
+*填充没有被该账户之后的任何余额断言使用*
+
+一条 [`pad`](/zh-cn/reference/directives/balance/#pad-指令) 没有补齐任何金额：之后没有该账户的余额断言需要它。Beancount 报告同样的错误（“Unused Pad entry”）。一条 `pad` 为该账户在每种商品上、日期晚于这条 `pad` 的第一条 `balance` 服务，直到该账户的下一条 `pad` 为止；当每条这样的断言都已经成立、之后的日子里没有该账户的断言，或者该账户的另一条 `pad` 先取代了它时，它就是未使用的。
+
+```zhang
+; Assets:Checking 持有 100 USD
+2024-01-01 pad Assets:Checking Equity:Opening-Balances
+2024-01-02 balance Assets:Checking 100 USD
+```
+
+**修正方法**：删除这条 `pad`，或者把它移到它要服务的断言之前。与 `pad` 同一天的 `balance` 排在它之前，不论它们的时刻，都不会被补齐。
+
+## PadWithCost
+
+*填充的商品在该账户中按成本持有：补齐交易不带成本记账*
+
+一次补齐要补齐的商品，由它的账户或其某个子账户按成本持有，即在带成本的批次中，例如以 `{100 USD}` 买入的股票。补齐交易仍会记账，但不带成本，错误报告在它所服务的余额断言上，与 Beancount 报告的 “Attempt to pad an entry with cost” 相同。张记账为这条断言报告一次；Beancount 为每个按成本持有的批次各报告一次。
+
+```zhang
+2024-01-02 * "Buy"
+  Assets:Broker:Stock 10 AAPL {100 USD}
+  Assets:Broker:Cash -1000 USD
+2024-01-03 pad Assets:Broker:Stock Equity:Opening-Balances
+2024-01-04 balance Assets:Broker:Stock 15 AAPL
+```
+
+**修正方法**：用一笔写明成本的交易记入缺少的数量，而不是补齐它们。
+
+## BalanceTimeIgnored
+
+*余额断言在其日期开始时检查：与 beancount 一样忽略它的时间*
+
+这是一条提示，而不是账本的错误：它与错误列在一起，但余额断言是否成立与它无关。它报告在 Beancount 账本中这样一条 `balance` 上（只报告一次）：它的检查含义与早期版本的张记账不同。张记账与 Beancount 一样，在日期开始时、当天所有交易之前检查 Beancount 账本中的 `balance`，并忽略它的 `time` 元数据。早期版本会读取写成 `H:M:S` 的 `time`，在那个时刻检查余额，即在当天该时刻之前的交易之后。当这些交易改变了该账户及其子账户在该商品上的持有量时，就会给出这条提示：这条断言现在检查的是另一个金额，为它服务的 `pad` 补齐的也是另一个金额。早期版本不读取的 `09:30` 这样的时刻不改变任何东西，其他商品的交易或合计为零的交易也不会。
+
+```beancount
+2024-03-05 * "breakfast"
+  Assets:Cash -10 CNY
+  Expenses:Food
+  time: "08:00:00"
+2024-03-05 balance Assets:Cash 100 CNY
+  time: "09:30:00"
+```
+
+**修正方法**：去掉 `time` 后，这条提示就会消失。要在当天的交易之后断言余额，把 `balance` 的日期写成下一天并去掉它的 `time`，网页界面就是这样写的。要在这些交易之前断言余额，去掉 `time` 即可。
+
+## DocumentPathRelativeToRoot
+
+*beancount 相对于 `<file>` 解析这个路径；请写成 `<path>`*
+
+这是一条提示，而不是账本的错误，与 [`BalanceTimeIgnored`](#balancetimeignored) 一样：文档照常列出、照常打开。它报告在 Beancount 账本中这样一条 [`document`](/zh-cn/reference/directives/document/) 上：它的路径相对于 `document` 所在的文件（Beancount 查找的位置）找不到文件，但相对于账本根目录能找到。早期版本的张记账就是这样把你上传的文档写入 `data/2026/10.bean` 这类文件的，Beancount 会报告 “File does not exist”。张记账继续使用相对于账本根目录找到的文件，提示在它的 `file` 和 `written_as` 元数据中给出应改写成的路径。只有本地磁盘上的账本会给出这条提示；远程数据源见 [`DocumentNotFound`](#documentnotfound)。
+
+```beancount title="data/2026/10.bean"
+2026-10-04 document Assets:Bank "attachments/3f2a/statement.pdf"
+```
+
+**修正方法**：写成提示给出的、相对于文件的路径：这里是 `"../../attachments/3f2a/statement.pdf"`。提示随之消失，Beancount 也能找到文件。现在上传的文档就是这样写的。
+
+## DocumentNotFound
+
+*文档文件 `<path>` 不存在*
+
+Beancount 账本中的一条 `document` 指向的文件不存在：相对于 `document` 所在的文件（Beancount 查找的位置）不存在，相对于账本根目录也不存在。Beancount 报告为 “File does not exist”。只有加载本地磁盘上的账本时，张记账才会查找这些文件，因为这样做代价很小：在 S3、WebDAV 或 GitHub 等远程数据源上，既不报告这个错误，也不报告 [`DocumentPathRelativeToRoot`](#documentpathrelativetoroot)。在那里，文档在你打开它时才查找：先相对于它所在的文件，再相对于账本根目录，两处都找不到时，打开它会得到文件不存在的回答。
+
+```beancount title="data/2026/10.bean"
+; 没有 data/2026/statement.pdf
+2026-10-04 document Assets:Bank "statement.pdf"
+```
+
+**修正方法**：把文件放到路径所指的位置，或者改正相对于 `document` 所在文件的路径。
+
 ## AccountDoesNotExist
 
 *对应账户不存在*

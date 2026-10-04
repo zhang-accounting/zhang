@@ -9,7 +9,7 @@ sidebar:
 
 补齐是另一半：它填上一笔你无法或不想详细记录的金额，例如账户在你开始记账之前已有的钱。
 
-两者的确切语法见 [`balance`](/zh-cn/reference/directives/balance/)，补齐的细节见[用 `with pad` 补齐](/zh-cn/reference/directives/balance/#用-with-pad-补齐)。
+两者的确切语法见 [`balance`](/zh-cn/reference/directives/balance/)，补齐的细节见[用 `with pad` 补齐](/zh-cn/reference/directives/balance/#用-with-pad-补齐)和 [`pad` 指令](/zh-cn/reference/directives/balance/#pad-指令)。
 
 ## 断言余额
 
@@ -36,7 +36,7 @@ sidebar:
 ```
 
 - 断言在其日期的开始时检查：它计入日期在它之前的所有条目，不计入当天的任何条目。要核对截至 1 月 31 日的对账单，请把断言的日期写为 2 月 1 日。
-- 带上时间，例如 `2024-01-31 23:59:59 balance …`，它也会计入当天更早的条目。没有时间的条目视为 `00:00:00`，断言排在日期和时间相同的其他条目之前。
+- 带上时间，例如 `2024-01-31 23:59:59 balance …`，它也会计入当天更早的条目。没有时间的条目视为 `00:00:00`，断言排在日期和时间相同的其他条目之前。在 Beancount 账本中，`balance` 的时间会像 Beancount 一样被忽略：断言在其日期开始时检查，当这改变了它所检查的金额时，会有一条 [`BalanceTimeIgnored`](/zh-cn/reference/error-codes/#balancetimeignored) 提示。
 - 账户的余额包含它的子账户：`balance Assets:Bank …` 会把 `Assets:Bank`、`Assets:Bank:Checking` 以及 `Assets:Bank` 下的其他所有账户合在一起检查。
 - 一条断言检查一种商品。持有多种商品的账户，每种商品写一行。账户未持有的商品按零计算。
 
@@ -83,18 +83,20 @@ sidebar:
 
 这里张记账在 2 月 1 日把 32 CNY 从 `Assets:Cash` 转到 `Expenses:Misc`。
 
-### Beancount 的 `pad`
+### `pad` 指令
 
-Beancount 账本把补齐和断言写成两条指令：
+补齐和它所服务的断言也可以像 Beancount 一样写成两条指令。这在张记账文件和 Beancount 文件中都可以使用：
 
 ```beancount title="main.bean"
 2024-01-01 pad Assets:Bank:Checking Equity:Opening-Balances
 2024-01-02 balance Assets:Bank:Checking 1000.00 USD
 ```
 
-张记账像 Beancount 一样把它们配对：一条 `pad` 服务于其账户在每种商品上的下一条 `balance`，直到该账户的下一条 `pad` 为止。两者必须在同一个文件中。与 `pad` 同一天的 `balance` 不会被补齐，后面没有 `balance` 的 `pad` 不起任何作用。
+张记账像 Beancount 一样把它们配对：一条 `pad` 服务于其账户在每种商品上、日期更晚的下一条 `balance`，直到该账户的下一条 `pad` 为止。两者可以在不同的文件中。与 `pad` 同一天的 `balance` 不会被补齐。
 
-每一对的效果都与 `balance … with pad` 相同，因此补齐交易的日期是 `balance` 的日期，这里是 1 月 2 日，而 Beancount 把它记在 `pad` 的日期。1 月 2 日及之后的余额是一样的。`pad` 指令只存在于 Beancount 文件中；在张记账文件中，请写 `with pad`。
+- 补齐交易的日期是 `pad` 的日期，这里是 1 月 1 日，与 Beancount 相同，所以账户从那天起持有补齐后的余额。
+- 没有任何 `balance` 需要的 `pad` 会报告为 [`UnusedPad`](/zh-cn/reference/error-codes/#unusedpad)，与 Beancount 相同。
+- 补齐该账户按成本持有的商品（例如带成本买入的股票）会报告为 [`PadWithCost`](/zh-cn/reference/error-codes/#padwithcost)：请改为带成本地记入这些数量。
 
 ## 断言失败时
 
@@ -127,8 +129,13 @@ Beancount 账本把补齐和断言写成两条指令：
 - 在账户页面中，**余额断言**标签页列出账户持有的商品。输入其中一种的实际余额，然后选择**断言余额**。要补齐差额，在**填充来源**下选择一个账户，然后选择**填充并断言**。
 - **工具** → **批量对账**可以一次为多个账户完成同样的操作。留空的行会被跳过。
 
-网页界面用当前的日期和时间标注这些断言，因此它们计入截至此刻记录的所有内容，包括今天的条目。它们会写入 [`directive_output_path`](/zh-cn/guides/recording-transactions/#新条目写入的位置) 选项指定的文件。
+网页界面把它们写入 [`directive_output_path`](/zh-cn/guides/recording-transactions/#新条目写入的位置) 选项指定的文件：
+
+- 在张记账账本中，它写入用当前日期和时间标注的 `balance` 或 `balance … with pad`，因此它们计入截至此刻记录的所有内容，包括今天的条目。
+- 在没有时刻的 Beancount 账本中，“我现在的余额”是一条日期为明天、排在今天所有条目之后的 `balance`。补齐会把差额写成一笔日期为当前时间的补齐交易，而不是 `pad` 指令。当天再次核对同一账户、同一商品时，会原地替换那条余额断言并去掉它的 `~` 容差，网页界面会列出被替换的余额断言。
+
+对于写入后只会被报告为错误的余额断言，张记账会拒绝写入，什么也不写：未开立的账户、从该账户本身或其子账户补齐、补齐按成本持有的商品，以及在 Beancount 账本中，你写的某条 `pad` 会为它补齐的余额断言。提示会说明原因和需要修改的地方。见[通过网页界面](/zh-cn/reference/directives/balance/#通过网页界面)。
 
 ## 插件、补齐与断言
 
-张记账按以下顺序处理账本：先按声明顺序运行[插件](/zh-cn/guides/plugins/)，再检查每个账户是否已开设，然后补齐，最后检查断言。因此插件添加的交易也计入补齐所要达到的余额和断言检查的余额。插件能看到你的 `balance … with pad` 指令，但看不到补齐交易，因为插件运行时它们还不存在。
+张记账按以下顺序处理账本：先按声明顺序运行[插件](/zh-cn/guides/plugins/)，再检查每个账户是否已开设，然后补齐，最后检查断言。因此插件添加的交易也计入补齐所要达到的余额和断言检查的余额。插件能看到你的 `balance … with pad` 指令，但看不到补齐交易，因为插件运行时它们还不存在。插件也看不到 `pad` 指令：由某条 `pad` 补齐的 `balance` 会以 `balance … with pad` 的样子交给它。见[编写插件](/zh-cn/developers/writing-plugins/#阶段顺序约定)。

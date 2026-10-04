@@ -15,7 +15,7 @@ Put the file in the ledger directory and point a [`document`](/reference/directi
 2024-02-01 document Assets:Bank:Checking "statements/2024/2024-01-bank.pdf" #statement
 ```
 
-- The path is relative to the ledger's root directory, the directory `zhang serve` serves. Keep documents inside it: Zhang cannot open a file outside.
+- In a Zhang ledger, the path is relative to the ledger's root directory, the directory `zhang serve` serves. In a beancount ledger, it is relative to the file that holds the directive, as beancount reads it. Keep documents inside the ledger's root: Zhang does not open a file outside, also not through a symbolic link. See [Paths](/reference/directives/document/#paths).
 - The date is the document's date, for example the day the statement was issued. Tags and links can follow the path.
 - The account must be open on that date.
 
@@ -32,7 +32,7 @@ Add a `document` metadata entry to the transaction, once per file:
 
 A `document` entry on one of the postings also belongs to the transaction.
 
-Zhang does not check that the files exist. A path that leads nowhere shows up as an empty document.
+The path of a `document` metadata entry is relative to the ledger's root, in either kind of ledger. Opening a document whose file does not exist tells you so. In a beancount ledger on the local disk, a `document` directive whose file does not exist is also reported as [`DocumentNotFound`](/reference/error-codes/#documentnotfound).
 
 ## Upload in the web UI
 
@@ -50,9 +50,11 @@ Zhang stores each uploaded file as `attachments/<random id>/<file name>` under t
   2024-04-03 21:55:03 document Assets:Bank:Checking "attachments/78e12a54-d9e5-4de5-9de3-f140308e1c79/scan.pdf"
   ```
 
+  In a beancount ledger, the path is written relative to that file, such as `"../../attachments/78e12a54-d9e5-4de5-9de3-f140308e1c79/scan.pdf"` in `data/2024/04.bean`, so beancount finds the file too.
+
 - For a transaction, it adds a `document:` line right under the transaction's header, in the file the transaction is written in.
 
-The `attachments/` directory is fixed; no option changes it. On a ledger stored on [S3, WebDAV or GitHub](/deployment/data-sources/s3/), uploads are written to the same place in that storage, and documents are read from it.
+A file name must be a plain name, without a directory, of at most 255 bytes. The `attachments/` directory is fixed; no option changes it. On a ledger stored on [S3, WebDAV or GitHub](/deployment/data-sources/s3/), uploads are written to the same place in that storage, and documents are read from it.
 
 ## View documents
 
@@ -60,6 +62,6 @@ The `attachments/` directory is fixed; no option changes it. On a ledger stored 
 - An account's **Documents** tab lists the documents of that account.
 - A transaction's preview on the Journals page shows its documents, and the journal marks the transactions that have some.
 
-Zhang keeps a copy of each document it has shown in `.cache/data/`, in the directory it runs in, and serves that copy from then on. If you replace a file but keep its name, delete the copy, or give the new file another name.
+For a ledger on a remote data source, Zhang keeps a copy of each document it has shown in `.cache/documents/`, in the directory it runs in, and serves that copy from then on. If you replace a file but keep its name, delete the copy, or give the new file another name. Documents on the local disk are read from the disk each time. Copies that earlier versions kept in `.cache/data/` are no longer used; you can delete that directory.
 
 Documents are also available to [queries](/guides/querying/), in the `#documents` table.

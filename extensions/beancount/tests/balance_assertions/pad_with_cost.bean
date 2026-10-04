@@ -1,0 +1,31 @@
+; Padding a commodity the account, or one of its sub-accounts, holds at cost is an
+; error on the balance it serves, as in beancount; the padding is still booked,
+; without a cost. A pad of a commodity held without a cost is not.
+option "operating_currency" "USD"
+
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 commodity VTI
+1970-01-01 open Assets:Broker:Stock
+1970-01-01 open Assets:Broker:Cash
+1970-01-01 open Assets:Fund
+1970-01-01 open Assets:Fund:Units
+1970-01-01 open Assets:Fund:Cash
+1970-01-01 open Equity:Open
+
+2024-01-02 * "broker" "buy"
+  Assets:Broker:Stock  10 AAPL {100 USD}
+  Assets:Broker:Cash  -1000 USD
+
+2024-01-02 * "fund" "buy"
+  Assets:Fund:Units  3 VTI {50 USD}
+  Assets:Fund:Cash  -150 USD
+
+2024-01-03 pad Assets:Broker:Stock Equity:Open
+2024-01-04 balance Assets:Broker:Stock  15 AAPL
+
+2024-01-03 pad Assets:Fund Equity:Open
+2024-01-04 balance Assets:Fund  5 VTI
+
+2024-01-05 pad Assets:Broker:Cash Equity:Open
+2024-01-06 balance Assets:Broker:Cash  -900 USD

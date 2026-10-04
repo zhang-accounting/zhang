@@ -15,7 +15,7 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
-use zhang_core::data_source::{DataSource, LoadResult, SourceEntry};
+use zhang_core::data_source::{written_into, DataSource, LoadResult, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -254,9 +254,32 @@ impl DataSource for OpendalDataSource {
         }
     }
 
+    /// a file only, with one stat before the read: what the stat tells a directory, which a WebDAV service reads as a
+    /// page listing it, or another kind of entry, is not read. A stat that fails otherwise than for a missing entry,
+    /// as on a WebDAV service without a working PROPFIND, leaves the read to tell: its error decides. A refusal, as a
+    /// scoped access policy or an expired token makes, is [`ZhangError::ReadRefused`], not a missing file
+    async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        match self.operator.stat(&path).await {
+            Ok(metadata) if metadata.is_file() => {}
+            Ok(_) => return Ok(None),
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(err) => debug!("[opendal] cannot stat {}, reading it: {}", path, err),
+        }
+        match self.operator.read(&path).await {
+            Ok(data) => Ok(Some(data.to_vec())),
+            Err(err) => match err.kind() {
+                ErrorKind::NotFound | ErrorKind::IsADirectory | ErrorKind::NotADirectory => Ok(None),
+                ErrorKind::PermissionDenied => Err(ZhangError::ReadRefused(path)),
+                _ => Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err))),
+            },
+        }
+    }
+
     async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        // the files this append includes: the ledger it was given does not know them yet
+        let mut included = vec![];
         for directive in directives {
-            self.append_directive(ledger, directive, None, true).await?;
+            self.append_directive(ledger, directive, None, Some(&mut included)).await?;
         }
         Ok(())
     }
@@ -265,7 +288,10 @@ impl DataSource for OpendalDataSource {
         info!("[opendal] save content path={}", path);
         let vec = content.to_vec();
 
-        self.operator.write(&path, vec).await.expect("cannot write");
+        self.operator
+            .write(&path, vec)
+            .await
+            .map_err(|e| ZhangError::CustomError(format!("cannot write {path}: {e}")))?;
         Ok(())
     }
 }
@@ -336,10 +362,12 @@ impl OpendalDataSource {
         })
     }
 
+    /// append `directive` to `file`, or to the file `directive_output_path` gives it, which the main file then
+    /// includes unless the ledger or this append (`included`) has it already. Without `included`, no include
     // `async_recursion` adds a `#[must_use]` to the boxed future it returns
     #[allow(clippy::double_must_use)]
     #[async_recursion]
-    async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, check_file_visit: bool) -> ZhangResult<()> {
+    async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, included: Option<&mut Vec<PathBuf>>) -> ZhangResult<()> {
         let (entry, main_file_endpoint) = &ledger.entry;
 
         let endpoint = if let Some(file) = file {
@@ -373,9 +401,14 @@ impl OpendalDataSource {
         } else {
             entry.join(main_file_endpoint)
         };
-        let striped_endpoint = endpoint.strip_prefix(entry).expect("cannot strip entry prefix");
+        let striped_endpoint = endpoint
+            .strip_prefix(entry)
+            .map_err(|_| ZhangError::CustomError(format!("{} is not in the ledger's directory", endpoint.display())))?;
 
-        if !has_path_visited(&ledger.visited_files, &endpoint) && check_file_visit {
+        // a file new to the ledger and to this append
+        let new_file = included.filter(|included| !has_path_visited(&ledger.visited_files, &endpoint) && !has_path_visited(included.iter(), &endpoint));
+        if let Some(included) = new_file {
+            included.push(endpoint.clone());
             let path = match endpoint.strip_prefix(entry) {
                 Ok(relative_path) => relative_path.to_str().unwrap(),
                 Err(_) => endpoint.to_str().unwrap(),
@@ -386,7 +419,7 @@ impl OpendalDataSource {
                     file: ZhangString::QuoteString(path.to_string()),
                 }),
                 None,
-                false,
+                None,
             )
             .await?;
         }
@@ -394,6 +427,7 @@ impl OpendalDataSource {
         let content_buf = ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await?;
         let content = String::from_utf8(content_buf)?;
 
+        let directive = written_into(ledger, directive, striped_endpoint);
         let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
         ledger
@@ -478,13 +512,8 @@ impl OpendalDataSource {
     fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
         let path_string = path.to_string_lossy().to_string();
         if self.is_beancount {
-            let beancount_parser = beancount::Beancount {};
-            beancount_parser
-                .transform(content.to_string(), Some(path_string.clone()))
-                .map_err(|it| ZhangError::PestError {
-                    path: path_string,
-                    msg: it.to_string(),
-                })
+            // its error names the file already
+            beancount::Beancount {}.transform(content.to_string(), Some(path_string))
         } else {
             zhang_parse(content, path).map_err(|it| ZhangError::PestError {
                 path: path_string,
@@ -653,6 +682,577 @@ mod test {
         std::fs::write(dir.path().join("main.zhang"), OPENS).unwrap();
         let ledger = append_coffee(dir.path(), "main.zhang").await;
         assert_coffee_written_to(dir.path(), "main.zhang", &ledger, "data/2024/01.zhang");
+    }
+
+    #[tokio::test]
+    async fn an_append_includes_each_new_file_once() {
+        // a batch of balances writes several directives to one new file: beancount refuses a file included twice
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("main.bean"), OPENS).unwrap();
+        let mut opts = ServerOpts {
+            path: dir.path().to_path_buf(),
+            endpoint: "main.bean".to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_string(), source.clone())
+            .await
+            .unwrap();
+        let directives = zhang_parse(
+            "2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n2024-01-16 * \"Shop\" \"Tea\"\n  Assets:Cash -3 CNY\n  Expenses:Food 3 CNY\n",
+            None,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|it| it.data)
+        .collect();
+
+        ledger.data_source.async_append(&ledger, directives).await.unwrap();
+
+        let main = std::fs::read_to_string(dir.path().join("main.bean")).unwrap();
+        assert_eq!(main.matches("include \"data/2024/01.bean\"").count(), 1, "{main}");
+        let reloaded = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_string(), source).await.unwrap();
+        let store = reloaded.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(store.transactions.len(), 2);
+    }
+
+    /// A `document` the server writes into a file of a beancount ledger names its file relative to that file, as
+    /// beancount reads it, and zhang reads it back by its path within the ledger. A zhang ledger keeps the path
+    /// within the ledger.
+    #[tokio::test]
+    async fn a_document_is_written_with_the_path_its_file_reads_it_by() {
+        for (main, written) in [
+            ("main.bean", "../../attachments/u1/a statement.pdf"),
+            ("main.zhang", "attachments/u1/a statement.pdf"),
+        ] {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join(main), OPENS).unwrap();
+            std::fs::create_dir_all(dir.path().join("attachments/u1")).unwrap();
+            std::fs::write(dir.path().join("attachments/u1/a statement.pdf"), "%PDF").unwrap();
+            let mut opts = ServerOpts {
+                path: dir.path().to_path_buf(),
+                endpoint: main.to_string(),
+                addr: "".to_string(),
+                port: 0,
+                auth: None,
+                passkey: None,
+                source: None,
+                no_report: true,
+            };
+            let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+            let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source.clone()).await.unwrap();
+            let document = zhang_parse("2024-01-15 document Assets:Cash \"attachments/u1/a statement.pdf\"\n", None)
+                .unwrap()
+                .remove(0)
+                .data;
+            ledger.data_source.async_append(&ledger, vec![document]).await.unwrap();
+
+            let ext = main.trim_start_matches("main.");
+            let data_file = std::fs::read_to_string(dir.path().join(format!("data/2024/01.{ext}"))).unwrap();
+            assert!(
+                data_file.contains(&format!("2024-01-15 document Assets:Cash \"{}\"", written)),
+                "{}: {}",
+                main,
+                data_file
+            );
+            let reloaded = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source).await.unwrap();
+            let store = reloaded.store.read().unwrap();
+            assert!(store.errors.is_empty(), "{}: {:?}", main, store.errors);
+            let paths = store.documents.iter().map(|it| it.path.as_str()).collect::<Vec<_>>();
+            assert_eq!(paths, vec!["attachments/u1/a statement.pdf"], "{}", main);
+        }
+    }
+
+    /// the files of a beancount ledger whose data file holds four `document`s: one written by an earlier version,
+    /// relative to the root; one relative to its file; one found both relative to its file and to the root; one missing
+    const DOCUMENTS: &[(&str, &str)] = &[
+        ("main.bean", "1970-01-01 open Assets:Cash\ninclude \"data/2024/01.bean\"\n"),
+        (
+            "data/2024/01.bean",
+            "2024-01-01 document Assets:Cash \"attachments/legacy.pdf\"\n\
+             2024-01-02 document Assets:Cash \"../../attachments/right.pdf\"\n\
+             2024-01-03 document Assets:Cash \"both.pdf\"\n\
+             2024-01-04 document Assets:Cash \"attachments/missing.pdf\"\n",
+        ),
+        ("attachments/legacy.pdf", "legacy"),
+        ("attachments/right.pdf", "right"),
+        ("data/2024/both.pdf", "next to its file"),
+        ("both.pdf", "at the root"),
+    ];
+
+    /// The documents of [`DOCUMENTS`] on the local disk, where a stat tells whether a file exists: beancount finds each
+    /// relative to its file first. The legacy one is found at the root, still downloads, and has a notice with the path
+    /// beancount reads; the missing one is reported, and its download is a 404.
+    async fn assert_documents(ledger: Ledger) {
+        use axum::extract::State;
+        use zhang_ast::error::ErrorKind;
+        use zhang_server::state::SharedLedger;
+
+        let (paths, errors) = {
+            let store = ledger.store.read().unwrap();
+            let paths = store.documents.iter().map(|it| it.path.clone()).collect::<Vec<_>>();
+            let mut errors = store
+                .errors
+                .iter()
+                .map(|it| {
+                    let mut metas = it.metas.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>();
+                    metas.sort();
+                    let line = it.span.as_ref().map(|span| span.content.trim().to_owned()).unwrap_or_default();
+                    (it.error_type.clone(), metas, line)
+                })
+                .collect::<Vec<_>>();
+            errors.sort_by(|a, b| a.2.cmp(&b.2));
+            (paths, errors)
+        };
+        assert_eq!(
+            paths,
+            vec![
+                "attachments/legacy.pdf",
+                "attachments/right.pdf",
+                "data/2024/both.pdf",
+                "data/2024/attachments/missing.pdf"
+            ]
+        );
+        assert_eq!(
+            errors,
+            vec![
+                (
+                    ErrorKind::DocumentPathRelativeToRoot,
+                    vec!["file=data/2024/01.bean".to_owned(), "written_as=../../attachments/legacy.pdf".to_owned()],
+                    "2024-01-01 document Assets:Cash \"attachments/legacy.pdf\"".to_owned()
+                ),
+                (
+                    ErrorKind::DocumentNotFound,
+                    vec!["path=data/2024/attachments/missing.pdf".to_owned()],
+                    "2024-01-04 document Assets:Cash \"attachments/missing.pdf\"".to_owned()
+                ),
+            ]
+        );
+        let state = State(SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        for (path, content) in [
+            ("attachments/legacy.pdf", "legacy"),
+            ("attachments/right.pdf", "right"),
+            ("data/2024/both.pdf", "next to its file"),
+        ] {
+            assert_eq!(download(&state, path).await, (200, content.to_owned()), "{}", path);
+        }
+        let (status, _) = download(&state, "data/2024/attachments/missing.pdf").await;
+        assert_eq!(status, 404);
+    }
+
+    /// the status and the body of the download of the document at `path`
+    async fn download(state: &axum::extract::State<zhang_server::state::SharedLedger>, path: &str) -> (u16, String) {
+        use axum::response::IntoResponse;
+
+        let response = zhang_server::routes::document::download_document(state.clone(), zhang_server::routes::Base64Path(path.to_owned()))
+            .await
+            .into_response();
+        let status = response.status().as_u16();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    #[tokio::test]
+    async fn on_the_local_disk_a_document_written_relative_to_the_root_is_kept_with_a_notice() {
+        let dir = tempdir().unwrap();
+        for (file, content) in DOCUMENTS {
+            std::fs::create_dir_all(dir.path().join(file).parent().unwrap()).unwrap();
+            std::fs::write(dir.path().join(file), content).unwrap();
+        }
+        let mut opts = ServerOpts {
+            path: dir.path().to_path_buf(),
+            endpoint: "main.bean".to_string(),
+            addr: "".to_string(),
+            port: 0,
+            auth: None,
+            passkey: None,
+            source: None,
+            no_report: true,
+        };
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        assert_documents(Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_owned(), source).await.unwrap()).await;
+    }
+
+    /// counts the calls an operator makes to its service, which a remote service answers each with a request at least,
+    /// and serves some paths as a remote service may
+    #[derive(Debug, Clone, Default)]
+    struct Counting {
+        calls: Arc<std::sync::Mutex<Vec<String>>>,
+        /// paths served as WebDAV serves a directory: a stat tells a directory, a read gives a page listing it, kept at
+        /// `<path>/index.html`
+        directories: Arc<std::sync::Mutex<Vec<String>>>,
+        /// paths whose stat and read fail with an error of this kind
+        failing: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
+        /// paths whose stat only fails with an error of this kind, as on a WebDAV service without a working PROPFIND
+        failing_stats: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
+        /// paths whose read only fails with an error of this kind
+        failing_reads: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
+        /// paths whose stat tells an entry that is neither a file nor a directory
+        special: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl Counting {
+        /// the calls made since the last time
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().drain(..).collect()
+        }
+    }
+
+    impl opendal::raw::Layer for Counting {
+        fn apply_service(&self, inner: opendal::raw::Servicer) -> opendal::raw::Servicer {
+            Arc::new(CountingService { inner, layer: self.clone() })
+        }
+    }
+
+    #[derive(Debug)]
+    struct CountingService {
+        inner: opendal::raw::Servicer,
+        layer: Counting,
+    }
+
+    impl CountingService {
+        fn count(&self, call: &str, path: &str) {
+            self.layer.calls.lock().unwrap().push(format!("{} {}", call, path));
+        }
+
+        /// the error of `path` in `failing`, or in `only`
+        fn failure(&self, path: &str, only: &std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>) -> opendal::Result<()> {
+            let failing = self.layer.failing.lock().unwrap();
+            let only = only.lock().unwrap();
+            match failing.iter().chain(only.iter()).find(|(failing, _)| failing == path) {
+                Some((_, kind)) => Err(opendal::Error::new(*kind, "the service failed")),
+                None => Ok(()),
+            }
+        }
+
+        fn is_directory(&self, path: &str) -> bool {
+            self.layer.directories.lock().unwrap().iter().any(|it| it == path)
+        }
+    }
+
+    impl opendal::raw::Service for CountingService {
+        type Reader = opendal::raw::oio::Reader;
+        type Writer = opendal::raw::oio::Writer;
+        type Lister = opendal::raw::oio::Lister;
+        type Deleter = opendal::raw::oio::Deleter;
+        type Copier = opendal::raw::oio::Copier;
+        type Composer = opendal::raw::oio::Composer;
+
+        fn info(&self) -> opendal::raw::ServiceInfo {
+            self.inner.info()
+        }
+
+        fn capability(&self) -> opendal::Capability {
+            self.inner.capability()
+        }
+
+        async fn create_dir(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpCreateDir) -> opendal::Result<opendal::raw::RpCreateDir> {
+            self.count("create_dir", path);
+            self.inner.create_dir(ctx, path, args).await
+        }
+
+        async fn stat(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpStat) -> opendal::Result<opendal::raw::RpStat> {
+            self.count("stat", path);
+            self.failure(path, &self.layer.failing_stats)?;
+            if self.layer.special.lock().unwrap().iter().any(|it| it == path) {
+                return Ok(opendal::raw::RpStat::new(opendal::MetadataBuilder::unknown().build()));
+            }
+            match self.is_directory(path) {
+                true => self.inner.stat(ctx, &format!("{}/", path), args).await,
+                false => self.inner.stat(ctx, path, args).await,
+            }
+        }
+
+        fn read(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpRead) -> opendal::Result<Self::Reader> {
+            self.count("read", path);
+            self.failure(path, &self.layer.failing_reads)?;
+            match self.is_directory(path) {
+                true => self.inner.read(ctx, &format!("{}/index.html", path), args),
+                false => self.inner.read(ctx, path, args),
+            }
+        }
+
+        fn write(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpWrite) -> opendal::Result<Self::Writer> {
+            self.count("write", path);
+            self.inner.write(ctx, path, args)
+        }
+
+        fn delete(&self, ctx: &opendal::OperationContext) -> opendal::Result<Self::Deleter> {
+            self.count("delete", "");
+            self.inner.delete(ctx)
+        }
+
+        fn list(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpList) -> opendal::Result<Self::Lister> {
+            self.count("list", path);
+            self.inner.list(ctx, path, args)
+        }
+
+        fn copy(&self, ctx: &opendal::OperationContext, from: &str, to: &str, args: opendal::raw::OpCopy) -> opendal::Result<Self::Copier> {
+            self.count("copy", from);
+            self.inner.copy(ctx, from, to, args)
+        }
+
+        async fn rename(&self, ctx: &opendal::OperationContext, from: &str, to: &str, args: opendal::raw::OpRename) -> opendal::Result<opendal::raw::RpRename> {
+            self.count("rename", from);
+            self.inner.rename(ctx, from, to, args).await
+        }
+
+        async fn presign(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpPresign) -> opendal::Result<opendal::raw::RpPresign> {
+            self.count("presign", path);
+            self.inner.presign(ctx, path, args).await
+        }
+    }
+
+    /// On a remote source, a load looks at no document: it reads the two files of the ledger, whatever its documents,
+    /// and reports nothing about them, as it does not know (a document a remote source cannot be asked about cheaply is
+    /// neither missing nor at a path picked for it). A document is looked for when it is downloaded: at its path
+    /// relative to its file, then relative to the root, with two reads at most.
+    #[tokio::test]
+    async fn on_a_remote_source_documents_are_looked_for_when_downloaded() {
+        let counting = Counting::default();
+        let operator = Operator::new(Memory::default()).unwrap().layer(counting.clone());
+        let mut documents = String::new();
+        for (file, content) in DOCUMENTS.iter().filter(|(file, _)| *file != "data/2024/01.bean") {
+            operator.write(file, content.as_bytes().to_vec()).await.unwrap();
+        }
+        for index in 0..240 {
+            let dir = ["attachments", "receipts", "statements"][index % 3];
+            let file = format!("{}/{:08}-0000-0000-0000-000000000000/document {}.pdf", dir, index, index);
+            operator.write(&file, format!("document {}", index).into_bytes()).await.unwrap();
+            // the first half written by an earlier version, relative to the root
+            match index < 120 {
+                true => documents.push_str(&format!("2024-01-15 document Assets:Cash \"{}\"\n", file)),
+                false => documents.push_str(&format!("2024-01-15 document Assets:Cash \"../../{}\"\n", file)),
+            }
+        }
+        let data_file = DOCUMENTS.iter().find(|(file, _)| *file == "data/2024/01.bean").unwrap().1;
+        operator
+            .write("data/2024/01.bean", format!("{}{}", data_file, documents).into_bytes())
+            .await
+            .unwrap();
+        counting.calls();
+
+        let source = OpendalDataSource {
+            operator: operator.clone(),
+            data_type: Box::new(beancount::Beancount {}),
+            is_beancount: true,
+            local_root: None,
+        };
+        // a ledger of its own, for the cache of downloads
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let entry = std::path::PathBuf::from(format!("/ledger-{}", nanos));
+        let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
+
+        let mut calls = counting.calls();
+        calls.sort();
+        assert_eq!(calls, vec!["read data/2024/01.bean", "read main.bean"]);
+        {
+            let store = ledger.store.read().unwrap();
+            assert!(store.errors.is_empty(), "{:?}", store.errors);
+            assert_eq!(store.documents.len(), 244);
+            let of = |path: &str| {
+                let document = store.documents.iter().find(|it| it.path == path).unwrap_or_else(|| panic!("{}", path));
+                document.alternate.clone()
+            };
+            assert_eq!(of("data/2024/attachments/legacy.pdf"), Some("attachments/legacy.pdf".to_owned()));
+            assert_eq!(of("attachments/right.pdf"), None, "the root-relative reading leaves the ledger");
+            assert_eq!(of("data/2024/both.pdf"), Some("both.pdf".to_owned()));
+        }
+
+        let state = axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        let legacy = "attachments/00000000-0000-0000-0000-000000000000/document 0.pdf";
+        let new = "attachments/00000120-0000-0000-0000-000000000000/document 120.pdf";
+        let stat = |path: &str| format!("stat {}", path);
+        let read = |path: &str| format!("read {}", path);
+        let legacy_path = format!("data/2024/{}", legacy);
+        let missing = "data/2024/attachments/missing.pdf";
+        // a stat before each read, so a directory is never read as a document
+        for (path, expected, calls) in [
+            // nothing at its path: its alternate
+            (legacy_path.as_str(), (200, "document 0"), vec![stat(&legacy_path), stat(legacy), read(legacy)]),
+            (new, (200, "document 120"), vec![stat(new), read(new)]),
+            (
+                "data/2024/both.pdf",
+                (200, "next to its file"),
+                vec![stat("data/2024/both.pdf"), read("data/2024/both.pdf")],
+            ),
+            (missing, (404, ""), vec![stat(missing), stat("attachments/missing.pdf")]),
+            // read again: kept, each by the path it was read at, so the legacy one is looked at its path first
+            (legacy_path.as_str(), (200, "document 0"), vec![stat(&legacy_path)]),
+            (new, (200, "document 120"), vec![]),
+            // a miss is not kept
+            (missing, (404, ""), vec![stat(missing), stat("attachments/missing.pdf")]),
+        ] {
+            let (status, body) = download(&state, path).await;
+            let body = if status == 200 { body } else { String::new() };
+            assert_eq!((status, body.as_str()), expected, "{}", path);
+            assert_eq!(counting.calls(), calls, "{}", path);
+        }
+
+        // files put in place since: the missing one is served, and so is the legacy one put at its path
+        operator.write(missing, b"found since".to_vec()).await.unwrap();
+        operator.write(&legacy_path, b"moved to its path".to_vec()).await.unwrap();
+        counting.calls();
+        assert_eq!(download(&state, missing).await, (200, "found since".to_owned()));
+        assert_eq!(download(&state, &legacy_path).await, (200, "moved to its path".to_owned()));
+        assert_eq!(counting.calls(), vec![stat(missing), read(missing), stat(&legacy_path), read(&legacy_path)]);
+
+        // an empty document is a document, kept as it is
+        operator.write("attachments/empty.pdf", Vec::<u8>::new()).await.unwrap();
+        counting.calls();
+        assert_eq!(download(&state, "attachments/empty.pdf").await, (200, String::new()));
+        assert_eq!(download(&state, "attachments/empty.pdf").await, (200, String::new()));
+        assert_eq!(counting.calls(), vec![stat("attachments/empty.pdf"), read("attachments/empty.pdf")]);
+
+        // a directory, which WebDAV reads as a page listing it, is no document
+        operator.write("attachments/u9/index.html", b"<html>the listing</html>".to_vec()).await.unwrap();
+        operator.write("attachments/u9/a.pdf", b"a".to_vec()).await.unwrap();
+        counting.directories.lock().unwrap().push("attachments/u9".to_owned());
+        counting.calls();
+        assert_eq!(download(&state, "attachments/u9").await.0, 404);
+        assert_eq!(counting.calls(), vec![stat("attachments/u9")]);
+
+        // an entry the service refuses to read, as a scoped access policy or a link out of a WebDAV directory makes it,
+        // is refused, not missing; a service failing is an error
+        for file in [
+            "refused.pdf",
+            "broken.pdf",
+            "stat refused.pdf",
+            "stat unsupported.pdf",
+            "stat broken.pdf",
+            "read broken.pdf",
+            "special",
+        ] {
+            operator.write(&format!("attachments/{}", file), file.as_bytes().to_vec()).await.unwrap();
+        }
+        counting.failing.lock().unwrap().extend([
+            ("attachments/refused.pdf".to_owned(), opendal::ErrorKind::PermissionDenied),
+            ("attachments/broken.pdf".to_owned(), opendal::ErrorKind::Unexpected),
+        ]);
+        counting.calls();
+        assert_eq!(
+            download(&state, "attachments/refused.pdf").await,
+            (
+                403,
+                "{\"message\":\"the storage refused to read attachments/refused.pdf\",\"origin\":\"with_rejection\"}".to_owned()
+            )
+        );
+        assert_eq!(counting.calls(), vec![stat("attachments/refused.pdf"), read("attachments/refused.pdf")]);
+        let (status, message) = download(&state, "attachments/broken.pdf").await;
+        assert_eq!(status, 500, "{}", message);
+        // the stat failed otherwise than for a missing entry: the read was tried, and its error decided
+        assert_eq!(counting.calls(), vec![stat("attachments/broken.pdf"), read("attachments/broken.pdf")]);
+
+        // a stat that fails otherwise than for a missing entry, as without a working PROPFIND: the read tells
+        counting.failing_stats.lock().unwrap().extend([
+            ("attachments/stat refused.pdf".to_owned(), opendal::ErrorKind::PermissionDenied),
+            ("attachments/stat unsupported.pdf".to_owned(), opendal::ErrorKind::Unsupported),
+            ("attachments/stat broken.pdf".to_owned(), opendal::ErrorKind::Unexpected),
+            ("attachments/stat gone.pdf".to_owned(), opendal::ErrorKind::Unexpected),
+        ]);
+        for file in ["stat refused.pdf", "stat unsupported.pdf", "stat broken.pdf"] {
+            let path = format!("attachments/{}", file);
+            assert_eq!(download(&state, &path).await, (200, file.to_owned()), "{}", path);
+            assert_eq!(counting.calls(), vec![stat(&path), read(&path)]);
+        }
+        assert_eq!(download(&state, "attachments/stat gone.pdf").await.0, 404);
+        // a read failing after a good stat is an error, not a missing document
+        counting
+            .failing_reads
+            .lock()
+            .unwrap()
+            .push(("attachments/read broken.pdf".to_owned(), opendal::ErrorKind::Unexpected));
+        counting.calls();
+        assert_eq!(download(&state, "attachments/read broken.pdf").await.0, 500);
+        assert_eq!(counting.calls(), vec![stat("attachments/read broken.pdf"), read("attachments/read broken.pdf")]);
+
+        // an entry that is neither a file nor a directory is never read
+        counting.special.lock().unwrap().push("attachments/special".to_owned());
+        counting.calls();
+        assert_eq!(download(&state, "attachments/special").await.0, 404);
+        assert_eq!(counting.calls(), vec![stat("attachments/special")]);
+    }
+
+    /// On a remote source whose stat fails, a download reads the document, and the read's error decides: missing is
+    /// a 404, refused a 403, anything else a 500.
+    #[tokio::test]
+    async fn without_a_working_stat_the_read_decides() {
+        let counting = Counting::default();
+        let operator = Operator::new(Memory::default()).unwrap().layer(counting.clone());
+        operator.write("main.bean", b"1970-01-01 open Assets:Cash\n".to_vec()).await.unwrap();
+        for file in ["refused.pdf", "broken.pdf"] {
+            operator.write(&format!("attachments/{}", file), b"%PDF".to_vec()).await.unwrap();
+        }
+        for (file, kind) in [
+            ("refused.pdf", opendal::ErrorKind::PermissionDenied),
+            ("broken.pdf", opendal::ErrorKind::Unexpected),
+            ("gone.pdf", opendal::ErrorKind::Unexpected),
+        ] {
+            counting
+                .failing_stats
+                .lock()
+                .unwrap()
+                .push((format!("attachments/{}", file), opendal::ErrorKind::Unsupported));
+            if file != "gone.pdf" {
+                counting.failing_reads.lock().unwrap().push((format!("attachments/{}", file), kind));
+            }
+        }
+        let source = OpendalDataSource {
+            operator,
+            data_type: Box::new(beancount::Beancount {}),
+            is_beancount: true,
+            local_root: None,
+        };
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let entry = std::path::PathBuf::from(format!("/no-stat-{}", nanos));
+        let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
+        let state = axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        for (file, status) in [("gone.pdf", 404), ("refused.pdf", 403), ("broken.pdf", 500)] {
+            let path = format!("attachments/{}", file);
+            assert_eq!(download(&state, &path).await.0, status, "{}", path);
+            assert_eq!(
+                counting.calls().iter().filter(|it| it.ends_with(&path)).count(),
+                2,
+                "{}: a stat and a read",
+                path
+            );
+        }
+    }
+
+    /// The documents kept from a remote source are kept for their ledger: two ledgers with a document at one path each
+    /// get their own.
+    #[tokio::test]
+    async fn the_documents_kept_from_a_remote_source_are_those_of_its_ledger() {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let mut states = vec![];
+        for name in ["first", "second"] {
+            let operator = Operator::new(Memory::default()).unwrap();
+            operator.write("main.bean", b"1970-01-01 open Assets:Cash\n".to_vec()).await.unwrap();
+            operator
+                .write("attachments/statement.pdf", format!("the {} one", name).into_bytes())
+                .await
+                .unwrap();
+            let source = OpendalDataSource {
+                operator,
+                data_type: Box::new(beancount::Beancount {}),
+                is_beancount: true,
+                local_root: None,
+            };
+            let entry = std::path::PathBuf::from(format!("/{}-{}", name, nanos));
+            let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
+            states.push(axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(
+                ledger,
+            )))));
+        }
+        for (state, content) in states.iter().zip(["the first one", "the second one"]) {
+            assert_eq!(download(state, "attachments/statement.pdf").await, (200, content.to_owned()));
+        }
     }
 
     #[tokio::test]

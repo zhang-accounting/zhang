@@ -556,11 +556,11 @@ fn balances_have_the_id_of_their_check() {
     );
 }
 
-/// A transaction whose directive a plugin copied with its position: zhang stores the last of the two
-/// under the id of the position, and `#entries` lists the one it stored, with the date it stored it
-/// with, once.
+/// A transaction whose directive a plugin copied with its position: zhang stores each of the two under
+/// its own id, as it stores the paddings of a `pad` that share its position, and `#entries`,
+/// `#transactions` and the postings list each once, with the id, date and `seq` it was stored with.
 #[test]
-fn a_transaction_sharing_a_position_is_the_one_zhang_stored() {
+fn transactions_sharing_a_position_are_each_the_one_zhang_stored() {
     let ledger = common::load_transformed(
         r#"
 option "operating_currency" "CNY"
@@ -591,14 +591,20 @@ option "operating_currency" "CNY"
         },
     );
     let stored = ledger.store.read().unwrap().transactions.len();
-    assert_eq!(stored, 2);
+    assert_eq!(stored, 3);
+    let entries = run(&ledger, "SELECT seq, date, narration, id FROM #entries WHERE type = 'transaction' ORDER BY seq");
     assert_eq!(
-        run(&ledger, "SELECT seq, date, narration FROM #entries WHERE type = 'transaction' ORDER BY seq"),
-        rows(&[&["3", "2024-01-03", "t3"], &["4", "2024-01-09", "t1"]])
+        entries.iter().map(|row| row[..3].to_vec()).collect::<Vec<_>>(),
+        rows(&[&["3", "2024-01-01", "t1"], &["4", "2024-01-03", "t3"], &["5", "2024-01-09", "t1"]])
     );
+    assert_ne!(entries[0][3], entries[2][3], "the copy has an id of its own");
+    assert_eq!(run(&ledger, "SELECT seq, date, narration, id FROM #transactions ORDER BY seq"), entries);
     assert_eq!(
-        run(&ledger, "SELECT DISTINCT seq, date FROM #postings"),
-        rows(&[&["3", "2024-01-03"], &["4", "2024-01-09"]])
+        run(&ledger, "SELECT DISTINCT seq, date, id FROM #postings"),
+        entries
+            .iter()
+            .map(|row| vec![row[0].clone(), row[1].clone(), row[3].clone()])
+            .collect::<Vec<_>>()
     );
 }
 

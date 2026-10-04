@@ -111,7 +111,7 @@ Only declare plugins you trust, ideally ones whose source you can read, and gran
 Zhang runs your plugins first, then checks that every account is open, then fills the pads, then checks the balance assertions. So:
 
 - Transactions a plugin adds count in the amounts pads fill up to and in the balances assertions check. A posting a plugin adds to an account that is not open is reported like one you wrote.
-- A plugin sees your `balance` and `balance … with pad` directives, but not the padding transactions, which are added after it runs.
+- A plugin sees your `balance` and `balance … with pad` directives, but not the padding transactions, which are added after it runs. It does not see `pad` directives: a `balance` a `pad` serves is shown to it as a `balance … with pad`. See [Writing plugins](/developers/writing-plugins/#the-stage-order-contract).
 - A plugin sees transactions as you wrote them: a missing amount is not filled in yet, and sales are not matched to lots.
 - An `option` or `plugin` directive a plugin adds has no effect.
 
