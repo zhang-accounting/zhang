@@ -24,7 +24,7 @@ use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, Inventory, Params, PriceMap, QueryErrorKind, QueryResult, Value};
 
 use crate::builtin::{calculated_amount, compiled, execute, BuiltinQuery, LedgerDateRange};
-use crate::cells::Columns;
+use crate::cells::{self, Row};
 use crate::error::ServerError;
 use crate::request::StatisticInterval;
 use crate::response::{ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
@@ -146,9 +146,9 @@ pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<Statist
     check_calendar(range)?;
     let currency = ledger.options.operating_currency.as_str();
     let at_end = Params::new().bind("to", range.to).bind("currency", currency);
-    let net_worth = single(run(ledger, &NET_WORTH, at_end.clone())?)?;
-    let liabilities = single(run(ledger, &LIABILITIES, at_end)?)?;
-    let flows = by_type(run(ledger, &FLOWS, range.bind(Params::new().bind("currency", currency)))?)?;
+    let net_worth = single(ledger, &NET_WORTH, at_end.clone())?;
+    let liabilities = single(ledger, &LIABILITIES, at_end)?;
+    let flows = by_type(ledger, &FLOWS, range.bind(Params::new().bind("currency", currency)))?;
     let count = run(ledger, &TRANSACTION_COUNT, range.bind(Params::new()))?;
 
     let figure = |figures: &HashMap<String, Figure>, account_type: AccountType| figures.get(&account_type.to_string()).cloned().unwrap_or_default();
@@ -161,8 +161,8 @@ pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<Statist
         income: figure(&flows, AccountType::Income).amount(currency),
         expense: figure(&flows, AccountType::Expenses).amount(currency),
         // an aggregate query without rows has no row, not a zero
-        transaction_number: match count.into_iter().next() {
-            Some(mut row) => row.take("transactions")?.as_int().unwrap_or(0),
+        transaction_number: match cells::first_row(TRANSACTION_COUNT.name, &count) {
+            Some(row) => row.int("transactions")?.unwrap_or(0),
             None => 0,
         },
     })
@@ -255,20 +255,22 @@ fn graph_rows_since(ledger: &Ledger, range: &LedgerDateRange, interval: &Statist
     };
 
     let mut closing = BTreeMap::new();
-    for mut row in run_within(ledger, &NET_WORTH_TREND, params.clone(), &limits, started).map_err(graph_error)? {
-        if let Value::Date(bucket) = row.take("bucket")? {
-            closing.insert(bucket, (inventory(row.take("balance")?), Figure::of(row.take("units")?, row.take("value")?)));
+    let trend = run_within(ledger, &NET_WORTH_TREND, params.clone(), &limits, started).map_err(graph_error)?;
+    for row in cells::rows(NET_WORTH_TREND.name, &trend) {
+        if let Some(bucket) = row.date("bucket")? {
+            closing.insert(bucket, (inventory(row.get("balance")?), figure(&row)?));
         }
     }
     let mut changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>> = HashMap::new();
-    for mut row in run_within(ledger, &CHANGES, params, &limits, started).map_err(graph_error)? {
-        let (Value::Date(bucket), Value::Str(account_type)) = (row.take("bucket")?, row.take("type")?) else {
+    let changed = run_within(ledger, &CHANGES, params, &limits, started).map_err(graph_error)?;
+    for row in cells::rows(CHANGES.name, &changed) {
+        let (Some(bucket), Some(account_type)) = (row.date("bucket")?, row.str("type")?) else {
             continue;
         };
         let Ok(account_type) = AccountType::from_str(&account_type) else {
             continue;
         };
-        let amount = Figure::of(row.take("units")?, row.take("value")?).amount(&currency);
+        let amount = figure(&row)?.amount(&currency);
         changes.entry(bucket).or_default().insert(account_type, amount);
     }
     Ok(GraphRows {
@@ -405,15 +407,17 @@ pub fn rank(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange)
     let params = range.bind(Params::new().bind("type", account_type.to_string()).bind("currency", currency));
 
     let mut detail = vec![];
-    for mut row in run(ledger, &ACCOUNT_TOTALS, params.clone())? {
-        if let Value::Str(account) = row.take("account")? {
-            let amount = Figure::of(row.take("units")?, row.take("value")?).amount(currency);
+    let totals = run(ledger, &ACCOUNT_TOTALS, params.clone())?;
+    for row in cells::rows(ACCOUNT_TOTALS.name, &totals) {
+        if let Some(account) = row.str("account")? {
+            let amount = figure(&row)?.amount(currency);
             detail.push(ReportRankItemEntity { account, amount });
         }
     }
+    let top = run(ledger, &TOP_POSTINGS, params)?;
     let mut top_transactions = vec![];
-    for row in run(ledger, &TOP_POSTINGS, params)? {
-        top_transactions.extend(top_posting(row)?);
+    for row in cells::rows(TOP_POSTINGS.name, &top) {
+        top_transactions.extend(top_posting(&row)?);
     }
 
     Ok(StatisticRankEntity {
@@ -425,25 +429,24 @@ pub fn rank(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange)
 }
 
 /// A row of `report.top_postings` as a journal item.
-fn top_posting(mut row: Row) -> ServerResult<Option<AccountJournalDomain>> {
-    let (Value::Date(date), Value::Str(time), Value::Int(timestamp), Value::Str(account), Value::Str(id), Value::Amount(units), Value::Amount(account_balance)) = (
-        row.take("date")?,
-        row.take("time")?,
-        row.take("timestamp")?,
-        row.take("account")?,
-        row.take("id")?,
-        row.take("units")?,
-        row.take("account_balance")?,
+fn top_posting(row: &Row<'_>) -> ServerResult<Option<AccountJournalDomain>> {
+    let (Some(datetime), Some(timestamp), Some(account), Some(id), Some(units), Some(account_balance)) = (
+        row.datetime("date", "time")?,
+        row.int("timestamp")?,
+        row.str("account")?,
+        row.str("id")?,
+        row.amount("units")?,
+        row.amount("account_balance")?,
     ) else {
         return Ok(None);
     };
     Ok(Some(AccountJournalDomain {
-        datetime: date.and_time(NaiveTime::from_str(&time).unwrap_or(NaiveTime::MIN)),
+        datetime,
         timestamp,
         account,
         trx_id: id,
-        payee: text(row.take("payee")?),
-        narration: text(row.take("narration")?),
+        payee: row.str("payee")?,
+        narration: row.str("narration")?,
         inferred_unit: units,
         account_after: account_balance,
         asserted: None,
@@ -558,47 +561,21 @@ pub fn last_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
         .unwrap_or_else(|| Utc.from_utc_datetime(&date.and_time(END_OF_DAY)))
 }
 
-/// The rows of one of the report's queries, their cells taken by column name.
-fn run(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<Vec<Row>> {
-    Ok(rows(query.name, execute(ledger, query.name, &params, false)?))
+/// The result of one of the report's queries; its rows are read with [`cells::rows`].
+fn run(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<QueryResult> {
+    execute(ledger, query.name, &params, false)
 }
 
 /// [`run`] within the limits of a graph: its result size limit, and what is left of its time
 /// limit since it `started`.
-fn run_within(ledger: &Ledger, query: &BuiltinQuery, params: Params, limits: &GraphLimits, started: Instant) -> ServerResult<Vec<Row>> {
+fn run_within(ledger: &Ledger, query: &BuiltinQuery, params: Params, limits: &GraphLimits, started: Instant) -> ServerResult<QueryResult> {
     let options = ExecuteOptions {
         today: None,
         timeout: limits.timeout.map(|timeout| timeout.saturating_sub(started.elapsed())),
         max_result_values: Some(limits.max_values),
         count_total: false,
     };
-    Ok(rows(query.name, compiled(query.name)?.execute_with_options(ledger, &params, &options)?))
-}
-
-/// The rows of the result of the built-in query `query`, their cells taken by column name.
-fn rows(query: &str, result: QueryResult) -> Vec<Row> {
-    let columns = Columns::of(query, &result);
-    result
-        .rows
-        .into_iter()
-        .map(|cells| Row {
-            columns: columns.clone(),
-            cells,
-        })
-        .collect()
-}
-
-/// A row of a query result.
-struct Row {
-    columns: Columns,
-    cells: Vec<Value>,
-}
-
-impl Row {
-    /// The cell of the column `name`.
-    fn take(&mut self, name: &str) -> ServerResult<Value> {
-        self.columns.take(&mut self.cells, name)
-    }
+    Ok(compiled(query.name)?.execute_with_options(ledger, &params, &options)?)
 }
 
 /// The units and the value of a figure, as the queries return them.
@@ -609,55 +586,50 @@ struct Figure {
 }
 
 impl Figure {
-    fn of(units: Value, value: Value) -> Figure {
-        Figure {
-            units: inventory(units),
-            value: inventory(value),
-        }
-    }
-
     fn amount(&self, currency: &str) -> CalculatedAmount {
         calculated_amount(&self.units, &self.value, currency)
     }
 }
 
-/// The figure (`units`, `value`) of a query without groups; nothing when it matched no postings.
-fn single(rows: Vec<Row>) -> ServerResult<Figure> {
-    match rows.into_iter().next() {
-        Some(mut row) => Ok(Figure::of(row.take("units")?, row.take("value")?)),
+/// The figure (`units`, `value`) of a row.
+fn figure(row: &Row<'_>) -> ServerResult<Figure> {
+    Ok(Figure {
+        units: inventory(row.get("units")?),
+        value: inventory(row.get("value")?),
+    })
+}
+
+/// The figure of a query without groups; nothing when it matched no postings.
+fn single(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<Figure> {
+    let result = run(ledger, query, params)?;
+    match cells::first_row(query.name, &result) {
+        Some(row) => figure(&row),
         None => Ok(Figure::default()),
     }
 }
 
 /// The figures of a query grouped by account type (`type`, `units`, `value`), by type.
-fn by_type(rows: Vec<Row>) -> ServerResult<HashMap<String, Figure>> {
+fn by_type(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<HashMap<String, Figure>> {
+    let result = run(ledger, query, params)?;
     let mut figures = HashMap::new();
-    for mut row in rows {
-        if let Value::Str(account_type) = row.take("type")? {
-            figures.insert(account_type, Figure::of(row.take("units")?, row.take("value")?));
+    for row in cells::rows(query.name, &result) {
+        if let Some(account_type) = row.str("type")? {
+            figures.insert(account_type, figure(&row)?);
         }
     }
     Ok(figures)
 }
 
 /// An inventory, amount or NULL cell as an inventory.
-fn inventory(value: Value) -> Inventory {
+fn inventory(value: &Value) -> Inventory {
     match value {
-        Value::Inventory(inventory) => inventory,
+        Value::Inventory(inventory) => inventory.clone(),
         Value::Amount(amount) => {
             let mut inventory = Inventory::new();
-            inventory.add_amount(&amount);
+            inventory.add_amount(amount);
             inventory
         }
         _ => Inventory::new(),
-    }
-}
-
-/// A text cell; NULL is none.
-fn text(value: Value) -> Option<String> {
-    match value {
-        Value::Str(text) => Some(text),
-        _ => None,
     }
 }
 
