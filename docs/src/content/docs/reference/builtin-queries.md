@@ -285,7 +285,7 @@ GROUP BY currency
 
 The journal of an account page merges the rows of `accounts.journal` and `accounts.balance_assertions` by their [`seq`](/reference/query-language/#processing-order), the order in which Zhang processed the ledger, newest first. An assertion therefore stands right after the postings its balance includes, wherever Zhang checked it: a balance written with a time after the transactions of its day before that time, a plain balance after a padding written before it, a `balance ... with pad` after the other balance entries of its time. Its balance is the running balance where it stands, and its `trx_id` is the id of its check, which `GET /api/journals` lists it with; a posting's is the id of its transaction. The rows of one transaction are newest first, by posting, and the rows of a posting booked against several lots are shown as one row. On a day daylight saving skips a time, the time written decides the order, so a row written in the gap can stand before one with an earlier stored time.
 
-The page lists the journal by pages of 100 rows (`GET /api/accounts/{account}/journals?page=1&size=100`), each row of `accounts.journal` and each assertion counting as one; a page reads its rows with `accounts.journal_rows` and `accounts.journal_page`, from the end of the journal.
+The page lists the journal by pages of 100 rows (`GET /api/accounts/{account}/journals?page=1&size=100`), each row of `accounts.journal`, a posting, and each assertion counting as one, so every page up to the last one is full. A page reads its postings with `accounts.journal_page`, from the end of the journal; the number of postings is the total of that query, which `POST /api/query` returns with `count_total`.
 
 #### `accounts.list`
 
@@ -348,45 +348,36 @@ ORDER BY account, currency
 
 #### `accounts.journal`
 
-The postings of the account and its sub-accounts, in ledger order, each with the [running balance](/reference/query-language/#the-running-balance) of the account and its sub-accounts in the posting's currency right after it. The padding transactions of `balance ... with pad` are listed like the others. A posting booked against several [lots](/reference/query-language/#lot-booking) has a row per lot; they share its `seq` and `posting_index`. Add `ORDER BY seq DESC, posting_index DESC` to list the newest first, as the page does.
+The postings of the account and its sub-accounts, in ledger order, a row per posting, each with the [running balance](/reference/query-language/#the-running-balance) of the account and its sub-accounts right after it, in every currency; the page shows that of the posting's currency. The padding transactions of `balance ... with pad` are listed like the others. A posting booked against several [lots](/reference/query-language/#lot-booking) has a row per lot in the postings, which share its `seq` and `posting_index`: grouped by those, its lots add up to its units, `first()` takes its date, payee and the other columns, and `last()` the balance after its last lot. Add `ORDER BY seq DESC, posting_index DESC` to list the newest first, as the page does.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `account` | `str` | the account of the page |
 
 ```sql
-SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
-       number AS units, currency, only(currency, units(balance)) AS balance
+SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
 WHERE under(account, :account)
-```
-
-#### `accounts.journal_rows`
-
-The number of rows of `accounts.journal`: with the assertions, the number of rows of all the pages of the journal.
-
-| Parameter | Type | Value |
-|-----------|------|-------|
-| `account` | `str` | the account of the page |
-
-```sql
-SELECT count(*) AS rows
-WHERE under(account, :account)
+GROUP BY seq, posting_index
 ```
 
 #### `accounts.journal_page`
 
-Some rows of `accounts.journal`, in ledger order: a page of the journal reads its rows counting from the end. Only the rows of the page are built, whatever the offset.
+Some rows of `accounts.journal`, in ledger order: a page of the journal reads its postings counting from the end. Only the postings of the page are built, whatever the offset, as the lot rows of a posting come one after another.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `account` | `str` | the account of the page |
-| `limit` | `int` | how many rows |
-| `offset` | `int` | how many rows before them |
+| `limit` | `int` | how many postings |
+| `offset` | `int` | how many postings before them |
 
 ```sql
-SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
-       number AS units, currency, only(currency, units(balance)) AS balance
+SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
 WHERE under(account, :account)
+GROUP BY seq, posting_index
 LIMIT :limit OFFSET :offset
 ```
 

@@ -135,27 +135,23 @@ ORDER BY account, currency",
     },
     BuiltinQuery {
         name: "accounts.journal",
-        description: "The postings of an account and its sub-accounts in ledger order, each with the running balance of the account \
-                      and its sub-accounts in the posting's currency right after it; a posting booked against several lots has a row \
-                      per lot.",
-        bql: "SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
-       number AS units, currency, only(currency, units(balance)) AS balance
-WHERE under(account, :account)",
-        params: &[("account", DataType::Str)],
-    },
-    BuiltinQuery {
-        name: "accounts.journal_rows",
-        description: "The number of rows of accounts.journal.",
-        bql: "SELECT count(*) AS rows
-WHERE under(account, :account)",
+        description: "The postings of an account and its sub-accounts in ledger order, a row per posting, the lots it is booked \
+                      against added up, each with the running balance of the account and its sub-accounts right after it.",
+        bql: "SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
+WHERE under(account, :account)
+GROUP BY seq, posting_index",
         params: &[("account", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.journal_page",
         description: "Some rows of accounts.journal: from an offset, at most a limit of them.",
-        bql: "SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
-       number AS units, currency, only(currency, units(balance)) AS balance
+        bql: "SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
 WHERE under(account, :account)
+GROUP BY seq, posting_index
 LIMIT :limit OFFSET :offset",
         params: &[("account", DataType::Str), ("limit", DataType::Int), ("offset", DataType::Int)],
     },

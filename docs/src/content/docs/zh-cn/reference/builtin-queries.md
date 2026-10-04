@@ -285,7 +285,7 @@ GROUP BY currency
 
 账户页面的流水按 [`seq`](/zh-cn/reference/query-language/#处理顺序)（张记账处理账本的顺序）合并 `accounts.journal` 和 `accounts.balance_assertions` 的行，最新的在前。因此一个断言紧跟在它的余额所包含的分录之后，也就是张记账检查它的位置：写了时刻的余额断言在当天该时刻之前的交易之后，普通的余额断言在写在它之前的补齐之后，`balance ... with pad` 在同一时刻的其他余额记录之后。它的余额就是所在位置的累计余额，它的 `trx_id` 是其检查结果的 id，与 `GET /api/journals` 列出它时使用的 id 相同；分录行的 `trx_id` 是其交易的 id。同一交易的各行按分录最新的在前，按多个批次记账的一笔分录显示为一行。在夏令时跳过某段时间的那天，决定顺序的是写下的时刻，所以写在跳过时段中的行可能排在存储时刻更早的行之前。
 
-页面按每页 100 行列出流水（`GET /api/accounts/{account}/journals?page=1&size=100`），`accounts.journal` 的每一行和每个断言各算一行；一页用 `accounts.journal_rows` 和 `accounts.journal_page` 从流水的末尾读取它的行。
+页面按每页 100 行列出流水（`GET /api/accounts/{account}/journals?page=1&size=100`），`accounts.journal` 的每一行（一笔分录）和每个断言各算一行，所以最后一页之前的每一页都是满的。一页用 `accounts.journal_page` 从流水的末尾读取它的分录；分录的数量就是这个查询的总行数，`POST /api/query` 带上 `count_total` 时会返回它。
 
 #### `accounts.list`
 
@@ -348,45 +348,36 @@ ORDER BY account, currency
 
 #### `accounts.journal`
 
-该账户及其子账户的分录，按账本顺序排列，每行带有该账户及其子账户在分录货币上紧接其后的[累计余额](/zh-cn/reference/query-language/#累计余额)。`balance ... with pad` 生成的补齐交易与其他交易一样列出。按多个[批次](/zh-cn/reference/query-language/#批次记账)记账的一笔分录每个批次一行，它们的 `seq` 和 `posting_index` 相同。加上 `ORDER BY seq DESC, posting_index DESC` 可以像页面一样把最新的排在最前。
+该账户及其子账户的分录，按账本顺序排列，每笔分录一行，每行带有该账户及其子账户紧接其后的[累计余额](/zh-cn/reference/query-language/#累计余额)，包含所有货币；页面显示其中分录货币的那一项。`balance ... with pad` 生成的补齐交易与其他交易一样列出。按多个[批次](/zh-cn/reference/query-language/#批次记账)记账的一笔分录在分录表中每个批次一行，它们的 `seq` 和 `posting_index` 相同：按这两列分组后，各批次相加得到分录的数量，`first()` 取它的日期、收付款人等列，`last()` 取最后一个批次之后的余额。加上 `ORDER BY seq DESC, posting_index DESC` 可以像页面一样把最新的排在最前。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `account` | `str` | 页面的账户 |
 
 ```sql
-SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
-       number AS units, currency, only(currency, units(balance)) AS balance
+SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
 WHERE under(account, :account)
-```
-
-#### `accounts.journal_rows`
-
-`accounts.journal` 的行数：加上断言，就是流水所有页的行数。
-
-| 参数 | 类型 | 值 |
-|------|------|----|
-| `account` | `str` | 页面的账户 |
-
-```sql
-SELECT count(*) AS rows
-WHERE under(account, :account)
+GROUP BY seq, posting_index
 ```
 
 #### `accounts.journal_page`
 
-`accounts.journal` 的部分行，按账本顺序：流水的一页从末尾数起读取它的行。不论偏移多少，只构建这一页的行。
+`accounts.journal` 的部分行，按账本顺序：流水的一页从末尾数起读取它的分录。由于一笔分录的各批次行前后相连，不论偏移多少，只构建这一页的分录。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `account` | `str` | 页面的账户 |
-| `limit` | `int` | 行数 |
-| `offset` | `int` | 之前跳过的行数 |
+| `limit` | `int` | 分录数 |
+| `offset` | `int` | 之前跳过的分录数 |
 
 ```sql
-SELECT date, time, timestamp, flag, id, account, payee, narration, seq, posting_index,
-       number AS units, currency, only(currency, units(balance)) AS balance
+SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
 WHERE under(account, :account)
+GROUP BY seq, posting_index
 LIMIT :limit OFFSET :offset
 ```
 

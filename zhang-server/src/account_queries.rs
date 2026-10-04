@@ -31,7 +31,6 @@ const BALANCES: &str = "accounts.balances";
 const SUBTREE: &str = "accounts.subtree";
 const SUBTREE_BALANCES: &str = "accounts.subtree_balances";
 const JOURNAL: &str = "accounts.journal";
-const JOURNAL_ROWS: &str = "accounts.journal_rows";
 const JOURNAL_PAGE: &str = "accounts.journal_page";
 const BALANCE_ASSERTIONS: &str = "accounts.balance_assertions";
 const BALANCE_HISTORY: &str = "accounts.balance_history";
@@ -258,18 +257,20 @@ pub struct Journal {
     pub total: Option<u64>,
 }
 
-/// A row of `accounts.journal`: one posting, or the part of a posting booked against one lot.
+/// A row of `accounts.journal`: one posting, with its `seq`.
 struct PostingRow {
     seq: i64,
-    posting_index: i64,
     journal: AccountJournalDomain,
 }
 
-impl PostingRow {
-    /// whether `other` is another part of the same posting
-    fn same_posting(&self, other: &PostingRow) -> bool {
-        (self.seq, self.posting_index) == (other.seq, other.posting_index)
-    }
+/// The units of `currency` in an inventory, zero if it has none.
+fn units_of(inventory: Option<&Inventory>, currency: &str) -> Amount {
+    let number = inventory
+        .into_iter()
+        .flat_map(|inventory| inventory.positions())
+        .filter(|position| position.units.commodity == currency)
+        .fold(BigDecimal::zero(), |total, position| total + position.units.number);
+    Amount::new(number, currency)
 }
 
 fn posting_rows(result: &QueryResult) -> Vec<PostingRow> {
@@ -281,7 +282,6 @@ fn posting_rows(result: &QueryResult) -> Vec<PostingRow> {
             let currency = text(columns.get(row, "currency")).unwrap_or_default();
             PostingRow {
                 seq: columns.get(row, "seq").as_int().unwrap_or_default(),
-                posting_index: columns.get(row, "posting_index").as_int().unwrap_or_default(),
                 journal: AccountJournalDomain {
                     datetime: datetime(columns.get(row, "date"), columns.get(row, "time")),
                     timestamp: columns.get(row, "timestamp").as_int().unwrap_or_default(),
@@ -290,7 +290,8 @@ fn posting_rows(result: &QueryResult) -> Vec<PostingRow> {
                     payee: text(columns.get(row, "payee")),
                     narration: text(columns.get(row, "narration")),
                     inferred_unit: Amount::new(decimal(columns.get(row, "units")), currency.clone()),
-                    account_after: amount(columns.get(row, "balance")).unwrap_or_else(|| Amount::new(BigDecimal::zero(), currency)),
+                    // the balance of the subtree after the posting, in its currency
+                    account_after: units_of(columns.get(row, "balance").as_inventory(), &currency),
                     asserted: None,
                     checked_balance: None,
                     passed: None,
@@ -334,14 +335,14 @@ fn assertion_rows(result: &QueryResult) -> Vec<(i64, AccountJournalDomain)> {
 /// first, each with the running balance of the subtree in its currency, and the balance
 /// assertions on the account, each with the balance it was checked against.
 ///
-/// The rows are `accounts.journal` and `accounts.balance_assertions` merged by `seq`, the order
-/// zhang processed the ledger in: an assertion stands right after the postings its balance
-/// includes, so its balance is the running balance where it stands. The rows of a posting booked
-/// against several lots are one row. A window pages through the rows of the two queries (a lot
-/// row and an assertion are a row each); a posting belongs to the page of its first row.
+/// The rows are `accounts.journal`, a row per posting, and `accounts.balance_assertions` merged by
+/// `seq`, the order zhang processed the ledger in: an assertion stands right after the postings
+/// its balance includes, so its balance is the running balance where it stands. A window pages
+/// through these rows, a posting and an assertion a row each.
 ///
-/// `accounts.journal` lists the rows in ledger order, which the journal turns around; a page of it
-/// is read from the end with `accounts.journal_page`, which only builds the rows it returns.
+/// `accounts.journal` lists the postings in ledger order, which the journal turns around; a page
+/// of it is read from the end with `accounts.journal_page`, which only builds the postings it
+/// returns, and whose total is the number of postings.
 pub fn account_journals(ledger: &Ledger, account: &str, window: Option<JournalWindow>) -> ServerResult<Journal> {
     let assertions = assertion_rows(&run(ledger, BALANCE_ASSERTIONS, &Params::new().bind("account", account))?);
     let Some(window) = window else {
@@ -351,36 +352,30 @@ pub fn account_journals(ledger: &Ledger, account: &str, window: Option<JournalWi
         let rows = merge(postings, 0, assertions, 0, u64::MAX);
         return Ok(Journal { rows, total: None });
     };
-    let count = run(ledger, JOURNAL_ROWS, &Params::new().bind("account", account))?;
-    let total = count.rows.first().and_then(|row| row[0].as_int()).map_or(0, |it| it as u64);
-    let assertion_count = assertions.len() as u64;
-    // a posting in the window has at most every assertion before it; one more row tells whether the first
-    // posting continues one of the previous page
-    let first = window.offset.saturating_sub(assertion_count).saturating_sub(1).min(total);
-    let end = window.offset.saturating_add(window.size);
-    // the rows after the window that complete its last posting
-    let mut extra = 16u64;
-    loop {
-        // rows `first..first + limit` from the newest, `total - first - limit..total - first` in ledger order
-        let limit = end.saturating_sub(first).saturating_add(extra).min(total - first);
+    // the postings `offset..offset + limit` in ledger order, and with `count_total` the number of postings
+    let page = |limit: u64, offset: u64, count_total: bool| {
         let params = Params::new()
             .bind("account", account)
             .bind("limit", i64::try_from(limit).unwrap_or(i64::MAX))
-            .bind("offset", i64::try_from(total - first - limit).unwrap_or(i64::MAX));
-        let mut postings = posting_rows(&run(ledger, JOURNAL_PAGE, &params)?);
-        postings.reverse();
-        let complete = first + postings.len() as u64 >= total;
-        let open_end = !complete && last_posting_starts_before(&postings, first, &assertions, end);
-        if open_end {
-            extra = extra.saturating_mul(4);
-            continue;
-        }
-        let rows = merge(postings, first, assertions, window.offset, end);
-        return Ok(Journal {
-            rows,
-            total: Some(total + assertion_count),
-        });
-    }
+            .bind("offset", i64::try_from(offset).unwrap_or(i64::MAX));
+        builtin::execute(ledger, JOURNAL_PAGE, &params, count_total)
+    };
+    let postings_total = page(0, 0, true)?.total.unwrap_or_default();
+    let assertion_count = assertions.len() as u64;
+    let end = window.offset.saturating_add(window.size);
+    // the postings `first..last` from the newest: a posting in the window has at most every assertion newer than it
+    let first = window.offset.saturating_sub(assertion_count).min(postings_total);
+    let last = end.min(postings_total);
+    let mut postings = match last.checked_sub(first) {
+        Some(limit) if limit > 0 => posting_rows(&page(limit, postings_total - last, false)?),
+        _ => vec![],
+    };
+    postings.reverse();
+    let rows = merge(postings, first, assertions, window.offset, end);
+    Ok(Journal {
+        rows,
+        total: Some(postings_total + assertion_count),
+    })
 }
 
 /// The 400 of a journal too large to return at once: it is paged with `page` and `size`.
@@ -401,61 +396,35 @@ fn newer_assertions(assertions: &[(i64, AccountJournalDomain)], seq: i64) -> u64
     assertions.partition_point(|(assertion, _)| *assertion > seq) as u64
 }
 
-/// Whether the posting of the last of `postings` (rows `first..` of `accounts.journal`) starts
-/// before row `end`, so the rows after `postings` may still belong to it.
-fn last_posting_starts_before(postings: &[PostingRow], first: u64, assertions: &[(i64, AccountJournalDomain)], end: u64) -> bool {
-    let Some(last) = postings.last() else { return false };
-    let start = postings.iter().rposition(|row| !row.same_posting(last)).map_or(0, |at| at + 1);
-    first + start as u64 + newer_assertions(assertions, postings[start].seq) < end
-}
-
-/// The rows `offset..end` of the journal: the posting rows `first..` of `accounts.journal` from
-/// the newest, which run past `end` or to the oldest, merged with all the assertions by `seq`,
-/// newest first, the rows of one posting as one row.
+/// The rows `offset..end` of the journal: the postings `first..` of `accounts.journal` from the
+/// newest, which run to row `end` or to the oldest, merged with all the assertions by `seq`,
+/// newest first.
 fn merge(postings: Vec<PostingRow>, first: u64, assertions: Vec<(i64, AccountJournalDomain)>, offset: u64, end: u64) -> Vec<AccountJournalDomain> {
     let in_window = |row: u64| (offset..end).contains(&row);
-    // the row of every posting row in the whole journal: its index plus the assertions newer than it
-    let mut merged: Vec<(u64, Option<AccountJournalDomain>)> = vec![];
-    let mut postings_of: Vec<(u64, PostingRow)> = Vec::with_capacity(postings.len());
-    for (index, posting) in postings.into_iter().enumerate() {
-        let row = first + index as u64 + newer_assertions(&assertions, posting.seq);
-        postings_of.push((row, posting));
-    }
-    for (index, (seq, assertion)) in assertions.into_iter().enumerate() {
-        // the postings newer than the assertion: those of the rows fetched, plus the `first` before them. That
-        // counts too many for an assertion newer than every fetched row, which then comes before the window
-        // anyway (`first` leaves a row for each assertion and one more before it), and too few for one older
-        // than every fetched row, which comes after the window, as long as the rows fetched run past it
-        let newer = postings_of.partition_point(|(_, posting)| posting.seq > seq) as u64;
-        let row = index as u64 + first + newer;
-        if in_window(row) {
-            merged.push((row, Some(assertion)));
-        }
-    }
-    // a posting's rows are consecutive; it belongs to the window of its first row
-    let mut rows: Vec<(u64, AccountJournalDomain)> = vec![];
-    let mut previous: Option<&PostingRow> = None;
-    let mut taking = false;
-    for (row, posting) in &postings_of {
-        let continues = previous.is_some_and(|previous| previous.same_posting(posting));
-        if continues {
-            if taking {
-                // an earlier lot of the posting, newest first: it adds its units; the balance after the posting is
-                // that after its last lot, the first row
-                let (_, journal) = rows.last_mut().expect("the posting's first row is taken");
-                journal.inferred_unit.number += &posting.journal.inferred_unit.number;
-            }
-        } else {
-            taking = in_window(*row);
-            if taking {
-                rows.push((*row, posting.journal.clone()));
-            }
-        }
-        previous = Some(posting);
-    }
-    merged.extend(rows.into_iter().map(|(row, journal)| (row, Some(journal))));
-    merged.sort_by_key(|(row, _)| *row);
-    merged.into_iter().filter_map(|(_, journal)| journal).collect()
+    // the row of every posting in the whole journal: its index plus the assertions newer than it
+    let posting_rows = postings
+        .iter()
+        .enumerate()
+        .map(|(index, posting)| first + index as u64 + newer_assertions(&assertions, posting.seq))
+        .collect::<Vec<_>>();
+    // the row of every assertion: its index plus the postings newer than it, those fetched and the `first`
+    // before them. That counts too many for an assertion newer than every fetched posting, which then comes
+    // before the window anyway (`first` leaves a row for each assertion before it), and too few for one older
+    // than every fetched posting, which comes after the window, as the postings fetched run to its end
+    let assertion_rows = assertions
+        .iter()
+        .enumerate()
+        .map(|(index, (seq, _))| index as u64 + first + postings.partition_point(|posting| posting.seq > *seq) as u64)
+        .collect::<Vec<_>>();
+    let mut rows = postings
+        .into_iter()
+        .zip(posting_rows)
+        .map(|(posting, row)| (row, posting.journal))
+        .chain(assertions.into_iter().zip(assertion_rows).map(|((_, assertion), row)| (row, assertion)))
+        .filter(|(row, _)| in_window(*row))
+        .collect::<Vec<_>>();
+    rows.sort_by_key(|(row, _)| *row);
+    rows.into_iter().map(|(_, journal)| journal).collect()
 }
 
 // ---------------------------------------------------------------------------------------

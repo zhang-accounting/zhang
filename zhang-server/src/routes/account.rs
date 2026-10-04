@@ -242,7 +242,7 @@ pub async fn legacy_get_account_documents(ledger: State<SharedLedger>, params: P
 /// the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to return at
 /// once is a 400 that asks for pages.
 ///
-/// Built-in queries `accounts.journal` (`accounts.journal_rows` and `accounts.journal_page` for a page) and
+/// Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
 /// `accounts.balance_assertions`.
 #[api(group = "account")]
 pub async fn get_account_journals(

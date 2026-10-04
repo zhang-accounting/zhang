@@ -21,7 +21,8 @@
 //!
 //!    A leaf account's journal must be exactly the hand-written one but for these: its rows in the same
 //!    order, the rows of one transaction newest first, by posting.
-//! 3. **Pages**: the pages of every journal, put together, are the whole journal.
+//! 3. **Pages**: the pages of every journal, put together, are the whole journal, and every page before the
+//!    last one is full.
 //!
 //! The tests after the golden diff check each difference and the journal order of the ledgers of
 //! `tests/accounts_on_query/` with values worked out by hand.
@@ -959,8 +960,9 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
 }
 
 /// The pages of the journal of `account`, put together, are `journal`, the whole of it: with a size of 1,
-/// 2 and 5 rows for a short journal, of 50 and 97 rows for a long one. Every page has the same total, at
-/// most `size` rows, and the page after the last one is empty.
+/// 2 and 5 rows for a short journal, of 50 and 97 rows for a long one. Every page has the same total, the
+/// number of rows of the journal; every page before the last one has `size` rows, the last one at least one,
+/// and the page after it none.
 async fn check_pages(report: &mut Report, ledger_name: &str, ledger: &SharedLedger, account: &str, journal: &[Value]) {
     let (_, total, _) = journal_page(ledger, account, 1, 1).await;
     let total = total.expect("a page has a total");
@@ -973,12 +975,15 @@ async fn check_pages(report: &mut Report, ledger_name: &str, ledger: &SharedLedg
             assert_eq!(status, StatusCode::OK, "{ledger_name} {account} page {page} of {size}");
             assert_eq!(page_total, Some(total), "{ledger_name} {account} page {page} of {size}");
             let data = canonical(&data).as_array().unwrap().clone();
-            assert!(data.len() <= *size as usize, "{ledger_name} {account} page {page} of {size}");
-            if page > pages {
-                assert!(data.is_empty(), "{ledger_name} {account}: the page after the last one");
-            }
+            let expected = match page.cmp(&pages) {
+                std::cmp::Ordering::Less => *size as usize,
+                std::cmp::Ordering::Equal => (total - u64::from(*size) * u64::from(pages - 1)) as usize,
+                std::cmp::Ordering::Greater => 0,
+            };
+            assert_eq!(data.len(), expected, "{ledger_name} {account} page {page} of {size}");
             rows.extend(data);
         }
+        report.expect(ledger_name, "journal total", account, &json!(journal.len()), &json!(total));
         report.expect(ledger_name, &format!("pages of {size}"), account, &json!(journal), &json!(rows));
     }
 }
@@ -1488,22 +1493,26 @@ async fn a_transaction_without_a_narration_has_an_empty_one() {
     assert_eq!(narrations, [json!(""), json!("Assets:Ghost"), json!("")]);
 }
 
-/// A page holds `size` rows from `(page - 1) * size`, counting a row per lot of a posting and per assertion,
-/// with the number of rows of all the pages in `X-Total-Count`; a posting belongs to the page of its first
-/// lot. The sale of two lots is two rows: page 1 of 1 row holds it whole, page 2 nothing.
+/// A page holds `size` rows from `(page - 1) * size`, counting a row per posting and per assertion, with the
+/// number of rows of all the pages in `X-Total-Count`. The sale of 12 AAPL booked against two lots is one row.
 #[tokio::test]
 async fn a_journal_is_paged_by_rows() {
     let ledger = fixture("pads_lots_and_prices.zhang").await;
     let (_, total, page) = journal_page(&ledger, "Assets:Broker", 1, 1).await;
-    // 180 USD, the two lots of -12 AAPL, 5 AAPL and 10 AAPL
-    assert_eq!(total, Some(5));
+    // 180 USD, -12 AAPL, 5 AAPL and 10 AAPL
+    assert_eq!(total, Some(4));
     assert_eq!(lines(&page), ["Assets:Broker | Broker | 180 USD | 180 USD"]);
     let (_, _, page) = journal_page(&ledger, "Assets:Broker", 2, 1).await;
     assert_eq!(lines(&page), ["Assets:Broker | Broker | -12 AAPL | 3 AAPL"]);
     let (_, _, page) = journal_page(&ledger, "Assets:Broker", 3, 1).await;
-    assert_eq!(lines(&page), Vec::<String>::new());
-    let (_, _, page) = journal_page(&ledger, "Assets:Broker", 2, 2).await;
     assert_eq!(lines(&page), ["Assets:Broker | Broker | 5 AAPL | 15 AAPL"]);
+    let (_, _, page) = journal_page(&ledger, "Assets:Broker", 2, 2).await;
+    assert_eq!(
+        lines(&page),
+        ["Assets:Broker | Broker | 5 AAPL | 15 AAPL", "Assets:Broker | Broker | 10 AAPL | 10 AAPL"]
+    );
+    let (_, _, page) = journal_page(&ledger, "Assets:Broker", 5, 1).await;
+    assert_eq!(lines(&page), Vec::<String>::new());
 
     // the assertions take their rows among the postings
     let (_, total, page) = journal_page(&ledger, "Assets:Bank", 2, 4).await;
@@ -1543,21 +1552,27 @@ async fn a_page_or_a_size_of_zero_is_a_bad_request() {
     assert_eq!((status, page), (StatusCode::OK, json!([])));
 }
 
-/// A sale of twenty lots is twenty rows, which the page of their first row holds whole: on pages of one row,
-/// page 2 has the sale, -20 STK down to nothing, and pages 3 to 21 nothing.
+/// A sale of twenty lots is one row: the journal has the assertion, the sale and the twenty buys, 22 rows, and on
+/// pages of five rows every page up to the fifth has rows, the sale on the first.
 #[tokio::test]
-async fn a_posting_of_many_lots_is_one_row_of_the_page_of_its_first_lot() {
+async fn a_posting_of_many_lots_is_one_row() {
     let ledger = fixture("a_sale_of_many_lots.zhang").await;
-    let (_, total, page) = journal_page(&ledger, "Assets:Broker", 1, 1).await;
-    // the assertion, the 20 lot rows of the sale and the 20 buys
-    assert_eq!(total, Some(41));
-    assert_eq!(lines(&page), ["Assets:Broker | Balance Check | 0 STK | 0 STK | = 0 STK, 0 STK, true"]);
-    let (_, _, page) = journal_page(&ledger, "Assets:Broker", 2, 1).await;
-    assert_eq!(lines(&page), ["Assets:Broker | Sell | -20 STK | 0 STK"]);
-    for empty in 3..=21 {
-        let (_, _, page) = journal_page(&ledger, "Assets:Broker", empty, 1).await;
-        assert_eq!(lines(&page), Vec::<String>::new(), "page {empty}");
+    let (_, total, page) = journal_page(&ledger, "Assets:Broker", 1, 5).await;
+    assert_eq!(total, Some(22));
+    assert_eq!(
+        lines(&page),
+        [
+            "Assets:Broker | Balance Check | 0 STK | 0 STK | = 0 STK, 0 STK, true",
+            "Assets:Broker | Sell | -20 STK | 0 STK",
+            "Assets:Broker | Buy | 1 STK | 20 STK",
+            "Assets:Broker | Buy | 1 STK | 19 STK",
+            "Assets:Broker | Buy | 1 STK | 18 STK",
+        ]
+    );
+    for (page, rows) in [(2, 5), (3, 5), (4, 5), (5, 2), (6, 0)] {
+        let (_, _, data) = journal_page(&ledger, "Assets:Broker", page, 5).await;
+        assert_eq!(data.as_array().unwrap().len(), rows, "page {page}");
     }
-    let (_, _, page) = journal_page(&ledger, "Assets:Broker", 22, 1).await;
-    assert_eq!(lines(&page), ["Assets:Broker | Buy | 1 STK | 20 STK"]);
+    let (_, _, page) = journal_page(&ledger, "Assets:Broker", 5, 5).await;
+    assert_eq!(lines(&page), ["Assets:Broker | Buy | 1 STK | 2 STK", "Assets:Broker | Buy | 1 STK | 1 STK"]);
 }
