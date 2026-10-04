@@ -81,7 +81,7 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 
 ### `default_commodity_precision`
 
-没有有效 `precision` 元数据的[商品](/zh-cn/reference/directives/commodity/#精度)所用的精度：网页界面显示几位小数，以及交易配平时所用的小数位数。它不适用于 `operating_currency` 定义的货币。
+没有有效 `precision` 元数据的[商品](/zh-cn/reference/directives/commodity/#精度)所用的精度：网页界面显示几位小数，以及交易配平时所用的小数位数。它不适用于 `operating_currency` 定义的货币。不是整数的值会让账本无法加载，并给出消息 `option value is invalid`。
 
 ### `default_rounding`
 
@@ -153,7 +153,7 @@ option "directive_output_path" "data/ledger.{{ext}}"
 | [`UnsupportedBookingMethod`](/zh-cn/reference/error-codes/#unsupportedbookingmethod) | `default_booking_method` 为 `AVERAGE`、`AVERAGE_ONLY` 或 `NONE`。 |
 | [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) | `default_booking_method` 不是一种记账方法。 |
 
-无效的 `default_rounding` 或 `directive_output_path` 不会作为账本错误报告：账本直接无法加载。
+无效的 `default_rounding`、`default_commodity_precision` 或 `directive_output_path` 不会作为账本错误报告：账本直接无法加载。
 
 ## Beancount 兼容性
 

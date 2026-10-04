@@ -100,7 +100,8 @@ The booking method of accounts whose `open` has no `booking_method` metadata: wh
 
 The precision of a [`commodity`](/reference/directives/commodity/#precision) without a valid `precision` metadata
 entry: how many decimals the web UI shows, and the scale a transaction must balance at. It does not apply to the
-commodity that `operating_currency` defines.
+commodity that `operating_currency` defines. A value that is not a whole number stops the ledger from loading with the
+message `option value is invalid`.
 
 ### `default_rounding`
 
@@ -186,7 +187,8 @@ See [Equity accounts](/reference/query-language/#equity-accounts).
 | [`UnsupportedBookingMethod`](/reference/error-codes/#unsupportedbookingmethod) | `default_booking_method` is `AVERAGE`, `AVERAGE_ONLY` or `NONE`. |
 | [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | `default_booking_method` is not a booking method. |
 
-An invalid `default_rounding` or `directive_output_path` is not reported as a ledger error: the ledger does not load.
+An invalid `default_rounding`, `default_commodity_precision` or `directive_output_path` is not reported as a ledger
+error: the ledger does not load.
 
 ## Beancount compatibility
 
