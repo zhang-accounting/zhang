@@ -1027,6 +1027,8 @@ pub(crate) fn execute_within(
     // the rows the execution keeps before skipping the offset
     let end = run.window.map(|window| usize::try_from(window.end()).unwrap_or(usize::MAX));
 
+    // the LIMIT and OFFSET left to apply to the rows a pass keeps
+    let mut window = run.window;
     // the number of rows before LIMIT and OFFSET when the strategy counts them on the way
     // (otherwise it is the number of rows left after DISTINCT), and whether LIMIT and OFFSET
     // were already applied
@@ -1044,11 +1046,18 @@ pub(crate) fn execute_within(
             };
             // DISTINCT without ORDER BY tells rows apart while scanning
             let mut seen = (plan.distinct && strategy.limit == LimitMode::StopScan).then(HashSet::new);
+            // a scan that stops early, without DISTINCT, only counts the rows before OFFSET: they
+            // are skipped without being built
+            let skip = run
+                .window
+                .filter(|_| stop_at.is_some() && seen.is_none())
+                .map_or(0, |window| usize::try_from(window.offset).unwrap_or(usize::MAX));
+            let mut skipped = 0usize;
             // rows past the window of a scan that stops early, only counted
             let mut past_window = 0u64;
             for (counter, row) in data.iter().enumerate() {
                 Deadline::check(execution.deadline, counter)?;
-                let full = stop_at.is_some_and(|limit| collector.len() >= limit);
+                let full = stop_at.is_some_and(|limit| collector.len() + skipped >= limit);
                 if full && !run.count_total {
                     break;
                 }
@@ -1071,6 +1080,10 @@ pub(crate) fn execute_within(
                 let ordinal = filtered.push(counter);
                 if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
                     running.add(posting);
+                }
+                if ordinal < skip {
+                    skipped += 1;
+                    continue;
                 }
                 let env = Env {
                     row: Some(row),
@@ -1111,13 +1124,18 @@ pub(crate) fn execute_within(
             if !plan.order.is_empty() && !ranked {
                 rows.sort_by(|a, b| order_cmp(&plan.order, &a.cells, &b.cells));
             }
+            // the rows before OFFSET that were skipped are no longer there to skip
+            window = window.map(|window| Window {
+                offset: window.offset.saturating_sub(skipped as u64),
+                ..window
+            });
             if deferred.is_empty() {
                 (rows.into_iter().map(|row| row.cells).collect::<Vec<_>>(), counted, false)
             } else {
                 // the rows are chosen: LIMIT and OFFSET apply now (no DISTINCT defers), then
                 // the replay evaluates the deferred targets of the rows that are left
                 let counted = Some(counted.unwrap_or(rows.len() as u64));
-                if let Some(window) = run.window {
+                if let Some(window) = window {
                     window.apply(&mut rows);
                 }
                 let mut needs = rows.iter().enumerate().map(|(slot, row)| (row.ordinal, slot)).collect::<Vec<_>>();
@@ -1279,7 +1297,7 @@ pub(crate) fn execute_within(
         rows.retain(|row| seen.insert(row.clone()));
     }
     let total = run.count_total.then(|| counted.unwrap_or(rows.len() as u64));
-    if let (Some(window), false) = (run.window, windowed) {
+    if let (Some(window), false) = (window, windowed) {
         window.apply(&mut rows);
     }
     match plan.pivot {
