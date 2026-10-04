@@ -104,7 +104,7 @@ fn transaction<'r>(record: &'r Record<'_>) -> Option<&'r Transaction> {
 }
 
 /// The type of an entry: beancount's directive name, or zhang's keyword for the directives
-/// beancount does not have. A `balance ... with pad` is a `balance`.
+/// beancount does not have. A `balance ... with pad` is a `balance`, a beancount `pad` a `pad`.
 fn entry_type(directive: &Directive) -> &'static str {
     match directive {
         Directive::Open(_) => "open",
@@ -112,6 +112,7 @@ fn entry_type(directive: &Directive) -> &'static str {
         Directive::Commodity(_) => "commodity",
         Directive::Transaction(_) => "transaction",
         Directive::BalancePad(_) | Directive::BalanceCheck(_) => "balance",
+        Directive::Pad(_) => "pad",
         Directive::Note(_) => "note",
         Directive::Document(_) => "document",
         Directive::Price(_) => "price",
@@ -137,6 +138,7 @@ fn entry_accounts(directive: &Directive) -> Value {
         Directive::Close(it) => vec![it.account.name()],
         Directive::BalanceCheck(it) => vec![it.account.name()],
         Directive::BalancePad(it) => vec![it.account.name(), it.pad.name()],
+        Directive::Pad(it) => vec![it.account.name(), it.pad.name()],
         Directive::Note(it) => vec![it.account.name()],
         Directive::Document(it) => vec![it.account.name()],
         _ => vec![],

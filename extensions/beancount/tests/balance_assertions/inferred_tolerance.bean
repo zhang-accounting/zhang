@@ -1,0 +1,20 @@
+; Accepted deviation: zhang never infers a tolerance. Beancount accepts a balance
+; off by up to one unit of the last decimal place of the asserted amount, and pads
+; nothing within it; zhang checks and pads the exact amount.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Assets:B
+1970-01-01 open Equity:Open
+
+2024-01-01 * "x" "opening"
+  Assets:A  50.004 CNY
+  Assets:B  99.995 CNY
+  Equity:Open
+
+2024-01-02 balance Assets:A  50.00 CNY
+2024-01-03 balance Assets:A  50.004 CNY
+
+2024-01-02 pad Assets:B Equity:Open
+2024-01-03 balance Assets:B  100.00 CNY

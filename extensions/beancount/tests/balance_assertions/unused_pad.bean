@@ -1,0 +1,22 @@
+; A pad that pads nothing is an error, as in beancount: one whose next assertion
+; holds already, one no assertion follows, and one replaced by a later pad of its
+; account before any assertion.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Assets:B
+1970-01-01 open Assets:C
+1970-01-01 open Equity:Open
+
+2024-01-01 * "x" "opening"
+  Assets:A  10 CNY
+  Equity:Open
+
+2024-01-02 pad Assets:A Equity:Open
+2024-01-02 pad Assets:B Equity:Open
+2024-01-02 pad Assets:C Equity:Open
+2024-01-03 pad Assets:C Equity:Open
+
+2024-01-04 balance Assets:A  10 CNY
+2024-01-04 balance Assets:C  5 CNY

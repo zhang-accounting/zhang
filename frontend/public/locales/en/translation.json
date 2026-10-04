@@ -41,6 +41,11 @@
   "ERROR": {
     "AccountDoesNotExist": "Account does not exist",
     "AccountBalanceCheckError": " Account does not pass the balance check",
+    "UnusedPad": "Pad is not used by any later balance assertion of its account",
+    "PadWithCost": "Pad of a commodity the account holds at cost: the padding is booked without a cost",
+    "BalanceTimeIgnored": "Balance checked at the start of its date: its time is ignored, as beancount ignores it",
+    "DocumentPathRelativeToRoot": "Beancount resolves this path relative to {{meta.file}}; write it as {{meta.written_as}}",
+    "DocumentNotFound": "Document file {{meta.path}} does not exist",
     "AccountClosed": "Try to operate a closed account",
     "CommodityDoesNotDefine": "Try to use a undefined commodity",
     "TransactionHasMultipleImplicitPosting": "Transaction has more than one implicit posting unit",
@@ -364,7 +369,6 @@
     "filled_other": "{{count}} of {{total}} filled",
     "mismatch_count_one": "{{count}} mismatch",
     "mismatch_count_other": "{{count}} mismatches",
-    "beancount_parent_pad": "In a beancount ledger, bean-check fails a pad of an account together with a balance of one of its sub-accounts. Check the parent without a pad.",
     "reset": "Reset",
     "submit": "Submit",
     "empty_title": "No account balances",
@@ -585,6 +589,7 @@
       "check": "Check balance",
       "pad": "Pad & check",
       "saved": "Balance directive written",
+      "replaced": "Replaced the balance of {{account}} for {{date}} (was {{amount}})",
       "failed": "Could not balance the account",
       "no_commodities": "This account holds no commodities yet"
     },

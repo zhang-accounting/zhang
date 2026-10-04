@@ -6,16 +6,17 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{BalanceCheck, BalancePad, Date, Directive, Document, ZhangString};
+use zhang_ast::{Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::utils::calculable::Calculable;
 
+use crate::balance_writes::{balance_directives, BalanceRow, BalanceWriteEntity};
 use crate::request::{AccountBalanceRequest, AccountJournalRequest, BatchAccountBalanceRequest};
 use crate::response::{
     AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, Paged, ResponseWrapper,
 };
 use crate::routes::Query;
-use crate::state::{SharedLedger, SharedReloadSender};
+use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::validate::Rules;
 use crate::{account_queries, validate, ApiResult, ServerResult};
 
@@ -127,41 +128,39 @@ pub async fn upload_account_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ServerResult<Created> {
     let account_name = path.0 .0;
-    let ledger_stage = ledger.read().await;
+    // the files first, then the ledger, held to write
+    let files = super::uploaded_files(&mut multipart).await?;
+    let mut ledger_stage = ledger.for_writing().await?;
     let account = validate::account(&account_name, &Rules::of(&ledger_stage))?;
-    let entry = &ledger_stage.entry.0;
-    let mut documents = vec![];
+    let written = async {
+        let entry = &ledger_stage.entry.0;
+        let mut documents = vec![];
+        for (file_name, content_buf) in files {
+            let v4 = Uuid::new_v4();
+            let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
+            let striped_buf = buf.strip_prefix(entry).unwrap();
+            info!("uploading document `{}`(id={}) to account {}", file_name, v4, account_name);
 
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        let _name = field.name().unwrap().to_string();
-        let file_name = field.file_name().unwrap().to_string();
-        let _content_type = field.content_type().unwrap().to_string();
+            let striped_path_string = striped_buf.to_string_lossy().to_string();
+            ledger_stage
+                .data_source
+                .async_save(&ledger_stage, striped_path_string.to_owned(), &content_buf)
+                .await?;
 
-        let v4 = Uuid::new_v4();
-        let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
-        let striped_buf = buf.strip_prefix(entry).unwrap();
-        info!("uploading document `{}`(id={}) to account {}", file_name, v4, account_name);
-
-        let content_buf = field.bytes().await.unwrap();
-
-        let striped_path_string = striped_buf.to_string_lossy().to_string();
-        ledger_stage
-            .data_source
-            .async_save(&ledger_stage, striped_path_string.to_owned(), &content_buf)
-            .await?;
-
-        documents.push(Directive::Document(Document {
-            date: Date::now(&ledger_stage.options.timezone),
-            account: account.clone(),
-            filename: ZhangString::QuoteString(striped_path_string),
-            tags: None,
-            links: None,
-            meta: Default::default(),
-        }));
+            documents.push(Directive::Document(Document {
+                date: Date::now(&ledger_stage.options.timezone),
+                account: account.clone(),
+                filename: ZhangString::QuoteString(striped_path_string),
+                tags: None,
+                links: None,
+                meta: Default::default(),
+            }));
+        }
+        ledger_stage.data_source.async_append(&ledger_stage, documents).await?;
+        ServerResult::Ok(())
     }
-
-    ledger_stage.data_source.async_append(&ledger_stage, documents).await?;
-    reload_sender.reload();
+    .await;
+    wrote(&mut ledger_stage, &reload_sender, written)?;
     Ok(Created)
 }
 
@@ -273,31 +272,27 @@ pub async fn legacy_get_account_journals(ledger: State<SharedLedger>, params: Pa
 #[api(group = "account")]
 pub async fn create_account_balance(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
-) -> ServerResult<Created> {
+) -> ApiResult<BalanceWriteEntity> {
     let target_account = params.0 .0;
-    let ledger = ledger.read().await;
+    let mut ledger = ledger.for_writing().await?;
     let rules = Rules::of(&ledger);
 
-    let balance = match payload {
-        AccountBalanceRequest::Check { amount } => Directive::BalanceCheck(BalanceCheck {
-            date: Date::now(&ledger.options.timezone),
+    let row = match payload {
+        AccountBalanceRequest::Check { amount } => BalanceRow {
             account: validate::account(&target_account, &rules)?,
             amount: validated(amount, &rules)?,
-            tolerance: None,
-            meta: Default::default(),
-        }),
-        AccountBalanceRequest::Pad { amount, pad } => Directive::BalancePad(BalancePad {
-            date: Date::now(&ledger.options.timezone),
+            pad: None,
+        },
+        AccountBalanceRequest::Pad { amount, pad } => BalanceRow {
             account: validate::account(&target_account, &rules)?,
             amount: validated(amount, &rules)?,
-            meta: Default::default(),
-            pad: validate::account(&pad, &rules)?,
-        }),
+            pad: Some(validate::account(&pad, &rules)?),
+        },
     };
 
-    ledger.data_source.async_append(&ledger, vec![balance]).await?;
-    reload_sender.reload();
-    Ok(Created)
+    let writes = balance_directives(&ledger, vec![row], Date::now(&ledger.options.timezone))?;
+    let written = writes.write(&ledger).await;
+    ResponseWrapper::json(wrote(&mut ledger, &reload_sender, written)?)
 }
 
 /// the balances of a batch, those of deeper accounts first, the order of the request kept otherwise
@@ -312,37 +307,31 @@ fn sub_accounts_first(mut balances: Vec<BatchAccountBalanceRequest>) -> Vec<Batc
 #[api(group = "account")]
 pub async fn create_batch_account_balances(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<Vec<BatchAccountBalanceRequest>>,
-) -> ServerResult<Created> {
-    let ledger = ledger.read().await;
+) -> ApiResult<BalanceWriteEntity> {
+    let mut ledger = ledger.for_writing().await?;
     let rules = Rules::of(&ledger);
-    // one time for the whole batch, so the file order decides the order of its directives
-    let now = Date::now(&ledger.options.timezone);
-    let mut directives = vec![];
+    let mut rows = vec![];
     // sub-accounts before their parents, deepest first: a `balance` on a parent covers its sub-accounts, so it
     // must come after their pads to assert, and pad to, the total they leave
     for balance in sub_accounts_first(payload) {
-        let balance = match balance {
-            BatchAccountBalanceRequest::Check { account_name, amount } => Directive::BalanceCheck(BalanceCheck {
-                date: now.clone(),
+        rows.push(match balance {
+            BatchAccountBalanceRequest::Check { account_name, amount } => BalanceRow {
                 account: validate::account(&account_name, &rules)?,
                 amount: validated(amount, &rules)?,
-                tolerance: None,
-                meta: Default::default(),
-            }),
-            BatchAccountBalanceRequest::Pad { account_name, amount, pad } => Directive::BalancePad(BalancePad {
-                date: now.clone(),
+                pad: None,
+            },
+            BatchAccountBalanceRequest::Pad { account_name, amount, pad } => BalanceRow {
                 account: validate::account(&account_name, &rules)?,
                 amount: validated(amount, &rules)?,
-                meta: Default::default(),
-                pad: validate::account(&pad, &rules)?,
-            }),
-        };
-        directives.push(balance);
+                pad: Some(validate::account(&pad, &rules)?),
+            },
+        });
     }
 
-    ledger.data_source.async_append(&ledger, directives).await?;
-    reload_sender.reload();
-    Ok(Created)
+    // one time for the whole batch, so the file order decides the order of its directives
+    let writes = balance_directives(&ledger, rows, Date::now(&ledger.options.timezone))?;
+    let written = writes.write(&ledger).await;
+    ResponseWrapper::json(wrote(&mut ledger, &reload_sender, written)?)
 }
 
 /// Balance requests are checked like transactions: a name the ledger would not read

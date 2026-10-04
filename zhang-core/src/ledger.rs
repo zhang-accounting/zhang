@@ -1,11 +1,11 @@
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
@@ -24,7 +24,7 @@ use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, ProcessStage, StageContext};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
-use crate::store::{BalanceAssertionDomain, Store};
+use crate::store::{BalanceAssertionDomain, CommodityLotRecord, Store};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -61,6 +61,10 @@ pub struct Ledger {
     /// what readers compute from this ledger once and keep with it, such as the query engine's booked postings; a
     /// reload replaces the ledger, and starts this empty
     pub derived: Derived,
+
+    /// whether the ledger may no longer be what its files hold: they were written, or found changed, since it was
+    /// loaded. A writer reloads it first, to read the files as they are, and edit the places they have now
+    pub stale: bool,
 
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
@@ -195,6 +199,7 @@ impl Ledger {
             reported_undefined_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
             derived: Derived::default(),
+            stale: false,
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
@@ -272,6 +277,27 @@ impl Ledger {
         Ok(())
     }
 
+    /// the lots every account holds at the end of `day`: those of the transactions dated on it or before, booked as
+    /// the load books them. A transaction dated after it, such as a sale planned ahead, is left out
+    pub fn lots_at_end_of(&self, day: NaiveDate) -> HashMap<String, Vec<CommodityLotRecord>> {
+        let mut booker = Booker::new(self.options.default_booking_method);
+        for commodity in self.operations().read().commodities.values() {
+            booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
+        }
+        for directive in &self.directives {
+            match &directive.data {
+                Directive::Open(open) => {
+                    booker.apply_open(open);
+                }
+                Directive::Transaction(transaction) if transaction.date.naive_date() <= day => {
+                    booker.book(transaction);
+                }
+                _ => {}
+            }
+        }
+        booker.into_lots()
+    }
+
     pub fn operations(&self) -> Operations {
         let timezone = self.options.timezone;
         Operations {
@@ -294,9 +320,10 @@ impl Ledger {
 }
 
 impl Ledger {
-    /// sort the stream by the key `(datetime, rank)`, stable — directives with an
-    /// equal key keep their source order. This is a total order, so sorting is
-    /// idempotent and well-defined for any input.
+    /// sort the stream by the key `(datetime, rank)` of [`Ledger::sort_keys`], stable — directives with an
+    /// equal key keep their source order. The key of a directive depends on the stream only through the
+    /// `pad` directives in it, and sorting changes no key, so sorting is idempotent and well-defined for any
+    /// input.
     ///
     /// - undated directives (option, plugin, include, comment) come first
     /// - within one datetime: `open` and `commodity` (rank 0, together so that an
@@ -307,21 +334,62 @@ impl Ledger {
     ///   pad stage inserting one right after its directive can therefore rely on it
     ///   staying there. Hand-written `P` transactions are balance entries too. A
     ///   balance check materializes into nothing: it changes no balance
-    pub(crate) fn sort_directives_datetime(mut directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
-        fn rank(directive: &Directive) -> u8 {
-            match directive {
-                Directive::Open(_) | Directive::Commodity(_) => 0,
-                _ if Ledger::is_balance_entry(directive) => 1,
-                _ => 2,
+    /// - a `pad` is no balance entry: like beancount, which sorts a day's balances
+    ///   before its pads, every balance entry of the day of a `pad` comes before it,
+    ///   whatever their times. A `pad` sorts at the time of the last balance entry of
+    ///   its day when that is later than its own. The padding transaction of a `pad`,
+    ///   which carries the span of its `pad`, is no balance entry either: it sorts with
+    ///   its `pad`, and stays right after it, where the pad stage puts it
+    pub(crate) fn sort_directives_datetime(directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
+        let keys = Ledger::sort_keys(&directives);
+        let mut keyed = keys.into_iter().zip(directives).collect::<Vec<_>>();
+        // `sort_by_key` is stable; `None` (undated) sorts before any datetime
+        keyed.sort_by_key(|(key, _)| *key);
+        keyed.into_iter().map(|(_, directive)| directive).collect()
+    }
+
+    /// the key `(datetime, rank)` [`Ledger::sort_directives_datetime`] sorts each directive of `directives` by
+    pub(crate) fn sort_keys(directives: &[Spanned<Directive>]) -> Vec<(Option<NaiveDateTime>, u8)> {
+        // the places of the `pad` directives, which their padding transactions share
+        let pads = directives
+            .iter()
+            .filter(|it| matches!(it.data, Directive::Pad(_)))
+            .map(|it| (&it.span.filename, it.span.start, it.span.end))
+            .collect::<HashSet<_>>();
+        let rank = |directive: &Spanned<Directive>| match &directive.data {
+            Directive::Open(_) | Directive::Commodity(_) => 0,
+            Directive::Transaction(_) if pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end)) => 2,
+            data if Ledger::is_balance_entry(data) => 1,
+            _ => 2,
+        };
+        let mut keys = directives.iter().map(|it| (it.datetime(), rank(it))).collect::<Vec<_>>();
+        if pads.is_empty() {
+            return keys;
+        }
+        // the time of the last balance entry of each day: the `pad`s of that day sort after it
+        let mut last_balance_entries: HashMap<NaiveDate, NaiveDateTime> = HashMap::new();
+        for (datetime, rank) in &keys {
+            if let (Some(datetime), 1) = (datetime, rank) {
+                let last = last_balance_entries.entry(datetime.date()).or_insert(*datetime);
+                *last = (*last).max(*datetime);
             }
         }
-        // `sort_by_key` is stable; `None` (undated) sorts before any datetime
-        directives.sort_by_key(|it| (it.datetime(), rank(&it.data)));
-        directives
+        for (key, directive) in keys.iter_mut().zip(directives) {
+            let Some(datetime) = key.0 else { continue };
+            if key.1 == 2
+                && (matches!(directive.data, Directive::Pad(_)) || pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end)))
+            {
+                if let Some(last) = last_balance_entries.get(&datetime.date()) {
+                    key.0 = Some(datetime.max(*last));
+                }
+            }
+        }
+        keys
     }
 
     /// whether a directive is a balance entry, which [`Ledger::sort_directives_datetime`] puts before everything but
-    /// `open` and `commodity` within its datetime: a balance pad/check directive or a `P` transaction
+    /// `open` and `commodity` within its datetime: a balance pad/check directive or a `P` transaction. The sort ranks
+    /// the padding transaction of a `pad` with its `pad` instead, which comes right before it
     pub(crate) fn is_balance_entry(directive: &Directive) -> bool {
         match directive {
             Directive::BalancePad(_) | Directive::BalanceCheck(_) => true,
@@ -384,6 +452,8 @@ impl Ledger {
                 Directive::Close(close) => close.handler(self, &directive.span)?,
                 Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
                 Directive::Transaction(trx) => trx.handler(self, &directive.span)?,
+                // the pad stage materialized it into its padding transactions
+                Directive::Pad(_) => {}
                 // the pad stage materialized its padding into a transaction; its check is kept for the journal
                 Directive::BalancePad(pad) => {
                     pads.push((pad.clone(), directive.span.clone()));
@@ -462,10 +532,19 @@ impl Ledger {
     }
 
     /// the stages to run: the user's WASM plugins in declaration order (only with
-    /// the plugin runtime and `features.plugins` on), then the built-in stages
+    /// the plugin runtime and `features.plugins` on), each on the stream as plugins of
+    /// ABI v1 see it ([`AbiV1View`]), then the built-in stages
     fn build_stages(&self) -> Vec<Box<dyn ProcessStage>> {
         #[cfg(feature = "plugin_runtime")]
-        let plugin_stages = if self.options.features.plugins { self.plugins.build_stages() } else { vec![] };
+        let plugin_stages: Vec<Box<dyn ProcessStage>> = if self.options.features.plugins {
+            self.plugins
+                .build_stages()
+                .into_iter()
+                .map(|stage| Box::new(crate::pipeline::AbiV1View::new(stage)) as Box<dyn ProcessStage>)
+                .collect()
+        } else {
+            vec![]
+        };
         #[cfg(not(feature = "plugin_runtime"))]
         let plugin_stages: Vec<Box<dyn ProcessStage>> = vec![];
         plugin_stages.into_iter().chain(builtin_stages()).collect()
@@ -527,6 +606,33 @@ mod test {
         std::fs::write(example, content).unwrap();
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
+    }
+
+    #[test]
+    fn assertions_sharing_a_span_get_distinct_ids() {
+        // a plugin may emit several balances for one of the ledger: they share its span, which ids are derived from
+        let mut directives = test_parse_zhang("1970-01-01 open Assets:A\n2024-01-02 balance Assets:A 0 CNY\n");
+        let mut copy = directives.iter().find(|it| matches!(it.data, Directive::BalanceCheck(_))).unwrap().clone();
+        if let Directive::BalanceCheck(check) = &mut copy.data {
+            check.date = zhang_ast::Date::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 3).unwrap());
+        }
+        directives.push(copy);
+        let ledger = Ledger::process(super::LedgerProcessContext {
+            directives,
+            entry: (tempdir().unwrap().into_path(), "main.zhang".to_owned()),
+            visited_files: vec![],
+            data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: crate::clock::Clock::System,
+        })
+        .unwrap();
+        let store = ledger.store.read().unwrap();
+        let ids = store.balance_assertions.iter().map(|it| it.id).collect::<Vec<_>>();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1]);
+        // and none is the id of a transaction or a posting
+        assert!(ids
+            .iter()
+            .all(|id| !store.transactions.contains_key(id) && store.postings.iter().all(|posting| posting.id != *id)));
     }
 
     mod write_back {
@@ -880,6 +986,59 @@ mod test {
                     "Event",
                 ]
             );
+        }
+
+        #[test]
+        fn should_sort_a_pad_after_the_balance_entries_of_its_day() {
+            let mut stream = test_parse_zhang(indoc! {r#"
+                2024-03-01 * "before" ""
+                  Assets:A 1 CNY
+                  Equity:Open
+                2024-03-01 pad Assets:A Equity:Open
+                2024-03-01 * "after" ""
+                  Assets:A 1 CNY
+                  Equity:Open
+                2024-03-01 09:00:00 * "morning" ""
+                  Assets:A 1 CNY
+                  Equity:Open
+                2024-03-01 10:00:00 balance Assets:A 1 CNY
+                2024-03-01 11:00:00 * "late" ""
+                  Assets:A 1 CNY
+                  Equity:Open
+                2024-03-02 pad Assets:B Equity:Open
+                2024-03-02 balance Assets:B 1 CNY
+                2024-03-03 08:00:00 pad Assets:C Equity:Open
+                2024-03-03 balance Assets:C 1 CNY
+            "#});
+            // the padding transaction of a `pad` carries its span
+            let pad = stream.iter().find(|it| matches!(it.data, Directive::Pad(_))).unwrap().span.clone();
+            stream.push(Spanned::new(
+                test_parse_zhang("2024-03-01 10:00:00 P \"padding\" \"\"\n  Assets:A 1 CNY\n  Equity:Open\n")
+                    .remove(0)
+                    .data,
+                pad,
+            ));
+            let sorted = Ledger::sort_directives_datetime(stream);
+            assert_eq!(
+                sorted.iter().map(|it| label(&it.data)).collect_vec(),
+                vec![
+                    // a `pad` sorts at the time of the last balance entry of its day, after it, and its padding with it
+                    "txn before",
+                    "txn after",
+                    "txn morning",
+                    "check Assets:A 1",
+                    "Pad",
+                    "txn padding",
+                    "txn late",
+                    // without times, a day's balance entries come before its pads
+                    "check Assets:B 1",
+                    "Pad",
+                    // a `pad` later than every balance entry of its day keeps its time
+                    "check Assets:C 1",
+                    "Pad",
+                ]
+            );
+            assert_eq!(Ledger::sort_directives_datetime(sorted.clone()), sorted);
         }
 
         #[test]

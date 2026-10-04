@@ -446,6 +446,7 @@ fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
                 document_type: DocumentType::Trx(txn.id),
                 filename: Some("receipt.pdf".to_owned()),
                 path: "receipts/receipt.pdf".to_owned(),
+                alternate: None,
             };
             store.documents.push(document);
         }),

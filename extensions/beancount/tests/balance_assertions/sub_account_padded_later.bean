@@ -1,0 +1,15 @@
+; A pad is sized from the balance at the assertion it serves, with the padding of
+; every assertion served before it. The pad of the sub-account is dated first but
+; serves a later assertion: the parent is padded without it, and its assertion,
+; which the sub-account's padding then changes, fails, as in beancount.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Equity:Open
+
+2024-01-01 pad Assets:Bank:Checking Equity:Open
+2024-01-02 pad Assets:Bank Equity:Open
+2024-01-03 balance Assets:Bank  100 CNY
+2024-01-04 balance Assets:Bank:Checking  60 CNY

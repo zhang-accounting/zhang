@@ -141,6 +141,107 @@ asserted amount and the actual balance.
 before the transactions of its own day. To set the balance on purpose, use
 [`balance … with pad`](/reference/directives/balance/#padding-with-with-pad).
 
+## UnusedPad
+
+*Pad is not used by any later balance assertion of its account*
+
+A [`pad`](/reference/directives/balance/#the-pad-directive) padded nothing: no later balance assertion of its account
+needed it. Beancount reports the same error ("Unused Pad entry"). A `pad` serves the first `balance` of its account in
+each commodity on a later day than the `pad`, until the account's next `pad`; it is unused when every such assertion
+already holds, when no assertion of the account follows it on a later day, or when another `pad` of the account
+replaces it first.
+
+```zhang
+; Assets:Checking holds 100 USD
+2024-01-01 pad Assets:Checking Equity:Opening-Balances
+2024-01-02 balance Assets:Checking 100 USD
+```
+
+**Fix:** remove the `pad`, or move it before the assertion it is meant to serve. A `balance` on the day of the `pad`
+comes before it and is not padded, whatever their times.
+
+## PadWithCost
+
+*Pad of a commodity the account holds at cost: the padding is booked without a cost*
+
+A pad would pad a commodity that its account, or one of its sub-accounts, holds at cost, in lots with a cost such as
+shares bought `{100 USD}`. The padding is still booked, without a cost, and the error is reported on the balance
+assertion it serves, as Beancount reports "Attempt to pad an entry with cost". Zhang reports it once for the
+assertion; Beancount reports it once for each lot held at cost.
+
+```zhang
+2024-01-02 * "Buy"
+  Assets:Broker:Stock 10 AAPL {100 USD}
+  Assets:Broker:Cash -1000 USD
+2024-01-03 pad Assets:Broker:Stock Equity:Opening-Balances
+2024-01-04 balance Assets:Broker:Stock 15 AAPL
+```
+
+**Fix:** book the missing units with a transaction that gives their cost, instead of padding them.
+
+## BalanceTimeIgnored
+
+*Balance checked at the start of its date: its time is ignored, as beancount ignores it*
+
+A notice, not an error of the ledger: it is listed with the errors, but the balance passes or fails on its own. It is
+reported, once, on a `balance` of a Beancount ledger whose check means something else than in earlier versions of
+Zhang. Zhang checks a `balance` of a Beancount ledger at the start of its date, before every transaction of that day,
+as Beancount does, and ignores its `time` metadata. Earlier versions read a `time` written `H:M:S` and checked the
+balance at that time, after the transactions of the day before it. The notice is given when those transactions
+changed what the account and its sub-accounts hold in the balance's commodity: the balance now checks a different
+amount, and a `pad` serving it pads a different amount. A `time` like `09:30`, which earlier versions did not read,
+changes nothing, and neither do transactions in other commodities, or that net to zero.
+
+```beancount
+2024-03-05 * "breakfast"
+  Assets:Cash -10 CNY
+  Expenses:Food
+  time: "08:00:00"
+2024-03-05 balance Assets:Cash 100 CNY
+  time: "09:30:00"
+```
+
+**Fix:** the notice goes once the `time` is gone. To assert the balance after the transactions of the day, date the
+`balance` on the next day and remove its `time`, as the web UI writes it. To assert it before them, remove the
+`time`.
+
+## DocumentPathRelativeToRoot
+
+*Beancount resolves this path relative to `<file>`; write it as `<path>`*
+
+A notice, not an error of the ledger, like [`BalanceTimeIgnored`](#balancetimeignored): the document is listed and
+opens as before. It is reported on a [`document`](/reference/directives/document/) of a Beancount ledger whose path
+names no file relative to the file the `document` is in, which is where Beancount looks, but names one relative to
+the ledger root. Earlier versions of Zhang wrote the documents you uploaded so, into files like `data/2026/10.bean`,
+which Beancount reports as "File does not exist". Zhang keeps using the file it finds relative to the ledger root,
+and the notice gives the path to write instead, in its `file` and `written_as` meta. It is given for a ledger on the
+local disk only; see [`DocumentNotFound`](#documentnotfound) for a remote data source.
+
+```beancount title="data/2026/10.bean"
+2026-10-04 document Assets:Bank "attachments/3f2a/statement.pdf"
+```
+
+**Fix:** write the path the notice gives, relative to the file: here `"../../attachments/3f2a/statement.pdf"`. The
+notice goes, and Beancount finds the file too. Documents uploaded now are written so.
+
+## DocumentNotFound
+
+*Document file `<path>` does not exist*
+
+A `document` of a Beancount ledger names a file that does not exist, neither relative to the file the `document` is
+in, where Beancount looks, nor relative to the ledger root. Beancount reports it as "File does not exist". Zhang looks
+for the files when it loads a ledger on the local disk only, where that costs little: on a remote data source, such
+as S3, WebDAV or GitHub, neither this error nor [`DocumentPathRelativeToRoot`](#documentpathrelativetoroot) is
+reported. There a document is looked for when you open it, relative to its file first, then relative to the ledger
+root, and opening one found at neither answers that it does not exist.
+
+```beancount title="data/2026/10.bean"
+; there is no data/2026/statement.pdf
+2026-10-04 document Assets:Bank "statement.pdf"
+```
+
+**Fix:** put the file where the path names it, or correct the path, relative to the file the `document` is in.
+
 ## AccountDoesNotExist
 
 *Account does not exist*

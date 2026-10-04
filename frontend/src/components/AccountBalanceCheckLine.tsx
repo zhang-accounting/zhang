@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { createAccountBalance } from '@/api/requests';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { apiErrorMessage } from '@/lib/api-error';
+import { replacedBalancesText } from '@/utils/balance-check';
 import { accountFetcher, accountSelectItemsAtom } from '../states/account';
 import Amount from './Amount';
 import { Button } from './ui/button';
@@ -39,13 +40,15 @@ export default function AccountBalanceCheckLine({ currentAmount, includesSubAcco
   const onSave = async () => {
     setSaving(true);
     try {
-      await createAccountBalance({
+      const res = await createAccountBalance({
         account_name: accountName,
         amount: { number: amount, commodity: commodity },
         pad: padAccount,
         type: padAccount ? 'Pad' : 'Check',
       });
-      toast.success(t('ledger.balance.saved'));
+      // a check of a beancount ledger replaces the balance it wrote earlier today
+      const replaced = replacedBalancesText(res.data.data.replaced, (it) => t('ledger.balance.replaced', it));
+      toast.success(t('ledger.balance.saved'), replaced ? { description: replaced, duration: 10000 } : undefined);
       setAmount('');
       setPadAccount('');
       refreshAccounts();

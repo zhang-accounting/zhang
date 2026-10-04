@@ -20,7 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { batchBalanceRows, padsAnAccountWithItsSubAccount, subAccountsFirst } from '@/utils/balance-check';
+import { batchBalanceRows, replacedBalancesText, subAccountsFirst } from '@/utils/balance-check';
 import { useListState } from '@/hooks/use-list-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -28,7 +28,7 @@ import { TOOLS_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import { loadable_unwrap } from '@/states';
 import { accountAtom, accountFetcher, accountSelectItemsAtom } from '@/states/account';
-import { breadcrumbAtom, ledgerFormatAtom, titleAtom } from '@/states/basic';
+import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
 interface BalanceLineItem {
   commodity: string;
@@ -124,13 +124,6 @@ export default function BatchBalance() {
   // Derived (not stored) so that toggling "Reflect" off clears every flag and the count at once, and on brings them back.
   const hasMismatch = (account: BalanceLineItem) => reflectOnUnbalancedAmount && isMismatch(account);
   const filledCount = accounts.filter((account) => account.balanceAmount.trim() !== '').length;
-  // beancount cannot pass a pad of an account together with a balance of one of its sub-accounts
-  const ledgerFormat = useAtomValue(ledgerFormatAtom);
-  const beancountPadConflict =
-    ledgerFormat === 'beancount' &&
-    padsAnAccountWithItsSubAccount(
-      accounts.filter((account) => account.balanceAmount.trim() !== '').map((account) => ({ account_name: account.accountName, pad: account.pad ?? '' })),
-    );
   const mismatchCount = accounts.filter(hasMismatch).length;
 
   const onSave = async () => {
@@ -151,10 +144,13 @@ export default function BatchBalance() {
     toast.info(t('batch_balance.start_toast', { count: accountsToBalance.length }));
     setSubmitting(true);
     try {
-      await createBatchBalance(accountsToBalance);
+      const res = await createBatchBalance(accountsToBalance);
 
+      // a check of a beancount ledger replaces the balance it wrote earlier today
+      const replaced = replacedBalancesText(res.data.data.replaced, (it) => t('ledger.balance.replaced', it));
       toast.success(t('batch_balance.success_toast'), {
-        description: t('batch_balance.success_toast_description'),
+        description: replaced ? `${replaced}\n${t('batch_balance.success_toast_description')}` : t('batch_balance.success_toast_description'),
+        duration: replaced ? 10000 : undefined,
       });
       resetOnNextRefresh.current = true;
       accountsHandler.setState(stateItems);
@@ -323,7 +319,6 @@ export default function BatchBalance() {
           {mismatchCount > 0 && (
             <span className="truncate text-xs text-destructive tabular-nums">{t('batch_balance.mismatch_count', { count: mismatchCount })}</span>
           )}
-          {beancountPadConflict && <span className="text-xs text-warning">{t('batch_balance.beancount_parent_pad')}</span>}
         </div>
         <Button
           variant="ghost"

@@ -1,0 +1,27 @@
+; A commodity whose lots are all sold is no longer held at cost: padding it is no
+; error. A lot bought again is.
+option "operating_currency" "USD"
+
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker:Stock
+1970-01-01 open Assets:Broker:Cash
+1970-01-01 open Equity:Open
+1970-01-01 open Income:Gains
+
+2024-01-02 * "broker" "buy"
+  Assets:Broker:Stock  10 AAPL {100 USD}
+  Assets:Broker:Cash  -1000 USD
+2024-01-03 * "broker" "sell all"
+  Assets:Broker:Stock  -10 AAPL {100 USD} @ 120 USD
+  Assets:Broker:Cash  1200 USD
+  Income:Gains  -200 USD
+
+2024-01-04 pad Assets:Broker:Stock Equity:Open
+2024-01-05 balance Assets:Broker:Stock  3 AAPL
+
+2024-01-06 * "broker" "buy again"
+  Assets:Broker:Stock  2 AAPL {50 USD}
+  Assets:Broker:Cash  -100 USD
+2024-01-07 pad Assets:Broker:Stock Equity:Open
+2024-01-08 balance Assets:Broker:Stock  6 AAPL

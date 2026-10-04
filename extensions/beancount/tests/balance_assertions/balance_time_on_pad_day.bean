@@ -1,0 +1,14 @@
+; A `pad` serves the balances of later days only: a balance on the day of the pad
+; comes before it, whatever its `time`, as beancount knows no times. Zhang orders by
+; `time`, and puts a pad after every balance of its day.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+
+2024-03-01 balance Assets:A  0 CNY
+  time: "10:00:00"
+2024-03-01 pad Assets:A Equity:Open
+2024-03-02 balance Assets:A  150 CNY
+  time: "09:00:00"

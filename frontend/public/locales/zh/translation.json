@@ -27,6 +27,11 @@
   "ERROR": {
     "AccountDoesNotExist": "对应账户不存在",
     "AccountBalanceCheckError": "账户定期对账不通过",
+    "UnusedPad": "填充没有被该账户之后的任何余额断言使用",
+    "PadWithCost": "填充的商品在该账户中按成本持有：补齐交易不带成本记账",
+    "BalanceTimeIgnored": "余额断言在其日期开始时检查：与 beancount 一样忽略它的时间",
+    "DocumentPathRelativeToRoot": "beancount 相对于 {{meta.file}} 解析这个路径；请写成 {{meta.written_as}}",
+    "DocumentNotFound": "文档文件 {{meta.path}} 不存在",
     "AccountClosed": "尝试使用一个已经关闭的账户",
     "CommodityDoesNotDefine": "尝试使用一个未定义的货币",
     "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推导金额的行",
@@ -351,7 +356,6 @@
     "mismatch": "与当前余额不一致",
     "filled_other": "已填写 {{count}} / {{total}}",
     "mismatch_count_other": "{{count}} 处不一致",
-    "beancount_parent_pad": "在 Beancount 账本中，某账户的填充与其子账户的余额放在一起无法通过 bean-check。请不带填充地检查父账户。",
     "reset": "重置",
     "submit": "提交",
     "empty_title": "没有账户余额",
@@ -564,6 +568,7 @@
       "check": "断言余额",
       "pad": "填充并断言",
       "saved": "余额指令已写入",
+      "replaced": "已替换 {{account}} 在 {{date}} 的余额断言（原为 {{amount}}）",
       "failed": "余额断言失败",
       "no_commodities": "该账户还没有任何货币"
     },

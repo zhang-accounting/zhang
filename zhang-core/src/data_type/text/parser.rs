@@ -565,6 +565,23 @@ fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
     Ok((i, directive))
 }
 
+/// `pad = date "pad" account account`, as in beancount
+fn pad_body(date: Date, i: &str) -> IResult<&str, Directive> {
+    let (i, _) = space1(i)?;
+    let (i, account) = account_name(i)?;
+    let (i, _) = space1(i)?;
+    let (i, pad) = account_name(i)?;
+    Ok((
+        i,
+        Directive::Pad(Pad {
+            date,
+            account,
+            pad,
+            meta: Meta::default(),
+        }),
+    ))
+}
+
 fn document_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
@@ -743,6 +760,7 @@ fn dated_directive(original: &str) -> IResult<&str, Directive> {
         "close" => close_body(date, rest),
         "note" => note_body(date, rest),
         "balance" => balance_body(date, rest),
+        "pad" => pad_body(date, rest),
         "document" => document_body(date, rest),
         "price" => price_body(date, rest),
         "event" => event_body(date, rest),
@@ -1097,6 +1115,24 @@ mod test {
                 }),
                 balance.data
             )
+        }
+
+        #[test]
+        fn should_parse_pad() {
+            let pad = parse("2101-10-10 pad Assets:Hello Equity:Opening-Balances\n  note: \"opening\"", None)
+                .unwrap()
+                .remove(0);
+            let mut meta = Meta::default();
+            meta.insert("note".to_owned(), ZhangString::quote("opening"));
+            assert_eq!(
+                Directive::Pad(Pad {
+                    date: Date::Date(NaiveDate::from_ymd_opt(2101, 10, 10).unwrap()),
+                    account: Account::from_str("Assets:Hello").unwrap(),
+                    pad: Account::from_str("Equity:Opening-Balances").unwrap(),
+                    meta,
+                }),
+                pad.data
+            );
         }
     }
     mod options {

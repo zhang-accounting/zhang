@@ -413,9 +413,33 @@ export interface operations {
       };
     };
     responses: {
-      /** @description no content */
-      204: {
-        content: never;
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the balances of a beancount ledger the request replaced: those of the same account and commodity for the same
+               * date, which the new balance supersedes
+               */
+              replaced: {
+                account: string;
+                /** @description the amount it asserted */
+                amount: {
+                  commodity: string;
+                  number: string;
+                };
+                /** Format: date */
+                date: string;
+                /**
+                 * @description the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
+                 * is exact. Null for an exact one
+                 */
+                tolerance?: string | null;
+              }[];
+            };
+          };
+        };
       };
     };
   };
@@ -544,9 +568,33 @@ export interface operations {
       };
     };
     responses: {
-      /** @description no content */
-      204: {
-        content: never;
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the balances of a beancount ledger the request replaced: those of the same account and commodity for the same
+               * date, which the new balance supersedes
+               */
+              replaced: {
+                account: string;
+                /** @description the amount it asserted */
+                amount: {
+                  commodity: string;
+                  number: string;
+                };
+                /** Format: date */
+                date: string;
+                /**
+                 * @description the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
+                 * is exact. Null for an exact one
+                 */
+                tolerance?: string | null;
+              }[];
+            };
+          };
+        };
       };
     };
   };
@@ -1296,6 +1344,11 @@ export interface operations {
                   | 'TransactionHasMultipleImplicitPosting'
                   | 'TransactionExplicitPostingHaveMultipleCommodity'
                   | 'AccountBalanceCheckError'
+                  | 'UnusedPad'
+                  | 'PadWithCost'
+                  | 'BalanceTimeIgnored'
+                  | 'DocumentPathRelativeToRoot'
+                  | 'DocumentNotFound'
                   | 'AccountDoesNotExist'
                   | 'AccountClosed'
                   | 'CommodityDoesNotDefine'

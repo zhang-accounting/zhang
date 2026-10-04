@@ -1,0 +1,19 @@
+; A balance is checked at the start of its date, before the transactions of that
+; day, whatever its `time`: beancount knows no times. The pad of the day before pads
+; the 100 the balance asserts, and lunch, later that day, leaves 70.
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:A
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+
+2024-03-02 * "Shop" "lunch"
+  time: "12:00:00"
+  Expenses:Food  30 CNY
+  Assets:A
+
+2024-03-01 pad Assets:A Equity:Open
+2024-03-02 balance Assets:A  100 CNY
+  time: "20:00:00"
+2024-03-03 balance Assets:A  70 CNY
