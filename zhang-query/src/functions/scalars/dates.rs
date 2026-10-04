@@ -19,27 +19,23 @@ use chrono::{Datelike, Duration, NaiveDate, Weekday};
 use crate::functions::FunctionContext;
 use crate::value::{calendar_value, in_calendar, Interval, Value};
 
-fn date_arg(args: &[Value], function: &str) -> Result<NaiveDate, String> {
-    args[0].as_date().ok_or_else(|| format!("{}() expects a date", function))
-}
-
 pub(super) fn month(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(Value::Int(date_arg(args, "month")?.month() as i64))
+    Ok(Value::Int(date_of(&args[0], "month")?.month() as i64))
 }
 
 pub(super) fn day(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(Value::Int(date_arg(args, "day")?.day() as i64))
+    Ok(Value::Int(date_of(&args[0], "day")?.day() as i64))
 }
 
 /// beanquery `quarter`: `YYYY-Qn`, e.g. `2024-Q1`.
 pub(super) fn quarter(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
-    let date = date_arg(args, "quarter")?;
+    let date = date_of(&args[0], "quarter")?;
     Ok(Value::Str(format!("{:04}-Q{}", date.year(), (date.month() - 1) / 3 + 1)))
 }
 
 /// beanquery `weekday`: the three-letter English day name (`strftime('%a')` in the C locale).
 pub(super) fn weekday(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
-    let name = match date_arg(args, "weekday")?.weekday() {
+    let name = match date_of(&args[0], "weekday")?.weekday() {
         Weekday::Mon => "Mon",
         Weekday::Tue => "Tue",
         Weekday::Wed => "Wed",
@@ -53,7 +49,7 @@ pub(super) fn weekday(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Valu
 
 /// beanquery `yearmonth`: the first day of the date's month.
 pub(super) fn yearmonth(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
-    let date = date_arg(args, "yearmonth")?;
+    let date = date_of(&args[0], "yearmonth")?;
     Ok(Value::Date(date.with_day(1).ok_or("yearmonth() got an invalid date")?))
 }
 
