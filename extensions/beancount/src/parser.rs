@@ -26,14 +26,13 @@ use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, blank_line, comma_separator, commodity_name, flag_char, indentation_width, inline_comment, is_digit, key_value_line, line_trailer,
-    metas_block, number_expr, offset, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links,
+    account_name, comma_separator, commodity_name, flag_char, indentation_width, inline_comment, is_digit, key_value_line, line_trailer, metas_block,
+    number_expr, offset, parse_items, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links,
     transaction_flag, unquote_string_raw, valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
 };
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
 use zhang_core::data_type::text::parser::{meta_key, spaced_tag_or_link};
-use zhang_core::utils::string_::invalid_escape_at;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 
@@ -674,45 +673,7 @@ fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
 
 /// Parse a full beancount text file into a list of spanned directives.
 pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<BeancountDirective>>, ParseError> {
-    let file = file.into();
-    let original = input_str;
-    let mut rest = input_str;
-    let mut directives: Vec<Spanned<BeancountDirective>> = Vec::new();
-
-    loop {
-        while let Ok((next, _)) = blank_line(rest) {
-            rest = next;
-        }
-        if rest.is_empty() || rest.bytes().all(|byte| byte == b' ' || byte == b'\t') {
-            break;
-        }
-
-        let start = offset(original, rest);
-        let (next, directive) = content_item(rest).map_err(|err| match invalid_escape_at(&err) {
-            Some(escape) => error_at(original, escape, "invalid escape sequence"),
-            None => error_at(original, rest, "unexpected input"),
-        })?;
-
-        if offset(original, next) == start {
-            return Err(error_at(original, rest, "parser made no progress"));
-        }
-
-        if let Some(directive) = directive {
-            let end = offset(original, next);
-            directives.push(Spanned {
-                data: directive,
-                span: SpanInfo {
-                    start,
-                    end,
-                    content: original[start..end].to_string(),
-                    filename: file.clone(),
-                },
-            });
-        }
-        rest = next;
-    }
-
-    Ok(directives)
+    parse_items(input_str, file.into(), content_item, error_at)
 }
 
 /// Parse a `HH:MM:SS` time string, used to lift the `time:` metadata key onto a
