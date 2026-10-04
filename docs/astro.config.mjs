@@ -108,6 +108,7 @@ export default defineConfig({
               items: [{ autogenerate: { directory: 'deployment/data-sources' } }],
             },
             'deployment/authentication',
+            'deployment/render-demo',
             'deployment/upgrading',
           ],
         },
