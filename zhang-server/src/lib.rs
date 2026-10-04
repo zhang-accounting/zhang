@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::DefaultBodyLimit;
-use axum::routing::any;
+use axum::routing::{any, get};
 use chrono::Utc;
 use gotcha::config::BasicConfig;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
@@ -100,8 +100,14 @@ impl GotchaApp for ServerApp {
             .get("/api/options", get_all_options)
             .get("/api/errors", get_errors)
             .get("/api/files", get_files)
+            // the file path is standard base64, which can contain `/`, see `Base64Path`: the OpenAPI document cannot
+            // describe a catch-all and the router cannot have one next to `:file_path`, so the two `:file_path`
+            // routes are the documented ones, and the three after them take an empty path and a path of more segments
             .get("/api/files/:file_path", get_file_content)
             .put("/api/files/:file_path", update_file_content)
+            .route("/api/files/", get(get_file_content).put(update_file_content))
+            .route("/api/files/:file_path/", get(get_file_content).put(update_file_content))
+            .route("/api/files/:file_path/*rest", get(get_file_content).put(update_file_content))
             .get("/api/for-new-transaction", get_info_for_new_transactions)
             .get("/api/journals", get_journals)
             .post("/api/transactions", create_new_transaction)
@@ -116,7 +122,9 @@ impl GotchaApp for ServerApp {
             .post("/api/accounts/:account_name/balances", create_account_balance)
             .post("/api/accounts/batch-balances", create_batch_account_balances)
             .get("/api/documents", get_documents)
-            .get("/api/documents/:file_path", download_document)
+            // the file path is standard base64, which can contain `/`, see `Base64Path`; an empty one is a 400
+            .get("/api/documents/", download_document)
+            .get("/api/documents/*file_path", download_document)
             .get("/api/commodities", get_all_commodities)
             .get("/api/commodities/:commodity_name", get_single_commodity)
             .get("/api/statistic/summary", get_statistic_summary)
