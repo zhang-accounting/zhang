@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { ArrowUpRight } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useAsync } from 'react-use';
 import { retrieveBudgets } from '@/api/requests';
 import { BudgetListItem } from '@/api/types';

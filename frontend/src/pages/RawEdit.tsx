@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { FileText, FolderTree, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useAsync } from 'react-use';
 import { retrieveFiles } from '@/api/requests';
 import { buildFileTree } from '@/components/basic/file-tree';

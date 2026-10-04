@@ -4,7 +4,7 @@ import { groupBy, sortBy } from 'lodash-es';
 import { ExternalLink, FileStack, FileText, ImageIcon, LayoutGrid, List } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useAsyncRetry } from 'react-use';
 import { retrieveDocuments } from '@/api/requests';
 import { Document } from '@/api/types';

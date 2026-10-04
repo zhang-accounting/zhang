@@ -38,7 +38,7 @@ Writes go the other way: a route builds a directive, the data type exports it as
 
 ## Building and running locally
 
-You need a stable Rust toolchain, Node.js with [pnpm](https://pnpm.io/) 9, and Python 3 for the tests of the Python bindings. The plugin SDK tests also need the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`); without it they are skipped locally.
+You need a stable Rust toolchain, Node.js 22.22 or newer with [pnpm](https://pnpm.io/) 9, and Python 3 for the tests of the Python bindings. The plugin SDK tests also need the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`); without it they are skipped locally.
 
 The `frontend` feature of `zhang-server` embeds `frontend/dist`, which must exist when the feature is on. Like CI, create an empty folder if you have not built the web UI:
 

@@ -5,7 +5,7 @@ import { ArrowLeft, ChartLine, Layers, ListX, TriangleAlert } from 'lucide-react
 import { OpReturnType } from 'openapi-typescript-fetch';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { useAsync } from 'react-use';
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
 import { retrieveCommodityInfo } from '@/api/requests';

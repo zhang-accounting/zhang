@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { ChartLine, CircleAlert, Cog, FileStack, NotebookText, WalletMinimal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { useAsync } from 'react-use';
 import { retrieveAccountBalance, retrieveAccountDocuments, retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
 import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/layout';

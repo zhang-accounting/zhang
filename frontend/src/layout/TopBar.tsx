@@ -1,7 +1,7 @@
 import { useAtomValue } from 'jotai';
 import { ChevronLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import NewTransactionButton from '@/components/NewTransactionButton';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';

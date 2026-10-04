@@ -2,7 +2,7 @@ import { useAtom, useSetAtom } from 'jotai';
 import { Info } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { toast } from 'sonner';
 import { updateTransaction } from '@/api/requests';
 import { JournalTransactionItem } from '@/api/types';

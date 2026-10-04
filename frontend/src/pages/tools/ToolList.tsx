@@ -3,7 +3,7 @@ import { ArrowRight, FilePenLine, SearchCode, SquareStack } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { PageHeader, PageShell } from '@/components/layout';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { QUERY_LINK, RAW_EDITING_LINK, TOOLS_LINK } from '@/layout/nav-links';

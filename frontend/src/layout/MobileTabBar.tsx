@@ -3,7 +3,7 @@ import { ArrowUpRight, Ellipsis, LogOut, RotateCw } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { SheetCloseButton } from '@/components/layout/SheetCloseButton';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';

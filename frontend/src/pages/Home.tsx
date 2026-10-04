@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { ChartColumn, CircleAlert, NotebookText } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useAsync } from 'react-use';
 import { retrieveStatisticGraph } from '@/api/requests';
 import { MonthBudgetsCard } from '@/components/budget/MonthBudgetsCard';

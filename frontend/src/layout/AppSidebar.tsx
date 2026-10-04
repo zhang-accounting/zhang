@@ -1,7 +1,7 @@
 import { useAtomValue } from 'jotai';
 import { ArrowUpRight, ChevronRight, LogOut, RotateCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router';
 import NewTransactionButton from '@/components/NewTransactionButton';
 import { buttonVariants } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
