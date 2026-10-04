@@ -73,9 +73,10 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" kilerd/zhang:l
 
 `time: "HH:MM:SS"` 元数据可以为指令加上一天中的时间，但 `balance` 和 `pad` 除外：张记账与 Beancount 一样忽略它们的时间，见[余额断言的时间](#余额断言的时间)。
 
+Beancount 不加引号就能读取的元数据值——账户、货币、数字或算式、金额、日期、标签、`TRUE`、`FALSE` 和 `NULL`——在交易、记账行和其他所有指令上都按书写原样读取并保存为文本。`counterpart: Assets:Bank` 是文本 `Assets:Bank`，`limit: 10.00 USD` 是文本 `10.00 USD`，`1 + 2` 仍是 `1 + 2`，而 Beancount 会算出 `3`。标签值保留它的 `#`，`TRUE`、`FALSE` 和 `NULL` 保持原词，而 beanquery 显示的是 `True`、`False` 和空值。张记账写回这些值时保持原样。
+
 张记账无法读取以下内容。使用了它们的文件完全无法加载：
 
-- 金额形式的元数据值，例如 `limit: 10.00 USD`。请给它加上引号：`limit: "10.00 USD"`；
 - 只有日期或只有批次标签的成本，例如 `{2024-01-01}` 或 `{"lot-1"}`。请先写成本：`{100.00 USD, 2024-01-01}`；
 - 复合成本 `{100 # 9.95 USD}`，以及 `{*}`。
 

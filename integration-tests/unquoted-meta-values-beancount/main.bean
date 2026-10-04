@@ -1,0 +1,40 @@
+; Metadata values beancount reads without quotes (#475): an account, a currency, a number,
+; an amount, a date, a tag, TRUE, FALSE and NULL, on a transaction, on its postings and on
+; other directives. bean-check accepts this file; zhang loads it with no error.
+
+option "operating_currency" "USD"
+
+2024-01-01 open Assets:Cash
+2024-01-01 open Assets:Bank
+  counterpart: Assets:Cash
+  currency: USD
+2024-01-01 open Expenses:Food
+2024-01-01 open Equity:Opening
+
+2024-01-01 pad Assets:Cash Equity:Opening
+2024-01-02 balance Assets:Cash 100 USD
+  source: Equity:Opening
+
+2024-01-10 * "Transfer"
+  counterpart: Assets:Bank
+  currency: USD
+  number: 10
+  amount: 10 USD
+  date: 2024-01-10
+  tag: #trip
+  yes: TRUE
+  no: FALSE
+  nothing: NULL
+  Assets:Cash  -10 USD
+    counterpart: Assets:Bank
+    amount: 10 USD
+  Assets:Bank
+
+2024-01-11 * "Lunch"
+  Assets:Cash  -5 USD
+  Expenses:Food  5 USD
+    counterpart: Assets:Cash
+    rate: 1.5
+
+2024-01-12 balance Assets:Bank 10 USD
+  counterpart: Assets:Cash

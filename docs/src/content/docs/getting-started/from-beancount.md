@@ -73,9 +73,10 @@ When Zhang writes a transaction, for example after you edit it in the web UI, it
 
 A `time: "HH:MM:SS"` metadata entry gives a directive a time of day, except a `balance` or a `pad`, whose time Zhang ignores, as beancount does: see [Balance times](#balance-times).
 
+The metadata values beancount reads without quotes, an account, a currency, a number or an arithmetic expression, an amount, a date, a tag, `TRUE`, `FALSE` and `NULL`, are read as written and kept as text, on a transaction, on a posting and on every other directive. `counterpart: Assets:Bank` is the text `Assets:Bank`, `limit: 10.00 USD` the text `10.00 USD`, and `1 + 2` stays `1 + 2`, where beancount computes `3`. A tag value keeps its `#` and `TRUE`, `FALSE` and `NULL` stay those words, where beanquery shows `True`, `False` and an empty value. Zhang writes every such value back as it was written.
+
 Zhang cannot read the following. A file using them does not load at all:
 
-- metadata values that are amounts, such as `limit: 10.00 USD`. Quote them: `limit: "10.00 USD"`;
 - a cost with only a date or a label, such as `{2024-01-01}` or `{"lot-1"}`. Write the cost first: `{100.00 USD, 2024-01-01}`;
 - compound costs, `{100 # 9.95 USD}`, and `{*}`.
 

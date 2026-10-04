@@ -1320,6 +1320,141 @@ mod test {
         }
     }
 
+    /// The metadata values beancount reads without quotes (#475): an account, a currency, a
+    /// number or an arithmetic expression, an amount, a date, a tag, `TRUE`, `FALSE` and `NULL`,
+    /// each kept as it is written, on a transaction, on a posting and on the other directives.
+    mod metadata_values {
+        use itertools::Either;
+        use zhang_ast::{Directive, Meta, ZhangString};
+
+        use crate::directives::BeancountOnlyDirective;
+        use crate::parser::parse;
+        use crate::parser::test::{get_right_directive, get_txn};
+
+        /// Every kind of value, as `(key, text)`.
+        const VALUES: &[(&str, &str)] = &[
+            ("account", "Assets:Bank:Checking"),
+            ("currency", "USD"),
+            ("number", "10.50"),
+            ("negative", "-3"),
+            ("grouped", "1,000.00"),
+            ("expression", "(1 + 2) * 3"),
+            ("amount", "10 USD"),
+            ("amount-expression", "1 + 2 USD"),
+            ("date", "2024-01-10"),
+            ("tag", "#trip"),
+            ("yes", "TRUE"),
+            ("no", "FALSE"),
+            ("nothing", "NULL"),
+        ];
+
+        /// The metadata lines of every value at `indent`, every other one with a trailing comment.
+        fn lines(indent: &str) -> String {
+            VALUES
+                .iter()
+                .enumerate()
+                .map(|(index, (key, value))| {
+                    let comment = if index % 2 == 0 { " ; a comment" } else { "" };
+                    format!("{indent}{key}: {value}{comment}\n")
+                })
+                .collect()
+        }
+
+        fn assert_values(meta: &Meta, context: &str) {
+            for (key, value) in VALUES {
+                assert_eq!(meta.get_one(*key), Some(&ZhangString::unquote(*value)), "{context}: {key}");
+            }
+        }
+
+        #[test]
+        fn transaction_and_posting_metadata_keep_every_bare_value_as_written() {
+            // the account of the issue, on the transaction, and every kind on a posting
+            let txn = get_txn("2024-01-10 * \"Transfer\"\n  counterpart: Assets:Bank\n  Assets:Cash  -10 USD\n  Assets:Bank\n");
+            assert_eq!(txn.meta.get_one("counterpart"), Some(&ZhangString::unquote("Assets:Bank")));
+            assert_eq!(txn.postings.len(), 2);
+
+            let content = format!(
+                "2024-01-10 * \"Transfer\"\n{}  Assets:Cash  -10 USD\n{}  Assets:Bank\n",
+                lines("  "),
+                lines("    ")
+            );
+            let txn = get_txn(&content);
+            assert_values(&txn.meta, "transaction");
+            assert_eq!(txn.postings.len(), 2, "{content}");
+            assert_values(&txn.postings[0].meta, "posting");
+            assert!(txn.postings[1].meta.clone().get_flatten().is_empty());
+        }
+
+        #[test]
+        fn directive_metadata_keeps_every_bare_value_as_written() {
+            let headers = [
+                "2024-01-01 open Assets:Bank:Checking USD",
+                "2024-01-01 close Assets:Bank:Checking",
+                "2024-01-01 commodity USD",
+                "2024-01-01 note Assets:Bank:Checking \"a note\"",
+                "2024-01-01 document Assets:Bank:Checking \"a.pdf\"",
+                "2024-01-01 price USD 1 USD",
+                "2024-01-01 event \"location\" \"home\"",
+                "2024-01-01 custom \"note\" \"x\"",
+                "2024-01-01 query \"q\" \"SELECT account\"",
+                "2024-01-01 pad Assets:Bank:Checking Assets:Cash",
+                "plugin \"beancount.plugins.auto\"",
+            ];
+            for header in headers {
+                let content = format!("{header}\n{}", lines("  "));
+                let mut directives = parse(&content, None).unwrap_or_else(|error| panic!("{header}: {error}"));
+                assert_eq!(directives.len(), 1, "{header}");
+                let Either::Left(directive) = directives.pop().unwrap().data else {
+                    panic!("{header}: expected a zhang directive");
+                };
+                let meta = match &directive {
+                    Directive::Open(it) => &it.meta,
+                    Directive::Close(it) => &it.meta,
+                    Directive::Commodity(it) => &it.meta,
+                    Directive::Note(it) => &it.meta,
+                    Directive::Document(it) => &it.meta,
+                    Directive::Price(it) => &it.meta,
+                    Directive::Event(it) => &it.meta,
+                    Directive::Custom(it) => &it.meta,
+                    Directive::Query(it) => &it.meta,
+                    Directive::Pad(it) => &it.meta,
+                    Directive::Plugin(it) => &it.meta,
+                    other => panic!("{header}: unexpected {other:?}"),
+                };
+                assert_values(meta, header);
+            }
+            // the beancount-only balance
+            let header = "2024-01-01 balance Assets:Bank:Checking 10 USD";
+            let BeancountOnlyDirective::Balance(balance) = get_right_directive(&format!("{header}\n{}", lines("  "))) else {
+                panic!("{header}: expected a balance");
+            };
+            assert_values(&balance.meta, header);
+        }
+
+        #[test]
+        fn pushmeta_takes_a_bare_value() {
+            let BeancountOnlyDirective::PushMeta(key, value) = get_right_directive("pushmeta counterpart: Assets:Bank\n") else {
+                panic!("expected pushmeta");
+            };
+            assert_eq!((key.as_str(), value), ("counterpart", ZhangString::unquote("Assets:Bank")));
+            let BeancountOnlyDirective::PushMeta(key, value) = get_right_directive("pushmeta limit: 10 USD ; a comment\n") else {
+                panic!("expected pushmeta");
+            };
+            assert_eq!((key.as_str(), value), ("limit", ZhangString::unquote("10 USD")));
+        }
+
+        #[test]
+        fn a_bare_value_ends_at_the_end_of_the_line_or_a_comment() {
+            // more than one value is still an error, as in beancount
+            for text in ["Assets:Bank 10 USD", "10 USD USD", "Assets:Bank Assets:Cash", "1 + 2 3"] {
+                assert!(parse(&format!("2024-01-01 open Assets:Cash\n  k: {text}\n"), None).is_err(), "{text}");
+            }
+            // a quoted value is unchanged
+            let txn = get_txn("2024-01-10 * \"Transfer\"\n  counterpart: \"Assets:Bank\"\n  Assets:Cash  -10 USD\n  Assets:Bank\n");
+            assert_eq!(txn.meta.get_one("counterpart"), Some(&ZhangString::quote("Assets:Bank")));
+        }
+    }
+
     /// The server rejects names that would not read back using zhang-core's checks
     /// (`zhang_core::data_type::text::parser::is_valid_*`); beancount must accept
     /// exactly the same names, so those checks hold for beancount ledgers too.

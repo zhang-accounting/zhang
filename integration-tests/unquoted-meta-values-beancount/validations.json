@@ -1,0 +1,29 @@
+[
+  {
+    "uri": "/api/errors",
+    "validations": [
+      [
+        "$.data.records.length()",
+        0
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Assets:Cash",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "85"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Assets:Bank",
+    "validations": [
+      [
+        "$.data.amount.detail.USD",
+        "10"
+      ]
+    ]
+  }
+]

@@ -1,0 +1,182 @@
+[
+  {
+    "account": "Assets:Cash",
+    "date": "2020-01-01",
+    "meta": {},
+    "type": "Open"
+  },
+  {
+    "account": "Assets:Bank",
+    "date": "2020-01-01",
+    "meta": {
+      "account": "Assets:Cash",
+      "amount": "10 USD",
+      "amount-expression": "3 USD",
+      "currency": "USD",
+      "date": "2024-01-10",
+      "expression": "9",
+      "grouped": "1000.00",
+      "negative": "-3",
+      "no": "False",
+      "nothing": "None",
+      "number": "10.50",
+      "tag": "trip",
+      "yes": "True"
+    },
+    "type": "Open"
+  },
+  {
+    "account": "Expenses:Food",
+    "date": "2020-01-01",
+    "meta": {},
+    "type": "Open"
+  },
+  {
+    "account": "Equity:Opening",
+    "date": "2020-01-01",
+    "meta": {},
+    "type": "Open"
+  },
+  {
+    "date": "2020-01-02",
+    "meta": {
+      "account": "Assets:Bank",
+      "amount": "1.10 USD"
+    },
+    "type": "Commodity"
+  },
+  {
+    "date": "2024-01-10",
+    "meta": {
+      "amount": "10 USD",
+      "amount-expression": "3 USD",
+      "counterpart": "Assets:Bank",
+      "currency": "USD",
+      "date": "2024-01-10",
+      "expression": "9",
+      "grouped": "1000.00",
+      "negative": "-3",
+      "no": "False",
+      "nothing": "None",
+      "number": "10",
+      "tag": "trip",
+      "yes": "True"
+    },
+    "narration": "Transfer",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {
+          "account": "Assets:Bank",
+          "amount": "10 USD",
+          "currency": "USD",
+          "date": "2024-01-10",
+          "no": "False",
+          "nothing": "None",
+          "number": "10",
+          "tag": "trip",
+          "yes": "True"
+        }
+      },
+      {
+        "account": "Assets:Bank",
+        "meta": {}
+      }
+    ],
+    "type": "Transaction"
+  },
+  {
+    "date": "2024-01-11",
+    "meta": {},
+    "narration": "Lunch",
+    "postings": [
+      {
+        "account": "Assets:Cash",
+        "meta": {}
+      },
+      {
+        "account": "Expenses:Food",
+        "meta": {
+          "counterpart": "Assets:Cash",
+          "rate": "1.5"
+        }
+      }
+    ],
+    "type": "Transaction"
+  },
+  {
+    "account": "Assets:Bank",
+    "date": "2024-01-12",
+    "meta": {
+      "account": "Assets:Cash",
+      "amount": "10 USD"
+    },
+    "type": "Balance"
+  },
+  {
+    "account": "Assets:Cash",
+    "date": "2024-01-12",
+    "meta": {
+      "account": "Assets:Bank"
+    },
+    "type": "Balance"
+  },
+  {
+    "account": "Assets:Cash",
+    "date": "2024-01-12",
+    "meta": {
+      "account": "Assets:Bank",
+      "date": "2024-01-12"
+    },
+    "type": "Note"
+  },
+  {
+    "date": "2024-01-12",
+    "meta": {
+      "amount": "1.10 USD",
+      "yes": "True"
+    },
+    "type": "Price"
+  },
+  {
+    "date": "2024-01-12",
+    "meta": {
+      "account": "Assets:Cash",
+      "nothing": "None"
+    },
+    "type": "Event"
+  },
+  {
+    "account": "Assets:Cash",
+    "date": "2020-01-01",
+    "meta": {
+      "account": "Assets:Bank"
+    },
+    "type": "Pad"
+  },
+  {
+    "account": "Assets:Cash",
+    "date": "2020-01-02",
+    "meta": {
+      "account": "Assets:Bank"
+    },
+    "type": "Balance"
+  },
+  {
+    "date": "2024-01-15",
+    "meta": {
+      "account": "Assets:Cash",
+      "tag": "trip"
+    },
+    "type": "Custom"
+  },
+  {
+    "account": "Expenses:Food",
+    "date": "2024-01-16",
+    "meta": {
+      "account": "Assets:Cash",
+      "date": "2024-01-16"
+    },
+    "type": "Close"
+  }
+]
