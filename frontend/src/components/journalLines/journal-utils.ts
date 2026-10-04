@@ -49,9 +49,6 @@ export function transactionEditBlocker(data: JournalTransactionItem): 'cost_or_p
   return commodities.size > 1 ? 'cost_or_price' : null;
 }
 
-/** Raw Edit deep link. Journals do not expose their source file, so this opens the editor on its default file. */
-export const RAW_EDIT_URI = '/edit';
-
 /** The journal page size the Journals page asks for. */
 export const JOURNAL_PAGE_SIZE = 100;
 

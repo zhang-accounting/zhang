@@ -112,7 +112,7 @@ Zhang appends what you record in the web UI to a file chosen by the entry's date
 
 Zhang checks the ledger every time it loads it.
 
-- **Problems in an entry** go to the ledger's error list. The **Overview** item in the sidebar shows how many there are, and the Overview page lists them: select one to see the entry it is about. Typical problems are a transaction that does not balance, an account that is not open and a commodity that is not declared. [Error Codes](/reference/error-codes/) explains each one.
+- **Problems in an entry** go to the ledger's error list. The **Overview** item in the sidebar shows how many there are, and the Overview page lists them: select one to see the entry it is about and to open its file in **Raw Editing** at that line. Typical problems are a transaction that does not balance, an account that is not open and a commodity that is not declared. [Error Codes](/reference/error-codes/) explains each one.
   - A transaction that does not balance stays in the ledger, marked **Unbalanced** in the journal.
   - A transaction whose missing amount cannot be filled in, for example one with two postings without an amount, is left out of the ledger until you fix it.
 - **A syntax error** stops the whole ledger from loading. When Zhang starts, it exits with the error and the file, line and column where it found it. When the error appears while Zhang is running, Zhang keeps serving the last version that loaded and only logs the error: the web UI shows no error. If your changes do not show up, look at the terminal, or at `docker logs`.

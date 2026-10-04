@@ -1,8 +1,8 @@
 import { TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
+import { RAW_EDIT_URI } from '@/lib/raw-edit-link';
 import { cn } from '@/lib/utils';
-import { RAW_EDIT_URI } from '../journalLines/journal-utils';
 
 /** Inline warning for transactions the form cannot rewrite without losing data (cost / price), pointing to Raw Edit. */
 export function RawEditNote({ id, className }: { id?: string; className?: string }) {

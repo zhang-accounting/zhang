@@ -1,7 +1,6 @@
 {
   "ASSET_BALANCE": "账户余额",
   "LIABILITY": "负债",
-  "RESET": "还原",
   "SAVE": "保存",
   "REFRESH": "刷新",
   "NAV_DASHBOARD": "总览",
@@ -42,6 +41,7 @@
   },
   "ERROR_BOX_LOCATION": "{{file}} · 第 {{start}}–{{end}} 行",
   "ERROR_BOX_LOCATION_LINE": "{{file}} · 第 {{line}} 行",
+  "ERROR_BOX_OPEN_EDITOR": "在编辑页中打开",
   "LEDGER_IS_HEALTHY": "账本健康，没有错误",
   "accounts": {
     "hide_closed_accounts": "隐藏已关闭账户"

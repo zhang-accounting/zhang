@@ -18,6 +18,8 @@ import { Spinner } from './ui/spinner';
 
 interface Props {
   path: string;
+  /** The line (1-based) to put the cursor on, scrolled into view, once the file is loaded; past the end of the file, its last line. */
+  line?: number | null;
   /** Called whenever the buffer starts / stops differing from the saved file. */
   onDirtyChange?: (dirty: boolean) => void;
   className?: string;
@@ -30,14 +32,23 @@ const EDITOR_THEME = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
 });
 
+/** Puts the cursor at the start of `line` (or of the last line, when the file is shorter) and scrolls it to the middle of the editor. */
+function revealLine(view: EditorView, line: number) {
+  const { from } = view.state.doc.line(Math.min(Math.max(line, 1), view.state.doc.lines));
+  view.dispatch({ selection: { anchor: from }, effects: EditorView.scrollIntoView(from, { y: 'center' }) });
+  view.focus();
+}
+
 /**
  * CodeMirror editor for one ledger file, filling its container, with a save bar (Ctrl/Cmd+S) at the bottom.
  *
  * A save carries the fingerprint of the file as loaded, so the server refuses to overwrite a file that changed since (a
  * transaction recorded in the app, an uploaded document, an edit outside). The editor then offers to reload the file,
  * discarding the buffer, or to keep editing; it never overwrites the change silently.
+ *
+ * `line` opens the file at a line (the error list opens the file of an error at its directive, #493).
  */
-export default function SingleFileEdit({ path, onDirtyChange, className }: Props) {
+export default function SingleFileEdit({ path, line, onDirtyChange, className }: Props) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
   const encodedPath = useMemo(() => base64Path(path), [path]);
@@ -87,6 +98,13 @@ export default function SingleFileEdit({ path, onDirtyChange, className }: Props
   const extensions = useMemo(() => [EditorView.lineWrapping, EDITOR_THEME], []);
   const lineCount = useMemo(() => content.split('\n').length, [content]);
 
+  // the editor is created once the file is loaded, and again after a reload: the line is revealed in each (an editor
+  // whose DOM is gone was destroyed by the reload; the next one reveals the line itself)
+  const [view, setView] = useState<EditorView | null>(null);
+  useEffect(() => {
+    if (view !== null && line != null && view.dom.isConnected) revealLine(view, line);
+  }, [view, line]);
+
   if (error) {
     return <EmptyState icon={TriangleAlert} title={t('raw_edit.load_failed')} description={error.message} className="m-4 flex-1" />;
   }
@@ -117,6 +135,7 @@ export default function SingleFileEdit({ path, onDirtyChange, className }: Props
             theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
             extensions={extensions}
             onChange={(value) => dispatch({ type: 'edited', content: value })}
+            onCreateEditor={setView}
             aria-label={path}
           />
         )}

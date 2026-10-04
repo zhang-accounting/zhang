@@ -12,6 +12,7 @@ import SingleFileEdit from '@/components/SingleFileEdit';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { RAW_EDITING_LINK } from '@/layout/nav-links';
+import { lineFromSearch } from '@/lib/raw-edit-link';
 import { cn } from '@/lib/utils';
 import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
@@ -38,6 +39,8 @@ function RawEdit() {
   const tree = useMemo(() => buildFileTree(files ?? []), [files]);
   const requested = searchParams.get('file');
   const selectedFile = requested && files?.includes(requested) ? requested : (files?.[0] ?? null);
+  // `?line=` goes with the file that was asked for (an error's directive, #493), not with the fallback when that file is unknown
+  const requestedLine = selectedFile !== null && selectedFile === requested ? lineFromSearch(searchParams) : null;
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(selectedFile ? `${selectedFile} | ${t('NAV_RAW_EDITING')} - ${ledgerTitle}` : `${t('NAV_RAW_EDITING')} - ${ledgerTitle}`);
@@ -89,7 +92,7 @@ function RawEdit() {
               </div>
             </div>
             {selectedFile ? (
-              <SingleFileEdit key={selectedFile} path={selectedFile} onDirtyChange={setDirty} className="flex-1" />
+              <SingleFileEdit key={selectedFile} path={selectedFile} line={requestedLine} onDirtyChange={setDirty} className="flex-1" />
             ) : (
               <div className="flex flex-col gap-2 p-4">
                 <Skeleton className="h-4 w-1/2" />

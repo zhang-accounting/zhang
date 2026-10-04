@@ -101,7 +101,7 @@ docker run --name zhang -v "$HOME/ledger:/data" -p "8000:8000" kilerd/zhang:late
 
 ## 错误显示在哪里
 
-把余额断言改为 `4200.00 USD` 并保存文件。张记账会重新加载账本（如果没有，请使用重新加载按钮，并参阅[何时重新加载文件](/zh-cn/deployment/data-sources/local/#张记账何时重新加载)），随后出现一个错误：导航栏中**总览**旁边会显示错误数量，总览页面会列出这些错误。选中一个错误，可以看到它来自哪个文件以及对应条目的源文本。这里是一个 [`AccountBalanceCheckError`](/zh-cn/reference/error-codes/#accountbalancecheckerror)：账户持有 4300.00 USD，而不是 4200.00 USD。[错误码](/zh-cn/reference/error-codes/)解释了每种错误及其修复方法。
+把余额断言改为 `4200.00 USD` 并保存文件。张记账会重新加载账本（如果没有，请使用重新加载按钮，并参阅[何时重新加载文件](/zh-cn/deployment/data-sources/local/#张记账何时重新加载)），随后出现一个错误：导航栏中**总览**旁边会显示错误数量，总览页面会列出这些错误。选中一个错误，可以看到它来自哪个文件以及对应条目的源文本；**在编辑页中打开**会在编辑器中打开该文件并定位到那一行。这里是一个 [`AccountBalanceCheckError`](/zh-cn/reference/error-codes/#accountbalancecheckerror)：账户持有 4300.00 USD，而不是 4200.00 USD。[错误码](/zh-cn/reference/error-codes/)解释了每种错误及其修复方法。
 
 这些错误不会让张记账停止：账本的其余部分照常显示。语法错误则不同，因为张记账根本无法读取该文件：
 
