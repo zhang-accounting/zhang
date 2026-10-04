@@ -1456,3 +1456,35 @@ fn the_ledger_keeps_the_booked_postings() {
         ]
     );
 }
+
+/// A transaction the store fold rejects (its explicit postings weigh in several commodities) is
+/// not stored, and the pad and balance-check stages skip it too, so an assertion on an account it
+/// names agrees with the store, not with the rejected transaction.
+#[test]
+fn a_rejected_transaction_counts_for_no_balance_assertion() {
+    let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:Broker
+        1970-01-01 open Assets:X
+        1970-01-01 open Assets:Short
+        1970-01-01 open Equity:Open
+        2024-01-02 * "buy"
+          Assets:Broker 3 AAPL { 10 USD }
+          Assets:A -30 USD
+        2024-01-03 * "x"
+          Assets:Broker -3 AAPL {}
+          Assets:X 3 AAPL
+          Assets:Short 5 CNY
+          Equity:Open
+        2024-01-04 balance Assets:Short 0 CNY
+        2024-01-04 balance Assets:Broker 3 AAPL
+        2024-01-04 balance Assets:X 0 AAPL
+    "#});
+    assert_eq!(
+        errors(&ledger),
+        vec![(ErrorKind::TransactionExplicitPostingHaveMultipleCommodity, None)],
+        "the rejection is the only error: every assertion agrees with the store"
+    );
+    let store = ledger.store.read().unwrap();
+    assert!(store.balance_assertions.iter().all(|it| it.passed));
+    assert_eq!(store.transactions.len(), 1);
+}

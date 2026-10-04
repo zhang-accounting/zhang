@@ -474,16 +474,6 @@ impl Booker {
         self.ambiguous_reduction(account, &units, &filter)
     }
 
-    /// whether `account` or one of its sub-accounts holds `currency` at cost: a lot of it with a cost
-    pub(crate) fn holds_at_cost(&self, account: &str, currency: &str) -> bool {
-        let sub_accounts = format!("{account}:");
-        self.lots
-            .iter()
-            .filter(|(name, _)| name.as_str() == account || name.starts_with(&sub_accounts))
-            .flat_map(|(_, lots)| lots)
-            .any(|lot| lot.commodity == currency && lot.cost.is_some() && !lot.amount.is_zero())
-    }
-
     /// the lots of every account the fold booked a posting on, in lot order
     pub(crate) fn into_lots(self) -> HashMap<String, Vec<CommodityLotRecord>> {
         self.lots
@@ -668,7 +658,7 @@ fn reduces(lot: &CommodityLotRecord, units: &BigDecimal) -> bool {
 
 /// whether the posting's weight is decided by the lots it books against: an explicit posting with
 /// a cost but no cost number (`{}`, `{{}}`, `{date}`). Any other posting weighs as written
-fn weighs_by_lots(posting: &Posting) -> bool {
+pub(crate) fn weighs_by_lots(posting: &Posting) -> bool {
     posting.units.is_some() && posting.cost.as_ref().is_some_and(|cost| cost.base.is_none())
 }
 
@@ -832,38 +822,6 @@ fn describe_lot(lot: &CommodityLotRecord) -> String {
         (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}{label}}}", lot.amount, lot.commodity),
         (Some(cost), None) => format!("{} {} {{{cost}{label}}}", lot.amount, lot.commodity),
         (None, _) => format!("{} {}", lot.amount, lot.commodity),
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use bigdecimal::BigDecimal;
-    use zhang_ast::amount::Amount;
-
-    use super::Booker;
-    use crate::inventory::BookingMethod;
-    use crate::store::CommodityLotRecord;
-
-    fn lot(units: i32) -> CommodityLotRecord {
-        CommodityLotRecord {
-            commodity: "AAPL".to_owned(),
-            amount: BigDecimal::from(units),
-            cost: Some(Amount::new(BigDecimal::from(100), "USD")),
-            acquisition_date: None,
-            label: None,
-        }
-    }
-
-    #[test]
-    fn an_empty_lot_is_not_held_at_cost() {
-        // the booker drops a lot sold to zero; one left empty still holds nothing
-        let mut booker = Booker::new(BookingMethod::Fifo);
-        booker.lots.insert("Assets:Stock".to_owned(), vec![lot(0)]);
-        assert!(!booker.holds_at_cost("Assets:Stock", "AAPL"));
-        booker.lots.insert("Assets:Stock:Sub".to_owned(), vec![lot(2)]);
-        assert!(booker.holds_at_cost("Assets:Stock", "AAPL"));
-        assert!(!booker.holds_at_cost("Assets:Stock", "USD"));
-        assert!(!booker.holds_at_cost("Assets:Stocks", "AAPL"));
     }
 }
 
