@@ -278,7 +278,7 @@ pub(crate) enum Record<'a> {
     /// reads it, what zhang's check of it found
     Balance {
         directive: &'a Spanned<Directive>,
-        /// the position of the assertion in `#entries`
+        /// the index of the assertion's row in `#entries`
         seq: u32,
         check: Option<directives::AssertionCheck>,
     },
@@ -490,9 +490,15 @@ impl<'a> Dataset<'a> {
         self.cache.entries(self.ledger, self.store)
     }
 
+    /// The `seq` column of the `#entries` row `seq`: its position in the order zhang processed the
+    /// ledger.
+    pub(crate) fn entry_order(&self, seq: u32) -> u32 {
+        self.entry_table().rows[seq as usize].order
+    }
+
     /// The `id` of the `#entries` row `seq`.
     pub(crate) fn entry_id(&self, seq: u32) -> &'a str {
-        self.cache.entry_id(self.ledger, self.entry_table(), seq)
+        self.cache.entry_id(self.ledger, self.store, self.entry_table(), seq)
     }
 
     /// The `open` and `close` directives of `account`, for `open_date()`, `open_meta()`, ...

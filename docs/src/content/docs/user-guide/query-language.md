@@ -241,7 +241,8 @@ HAVING sum(number) > 1000
 - `LIMIT 0` returns no rows, and an offset past the end returns no rows either.
 - A parameter must be bound to an integer. A negative or `NULL` value, or an offset and limit whose sum does not fit in 64 bits, is an error at the parameter, never a silently different window.
 - Without `ORDER BY`, the rows come in ledger order, so a page is stable as long as the ledger does not change.
-- Pages are cheap: without `ORDER BY` the query stops once it has the rows it keeps, and with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all. It ranks a row by its `ORDER BY` keys alone, and computes the other targets only for the rows of the page, unless a target can fail, as division can, or reads the [running balance](#the-running-balance) while it scans.
+- Pages are cheap: without `ORDER BY` the query only counts the rows before `OFFSET`, without building them, and stops once it has the rows it keeps, so a page holds its own rows only; with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all. It ranks a row by its `ORDER BY` keys alone, and computes the other targets only for the rows of the page, unless a target can fail, as division can, or reads the [running balance](#the-running-balance) while it scans.
+- So, as for the rows past `LIMIT`, the targets of the rows before `OFFSET` of a query without `ORDER BY` are not computed, and an error only computing one of them would raise, such as an integer overflow, is not reported. Those rows still go through `WHERE`, so an error of the condition is.
 
 A query can also ask for the total number of rows before `LIMIT` and `OFFSET`, for example to show the number of pages: the `count_total` option of the Rust API, and of [`POST /api/query`](#run-a-query). Rows past the window are only counted, not built.
 
@@ -615,9 +616,9 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `metas` | `metas` | Metadata of the posting as a list of `(key, value)` pairs, sorted by key, with every value of a repeated key in the order written. See [Structured metadata](#structured-metadata). Zhang extension. |
 | `entry_metas` | `metas` | Metadata of the posting's transaction, in the same form. Zhang extension. |
 | `balance` | `inventory` | The [running balance](#the-running-balance): the sum of the positions of the rows up to and including this one. It cannot be used in `FROM` or `WHERE`. |
-| `time` | `str` | Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`. A transaction written without a time is at `00:00:00`. Zhang extension. |
+| `time` | `str` | Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one; on a day daylight saving skips that time, the first time after the gap, as Zhang stores it (`02:30` in New York on 2024-03-10 is `03:30:00`, midnight in São Paulo on 2018-11-04 is `01:00:00`). Zhang extension. |
 | `timestamp` | `int` | Unix time of the transaction's date and time, in seconds. Zhang extension. |
-| `seq` | `int` | Position of the transaction in [`#entries`](#entries), counting from 0. All postings of a transaction share it, so `ORDER BY seq DESC` lists the newest transactions first, in a stable order. `NULL` for the [synthetic transactions](#synthetic-transactions) of the period clauses. Zhang extension. |
+| `seq` | `int` | Position of the transaction in the [processing order](#processing-order), counting from 0, as in [`#entries`](#entries). All postings of a transaction share it, so `ORDER BY seq DESC` lists the newest transactions first, in a stable order. `NULL` for the [synthetic transactions](#synthetic-transactions) of the period clauses. Zhang extension. |
 | `posting_index` | `int` | Position of the posting in its transaction as written, counting from 0. When [booking](#lot-booking) splits a posting into one row per lot, the rows share it. Zhang extension. |
 | `account_balance` | `inventory` | The [account balance](#the-account-balance): the balance of the posting's account right after this posting. Zhang extension. |
 | `balanced` | `bool` | `FALSE` if Zhang found that the transaction does not balance (an `UnbalancedTransaction` error), otherwise `TRUE`. Zhang extension. |
@@ -693,11 +694,28 @@ ORDER BY currency
 - **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
 - **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual`, `passed`, `pad`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_events` and `#errors` are Zhang's own tables.
 
+### Processing order
+
+The `seq` column of `#entries`, `#transactions`, `#balances`, `#documents` and the [postings](#columns) is the position of an entry in the order Zhang processes the ledger, counting from 0:
+
+1. by date and the time written; a directive written without one is at midnight;
+2. within one time, `open` and `commodity` directives first, then the balance entries (balance assertions, and every transaction flagged `P`: the padding transactions Zhang makes, and any written by hand), then every other directive;
+3. then in the order of your files;
+4. except that a `balance ... with pad` is checked after the other balance entries of its time, its padding among them, and its `seq` is where it is checked.
+
+This is the order in which balances change: the [running balance](#the-running-balance) of the postings adds them up in this order, and an assertion comes right after the postings its `actual` balance includes, so merging the rows of `#balances` and of the postings by `seq` lists every assertion in its place. The rows of the postings table and of `#transactions` come in this order. Without `ORDER BY`, the rows of `#entries` and of the other directive tables keep beancount's order, by date and then by kind: `open` first (before a `commodity` of the same day), then the balance assertions, the other directives, and `document` and `close` last, whatever their times. The two orders differ only within a day: Zhang keeps same-day `commodity` and `open` directives in the order of your files, sorts the directives of a day by their time (a timed `open` after the transactions written without a time), puts a balance after the transactions before its time and after a padding written before it, and leaves a `document` or a `close` where it is. `ORDER BY seq` lists the rows in Zhang's order.
+
+The time that decides the order is the time written. On a day daylight saving skips a time, a directive written in the gap is stored at the first time after it, and `ORDER BY seq` can list the `time` and `timestamp` columns out of order there: in New York on 2024-03-10, an entry written at `02:30`, stored at `03:30:00`, comes before one written at `03:15`.
+
+```sql
+SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
+```
+
 ### #entries
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | `str` | Unique id of the directive. For a transaction it is the transaction's id, the same as the `id` column of its postings. |
+| `id` | `str` | Unique id of the directive. For a transaction it is the transaction's id, the same as the `id` column of its postings; for a balance assertion, the id Zhang stored its check with. |
 | `type` | `str` | Kind of directive, lowercase: `transaction`, `open`, `close`, `balance`, `price`, `note`, `document`, `event`, `commodity`, `custom` or `query`, and Zhang's `budget`, `budget-add`, `budget-transfer` and `budget-close`. A `balance ... with pad` is a `balance`. |
 | `filename` | `str` | The ledger file that holds the directive. |
 | `date`, `year`, `month`, `day` | `date`, `int` | Date of the directive and its parts. |
@@ -705,8 +723,8 @@ ORDER BY currency
 | `tags`, `links` | `set` | Tags and links of a transaction, note or document. `NULL` for other directives. |
 | `meta` | `str` | Metadata of the directive. |
 | `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the pad account of `balance ... with pad`. Empty for other directives. |
-| `seq` | `int` | Position of the directive in `#entries`, counting from 0: its row number in ledger order. `ORDER BY seq DESC` lists the newest entries first. Zhang extension. |
-| `time`, `timestamp` | `str`, `int` | Time of day of the directive in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none) and the Unix time of its date and time, in seconds. Zhang extension. |
+| `seq` | `int` | Position of the directive in the [processing order](#processing-order), counting from 0. `ORDER BY seq DESC` lists the newest entries first. Without `ORDER BY` the rows keep beancount's order, which can differ within a day. Zhang extension. |
+| `time`, `timestamp` | `str`, `int` | Time of day of the directive in the ledger's timezone (`HH:MM:SS`), as in `postings`: the time written, or midnight without one; on a day daylight saving skips that time, the first time after the gap, as Zhang stores it (`02:30` in New York on 2024-03-10 is `03:30:00`, midnight in São Paulo on 2018-11-04 is `01:00:00`); and the Unix time of its date and time, in seconds. Zhang extension. |
 | `metas` | `metas` | Metadata of the directive as `(key, value)` pairs, see [Structured metadata](#structured-metadata). Zhang extension, not part of `SELECT *`. |
 
 ### #transactions
@@ -721,7 +739,7 @@ ORDER BY currency
 | `accounts` | `set` | Accounts of the postings. |
 | `meta` | `str` | Metadata of the transaction. |
 | `id` | `str` | Zhang's identifier of the transaction: the `id` of its postings and of its row in `#entries`. Zhang extension. |
-| `seq`, `time`, `timestamp` | `int`, `str`, `int` | As in `postings`: the position of the transaction in `#entries`, its time of day and its Unix time. Zhang extension. |
+| `seq`, `time`, `timestamp` | `int`, `str`, `int` | As in `postings`: the position of the transaction in the [processing order](#processing-order), its time of day and its Unix time. Zhang extension. |
 | `balanced`, `errors` | `bool`, `set` | As in `postings`: whether the transaction balances, and the kinds of the errors recorded for it. Zhang extension. |
 | `metas` | `metas` | Metadata of the transaction as `(key, value)` pairs, see [Structured metadata](#structured-metadata). Zhang extension, not part of `SELECT *`. |
 
@@ -740,9 +758,9 @@ ORDER BY currency
 | | `actual` | `amount` | The true balance of the account in the asserted currency at the assertion: the units of every posting to the account and its sub-accounts before it, as Zhang checks a balance. An assertion never changes it. A `balance ... with pad` is checked once the pads of its time are booked. Zhang extension. |
 | | `passed` | `bool` | Whether the assertion holds, as Zhang's balance check decides it: `actual` is within the tolerance of the asserted amount, or equal to it when the assertion has no tolerance. An assertion that fails is also an `AccountBalanceCheckError` in [`#errors`](#errors). Zhang extension. |
 | | `pad` | `str` | For a `balance ... with pad`, the account it pads from; `NULL` for a balance without a pad. Zhang extension. |
-| | `id` | `str` | Unique id of the assertion: the `id` of its row in [`#entries`](#entries). Zhang extension. |
-| | `seq` | `int` | Position of the assertion in [`#entries`](#entries). It orders the assertion with the `seq` of the postings: an assertion comes after the postings of earlier days, and before the transactions of its own day, as in beancount. Zhang extension. |
-| | `time`, `timestamp` | `str`, `int` | Time of day of the assertion in the ledger's timezone (`HH:MM:SS`, `00:00:00` when it has none) and its Unix time, in seconds. Zhang extension. |
+| | `id` | `str` | The id Zhang stored the check of the assertion with, which `GET /api/journals` lists it with: the `id` of its row in [`#entries`](#entries). Zhang extension. |
+| | `seq` | `int` | Position of the assertion in the [processing order](#processing-order), where Zhang checks it, as in [`#entries`](#entries): right after the postings its `actual` balance includes. Zhang extension. |
+| | `time`, `timestamp` | `str`, `int` | Time of day of the assertion in the ledger's timezone (`HH:MM:SS`), as in [`#entries`](#entries), and its Unix time, in seconds. Zhang extension. |
 | `#notes` | `date`, `account` | `date`, `str` | Date and account of the note. |
 | | `comment` | `str` | The text of the note. |
 | | `tags`, `links` | `set` | Tags and links. |
@@ -755,8 +773,8 @@ ORDER BY currency
 | | `source` | `str` | What declares the document: `'directive'` for a `document` directive, `'transaction'` or `'posting'` for the `document` metadata of a transaction or of one of its postings. Zhang extension. |
 | | `path` | `str` | Path of the file as written, relative to the ledger's directory: Zhang resolves document paths against the ledger's directory, and the web UI downloads the file with this path. An absolute path inside the directory is made relative to it. Zhang extension. |
 | | `transaction_id` | `str` | For a document named in metadata, the `id` of its transaction, as in the postings table. `NULL` for a `document` directive. Zhang extension. |
-| | `seq` | `int` | Position in [`#entries`](#entries) of the `document` directive, or of the transaction that names the document. Zhang extension. |
-| | `time`, `timestamp` | `str`, `int` | Time of day (`HH:MM:SS`) and Unix time, in seconds, of the `document` directive, or of the transaction that names the document. Zhang extension. |
+| | `seq` | `int` | The [`seq`](#processing-order) of the `document` directive, or of the transaction that names the document. Zhang extension. |
+| | `time`, `timestamp` | `str`, `int` | Time of day (`HH:MM:SS`, as in [`#entries`](#entries)) and Unix time, in seconds, of the `document` directive, or of the transaction that names the document. Zhang extension. |
 | `#commodities` | `date` | `date` | Date of the `commodity` directive. |
 | | `name` | `str` | The commodity, such as `USD`. |
 

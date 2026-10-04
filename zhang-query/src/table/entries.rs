@@ -82,7 +82,7 @@ fn entry_info<'r>(record: &'r Record<'_>) -> Option<&'r EntryInfo> {
 }
 
 fn seq(record: &Record<'_>) -> Value {
-    entry_info(record).map_or(Value::Null, |info| Value::Int(info.seq.into()))
+    entry_info(record).map_or(Value::Null, |info| Value::Int(info.order.into()))
 }
 
 /// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and
@@ -189,7 +189,8 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "id",
         DataType::Str,
-        "Unique id of the entry: for a transaction its transaction id (the id column of its postings).",
+        "Unique id of the entry: for a transaction its transaction id (the id column of its postings), for a balance \
+         assertion the id zhang stored its check with.",
         |data, record| entry_info(record).map_or(Value::Null, |info| Value::Str(data.entry_id(info.seq).to_owned())),
     ),
     ColumnDef::record(
@@ -253,13 +254,15 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position of the entry in #entries, from 0 in ledger order; ORDER BY seq DESC lists the newest first. A zhang extension.",
+        "Position of the entry, from 0, in the order zhang processes the ledger; ORDER BY seq DESC lists the newest first. A \
+         zhang extension.",
         |_, record| seq(record),
     ),
     ColumnDef::record(
         "time",
         DataType::Str,
-        "Time of day of the directive in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        "Time of day of the directive in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
+         extension.",
         time,
     ),
     ColumnDef::record(
@@ -307,14 +310,15 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position of the transaction in #entries, from 0 in ledger order; ORDER BY seq DESC lists the newest first. A zhang \
-         extension.",
+        "Position of the transaction, from 0, in the order zhang processes the ledger, as in #entries; ORDER BY seq DESC \
+         lists the newest first. A zhang extension.",
         |_, record| seq(record),
     ),
     ColumnDef::record(
         "time",
         DataType::Str,
-        "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
+         extension.",
         time,
     ),
     ColumnDef::record(

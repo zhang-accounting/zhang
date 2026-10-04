@@ -5,7 +5,7 @@
 //! ([`ledger_order`]). `#documents` adds, after its directives, the documents that
 //! transactions and postings name in their metadata.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 use bigdecimal::BigDecimal;
@@ -14,7 +14,7 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{resolve_local_datetime, Account, Directive, Meta, Posting, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
+use zhang_core::store::{BalanceAssertionDomain, Store};
 
 use super::postings::time_value;
 use super::{directive_meta, ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
@@ -132,22 +132,24 @@ fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&BigDec
 }
 
 /// The balance assertions. Only when the projection reads `actual`, `passed` or
-/// `discrepancy` are the checks zhang made looked up ([`assertion_checks`]).
+/// `discrepancy` are the checks zhang made looked up ([`AssertionCheck`]).
 fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
     let wanted = ["actual", "passed", "discrepancy"]
         .into_iter()
         .any(|name| BALANCES.column(name).is_some_and(|column| projection.contains(column)));
-    let mut checks = if wanted { assertion_checks(store) } else { HashMap::new() };
     let entries = LedgerCache::of(ledger, store).entries(ledger, store);
     entries
         .rows
         .iter()
-        .map(|entry| (&ledger.directives[entry.directive as usize], entry.seq))
+        .map(|entry| (&ledger.directives[entry.directive as usize], entry))
         .filter(|(directive, _)| assertion(&directive.data).is_some())
-        .map(|(directive, seq)| Record::Balance {
+        .map(|(directive, entry)| Record::Balance {
             directive,
-            seq,
-            check: checks.remove(&(directive.span.filename.as_deref(), directive.span.start)),
+            seq: entry.seq,
+            check: entry
+                .assertion
+                .filter(|_| wanted)
+                .map(|assertion| AssertionCheck::of(&store.balance_assertions[assertion as usize])),
         })
         .collect()
 }
@@ -160,25 +162,19 @@ pub(crate) struct AssertionCheck {
     passed: bool,
 }
 
-/// The checks zhang made of the balance assertions while loading the ledger
-/// (`Store::balance_assertions`), by the position of their directive: the balance of the
-/// asserted account and its sub-accounts in the asserted currency, summed from the postings
-/// before the assertion (for a `balance ... with pad`, once the balance entries of its time are
-/// booked), and whether it is within the tolerance of the asserted amount. The same check
-/// reports an `AccountBalanceCheckError` when it fails. Assertions never move a balance.
-fn assertion_checks(store: &Store) -> HashMap<(Option<&Path>, usize), AssertionCheck> {
-    store
-        .balance_assertions
-        .iter()
-        .map(|check| {
-            let position = (check.span.filename.as_deref(), check.span.start);
-            let actual = AssertionCheck {
-                actual: check.balance.clone(),
-                passed: check.passed,
-            };
-            (position, actual)
-        })
-        .collect()
+impl AssertionCheck {
+    /// The check zhang made of an assertion while loading the ledger (`Store::balance_assertions`),
+    /// which the cache matched with its directive: the balance of the asserted account and its
+    /// sub-accounts in the asserted currency, summed from the postings before the assertion (for a
+    /// `balance ... with pad`, once the balance entries of its time are booked), and whether it is
+    /// within the tolerance of the asserted amount. The same check reports an
+    /// `AccountBalanceCheckError` when it fails. Assertions never move a balance.
+    fn of(check: &BalanceAssertionDomain) -> AssertionCheck {
+        AssertionCheck {
+            actual: check.balance.clone(),
+            passed: check.passed,
+        }
+    }
 }
 
 fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&BigDecimal>) -> Value) -> Value {
@@ -254,7 +250,8 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "id",
         DataType::Str,
-        "Unique id of the assertion: the id of its row in #entries. A zhang extension.",
+        "The id zhang stored the check of the assertion with, which /api/journals lists it with: the id of its row in \
+         #entries. A zhang extension.",
         |data, record| match record {
             Record::Balance { seq, .. } => Value::Str(data.entry_id(*seq).to_owned()),
             _ => Value::Null,
@@ -263,17 +260,18 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position of the assertion in #entries, from 0 in ledger order, comparable with the seq of the postings. A zhang \
-         extension.",
-        |_, record| match record {
-            Record::Balance { seq, .. } => Value::Int((*seq).into()),
+        "Position of the assertion in the order zhang processes the ledger, as seq in #entries: where zhang checks it, so \
+         it comes right after the postings its actual balance includes. A zhang extension.",
+        |data, record| match record {
+            Record::Balance { seq, .. } => Value::Int(data.entry_order(*seq).into()),
             _ => Value::Null,
         },
     ),
     ColumnDef::record(
         "time",
         DataType::Str,
-        "Time of day of the assertion in the ledger's timezone, as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+        "Time of day of the assertion in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
+         extension.",
         |data, record| directive(record).map_or(Value::Null, |it| directive_time(data, it)),
     ),
     ColumnDef::record(
@@ -571,14 +569,15 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "seq",
         DataType::Int,
-        "Position in #entries of the document directive, or of the transaction that names the document. A zhang extension.",
-        |_, record| document(record).map_or(Value::Null, |it| Value::Int(it.seq.into())),
+        "seq of the document directive, or of the transaction that names the document, as in #entries. A zhang extension.",
+        |data, record| document(record).map_or(Value::Null, |it| Value::Int(data.entry_order(it.seq).into())),
     ),
     ColumnDef::record(
         "time",
         DataType::Str,
         "Time of day of the document directive, or of the transaction that names the document, in the ledger's timezone, \
-         as `HH:MM:SS`; '00:00:00' when it has none. A zhang extension.",
+         as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, \
+         as zhang stores it. A zhang extension.",
         |data, record| document(record).map_or(Value::Null, |it| directive_time(data, it.directive)),
     ),
     ColumnDef::record(
