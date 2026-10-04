@@ -23,7 +23,7 @@ use std::num::NonZeroU64;
 use bigdecimal::{BigDecimal, RoundingMode};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use zhang_ast::amount::Amount;
-use zhang_ast::{group_units, written_groups, Directive, Meta, Posting, PostingCost, SingleTotalPrice, Transaction};
+use zhang_ast::{booked_group_units, written_groups, Directive, Meta, Posting, PostingCost, SingleTotalPrice, Transaction, WrittenGroup};
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
@@ -308,21 +308,35 @@ impl<'a> Dataset<'a> {
     }
 }
 
-/// The rows of the stored transaction `txn`, the entry `entry` of the table, from the booked
-/// postings of its directive `parsed`: one row per booked leg, as beanquery lists a sale across
-/// several lots, with the lot the leg names and its per-unit price. The rows of a posting as
-/// written share its index, which is the store's row.
-pub(super) fn booked_rows(entry: usize, parsed: &Transaction, accounts: &mut Accounts) -> Vec<CachedRow> {
-    let mut rows = Vec::with_capacity(parsed.postings.len());
-    for (posting_index, group) in written_groups(&parsed.postings).into_iter().enumerate() {
+/// The written groups ([`written_groups`]) of the directive `parsed` when it is the one the
+/// stored transaction `txn` was processed from: one group per stored posting, on its account,
+/// every leg booked. `None` for another transaction a stage emitted at the same position: a copy
+/// the ledger could not book (its postings keep no units, so it was never stored), or one on
+/// other accounts; such a directive is no source of rows for `txn`.
+pub(super) fn stored_groups<'a>(parsed: &'a Transaction, txn: &TransactionDomain) -> Option<Vec<WrittenGroup<'a>>> {
+    let groups = written_groups(&parsed.postings);
+    let matches = groups.len() == txn.postings.len()
+        && groups
+            .iter()
+            .zip(&txn.postings)
+            .all(|(group, stored)| group.legs[0].account == stored.account && group.legs.iter().all(|leg| leg.units.is_some()));
+    matches.then_some(groups)
+}
+
+/// The rows of a stored transaction, the entry `entry` of the table, from the booked postings of
+/// its directive, grouped by the posting they were written as (`groups`, see [`stored_groups`]):
+/// one row per booked leg, as beanquery lists a sale across several lots, with the lot the leg
+/// names and its per-unit price. The rows of a posting as written share its index, which is the
+/// store's row.
+pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &mut Accounts) -> Vec<CachedRow> {
+    let mut rows = Vec::with_capacity(groups.len());
+    for (posting_index, group) in groups.iter().enumerate() {
         let legs = group.legs;
-        // the units as written (the legs summed), which a total price (`@@`) is spread over
-        let written_units = group_units(legs);
         for leg in legs {
-            // every posting of a stored transaction is booked, so it has units
+            // every leg of a matched directive is booked ([`stored_groups`]), so it has units
             let Some(units) = &leg.units else { continue };
-            let cost = leg.cost.as_ref().and_then(|cost| lot_cost(leg, cost, &written_units));
-            let price = leg.price.as_ref().and_then(|price| per_unit_price(price, &written_units));
+            let cost = leg.cost.as_ref().and_then(|cost| lot_cost(leg, cost, legs));
+            let price = leg.price.as_ref().and_then(|price| per_unit_price(leg, price, legs));
             rows.push(CachedRow {
                 entry: entry as u32,
                 posting_index: posting_index as u32,
@@ -362,12 +376,23 @@ pub(super) fn stored_rows(entry: usize, txn: &TransactionDomain, accounts: &mut 
         .collect()
 }
 
+/// The units of the posting `leg` was written as, which a total price (`@@`) or a total cost
+/// (`{{1000 USD}}`) is spread over: those the leg carries when booking changed its posting (kept
+/// by a leg of a split a stage broke apart from the others), else the legs of its group `legs`
+/// summed. `None` when a leg has no units.
+fn written_units(leg: &Posting, legs: &[Posting]) -> Option<Amount> {
+    match leg.written.as_ref().and_then(|written| written.units.as_ref()) {
+        Some(units) => Some(units.clone()),
+        None => booked_group_units(legs),
+    }
+}
+
 /// The lot a booked leg names, as its row shows it. A cost the user wrote as a total
-/// (`{{1000 USD}}`) is divided over the written units in the query's decimal context
-/// ([`decimal::div`], 28 significant digits like beanquery); any other per-unit cost zhang-core
-/// derived by division is rounded to that context too. A cost without a number (the part of a
-/// `{}` reduction no lot covered) is no lot.
-fn lot_cost(leg: &Posting, cost: &PostingCost, written_units: &Amount) -> Option<Cost> {
+/// (`{{1000 USD}}`) is divided over the written units ([`written_units`]) in the query's decimal
+/// context ([`decimal::div`], 28 significant digits like beanquery); any other per-unit cost
+/// zhang-core derived by division is rounded to that context too. A cost without a number (the
+/// part of a `{}` reduction no lot covered) is no lot.
+fn lot_cost(leg: &Posting, cost: &PostingCost, legs: &[Posting]) -> Option<Cost> {
     let base = cost.base.as_ref()?;
     let written_total = leg
         .written
@@ -376,7 +401,9 @@ fn lot_cost(leg: &Posting, cost: &PostingCost, written_units: &Amount) -> Option
         .filter(|written| written.total)
         .and_then(|written| written.base.as_ref());
     let number = match written_total {
-        Some(total) => decimal::div(&total.number, &written_units.number.abs()).unwrap_or_else(|| base.number.clone()),
+        Some(total) => written_units(leg, legs)
+            .and_then(|units| decimal::div(&total.number, &units.number.abs()))
+            .unwrap_or_else(|| base.number.clone()),
         None => in_context(&base.number),
     };
     Some(Cost {
@@ -399,11 +426,15 @@ fn in_context(number: &BigDecimal) -> BigDecimal {
     }
 }
 
-/// the per-unit price of a posting: a total price (`@@`) spread over the units as written
-fn per_unit_price(price: &SingleTotalPrice, units: &Amount) -> Option<Amount> {
+/// the per-unit price of the leg `leg` of `legs`: a total price (`@@`) spread over the units as
+/// written ([`written_units`]), the same for every leg of a split
+fn per_unit_price(leg: &Posting, price: &SingleTotalPrice, legs: &[Posting]) -> Option<Amount> {
     match price {
         SingleTotalPrice::Single(price) => Some(price.clone()),
-        SingleTotalPrice::Total(total) => decimal::div(&total.number, &units.number.abs()).map(|number| Amount::new(number, total.commodity.clone())),
+        SingleTotalPrice::Total(total) => {
+            let units = written_units(leg, legs)?;
+            decimal::div(&total.number, &units.number.abs()).map(|number| Amount::new(number, total.commodity.clone()))
+        }
     }
 }
 

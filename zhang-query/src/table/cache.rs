@@ -33,7 +33,7 @@ use std::sync::{Arc, OnceLock};
 
 use chrono::NaiveDate;
 use uuid::Uuid;
-use zhang_ast::{written_groups, Directive, SpanInfo, Transaction};
+use zhang_ast::{Directive, SpanInfo, Transaction, WrittenGroup};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{Store, TransactionDomain};
 use zhang_core::utils::id::FromSpan;
@@ -525,18 +525,25 @@ impl Postings {
         let mut accounts = Accounts::default();
         let mut rows = Vec::with_capacity(store.postings.len());
         for (_, txn) in transactions {
-            let directive = positions
-                .of(&txn.span, false)
-                .and_then(|position| parsed_at.get_mut(&position))
-                .and_then(Vec::pop);
-            // the directive holds the booked postings; the store has one row per posting as
-            // written, which the booked legs group into
-            let parsed: Option<&Transaction> = directive
-                .and_then(|idx| match &ledger.directives[idx].data {
-                    Directive::Transaction(parsed) => Some(parsed),
-                    _ => None,
-                })
-                .filter(|parsed| written_groups(&parsed.postings).len() == txn.postings.len());
+            // the directive the transaction was stored from: the first at its position, in ledger
+            // order, whose booked postings are the stored ones (`stored_groups`), which the store
+            // has one row per posting as written of. A stage may have emitted another transaction
+            // at that position, say a copy the ledger could not book, which was never stored: it
+            // is passed over and left there, not taken for this one. Without a match the rows are
+            // the store's
+            let mut matched: Option<(usize, Vec<WrittenGroup<'_>>)> = None;
+            if let Some(candidates) = positions.of(&txn.span, false).and_then(|position| parsed_at.get_mut(&position)) {
+                // the last first: `parsed_at` holds them in reverse ledger order
+                for at in (0..candidates.len()).rev() {
+                    if let Directive::Transaction(parsed) = &ledger.directives[candidates[at]].data {
+                        if let Some(groups) = postings::stored_groups(parsed, txn) {
+                            matched = Some((candidates.remove(at), groups));
+                            break;
+                        }
+                    }
+                }
+            }
+            let directive = matched.as_ref().map(|(idx, _)| *idx);
             let entry = cached.len();
             if let Ok(sequence) = usize::try_from(txn.sequence) {
                 entry_of_sequence[sequence] = entry as u32;
@@ -544,11 +551,11 @@ impl Postings {
             cached.push(CachedEntry {
                 id: txn.id,
                 date: txn.datetime.date_naive(),
-                parsed: parsed.and(directive).map(|idx| idx as u32),
+                parsed: directive.map(|idx| idx as u32),
                 entry: directive.and_then(|idx| entries.of_directive(idx)).map(|it| it.seq),
             });
-            match parsed {
-                Some(parsed) => rows.extend(postings::booked_rows(entry, parsed, &mut accounts)),
+            match matched {
+                Some((_, groups)) => rows.extend(postings::booked_rows(entry, &groups, &mut accounts)),
                 None => rows.extend(postings::stored_rows(entry, txn, &mut accounts)),
             }
         }
