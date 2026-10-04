@@ -163,8 +163,9 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
     let transaction_ids = ids_of("transaction");
     let balance_ids = ids_of("balance");
 
-    // tags and links as written: the engine's sets are sorted, and the edit form writes them back as listed
-    let written: HashMap<String, (Vec<String>, Vec<String>)> = {
+    // as written: tags and links in their order, which the engine's sets sort and the edit form writes back as
+    // listed, and a narration that is absent, which the engine reads as '' as beancount does
+    let written: HashMap<String, Written> = {
         let store = ledger
             .store
             .read()
@@ -173,7 +174,12 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
             .iter()
             .filter_map(|id| {
                 let transaction = store.transactions.get(&Uuid::from_str(id).ok()?)?;
-                Some((id.clone(), (transaction.tags.clone(), transaction.links.clone())))
+                let written = Written {
+                    narration: transaction.narration.clone(),
+                    tags: transaction.tags.clone(),
+                    links: transaction.links.clone(),
+                };
+                Some((id.clone(), written))
             })
             .collect()
     };
@@ -200,15 +206,23 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
         .iter()
         .map(|row| {
             let mut entry = EntryRow::of(&columns, row);
-            if let Some((tags, links)) = written.get(&entry.id) {
-                entry.tags = tags.clone();
-                entry.links = links.clone();
+            if let Some(written) = written.get(&entry.id) {
+                entry.narration = written.narration.clone();
+                entry.tags = written.tags.clone();
+                entry.links = written.links.clone();
             }
             let postings = postings.remove(&entry.id).unwrap_or_default();
             let check = checks.remove(&entry.id);
             journal_item(entry, postings, check)
         })
         .collect())
+}
+
+/// What the journal shows of a transaction as it is written.
+struct Written {
+    narration: Option<String>,
+    tags: Vec<String>,
+    links: Vec<String>,
 }
 
 /// A row of [`JOURNAL`]: a transaction or a balance assertion.
