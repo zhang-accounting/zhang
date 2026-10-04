@@ -638,7 +638,7 @@ mod test {
 
             let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source)
                 .await
-                .unwrap_or_else(|e| panic!("{main}: {e}"));
+                .unwrap_or_else(|e| panic!("{}: {}", main, e));
 
             assert_eq!(ledger.directives[0].span.start, 0, "{main}");
             assert_eq!(ledger.directives[0].span.content.trim_end(), "1970-01-01 open Assets:Cash", "{main}");
