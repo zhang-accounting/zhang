@@ -114,7 +114,7 @@ async fn server(dir: &Path) -> Router {
         },
         Arc::new(RwLock::new(ledger)),
         Broadcaster::create(),
-        Arc::new(ReloadSender(sender)),
+        Arc::new(ReloadSender::new(sender)),
     );
     let config = app.config().await.unwrap();
     let state = app.state(&config).await.unwrap_or_else(|error| panic!("state should build: {error}"));

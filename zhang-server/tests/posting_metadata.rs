@@ -160,7 +160,7 @@ fn states(ledger: Ledger) -> (State<SharedLedger>, State<SharedReloadSender>) {
     let (sender, _) = mpsc::channel(1);
     (
         State(SharedLedger(Arc::new(RwLock::new(ledger)))),
-        State(SharedReloadSender(Arc::new(ReloadSender(sender)))),
+        State(SharedReloadSender(Arc::new(ReloadSender::new(sender)))),
     )
 }
 

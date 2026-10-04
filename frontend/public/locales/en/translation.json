@@ -622,6 +622,8 @@
   "SHELL_RELOAD_SENT": "Reloading ledger…",
   "SHELL_RELOAD_SENT_DESCRIPTION": "The data refreshes once the server has re-read the files.",
   "SHELL_RELOAD_FAILED": "Ledger reload failed",
+  "SHELL_RELOAD_FAILED_STALE": "Showing the last version that loaded. Fix the file and save it: the ledger reloads by itself.",
+  "SHELL_RELOAD_FAILED_OPEN_EDITOR": "Open the file editor",
   "SHELL_SERVER_CONNECTED": "Reconnected to the server",
   "SHELL_SERVER_OFFLINE": "Server offline",
   "SHELL_SERVER_OFFLINE_DESCRIPTION": "Cannot reach the ledger server; retrying in the background.",

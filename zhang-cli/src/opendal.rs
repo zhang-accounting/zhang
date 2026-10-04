@@ -1343,7 +1343,7 @@ mod test {
         let appended = source.async_append(&ledger, vec![coffee]).await;
         let state = State(SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
         let (sender, _receiver) = tokio::sync::mpsc::channel(8);
-        let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
         let request = axum::Json(FileUpdateRequest {
             content: "1970-01-01 open Assets:Cash\n".to_owned(),
             expected_sha256: None,

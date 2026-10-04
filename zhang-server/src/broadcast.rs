@@ -8,17 +8,44 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::time::interval;
 
+use crate::state::ReloadFailure;
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
 pub enum BroadcastEvent {
     Reload,
+    /// a reload failed, with its `file` and `message`: the ledger served is the one loaded before it (#492)
+    ReloadFailed(ReloadFailure),
     Connected,
-    NewVersionFound { version: String },
+    NewVersionFound {
+        version: String,
+    },
 }
 
 impl BroadcastEvent {
     pub fn to_data(&self) -> Event {
         Event::default().json_data(self).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+
+    use super::BroadcastEvent;
+    use crate::state::ReloadFailure;
+
+    /// the event the web UI switches on by `type`, with the failure's fields beside it
+    #[test]
+    fn a_failed_reload_event_carries_the_file_and_the_message() {
+        let event = BroadcastEvent::ReloadFailed(ReloadFailure {
+            file: Some("main.zhang".to_owned()),
+            message: "cannot parse main.zhang: unexpected input at line 3, column 1".to_owned(),
+        });
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            json!({"type": "ReloadFailed", "file": "main.zhang", "message": "cannot parse main.zhang: unexpected input at line 3, column 1"})
+        );
     }
 }
 

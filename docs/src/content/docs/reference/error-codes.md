@@ -486,7 +486,8 @@ transaction:
 ## When the ledger does not load
 
 These problems stop Zhang from loading the ledger. `zhang serve` prints the reason on stderr and exits with exit
-code 1. When the server is already running, a reload that fails keeps the ledger as it was and logs the reason.
+code 1. When the server is already running, a reload that fails keeps the ledger as it was, logs the reason, and
+shows it in the web UI until a reload succeeds.
 
 - **A syntax error** in a file. The message names the file, line and column, such as
   `failed to parse zhang file: unexpected input at line 4, column 3`.

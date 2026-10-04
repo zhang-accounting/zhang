@@ -176,7 +176,7 @@ async fn app_and_ledger(dir: &Path, settings: &Settings) -> (ServerApp, Arc<RwLo
         },
         ledger.clone(),
         Broadcaster::create(),
-        Arc::new(ReloadSender(sender)),
+        Arc::new(ReloadSender::new(sender)),
     );
     (app, ledger)
 }

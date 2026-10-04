@@ -2,14 +2,41 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use axum::extract::FromRef;
-use gotcha::GotchaContext;
+use gotcha::{GotchaContext, Schematic};
+use serde::Serialize;
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use zhang_core::ledger::Ledger;
+use zhang_core::ZhangError;
 
 use crate::auth::SharedAuth;
 use crate::broadcast::Broadcaster;
 use crate::error::ServerError;
 use crate::{ReloadSender, ServerResult};
+
+/// Why the last reload failed, kept while the ledger served is the one loaded before it (#492): `/api/info` shows
+/// it, the SSE `ReloadFailed` event carries it, and `POST /api/reload` answers it. A reload that succeeds clears it.
+#[derive(Debug, Clone, Serialize, Schematic)]
+pub struct ReloadFailure {
+    /// the file the failure is in, when it is one file's, as a syntax error is; as the ledger names its files
+    pub file: Option<String>,
+    /// the reason, as the log has it
+    pub message: String,
+}
+
+impl From<&ZhangError> for ReloadFailure {
+    fn from(error: &ZhangError) -> Self {
+        let file = match error {
+            ZhangError::PestError { path, .. } => Some(path.clone()),
+            ZhangError::ProcessError { span, .. } => span.filename.as_ref().map(|file| file.display().to_string()),
+            ZhangError::FileError { path, .. } => Some(path.display().to_string()),
+            _ => None,
+        };
+        ReloadFailure {
+            file,
+            message: error.to_string(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct SharedLedger(pub Arc<RwLock<Ledger>>);

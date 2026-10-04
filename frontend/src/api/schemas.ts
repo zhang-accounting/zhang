@@ -304,7 +304,11 @@ export interface paths {
     get: operations['get_query_schema'];
   };
   '/api/reload': {
-    /** Reload */
+    /**
+     * Reload
+     * @description `POST /api/reload`: reload the ledger from its files, answered once it is done. A reload that fails, as a syntax
+     * error makes it, is answered with the reason (HTTP 409): the ledger served is the one loaded before it (#492).
+     */
     post: operations['reload'];
   };
   '/api/statistic/graph': {
@@ -1521,6 +1525,16 @@ export interface operations {
               build_date: string;
               /** @description the ledger's file format, from its main file's extension: `beancount` or `zhang` */
               format: string;
+              /**
+               * @description why the last reload failed, while the ledger served is the one loaded before it; absent once a reload
+               * succeeded (#492)
+               */
+              reload_failure?: {
+                /** @description the file the failure is in, when it is one file's, as a syntax error is; as the ledger names its files */
+                file?: string | null;
+                /** @description the reason, as the log has it */
+                message: string;
+              } | null;
               /** @description title of ledger */
               title?: string | null;
               /** @description version of zhang accounting */
@@ -2046,7 +2060,11 @@ export interface operations {
       };
     };
   };
-  /** Reload */
+  /**
+   * Reload
+   * @description `POST /api/reload`: reload the ledger from its files, answered once it is done. A reload that fails, as a syntax
+   * error makes it, is answered with the reason (HTTP 409): the ledger served is the one loaded before it (#492).
+   */
   reload: {
     responses: {
       /** @description default return */
