@@ -23,6 +23,8 @@ use crate::{ZhangError, ZhangResult};
 pub struct InMemoryOptions {
     pub operating_currency: String,
     pub default_rounding: Rounding,
+    /// the precision of a commodity whose directive has no valid `precision` meta
+    pub default_commodity_precision: i32,
     pub default_balance_tolerance_precision: i32,
     pub default_booking_method: BookingMethod,
     pub timezone: Tz,
@@ -124,7 +126,9 @@ impl InMemoryOptions {
                         self.default_balance_tolerance_precision = ret
                     }
                 }
-                BuiltinOption::DefaultCommodityPrecision => {}
+                BuiltinOption::DefaultCommodityPrecision => {
+                    self.default_commodity_precision = value.parse::<i32>().map_err(|_| ZhangError::InvalidOptionValue)?;
+                }
                 BuiltinOption::Timezone => match value.parse::<Tz>() {
                     Ok(tz) => {
                         self.timezone = tz;
@@ -165,6 +169,7 @@ impl Default for InMemoryOptions {
         InMemoryOptions {
             operating_currency: DEFAULT_OPERATING_CURRENCY.to_string(),
             default_rounding: DEFAULT_ROUNDING,
+            default_commodity_precision: DEFAULT_COMMODITY_PRECISION,
             default_balance_tolerance_precision: DEFAULT_BALANCE_TOLERANCE_PRECISION,
             default_booking_method: DEFAULT_BOOKING_METHOD.parse().expect("invalid booking method"),
             timezone: DEFAULT_TIMEZONE.parse().expect("invalid timezone"),
