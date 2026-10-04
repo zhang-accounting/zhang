@@ -6745,7 +6745,6 @@ dependencies = [
  "opendal",
  "opendal-http-transport-reqwest",
  "openssl",
- "regex",
  "reqwest",
  "self_update",
  "serde",
