@@ -10,7 +10,6 @@ zhang-ast = { version = "0.1", path = "../../zhang-ast" }
 zhang-core = { version = "0.1", path = "../../zhang-core" }
 nom = "7"
 itertools = { workspace = true }
-log = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 bigdecimal = { workspace = true }
 
