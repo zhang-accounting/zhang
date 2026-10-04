@@ -28,9 +28,9 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::JournalRequest;
 use zhang_server::routes::common::get_errors;
-use zhang_server::routes::document::get_documents;
+use zhang_server::routes::document::{download_document, get_documents};
 use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, update_single_transaction};
-use zhang_server::routes::Query as UrlQuery;
+use zhang_server::routes::{Base64Path, Query as UrlQuery};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
 
@@ -644,6 +644,37 @@ async fn documents_come_from_the_documents_table_newest_first() {
             ),
         ])
     );
+}
+
+/// In a beancount ledger a document directive names its file relative to the file it is in (#508): the documents
+/// page lists the path within the ledger that zhang resolved, the one the download opens.
+#[tokio::test]
+async fn a_beancount_document_is_listed_with_the_path_the_download_opens() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../extensions/beancount/tests/balance_assertions");
+    let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+    let ledger = Ledger::async_load(dir, "document_paths.bean".to_owned(), source).await.unwrap();
+    let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
+    let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
+    assert_eq!(status, StatusCode::OK);
+    let paths = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| (it["datetime"].clone(), it["path"].clone()))
+        .collect::<Vec<_>>();
+    // the one in the included data/2024.bean is written "../attachments/statement.txt"
+    assert_eq!(
+        paths,
+        vec![
+            (json!("2024-01-03T00:00:00"), json!("document_paths/attachments/statement.txt")),
+            (json!("2024-01-02T00:00:00"), json!("document_paths/attachments/statement.txt")),
+        ]
+    );
+    let path = body["data"][0]["path"].as_str().unwrap().to_owned();
+    let response = download_document(State(ledger.clone()), Base64Path(path)).await.into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+    let content = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(String::from_utf8_lossy(&content).trim(), "the statement of January 2024");
 }
 
 #[tokio::test]

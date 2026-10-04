@@ -120,7 +120,7 @@ The `document` directive has the same syntax in Beancount. Two differences:
 - Zhang resolves a relative path in a Beancount file against the directory of the file that declares the directive,
   as Beancount does, and keeps finding the documents earlier versions wrote relative to the ledger root (see
   [Paths](#paths)). In queries, the `filename` column of `#documents` follows Beancount's rule, and the `path` column
-  gives the path as written.
+  gives the path within the ledger that the web UI opens.
 - Beancount's `documents` option, which finds documents in a directory tree by their file names, has no effect in
   Zhang. Write a `document` directive or metadata entry for each file.
 
