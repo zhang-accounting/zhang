@@ -9,6 +9,7 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
+use zhang_core::data_source::loaded_file;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
 use zhang_core::domains::schemas::TransactionInfoDomain;
 use zhang_core::ledger::Ledger;
@@ -146,6 +147,13 @@ fn original_posting<'a>(
     }
 }
 
+/// The file the stored transaction at `span` is edited in, as the data source names it. A transaction in no file of
+/// the ledger (#476) — one a plugin made, whose span names no file, one the ledger did not load, or no text — is
+/// [`ServerError::PluginTransaction`]: slicing a file by its span would panic, or edit another directive's text.
+fn editable_file(ledger: &Ledger, span: &TransactionInfoDomain) -> ServerResult<String> {
+    loaded_file(ledger, &span.span).ok_or_else(|| ServerError::PluginTransaction(span.id.clone()))
+}
+
 /// The transaction directive the stored transaction at `span` was read from.
 fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) -> Option<&'a Transaction> {
     ledger.directives.iter().find_map(|directive| match &directive.data {
@@ -190,10 +198,11 @@ pub async fn upload_transaction_document(
     let Some(span_info) = span_info else {
         return Err(ServerError::NoSuchTransaction(transaction_id));
     };
+    // no file is saved for a transaction that is in no file of the ledger
+    let source_file_path = editable_file(&ledger, &span_info)?;
 
     let written = async {
-        // no file is saved for a transaction that is no longer where the ledger loaded it
-        let source_file_path = span_info.source_file.to_string_lossy().to_string();
+        // nor for one that is no longer where the ledger loaded it
         ledger
             .data_source
             .async_get_unchanged(source_file_path, std::slice::from_ref(&span_info.span))
@@ -233,7 +242,7 @@ async fn write_transaction_documents(ledger: &Ledger, span: &TransactionInfoDoma
         .iter()
         .map(|document| format!("  document: {}", quote_as(document, QuoteStyle::Beancount)))
         .collect_vec();
-    let source_file_path = span.source_file.to_string_lossy().to_string();
+    let source_file_path = editable_file(ledger, span)?;
     // the transaction must still be where the ledger loaded it
     let mut content = ledger
         .data_source
@@ -279,11 +288,11 @@ pub async fn update_single_transaction(
     let Some(span_info) = span_info else {
         return Err(ServerError::NoSuchTransaction(transaction_id));
     };
+    let source_file_path = editable_file(&ledger, &span_info)?;
 
     let trx = transaction_from_request(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
     let trx_content = String::from_utf8_lossy(&txn_content);
-    let source_file_path = span_info.source_file.to_string_lossy().to_string();
 
     let written = async {
         // the transaction must still be where the ledger loaded it
@@ -312,17 +321,18 @@ mod string_round_trip_test {
     use axum::response::IntoResponse;
     use axum::Json;
     use bigdecimal::BigDecimal;
-    use chrono::{TimeZone, Utc};
+    use chrono::{NaiveDate, TimeZone, Utc};
     use tokio::sync::{mpsc, RwLock};
     use uuid::Uuid;
     use zhang_ast::amount::Amount;
-    use zhang_ast::{Directive, Flag, SpanInfo, Spanned, Transaction};
+    use zhang_ast::{Account, Date, Directive, Flag, Posting, SpanInfo, Spanned, Transaction, ZhangString};
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
     use zhang_core::domains::schemas::MetaType;
     use zhang_core::ledger::Ledger;
     use zhang_core::store::TransactionDomain;
+    use zhang_core::utils::string_::escape_with_quote;
 
     use super::{
         create_new_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction, upload_transaction_document,
@@ -401,6 +411,33 @@ mod string_round_trip_test {
             State(SharedLedger(Arc::new(RwLock::new(ledger)))),
             State(SharedReloadSender(Arc::new(ReloadSender(sender)))),
         )
+    }
+
+    /// The status of `response`, with the `message` of its body.
+    async fn status_and_message(response: axum::response::Response) -> (StatusCode, String) {
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (
+            status,
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["message"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    }
+
+    /// The upload of one document, `a.pdf`, as [`upload_transaction_document`] takes it.
+    async fn pdf_upload() -> axum::extract::Multipart {
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .header("content-type", "multipart/form-data; boundary=X")
+            .body(axum::body::Body::from(
+                "--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.pdf\"\r\n\r\n%PDF\r\n--X--\r\n",
+            ))
+            .unwrap();
+        <axum::extract::Multipart as axum::extract::FromRequest<()>>::from_request(request, &())
+            .await
+            .unwrap()
     }
 
     /// The only transaction of the ledger, with its `note` metadata.
@@ -1502,33 +1539,8 @@ mod string_round_trip_test {
 
         // through the API, the message tells the transaction may have moved, under another id
         let (ledger_state, reload) = states(loaded);
-        let body = |response: axum::response::Response| async move {
-            let status = response.status();
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            (
-                status,
-                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["message"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-            )
-        };
-        let upload = || {
-            let request = axum::http::Request::builder()
-                .method("POST")
-                .header("content-type", "multipart/form-data; boundary=X")
-                .body(axum::body::Body::from(
-                    "--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.pdf\"\r\n\r\n%PDF\r\n--X--\r\n",
-                ))
-                .unwrap();
-            async {
-                <axum::extract::Multipart as axum::extract::FromRequest<()>>::from_request(request, &())
-                    .await
-                    .unwrap()
-            }
-        };
-        let (status, message) = body(
-            upload_transaction_document(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), upload().await)
+        let (status, message) = status_and_message(
+            upload_transaction_document(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), pdf_upload().await)
                 .await
                 .into_response(),
         )
@@ -1544,7 +1556,7 @@ mod string_round_trip_test {
 
         // tried again with that id: the ledger is reloaded, and the transaction has another id now
         let update = || edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
-        let (status, message) = body(
+        let (status, message) = status_and_message(
             update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), Json(update()))
                 .await
                 .into_response(),
@@ -1566,5 +1578,128 @@ mod string_round_trip_test {
         assert!(written.contains("  Assets:Cash -6 CNY\n  Expenses:Food 6 CNY\n"), "{written}");
         assert!(!written.contains("5 CNY"), "{written}");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// A transaction a plugin made is in no file of the ledger (#476): an update, or a document uploaded to it, is
+    /// refused with a 400 saying it was generated by a plugin, nothing panics, and the ledger's files are left as
+    /// they are — whatever span the plugin gave it: none, one in a file the ledger did not load, or an empty place
+    /// in a file of the ledger, which an update used to write the edited transaction into. A span past the end of
+    /// a file of the ledger reads as a file that shrank since the load, and is refused as that, with a 409.
+    #[tokio::test]
+    async fn a_transaction_a_plugin_made_is_not_edited() {
+        let fixture = FsPath::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugins/append_directive.wat");
+        let posting = |account: &str, number: i64| Posting {
+            flag: None,
+            account: Account::from_str(account).unwrap(),
+            units: Some(Amount::new(BigDecimal::from(number), "CNY")),
+            cost: None,
+            price: None,
+            comment: None,
+            meta: Default::default(),
+            written: None,
+        };
+        let plugin_transaction = |span: SpanInfo| {
+            Spanned::new(
+                Directive::Transaction(Transaction {
+                    date: Date::Date(NaiveDate::from_ymd_opt(2024, 1, 16).unwrap()),
+                    flag: Some(Flag::Okay),
+                    payee: Some(ZhangString::quote("Plugin")),
+                    narration: Some(ZhangString::quote("made up")),
+                    tags: Default::default(),
+                    links: Default::default(),
+                    postings: vec![posting("Assets:Cash", -7), posting("Expenses:Food", 7)],
+                    meta: Default::default(),
+                }),
+                span,
+            )
+        };
+        fn span(filename: Option<PathBuf>, start: usize, end: usize, content: &str) -> SpanInfo {
+            SpanInfo {
+                start,
+                end,
+                content: content.to_owned(),
+                filename,
+            }
+        }
+        const FAR: usize = 1 << 20;
+        type SpanOf = fn(&FsPath) -> SpanInfo;
+        let cases: [(&str, SpanOf, StatusCode, &str); 4] = [
+            ("in no file", |_| SpanInfo::default(), StatusCode::BAD_REQUEST, "generated by a plugin"),
+            (
+                "in a file the ledger did not load",
+                |dir| span(Some(dir.join("plugin.zhang")), 0, 10, "2024-01-16"),
+                StatusCode::BAD_REQUEST,
+                "generated by a plugin",
+            ),
+            (
+                "at an empty place in a file of the ledger",
+                |dir| span(Some(dir.join("main.zhang")), 0, 0, ""),
+                StatusCode::BAD_REQUEST,
+                "generated by a plugin",
+            ),
+            (
+                "past the end of a file of the ledger",
+                |dir| span(Some(dir.join("main.zhang")), FAR, FAR + 10, "2024-01-16"),
+                StatusCode::CONFLICT,
+                "changed since the ledger was loaded",
+            ),
+        ];
+        for (case, span_of, status, says) in cases {
+            let dir = std::env::temp_dir().join(format!("zhang-plugin-transaction-{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let dir = dir.canonicalize().unwrap();
+            let module = dir.join("append_directive.wat");
+            std::fs::copy(&fixture, &module).unwrap();
+            let span = span_of(&dir);
+            let directive = serde_json::to_string(&plugin_transaction(span.clone())).unwrap();
+            let main = dir.join("main.zhang");
+            let ledger = format!(
+                "option \"features.plugin\" \"true\"\nplugin \"{}\"\n  directive: {}\n\
+                 1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n\
+                 2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n",
+                module.display(),
+                escape_with_quote(&directive)
+            );
+            std::fs::write(&main, &ledger).unwrap();
+            let loaded = load(&dir).await;
+            // the plugin's transaction is in the ledger, at the span the plugin gave it
+            let id = {
+                let operations = loaded.operations();
+                let store = operations.read();
+                assert!(store.errors.is_empty(), "{case}: {:?}", store.errors);
+                let transaction = store
+                    .transactions
+                    .values()
+                    .find(|it| it.payee.as_deref() == Some("Plugin"))
+                    .unwrap_or_else(|| panic!("{case}: the plugin's transaction is in the ledger"));
+                assert_eq!(transaction.span, span, "{case}");
+                transaction.id
+            };
+            let (state, reload) = states(loaded);
+
+            let update = edit(&[("Assets:Cash", -8, &[]), ("Expenses:Food", 8, &[])]);
+            let (got, message) = status_and_message(
+                update_single_transaction(state.clone(), reload.clone(), Path((id.to_string(),)), Json(update))
+                    .await
+                    .into_response(),
+            )
+            .await;
+            assert_eq!(got, status, "{case}: {message}");
+            assert!(message.contains(says), "{case}: {message}");
+            assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is written");
+
+            let (got, message) = status_and_message(
+                upload_transaction_document(state, reload, Path((id.to_string(),)), pdf_upload().await)
+                    .await
+                    .into_response(),
+            )
+            .await;
+            assert_eq!(got, status, "{case}: {message}");
+            assert!(message.contains(says), "{case}: {message}");
+            assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is written");
+            assert!(!dir.join("attachments").exists(), "{case}: no attachment is saved");
+            assert!(!dir.join("plugin.zhang").exists(), "{case}: no file is created");
+            std::fs::remove_dir_all(dir).ok();
+        }
     }
 }
