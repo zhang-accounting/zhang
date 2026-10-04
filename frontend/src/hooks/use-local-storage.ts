@@ -27,6 +27,16 @@ function read<T>(key: string, defaultValue: T): T {
   }
 }
 
+/** Stores `value` under `key` and notifies every `useLocalStorage` hook of that key, in this tab and in the others. */
+export function writeLocalStorage<T>(key: string, value: T) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // storage full or unavailable: keep in-memory state only
+  }
+  window.dispatchEvent(new CustomEvent(LOCAL_STORAGE_EVENT, { detail: key }));
+}
+
 export function useLocalStorage<T>({ key, defaultValue }: UseLocalStorageOptions<T>) {
   const [value, setValue] = useState<T>(() => read(key, defaultValue));
 
@@ -53,13 +63,8 @@ export function useLocalStorage<T>({ key, defaultValue }: UseLocalStorageOptions
   const setStoredValue = useCallback(
     (next: T | ((prev: T) => T)) => {
       const resolved = typeof next === 'function' ? (next as (prev: T) => T)(read(key, defaultValue)) : next;
-      try {
-        window.localStorage.setItem(key, JSON.stringify(resolved));
-      } catch {
-        // storage full or unavailable: keep in-memory state only
-      }
       setValue(resolved);
-      window.dispatchEvent(new CustomEvent(LOCAL_STORAGE_EVENT, { detail: key }));
+      writeLocalStorage(key, resolved);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key],
