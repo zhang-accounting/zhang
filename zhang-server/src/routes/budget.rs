@@ -7,14 +7,15 @@ use chrono::NaiveDate;
 use gotcha::api;
 use itertools::Itertools;
 use zhang_ast::amount::Amount;
-use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::ledger::Ledger;
 use zhang_query::{Params, Value};
 
 use crate::builtin::execute;
 use crate::cells::{first_row, rows, Row};
 use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
-use crate::response::{BudgetEventEntity, BudgetEventType, BudgetInfoEntity, BudgetIntervalEventEntity, BudgetListItemEntity, ResponseWrapper};
+use crate::response::{
+    AccountJournalEntity, BudgetEventEntity, BudgetEventType, BudgetInfoEntity, BudgetIntervalEventEntity, BudgetListItemEntity, ResponseWrapper,
+};
 use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
 use crate::{ApiResult, ServerResult};
@@ -162,7 +163,7 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
         let postings = rows("budgets.postings", &postings)
             .map(|row| {
                 let units = row.amount("units")?.unwrap_or_else(|| Amount::zero(""));
-                Ok(BudgetIntervalEventEntity::Posting(AccountJournalDomain {
+                Ok(BudgetIntervalEventEntity::Posting(AccountJournalEntity {
                     datetime: row.datetime("date", "time")?.unwrap_or_default(),
                     timestamp: row.int("timestamp")?.unwrap_or_default(),
                     account: row.str("account")?.unwrap_or_default(),

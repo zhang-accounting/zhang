@@ -7,7 +7,6 @@ use chrono::{NaiveDate, NaiveDateTime};
 use gotcha_core::Schematic;
 use serde::Serialize;
 use strum::{AsRefStr, EnumString};
-use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Currency, Rounding, SpanInfo};
 
@@ -86,32 +85,6 @@ pub struct TransactionInfoDomain {
     pub span_end: usize,
     /// where the transaction is, with the text the ledger loaded there
     pub span: zhang_ast::SpanInfo,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "openapi", derive(Schematic))]
-pub struct AccountJournalDomain {
-    pub datetime: NaiveDateTime,
-    pub timestamp: i64,
-    /// the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
-    /// asserted account for a balance assertion
-    pub account: String,
-    /// the id of the transaction; for a balance assertion, its id
-    pub trx_id: String,
-    pub payee: Option<String>,
-    pub narration: Option<String>,
-    /// what the row adds to the account; zero for a balance assertion, which changes no balance
-    pub inferred_unit: Amount,
-    /// the balance after the row, in the row's currency: in an account's journal, the running balance of the account
-    /// and its sub-accounts, and for a balance assertion the balance it was checked against
-    pub account_after: Amount,
-    /// for the row of a balance assertion: the asserted amount; null for a posting
-    pub asserted: Option<Amount>,
-    /// for the row of a balance assertion: the balance it was checked against, that of the account and
-    /// all its sub-accounts; null for a posting
-    pub checked_balance: Option<Amount>,
-    /// for the row of a balance assertion: whether it held, within its tolerance; null for a posting
-    pub passed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]

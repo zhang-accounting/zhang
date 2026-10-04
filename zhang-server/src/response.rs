@@ -11,7 +11,7 @@ use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{AccountType, Currency};
-use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, QueryDomain};
+use zhang_core::domains::schemas::{AccountStatus, QueryDomain};
 use zhang_core::plugin::PluginType;
 
 use crate::error::ServerError;
@@ -104,6 +104,34 @@ pub struct AccountEntity {
     pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
     /// whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes
     pub has_sub_accounts: bool,
+}
+
+// a row of an account's journal, of the postings of a budget and of the top postings of the report: a posting with
+// the balance after it, or a balance assertion with the balance it was checked against. Not a doc comment: that
+// would add a description to the OpenAPI document
+#[derive(Serialize, Schematic)]
+pub struct AccountJournalEntity {
+    pub datetime: NaiveDateTime,
+    pub timestamp: i64,
+    /// the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+    /// asserted account for a balance assertion
+    pub account: String,
+    /// the id of the transaction; for a balance assertion, its id
+    pub trx_id: String,
+    pub payee: Option<String>,
+    pub narration: Option<String>,
+    /// what the row adds to the account; zero for a balance assertion, which changes no balance
+    pub inferred_unit: Amount,
+    /// the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+    /// and its sub-accounts, and for a balance assertion the balance it was checked against
+    pub account_after: Amount,
+    /// for the row of a balance assertion: the asserted amount; null for a posting
+    pub asserted: Option<Amount>,
+    /// for the row of a balance assertion: the balance it was checked against, that of the account and
+    /// all its sub-accounts; null for a posting
+    pub checked_balance: Option<Amount>,
+    /// for the row of a balance assertion: whether it held, within its tolerance; null for a posting
+    pub passed: Option<bool>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -263,7 +291,7 @@ pub struct StatisticRankEntity {
     pub to: NaiveDateTime,
 
     pub detail: Vec<ReportRankItemEntity>,
-    pub top_transactions: Vec<AccountJournalDomain>,
+    pub top_transactions: Vec<AccountJournalEntity>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -358,7 +386,7 @@ pub struct BudgetEventEntity {
 #[serde(tag = "type")]
 pub enum BudgetIntervalEventEntity {
     BudgetEvent(BudgetEventEntity),
-    Posting(AccountJournalDomain),
+    Posting(AccountJournalEntity),
 }
 
 impl BudgetIntervalEventEntity {
