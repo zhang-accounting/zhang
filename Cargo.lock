@@ -6888,7 +6888,7 @@ dependencies = [
  "mime_guess",
  "notify",
  "percent-encoding",
- "rand 0.8.8",
+ "rand 0.10.3",
  "reqwest",
  "rust-embed",
  "self_update",
