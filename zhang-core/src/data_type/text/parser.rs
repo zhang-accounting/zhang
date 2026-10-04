@@ -25,6 +25,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
 use crate::utils::string_::{invalid_escape_at, quoted_string};
+use crate::utils::BOM;
 
 /// Error returned when the input cannot be parsed as zhang's text format.
 #[derive(Debug, Clone)]
@@ -1016,8 +1017,10 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
 pub fn parse_items<'a, T: std::fmt::Debug + PartialEq, E>(
     input_str: &'a str, file: Option<PathBuf>, mut item: impl FnMut(&'a str) -> IResult<&'a str, Option<T>>, error_at: impl Fn(&'a str, &'a str, &str) -> E,
 ) -> Result<Vec<Spanned<T>>, E> {
-    let original = input_str;
-    let mut rest = input_str;
+    // a leading byte order mark (#505) is no part of the text: the spans and the error positions count from the
+    // text after it, which is what the write paths edit (`crate::data_source::FileText`)
+    let original = input_str.strip_prefix(BOM).unwrap_or(input_str);
+    let mut rest = original;
     let mut directives = Vec::new();
 
     loop {

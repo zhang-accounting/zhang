@@ -33,6 +33,8 @@ ledger/
 
 主文件的扩展名决定整个账本的格式：`.zhang`，或者 Beancount 的 `.bean`、`.beancount` 和 `.bc`。如果主文件不存在，张记账会以空账本启动。
 
+文件使用 UTF-8 编码。以字节顺序标记（BOM）开头的文件（某些 Windows 编辑器保存时会添加）会被当作没有该标记来读取；张记账写入该文件时会保留它。
+
 网页界面会写入这些文件：
 
 - 新的交易、余额断言或文档会追加到 [`directive_output_path`](/zh-cn/reference/directives/options/) 选项为其日期指定的文件中，默认为 `data/{year}/{month}.zhang`（扩展名与主文件相同）。某个文件第一次被使用时，张记账会向主文件追加一条引入它的 `include`。

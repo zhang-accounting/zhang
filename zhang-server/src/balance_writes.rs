@@ -101,12 +101,12 @@ impl BalanceWrites {
                     (_, Some(text)) => text,
                     (directive, None) => String::from_utf8_lossy(&ledger.data_source.export(directive.clone())?).to_string(),
                 };
-                content.replace_by_span(&span, &text);
+                content.text.replace_by_span(&span, &text);
             }
             edited.push((file, content));
         }
         for (file, content) in edited {
-            ledger.data_source.async_save(ledger, file, content.as_bytes()).await?;
+            ledger.data_source.async_save(ledger, file, &content.into_bytes()).await?;
         }
         if !append.is_empty() {
             ledger.data_source.async_append(ledger, append).await?;
