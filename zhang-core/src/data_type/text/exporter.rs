@@ -3,7 +3,6 @@ use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
 use crate::data_type::text::parser::is_valid_meta_key;
-use crate::ledger::Ledger;
 use crate::utils::plain_decimal;
 use crate::utils::string_::{quote_as, QuoteStyle};
 
@@ -20,11 +19,7 @@ pub trait ZhangDataTypeExportable: Sized {
     fn export_as(self, style: QuoteStyle) -> Self::Output;
 }
 
-pub fn append_meta(meta: Meta, string: String) -> String {
-    append_meta_as(meta, string, QuoteStyle::Zhang)
-}
-
-/// [`append_meta`], writing quoted metadata values in `style`.
+/// Appends `meta` to `string`, one indented line per entry, writing quoted metadata values in `style`.
 pub fn append_meta_as(meta: Meta, string: String, style: QuoteStyle) -> String {
     let mut metas = meta.export_as(style).into_iter().map(|it| format!("  {}", it)).collect_vec();
     metas.insert(0, string);
@@ -449,14 +444,6 @@ impl ZhangDataTypeExportable for Directive {
             Directive::BudgetTransfer(budget_transfer) => budget_transfer.export_as(style),
             Directive::BudgetClose(budget_close) => budget_close.export_as(style),
         }
-    }
-}
-
-impl ZhangDataTypeExportable for Ledger {
-    type Output = String;
-    fn export_as(self, style: QuoteStyle) -> String {
-        let vec = self.directives.into_iter().map(|it| it.data.export_as(style)).collect_vec();
-        vec.join("\n\n")
     }
 }
 
