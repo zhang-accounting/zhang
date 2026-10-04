@@ -1,38 +1,14 @@
 [
   {
-    "uri": "/api/store",
+    "uri": "/api/errors",
     "validations": [
       [
-        "$.data.errors.length()",
+        "$.data.records.length()",
         1
       ],
       [
-        "$.data.errors[0].error_type",
+        "$.data.records[0].error_type",
         "AccountBalanceCheckError"
-      ],
-      [
-        "$.data.balance_assertions.length()",
-        2
-      ],
-      [
-        "$.data.balance_assertions[?(@.sequence==1)].passed",
-        false
-      ],
-      [
-        "$.data.balance_assertions[?(@.sequence==1)].balance.number",
-        "0"
-      ],
-      [
-        "$.data.transactions[*][?(@.sequence==2)].flag",
-        "BalancePad"
-      ],
-      [
-        "$.data.balance_assertions[?(@.sequence==3)].passed",
-        true
-      ],
-      [
-        "$.data.balance_assertions[?(@.sequence==3)].balance.number",
-        "0.10"
       ]
     ]
   },
@@ -46,6 +22,18 @@
       [
         "$.data.records[0].datetime",
         "2017-12-02T00:00:00"
+      ],
+      [
+        "$.data.records[0].type",
+        "BalanceCheck"
+      ],
+      [
+        "$.data.records[0].passed",
+        true
+      ],
+      [
+        "$.data.records[0].postings[0].account_before.number",
+        "0.10"
       ],
       [
         "$.data.records[1].type",
@@ -62,6 +50,10 @@
       [
         "$.data.records[2].passed",
         false
+      ],
+      [
+        "$.data.records[2].postings[0].account_before.number",
+        "0"
       ]
     ]
   },
