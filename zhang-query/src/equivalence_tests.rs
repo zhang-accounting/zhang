@@ -127,6 +127,15 @@ const QUERIES: &[&str] = &[
     "SELECT date, path, account, transaction_id FROM #documents ORDER BY seq DESC LIMIT 3",
     "SELECT id, account, payee, units(position), str(position), metas, entry_metas ORDER BY seq DESC, posting_index LIMIT 20 OFFSET 7",
     "SELECT date, account, balance, account_balance, payee, number / 0 ORDER BY date DESC, account LIMIT 6 OFFSET 2",
+    // a CASE built for the kept rows of a top-k page, or while scanning when a branch can fail; CASE under OFFSET
+    // without ORDER BY, whose skipped rows are not built
+    "SELECT seq, payee, CASE WHEN flag = 'P' THEN 'pad' WHEN payee IS NULL THEN narration ELSE payee END AS who FROM #entries ORDER BY seq DESC LIMIT 5 OFFSET 3",
+    "SELECT date, account, CASE WHEN number > 0 THEN number / 0 ELSE number END AS odd ORDER BY date DESC, account LIMIT 4 OFFSET 1",
+    "SELECT date, CASE WHEN number < 0 THEN 'out' ELSE 'in' END AS way, units(balance) LIMIT 5 OFFSET 7",
+    // a CASE inside an aggregate and an aggregate written twice, with HAVING, ORDER BY, LIMIT and OFFSET
+    "SELECT account, sum(CASE WHEN number > 0 THEN number ELSE 0 END) AS inflow, sum(CASE WHEN number > 0 THEN number ELSE 0 END) * 2 AS twice GROUP BY account ORDER BY account LIMIT 3 OFFSET 2",
+    "SELECT account, count(*) AS n, count(*) + 1 AS more, last(balance) GROUP BY account HAVING count(*) > 2 ORDER BY count(*) DESC, account LIMIT 3 OFFSET 1",
+    "SELECT seq, least(seq, 10) AS low, greatest(seq, 10) AS high, CASE WHEN seq > 10 THEN 'late' END AS mark FROM #entries ORDER BY seq DESC LIMIT 4 OFFSET 2",
     // account-scoped scans, and the columns zhang adds
     "SELECT date, account, position, balance, account_balance WHERE account = 'Assets:Broker' OR account = 'Assets:US:BofA:Checking'",
     "SELECT date, account, balance, account_balance, seq, posting_index WHERE account IN ('Assets:Cash', 'Assets:US:Vanguard:Cash', 'Nowhere') ORDER BY seq DESC LIMIT 20",
@@ -444,6 +453,11 @@ fn explain_shows_the_decisions() {
     );
     assert!(!explain("SELECT date, payee ORDER BY date DESC").contains("late targets"));
     assert!(!explain("SELECT date, number / 2 ORDER BY date DESC LIMIT 3").contains("late targets"));
+    // a CASE is built late when every branch is infallible, while scanning when one can fail
+    let case = explain("SELECT seq, CASE WHEN flag = 'P' THEN 'pad' ELSE payee END FROM #entries ORDER BY seq DESC LIMIT 10");
+    assert!(case.contains("late targets: [1] (built for the kept rows only)\n"), "{case}");
+    let failing = explain("SELECT seq, CASE WHEN seq > 1 THEN seq / 0 ELSE 0 END FROM #entries ORDER BY seq DESC LIMIT 10");
+    assert!(!failing.contains("late targets"), "{failing}");
     assert!(explain("SELECT DISTINCT account LIMIT 3 OFFSET 6").contains("limit: 3 offset 6 (stops the scan)\n"));
     let grouped = explain("SELECT account, last(balance), min(balance) GROUP BY account LIMIT 2");
     assert!(
