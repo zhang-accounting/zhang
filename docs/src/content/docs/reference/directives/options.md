@@ -51,7 +51,7 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 | [`default_booking_method`](#default_booking_method) | `STRICT`, `FIFO` or `LIFO` | `FIFO` |
 | [`default_commodity_precision`](#default_commodity_precision) | a whole number | `2` |
 | [`default_rounding`](#default_rounding) | `RoundDown` or `RoundUp` | `RoundDown` |
-| [`default_balance_tolerance_precision`](#default_balance_tolerance_precision) | a whole number | `2` |
+| [`default_balance_tolerance_precision`](#default_balance_tolerance_precision) (deprecated) | a whole number | `2` |
 | [`directive_output_path`](#directive_output_path) | a path template | `data/{{year}}/{{month_str}}.{{ext}}` |
 | [`features.plugin`](#featuresplugin) | `true` or `false` | `false` |
 | [`account_previous_balances` and five more](#accounting-periods-in-queries) | account names, a commodity | Beancount's |
@@ -66,8 +66,8 @@ The commodity the web UI shows totals in: account values, and the figures of the
 other commodities are converted with [prices](/reference/directives/price/#in-the-web-ui) into it.
 
 - The option defines the commodity itself, so it needs no `commodity` directive. Its precision is the value of
-  [`default_balance_tolerance_precision`](#default_balance_tolerance_precision) and its rounding the value of
-  [`default_rounding`](#default_rounding), as set before this option. A
+  [`default_commodity_precision`](#default_commodity_precision) and its rounding the value of
+  [`default_rounding`](#default_rounding), wherever those options are written. A
   [`commodity`](/reference/directives/commodity/) directive for it replaces that definition.
 - Zhang supports a single operating currency. Setting the option a second time reports a
   [`MultipleOperatingCurrencyDetect`](/reference/error-codes/#multipleoperatingcurrencydetect) error on it; the last
@@ -99,13 +99,14 @@ The booking method of accounts whose `open` has no `booking_method` metadata: wh
 ### `default_commodity_precision`
 
 The precision of a [`commodity`](/reference/directives/commodity/#precision) without a valid `precision` metadata
-entry: how many decimals the web UI shows, and the scale a transaction must balance at. It does not apply to the
-commodity that `operating_currency` defines.
+entry, the commodity that `operating_currency` defines included: how many decimals the web UI shows, and the scale a
+transaction must balance at. A value that is not a whole number stops the ledger from loading with the message
+`option value is invalid`.
 
 ### `default_rounding`
 
-The rounding of a [`commodity`](/reference/directives/commodity/#rounding) without a `rounding` metadata entry, and of
-the commodity that `operating_currency` defines when it is set before that option.
+The rounding of a [`commodity`](/reference/directives/commodity/#rounding) without a `rounding` metadata entry, the
+commodity that `operating_currency` defines included.
 
 - `RoundDown`: a 5 in the first dropped decimal rounds down, so `0.005` rounds to `0.00` at precision 2.
 - `RoundUp`: a 5 in the first dropped decimal rounds up, so `0.005` rounds to `0.01` at precision 2.
@@ -115,11 +116,13 @@ Other digits round to the nearest value in both modes. The value is case-sensiti
 
 ### `default_balance_tolerance_precision`
 
-Despite its name, this option gives balance assertions no tolerance: they are exact unless they write one with `~`
-(see [Balance](/reference/directives/balance/)). It only sets the precision of the commodity that
-[`operating_currency`](#operating_currency) defines, and only when it is set before that option. A value that is not
-a whole number is ignored. To set the precision of the operating currency, prefer a `commodity` directive with a
-`precision` entry.
+Deprecated. Despite its name, this option gives balance assertions no tolerance: they are exact unless they write one
+with `~` (see [Balance](/reference/directives/balance/)). Zhang still reads it for compatibility: when
+`default_commodity_precision` is not written, it sets the precision of the commodity that
+[`operating_currency`](#operating_currency) defines, wherever the two options are written; when
+`default_commodity_precision` is written, it has no effect. A value that is not a whole number is ignored. Setting it
+logs a warning: set [`default_commodity_precision`](#default_commodity_precision), or a `commodity` directive with a
+`precision` entry, instead.
 
 ### `directive_output_path`
 
@@ -186,7 +189,8 @@ See [Equity accounts](/reference/query-language/#equity-accounts).
 | [`UnsupportedBookingMethod`](/reference/error-codes/#unsupportedbookingmethod) | `default_booking_method` is `AVERAGE`, `AVERAGE_ONLY` or `NONE`. |
 | [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | `default_booking_method` is not a booking method. |
 
-An invalid `default_rounding` or `directive_output_path` is not reported as a ledger error: the ledger does not load.
+An invalid `default_rounding`, `default_commodity_precision` or `directive_output_path` is not reported as a ledger
+error: the ledger does not load.
 
 ## Beancount compatibility
 
