@@ -89,6 +89,17 @@ fn the_operating_currency_keeps_the_built_in_defaults_without_options() {
 }
 
 #[test]
+fn another_operating_currency_is_defined_instead_of_the_built_in_one() {
+    // the defaults are read before the ledger's own options: they must not define `CNY` on the way
+    let ledger = load(&[COMMODITY_PRECISION_4, r#"option "operating_currency" "USD""#].join("\n"));
+    assert_eq!(commodity(&ledger, "USD").precision, 4);
+    assert!(ledger.operations().commodity("CNY").unwrap().is_none(), "CNY should not be defined");
+    let ledger = load(&[r#"option "operating_currency" "USD""#, COMMODITY_PRECISION_4].join("\n"));
+    assert_eq!(commodity(&ledger, "USD").precision, 4);
+    assert!(ledger.operations().commodity("CNY").unwrap().is_none(), "CNY should not be defined");
+}
+
+#[test]
 fn a_commodity_directive_still_replaces_the_operating_currency_definition() {
     let ledger = load(indoc! {r#"
         option "operating_currency" "CNY"

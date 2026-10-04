@@ -35,6 +35,9 @@ pub struct InMemoryOptions {
     /// whether the ledger writes `default_commodity_precision`, as opposed to the default
     /// [`BuiltinOption::default_options`] adds for it; only a written one overrides the deprecated option
     commodity_precision_written: bool,
+    /// whether an `operating_currency` option was read yet: the options read before it (the defaults come first)
+    /// must not define the built-in `CNY` when the ledger names another currency
+    operating_currency_read: bool,
 }
 
 #[derive(Debug, AsRefStr, EnumIter, EnumString)]
@@ -122,6 +125,7 @@ impl InMemoryOptions {
                         operation.new_error(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default())?;
                     }
                     value.clone_into(&mut self.operating_currency);
+                    self.operating_currency_read = true;
                     self.define_operating_currency(operation)?;
                 }
                 BuiltinOption::DefaultRounding => {
@@ -194,6 +198,9 @@ impl InMemoryOptions {
     /// calls this, so the definition the last option leaves is the same whatever their order; a dated `commodity`
     /// directive for it, processed after every option, replaces it
     fn define_operating_currency(&self, operation: &mut Operations) -> ZhangResult<()> {
+        if !self.operating_currency_read {
+            return Ok(());
+        }
         operation.insert_commodity(&self.operating_currency, self.operating_currency_precision(), None, None, self.default_rounding)
     }
 }
@@ -210,6 +217,7 @@ impl Default for InMemoryOptions {
             features: Features::default(),
             directive_output_path: DEFAULT_DIRECTIVE_OUTPUT_PATH.to_string(),
             commodity_precision_written: false,
+            operating_currency_read: false,
         }
     }
 }
