@@ -184,7 +184,7 @@ fn a_document_appended_to_a_beancount_file_names_its_file_from_there() {
 
     ledger.data_source.append(&ledger, vec![document]).unwrap();
 
-    let written = std::fs::read_to_string(dir.join("data/2024/1.zhang")).unwrap();
+    let written = std::fs::read_to_string(dir.join("data/2024/01.bean")).unwrap();
     assert!(
         written.contains("2024-01-15 document Assets:Cash \"../../attachments/u1/a statement.pdf\""),
         "{written}"
