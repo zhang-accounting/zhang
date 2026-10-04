@@ -170,6 +170,8 @@ type LotsSnapshot = Vec<(String, Option<Vec<CommodityLotRecord>>)>;
 /// that day, `{, "a"}` the lots labelled `a`, and `{}` every lot held at cost
 struct LotFilter<'a> {
     commodity: &'a str,
+    /// the posting's signed units: opposite-sign lots are reduced before same-sign lots
+    units: &'a BigDecimal,
     /// the lots' cost; `None` matches every lot held at cost
     cost: Option<&'a Amount>,
     /// the lots' acquisition date; `None` matches any
@@ -394,41 +396,29 @@ impl Booker {
             let mut accr_amount = units.number.clone();
             loop {
                 let target_lot_record = self.lot_by_meta(&account, &filter, &cost, txn_date, booking_method);
-                let calculated = (&target_lot_record.amount).add(&accr_amount);
-                if !calculated.is_negative() {
-                    // the calculated amount is positive, means it is normal case
-                    self.update_lot(&account, &target_lot_record, &calculated);
-
-                    lot_weights.push(lot_weight(&target_lot_record, accr_amount.clone()));
-                    legs.push(leg(&target_lot_record, accr_amount, &cost, &units.commodity));
-                    break;
-                } else if target_lot_record.amount.is_zero() {
-                    // insert error no enough lot record
-                    errors.push(BookingError {
-                        kind: ErrorKind::NoEnoughCommodityLot,
-                        metas: HashMap::of(
-                            // "original_amount",
-                            // target_lot_record.amount.to_string(),
-                            "transaction_amount",
-                            written_units.number.to_string(),
-                        ),
-                    });
-                    // persist the calculated result even if there is an error
-                    self.update_lot(&account, &target_lot_record, &calculated);
-                    lot_weights.push(lot_weight(&target_lot_record, accr_amount.clone()));
-                    legs.push(leg(&target_lot_record, accr_amount, &cost, &units.commodity));
-                    break;
-                } else {
-                    // if calculated amount is negative, means the matched lots record has no enough amount to do reduction
-                    // then set lots record's amount to zero( delete it)
+                if reduces(&target_lot_record, &accr_amount) && accr_amount.abs() > target_lot_record.amount.abs() {
+                    // The reduction exceeds this lot's absolute units. Consume it completely
+                    // and book the signed remainder against the next lot, long or short.
                     self.update_lot(&account, &target_lot_record, &BigDecimal::zero());
-
                     let taken = (&target_lot_record.amount).neg();
                     lot_weights.push(lot_weight(&target_lot_record, taken.clone()));
                     legs.push(leg(&target_lot_record, taken, &cost, &units.commodity));
-                    // subtract the accr amount
                     accr_amount.add_assign(&target_lot_record.amount);
+                    continue;
                 }
+                if target_lot_record.amount.is_zero() && accr_amount.is_negative() {
+                    // Keep the existing warning when a sale opens a short lot.
+                    errors.push(BookingError {
+                        kind: ErrorKind::NoEnoughCommodityLot,
+                        metas: HashMap::of("transaction_amount", written_units.number.to_string()),
+                    });
+                }
+                // An augmentation, or a reduction the lot covers, keeps the lot's identity.
+                // A partial cover of a short still has a negative balance (#614).
+                self.update_lot(&account, &target_lot_record, &(&target_lot_record.amount).add(&accr_amount));
+                lot_weights.push(lot_weight(&target_lot_record, accr_amount.clone()));
+                legs.push(leg(&target_lot_record, accr_amount, &cost, &units.commodity));
+                break;
             }
         } else {
             // reduction in default lot
@@ -502,6 +492,7 @@ impl Booker {
     fn lot_filter<'a>(&self, account_name: &str, units: &'a Amount, cost: &'a PostingCost, txn_date: NaiveDate) -> LotFilter<'a> {
         let mut filter = LotFilter {
             commodity: &units.commodity,
+            units: &units.number,
             cost: cost.base.as_ref(),
             date: cost.date.as_ref().map(|it| it.naive_date()),
             label: match &cost.label {
@@ -586,7 +577,7 @@ impl Booker {
     ) -> CommodityLotRecord {
         let entry = self.lots.entry(account_name.to_owned()).or_default();
 
-        let lot_record = pick(matching_lots(entry, filter), booking_method).cloned();
+        let lot_record = pick(matching_lots(entry, filter), booking_method, filter.units).cloned();
         if let Some(record) = lot_record {
             record
         } else {
@@ -645,18 +636,18 @@ fn matching_lots<'a>(lots: &'a [CommodityLotRecord], filter: &'a LotFilter<'a>) 
     })
 }
 
-/// the lot `booking_method` books against first among `lots`, like beancount's FIFO and LIFO (E10):
-/// the one with the oldest acquisition date, or the newest for LIFO. Lots of the same date go in
+/// the lot `booking_method` books against first among `lots`: opposite-sign lots first, then the
+/// oldest acquisition date, or the newest for LIFO (E10). Lots of the same date go in
 /// creation order, reversed for LIFO, so LIFO takes the one created last: the order is exactly
 /// FIFO's, reversed. STRICT books like FIFO once `ambiguous_reduction` has checked the match. NONE,
 /// AVERAGE and AVERAGE_ONLY never get here: they resolve to the default method at the `open`
-fn pick<'a>(lots: impl Iterator<Item = &'a CommodityLotRecord>, booking_method: BookingMethod) -> Option<&'a CommodityLotRecord> {
+fn pick<'a>(lots: impl Iterator<Item = &'a CommodityLotRecord>, booking_method: BookingMethod, units: &BigDecimal) -> Option<&'a CommodityLotRecord> {
     match booking_method {
         // the last of the equally newest
-        BookingMethod::Lifo => lots.max_by_key(|lot| lot.acquisition_date),
+        BookingMethod::Lifo => lots.max_by_key(|lot| (reduces(lot, units), lot.acquisition_date)),
         // the first of the equally oldest
         BookingMethod::Fifo | BookingMethod::Strict | BookingMethod::Average | BookingMethod::AverageOnly | BookingMethod::None => {
-            lots.min_by_key(|lot| lot.acquisition_date)
+            lots.min_by_key(|lot| (!reduces(lot, units), lot.acquisition_date))
         }
     }
 }
