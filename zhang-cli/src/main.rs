@@ -15,7 +15,9 @@ use crate::opendal::OpendalDataSource;
 pub mod opendal;
 
 #[derive(Parser, Debug)]
-#[clap(about, version, author)]
+// the release version (`.build_version`, written by the release workflow; see build.rs), the one `zhang update` and
+// the server report; the bare `version` would print the crate version, which stays 0.1.0
+#[clap(about, version = env!("ZHANG_BUILD_VERSION"), author)]
 pub enum Opts {
     /// zhang parser
     Parse(ParseOpts),
