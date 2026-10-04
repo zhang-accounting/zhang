@@ -62,7 +62,7 @@ async fn created_transaction_strings_survive_a_reload() {
 
     let ledger = SharedLedger(Arc::new(RwLock::new(load(&dir.0).await)));
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);
-    let reload_sender = SharedReloadSender(Arc::new(ReloadSender(sender)));
+    let reload_sender = SharedReloadSender(Arc::new(ReloadSender::new(sender)));
     let request = CreateTransactionRequest {
         datetime: Utc.with_ymd_and_hms(2024, 5, 1, 12, 0, 0).unwrap(),
         payee: "Cafe `Central`".to_owned(),

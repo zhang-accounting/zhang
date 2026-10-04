@@ -124,7 +124,7 @@ mod save_test {
         let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
         let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
         let (sender, _receiver) = mpsc::channel(8);
-        let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
         (dir, main, state, reload)
     }
 
@@ -299,7 +299,7 @@ mod save_test {
         let loaded = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
         let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
         let (sender, _receiver) = mpsc::channel(8);
-        let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
         let path = || Base64Path(main.to_string_lossy().into_owned());
         let shown = || async {
             let response = get_file_content(state.clone(), path()).await.into_response();
@@ -349,7 +349,7 @@ mod save_test {
         let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
         let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
         let (sender, _receiver) = mpsc::channel(8);
-        let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
         let save = |content: String| {
             let path = Base64Path(main.to_string_lossy().into_owned());
             update_file_content(

@@ -15,6 +15,7 @@ use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, QueryDom
 use zhang_core::plugin::PluginType;
 
 use crate::error::ServerError;
+use crate::state::ReloadFailure;
 use crate::ServerResult;
 
 pub struct Created;
@@ -291,6 +292,9 @@ pub struct BasicInfoEntity {
     pub build_date: String,
     /// the ledger's file format, from its main file's extension: `beancount` or `zhang`
     pub format: String,
+    /// why the last reload failed, while the ledger served is the one loaded before it; absent once a reload
+    /// succeeded (#492)
+    pub reload_failure: Option<ReloadFailure>,
 }
 
 #[derive(Serialize, Schematic)]

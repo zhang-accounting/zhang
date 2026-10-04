@@ -573,7 +573,7 @@ include "{data_file}"
         },
     ];
     let (sender, _) = tokio::sync::mpsc::channel(1);
-    let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+    let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
     let response = create_batch_account_balances(scratch.state().await, reload, axum::Json(batch))
         .await
         .into_response();
@@ -699,7 +699,7 @@ mod beancount_pads {
 
     fn reload() -> State<SharedReloadSender> {
         let (sender, _) = tokio::sync::mpsc::channel(1);
-        State(SharedReloadSender(std::sync::Arc::new(ReloadSender(sender))))
+        State(SharedReloadSender(std::sync::Arc::new(ReloadSender::new(sender))))
     }
 
     fn amount(number: u32, commodity: &str) -> Amount {

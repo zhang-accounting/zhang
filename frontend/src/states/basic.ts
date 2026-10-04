@@ -24,5 +24,12 @@ export const ledgerFormatAtom = atom((get) => {
 export const versionAtom = atom((get) => {
   return loadable_unwrap(get(basicInfoAtom), undefined, (data) => data.version);
 });
+/**
+ * The failure of the last reload, while the server still serves the ledger loaded before it (`reload_failure` of `/api/info`,
+ * refreshed on the SSE `ReloadFailed` and `Reload` events); `undefined` once a reload succeeded.
+ */
+export const reloadFailureAtom = atom((get) => {
+  return loadable_unwrap(get(basicInfoAtom), undefined, (data) => data.reload_failure ?? undefined);
+});
 
 export const breadcrumbAtom = atom<{ label: string; uri: string; noTranslate?: boolean }[]>([]);

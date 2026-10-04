@@ -357,7 +357,7 @@ mod test {
                     let ledger_data = Arc::new(RwLock::new(ledger));
                     let broadcaster = Broadcaster::create();
                     let (tx, _) = mpsc::channel(1);
-                    let reload_sender = Arc::new(ReloadSender(tx));
+                    let reload_sender = Arc::new(ReloadSender::new(tx));
                     let app = create_server_app(
                         ServeConfig {
                             path: test_temp_folder.to_path_buf(),
@@ -488,7 +488,7 @@ mod test {
             },
             Arc::new(RwLock::new(ledger)),
             Broadcaster::create(),
-            Arc::new(ReloadSender(tx)),
+            Arc::new(ReloadSender::new(tx)),
         );
         let config = app.config().await.unwrap();
         let state = app.state(&config).await.unwrap();

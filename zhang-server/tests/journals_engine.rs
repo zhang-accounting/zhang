@@ -563,7 +563,7 @@ async fn tags_and_links_keep_their_written_order_through_a_save() {
     });
     let payload = serde_json::from_value(body).unwrap();
     let (sender, _receiver) = tokio::sync::mpsc::channel(1);
-    let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+    let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
     let id = item["id"].as_str().unwrap().to_owned();
     let (status, body) = respond(update_single_transaction(State(ledger.clone()), reload, UrlPath((id,)), Json(payload)).await).await;
     assert_eq!(status, StatusCode::OK, "{body}");

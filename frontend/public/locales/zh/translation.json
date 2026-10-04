@@ -603,6 +603,8 @@
   "SHELL_RELOAD_SENT": "正在重新加载账本…",
   "SHELL_RELOAD_SENT_DESCRIPTION": "服务器重新读取文件后，数据会自动刷新。",
   "SHELL_RELOAD_FAILED": "账本重新加载失败",
+  "SHELL_RELOAD_FAILED_STALE": "当前显示的是上一次成功加载的版本。修正文件并保存后，账本会自动重新加载。",
+  "SHELL_RELOAD_FAILED_OPEN_EDITOR": "打开文件编辑器",
   "SHELL_SERVER_CONNECTED": "已重新连接到服务器",
   "SHELL_SERVER_OFFLINE": "服务器离线",
   "SHELL_SERVER_OFFLINE_DESCRIPTION": "无法连接账本服务器，正在后台重试。",

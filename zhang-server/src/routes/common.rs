@@ -8,6 +8,7 @@ use futures_util::Stream;
 use gotcha::api;
 use zhang_core::domains::schemas::OptionDomain;
 
+use crate::error::ServerError;
 use crate::request::JournalRequest;
 use crate::response::{BasicInfoEntity, ErrorEntity, Pageable, ResponseWrapper};
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
@@ -29,14 +30,16 @@ pub async fn sse(broadcaster: State<SharedBroadcaster>) -> Sse<impl Stream<Item 
     .keep_alive(KeepAlive::default())
 }
 
+/// `POST /api/reload`: reload the ledger from its files, answered once it is done. A reload that fails, as a syntax
+/// error makes it, is answered with the reason (HTTP 409): the ledger served is the one loaded before it (#492).
 #[api(group = "common")]
 pub async fn reload(State(reload_sender): State<SharedReloadSender>) -> ApiResult<String> {
-    reload_sender.reload();
+    reload_sender.reload_and_wait().await.map_err(ServerError::ReloadFailed)?;
     ResponseWrapper::json("Ok".to_string())
 }
 
 #[api(group = "common")]
-pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfoEntity> {
+pub async fn get_basic_info(ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>) -> ApiResult<BasicInfoEntity> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
 
@@ -50,6 +53,7 @@ pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfoE
             "zhang"
         }
         .to_owned(),
+        reload_failure: reload_sender.last_failure(),
     })
 }
 

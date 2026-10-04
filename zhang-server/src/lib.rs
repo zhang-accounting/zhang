@@ -26,7 +26,7 @@ use serde::Serialize;
 use state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -40,7 +40,7 @@ use crate::auth::{AuthConfig, AuthState, SharedAuth};
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
 use crate::response::ResponseWrapper;
-use crate::state::AppState;
+use crate::state::{AppState, ReloadFailure};
 
 pub mod account_queries;
 pub mod auth;
@@ -229,19 +229,61 @@ pub struct ServeConfig {
     pub is_local_fs: bool,
 }
 
-pub struct ReloadSender(pub Sender<i32>);
+/// A reload asked for. An asker that waits for it is told what it came to.
+pub struct ReloadRequest {
+    reply: Option<oneshot::Sender<Result<(), ReloadFailure>>>,
+}
+
+/// Asks for the reload of the served ledger, and keeps the failure of the last reload while the ledger served is the
+/// one loaded before it (#492), for `/api/info` to show.
+pub struct ReloadSender {
+    sender: Sender<ReloadRequest>,
+    last_failure: std::sync::RwLock<Option<ReloadFailure>>,
+}
 
 impl Deref for ReloadSender {
-    type Target = Sender<i32>;
+    type Target = Sender<ReloadRequest>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.sender
     }
 }
 
 impl ReloadSender {
-    fn reload(&self) {
-        self.0.try_send(1).ok();
+    pub fn new(sender: Sender<ReloadRequest>) -> Self {
+        ReloadSender {
+            sender,
+            last_failure: std::sync::RwLock::new(None),
+        }
+    }
+
+    /// ask for a reload, without waiting for it: a reload already asked for and not started reads the files as
+    /// they are now too
+    pub fn reload(&self) {
+        self.sender.try_send(ReloadRequest { reply: None }).ok();
+    }
+
+    /// ask for a reload and wait for it: what the reload run for this request came to
+    pub async fn reload_and_wait(&self) -> Result<(), ReloadFailure> {
+        let (reply, outcome) = oneshot::channel();
+        let no_reload_task = || ReloadFailure {
+            file: None,
+            message: "the server's reload task is not running, so the ledger cannot be reloaded: restart the server".to_owned(),
+        };
+        if self.sender.send(ReloadRequest { reply: Some(reply) }).await.is_err() {
+            return Err(no_reload_task());
+        }
+        outcome.await.unwrap_or_else(|_| Err(no_reload_task()))
+    }
+
+    /// the failure of the last reload, while the ledger served is the one loaded before it
+    pub fn last_failure(&self) -> Option<ReloadFailure> {
+        self.last_failure.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+
+    /// keep what the last reload came to
+    fn record(&self, outcome: &Result<(), ReloadFailure>) {
+        *self.last_failure.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = outcome.clone().err();
     }
 }
 
@@ -250,8 +292,8 @@ pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
     let ledger = load_served_ledger(&mut opts).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
-    let (tx, rx) = mpsc::channel::<i32>(1);
-    let reload_sender = Arc::new(ReloadSender(tx));
+    let (tx, rx) = mpsc::channel(1);
+    let reload_sender = Arc::new(ReloadSender::new(tx));
 
     info!("start reload listener");
     start_reload_listener(ledger_data.clone(), broadcaster.clone(), reload_sender.clone(), rx);
@@ -351,38 +393,53 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
 
             if is_stale {
                 debug!("gotcha event, sending reload event...");
-                reload_sender_for_fs.0.try_send(1).ok();
+                reload_sender_for_fs.reload();
             }
         }
     });
 }
 
 fn start_reload_listener(
-    ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<i32>,
+    ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<ReloadRequest>,
 ) {
     tokio::spawn(async move {
         let mut midnight_reload = schedule_midnight_reload(&*ledger_for_reload.read().await, &reload_sender);
-        while rx.recv().await.is_some() {
+        while let Some(request) = rx.recv().await {
             info!("start reloading...");
             let start_time = Instant::now();
             let mut guard = ledger_for_reload.write().await;
             // a reload that panics must not end this task, which left the server on the ledger it had, never reloading
             // again (#492): the panic is caught and logged like a failed reload. The ledger served stays the previous
             // one, as a reload replaces it only once it loaded whole, so the guard is unwind safe
-            match AssertUnwindSafe(guard.async_reload()).catch_unwind().await {
+            let outcome = match AssertUnwindSafe(guard.async_reload()).catch_unwind().await {
                 Ok(Ok(_)) => {
                     let duration = start_time.elapsed();
                     info!("ledger is reloaded successfully in {:?}", duration);
-                    // todo: add reload duration to reload event
-                    cloned_broadcaster.broadcast(BroadcastEvent::Reload).await;
+                    Ok(())
                 }
                 Ok(Err(err)) => {
                     error!("error on reload: {}", err);
-                    // todo: broadcast the error
+                    Err(ReloadFailure::from(&err))
                 }
                 Err(panic) => {
-                    error!("panic on reload, the previous ledger is kept: {}", panic_message(panic.as_ref()));
+                    let message = panic_message(panic.as_ref());
+                    error!("panic on reload, the previous ledger is kept: {}", message);
+                    Err(ReloadFailure {
+                        file: None,
+                        message: format!("panic on reload: {message}"),
+                    })
                 }
+            };
+            // a failed reload is no longer only logged (#492): it is kept for `/api/info` while the ledger served is
+            // the one loaded before, the readers are told, and the request that waits for it is answered
+            reload_sender.record(&outcome);
+            match &outcome {
+                // todo: add reload duration to reload event
+                Ok(()) => cloned_broadcaster.broadcast(BroadcastEvent::Reload).await,
+                Err(failure) => cloned_broadcaster.broadcast(BroadcastEvent::ReloadFailed(failure.clone())).await,
+            }
+            if let Some(reply) = request.reply {
+                reply.send(outcome).ok();
             }
             // replaced on every reload, for the ledger now served: a failed reload keeps the previous one
             if let Some(task) = midnight_reload.take() {
@@ -530,6 +587,7 @@ mod reload_test {
     use std::time::Duration;
 
     use axum::extract::{Path, State};
+    use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use axum::Json;
     use bigdecimal::BigDecimal;
@@ -545,6 +603,7 @@ mod reload_test {
     use crate::broadcast::Broadcaster;
     use crate::request::AccountBalanceRequest;
     use crate::routes::account::create_account_balance;
+    use crate::routes::common::{get_basic_info, reload};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
 
@@ -564,7 +623,7 @@ mod reload_test {
         let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
         let ledger = Arc::new(RwLock::new(loaded));
         let (sender, receiver) = mpsc::channel(1);
-        let reload_sender = Arc::new(ReloadSender(sender));
+        let reload_sender = Arc::new(ReloadSender::new(sender));
         start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
 
         let check = AccountBalanceRequest::Check {
@@ -641,7 +700,7 @@ mod reload_test {
             .expect("load ledger");
         let ledger = Arc::new(RwLock::new(loaded));
         let (sender, receiver) = mpsc::channel(1);
-        let reload_sender = Arc::new(ReloadSender(sender));
+        let reload_sender = Arc::new(ReloadSender::new(sender));
         start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
 
         source.panicking.store(true, Ordering::SeqCst);
@@ -670,6 +729,57 @@ mod reload_test {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         assert_eq!(served, vec!["Assets:A", "Assets:B"], "the next change is reloaded");
+    }
+
+    /// the body of the error `response` is answered with: its status, and the `message`
+    async fn refused(response: impl IntoResponse) -> (StatusCode, String) {
+        let response = response.into_response();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        (status, body["message"].as_str().unwrap_or_default().to_owned())
+    }
+
+    /// A reload that fails, as a syntax error makes it, was only logged (#492): now `POST /api/reload` answers the
+    /// failure, `/api/info` shows it with the file, the ledger served stays the one loaded before it, and a reload
+    /// that succeeds, once the file is fixed, clears it.
+    #[tokio::test]
+    async fn a_failed_reload_is_answered_and_shown_until_a_reload_succeeds() {
+        let dir = std::env::temp_dir().join(format!("zhang-reload-failed-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = dir.join("main.zhang");
+        std::fs::write(&main, "1970-01-01 open Assets:A\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let loaded = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+        let info = || async {
+            get_basic_info(State(SharedLedger(ledger.clone())), State(SharedReloadSender(reload_sender.clone())))
+                .await
+                .expect("the basic info")
+                .data
+        };
+        assert!(info().await.reload_failure.is_none(), "nothing failed yet");
+
+        std::fs::write(&main, "1970-01-01 open Assets:A\n1970-01-02 this is not valid\n").unwrap();
+        let answer = reload(State(SharedReloadSender(reload_sender.clone()))).await;
+        let (status, message) = refused(answer.err().expect("the failed reload is answered with its failure")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert!(message.contains("the ledger failed to reload") && message.contains("main.zhang"), "{message}");
+
+        let failure = info().await.reload_failure.expect("the failure shows while the previous ledger is served");
+        assert!(failure.file.as_deref().is_some_and(|file| file.ends_with("main.zhang")), "{failure:?}");
+        assert!(failure.message.contains("main.zhang") && failure.message.contains("line 2"), "{failure:?}");
+        assert_eq!(accounts(&ledger).await, vec!["Assets:A"], "the ledger served is the one loaded before");
+
+        std::fs::write(&main, "1970-01-01 open Assets:A\n1970-01-01 open Assets:B\n").unwrap();
+        reload(State(SharedReloadSender(reload_sender.clone()))).await.expect("the fixed file reloads");
+        assert!(info().await.reload_failure.is_none(), "a reload that succeeds clears the failure");
+        assert_eq!(accounts(&ledger).await, vec!["Assets:A", "Assets:B"], "the fixed file is served");
+        std::fs::remove_dir_all(dir).ok();
     }
 }
 

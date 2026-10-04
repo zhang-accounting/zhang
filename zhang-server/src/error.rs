@@ -6,6 +6,8 @@ use thiserror::Error;
 use zhang_ast::account::InvalidAccountError;
 use zhang_core::ZhangError;
 
+use crate::state::ReloadFailure;
+
 #[derive(Error, Debug)]
 pub enum ServerError {
     #[error("core error: {0}")]
@@ -46,6 +48,11 @@ pub enum ServerError {
     /// writes nothing until they are fixed. Answered with HTTP 409
     #[error("the ledger cannot be loaded from its files as they are now, so nothing was written. Fix them in the file editor, then try again: {0}")]
     UnloadableLedger(ZhangError),
+
+    /// the reload a request asked for failed: the ledger served is the one loaded before it, until the files are
+    /// fixed. Answered with HTTP 409, as a write the files refuse is
+    #[error("the ledger failed to reload, so the version loaded before is still shown. Fix the files in the file editor: {}", .0.message)]
+    ReloadFailed(ReloadFailure),
 
     /// what a request was made from is out of date: the ledger changed since. Answered with HTTP 409
     #[error("{0}")]
@@ -95,7 +102,9 @@ impl IntoResponse for ServerError {
             ServerError::NotFound | ServerError::NoSuchTransaction(_) | ServerError::NoSuchDocument(_) => StatusCode::NOT_FOUND,
             ServerError::OutsideLedger(_) | ServerError::CoreError(ZhangError::ReadRefused(_)) => StatusCode::FORBIDDEN,
             ServerError::BadRequest | ServerError::InvalidInput(_) | ServerError::PluginTransaction(_) => StatusCode::BAD_REQUEST,
-            ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::Conflict(_) => StatusCode::CONFLICT,
+            ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::ReloadFailed(_) | ServerError::Conflict(_) => {
+                StatusCode::CONFLICT
+            }
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

@@ -9,11 +9,12 @@ import { basicInfoFetcher, onlineAtom, updatableVersionAtom } from '@/states/bas
 import { commoditiesFetcher } from '@/states/commodity';
 import { errorsFetcher } from '@/states/errors';
 import { journalFetcher } from '@/states/journals';
+import { reloadFailureDetail } from './reload-failure';
 
 /**
- * Server-sent events (`/api/sse`): ledger reloads, connection state, new versions. Used by the app behind `AuthGate`, so the
- * stream opens after sign-in and closes on sign-out (unmount). A stream refused for good (401 once the session is gone) makes
- * the auth status reload, which shows the login page.
+ * Server-sent events (`/api/sse`): ledger reloads, failed reloads, connection state, new versions. Used by the app behind
+ * `AuthGate`, so the stream opens after sign-in and closes on sign-out (unmount). A stream refused for good (401 once the
+ * session is gone) makes the auth status reload, which shows the login page.
  */
 export function useServerEvents() {
   const { i18n } = useTranslation();
@@ -46,6 +47,14 @@ export function useServerEvents() {
           refreshBasicInfo();
           refreshCommodities();
           refreshJournal();
+          break;
+        case 'ReloadFailed':
+          // the server keeps serving the ledger loaded before; `/api/info` carries the failure for the notice in the shell
+          toast.error(i18n.t('SHELL_RELOAD_FAILED'), {
+            id: 'leger-reload',
+            description: reloadFailureDetail(data),
+          });
+          refreshBasicInfo();
           break;
         case 'Connected':
           if (wasOffline) toast.success(i18n.t('SHELL_SERVER_CONNECTED'), { id: 'offline' });

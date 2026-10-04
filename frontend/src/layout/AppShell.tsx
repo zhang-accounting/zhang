@@ -3,6 +3,7 @@ import NetworkStatus from '@/components/NetworkStatus';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './AppSidebar';
 import { MobileTabBar } from './MobileTabBar';
+import { ReloadFailureNotice } from './ReloadFailureNotice';
 import { TopBar } from './TopBar';
 
 function sidebarDefaultOpen() {
@@ -21,6 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <AppSidebar />
       <SidebarInset className="min-w-0">
         <TopBar />
+        <ReloadFailureNotice />
         <div className="flex-1 overflow-x-clip">
           <div className="mx-auto w-full max-w-7xl px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:px-7 md:pt-5 md:pb-10">{children}</div>
         </div>
