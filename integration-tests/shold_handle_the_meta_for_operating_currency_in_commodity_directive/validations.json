@@ -1,22 +1,5 @@
 [
   {
-    "uri": "/api/store",
-    "validations": [
-      [
-        "$.data.commodities.CNY.name",
-        "CNY"
-      ],
-      [
-        "$.data.commodities.CNY.precision",
-        3
-      ],
-      [
-        "$.data.commodities.CNY.prefix",
-        "¥"
-      ]
-    ]
-  },
-  {
     "uri": "/api/commodities",
     "validations": [
       [

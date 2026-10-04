@@ -8,24 +8,33 @@
 //! beancount-only directives (`balance`, `pad`, `pushtag`, `poptag`) are returned
 //! as [`Either::Right`]; everything else maps onto zhang's [`Directive`] as
 //! [`Either::Left`].
+//!
+//! The token-level parsers both formats share are imported from
+//! [`zhang_core::data_type::text::parser`], so both data types read them the same way.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveTime};
 use itertools::Either;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
-use nom::character::complete::{char, line_ending, not_line_ending, one_of, satisfy, space0, space1};
-use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
+use nom::bytes::complete::{tag, take_while1, take_while_m_n};
+use nom::character::complete::{char, line_ending, satisfy, space0, space1};
+use nom::combinator::{map, map_res, opt, peek, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
-use nom::sequence::{delimited, pair, preceded, terminated, tuple};
+use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
-use zhang_core::utils::string_::{invalid_escape_at, quoted_string};
+use zhang_core::data_type::text::parser::{
+    account_name, blank_line, comma_separator, commodity_name, indentation_width, inline_comment, is_digit, key_value_line, line_trailer, metas_block,
+    number_expr, offset, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, unquote_string_raw,
+    valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
+};
+// the name tests (`test::names`) read these against zhang-core's validators
+#[cfg(test)]
+use zhang_core::data_type::text::parser::{meta_key, spaced_tag_or_link};
+use zhang_core::utils::string_::invalid_escape_at;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 
@@ -43,92 +52,9 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-fn offset(original: &str, sub: &str) -> usize {
-    sub.as_ptr() as usize - original.as_ptr() as usize
-}
-
-fn is_digit(c: char) -> bool {
-    c.is_ascii_digit()
-}
-
 // ---------------------------------------------------------------------------
-// low level tokens (shared shape with zhang-core's parser)
+// low level tokens; strings, accounts, commodities and comments are read by zhang-core's parser
 // ---------------------------------------------------------------------------
-
-fn blank_line(i: &str) -> IResult<&str, ()> {
-    value((), pair(space0, line_ending))(i)
-}
-
-fn comment_prefix(i: &str) -> IResult<&str, &str> {
-    alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
-}
-
-fn inline_comment(i: &str) -> IResult<&str, ()> {
-    value((), pair(comment_prefix, not_line_ending))(i)
-}
-
-fn line_trailer(i: &str) -> IResult<&str, ()> {
-    value((), pair(space0, opt(inline_comment)))(i)
-}
-
-fn valuable_comment(i: &str) -> IResult<&str, String> {
-    let (i, _) = space0(i)?;
-    valuable_comment_body(i)
-}
-
-fn valuable_comment_body(i: &str) -> IResult<&str, String> {
-    let (i, _) = comment_prefix(i)?;
-    let (i, _) = space0(i)?;
-    let (i, body) = not_line_ending(i)?;
-    Ok((i, body.to_string()))
-}
-
-fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
-    take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
-}
-
-/// `quote_string = "\"" inner "\""`, decoded by zhang-core's [`quoted_string`] so
-/// that both data types read strings the same way: only `\"` and `\\` must be
-/// escaped, unknown escapes such as `\d` are kept verbatim (Python beancount drops
-/// the backslash instead) and the escapes older zhang versions wrote (`\$`,
-/// `` \` ``, `\u{a0}`) are still read. A malformed `\u` escape is a
-/// [`nom::Err::Failure`] at its backslash. See [`zhang_core::utils::string_`] for
-/// the full rules.
-fn quote_string(i: &str) -> IResult<&str, ZhangString> {
-    map(quoted_string, ZhangString::QuoteString)(i)
-}
-
-fn string(i: &str) -> IResult<&str, ZhangString> {
-    alt((map(unquote_string_raw, |s: &str| ZhangString::UnquoteString(s.to_string())), quote_string))(i)
-}
-
-fn commodity_name(i: &str) -> IResult<&str, String> {
-    map(
-        recognize(pair(
-            satisfy(|c: char| c.is_ascii_alphabetic()),
-            take_while(|c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '\'')),
-        )),
-        |s: &str| s.to_string(),
-    )(i)
-}
-
-fn account_type(i: &str) -> IResult<&str, &str> {
-    alt((tag("Assets"), tag("Liabilities"), tag("Equity"), tag("Income"), tag("Expenses")))(i)
-}
-
-fn account_name(i: &str) -> IResult<&str, Account> {
-    let (i, account_type) = account_type(i)?;
-    let (i, components) = many1(preceded(char(':'), map(unquote_string_raw, |s: &str| s.to_string())))(i)?;
-    let content = format!("{}:{}", account_type, components.join(":"));
-    Ok((
-        i,
-        Account {
-            account_type: AccountType::from_str(account_type).expect("invalid account type"),
-            content,
-            components,
-        },
-    ))
-}
 
 /// beancount dates are date-only; time (when present) is carried in metadata and
 /// re-attached by the caller.
@@ -146,76 +72,8 @@ fn parse_date(i: &str) -> IResult<&str, Date> {
 }
 
 // ---------------------------------------------------------------------------
-// numbers and arithmetic expressions
-// ---------------------------------------------------------------------------
-
-fn number(i: &str) -> IResult<&str, BigDecimal> {
-    map_res(
-        recognize(tuple((
-            take_while1(is_digit),
-            take_while(|c: char| is_digit(c) || matches!(c, ',' | '_')),
-            opt(pair(char('.'), take_while(is_digit))),
-            opt(tuple((one_of("eE"), opt(one_of("+-")), take_while1(is_digit)))),
-        ))),
-        |s: &str| BigDecimal::from_str(&s.replace([',', '_'], "")),
-    )(i)
-}
-
-fn expr_primary(i: &str) -> IResult<&str, BigDecimal> {
-    alt((number, delimited(pair(char('('), space0), number_expr, pair(space0, char(')')))))(i)
-}
-
-fn expr_atom(i: &str) -> IResult<&str, BigDecimal> {
-    let (i, negative) = opt(char('-'))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, value) = expr_primary(i)?;
-    Ok((i, if negative.is_some() { -value } else { value }))
-}
-
-fn binary_operator(operators: &'static str) -> impl Fn(&str) -> IResult<&str, char> {
-    move |i| {
-        let (i, _) = space0(i)?;
-        let (i, operator) = one_of(operators)(i)?;
-        let (i, _) = space0(i)?;
-        Ok((i, operator))
-    }
-}
-
-fn mul_expr(i: &str) -> IResult<&str, BigDecimal> {
-    let (mut i, mut acc) = expr_atom(i)?;
-    while let Ok((next, operator)) = binary_operator("*/")(i) {
-        let (next, rhs) = expr_atom(next)?;
-        acc = if operator == '*' { acc * rhs } else { acc / rhs };
-        i = next;
-    }
-    Ok((i, acc))
-}
-
-fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
-    let (mut i, mut acc) = mul_expr(i)?;
-    while let Ok((next, operator)) = binary_operator("+-")(i) {
-        let (next, rhs) = mul_expr(next)?;
-        acc = if operator == '+' { acc + rhs } else { acc - rhs };
-        i = next;
-    }
-    Ok((i, acc))
-}
-
-// ---------------------------------------------------------------------------
 // postings
 // ---------------------------------------------------------------------------
-
-fn posting_amount(i: &str) -> IResult<&str, Amount> {
-    let (i, number) = number_expr(i)?;
-    let (i, _) = space0(i)?;
-    let (i, currency) = commodity_name(i)?;
-    Ok((i, Amount::new(number, currency)))
-}
-
-enum CostComponent {
-    Date(Date),
-    Label(String),
-}
 
 /// A `,`-separated component of a cost spec: an acquisition date or a lot label.
 fn cost_component(i: &str) -> IResult<&str, CostComponent> {
@@ -244,15 +102,6 @@ fn cost_group(i: &str) -> IResult<&str, PostingCost> {
     }
     Ok((i, PostingCost { base, date, label, total }))
 }
-
-fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
-    alt((
-        map(preceded(pair(tag("@@"), space0), posting_amount), SingleTotalPrice::Total),
-        map(preceded(pair(char('@'), space0), posting_amount), SingleTotalPrice::Single),
-    ))(i)
-}
-
-type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
 
 fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
     let (i, cost) = opt(preceded(space0, cost_group))(i)?;
@@ -316,20 +165,6 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
     Ok((i, posting))
 }
 
-/// One indented line inside a transaction.
-enum TransactionLine {
-    Posting(Posting),
-    Meta((String, ZhangString)),
-    /// a comment or a whitespace-only line
-    Other,
-}
-
-/// The width in columns of the leading whitespace `indent` of a line; a tab advances to
-/// the next multiple of four columns.
-fn indentation_width(indent: &str) -> usize {
-    indent.chars().fold(0, |width, c| if c == '\t' { (width / 4 + 1) * 4 } else { width + 1 })
-}
-
 /// A single indented line inside a transaction: a posting, a metadata pair, or an
 /// (ignored) comment / blank line, with the width of its indentation.
 fn transaction_line(i: &str) -> IResult<&str, (usize, TransactionLine)> {
@@ -354,81 +189,9 @@ fn transaction_lines(i: &str) -> IResult<&str, Vec<(usize, TransactionLine)>> {
     many1(transaction_line)(i)
 }
 
-fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
-    preceded(
-        space0,
-        alt((
-            map(preceded(char('#'), unquote_string_raw), |s: &str| (true, s.to_string())),
-            map(preceded(char('^'), unquote_string_raw), |s: &str| (false, s.to_string())),
-        )),
-    )(i)
-}
-
-fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
-    let mut tags = Vec::new();
-    let mut links = Vec::new();
-    let mut rest = i;
-    while let Ok((next, (is_tag, value))) = spaced_tag_or_link(rest) {
-        if is_tag {
-            tags.push(value);
-        } else {
-            links.push(value);
-        }
-        rest = next;
-    }
-    Ok((rest, (tags, links)))
-}
-
-/// The tags and links after the string of a note or document, as the AST keeps
-/// them: `None` when there are none.
-type TagAndLinkSets = (Option<HashSet<String>>, Option<HashSet<String>>);
-
-fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
-    let (i, (tags, links)) = tags_or_links(i)?;
-    let set = |items: Vec<String>| (!items.is_empty()).then(|| items.into_iter().collect::<HashSet<_>>());
-    Ok((i, (set(tags), set(links))))
-}
-
-// ---------------------------------------------------------------------------
-// metadata
-// ---------------------------------------------------------------------------
-
-/// An unquoted metadata key: a bare word that does not start with a comment
-/// prefix, so an indented line such as `;path: "C:\x"` stays a comment.
-fn meta_key(i: &str) -> IResult<&str, &str> {
-    verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err())(i)
-}
-
-/// `key_value_line = (meta_key | quote_string) space* ":" space* string`
-fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
-    let (i, key) = alt((map(meta_key, str::to_owned), map(quote_string, |key| key.to_plain_string())))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = char(':')(i)?;
-    let (i, _) = space0(i)?;
-    let (i, value) = string(i)?;
-    Ok((i, (key, value)))
-}
-
-fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
-    let (i, _) = line_ending(i)?;
-    let (i, _) = space1(i)?;
-    let (i, pair) = key_value_line(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
-    Ok((i, pair))
-}
-
-fn metas_block(i: &str) -> IResult<&str, Meta> {
-    map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
-}
-
 // ---------------------------------------------------------------------------
 // directive bodies
 // ---------------------------------------------------------------------------
-
-fn comma_separator(i: &str) -> IResult<&str, ()> {
-    value((), tuple((space0, char(','), space0)))(i)
-}
 
 /// `booking_method = "\"" ("STRICT" | "FIFO" | "LIFO" | "AVERAGE" | "AVERAGE_ONLY" | "NONE") "\""`
 fn booking_method(i: &str) -> IResult<&str, String> {
@@ -613,10 +376,6 @@ fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
             meta: Meta::default(),
         })),
     ))
-}
-
-fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
-    alt((map(account_name, StringOrAccount::Account), map(string, StringOrAccount::String)))(i)
 }
 
 /// `custom` directives. `custom budget ...` (and its `budget-add` / `budget-transfer`

@@ -1,22 +1,27 @@
 [
   {
-    "uri": "/api/store",
+    "uri": "/api/errors",
     "validations": [
       [
-        "$.data.errors.length()",
+        "$.data.records.length()",
         2
       ],
       [
-        "$.data.errors[0].error_type",
+        "$.data.records[0].error_type",
         "TransactionCannotInferTradeAmount"
       ],
       [
-        "$.data.errors[1].error_type",
+        "$.data.records[1].error_type",
         "TransactionHasMultipleImplicitPosting"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/journals",
+    "validations": [
       [
-        "$.data.transactions",
-        {}
+        "$.data.records.length()",
+        0
       ]
     ]
   }

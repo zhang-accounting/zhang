@@ -14,7 +14,6 @@ use crate::data_source::InMemoryDataSource;
 
 mod data_source;
 
-// use console_error_panic_hook::hook;
 #[global_allocator]
 static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 
@@ -54,18 +53,6 @@ impl ParseResult {
     pub fn store(&self) -> JsValue {
         self.store.clone().unwrap_or_default()
     }
-}
-
-#[wasm_bindgen]
-extern "C" {
-    fn alert(s: &str);
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
-#[wasm_bindgen]
-pub fn greet() {
-    alert("Hello, zhang-js!");
 }
 
 #[wasm_bindgen]

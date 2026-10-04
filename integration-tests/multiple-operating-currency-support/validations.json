@@ -1,33 +1,43 @@
 [
   {
-    "uri": "/api/store",
+    "uri": "/api/errors",
     "validations": [
       [
-        "$.data.errors.length()",
+        "$.data.records.length()",
         2
       ],
       [
-        "$.data.errors[0].error_type",
+        "$.data.records[0].error_type",
         "MultipleOperatingCurrencyDetect"
       ],
       [
-        "$.data.errors[1].error_type",
+        "$.data.records[1].error_type",
         "MultipleOperatingCurrencyDetect"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/options",
+    "validations": [
       [
-        "$.data.options.operating_currency",
+        "$.data[?(@.key=='operating_currency')].value",
         "EUR"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/commodities",
+    "validations": [
       [
-        "$.data.commodities.CNY.name",
+        "$.data[?(@.name=='CNY')].name",
         "CNY"
       ],
       [
-        "$.data.commodities.USD.name",
+        "$.data[?(@.name=='USD')].name",
         "USD"
       ],
       [
-        "$.data.commodities.EUR.name",
+        "$.data[?(@.name=='EUR')].name",
         "EUR"
       ]
     ]

@@ -4,6 +4,9 @@
 //! the previous `pest` + `pest_consume` grammar (`zhang.pest`) while producing
 //! exactly the same [`Directive`] AST — the shared test module below is the
 //! behavioural contract.
+//!
+//! The `pub` token-level parsers are shared with the beancount data type, which
+//! imports them instead of keeping copies.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -38,11 +41,11 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// Byte offset of `sub` (which must be a sub-slice of `original`) within `original`.
-fn offset(original: &str, sub: &str) -> usize {
+pub fn offset(original: &str, sub: &str) -> usize {
     sub.as_ptr() as usize - original.as_ptr() as usize
 }
 
-fn is_digit(c: char) -> bool {
+pub fn is_digit(c: char) -> bool {
     c.is_ascii_digit()
 }
 
@@ -51,7 +54,7 @@ fn is_digit(c: char) -> bool {
 // ---------------------------------------------------------------------------
 
 /// A whitespace-only line together with its terminating newline.
-fn blank_line(i: &str) -> IResult<&str, ()> {
+pub fn blank_line(i: &str) -> IResult<&str, ()> {
     value((), pair(space0, line_ending))(i)
 }
 
@@ -61,25 +64,25 @@ fn comment_prefix(i: &str) -> IResult<&str, &str> {
 }
 
 /// An inline comment (prefix + rest of line), the whole of which is discarded.
-fn inline_comment(i: &str) -> IResult<&str, ()> {
+pub fn inline_comment(i: &str) -> IResult<&str, ()> {
     value((), pair(comment_prefix, not_line_ending))(i)
 }
 
 /// Trailing `space* comment?` allowed after a single-line directive.
-fn line_trailer(i: &str) -> IResult<&str, ()> {
+pub fn line_trailer(i: &str) -> IResult<&str, ()> {
     value((), pair(space0, opt(inline_comment)))(i)
 }
 
 /// `valuable_comment = space* comment_prefix space* comment_value`, returning the
 /// comment body (`comment_value`).
-fn valuable_comment(i: &str) -> IResult<&str, String> {
+pub fn valuable_comment(i: &str) -> IResult<&str, String> {
     let (i, _) = space0(i)?;
     valuable_comment_body(i)
 }
 
 /// The `comment_prefix space* comment_value` portion, assuming any leading spaces
 /// are already consumed.
-fn valuable_comment_body(i: &str) -> IResult<&str, String> {
+pub fn valuable_comment_body(i: &str) -> IResult<&str, String> {
     let (i, _) = comment_prefix(i)?;
     let (i, _) = space0(i)?;
     let (i, body) = not_line_ending(i)?;
@@ -88,7 +91,7 @@ fn valuable_comment_body(i: &str) -> IResult<&str, String> {
 
 /// `unquote_string`: a bare word terminated by whitespace, quote, colon, paren or
 /// comma.
-fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
+pub fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
     take_while1(|c: char| !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r'))(i)
 }
 
@@ -97,17 +100,17 @@ fn unquote_string_raw(i: &str) -> IResult<&str, &str> {
 /// escapes older zhang versions wrote (`\$`, `` \` ``, `\u{a0}`) are still read. A
 /// malformed `\u` escape is a [`nom::Err::Failure`] at its backslash. See
 /// [`crate::utils::string_`] for the full rules.
-fn quote_string(i: &str) -> IResult<&str, ZhangString> {
+pub fn quote_string(i: &str) -> IResult<&str, ZhangString> {
     map(quoted_string, ZhangString::QuoteString)(i)
 }
 
 /// `string = unquote_string | quote_string`
-fn string(i: &str) -> IResult<&str, ZhangString> {
+pub fn string(i: &str) -> IResult<&str, ZhangString> {
     alt((map(unquote_string_raw, |s: &str| ZhangString::UnquoteString(s.to_string())), quote_string))(i)
 }
 
 /// `commodity_name = ASCII_ALPHA (ASCII_ALPHANUMERIC | "." | "_" | "-" | "'")*`
-fn commodity_name(i: &str) -> IResult<&str, String> {
+pub fn commodity_name(i: &str) -> IResult<&str, String> {
     map(
         recognize(pair(
             satisfy(|c: char| c.is_ascii_alphabetic()),
@@ -123,7 +126,7 @@ fn account_type(i: &str) -> IResult<&str, &str> {
 }
 
 /// `account_name = account_type (":" unquote_string)+`
-fn account_name(i: &str) -> IResult<&str, Account> {
+pub fn account_name(i: &str) -> IResult<&str, Account> {
     let (i, account_type) = account_type(i)?;
     let (i, components) = many1(preceded(char(':'), map(unquote_string_raw, |s: &str| s.to_string())))(i)?;
     let content = format!("{}:{}", account_type, components.join(":"));
@@ -245,7 +248,7 @@ fn mul_expr(i: &str) -> IResult<&str, BigDecimal> {
 /// Together with [`mul_expr`] and [`expr_atom`] this reproduces the precedence of
 /// the original pratt parser (`* /` bind tighter than `+ -`, unary minus binds
 /// tightest).
-fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
+pub fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
     let (mut i, mut acc) = mul_expr(i)?;
     while let Ok((next, operator)) = binary_operator("+-")(i) {
         let (next, rhs) = mul_expr(next)?;
@@ -260,7 +263,7 @@ fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
 // ---------------------------------------------------------------------------
 
 /// `posting_amount = number_expr space* commodity_name`
-fn posting_amount(i: &str) -> IResult<&str, Amount> {
+pub fn posting_amount(i: &str) -> IResult<&str, Amount> {
     let (i, number) = number_expr(i)?;
     let (i, _) = space0(i)?;
     let (i, currency) = commodity_name(i)?;
@@ -268,7 +271,7 @@ fn posting_amount(i: &str) -> IResult<&str, Amount> {
 }
 
 /// The `{ ... }` cost block of a posting.
-enum CostComponent {
+pub enum CostComponent {
     Date(Date),
     Label(String),
 }
@@ -302,14 +305,14 @@ fn cost_group(i: &str) -> IResult<&str, PostingCost> {
 }
 
 /// `posting_price = "@@" ... | "@" ...`
-fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
+pub fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
     alt((
         map(preceded(pair(tag("@@"), space0), posting_amount), SingleTotalPrice::Total),
         map(preceded(pair(char('@'), space0), posting_amount), SingleTotalPrice::Single),
     ))(i)
 }
 
-type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
+pub type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
 
 /// `posting_meta = ("{" ... "}")? space* posting_price?`
 fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
@@ -394,7 +397,7 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
 }
 
 /// One indented line inside a transaction.
-enum TransactionLine {
+pub enum TransactionLine {
     Posting(Posting),
     Meta((String, ZhangString)),
     /// a comment or a whitespace-only line
@@ -403,7 +406,7 @@ enum TransactionLine {
 
 /// The width in columns of the leading whitespace `indent` of a line; a tab advances to
 /// the next multiple of four columns.
-fn indentation_width(indent: &str) -> usize {
+pub fn indentation_width(indent: &str) -> usize {
     indent.chars().fold(0, |width, c| if c == '\t' { (width / 4 + 1) * 4 } else { width + 1 })
 }
 
@@ -434,7 +437,7 @@ fn transaction_lines(i: &str) -> IResult<&str, Vec<(usize, TransactionLine)>> {
 
 /// A tag (`#name`) or link (`^name`) preceded by optional whitespace. The bool is
 /// `true` for a tag, `false` for a link.
-fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
+pub fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
     preceded(
         space0,
         alt((
@@ -445,7 +448,7 @@ fn spaced_tag_or_link(i: &str) -> IResult<&str, (bool, String)> {
 }
 
 /// `tags_or_links = (space* (tag | link))*`
-fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
+pub fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
     let mut tags = Vec::new();
     let mut links = Vec::new();
     let mut rest = i;
@@ -464,7 +467,7 @@ fn tags_or_links(i: &str) -> IResult<&str, (Vec<String>, Vec<String>)> {
 /// them: `None` when there are none.
 type TagAndLinkSets = (Option<HashSet<String>>, Option<HashSet<String>>);
 
-fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
+pub fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
     let (i, (tags, links)) = tags_or_links(i)?;
     let set = |items: Vec<String>| (!items.is_empty()).then(|| items.into_iter().collect::<HashSet<_>>());
     Ok((i, (set(tags), set(links))))
@@ -476,12 +479,12 @@ fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
 
 /// An unquoted metadata key: a bare word that does not start with a comment
 /// prefix, so an indented line such as `;path: "C:\x"` stays a comment.
-fn meta_key(i: &str) -> IResult<&str, &str> {
+pub fn meta_key(i: &str) -> IResult<&str, &str> {
     verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err())(i)
 }
 
 /// `key_value_line = (meta_key | quote_string) space* ":" space* string`
-fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
+pub fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
     let (i, key) = alt((map(meta_key, str::to_owned), map(quote_string, |key| key.to_plain_string())))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = char(':')(i)?;
@@ -501,7 +504,7 @@ fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
 }
 
 /// `metas = (line space+ key_value_line comment?)+`
-fn metas_block(i: &str) -> IResult<&str, Meta> {
+pub fn metas_block(i: &str) -> IResult<&str, Meta> {
     map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
 }
 
@@ -509,7 +512,7 @@ fn metas_block(i: &str) -> IResult<&str, Meta> {
 // directive bodies (everything after `date keyword`)
 // ---------------------------------------------------------------------------
 
-fn comma_separator(i: &str) -> IResult<&str, ()> {
+pub fn comma_separator(i: &str) -> IResult<&str, ()> {
     value((), tuple((space0, char(','), space0)))(i)
 }
 
@@ -692,7 +695,7 @@ fn commodity_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
+pub fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
     alt((map(account_name, StringOrAccount::Account), map(string, StringOrAccount::String)))(i)
 }
 
