@@ -59,7 +59,7 @@ A file name must be a plain name, without a directory, of at most 255 bytes. The
 ## View documents
 
 - The **Documents** page lists every document, newest first, as a grid or a list. The grid shows a document's account, or its transaction when it has no account; the list shows both. A document written on a posting has the posting's account and its transaction. The documents of one transaction come in the order they are written. Images can be previewed; other files open in a new tab.
-- An account's **Documents** tab lists the documents of that account.
+- An account's **Documents** tab lists the `document` directives of that account and of its sub-accounts. A document named in a transaction's `document:` metadata shows on the **Documents** page and in the transaction's preview, not on an account's page.
 - A transaction's preview on the Journals page shows its documents, and the journal marks the transactions that have some.
 
 For a ledger on a remote data source, Zhang keeps a copy of each document it has shown in `.cache/documents/`, in the directory it runs in, and serves that copy from then on. If you replace a file but keep its name, delete the copy, or give the new file another name. Documents on the local disk are read from the disk each time. Copies that earlier versions kept in `.cache/data/` are no longer used; you can delete that directory.

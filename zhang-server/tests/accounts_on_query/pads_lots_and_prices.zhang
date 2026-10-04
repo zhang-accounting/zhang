@@ -1,0 +1,92 @@
+option "operating_currency" "CNY"
+option "timezone" "America/New_York"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity JPY
+1970-01-01 commodity AAPL
+1970-01-01 commodity XYZ
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Checking:Deep
+1970-01-01 open Assets:Banking
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Closed
+1970-01-01 open Assets:Travel
+1970-01-01 open Assets:Weird
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+1970-01-01 open Income:Gains
+
+2024-01-01 "Self" "opening"
+  Assets:Bank 10 CNY
+  Assets:Bank:Checking 50 CNY
+  Assets:Bank:Checking:Deep 40 CNY
+  Assets:Banking 1000 CNY
+  Equity:Open
+
+2024-01-02 "Broker" "buy1"
+  Assets:Broker 10 AAPL {10 USD}
+  Equity:Open -100 USD
+
+2024-01-03 "Broker" "buy2"
+  Assets:Broker 5 AAPL {12 USD}
+  Equity:Open -60 USD
+
+2024-01-04 "Broker" "sell split"
+  Assets:Broker -12 AAPL {} @ 15 USD
+  Assets:Broker 180 USD
+  Income:Gains
+
+2024-01-05 "FX" "usd in"
+  Assets:Bank 100 USD
+  Equity:Open -100 USD
+
+2024-01-05 "FX" "usd round trip"
+  Assets:Bank:Checking 100 USD
+  Equity:Open -100 USD
+
+2024-01-06 "FX" "usd out"
+  Assets:Bank:Checking -100 USD
+  Equity:Open 100 USD
+
+2024-01-06 "Trip" "yen"
+  Assets:Travel 2000 JPY
+  Equity:Open -2000 JPY
+
+2024-01-06 "Weird" "xyz no price"
+  Assets:Weird 3 XYZ
+  Equity:Open -3 XYZ
+
+2024-01-07 "Closed" "money"
+  Assets:Closed 5 CNY
+  Equity:Open
+
+2024-01-08 "Closed" "money back"
+  Assets:Closed -5 CNY
+  Equity:Open
+
+2024-01-09 close Assets:Closed
+
+2024-01-05 price CNY 20 JPY
+2024-01-05 price USD 7 CNY
+2024-01-05 price AAPL 13 USD
+2030-01-01 price USD 100 CNY
+2030-01-01 price AAPL 1000 USD
+
+2024-02-01 balance Assets:Bank 100 CNY
+2024-02-01 balance Assets:Bank:Checking 90 CNY
+2024-02-01 balance Assets:Bank 100 CNY
+2024-02-01 balance Assets:Bank:Checking:Deep 40.001 ~ 0.01 CNY
+2024-02-01 balance Assets:Bank:Checking:Deep 41 CNY
+2024-02-01 balance Assets:Bank 100 USD
+
+2024-02-01 "Shop" "same day after assertions"
+  Assets:Bank:Checking -1 CNY
+  Expenses:Food
+
+2024-03-01 balance Assets:Bank:Checking 200 CNY with pad Equity:Open
+2024-03-01 balance Assets:Bank 99 CNY with pad Equity:Open
+2024-03-01 balance Assets:Bank 99 CNY
+2024-03-01 "Shop" "after pads"
+  Assets:Bank:Checking -1 CNY
+  Expenses:Food

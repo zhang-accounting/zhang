@@ -5,7 +5,13 @@
 
 export interface paths {
   '/api/accounts': {
-    /** Get Account List */
+    /**
+     * Get Account List
+     * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
+     * operating currency at today's prices, and the balance of the account with its sub-accounts.
+     *
+     * Built-in queries `accounts.list` and `accounts.balances`.
+     */
     get: operations['get_account_list'];
   };
   '/api/accounts/batch-balances': {
@@ -13,23 +19,55 @@ export interface paths {
     post: operations['create_batch_account_balances'];
   };
   '/api/accounts/{account_name}': {
-    /** Get Account Info */
+    /**
+     * Get Account Info
+     * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
+     * account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
+     * name a 400.
+     *
+     * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
+     */
     get: operations['get_account_info'];
   };
   '/api/accounts/{account_name}/balances': {
-    /** Get Account Balance Data */
+    /**
+     * Get Account Balance Data
+     * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+     * An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
+     *
+     * Built-in query `accounts.balance_history`.
+     */
     get: operations['get_account_balance_data'];
     /** Create Account Balance */
     post: operations['create_account_balance'];
   };
   '/api/accounts/{account_name}/documents': {
-    /** Get Account Documents */
+    /**
+     * Get Account Documents
+     * @description The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
+     * 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
+     *
+     * Built-in query `accounts.documents`.
+     */
     get: operations['get_account_documents'];
     /** Upload Account Document */
     post: operations['upload_account_document'];
   };
   '/api/accounts/{account_name}/journals': {
-    /** Get Account Journals */
+    /**
+     * Get Account Journals
+     * @description The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts
+     * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
+     * assertion on the account, with the balance it was checked against.
+     *
+     * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
+     * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+     * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
+     * name a 400, as for `GET /api/accounts/{a}`.
+     *
+     * Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
+     * `accounts.balance_assertions`.
+     */
     get: operations['get_account_journals'];
   };
   '/api/auth/login': {
@@ -324,7 +362,13 @@ export type $defs = Record<string, never>;
 export type external = Record<string, never>;
 
 export interface operations {
-  /** Get Account List */
+  /**
+   * Get Account List
+   * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
+   * operating currency at today's prices, and the balance of the account with its sub-accounts.
+   *
+   * Built-in queries `accounts.list` and `accounts.balances`.
+   */
   get_account_list: {
     responses: {
       /** @description default return */
@@ -419,7 +463,14 @@ export interface operations {
       };
     };
   };
-  /** Get Account Info */
+  /**
+   * Get Account Info
+   * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
+   * account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
+   * name a 400.
+   *
+   * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
+   */
   get_account_info: {
     parameters: {
       path: {
@@ -435,6 +486,16 @@ export interface operations {
               alias?: string | null;
               /** @description the account's own balance, that of its own postings */
               amount: {
+                calculated: {
+                  commodity: string;
+                  number: string;
+                };
+                detail: {
+                  [key: string]: string;
+                };
+              };
+              /** @description the balance of the account and all its sub-accounts, valued like `amount`: the total of the account's page */
+              amount_with_sub_accounts: {
                 calculated: {
                   commodity: string;
                   number: string;
@@ -464,7 +525,13 @@ export interface operations {
       };
     };
   };
-  /** Get Account Balance Data */
+  /**
+   * Get Account Balance Data
+   * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+   * An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
+   *
+   * Built-in query `accounts.balance_history`.
+   */
   get_account_balance_data: {
     parameters: {
       path: {
@@ -553,7 +620,13 @@ export interface operations {
       };
     };
   };
-  /** Get Account Documents */
+  /**
+   * Get Account Documents
+   * @description The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
+   * 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
+   *
+   * Built-in query `accounts.documents`.
+   */
   get_account_documents: {
     parameters: {
       path: {
@@ -599,9 +672,34 @@ export interface operations {
       };
     };
   };
-  /** Get Account Journals */
+  /**
+   * Get Account Journals
+   * @description The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts
+   * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
+   * assertion on the account, with the balance it was checked against.
+   *
+   * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
+   * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+   * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
+   * name a 400, as for `GET /api/accounts/{a}`.
+   *
+   * Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
+   * `accounts.balance_assertions`.
+   */
   get_account_journals: {
     parameters: {
+      query: {
+        /**
+         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
+         * most 1000. Without either, the whole journal.
+         */
+        page: number | null;
+        /**
+         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
+         * most 1000. Without either, the whole journal.
+         */
+        size: number | null;
+      };
       path: {
         account_name: string;
       };
@@ -609,11 +707,22 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          /** @description the number of rows of all the pages; only sent for a page */
+          'X-Total-Count'?: number;
+        };
         content: {
           'application/json': {
             data: {
+              /**
+               * @description the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+               * asserted account for a balance assertion
+               */
               account: string;
-              /** @description the account's own balance after the row, that of its own postings, on every row */
+              /**
+               * @description the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+               * and its sub-accounts, and for a balance assertion the balance it was checked against
+               */
               account_after: {
                 commodity: string;
                 number: string;
@@ -643,6 +752,7 @@ export interface operations {
               passed?: boolean | null;
               payee?: string | null;
               timestamp: number;
+              /** @description the id of the transaction; for a balance assertion, its id */
               trx_id: string;
             }[];
           };
@@ -1074,8 +1184,15 @@ export interface operations {
                   type: 'BudgetEvent';
                 }
               | {
+                  /**
+                   * @description the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+                   * asserted account for a balance assertion
+                   */
                   account: string;
-                  /** @description the account's own balance after the row, that of its own postings, on every row */
+                  /**
+                   * @description the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+                   * and its sub-accounts, and for a balance assertion the balance it was checked against
+                   */
                   account_after: {
                     commodity: string;
                     number: string;
@@ -1105,6 +1222,7 @@ export interface operations {
                   passed?: boolean | null;
                   payee?: string | null;
                   timestamp: number;
+                  /** @description the id of the transaction; for a balance assertion, its id */
                   trx_id: string;
                   /** @enum {string} */
                   type: 'Posting';
@@ -2081,8 +2199,15 @@ export interface operations {
               /** Format: date-time */
               to: string;
               top_transactions: {
+                /**
+                 * @description the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+                 * asserted account for a balance assertion
+                 */
                 account: string;
-                /** @description the account's own balance after the row, that of its own postings, on every row */
+                /**
+                 * @description the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+                 * and its sub-accounts, and for a balance assertion the balance it was checked against
+                 */
                 account_after: {
                   commodity: string;
                   number: string;
@@ -2112,6 +2237,7 @@ export interface operations {
                 passed?: boolean | null;
                 payee?: string | null;
                 timestamp: number;
+                /** @description the id of the transaction; for a balance assertion, its id */
                 trx_id: string;
               }[];
             };

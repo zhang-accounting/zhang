@@ -364,6 +364,8 @@ pub struct AccountInfoEntity {
     pub alias: Option<String>,
     /// the account's own balance, that of its own postings
     pub amount: CalculatedAmount,
+    /// the balance of the account and all its sub-accounts, valued like `amount`: the total of the account's page
+    pub amount_with_sub_accounts: CalculatedAmount,
     /// the balance a balance assertion on the account is checked against, per currency: that of the account
     /// and all its sub-accounts
     pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
@@ -581,6 +583,51 @@ impl From<zhang_query::QueryError> for QueryErrorEntity {
             line: Nullable(value.line),
             column: Nullable(value.column),
         }
+    }
+}
+
+/// The header of a paged response that holds the number of rows of all its pages.
+pub const TOTAL_COUNT_HEADER: &str = "X-Total-Count";
+
+/// A response that may be a page: the body of [`ResponseWrapper`], and when it is a page, the
+/// number of rows of all its pages in the [`TOTAL_COUNT_HEADER`] header.
+pub struct Paged<T: Serialize + Schematic> {
+    pub data: T,
+    pub total: Option<u64>,
+}
+
+impl<T: Serialize + Schematic> IntoResponse for Paged<T> {
+    fn into_response(self) -> Response {
+        let mut response = ResponseWrapper { data: self.data }.into_response();
+        if let Some(total) = self.total {
+            response.headers_mut().insert(TOTAL_COUNT_HEADER, axum::http::HeaderValue::from(total));
+        }
+        response
+    }
+}
+
+impl<T: Serialize + Schematic> Responsible for Paged<T> {
+    fn response() -> Responses {
+        let mut responses = <ResponseWrapper<T> as Responsible>::response();
+        if let Some(Referenceable::Data(ok)) = responses.data.get_mut("200") {
+            ok.headers = Some(BTreeMap::from([(
+                TOTAL_COUNT_HEADER.to_string(),
+                Referenceable::Data(gotcha::oas::Header {
+                    description: Some("the number of rows of all the pages; only sent for a page".to_string()),
+                    required: Some(false),
+                    deprecated: None,
+                    allow_empty_value: None,
+                    style: None,
+                    explode: None,
+                    allow_reserved: None,
+                    schema: Some(Referenceable::Data(u64::generate_schema().schema)),
+                    example: None,
+                    examples: None,
+                    content: None,
+                }),
+            )]));
+        }
+        responses
     }
 }
 

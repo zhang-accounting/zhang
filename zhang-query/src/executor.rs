@@ -1001,6 +1001,126 @@ impl<'x, 'a> Execution<'x, 'a> {
         }
         Ok(())
     }
+
+    /// The groups of the window of an aggregate query whose LIMIT keeps its first groups, when
+    /// the rows of every group come one after another in ledger order, in one run, and the runs
+    /// in the order of their keys: the lot rows of a posting grouped by `seq` and
+    /// `posting_index`, or the rows of a day grouped by `date`. Only the groups of the window are
+    /// built; the others are only counted, so a page deep into a long history holds only its own
+    /// groups.
+    ///
+    /// The scan goes to the end, as a later row could belong to a group of the window. A run
+    /// whose key does not come after that of the run before it, in the order ORDER BY sorts by,
+    /// may continue an earlier group, which only building every group as usual gets right: then
+    /// it gives back what it charged and returns `None`.
+    fn group_runs(&self, keys: &[usize], deferred: &[usize], window: Window, budget: &mut Budget) -> Result<Option<Runs>, LocatedError> {
+        let plan = self.plan;
+        let strategy = &plan.execution;
+        let used = budget.used;
+        let mut running = strategy.running.eager.then(|| RunningState::new(&strategy.running.totals));
+        let mut filtered = Filtered {
+            rows: strategy.running.replays().then(Vec::new),
+            count: 0,
+        };
+        let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
+        let mut current: Option<Vec<Value>> = None;
+        // the runs so far, and whether the current one is in the window
+        let mut runs = 0u64;
+        let mut building = false;
+        for (counter, row) in self.data.iter().enumerate() {
+            Deadline::check(self.deadline, counter)?;
+            if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                running.observe(posting);
+            }
+            let env = Env {
+                row: Some(row),
+                running: running.as_ref(),
+                ..self.base
+            };
+            if !passes(&plan.filter, &env)? {
+                continue;
+            }
+            let ordinal = filtered.push(counter);
+            if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                running.add(posting);
+            }
+            let env = Env {
+                row: Some(row),
+                running: running.as_ref(),
+                ..self.base
+            };
+            let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
+            if current.as_ref() != Some(&key) {
+                if current.as_ref().is_some_and(|current| !comes_after(&key, current)) {
+                    budget.used = used;
+                    return Ok(None);
+                }
+                building = (window.offset..window.end()).contains(&runs);
+                runs += 1;
+                if building {
+                    let accumulators = new_accumulators(plan, deferred);
+                    budget.charge(row_weight(&key) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
+                    groups.insert(key.clone(), accumulators);
+                }
+                current = Some(key);
+            }
+            if !building {
+                continue;
+            }
+            let (_, accumulators) = groups.last_mut().expect("the group of the run");
+            for (idx, (call, accumulator)) in plan.aggregates.iter().zip(accumulators.iter_mut()).enumerate() {
+                if deferred.contains(&idx) {
+                    accumulator.pick_row(call, ordinal);
+                    continue;
+                }
+                let before = accumulator.weight();
+                accumulator.update(call, &env)?;
+                budget.change(before, accumulator.weight())?;
+            }
+        }
+        Ok(Some(Runs {
+            groups,
+            filtered,
+            skipped: runs.min(window.offset),
+            count: runs,
+        }))
+    }
+}
+
+/// What [`Execution::group_runs`] built.
+struct Runs {
+    /// the groups of the window
+    groups: IndexMap<Vec<Value>, Vec<Accumulator>>,
+    filtered: Filtered,
+    /// the groups before OFFSET, only counted
+    skipped: u64,
+    /// every group
+    count: u64,
+}
+
+/// Whether the key of a group comes after `previous` in the order ORDER BY sorts by, so the
+/// two are different groups and so are all the groups before `previous`.
+fn comes_after(key: &[Value], previous: &[Value]) -> bool {
+    key.iter()
+        .zip(previous)
+        .map(|(value, other)| value.sort_cmp(other))
+        .find(|ordering| *ordering != Ordering::Equal)
+        == Some(Ordering::Greater)
+}
+
+/// The accumulators of a new group: a deferred `first()` / `last()` remembers the row it picks.
+fn new_accumulators(plan: &Plan, deferred: &[usize]) -> Vec<Accumulator> {
+    plan.aggregates
+        .iter()
+        .enumerate()
+        .map(|(idx, call)| {
+            if deferred.contains(&idx) {
+                Accumulator::PickRow(None)
+            } else {
+                Accumulator::new(call)
+            }
+        })
+        .collect()
 }
 
 /// Run the plan within the `budget` and return the visible columns of the result rows,
@@ -1202,73 +1322,80 @@ pub(crate) fn execute_within(
         Some(keys) => {
             let deferred = &strategy.running.deferred_aggregates;
             let first_groups = end.filter(|_| strategy.limit == LimitMode::FirstGroups);
-            let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
-            // the keys of the groups past the first ones, only collected to count them
-            let mut later_groups: HashSet<Vec<Value>> = HashSet::new();
-            for (counter, row) in data.iter().enumerate() {
-                Deadline::check(execution.deadline, counter)?;
-                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
-                    running.observe(posting);
+            // LIMIT without ORDER BY over groups that come in runs builds only the groups of its window
+            let runs = match (first_groups, run.window) {
+                (Some(_), Some(limits)) => execution.group_runs(keys, deferred, limits, &mut budget)?,
+                _ => None,
+            };
+            let (mut groups, counted) = match runs {
+                Some(runs) => {
+                    filtered = runs.filtered;
+                    // the groups before OFFSET were not built, so they are no longer there to skip
+                    window = window.map(|window| Window {
+                        offset: window.offset.saturating_sub(runs.skipped),
+                        ..window
+                    });
+                    (runs.groups, run.count_total.then_some(runs.count))
                 }
-                let env = Env {
-                    row: Some(row),
-                    running: running.as_ref(),
-                    ..base
-                };
-                if !passes(&plan.filter, &env)? {
-                    continue;
-                }
-                let ordinal = filtered.push(counter);
-                if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
-                    running.add(posting);
-                }
-                let env = Env {
-                    row: Some(row),
-                    running: running.as_ref(),
-                    ..base
-                };
-                let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
-                // LIMIT without ORDER BY keeps the first groups, so later ones are skipped
-                let full = first_groups.is_some_and(|limit| groups.len() >= limit);
-                let accumulators = match groups.entry(key) {
-                    Entry::Occupied(entry) => entry.into_mut(),
-                    Entry::Vacant(entry) if full => {
-                        if run.count_total && !later_groups.contains(entry.key()) {
-                            budget.charge(row_weight(entry.key()))?;
-                            later_groups.insert(entry.into_key());
+                None => {
+                    let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
+                    // the keys of the groups past the first ones, only collected to count them
+                    let mut later_groups: HashSet<Vec<Value>> = HashSet::new();
+                    for (counter, row) in data.iter().enumerate() {
+                        Deadline::check(execution.deadline, counter)?;
+                        if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                            running.observe(posting);
                         }
-                        continue;
-                    }
-                    Entry::Vacant(entry) => {
-                        let accumulators = plan
-                            .aggregates
-                            .iter()
-                            .enumerate()
-                            .map(|(idx, call)| {
-                                if deferred.contains(&idx) {
-                                    Accumulator::PickRow(None)
-                                } else {
-                                    Accumulator::new(call)
+                        let env = Env {
+                            row: Some(row),
+                            running: running.as_ref(),
+                            ..base
+                        };
+                        if !passes(&plan.filter, &env)? {
+                            continue;
+                        }
+                        let ordinal = filtered.push(counter);
+                        if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
+                            running.add(posting);
+                        }
+                        let env = Env {
+                            row: Some(row),
+                            running: running.as_ref(),
+                            ..base
+                        };
+                        let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
+                        // LIMIT without ORDER BY keeps the first groups, so later ones are skipped
+                        let full = first_groups.is_some_and(|limit| groups.len() >= limit);
+                        let accumulators = match groups.entry(key) {
+                            Entry::Occupied(entry) => entry.into_mut(),
+                            Entry::Vacant(entry) if full => {
+                                if run.count_total && !later_groups.contains(entry.key()) {
+                                    budget.charge(row_weight(entry.key()))?;
+                                    later_groups.insert(entry.into_key());
                                 }
-                            })
-                            .collect::<Vec<_>>();
-                        budget.charge(row_weight(entry.key()) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
-                        entry.insert(accumulators)
+                                continue;
+                            }
+                            Entry::Vacant(entry) => {
+                                let accumulators = new_accumulators(plan, deferred);
+                                budget.charge(row_weight(entry.key()) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
+                                entry.insert(accumulators)
+                            }
+                        };
+                        for (idx, (call, accumulator)) in plan.aggregates.iter().zip(accumulators.iter_mut()).enumerate() {
+                            if deferred.contains(&idx) {
+                                accumulator.pick_row(call, ordinal);
+                                continue;
+                            }
+                            let before = accumulator.weight();
+                            accumulator.update(call, &env)?;
+                            budget.change(before, accumulator.weight())?;
+                        }
                     }
-                };
-                for (idx, (call, accumulator)) in plan.aggregates.iter().zip(accumulators.iter_mut()).enumerate() {
-                    if deferred.contains(&idx) {
-                        accumulator.pick_row(call, ordinal);
-                        continue;
-                    }
-                    let before = accumulator.weight();
-                    accumulator.update(call, &env)?;
-                    budget.change(before, accumulator.weight())?;
+                    // only the first groups were built (no HAVING and no DISTINCT drop any)
+                    let counted = first_groups.map(|_| (groups.len() + later_groups.len()) as u64);
+                    (groups, counted)
                 }
-            }
-            // only the first groups were built (no HAVING and no DISTINCT drop any)
-            let counted = first_groups.map(|_| (groups.len() + later_groups.len()) as u64);
-            drop(later_groups);
+            };
             if !deferred.is_empty() {
                 // the groups that HAVING drops never get the values of their deferred aggregates
                 drop_before_replay(plan, keys, deferred, &mut groups, &mut budget, &base)?;

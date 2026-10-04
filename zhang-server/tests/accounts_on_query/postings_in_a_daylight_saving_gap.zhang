@@ -1,0 +1,22 @@
+option "operating_currency" "CNY"
+option "timezone" "Europe/London"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Cash
+1970-01-01 open Equity:Open
+
+2024-03-30 * "Self" "opening"
+  Assets:Cash 10 CNY
+  Equity:Open
+
+; on 2024-03-31 London skips 01:00 to 02:00: the two transactions written in the gap are stored at 02:10 and
+; 02:40, the balance at 02:50, and zhang processes them by the time written
+2024-03-31 01:10:00 * "Shop" "in the gap"
+  Assets:Cash -1 CNY
+  Equity:Open
+2024-03-31 01:40:00 * "Shop" "in the gap, later"
+  Assets:Cash -2 CNY
+  Equity:Open
+2024-03-31 01:50:00 balance Assets:Cash 7 CNY
+2024-03-31 02:15:00 * "Shop" "after the gap"
+  Assets:Cash -3 CNY
+  Equity:Open

@@ -1,0 +1,36 @@
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Sub
+1970-01-01 open Assets:Banking
+1970-01-01 open Equity:Open
+1970-01-01 open Expenses:Food
+
+2024-01-01 "Self" "opening"
+  Assets:Bank 100 CNY
+  Equity:Open
+
+2024-01-05 "Shop" "lunch"
+  Assets:Bank -10 CNY
+  Expenses:Food
+
+2024-01-05 15:30:00 balance Assets:Bank 90 CNY
+
+2024-01-06 09:00:00 "Shop" "morning"
+  Assets:Bank -5 CNY
+  Expenses:Food
+
+2024-01-06 12:00:00 balance Assets:Bank 85 CNY
+
+2024-01-06 18:00:00 "Shop" "evening"
+  Assets:Bank -5 CNY
+  Expenses:Food
+
+2024-01-07 "Shop" "sub"
+  Assets:Bank:Sub 7 CNY
+  Equity:Open
+
+2024-01-07 "Banking" "prefix"
+  Assets:Banking 1000 CNY
+  Equity:Open

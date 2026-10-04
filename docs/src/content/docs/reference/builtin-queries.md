@@ -273,7 +273,157 @@ LIMIT 10
 
 ### Accounts
 
-No queries yet.
+An account page shows the account **and its sub-accounts**, as the account tree does: its journal, its balance history, its total and its documents cover the whole subtree. The page of `Assets:Bank` includes the postings of `Assets:Bank:Checking`, and its journal names the account of each posting. Balances are valued in the operating currency at today's prices with [`convert`](/reference/query-language/#valuation-functions), which uses inverse prices and the cost currency of a holding.
+
+The balances with sub-accounts add up rows of these queries: the account list and the account page add the rows of `accounts.balances` or `accounts.subtree_balances` of an account and of every account under it, as the account tree of the web UI does. To get the total of a subtree yourself, filter with [`under`](/reference/query-language/#account-functions):
+
+```sql
+SELECT currency, sum(number) AS units
+WHERE under(account, 'Assets:Bank')
+GROUP BY currency
+```
+
+The journal of an account page merges the rows of `accounts.journal` and `accounts.balance_assertions` by their [`seq`](/reference/query-language/#processing-order), the order in which Zhang processed the ledger, newest first. An assertion therefore stands right after the postings its balance includes, wherever Zhang checked it: a balance written with a time after the transactions of its day before that time, a plain balance after a padding written before it, a `balance ... with pad` after the other balance entries of its time. Its balance is the running balance where it stands, and its `trx_id` is the id of its check, which `GET /api/journals` lists it with; a posting's is the id of its transaction. The rows of one transaction are newest first, by posting, and the rows of a posting booked against several lots are shown as one row. On a day daylight saving skips a time, the time written decides the order, so a row written in the gap can stand before one with an earlier stored time.
+
+The page lists the journal by pages of 100 rows (`GET /api/accounts/{account}/journals?page=1&size=100`), each row of `accounts.journal`, a posting, and each assertion counting as one, so every page up to the last one is full. A page reads its postings with `accounts.journal_page`, from the end of the journal; the number of postings is the total of that query, which `POST /api/query` returns with `count_total`.
+
+#### `accounts.list`
+
+Every account with an `open` or `close` directive, with its open and close dates and its alias, by name. With `accounts.balances`, it makes the account list: an account with postings but no `open` directive is listed too.
+
+```sql
+SELECT account, open, close, meta('alias') AS alias
+FROM #accounts
+ORDER BY account
+```
+
+#### `accounts.balances`
+
+The balance of every account that has postings, of its own postings, per currency: the units, their value in the operating currency at today's prices, and the date of the first posting. The account list adds up the rows of an account and of the accounts under it for the balance with sub-accounts.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `operating_currency` | `str` | the `operating_currency` option of the ledger |
+
+```sql
+SELECT account, currency, sum(number) AS units,
+       convert(sum(position), :operating_currency, today()) AS value,
+       min(date) AS first_date
+GROUP BY account, currency
+ORDER BY account, currency
+```
+
+#### `accounts.subtree`
+
+An account and its sub-accounts that have an `open` or `close` directive. The account page reads its dates, status and alias from it.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+
+```sql
+SELECT account, open, close, meta('alias') AS alias
+FROM #accounts
+WHERE under(account, :account)
+ORDER BY account
+```
+
+#### `accounts.subtree_balances`
+
+The balance of an account and of each of its sub-accounts, as in `accounts.balances`. The account page shows the total of its rows, the balance that a `balance` assertion on the account is checked against, and the balance of the account alone.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+| `operating_currency` | `str` | the `operating_currency` option of the ledger |
+
+```sql
+SELECT account, currency, sum(number) AS units,
+       convert(sum(position), :operating_currency, today()) AS value,
+       min(date) AS first_date
+WHERE under(account, :account)
+GROUP BY account, currency
+ORDER BY account, currency
+```
+
+#### `accounts.journal`
+
+The postings of the account and its sub-accounts, in ledger order, a row per posting, each with the [running balance](/reference/query-language/#the-running-balance) of the account and its sub-accounts right after it, in every currency; the page shows that of the posting's currency. The padding transactions of `balance ... with pad` are listed like the others. A posting booked against several [lots](/reference/query-language/#lot-booking) has a row per lot in the postings, which share its `seq` and `posting_index`: grouped by those, its lots add up to its units, `first()` takes its date, payee and the other columns, and `last()` the balance after its last lot. Add `ORDER BY seq DESC, posting_index DESC` to list the newest first, as the page does.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+
+```sql
+SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
+WHERE under(account, :account)
+GROUP BY seq, posting_index
+```
+
+#### `accounts.journal_page`
+
+Some rows of `accounts.journal`, in ledger order: a page of the journal reads its postings counting from the end. Only the postings of the page are built, whatever the offset, as the lot rows of a posting come one after another.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+| `limit` | `int` | how many postings |
+| `offset` | `int` | how many postings before them |
+
+```sql
+SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
+WHERE under(account, :account)
+GROUP BY seq, posting_index
+LIMIT :limit OFFSET :offset
+```
+
+#### `accounts.balance_assertions`
+
+The balance assertions on the account, newest first by [`seq`](/reference/query-language/#processing-order). `actual` is the balance of the account and its sub-accounts that the assertion was checked against, which is the running balance of the journal where its `seq` puts it. `pad` is the account a `balance ... with pad` pads from.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+
+```sql
+SELECT date, time, timestamp, id, account, amount, actual, passed, pad, seq
+FROM #balances
+WHERE account = :account
+ORDER BY seq DESC
+```
+
+#### `accounts.balance_history`
+
+The balance history chart of an account page: the balance of the account and its sub-accounts at the end of every day with a posting, per currency, in date order.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+
+```sql
+SELECT date, currency, last(only(currency, units(balance))) AS balance
+WHERE under(account, :account)
+GROUP BY date, currency
+ORDER BY date, currency
+```
+
+#### `accounts.documents`
+
+The documents of an account page: the `document` directives of the account and its sub-accounts, in ledger order. `path` is the path of the file relative to the ledger's directory, which the page downloads it with.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `account` | `str` | the account of the page |
+
+```sql
+SELECT date, time, account, path
+FROM #documents
+WHERE source = 'directive' AND under(account, :account)
+```
 
 ### Journals
 

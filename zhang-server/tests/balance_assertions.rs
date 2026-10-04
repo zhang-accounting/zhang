@@ -106,7 +106,7 @@ impl Scratch {
     }
 
     async fn account_journals(&self, account: &str) -> Vec<Value> {
-        let (status, body) = respond(get_account_journals(self.state().await, UrlPath((account.to_owned(),))).await).await;
+        let (status, body) = respond(get_account_journals(self.state().await, UrlPath((account.to_owned(),)), UrlQuery(Default::default())).await).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         body["data"].as_array().unwrap().clone()
     }
@@ -265,7 +265,7 @@ async fn the_account_journal_shows_assertions_with_the_true_running_balance() {
     );
 }
 
-/// (payee, change, own balance after, (asserted, checked against, passed) of an assertion row)
+/// (payee, change, running balance after, (asserted, checked against, passed) of an assertion row)
 type DescribedRow = (String, BigDecimal, BigDecimal, Option<(BigDecimal, BigDecimal, bool)>);
 
 fn described_row(row: &Value) -> DescribedRow {
@@ -326,17 +326,24 @@ async fn an_assertion_on_a_parent_account_is_checked_against_its_sub_accounts_to
     assert_eq!(pad["postings"][0]["account"], "Assets:Bank");
     assert_eq!(number(&pad["postings"][0]["inferred_unit"]["number"]), decimal("50"));
 
-    // every row's balance is the parent account's own; the assertion row shows the balance it was
-    // checked against, with the sub-accounts, apart
+    // a parent account's journal is that of its subtree: every row's balance is the running balance with the
+    // sub-accounts, which is the balance an assertion on the account is checked against
     let rows = scratch.account_journals("Assets:Bank").await;
     assert_eq!(
         rows.iter().map(described_row).collect::<Vec<_>>(),
         vec![
             // the `balance ... with pad`, after its padding
-            row("Balance Check", "0", "50", Some(("150", "150", true))),
-            row("Balance Pad", "50", "50", None),
-            row("Balance Check", "0", "0", Some(("100", "100", true))),
+            row("Balance Check", "0", "150", Some(("150", "150", true))),
+            row("Balance Pad", "50", "150", None),
+            row("Balance Check", "0", "100", Some(("100", "100", true))),
+            row("Self", "40", "100", None),
+            row("Self", "60", "60", None),
         ]
+    );
+    let accounts = rows.iter().map(|row| row["account"].as_str().unwrap()).collect::<Vec<_>>();
+    assert_eq!(
+        accounts,
+        vec!["Assets:Bank", "Assets:Bank", "Assets:Bank", "Assets:Bank:Savings", "Assets:Bank:Checking"]
     );
 }
 
@@ -386,11 +393,17 @@ async fn an_account_shows_the_balance_its_assertions_are_checked_against() {
 #[tokio::test]
 async fn the_account_journal_lists_the_assertions_on_the_account_itself_only() {
     let scratch = Scratch::new(PARENT);
-    // not those on its sub-account or on `Assets:Banking`
+    // not those on its sub-account or on `Assets:Banking`; the postings are those of its subtree
     let rows = scratch.account_journals("Assets:Bank").await;
     assert_eq!(
         rows.iter().map(described_row).collect::<Vec<_>>(),
-        vec![row("Balance Check", "0", "5", Some(("105", "105", true))), row("Self", "5", "5", None),]
+        vec![
+            row("Balance Check", "0", "105", Some(("105", "105", true))),
+            row("Self", "7", "7", None),
+            row("Self", "40", "105", None),
+            row("Self", "60", "65", None),
+            row("Self", "5", "5", None),
+        ]
     );
     let rows = scratch.account_journals("Assets:Bank:Checking").await;
     assert_eq!(

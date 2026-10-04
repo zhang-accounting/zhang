@@ -812,6 +812,62 @@ fn documents_without_metadata_are_the_directives() {
     );
 }
 
+/// In a beancount ledger, the path of a `document` is relative to its file, as beancount reads it, unless zhang
+/// found the file relative to the ledger's directory, where earlier versions wrote it: the path zhang keeps the
+/// document with, which the web UI downloads it with.
+#[test]
+fn the_documents_of_a_beancount_ledger_have_the_paths_zhang_keeps() {
+    let dir = tempfile::tempdir().expect("tempdir").into_path().canonicalize().unwrap();
+    for (name, content) in [
+        (
+            "main.bean",
+            r#"
+1970-01-01 open Assets:Bank
+2024-01-02 document Assets:Bank "attachments/statement.txt"
+include "data/2024.bean"
+"#,
+        ),
+        (
+            "data/2024.bean",
+            r#"
+2024-01-03 document Assets:Bank "../attachments/statement.txt"
+2024-01-04 document Assets:Bank "attachments/old.pdf"
+2024-01-05 document Assets:Bank "missing.pdf"
+"#,
+        ),
+        ("attachments/statement.txt", "statement"),
+        ("attachments/old.pdf", "written by an earlier version, relative to the ledger's directory"),
+    ] {
+        std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+        std::fs::write(dir.join(name), content).unwrap();
+    }
+    let ledger = common::load_ledger(dir.clone(), "main.bean");
+    let expected = [
+        "attachments/statement.txt",
+        "attachments/statement.txt",
+        "attachments/old.pdf",
+        "data/missing.pdf",
+    ];
+    assert_eq!(
+        run(&ledger, "SELECT path FROM #documents"),
+        expected.iter().map(|it| vec![it.to_string()]).collect::<Vec<_>>()
+    );
+    let stored = ledger.store.read().unwrap().documents.iter().map(|it| it.path.clone()).collect::<Vec<_>>();
+    assert_eq!(stored, expected);
+    // the same paths in a zhang ledger are relative to its directory
+    std::fs::rename(dir.join("main.bean"), dir.join("main.zhang")).unwrap();
+    let ledger = common::load_ledger(dir, "main.zhang");
+    assert_eq!(
+        run(&ledger, "SELECT path FROM #documents"),
+        rows(&[
+            &["attachments/statement.txt"],
+            &["../attachments/statement.txt"],
+            &["attachments/old.pdf"],
+            &["missing.pdf"]
+        ])
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // #errors: id, span_start and span_end
 

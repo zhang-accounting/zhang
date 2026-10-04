@@ -1,0 +1,23 @@
+option "operating_currency" "CNY"
+option "timezone" "America/New_York"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Savings
+1970-01-01 open Assets:Savings:Sub
+1970-01-01 open Equity:Open
+1970-01-01 open Income:X
+
+2024-01-01 * "x" "income"
+  Assets:Savings 165 CNY
+  Income:X
+
+2024-01-31 balance Assets:Savings 500 CNY with pad Equity:Open
+2024-02-29 balance Assets:Savings 500 CNY
+2024-03-31 balance Assets:Savings 500 CNY
+
+2024-03-10 02:30:00 * "dst" "nonexistent local time"
+  Assets:Savings:Sub 1 CNY
+  Income:X
+
+2024-11-03 01:30:00 * "dst" "ambiguous local time"
+  Assets:Savings:Sub 1 CNY
+  Income:X

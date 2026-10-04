@@ -1,4 +1,3 @@
-import BigNumber from 'bignumber.js';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ChartLine, CircleAlert, Cog, FileStack, NotebookText, WalletMinimal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -7,6 +6,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useAsync } from 'react-use';
 import { retrieveAccountBalance, retrieveAccountDocuments, retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
 import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/layout';
+import { PagePagination } from '@/components/layout/PagePagination';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -82,7 +83,10 @@ function SingleAccount() {
     );
   }
 
-  const details = Object.entries(account?.amount.detail ?? {});
+  // the page shows the account with its sub-accounts, as the account tree does
+  const subAccounts = account?.has_sub_accounts ?? false;
+  const total = subAccounts ? account?.amount_with_sub_accounts : account?.amount;
+  const details = Object.entries(total?.detail ?? {});
   const multiple = details.length > 1;
   // what a `balance` on the account is checked against: with its sub-accounts
   const checkRows = account ? balanceCheckRows(account) : [];
@@ -106,11 +110,13 @@ function SingleAccount() {
         }
         actions={
           <div className="flex flex-col gap-0.5 sm:items-end">
-            <span className="text-xs font-medium text-muted-foreground">{t('ledger.account.balance')}</span>
-            {account ? (
+            <span className="text-xs font-medium text-muted-foreground">
+              {subAccounts ? t('ledger.account.balance_with_sub_accounts') : t('ledger.account.balance')}
+            </span>
+            {account && total ? (
               <span className="flex items-baseline gap-1 text-2xl font-semibold tracking-tight">
                 {multiple && <span className="text-muted-foreground">≈</span>}
-                <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.commodity} />
+                <Amount amount={total.calculated.number} currency={total.calculated.commodity} />
               </span>
             ) : (
               <Skeleton className="h-8 w-40" />
@@ -120,6 +126,11 @@ function SingleAccount() {
                 {details.map(([commodity, amount]) => (
                   <Amount key={commodity} amount={amount} currency={commodity} />
                 ))}
+              </span>
+            )}
+            {account && subAccounts && (
+              <span className="text-xs text-muted-foreground">
+                {t('ledger.account.own_balance')} <Amount amount={account.amount.calculated.number} currency={account.amount.calculated.commodity} />
               </span>
             )}
           </div>
@@ -148,10 +159,10 @@ function SingleAccount() {
           <AccountJournals accountName={accountName ?? ''} reloadKey={reloadKey} />
         </TabsContent>
         <TabsContent value="documents">
-          <AccountDocuments accountName={accountName ?? ''} />
+          <AccountDocuments accountName={accountName ?? ''} subAccounts={subAccounts} />
         </TabsContent>
         <TabsContent value="history">
-          <AccountHistory accountName={accountName ?? ''} reloadKey={reloadKey} />
+          <AccountHistory accountName={accountName ?? ''} subAccounts={subAccounts} reloadKey={reloadKey} />
         </TabsContent>
         <TabsContent value="settings">
           <Section title={t('ledger.balance.title')} description={t('ledger.balance.description')}>
@@ -184,15 +195,30 @@ function SingleAccount() {
 
 export default SingleAccount;
 
+/** Rows of a page of the journal, as on the Journals page. */
+const JOURNAL_PAGE_SIZE = 100;
+
 function AccountJournals({ accountName, reloadKey }: { accountName: string; reloadKey: number }) {
   const { t } = useTranslation();
   const fmt = useDateFormat();
-  const journals = useAsync(async () => (await retrieveAccountJournals({ account_name: accountName })).data.data, [accountName, reloadKey]);
-  type Row = NonNullable<typeof journals.value>[number];
+  const [page, setPage] = useState(1);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => setPage(1), [accountName]);
+  const journals = useAsync(async () => {
+    const response = await retrieveAccountJournals({ account_name: accountName, page, size: JOURNAL_PAGE_SIZE });
+    // the number of rows of all the pages
+    const total = Number(response.headers.get('X-Total-Count') ?? response.data.data.length);
+    return { rows: response.data.data, totalPages: Math.ceil(total / JOURNAL_PAGE_SIZE) };
+  }, [accountName, reloadKey, page]);
+  type Row = NonNullable<typeof journals.value>['rows'][number];
+  const onPage = (next: number) => {
+    setPage(next);
+    list.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
 
-  // A balance assertion adds nothing: its row shows the amount it asserted instead, red when it failed. The balance
-  // column stays the account's own; the balance the assertion was checked against, which includes the sub-accounts,
-  // shows next to the description when it differs.
+  // The journal is that of the account and its sub-accounts: the balance column is their running balance, and the rows
+  // of a sub-account name it. A balance assertion adds nothing: its row shows the amount it asserted instead, red when
+  // it failed, and the balance it was checked against in the balance column.
   const change = (item: Row, className?: string) =>
     item.asserted ? (
       <span title={t('ledger.preview.balance_amount')} className={cn('text-muted-foreground', !item.passed && 'text-destructive', className)}>
@@ -207,77 +233,94 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
         {t('ledger.journal.check_failed')}
       </Badge>
     );
-  const checkedAgainst = (item: Row) =>
-    item.checked_balance &&
-    !new BigNumber(item.checked_balance.number).eq(item.account_after.number) && (
-      <span className="shrink-0 text-xs text-muted-foreground">
-        {t('ledger.account.checked_with_sub_accounts')} <Amount exact amount={item.checked_balance.number} currency={item.checked_balance.commodity} />
+  // the posting's sub-account, relative to the page's account; nothing for the account itself
+  const prefix = `${accountName}:`;
+  const subAccount = (item: Row) =>
+    item.account.startsWith(prefix) && (
+      <span title={item.account} className="min-w-0 truncate rounded-md bg-muted px-1.5 py-0.5 text-xs text-foreground-2">
+        {item.account.slice(prefix.length)}
       </span>
     );
+  const hasSubAccountRows = (journals.value?.rows ?? []).some((item) => item.account.startsWith(prefix));
 
   if (journals.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(journals.error)} />;
 
   return (
-    <ResponsiveList<Row>
-      items={journals.value ?? []}
-      loading={journals.loading}
-      getKey={(item, index) => `${item.trx_id}-${index}`}
-      empty={<EmptyState icon={NotebookText} title={t('ledger.account.no_journals')} description={t('ledger.account.no_journals_description')} />}
-      columns={[
-        {
-          key: 'date',
-          header: t('ledger.account.col_date'),
-          className: 'w-40 pl-4 text-muted-foreground tabular-nums',
-          cell: (item) => fmt.dateTime(new Date(item.datetime)),
-        },
-        {
-          key: 'payee',
-          header: t('ledger.journals.col_description'),
-          className: 'w-full max-w-0',
-          cell: (item) => (
-            <span className="flex min-w-0 items-center gap-2">
-              <PayeeNarration payee={item.payee} narration={item.narration} />
-              {failed(item)}
-              {checkedAgainst(item)}
-            </span>
-          ),
-        },
-        {
-          key: 'change',
-          header: t('ledger.account.col_change'),
-          className: 'text-right',
-          cell: (item) => change(item),
-        },
-        {
-          key: 'after',
-          header: t('ledger.account.col_balance'),
-          className: 'pr-4 text-right text-muted-foreground',
-          cell: (item) => <Amount amount={item.account_after.number} currency={item.account_after.commodity} />,
-        },
-      ]}
-      renderCard={(item) => (
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
-              {failed(item)}
-            </span>
-            {checkedAgainst(item)}
-            <span className="truncate text-xs text-muted-foreground">
-              {[item.narration ? item.payee : null, fmt.dateTime(new Date(item.datetime))].filter(Boolean).join(' · ')}
-            </span>
+    <div ref={list} className="flex scroll-mt-4 flex-col gap-2">
+      <div className="flex justify-end">
+        <OpenInExplore name="accounts.journal" params={{ account: accountName }} />
+      </div>
+      <ResponsiveList<Row>
+        items={journals.value?.rows ?? []}
+        loading={journals.loading}
+        getKey={(item, index) => `${item.trx_id}-${index}`}
+        empty={<EmptyState icon={NotebookText} title={t('ledger.account.no_journals')} description={t('ledger.account.no_journals_description')} />}
+        columns={[
+          {
+            key: 'date',
+            header: t('ledger.account.col_date'),
+            className: 'w-40 pl-4 text-muted-foreground tabular-nums',
+            cell: (item) => fmt.dateTime(new Date(item.datetime)),
+          },
+          {
+            key: 'payee',
+            header: t('ledger.journals.col_description'),
+            className: 'w-full max-w-0',
+            cell: (item) => (
+              <span className="flex min-w-0 items-center gap-2">
+                <PayeeNarration payee={item.payee} narration={item.narration} />
+                {failed(item)}
+              </span>
+            ),
+          },
+          ...(hasSubAccountRows
+            ? [
+                {
+                  key: 'account',
+                  header: t('ledger.account.col_sub_account'),
+                  className: 'max-w-48',
+                  cell: (item: Row) => <span className="flex min-w-0">{subAccount(item)}</span>,
+                },
+              ]
+            : []),
+          {
+            key: 'change',
+            header: t('ledger.account.col_change'),
+            className: 'text-right',
+            cell: (item) => change(item),
+          },
+          {
+            key: 'after',
+            header: t('ledger.account.col_balance'),
+            className: 'pr-4 text-right text-muted-foreground',
+            cell: (item) => <Amount amount={item.account_after.number} currency={item.account_after.commodity} />,
+          },
+        ]}
+        renderCard={(item) => (
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm font-medium">{item.narration || item.payee || '—'}</span>
+                {failed(item)}
+              </span>
+              {subAccount(item) && <span className="flex min-w-0">{subAccount(item)}</span>}
+              <span className="truncate text-xs text-muted-foreground">
+                {[item.narration ? item.payee : null, fmt.dateTime(new Date(item.datetime))].filter(Boolean).join(' · ')}
+              </span>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-0.5 text-sm">
+              {change(item, 'font-semibold')}
+              <Amount className="text-xs text-muted-foreground" amount={item.account_after.number} currency={item.account_after.commodity} />
+            </div>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-0.5 text-sm">
-            {change(item, 'font-semibold')}
-            <Amount className="text-xs text-muted-foreground" amount={item.account_after.number} currency={item.account_after.commodity} />
-          </div>
-        </div>
-      )}
-    />
+        )}
+      />
+      {journals.value && <PagePagination page={page} totalPages={journals.value.totalPages} onPageChange={onPage} />}
+    </div>
   );
 }
 
-function AccountDocuments({ accountName }: { accountName: string }) {
+function AccountDocuments({ accountName, subAccounts }: { accountName: string; subAccounts: boolean }) {
   const { t } = useTranslation();
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
   const [reloadKey, setReloadKey] = useState(0);
@@ -286,7 +329,11 @@ function AccountDocuments({ accountName }: { accountName: string }) {
   if (documents.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(documents.error)} />;
 
   return (
-    <Section title={t('ledger.account.documents_title', { count: documents.value?.length ?? 0 })} description={t('ledger.account.documents_description')}>
+    <Section
+      title={t('ledger.account.documents_title', { count: documents.value?.length ?? 0 })}
+      description={subAccounts ? t('ledger.account.documents_description_with_sub_accounts') : t('ledger.account.documents_description')}
+      rightSection={<OpenInExplore name="accounts.documents" params={{ account: accountName }} iconOnly />}
+    >
       <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:gap-3 lg:grid-cols-5">
         <AccountDocumentUpload id={accountName} type="account" onUploaded={() => setReloadKey((key) => key + 1)} />
@@ -300,11 +347,15 @@ function AccountDocuments({ accountName }: { accountName: string }) {
   );
 }
 
-function AccountHistory({ accountName, reloadKey }: { accountName: string; reloadKey: number }) {
+function AccountHistory({ accountName, subAccounts, reloadKey }: { accountName: string; subAccounts: boolean; reloadKey: number }) {
   const { t } = useTranslation();
   const history = useAsync(async () => (await retrieveAccountBalance({ account_name: accountName })).data.data, [accountName, reloadKey]);
   return (
-    <Section title={t('ledger.account.history_title')} description={t('ledger.account.history_description')}>
+    <Section
+      title={t('ledger.account.history_title')}
+      description={subAccounts ? t('ledger.account.history_description_with_sub_accounts') : t('ledger.account.history_description')}
+      rightSection={<OpenInExplore name="accounts.balance_history" params={{ account: accountName }} iconOnly />}
+    >
       {history.error ? (
         <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(history.error)} />
       ) : history.value ? (

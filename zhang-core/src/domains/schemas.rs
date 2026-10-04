@@ -117,13 +117,17 @@ pub struct BalanceWithSubAccounts {
 pub struct AccountJournalDomain {
     pub datetime: NaiveDateTime,
     pub timestamp: i64,
+    /// the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
+    /// asserted account for a balance assertion
     pub account: String,
+    /// the id of the transaction; for a balance assertion, its id
     pub trx_id: String,
     pub payee: Option<String>,
     pub narration: Option<String>,
     /// what the row adds to the account; zero for a balance assertion, which changes no balance
     pub inferred_unit: Amount,
-    /// the account's own balance after the row, that of its own postings, on every row
+    /// the balance after the row, in the row's currency: in an account's journal, the running balance of the account
+    /// and its sub-accounts, and for a balance assertion the balance it was checked against
     pub account_after: Amount,
     /// for the row of a balance assertion: the asserted amount; null for a posting
     pub asserted: Option<Amount>,

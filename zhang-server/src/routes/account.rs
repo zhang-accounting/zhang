@@ -11,11 +11,14 @@ use zhang_core::domains::schemas::AccountJournalDomain;
 use zhang_core::utils::calculable::Calculable;
 
 use crate::balance_writes::{balance_directives, BalanceRow, BalanceWriteEntity};
-use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
-use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, ResponseWrapper};
+use crate::request::{AccountBalanceRequest, AccountJournalRequest, BatchAccountBalanceRequest};
+use crate::response::{
+    AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, Created, DocumentEntity, Paged, ResponseWrapper,
+};
+use crate::routes::Query;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::validate::Rules;
-use crate::{validate, ApiResult, ServerResult};
+use crate::{account_queries, validate, ApiResult, ServerResult};
 
 /// `amount`, once its commodity is checked to read back unchanged.
 fn validated(amount: Amount, rules: &Rules) -> ServerResult<Amount> {
@@ -23,8 +26,19 @@ fn validated(amount: Amount, rules: &Rules) -> ServerResult<Amount> {
     Ok(amount)
 }
 
+/// Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
+/// operating currency at today's prices, and the balance of the account with its sub-accounts.
+///
+/// Built-in queries `accounts.list` and `accounts.balances`.
 #[api(group = "account")]
 pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<AccountEntity>> {
+    ResponseWrapper::json(account_queries::with_ledger(&ledger, account_queries::account_list).await?)
+}
+
+/// The hand-written implementation the query engine replaced (#479), kept to compare with it until wave 3
+/// deletes it.
+#[doc(hidden)]
+pub async fn legacy_get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<AccountEntity>> {
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
     let mut operations = ledger.operations();
@@ -56,8 +70,24 @@ pub async fn get_account_list(ledger: State<SharedLedger>) -> ApiResult<Vec<Acco
     ResponseWrapper::json(ret)
 }
 
+/// An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
+/// account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
+/// name a 400.
+///
+/// Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
 #[api(group = "account")]
 pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>) -> ApiResult<AccountInfoEntity> {
+    let account_name = path.0 .0;
+    match account_queries::with_ledger(&ledger, move |ledger| account_queries::account_info(ledger, &account_name)).await? {
+        Some(info) => ResponseWrapper::json(info),
+        None => ResponseWrapper::not_found(),
+    }
+}
+
+/// The hand-written implementation the query engine replaced (#479), kept to compare with it until wave 3
+/// deletes it.
+#[doc(hidden)]
+pub async fn legacy_get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>) -> ApiResult<AccountInfoEntity> {
     let account_name = path.0 .0;
     let ledger = ledger.read().await;
     let timezone = &ledger.options.timezone;
@@ -86,6 +116,8 @@ pub async fn get_account_info(ledger: State<SharedLedger>, path: Path<(String,)>
         name: account_info.name,
         status: account_info.status,
         alias: account_info.alias,
+        // not computed before the query engine
+        amount_with_sub_accounts: amount.clone(),
         amount,
         balance_with_sub_accounts: with_sub_accounts.balance.into_iter().collect(),
         has_sub_accounts: with_sub_accounts.has_sub_accounts,
@@ -133,9 +165,21 @@ pub async fn upload_account_document(
     Ok(Created)
 }
 
+/// The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+/// An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
+///
+/// Built-in query `accounts.balance_history`.
 #[api(group = "account")]
 #[debug_handler]
 pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<AccountBalanceHistoryEntity> {
+    let account_name = params.0 .0;
+    ResponseWrapper::json(account_queries::with_ledger(&ledger, move |ledger| account_queries::account_balance_history(ledger, &account_name)).await?)
+}
+
+/// The hand-written implementation the query engine replaced (#479), kept to compare with it until wave 3
+/// deletes it.
+#[doc(hidden)]
+pub async fn legacy_get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<AccountBalanceHistoryEntity> {
     let account_name = params.0 .0;
     let ledger = ledger.read().await;
     let operations = ledger.operations();
@@ -154,8 +198,20 @@ pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<
     ResponseWrapper::json(AccountBalanceHistoryEntity { balance: vec })
 }
 
+/// The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
+/// 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
+///
+/// Built-in query `accounts.documents`.
 #[api(group = "account")]
 pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<DocumentEntity>> {
+    let account_name = params.0 .0;
+    ResponseWrapper::json(account_queries::with_ledger(&ledger, move |ledger| account_queries::account_documents(ledger, &account_name)).await?)
+}
+
+/// The hand-written implementation the query engine replaced (#479), kept to compare with it until wave 3
+/// deletes it.
+#[doc(hidden)]
+pub async fn legacy_get_account_documents(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<DocumentEntity>> {
     let account_name = params.0 .0;
 
     let ledger = ledger.read().await;
@@ -180,8 +236,34 @@ pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(St
     ResponseWrapper::json(rows)
 }
 
+/// The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts
+/// to and the running balance of the account with its sub-accounts in its currency, and a row per balance
+/// assertion on the account, with the balance it was checked against.
+///
+/// With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
+/// of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+/// return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
+/// name a 400, as for `GET /api/accounts/{a}`.
+///
+/// Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
+/// `accounts.balance_assertions`.
 #[api(group = "account")]
-pub async fn get_account_journals(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
+pub async fn get_account_journals(
+    ledger: State<SharedLedger>, params: Path<(String,)>, page: Query<AccountJournalRequest>,
+) -> ServerResult<Paged<Vec<AccountJournalDomain>>> {
+    let account_name = params.0 .0;
+    let window = page.0.window()?;
+    let journal = account_queries::with_ledger(&ledger, move |ledger| account_queries::account_journals(ledger, &account_name, window)).await?;
+    Ok(Paged {
+        data: journal.rows,
+        total: journal.total,
+    })
+}
+
+/// The hand-written implementation the query engine replaced (#479), kept to compare with it until wave 3
+/// deletes it.
+#[doc(hidden)]
+pub async fn legacy_get_account_journals(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<AccountJournalDomain>> {
     let account_name = params.0 .0;
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();

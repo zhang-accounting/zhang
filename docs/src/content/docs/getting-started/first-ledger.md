@@ -74,7 +74,7 @@ The web UI has these pages:
 - **Overview**: a summary of the last 30 days, the net worth and cash flow charts, and the health of the ledger (the errors found while loading it).
 - **Journals**: the transactions and balance checks of the ledger, newest first, with a search and filters by tag and link. Select an entry to see its postings, metadata and documents, or to edit a transaction.
 - **Report**: income, expenses and net worth over a period you choose, with the income and expenses broken down by account.
-- **Balance sheet** (**Accounts** on small screens): every account with its balance. Open an account to see its postings, documents and balance history, and to record a balance check.
+- **Balance sheet** (**Accounts** on small screens): every account with its balance. Open an account to see its postings, documents and balance history, with those of its sub-accounts, and to record a balance check.
 - **Budget**: your [budgets](/guides/budgets/) month by month: what you assigned, what you spent and what is left.
 - **Commodities**: the currencies and assets of the ledger, with holdings, lots and price history.
 - **Documents**: the receipts and statements attached to accounts and transactions. You can upload new ones, see [Documents](/guides/documents/).
