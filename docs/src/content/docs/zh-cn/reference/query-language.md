@@ -1234,6 +1234,28 @@ SELECT date, payee, narration, account, position
 WHERE icontains(payee, 'coffee') OR icontains(narration, 'coffee') OR any_icontains(tags, 'coffee')
 ```
 
+### 比较函数
+
+张记账扩展，从两个同类型的值中取一个。参数可以是 `bool`、`int`、`decimal`、`str` 或 `date`，即 `<` 能比较的类型；`int` 和 `decimal` 按数值比较。
+
+| 签名 | 说明 | 示例 |
+|------|------|------|
+| `least(T, T) -> T` | 两个值中较小的一个；相等时取第一个。 | `least(date_add(date, 6), 2024-12-31)` |
+| `greatest(T, T) -> T` | 两个值中较大的一个；相等时取第一个。 | `greatest(date, 2024-01-01)` |
+
+- 与其他函数一样，任一参数为 `NULL` 时结果为 `NULL`。PostgreSQL 的 `LEAST` 和 `GREATEST` 则会跳过 `NULL` 参数。
+- 只接受两个参数。需要更多时可以嵌套：`least(a, least(b, c))`。
+- beanquery 没有这两个函数。
+
+下面的查询按每个月最后一天的价格估算当月的余额，但最晚只到今天，因此当前月份按今天的价格而不是月末的价格估值：
+
+```sql
+SELECT date_trunc('month', date) AS month,
+       convert(last(balance), 'USD', least(max(date_trunc('month', date)) + interval('1 month') - 1, today())) AS value
+WHERE account ~ '^Assets:'
+GROUP BY month ORDER BY month
+```
+
 ### 字符串函数
 
 | 签名 | 说明 | 示例 |
@@ -1343,6 +1365,7 @@ curl -X POST http://localhost:8000/api/query \
 - 结果大小把每个单元格计为一个值，库存中的每个持仓、集合中的每个元素、`metas` 值中的每个键值对以及文本中的每 64 字节（包括这些元素和键值对的文本）各再计一个值。查询在 `ORDER BY`、`DISTINCT` 和 `LIMIT` 之前收集的行也计算在内，聚合查询在构建过程中的分组，以及 [`#budgets`](#预算表) 生成的月份（每个月份计一个值）同样如此。`PIVOT BY` 生成的表计算所有单元格（包括空单元格），并在构建之前检查。超出限制的查询会报错，错误信息建议用 `FROM` 或 `WHERE` 缩小查询范围，或者加上 `LIMIT`。
 - 服务器管理员可以通过环境变量 `ZHANG_QUERY_MAX_RESULT_VALUES` 调高或调低结果大小的限制。
 - `LIMIT` 可以让结果保持较小，[累计余额](#累计余额)的计算方式也有帮助：除非查询按 `balance` 排序、分组或去重，否则只为最终出现在结果中的行构建 `balance`。`units(balance)` 和 `cost(balance)`（以及 `JOURNAL ... AT units` 和 `AT cost`）按货币累加，不保留批次。
+- 多次写出的同一个聚合，例如 `last(balance), units(last(balance))` 中的 `last(balance)`，只计算和保存一次。在分组查询中，如果 `HAVING` 不读取 `first(balance)` 和 `last(balance)`（例如 `GROUP BY date HAVING max(date) >= 2024-01-01`），它们只为 `HAVING` 保留的分组构建，因此这样的查询只花费保留的分组所占的开销，无论之前的历史有多长。
 - [CSV 导出](#csv-导出)同样受这些限制。
 
 ### CSV 导出
@@ -1420,7 +1443,7 @@ Assets:Broker:GLD,,17
 
 - `columns` 每列一项，共 33 项，顺序与[列](#列)表格相同。
 - `tables` 每个表一项，先是 `postings`，然后按[其他表](#其他表)中列出的顺序排列，最后是 `budgets`、`budget_events` 和 `errors`。`name` 不带 `#`。`postings` 一项的列与 `columns` 相同；结构化列的字段以 `open.date` 这样的名字列为单独的列。
-- `functions` 每个重载一项，共 89 项：先是聚合函数，然后是标量函数，其中包括 `account_sortkey` 和 `maxwidth`。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
+- `functions` 每个重载一项，共 100 项：先是聚合函数，然后是标量函数，其中包括 `account_sortkey` 和 `maxwidth`。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
 
 ## 示例
 
@@ -1637,6 +1660,7 @@ ORDER BY date
 - **`account_sortkey`** 对第一段不是账户类型的名字，返回排在所有类型之后的键。beanquery 会报错。
 - **`date_bin` 从起点划分区间**。间隔含月或年时，beanquery 把每个间隔加在上一个区间的起点上，所以从月末开始的区间会漂移（`01-31`、`02-28`、`03-28`……），而且它把恰好落在区间边界（起点除外）上的日期归入上一个区间：在 beanquery 中 `date_bin('1 month', 2000-02-01, 2000-01-01)` 为 `2000-01-01`。张记账的区间是 `origin + k × stride`（`01-31`、`02-28`、`03-31`……），落在边界上的日期属于以它开始的区间（`2000-02-01`）。间隔为零，或间隔文本无法被 `interval()` 读取时为 `NULL`；beanquery 会出错。
 - **`interval()` 接受周**，每周七天。beanquery 对它们返回 `NULL`。
+- **`least` 和 `greatest`** 是张记账扩展，beanquery 没有这两个函数。见[比较函数](#比较函数)。
 - **`NULL` 参数**。凡是可以写值的地方都可以写 `NULL` 字面量，函数收到 `NULL` 就返回 `NULL`：`date_add(NULL, 1)` 为 `NULL`。beanquery 把 `NULL` 当作单独的类型，会拒绝这样的调用。
 - **间隔运算**。`interval - interval` 得到间隔；beanquery 声明的结果类型是日期。`interval - date` 会报错；beanquery 接受它，但执行时出错。
 - **间隔比较**。间隔可以用 `=`、`!=` 和 `IN` 比较（beanquery 不接受），按月数和天数比较，所以 `GROUP BY` 和 `DISTINCT` 把 `interval('1 year') + interval('-1 month')` 和 `interval('11 months')` 视为同一个值（beanquery 把它们分开）。对间隔排序在 beanquery 中执行时出错，在张记账中检查查询时就会报错。

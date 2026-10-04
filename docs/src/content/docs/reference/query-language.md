@@ -1234,6 +1234,28 @@ SELECT date, payee, narration, account, position
 WHERE icontains(payee, 'coffee') OR icontains(narration, 'coffee') OR any_icontains(tags, 'coffee')
 ```
 
+### Comparison functions
+
+Zhang extensions that pick one of two values of the same type. The arguments can be `bool`, `int`, `decimal`, `str` or `date`, the types that `<` compares, and an `int` and a `decimal` compare as numbers.
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| `least(T, T) -> T` | The smaller of the two values, the first one when they are equal. | `least(date_add(date, 6), 2024-12-31)` |
+| `greatest(T, T) -> T` | The larger of the two values, the first one when they are equal. | `greatest(date, 2024-01-01)` |
+
+- As every other function, they are `NULL` when an argument is `NULL`. PostgreSQL's `LEAST` and `GREATEST` skip `NULL` arguments instead.
+- They take exactly two arguments. Nest them for more: `least(a, least(b, c))`.
+- beanquery has neither.
+
+This values the balance of each month at the prices of its last day, but at most of today, so the current month is valued at today's prices rather than at those of the end of the month:
+
+```sql
+SELECT date_trunc('month', date) AS month,
+       convert(last(balance), 'USD', least(max(date_trunc('month', date)) + interval('1 month') - 1, today())) AS value
+WHERE account ~ '^Assets:'
+GROUP BY month ORDER BY month
+```
+
 ### String functions
 
 | Signature | Description | Example |
@@ -1343,6 +1365,7 @@ These limits protect the server from queries that would take too much memory or 
 - The result size counts each cell as one value, plus one for each position of an inventory, each element of a set, each pair of a `metas` value and each 64 bytes of text, including the text of those elements and pairs. The rows that a query collects before `ORDER BY`, `DISTINCT` and `LIMIT` count too, and so do the groups of an aggregate query while they are built and the months that [`#budgets`](#budgets) generates, one value each. A `PIVOT BY` table counts all of its cells, including the empty ones, and is checked before it is built. A query that goes over the limit fails with an error that suggests narrowing it with `FROM` or `WHERE`, or adding a `LIMIT`.
 - Server operators can raise or lower the result size limit with the environment variable `ZHANG_QUERY_MAX_RESULT_VALUES`.
 - `LIMIT` keeps a result small, and so does the way the [running balance](#the-running-balance) is computed. `balance` is only built for the rows that end up in the result, unless the query sorts, groups or de-duplicates by it. `units(balance)` and `cost(balance)`, and so `JOURNAL ... AT units` and `AT cost`, are added up per currency without keeping the lots.
+- An aggregate written more than once, such as `last(balance)` in `last(balance), units(last(balance))`, is computed and held once. In a query grouped by date, `first(balance)` and `last(balance)` are only built for the groups that `HAVING` keeps when `HAVING` does not read them, as in `GROUP BY date HAVING max(date) >= 2024-01-01`, so such a query costs what its kept groups hold, however long the history before them.
 - The same limits apply to [CSV export](#export-as-csv).
 
 ### Export as CSV
@@ -1420,7 +1443,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 
 - `columns` has one entry per column, 33 in all, in the order of the [column table](#columns).
 - `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets`, `budget_events` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
-- `functions` has one entry per overload, 89 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
+- `functions` has one entry per overload, 100 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
 ## Examples
 
@@ -1637,6 +1660,7 @@ One row per day with postings, with the account's balance at the end of the day.
 - **`account_sortkey`** of a name whose first component is not an account type returns a key that sorts after all the types. beanquery raises an error.
 - **`date_bin` lays its bins from the origin.** With a stride of months or years, beanquery adds each stride to the previous bin, so bins from a month end drift (`01-31`, `02-28`, `03-28`, ...), and it puts a date exactly on a bin boundary other than the origin into the previous bin: `date_bin('1 month', 2000-02-01, 2000-01-01)` is `2000-01-01` there. In Zhang the bins are `origin + k × stride` (`01-31`, `02-28`, `03-31`, ...) and a date on a boundary starts its bin (`2000-02-01`). A zero stride, or a stride text that `interval()` cannot read, is `NULL`; beanquery fails.
 - **`interval()` accepts weeks**, seven days each. beanquery returns `NULL` for them.
+- **`least` and `greatest`** are Zhang extensions; beanquery has neither. See [Comparison functions](#comparison-functions).
 - **`NULL` arguments.** A `NULL` literal is accepted wherever a value is, and a function given `NULL` returns `NULL`: `date_add(NULL, 1)` is `NULL`. beanquery types `NULL` apart and rejects such a call.
 - **Interval arithmetic.** `interval - interval` is an interval; beanquery declares it a date. `interval - date` is an error; beanquery accepts it and fails while running.
 - **Interval comparison.** Intervals can be compared with `=`, `!=` and `IN`, which beanquery rejects, by their months and days, so `GROUP BY` and `DISTINCT` treat `interval('1 year') + interval('-1 month')` and `interval('11 months')` as one value (beanquery keeps them apart). Ordering them, which beanquery fails on while running, is an error when the query is checked.

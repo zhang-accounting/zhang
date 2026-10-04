@@ -317,3 +317,27 @@ fn d1_price_map_for_ledger_has_the_ledgers_prices() {
     // a ledger without prices
     assert!(PriceMap::for_ledger(&common::load_text("1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n")).is_empty());
 }
+
+#[test]
+fn the_cached_price_map_is_the_one_queries_use_and_is_shared() {
+    // a ledger of its own, so no other test has filled its cache yet
+    let ledger = common::load_text(VALUATION);
+    let cached = PriceMap::cached(&ledger);
+    // built once: a query and a later call use the same map
+    single(&ledger, "SELECT convert(sum(position), 'CNY')");
+    assert!(std::sync::Arc::ptr_eq(&cached, &PriceMap::cached(&ledger)));
+    let fresh = PriceMap::for_ledger(&ledger);
+    for (base, quote, day) in [
+        ("CNY", "USD", None),
+        ("USD", "CNY", Some(date(2024, 2, 15))),
+        ("AAPL", "USD", Some(date(2024, 2, 15))),
+    ] {
+        assert_eq!(cached.rate(base, quote, day), fresh.rate(base, quote, day), "{} {} {:?}", base, quote, day);
+    }
+    // it outlives the ledger it came from
+    drop(ledger);
+    assert_eq!(
+        cached.rate("CNY", "USD", None).map(|it| to_plain_string(&it.normalized())),
+        Some("0.1".to_owned())
+    );
+}

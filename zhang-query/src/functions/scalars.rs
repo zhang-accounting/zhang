@@ -11,6 +11,7 @@ use crate::value::{DataType, Value};
 // the function library; its entries are registered in `SCALAR_FUNCTIONS` below
 mod accounts;
 mod amounts;
+mod compare;
 mod dates;
 mod ledger;
 mod meta;
@@ -562,6 +563,77 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         returns: ReturnType::Exact(Set),
         description: "A set of the given strings, e.g. intersects(tags, set('trip', 'food')); set() is the empty set. A zhang extension.",
         eval: search::set,
+    },
+    // ---- function library: comparison (zhang extensions) ----
+    ScalarFunction {
+        name: "least",
+        params: &[Exact(Bool), Exact(Bool)],
+        returns: ReturnType::Exact(Bool),
+        description: "The smaller of two values, e.g. least(date_add(date, 6), :to); NULL if either is NULL. A zhang extension.",
+        eval: compare::least,
+    },
+    ScalarFunction {
+        name: "least",
+        params: &[Exact(Int), Exact(Int)],
+        returns: ReturnType::Exact(Int),
+        description: "The smaller of two values, e.g. least(date_add(date, 6), :to); NULL if either is NULL. A zhang extension.",
+        eval: compare::least,
+    },
+    ScalarFunction {
+        name: "least",
+        params: &[Exact(Decimal), Exact(Decimal)],
+        returns: ReturnType::Exact(Decimal),
+        description: "The smaller of two values, e.g. least(date_add(date, 6), :to); NULL if either is NULL. A zhang extension.",
+        eval: compare::least,
+    },
+    ScalarFunction {
+        name: "least",
+        params: &[Exact(Str), Exact(Str)],
+        returns: ReturnType::Exact(Str),
+        description: "The smaller of two values, e.g. least(date_add(date, 6), :to); NULL if either is NULL. A zhang extension.",
+        eval: compare::least,
+    },
+    ScalarFunction {
+        name: "least",
+        params: &[Exact(Date), Exact(Date)],
+        returns: ReturnType::Exact(Date),
+        description: "The smaller of two values, e.g. least(date_add(date, 6), :to); NULL if either is NULL. A zhang extension.",
+        eval: compare::least,
+    },
+    ScalarFunction {
+        name: "greatest",
+        params: &[Exact(Bool), Exact(Bool)],
+        returns: ReturnType::Exact(Bool),
+        description: "The larger of two values, e.g. greatest(date, :from); NULL if either is NULL. A zhang extension.",
+        eval: compare::greatest,
+    },
+    ScalarFunction {
+        name: "greatest",
+        params: &[Exact(Int), Exact(Int)],
+        returns: ReturnType::Exact(Int),
+        description: "The larger of two values, e.g. greatest(date, :from); NULL if either is NULL. A zhang extension.",
+        eval: compare::greatest,
+    },
+    ScalarFunction {
+        name: "greatest",
+        params: &[Exact(Decimal), Exact(Decimal)],
+        returns: ReturnType::Exact(Decimal),
+        description: "The larger of two values, e.g. greatest(date, :from); NULL if either is NULL. A zhang extension.",
+        eval: compare::greatest,
+    },
+    ScalarFunction {
+        name: "greatest",
+        params: &[Exact(Str), Exact(Str)],
+        returns: ReturnType::Exact(Str),
+        description: "The larger of two values, e.g. greatest(date, :from); NULL if either is NULL. A zhang extension.",
+        eval: compare::greatest,
+    },
+    ScalarFunction {
+        name: "greatest",
+        params: &[Exact(Date), Exact(Date)],
+        returns: ReturnType::Exact(Date),
+        description: "The larger of two values, e.g. greatest(date, :from); NULL if either is NULL. A zhang extension.",
+        eval: compare::greatest,
     },
     // ---- function library: strings ----
     ScalarFunction {

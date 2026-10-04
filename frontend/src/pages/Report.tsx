@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ArrowDownLeft, ArrowUpRight, CircleAlert, Hash, Landmark, ReceiptText } from 'lucide-react';
 import { OpReturnType } from 'openapi-typescript-fetch';
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { retrieveStatisticByAccountType, retrieveStatisticGraph, retrieveStatisticSummary } from '@/api/requests';
@@ -18,7 +18,9 @@ import { REPORT_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
-import { intervalForRange, useGraphRows } from '@/components/layout/chart-utils';
+import { intervalForRange, intervalStride, useGraphRows } from '@/components/layout/chart-utils';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
+import { ledgerDate } from '@/components/query/explore-link';
 import { BalanceTrendChart, CashFlowChart } from '../components/ReportGraph';
 import Section from '../components/Section';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
@@ -43,8 +45,9 @@ export default function Report() {
   const [picked, setPicked] = useState<DateRangeValue | undefined>(undefined);
   const range = picked ?? defaultRange;
   const ready = picked !== undefined || !recent.loading;
-  const deps = [ready, range.from.getTime(), range.to.getTime()];
-  const params = { from: range.from.toISOString(), to: range.to.toISOString() };
+  // the days picked, as ledger dates: the report covers them whatever the browser's timezone
+  const params = { from: ledgerDate(range.from), to: ledgerDate(range.to) };
+  const deps = [ready, params.from, params.to];
   const interval = intervalForRange(range.from, range.to);
 
   const summary = useAsync(async () => (ready ? (await retrieveStatisticSummary(params)).data.data : undefined), deps);
@@ -52,6 +55,12 @@ export default function Report() {
   const income = useAsync(async () => (ready ? (await retrieveStatisticByAccountType({ ...params, account_type: 'Income' })).data.data : undefined), deps);
   const expenses = useAsync(async () => (ready ? (await retrieveStatisticByAccountType({ ...params, account_type: 'Expenses' })).data.data : undefined), deps);
   const { rows, commodity } = useGraphRows(graph.value, interval);
+  // the operating currency, which the report's queries value everything in
+  const currency = summary.value?.balance.calculated.commodity;
+  /** "Open query" for the built-in query behind a card, once the values it ran with are known. */
+  const openQuery = (name: string, values: Record<string, string>) =>
+    currency ? <OpenInExplore iconOnly name={name} params={{ ...values, currency }} /> : undefined;
+  const rangeOnly = { from: params.from, to: params.to };
 
   const latestPreset: DateRangePreset[] =
     latest && activityAnchor(latest).stale
@@ -84,6 +93,7 @@ export default function Report() {
               amount={data?.balance.calculated.number ?? '0'}
               currency={data?.balance.calculated.commodity ?? ''}
               hint={t('ledger.report.at_end')}
+              action={openQuery('report.net_worth', { to: params.to })}
             />
             <StatisticBox
               text="ledger.chart.income"
@@ -93,6 +103,7 @@ export default function Report() {
               currency={data?.income.calculated.commodity ?? ''}
               negative
               hint={t('ledger.report.in_period')}
+              action={openQuery('report.flows', rangeOnly)}
             />
             <StatisticBox
               text="ledger.chart.expenses"
@@ -101,33 +112,65 @@ export default function Report() {
               amount={data?.expense.calculated.number ?? '0'}
               currency={data?.expense.calculated.commodity ?? ''}
               hint={t('ledger.report.in_period')}
+              action={openQuery('report.flows', rangeOnly)}
             />
             <StatisticBox
               text="ledger.report.transaction_count"
               icon={Hash}
               loading={summaryLoading}
               amount={(data?.transaction_number ?? 0).toLocaleString()}
+              action={<OpenInExplore iconOnly name="report.transaction_count" params={rangeOnly} />}
               hint={<NetFlow income={data?.income.calculated.number} expense={data?.expense.calculated.number} commodity={data?.income.calculated.commodity} />}
             />
           </div>
         )}
 
         <div className="grid gap-4 md:gap-6 xl:grid-cols-2">
-          <Section title={t('ledger.chart.net_worth')} description={t(`ledger.report.interval_${interval}`)}>
+          <Section
+            title={t('ledger.chart.net_worth')}
+            description={t(`ledger.report.interval_${interval}`)}
+            rightSection={openQuery('report.net_worth_trend', { ...rangeOnly, interval: intervalStride(interval) })}
+          >
             {graphLoading ? <Skeleton className="h-56 w-full md:h-64" /> : <BalanceTrendChart rows={rows} commodity={commodity} className="h-56 md:h-64" />}
           </Section>
-          <Section title={t('ledger.chart.income_expenses')} description={t(`ledger.report.interval_${interval}`)}>
+          <Section
+            title={t('ledger.chart.income_expenses')}
+            description={t(`ledger.report.interval_${interval}`)}
+            rightSection={openQuery('report.changes', { ...rangeOnly, interval: intervalStride(interval) })}
+          >
             {graphLoading ? <Skeleton className="h-56 w-full md:h-64" /> : <CashFlowChart rows={rows} commodity={commodity} className="h-56 md:h-64" />}
           </Section>
         </div>
 
         <div className="grid gap-4 md:gap-6 xl:grid-cols-2">
-          <Breakdown title={t('ledger.report.expense_breakdown')} data={expenses.value} loading={!expenses.value && !expenses.error} />
-          <Breakdown title={t('ledger.report.income_breakdown')} data={income.value} loading={!income.value && !income.error} negative />
+          <Breakdown
+            title={t('ledger.report.expense_breakdown')}
+            data={expenses.value}
+            loading={!expenses.value && !expenses.error}
+            action={openQuery('report.account_totals', { ...rangeOnly, type: 'Expenses' })}
+          />
+          <Breakdown
+            title={t('ledger.report.income_breakdown')}
+            data={income.value}
+            loading={!income.value && !income.error}
+            negative
+            action={openQuery('report.account_totals', { ...rangeOnly, type: 'Income' })}
+          />
         </div>
 
-        <TopTransactions title={t('ledger.report.top_expenses')} data={expenses.value} loading={!expenses.value && !expenses.error} />
-        <TopTransactions title={t('ledger.report.top_incomes')} data={income.value} loading={!income.value && !income.error} negative />
+        <TopTransactions
+          title={t('ledger.report.top_expenses')}
+          data={expenses.value}
+          loading={!expenses.value && !expenses.error}
+          action={openQuery('report.top_postings', { ...rangeOnly, type: 'Expenses' })}
+        />
+        <TopTransactions
+          title={t('ledger.report.top_incomes')}
+          data={income.value}
+          loading={!income.value && !income.error}
+          negative
+          action={openQuery('report.top_postings', { ...rangeOnly, type: 'Income' })}
+        />
       </div>
     </PageShell>
   );
@@ -149,7 +192,19 @@ function NetFlow({ income, expense, commodity }: { income?: string; expense?: st
  * Totals per account as horizontal bars (largest first), sized relative to the largest account. Bars use the cash-flow
  * chart colours: income (`negative`, stored as negative numbers) chart-1, expenses chart-2.
  */
-function Breakdown({ title, data, loading, negative }: { title: string; data?: AccountTypeStatistic; loading: boolean; negative?: boolean }) {
+function Breakdown({
+  title,
+  data,
+  loading,
+  negative,
+  action,
+}: {
+  title: string;
+  data?: AccountTypeStatistic;
+  loading: boolean;
+  negative?: boolean;
+  action?: ReactNode;
+}) {
   const { t } = useTranslation();
   const items = useMemo(() => {
     const rows = (data?.detail ?? []).map((it) => ({
@@ -165,7 +220,12 @@ function Breakdown({ title, data, loading, negative }: { title: string; data?: A
   return (
     <Section
       title={title}
-      rightSection={total.isZero() ? undefined : <Amount className="text-sm font-semibold" amount={total} currency={items[0]?.commodity ?? ''} />}
+      rightSection={
+        <>
+          {!total.isZero() && <Amount className="text-sm font-semibold" amount={total} currency={items[0]?.commodity ?? ''} />}
+          {action}
+        </>
+      }
     >
       {loading ? (
         <div className="flex flex-col gap-3">
@@ -205,12 +265,27 @@ function Breakdown({ title, data, loading, negative }: { title: string; data?: A
   );
 }
 
-function TopTransactions({ title, data, loading, negative }: { title: string; data?: AccountTypeStatistic; loading: boolean; negative?: boolean }) {
+function TopTransactions({
+  title,
+  data,
+  loading,
+  negative,
+  action,
+}: {
+  title: string;
+  data?: AccountTypeStatistic;
+  loading: boolean;
+  negative?: boolean;
+  action?: ReactNode;
+}) {
   const { t } = useTranslation();
   const fmt = useDateFormat();
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-medium">{title}</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">{title}</h2>
+        {action}
+      </div>
       <ResponsiveList<TopTransaction>
         items={data?.top_transactions ?? []}
         loading={loading}

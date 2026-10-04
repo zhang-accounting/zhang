@@ -638,6 +638,9 @@ struct Compiler<'q> {
     table: &'static Table,
     param_types: &'q ParamTypes,
     aggregates: Vec<AggregateCall>,
+    /// the source of each aggregate call of `aggregates`, at the same index: a call that is
+    /// written again (`last(balance)` in two targets) reuses the first one's accumulation
+    aggregate_sources: Vec<(bool, Vec<Expr>)>,
     params: Vec<(ParamRef, DataType, Span)>,
     /// set while the HAVING condition is compiled
     having: Option<HavingScope>,
@@ -666,6 +669,7 @@ pub(crate) fn compile(src: &str, select: &Select, param_types: &ParamTypes) -> R
         table,
         param_types,
         aggregates: vec![],
+        aggregate_sources: vec![],
         params: vec![],
         having: None,
     };
@@ -1234,12 +1238,23 @@ impl Compiler<'_> {
             return err(format!("{}() is not supported for intervals: intervals have no order", name), span);
         }
         let ty = resolved.function.returns.resolve(&types);
+        info.has_aggregate = true;
+        // the same function over the same arguments accumulates the same value: compute it once
+        let same = self.aggregates.iter().zip(&self.aggregate_sources).position(|(call, (call_star, call_args))| {
+            std::ptr::eq(call.function, resolved.function)
+                && *call_star == star
+                && call_args.len() == args.len()
+                && call_args.iter().zip(args).all(|(a, b)| a.same_as(b))
+        });
+        if let Some(idx) = same {
+            return Ok((CExpr::Aggregate(idx), ty));
+        }
         let arg = widen(compiled, &resolved.widen).into_iter().next();
         self.aggregates.push(AggregateCall {
             function: resolved.function,
             arg,
         });
-        info.has_aggregate = true;
+        self.aggregate_sources.push((star, args.to_vec()));
         Ok((CExpr::Aggregate(self.aggregates.len() - 1), ty))
     }
 

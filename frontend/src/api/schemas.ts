@@ -254,15 +254,35 @@ export interface paths {
     post: operations['reload'];
   };
   '/api/statistic/graph': {
-    /** Get Statistic Graph */
+    /**
+     * Get Statistic Graph
+     * @description The net worth at the end of every day, week or month of the range, and what each account
+     * type changed by in it, keyed by the bucket's first day (built-in queries
+     * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
+     *
+     * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+     */
     get: operations['get_statistic_graph'];
   };
   '/api/statistic/summary': {
-    /** Get Statistic Summary */
+    /**
+     * Get Statistic Summary
+     * @description The net worth and the liabilities at the end of the range, and the income, the expenses and
+     * the number of transactions of the range (built-in queries `report.net_worth`,
+     * `report.liabilities`, `report.flows` and `report.transaction_count`).
+     *
+     * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+     */
     get: operations['get_statistic_summary'];
   };
   '/api/statistic/{account_type}': {
-    /** Get Statistic Rank Detail By Account Type */
+    /**
+     * Get Statistic Rank Detail By Account Type
+     * @description What every account of the type changed by in the range, and its ten largest postings by
+     * value (built-in queries `report.account_totals` and `report.top_postings`).
+     *
+     * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+     */
     get: operations['get_statistic_rank_detail_by_account_type'];
   };
   '/api/transactions': {
@@ -1814,7 +1834,14 @@ export interface operations {
       };
     };
   };
-  /** Get Statistic Graph */
+  /**
+   * Get Statistic Graph
+   * @description The net worth at the end of every day, week or month of the range, and what each account
+   * type changed by in it, keyed by the bucket's first day (built-in queries
+   * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
+   *
+   * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+   */
   get_statistic_graph: {
     parameters: {
       query: {
@@ -1863,7 +1890,14 @@ export interface operations {
       };
     };
   };
-  /** Get Statistic Summary */
+  /**
+   * Get Statistic Summary
+   * @description The net worth and the liabilities at the end of the range, and the income, the expenses and
+   * the number of transactions of the range (built-in queries `report.net_worth`,
+   * `report.liabilities`, `report.flows` and `report.transaction_count`).
+   *
+   * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+   */
   get_statistic_summary: {
     parameters: {
       query: {
@@ -1922,7 +1956,13 @@ export interface operations {
       };
     };
   };
-  /** Get Statistic Rank Detail By Account Type */
+  /**
+   * Get Statistic Rank Detail By Account Type
+   * @description What every account of the type changed by in the range, and its ten largest postings by
+   * value (built-in queries `report.account_totals` and `report.top_postings`).
+   *
+   * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+   */
   get_statistic_rank_detail_by_account_type: {
     parameters: {
       query: {
