@@ -14,7 +14,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 
-const QUERY_DOCS_URL = 'https://zhang-accounting.kilerd.me/';
+const QUERY_DOCS_URL = 'https://zhang-accounting.kilerd.me/reference/query-language/';
 /** The table a query without `FROM #table` reads. */
 const DEFAULT_TABLE = 'postings';
 

@@ -33,8 +33,8 @@ export const SIDEBAR_FOOTER_LINKS: NavLink[] = [TOOLS_LINK, SETTINGS_LINK];
 export const MOBILE_PRIMARY_LINKS: NavLink[] = [DASHBOARD_LINK, JOURNALS_LINK, ACCOUNTS_LINK, REPORT_LINK];
 export const MOBILE_MORE_LINKS: NavLink[] = [BUDGETS_LINK, COMMODITIES_LINK, DOCUMENTS_LINK, RAW_EDITING_LINK, TOOLS_LINK, QUERY_LINK, SETTINGS_LINK];
 
-export const UPGRADE_GUIDE_URL = 'https://zhang-accounting.kilerd.me/installation/4-upgrade/';
-export const BUDGET_DOCS_URL = 'https://zhang-accounting.kilerd.me/directives/4-budget/';
+export const UPGRADE_GUIDE_URL = 'https://zhang-accounting.kilerd.me/deployment/upgrading/';
+export const BUDGET_DOCS_URL = 'https://zhang-accounting.kilerd.me/reference/directives/budget/';
 
 /** `/` matches exactly; other links also match their sub-routes (e.g. `/accounts/Assets:Bank`). */
 export function isLinkActive(pathname: string, uri: string) {
