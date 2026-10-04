@@ -71,7 +71,8 @@ pub async fn legacy_get_account_list(ledger: State<SharedLedger>) -> ApiResult<V
 }
 
 /// An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
-/// account with its sub-accounts, which its page shows.
+/// account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
+/// name a 400.
 ///
 /// Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
 #[api(group = "account")]
@@ -165,6 +166,7 @@ pub async fn upload_account_document(
 }
 
 /// The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+/// An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
 ///
 /// Built-in query `accounts.balance_history`.
 #[api(group = "account")]
@@ -196,7 +198,8 @@ pub async fn legacy_get_account_balance_data(ledger: State<SharedLedger>, params
     ResponseWrapper::json(AccountBalanceHistoryEntity { balance: vec })
 }
 
-/// The document directives of the account and its sub-accounts, in ledger order.
+/// The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
+/// 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
 ///
 /// Built-in query `accounts.documents`.
 #[api(group = "account")]
@@ -239,7 +242,8 @@ pub async fn legacy_get_account_documents(ledger: State<SharedLedger>, params: P
 ///
 /// With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
 /// of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
-/// return at once is a 400 that asks for pages.
+/// return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
+/// name a 400, as for `GET /api/accounts/{a}`.
 ///
 /// Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
 /// `accounts.balance_assertions`.

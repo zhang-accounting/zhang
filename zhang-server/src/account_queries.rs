@@ -212,9 +212,40 @@ pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
         .collect())
 }
 
+/// Whether `account` has a page, as an account with an `open` or `close` directive or with
+/// postings; a name that is no account name is a 400.
+fn has_page(ledger: &Ledger, account: &str) -> ServerResult<bool> {
+    crate::validate::account(account, &crate::validate::Rules::Zhang)?;
+    let named = |result: &QueryResult| {
+        let columns = Columns::of(result);
+        result.rows.iter().any(|row| columns.get(row, "account").as_str() == Some(account))
+    };
+    if named(&run(ledger, SUBTREE, &Params::new().bind("account", account))?) {
+        return Ok(true);
+    }
+    // an account without a directive is one with postings
+    let operating_currency = ledger.options.operating_currency.as_str();
+    let balances = run(
+        ledger,
+        SUBTREE_BALANCES,
+        &Params::new().bind("account", account).bind("operating_currency", operating_currency),
+    )?;
+    Ok(named(&balances))
+}
+
+/// The page of `account` exists: a 400 for a name that is no account name, a 404 for an account
+/// that has no page, as `GET /api/accounts/{a}` answers.
+fn require_page(ledger: &Ledger, account: &str) -> ServerResult<()> {
+    match has_page(ledger, account)? {
+        true => Ok(()),
+        false => Err(crate::error::ServerError::NotFound),
+    }
+}
+
 /// `GET /api/accounts/{a}`: an account with an `open` or `close` directive or with postings;
-/// `None` for any other name.
+/// `None` for any other account, and a 400 for a name that is no account name.
 pub fn account_info(ledger: &Ledger, account: &str) -> ServerResult<Option<AccountInfoEntity>> {
+    crate::validate::account(account, &crate::validate::Rules::Zhang)?;
     let operating_currency = ledger.options.operating_currency.as_str();
     let accounts = run(ledger, SUBTREE, &Params::new().bind("account", account))?;
     let balances = run(
@@ -333,7 +364,8 @@ fn assertion_rows(result: &QueryResult) -> Vec<(i64, AccountJournalDomain)> {
 
 /// `GET /api/accounts/{a}/journals`: the postings of the account and its sub-accounts, newest
 /// first, each with the running balance of the subtree in its currency, and the balance
-/// assertions on the account, each with the balance it was checked against.
+/// assertions on the account, each with the balance it was checked against. An account without a
+/// page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
 ///
 /// The rows are `accounts.journal`, a row per posting, and `accounts.balance_assertions` merged by
 /// `seq`, the order zhang processed the ledger in: an assertion stands right after the postings
@@ -344,6 +376,7 @@ fn assertion_rows(result: &QueryResult) -> Vec<(i64, AccountJournalDomain)> {
 /// of it is read from the end with `accounts.journal_page`, which only builds the postings it
 /// returns, and whose total is the number of postings.
 pub fn account_journals(ledger: &Ledger, account: &str, window: Option<JournalWindow>) -> ServerResult<Journal> {
+    require_page(ledger, account)?;
     let assertions = assertion_rows(&run(ledger, BALANCE_ASSERTIONS, &Params::new().bind("account", account))?);
     let Some(window) = window else {
         let postings = run(ledger, JOURNAL, &Params::new().bind("account", account)).map_err(too_large_unpaged)?;
@@ -431,8 +464,9 @@ fn merge(postings: Vec<PostingRow>, first: u64, assertions: Vec<(i64, AccountJou
 // balance history and documents
 
 /// `GET /api/accounts/{a}/balances`: the balance of the account and its sub-accounts at the end
-/// of every day it changed, per currency, in date order.
+/// of every day it changed, per currency, in date order; a 404 or a 400 as for the journal.
 pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<AccountBalanceHistoryEntity> {
+    require_page(ledger, account)?;
     let result = run(ledger, BALANCE_HISTORY, &Params::new().bind("account", account))?;
     let columns = Columns::of(&result);
     let mut balance: HashMap<String, Vec<AccountBalanceItemEntity>> = HashMap::new();
@@ -448,8 +482,9 @@ pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<A
 }
 
 /// `GET /api/accounts/{a}/documents`: the document directives of the account and its
-/// sub-accounts, in ledger order.
+/// sub-accounts, in ledger order; a 404 or a 400 as for the journal.
 pub fn account_documents(ledger: &Ledger, account: &str) -> ServerResult<Vec<DocumentEntity>> {
+    require_page(ledger, account)?;
     let result = run(ledger, DOCUMENTS, &Params::new().bind("account", account))?;
     let columns = Columns::of(&result);
     Ok(result

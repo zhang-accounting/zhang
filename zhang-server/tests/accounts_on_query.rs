@@ -18,6 +18,9 @@
 //!    - `trx_id` is the id of the transaction, not of the posting (a bug), and an assertion row's is its id;
 //!    - a parent account's page is its subtree (decision 6);
 //!    - the narration of a transaction written without one is `""`, as the engine has it, where it was null;
+//!    - a name that is no account is a 404 on every endpoint of an account page, and one that is no account name
+//!      (such as `Assets` alone) a 400, where the journal, history and documents were a 200 with nothing (or a
+//!      500) and the page a 404;
 //!    - on a day daylight saving skips a time, the hand-written endpoints took the posting stored last as the
 //!      latest, where zhang processed the postings by the time written: their balance of the account and of the
 //!      day was that after an earlier posting, and their journal was in the order of the stored times (a bug).
@@ -246,6 +249,9 @@ enum Reason {
     Subtree,
     /// accepted by the lead: the narration of a transaction without one is `""`, as the engine has it
     EmptyNarration,
+    /// review: a name that is no account is a 404 on every endpoint of an account page, one that is no account
+    /// name a 400, where the journal, history and documents were a 200 with nothing
+    NoAccount,
     /// a bug of the hand-written endpoints: on a day daylight saving skips a time, a posting written in the gap
     /// is stored past it, and they took the posting stored last as the latest, where zhang processed the
     /// postings by the time written
@@ -263,6 +269,7 @@ impl Reason {
             Reason::TransactionId => "bug: `trx_id` was the posting id; an assertion row has the id of its check, as in /api/journals",
             Reason::Subtree => "decision 6: a parent account's page is its subtree",
             Reason::EmptyNarration => "accepted: a transaction without a narration has \"\" (was null)",
+            Reason::NoAccount => "a name that is no account is a 404, one that is no account name a 400, as on its page (was a 200 with nothing)",
             Reason::DaylightSavingGap => "bug: legacy balance on a DST-gap day",
             Reason::Unexplained => "UNEXPLAINED",
         }
@@ -993,10 +1000,26 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
     for account in universe(&[&before_list, &after_list]) {
         let path = || UrlPath((account.clone(),));
         report.compared += 4;
+        // what the endpoints of the page answer: a page for an account the store has, a 400 for a name that is no
+        // account name, and a 404 for any other
+        let expected_status = if !zhang_core::data_type::text::parser::is_valid_account_name(&account) {
+            StatusCode::BAD_REQUEST
+        } else if expected_names.contains(&account) {
+            StatusCode::OK
+        } else {
+            StatusCode::NOT_FOUND
+        };
 
         // the page
         let (before_status, before) = respond(legacy_get_account_info(State(ledger.clone()), path()).await).await;
         let (after_status, mut after) = respond(get_account_info(State(ledger.clone()), path()).await).await;
+        report.expect(
+            ledger_name,
+            "page status",
+            &account,
+            &json!(expected_status.as_u16()),
+            &json!(after_status.as_u16()),
+        );
         if after_status == StatusCode::OK {
             let subtree_total = after.as_object_mut().unwrap().remove("amount_with_sub_accounts").unwrap();
             let subtree_total = canonical(&subtree_total);
@@ -1042,6 +1065,9 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
                 report.add(ledger_name, "GET /api/accounts/{a}", &account, Reason::ListedWithoutOpen, &json!("404"), &after);
             }
             (StatusCode::NOT_FOUND, StatusCode::NOT_FOUND) => {}
+            (StatusCode::NOT_FOUND, StatusCode::BAD_REQUEST) => {
+                report.add(ledger_name, "GET /api/accounts/{a}", &account, Reason::NoAccount, &json!(404), &json!(400));
+            }
             _ => report.add(
                 ledger_name,
                 "GET /api/accounts/{a}",
@@ -1050,6 +1076,32 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
                 &json!(before_status.as_u16()),
                 &json!(after_status.as_u16()),
             ),
+        }
+
+        if expected_status != StatusCode::OK {
+            let legacy = [
+                respond(legacy_get_account_journals(State(ledger.clone()), path()).await).await,
+                respond(legacy_get_account_balance_data(State(ledger.clone()), path()).await).await,
+                respond(legacy_get_account_documents(State(ledger.clone()), path()).await).await,
+            ];
+            let new = [
+                whole_journal(ledger, &account).await,
+                respond(get_account_balance_data(State(ledger.clone()), path()).await).await,
+                respond(get_account_documents(State(ledger.clone()), path()).await).await,
+            ];
+            let endpoints = [
+                "GET /api/accounts/{a}/journals",
+                "GET /api/accounts/{a}/balances",
+                "GET /api/accounts/{a}/documents",
+            ];
+            for ((endpoint, (before_status, before)), (after_status, after)) in endpoints.into_iter().zip(legacy).zip(new) {
+                report.expect(ledger_name, endpoint, &account, &json!(expected_status.as_u16()), &json!(after_status.as_u16()));
+                // the hand-written endpoints had nothing for it
+                let nothing = before == json!([]) || before == json!({"balance": {}}) || before_status == StatusCode::INTERNAL_SERVER_ERROR;
+                let reason = if nothing { Reason::NoAccount } else { Reason::Unexplained };
+                report.add(ledger_name, endpoint, &account, reason, &before, &after);
+            }
+            continue;
         }
 
         // the journal
@@ -1312,9 +1364,47 @@ async fn accounts_without_open_are_listed_by_name() {
         (&page["date"], &page["type"], &page["status"]),
         (&json!("2024-01-04T00:00:00"), &json!("Assets"), &json!("Open"))
     );
-    // a parent that is no account has no page
-    let (status, _) = respond(get_account_info(State(ledger), UrlPath(("Assets".to_owned(),))).await).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// Every endpoint of an account page answers a name that is no account, such as a parent without an account of its
+/// own, with a 404, as the page does, and a name that is no account name with a 400 that says why.
+#[tokio::test]
+async fn a_name_that_is_no_account_is_a_404_and_one_that_is_no_account_name_a_400() {
+    let (ledger, _dir) = differences().await;
+    let statuses = |name: &'static str| {
+        let ledger = ledger.clone();
+        async move {
+            let path = || UrlPath((name.to_owned(),));
+            [
+                respond(get_account_info(State(ledger.clone()), path()).await).await,
+                whole_journal(&ledger, name).await,
+                {
+                    let (status, _, body) = journal_page(&ledger, name, 1, 10).await;
+                    (status, body)
+                },
+                respond(get_account_balance_data(State(ledger.clone()), path()).await).await,
+                respond(get_account_documents(State(ledger.clone()), path()).await).await,
+            ]
+        }
+    };
+    for name in ["Assets:Nowhere", "Expenses:Food:Coffee"] {
+        for (status, body) in statuses(name).await {
+            assert_eq!(status, StatusCode::NOT_FOUND, "{name}: {body}");
+        }
+    }
+    for name in ["Assets", "Assets:Bad Name", "foo", "Assets::Bank"] {
+        for (status, body) in statuses(name).await {
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{name}: {body}");
+            assert!(
+                body["message"].as_str().unwrap().starts_with(&format!("invalid account {name:?}")),
+                "{name}: {body}"
+            );
+        }
+    }
+    // an account without `open` has a page
+    for (status, body) in statuses("Assets:Ghost").await {
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
 }
 
 #[tokio::test]
