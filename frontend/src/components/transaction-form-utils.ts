@@ -49,9 +49,12 @@ export function parseAmount(raw: string, fallbackCommodity?: string): AmountStat
 /** How the ledger file is written: zhang (`.zhang`) or beancount (`.bean`, date only plus a `time` metadata, beancount quoting). */
 export type LedgerFormat = 'zhang' | 'beancount';
 
-/** The format of a ledger from `/api/files`: the main file is listed first. */
+/**
+ * The format of a ledger from `/api/files`: the main file is listed first. Like the server (`is_beancount_endpoint`), a
+ * main file ending in `.bc`, `.bean` or `.beancount` is a beancount ledger.
+ */
 export function ledgerFormat(files: (string | null | undefined)[] | undefined): LedgerFormat {
-  return files?.[0]?.endsWith('.bean') ? 'beancount' : 'zhang';
+  return /\.(bc|bean|beancount)$/.test(files?.[0] ?? '') ? 'beancount' : 'zhang';
 }
 
 /** Characters the server writes as `\uXXXX` besides controls: invisible or text-reordering ones (`is_hidden_format_char`). */
