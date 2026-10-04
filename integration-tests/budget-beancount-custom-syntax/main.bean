@@ -1,0 +1,28 @@
+option "operating_currency" "CNY"
+
+2023-12-01 open Assets:BankCard CNY
+2023-12-01 open Expenses:Food CNY
+  budget: "food"
+2023-12-01 open Expenses:Fun CNY
+  budget: "fun"
+
+; budgets as `custom` directives in the form beancount accepts (#500)
+2023-12-01 custom "budget" "food" "CNY"
+  alias: "外食"
+  category: "生活开销｜55%"
+2023-12-01 custom "budget" "fun" "CNY"
+  alias: "娱乐"
+2023-12-01 custom "budget" "vacation" "CNY"
+
+2023-12-01 custom "budget-add" "food" 1000 CNY
+2023-12-01 custom "budget-add" "fun" 300.5 CNY
+2023-12-20 custom "budget-transfer" "fun" "food" 100 CNY
+2023-12-31 custom "budget-close" "vacation"
+
+2023-12-02 * "KFC" "VME50 Package"
+  Assets:BankCard -50 CNY
+  Expenses:Food
+
+2023-12-21 * "Cinema" "Tickets"
+  Assets:BankCard -80 CNY
+  Expenses:Fun

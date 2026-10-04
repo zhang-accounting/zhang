@@ -65,7 +65,7 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" kilerd/zhang:l
 | `document` | 读取。路径与 Beancount 一样相对于该指令所在的文件：见[文档路径](#文档路径)。 |
 | `price` | 读取，用于查询和货币页面中的估值。 |
 | `query` | 读取：这些查询出现在[查询](/zh-cn/guides/querying/)页面的**已保存**菜单中。 |
-| `custom` | 读取。`custom budget …` 定义[预算](/zh-cn/guides/budgets/)：见[预算](#预算)。 |
+| `custom` | 读取。`custom "budget" …` 定义[预算](/zh-cn/guides/budgets/)：见[预算](#预算)。 |
 | `option` | 读取。只有部分选项起作用：见[选项](#选项)。 |
 | `plugin` | Python 插件不会运行：见[插件](#插件)。 |
 | `include` | 读取，包括 `*` 模式，例如 `include "2024/*.bean"`。 |
@@ -154,7 +154,7 @@ Beancount 的插件是 Python 代码，张记账不运行它们，包括 Beancou
 
 #### 预算
 
-张记账读取 `custom budget Food CNY`、`custom budget-add Food 2000 CNY`、`custom budget-transfer Fun Food 300 CNY` 和 `custom budget-close Food`，其中 `budget` 一词和预算名都不加引号，张记账也以这种方式写入预算。Beancount 本身会拒绝这些行，因为它要求类型和名称都加引号；而加了引号的 `custom "budget" "Food" CNY` 对张记账来说是普通的 `custom` 指令。因此，如果你还用 `bean-check` 检查账本，它会把这些预算行报告为错误。
+张记账读取按 Beancount 接受的写法写成 `custom` 指令的预算：`custom "budget" "Food" "CNY"`、`custom "budget-add" "Food" 2000 CNY`、`custom "budget-transfer" "Fun" "Food" 300 CNY` 和 `custom "budget-close" "Food"`，类型和名称都加引号；张记账也以这种方式写入预算，所以 `bean-check` 和 Fava 都接受这样的账本。早期版本的张记账写出的不加引号的写法 `custom budget Food CNY` 仍然可以读取，但 Beancount 会以 `Invalid token` 拒绝它：请改用加引号的写法。见[预算指令](/zh-cn/reference/directives/budget/#beancount-兼容性)。
 
 ### 张记账独有的功能
 

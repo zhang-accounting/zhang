@@ -105,21 +105,23 @@ impl DataType for Beancount {
                 };
                 [pad_directive.export_as(STYLE), balance_directive.export_as(STYLE)].join("\n")
             }
+            // budgets are `custom` directives in the form beancount accepts (#500): a quoted type,
+            // quoted names, a quoted commodity, and a plain `1000 CNY` as an amount
             Directive::Budget(budget) => Directive::Custom(Custom {
                 date: budget.date,
-                custom_type: ZhangString::unquote("budget"),
+                custom_type: ZhangString::quote("budget"),
                 values: vec![
-                    StringOrAccount::String(ZhangString::unquote(budget.name)),
-                    StringOrAccount::String(ZhangString::unquote(budget.commodity)),
+                    StringOrAccount::String(ZhangString::quote(budget.name)),
+                    StringOrAccount::String(ZhangString::quote(budget.commodity)),
                 ],
                 meta: budget.meta,
             })
             .export_as(STYLE),
             Directive::BudgetAdd(budget) => Directive::Custom(Custom {
                 date: budget.date,
-                custom_type: ZhangString::unquote("budget-add"),
+                custom_type: ZhangString::quote("budget-add"),
                 values: vec![
-                    StringOrAccount::String(ZhangString::unquote(budget.name)),
+                    StringOrAccount::String(ZhangString::quote(budget.name)),
                     StringOrAccount::String(ZhangString::unquote(plain_decimal(&budget.amount.number))),
                     StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
                 ],
@@ -128,10 +130,10 @@ impl DataType for Beancount {
             .export_as(STYLE),
             Directive::BudgetTransfer(budget) => Directive::Custom(Custom {
                 date: budget.date,
-                custom_type: ZhangString::unquote("budget-transfer"),
+                custom_type: ZhangString::quote("budget-transfer"),
                 values: vec![
-                    StringOrAccount::String(ZhangString::unquote(budget.from)),
-                    StringOrAccount::String(ZhangString::unquote(budget.to)),
+                    StringOrAccount::String(ZhangString::quote(budget.from)),
+                    StringOrAccount::String(ZhangString::quote(budget.to)),
                     StringOrAccount::String(ZhangString::unquote(plain_decimal(&budget.amount.number))),
                     StringOrAccount::String(ZhangString::unquote(budget.amount.commodity)),
                 ],
@@ -140,8 +142,8 @@ impl DataType for Beancount {
             .export_as(STYLE),
             Directive::BudgetClose(budget) => Directive::Custom(Custom {
                 date: budget.date,
-                custom_type: ZhangString::unquote("budget-close"),
-                values: vec![StringOrAccount::String(ZhangString::unquote(budget.name))],
+                custom_type: ZhangString::quote("budget-close"),
+                values: vec![StringOrAccount::String(ZhangString::quote(budget.name))],
                 meta: budget.meta,
             })
             .export_as(STYLE),

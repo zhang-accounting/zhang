@@ -63,9 +63,11 @@ A `custom` directive produces no error. A plugin that reads it may report a
 - Beancount requires the type to be a quoted string, and its values to be quoted strings, numbers, amounts, dates,
   booleans or accounts. A bare word such as `CNY` alone, or `monthly` without quotes, is a syntax error there. Zhang
   reads both forms; write values in Beancount's form if the file must also load in Beancount or Fava.
-- In a Beancount file, Zhang reads `custom budget …`, `custom budget-add …`, `custom budget-transfer …` and
-  `custom budget-close …`, written with the bare word, as [budget directives](/reference/directives/budget/). Any other
-  `custom` directive, including `custom "budget" …`, stays a `custom` directive.
+- In a Beancount file, Zhang reads `custom "budget" "Food" "CNY"`, `custom "budget-add" "Food" 2000 CNY`,
+  `custom "budget-transfer" "Fun" "Food" 100 CNY` and `custom "budget-close" "Food"`, the form Beancount accepts, as
+  [budget directives](/reference/directives/budget/#beancount-compatibility), and writes budgets that way. The unquoted
+  form earlier versions wrote, `custom budget Food CNY`, is still read. A `custom "budget"` with other values, such as
+  Fava's `custom "budget" Expenses:Coffee "daily" 4.00 EUR`, stays a `custom` directive, as does every other type.
 
 ## Related
 
