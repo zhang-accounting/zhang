@@ -48,6 +48,7 @@ mod test {
             end: 0,
             content: "".to_string(),
             filename: None,
+            ..SpanInfo::default()
         };
         assert_eq!(Uuid::from_span(&empty_span), Uuid::from_span(&empty_span))
     }
@@ -59,6 +60,7 @@ mod test {
             end: 0,
             content: "".to_string(),
             filename: Some(PathBuf::from("a.abc")),
+            ..SpanInfo::default()
         };
         assert_eq!(Uuid::from_span(&span), Uuid::from_span(&span));
 
@@ -67,13 +69,15 @@ mod test {
                 start: 10,
                 end: 0,
                 content: "".to_string(),
-                filename: Some(PathBuf::from("a.abc"))
+                filename: Some(PathBuf::from("a.abc")),
+                ..SpanInfo::default()
             }),
             Uuid::from_span(&SpanInfo {
                 start: 10,
                 end: 0,
                 content: "".to_string(),
-                filename: Some(PathBuf::from("a.abc"))
+                filename: Some(PathBuf::from("a.abc")),
+                ..SpanInfo::default()
             })
         );
     }
@@ -85,13 +89,15 @@ mod test {
                 start: 10,
                 end: 0,
                 content: "".to_string(),
-                filename: Some(PathBuf::from("a.abc"))
+                filename: Some(PathBuf::from("a.abc")),
+                ..SpanInfo::default()
             }),
             Uuid::from_span(&SpanInfo {
                 start: 10,
                 end: 0,
                 content: "".to_string(),
-                filename: None
+                filename: None,
+                ..SpanInfo::default()
             })
         );
         assert_ne!(
@@ -99,28 +105,15 @@ mod test {
                 start: 10,
                 end: 0,
                 content: "".to_string(),
-                filename: Some(PathBuf::from("a.abc"))
+                filename: Some(PathBuf::from("a.abc")),
+                ..SpanInfo::default()
             }),
             Uuid::from_span(&SpanInfo {
                 start: 10,
                 end: 0,
                 content: "".to_string(),
-                filename: Some(PathBuf::from("a.ab"))
-            })
-        );
-
-        assert_ne!(
-            Uuid::from_span(&SpanInfo {
-                start: 9,
-                end: 0,
-                content: "".to_string(),
-                filename: Some(PathBuf::from("a.abc"))
-            }),
-            Uuid::from_span(&SpanInfo {
-                start: 10,
-                end: 0,
-                content: "".to_string(),
-                filename: Some(PathBuf::from("a.abc"))
+                filename: Some(PathBuf::from("a.ab")),
+                ..SpanInfo::default()
             })
         );
 
@@ -129,13 +122,32 @@ mod test {
                 start: 9,
                 end: 0,
                 content: "".to_string(),
-                filename: None
+                filename: Some(PathBuf::from("a.abc")),
+                ..SpanInfo::default()
             }),
             Uuid::from_span(&SpanInfo {
                 start: 10,
                 end: 0,
                 content: "".to_string(),
-                filename: None
+                filename: Some(PathBuf::from("a.abc")),
+                ..SpanInfo::default()
+            })
+        );
+
+        assert_ne!(
+            Uuid::from_span(&SpanInfo {
+                start: 9,
+                end: 0,
+                content: "".to_string(),
+                filename: None,
+                ..SpanInfo::default()
+            }),
+            Uuid::from_span(&SpanInfo {
+                start: 10,
+                end: 0,
+                content: "".to_string(),
+                filename: None,
+                ..SpanInfo::default()
             })
         );
     }

@@ -71,6 +71,7 @@ mod test {
             end: 9,
             content: "x".to_owned(),
             filename: Some("main.zhang".into()),
+            ..SpanInfo::default()
         };
         let metas = BTreeMap::from([("rule".to_owned(), "payee".to_owned())]);
         let full: serde_json::Value = serde_json::from_slice(&payload(Some(&span), "no payee".to_owned(), metas)).unwrap();

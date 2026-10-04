@@ -551,12 +551,12 @@ One page of the ledger's errors, by file and then by position in the file.
 | `offset` | `int` | the errors before the page: `(page - 1) × size` |
 
 ```sql
-SELECT id, kind, file, span_start, span_end, source, metas
+SELECT id, kind, file, line, column, span_start, span_end, source, metas
 FROM #errors
 LIMIT :size OFFSET :offset
 ```
 
-The error list shows where each error is as its file and the byte offsets of its directive in it.
+The error list shows where each error is as its file and the lines of its directive, from `line` and the lines of `source`; `span_start` and `span_end` are the byte offsets a writer replaces the directive by.
 
 ### Budgets and commodities
 

@@ -1301,6 +1301,10 @@ export interface operations {
                   commodity: string;
                   number: string;
                 } | null;
+                /**
+                 * @description the lot's label, from the `{cost, "label"}` it was bought with; left out when the lot has
+                 * none, so unlabelled lots serialize as before
+                 */
                 label?: string | null;
                 price?: {
                   commodity: string;
@@ -1399,9 +1403,16 @@ export interface operations {
                   [key: string]: string;
                 };
                 span?: {
+                  /** @description 1-based column in its line where the directive starts, counting characters; null when unknown */
+                  column?: number | null;
+                  /** @description the directive's text */
                   content: string;
+                  /** @description byte offset in the file just after the directive ends */
                   end: number;
                   filename?: string | null;
+                  /** @description 1-based line in the file where the directive starts; null when unknown (a directive not read from a file) */
+                  line?: number | null;
+                  /** @description byte offset in the file where the directive starts */
                   start: number;
                 } | null;
               }[];

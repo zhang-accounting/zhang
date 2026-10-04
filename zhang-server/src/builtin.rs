@@ -265,7 +265,7 @@ WHERE source = 'directive' AND under(account, :account)",
     BuiltinQuery {
         name: "journals.errors",
         description: "One page of the ledger's errors, by file and then by position in the file.",
-        bql: "SELECT id, kind, file, span_start, span_end, source, metas \
+        bql: "SELECT id, kind, file, line, column, span_start, span_end, source, metas \
               FROM #errors \
               LIMIT :size OFFSET :offset",
         params: &[("size", DataType::Int), ("offset", DataType::Int)],

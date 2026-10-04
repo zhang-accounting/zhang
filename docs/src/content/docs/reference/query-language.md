@@ -962,7 +962,7 @@ GROUP BY name
 `#errors` has one row per ledger error: the problems the errors page of the web UI lists and `GET /api/errors` returns.
 
 - `kind` is the error code, such as `UnbalancedTransaction`. [Error Codes](/reference/error-codes/) explains each code and how to fix it. `message` is the sentence the errors page shows for it.
-- `file` is the file of the directive that caused the error, relative to the ledger's directory, as in the web UI's file list. `source` is the text of that directive. `line` and `column` are `NULL` for now, because Zhang does not record line numbers yet.
+- `file` is the file of the directive that caused the error, relative to the ledger's directory, as in the web UI's file list. `source` is the text of that directive. `line` and `column` are where the directive starts, 1-based; the column counts characters. Both are `NULL` for a directive that was not read from a file, such as one a plugin made up.
 - `date` is the date of the directive, or `NULL` for an undated one such as an `option`. `account` is the account the error is about, for errors that name one, such as `AccountDoesNotExist`, `AccountClosed` and `AccountBalanceCheckError`.
 - `meta(key)` reads the other details Zhang records about an error, and `metas` lists them all. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
 - `id` is the id of the error in `GET /api/errors`, and `span_start` and `span_end` are where the directive that caused it starts and ends in its file, as byte offsets. The id is derived from the directive's position, so the errors of one directive share it, and an error in a transaction has the transaction's `id`.
@@ -973,8 +973,8 @@ GROUP BY name
 | `kind` | `str` | Error code, such as `UnbalancedTransaction`. It is the `error_type` of `GET /api/errors`. |
 | `message` | `str` | What the errors page says about the error. |
 | `file` | `str` | File of the directive that caused the error, relative to the ledger's directory, or its full path if it is outside the directory. |
-| `line` | `int` | Line of the directive in its file. Always `NULL` for now. |
-| `column` | `int` | Column of the directive in its line. Always `NULL` for now. |
+| `line` | `int` | Line in its file where the directive that caused the error starts, 1-based, or `NULL` if unknown. |
+| `column` | `int` | Column in its line where the directive starts, 1-based and counting characters, or `NULL` if unknown. |
 | `date` | `date` | Date of the directive, or `NULL` for an undated directive. |
 | `account` | `str` | Account the error is about, or `NULL` if the error does not name one. |
 | `source` | `str` | Text of the directive that caused the error. |

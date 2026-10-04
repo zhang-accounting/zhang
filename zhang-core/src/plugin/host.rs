@@ -611,6 +611,7 @@ mod test {
             end: 25,
             content: "plugin \"validator.wasm\"\n".to_owned(),
             filename: Some(PathBuf::from("main.zhang")),
+            ..SpanInfo::default()
         }
     }
 
@@ -649,6 +650,7 @@ mod test {
                 end: 90,
                 content: "2024-01-02 * \"lunch\"".to_owned(),
                 filename: Some(PathBuf::from("other.zhang")),
+                ..SpanInfo::default()
             }
         );
     }

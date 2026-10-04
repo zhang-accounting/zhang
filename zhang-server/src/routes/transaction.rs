@@ -1667,6 +1667,7 @@ mod string_round_trip_test {
                 end,
                 content: content.to_owned(),
                 filename,
+                ..SpanInfo::default()
             }
         }
         const FAR: usize = 1 << 20;

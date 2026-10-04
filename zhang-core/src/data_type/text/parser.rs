@@ -1027,13 +1027,19 @@ pub fn transaction_header_len(text: &str) -> Option<usize> {
 }
 
 fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
-    let position = offset(original, rest);
-    let consumed = &original[..position];
-    let line = consumed.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = position - consumed.rfind('\n').map(|index| index + 1).unwrap_or(0) + 1;
+    let (line, column) = line_column(original, (1, 0), offset(original, rest));
     ParseError {
         message: format!("failed to parse zhang file: {} at line {}, column {}", message, line, column),
     }
+}
+
+/// The 1-based line and column of byte `offset` in `text`, the column counting characters. `from` is the
+/// `(line, byte offset)` of a position already known, at or before `offset`, so a caller walking a file counts
+/// every line once; `(1, 0)` is the start of the text.
+pub fn line_column(text: &str, from: (usize, usize), offset: usize) -> (usize, usize) {
+    let line = from.0 + text[from.1..offset].bytes().filter(|byte| *byte == b'\n').count();
+    let line_start = text[..offset].rfind('\n').map_or(0, |index| index + 1);
+    (line, text[line_start..offset].chars().count() + 1)
 }
 
 /// Parse a full zhang text file into a list of spanned directives.
@@ -1052,6 +1058,8 @@ pub fn parse_items<'a, T: std::fmt::Debug + PartialEq, E>(
     let original = input_str.strip_prefix(BOM).unwrap_or(input_str);
     let mut rest = original;
     let mut directives = Vec::new();
+    // (line, byte offset) where the last directive starts: the next one's line is counted from there
+    let mut position = (1, 0);
 
     loop {
         while let Ok((next, _)) = blank_line(rest) {
@@ -1074,6 +1082,8 @@ pub fn parse_items<'a, T: std::fmt::Debug + PartialEq, E>(
 
         if let Some(directive) = directive {
             let end = offset(original, next);
+            let (line, column) = line_column(original, position, start);
+            position = (line, start);
             directives.push(Spanned {
                 data: directive,
                 span: SpanInfo {
@@ -1081,6 +1091,8 @@ pub fn parse_items<'a, T: std::fmt::Debug + PartialEq, E>(
                     end,
                     content: original[start..end].to_string(),
                     filename: file.clone(),
+                    line: Some(line),
+                    column: Some(column),
                 },
             });
         }
@@ -2577,5 +2589,41 @@ mod test {
                 assert!(!is_valid_transaction_flag(invalid), "{invalid:?}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod span_positions {
+    use super::{line_column, parse};
+
+    /// The ledger of #493: a transaction on lines 5 to 7, at bytes 98 to 157.
+    const LEDGER: &str = "option \"operating_currency\" \"CNY\"\n\
+                          1970-01-01 open Assets:A CNY\n\
+                          1970-01-01 open Expenses:Food CNY\n\
+                          \n\
+                          2024-01-10 \"Lunch\"\n  Assets:A -10 CNY\n  Expenses:Food 5 CNY\n";
+
+    /// A span records the line and column where its directive starts, next to its byte offsets.
+    #[test]
+    fn spans_record_the_line_and_column_of_their_directive() {
+        let spans = parse(LEDGER, None).unwrap().into_iter().map(|it| it.span).collect::<Vec<_>>();
+        let positions = spans.iter().map(|span| (span.line, span.column, span.start)).collect::<Vec<_>>();
+        assert_eq!(
+            positions,
+            vec![(Some(1), Some(1), 0), (Some(2), Some(1), 34), (Some(3), Some(1), 63), (Some(5), Some(1), 98)]
+        );
+        assert_eq!(spans[3].end, 157);
+        assert_eq!(spans[3].content, "2024-01-10 \"Lunch\"\n  Assets:A -10 CNY\n  Expenses:Food 5 CNY");
+    }
+
+    /// Columns count characters, and lines are counted on from a position already known.
+    #[test]
+    fn line_column_counts_characters_and_continues_from_a_known_position() {
+        let text = "第一行\n  éb\r\nc";
+        let b = text.find('b').unwrap();
+        assert_eq!(line_column(text, (1, 0), 0), (1, 1));
+        assert_eq!(line_column(text, (1, 0), b), (2, 4));
+        assert_eq!(line_column(text, (2, text.find("  é").unwrap()), b), (2, 4));
+        assert_eq!(line_column(text, (1, 0), text.find('c').unwrap()), (3, 1));
     }
 }

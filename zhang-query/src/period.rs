@@ -560,6 +560,7 @@ impl<'a> Transform<'_, 'a> {
             end: 0,
             content: String::new(),
             filename: Some(PathBuf::from(kind.source())),
+            ..SpanInfo::default()
         });
         let datetime = resolve_local_datetime(&self.ledger.options.timezone, &date.and_time(NaiveTime::MIN));
         let mut stored = Vec::with_capacity(postings.len());

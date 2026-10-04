@@ -290,6 +290,7 @@ pub(crate) mod test {
             end: 0,
             content: "".to_string(),
             filename: None,
+            ..SpanInfo::default()
         }
     }
 

@@ -343,8 +343,10 @@ fn route(request: Request) -> Result<Response, Error> {
 一条指令是 `zhang-ast` 中 `Spanned<Directive>` 的 serde JSON，并且是 ABI v1 认识的类型：张记账从不把 `pad` 指令交给插件（参见[阶段顺序约定](#阶段顺序约定)）。例如：
 
 ```json
-{"data": {"Comment": {"content": "; a note"}}, "span": {"start": 0, "end": 8, "content": "; a note", "filename": "/ledger/main.zhang"}}
+{"data": {"Comment": {"content": "; a note"}}, "span": {"start": 0, "end": 8, "content": "; a note", "filename": "/ledger/main.zhang", "line": 1, "column": 1}}
 ```
+
+`start` 和 `end` 是指令在文件中的字节偏移，`line` 和 `column` 是指令开始的行号和列号，从 1 起算，列号按字符计；指令不是从文件读取的时，这两个字段省略。插件回传的 span（传给 `zhang_emit_error` 的）也可以省略它们。
 
 导出函数通过返回非零代码并附带 Extism 错误来表示失败；对于 processor 或 mapper，这会中止加载。
 

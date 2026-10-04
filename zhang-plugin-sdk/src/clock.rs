@@ -202,6 +202,7 @@ mod test {
                 end: source.len(),
                 content: source.to_owned(),
                 filename: None,
+                ..SpanInfo::default()
             },
         )
     }
