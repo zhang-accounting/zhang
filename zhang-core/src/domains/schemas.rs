@@ -49,13 +49,6 @@ pub struct AccountBalanceDomain {
     pub balance: Amount,
 }
 
-#[derive(Debug, Clone)]
-pub struct AccountDailyBalanceDomain {
-    pub date: NaiveDate,
-    pub account: String,
-    pub balance: Amount,
-}
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PriceDomain {
     pub datetime: NaiveDateTime,
