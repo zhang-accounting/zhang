@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use clap::{Args, Parser};
 use env_logger::Env;
-use log::{error, info};
+use log::info;
 use self_update::{UpdateStrategy, VersionStatus};
 use tokio::task::spawn_blocking;
 use zhang_server::ServeConfig;
@@ -122,15 +122,15 @@ pub struct ServerOpts {
 }
 
 impl Opts {
-    /// run the command; `false` when it failed, so the process can exit with a non-zero code and
-    /// supervisors (systemd, Docker, Railway, ...) see the failure instead of a clean exit
-    pub async fn run(self) -> bool {
+    /// run the command; the error when it failed, so `main` prints it and exits with a non-zero code: the user
+    /// sees why, and supervisors (systemd, Docker, Railway, ...) see the failure instead of a clean exit
+    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         match self {
             Opts::Parse(_parse_opts) => {
                 // let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
                 // todo: fix parse
                 // Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
-                true
+                Ok(())
             }
             Opts::Export(_) => todo!(),
             Opts::Serve(mut opts) => {
@@ -156,13 +156,8 @@ impl Opts {
                 .await;
                 // the initial load (and binding the port) can fail here; reload failures while
                 // serving keep the previous ledger and never reach this point
-                match result {
-                    Ok(_) => true,
-                    Err(e) => {
-                        error!("An error occur when serving zhang server: {}", e);
-                        false
-                    }
-                }
+                result?;
+                Ok(())
             }
             Opts::Update { verbose } => {
                 info!("performing self update");
@@ -186,21 +181,18 @@ impl Opts {
                 match update_result {
                     Ok(VersionStatus::UpToDate(version)) => {
                         info!("zhang is already up to dated with version {}", version);
-                        true
+                        Ok(())
                     }
                     Ok(VersionStatus::Updated(version)) => {
                         info!("zhang is updated to version {}", version);
-                        true
+                        Ok(())
                     }
                     // `VersionStatus` is non-exhaustive
                     Ok(status) => {
                         info!("zhang self update finished: {}", status);
-                        true
+                        Ok(())
                     }
-                    Err(e) => {
-                        error!("fail to update: {}", e);
-                        false
-                    }
+                    Err(e) => Err(format!("fail to update: {e}").into()),
                 }
             }
         }
@@ -224,11 +216,14 @@ async fn main() -> ExitCode {
             info!("receive ctrl+c, exit");
             ExitCode::SUCCESS
         }
-        succeeded = opts.run() => {
-            if succeeded {
+        result = opts.run() => match result {
+            Ok(()) => {
                 println!("operation completed");
                 ExitCode::SUCCESS
-            } else {
+            }
+            Err(e) => {
+                // on stderr whatever the log filter is: a command that fails must say why (#491)
+                eprintln!("error: {e}");
                 ExitCode::FAILURE
             }
         }
