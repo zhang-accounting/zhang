@@ -248,7 +248,7 @@ fn mul_expr(i: &str) -> IResult<&str, BigDecimal> {
 /// Together with [`mul_expr`] and [`expr_atom`] this reproduces the precedence of
 /// the original pratt parser (`* /` bind tighter than `+ -`, unary minus binds
 /// tightest).
-fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
+pub fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
     let (mut i, mut acc) = mul_expr(i)?;
     while let Ok((next, operator)) = binary_operator("+-")(i) {
         let (next, rhs) = mul_expr(next)?;
@@ -263,7 +263,7 @@ fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
 // ---------------------------------------------------------------------------
 
 /// `posting_amount = number_expr space* commodity_name`
-fn posting_amount(i: &str) -> IResult<&str, Amount> {
+pub fn posting_amount(i: &str) -> IResult<&str, Amount> {
     let (i, number) = number_expr(i)?;
     let (i, _) = space0(i)?;
     let (i, currency) = commodity_name(i)?;

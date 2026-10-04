@@ -16,12 +16,11 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveTime};
 use itertools::Either;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
-use nom::character::complete::{char, line_ending, one_of, satisfy, space0, space1};
+use nom::bytes::complete::{tag, take_while1, take_while_m_n};
+use nom::character::complete::{char, line_ending, satisfy, space0, space1};
 use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
@@ -29,8 +28,8 @@ use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, blank_line, comment_prefix, commodity_name, inline_comment, is_digit, line_trailer, offset, quote_string, string, unquote_string_raw,
-    valuable_comment, valuable_comment_body,
+    account_name, blank_line, comment_prefix, commodity_name, inline_comment, is_digit, line_trailer, number_expr, offset, posting_amount, quote_string,
+    string, unquote_string_raw, valuable_comment, valuable_comment_body,
 };
 use zhang_core::utils::string_::invalid_escape_at;
 
@@ -70,71 +69,8 @@ fn parse_date(i: &str) -> IResult<&str, Date> {
 }
 
 // ---------------------------------------------------------------------------
-// numbers and arithmetic expressions
-// ---------------------------------------------------------------------------
-
-fn number(i: &str) -> IResult<&str, BigDecimal> {
-    map_res(
-        recognize(tuple((
-            take_while1(is_digit),
-            take_while(|c: char| is_digit(c) || matches!(c, ',' | '_')),
-            opt(pair(char('.'), take_while(is_digit))),
-            opt(tuple((one_of("eE"), opt(one_of("+-")), take_while1(is_digit)))),
-        ))),
-        |s: &str| BigDecimal::from_str(&s.replace([',', '_'], "")),
-    )(i)
-}
-
-fn expr_primary(i: &str) -> IResult<&str, BigDecimal> {
-    alt((number, delimited(pair(char('('), space0), number_expr, pair(space0, char(')')))))(i)
-}
-
-fn expr_atom(i: &str) -> IResult<&str, BigDecimal> {
-    let (i, negative) = opt(char('-'))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, value) = expr_primary(i)?;
-    Ok((i, if negative.is_some() { -value } else { value }))
-}
-
-fn binary_operator(operators: &'static str) -> impl Fn(&str) -> IResult<&str, char> {
-    move |i| {
-        let (i, _) = space0(i)?;
-        let (i, operator) = one_of(operators)(i)?;
-        let (i, _) = space0(i)?;
-        Ok((i, operator))
-    }
-}
-
-fn mul_expr(i: &str) -> IResult<&str, BigDecimal> {
-    let (mut i, mut acc) = expr_atom(i)?;
-    while let Ok((next, operator)) = binary_operator("*/")(i) {
-        let (next, rhs) = expr_atom(next)?;
-        acc = if operator == '*' { acc * rhs } else { acc / rhs };
-        i = next;
-    }
-    Ok((i, acc))
-}
-
-fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
-    let (mut i, mut acc) = mul_expr(i)?;
-    while let Ok((next, operator)) = binary_operator("+-")(i) {
-        let (next, rhs) = mul_expr(next)?;
-        acc = if operator == '+' { acc + rhs } else { acc - rhs };
-        i = next;
-    }
-    Ok((i, acc))
-}
-
-// ---------------------------------------------------------------------------
 // postings
 // ---------------------------------------------------------------------------
-
-fn posting_amount(i: &str) -> IResult<&str, Amount> {
-    let (i, number) = number_expr(i)?;
-    let (i, _) = space0(i)?;
-    let (i, currency) = commodity_name(i)?;
-    Ok((i, Amount::new(number, currency)))
-}
 
 enum CostComponent {
     Date(Date),
