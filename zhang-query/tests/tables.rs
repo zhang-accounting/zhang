@@ -758,6 +758,16 @@ fn the_paddings_of_a_pad_follow_it_each_with_its_own_id_as_beancount_orders_a_da
     let entries = query("SELECT seq, id FROM #transactions WHERE flag = 'P'");
     assert_eq!(entries.len(), 2);
     assert_ne!(entries[0][1], entries[1][1]);
+    // the same rows of #entries, with the same ids and seqs: in the order zhang processes the day, right after
+    // their pad
+    assert_eq!(
+        query("SELECT seq, id FROM #entries WHERE narration = 'pad Assets:Bank to Equity:Opening' ORDER BY seq"),
+        entries
+    );
+    assert_eq!(
+        query("SELECT seq, type, narration FROM #entries WHERE date = 2024-01-05 ORDER BY seq"),
+        query("SELECT seq, type, narration FROM #entries WHERE date = 2024-01-05")
+    );
     assert_eq!(
         query("SELECT seq, id, position, balance WHERE account = 'Assets:Bank' AND flag = 'P'"),
         vec![
@@ -774,4 +784,46 @@ fn the_paddings_of_a_pad_follow_it_each_with_its_own_id_as_beancount_orders_a_da
             &["2024-01-06", "7 USD", "NULL", "7 USD", "TRUE"],
         ])
     );
+}
+
+#[test]
+fn a_pad_is_processed_after_the_balance_entries_of_its_day() {
+    // a pad written at 9:00, before a balance at noon: zhang processes it after every balance entry of its day, at
+    // the time of the last one, with its padding right after it
+    let ledger = common::load_text(
+        "1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 open Equity:Opening\n\
+         2024-01-05 09:00:00 pad Assets:Bank Equity:Opening\n\
+         2024-01-05 08:00:00 * \"breakfast\"\n  Assets:Bank -10 CNY\n  Expenses:Food\n\
+         2024-01-05 12:00:00 balance Assets:Bank -10 CNY\n\
+         2024-01-06 balance Assets:Bank 100 CNY\n",
+    );
+    let query = |sql: &str| -> Vec<Vec<String>> {
+        let result = Query::compile(sql)
+            .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+            .unwrap_or_else(|err| panic!("{}: {}", sql, err));
+        result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
+    };
+    assert_eq!(
+        query("SELECT seq, type, narration FROM #entries WHERE date = 2024-01-05 ORDER BY seq"),
+        rows(&[
+            &["3", "transaction", "breakfast"],
+            &["4", "balance", "NULL"],
+            &["5", "pad", "NULL"],
+            &["6", "transaction", "pad Assets:Bank to Equity:Opening"],
+        ])
+    );
+    // each assertion comes right after the postings its actual balance includes: the next day's after the padding
+    assert_eq!(
+        query("SELECT seq, actual, passed FROM #balances ORDER BY seq"),
+        rows(&[&["4", "-10 CNY", "TRUE"], &["7", "100 CNY", "TRUE"]])
+    );
+    // the padding is one transaction, with one id and seq in #entries, #transactions and its postings
+    let padding = query("SELECT seq, id FROM #transactions WHERE flag = 'P'");
+    assert_eq!(padding.len(), 1);
+    assert_eq!(padding[0][0], "6");
+    assert_eq!(
+        query("SELECT seq, id FROM #entries WHERE narration = 'pad Assets:Bank to Equity:Opening'"),
+        padding
+    );
+    assert_eq!(query("SELECT DISTINCT seq, id FROM #postings WHERE flag = 'P'"), padding);
 }
