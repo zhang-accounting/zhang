@@ -708,18 +708,18 @@ GROUP BY currency
 
 #### `commodities.lots`
 
-资产和负债账户持有的某种商品的批次：每个账户、每种成本和取得日期的数量，按账户排序，同一账户内最早取得的在前。不按成本持有的数量在每个账户中算作一个批次。
+资产和负债账户持有的某种商品的批次：每个账户、每种成本和取得日期的数量，按账户排序，同一账户内最早取得的在前。仅标签不同的批次分开列出。不按成本持有的数量在每个账户中算作一个批次。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `commodity` | `str` | 商品 |
 
 ```sql
-SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units
+SELECT account, cost_date, cost_number, cost_currency, cost_label, sum(number) AS units
 WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities'))
-GROUP BY account, cost_date, cost_number, cost_currency
+GROUP BY account, cost_date, cost_number, cost_currency, cost_label
 HAVING sum(number) != 0
-ORDER BY account, cost_date, cost_number
+ORDER BY account, cost_date, cost_number, cost_label
 ```
 
 #### `commodities.prices`

@@ -734,8 +734,8 @@ option "operating_currency" "USD"
         assert_eq!(
             new["lots"],
             json!([
-                {"account": "Assets:Broker", "amount": "6", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": null},
-                {"account": "Assets:Broker", "amount": "5", "cost": {"number": "120", "commodity": "USD"}, "price": null, "acquisition_date": "2024-02-01", "label": null},
+                {"account": "Assets:Broker", "amount": "6", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02"},
+                {"account": "Assets:Broker", "amount": "5", "cost": {"number": "120", "commodity": "USD"}, "price": null, "acquisition_date": "2024-02-01"},
             ])
         );
         assert_eq!(
@@ -752,8 +752,8 @@ option "operating_currency" "USD"
         assert_eq!(
             new["lots"],
             json!([
-                {"account": "Assets:Cash", "amount": "3880", "cost": null, "price": null, "acquisition_date": null, "label": null},
-                {"account": "Liabilities:Loan", "amount": "-5000", "cost": null, "price": null, "acquisition_date": null, "label": null},
+                {"account": "Assets:Cash", "amount": "3880", "cost": null, "price": null, "acquisition_date": null},
+                {"account": "Liabilities:Loan", "amount": "-5000", "cost": null, "price": null, "acquisition_date": null},
             ])
         );
         assert_eq!(new["info"]["total_amount"], json!("-1120"));
@@ -791,7 +791,7 @@ option "operating_currency" "USD"
         assert_eq!(
             new["lots"],
             json!([
-                {"account": "Assets:Broker", "amount": "10", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": null},
+                {"account": "Assets:Broker", "amount": "10", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02"},
                 {"account": "Assets:Broker", "amount": "10", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": "a"},
                 {"account": "Assets:Broker", "amount": "6", "cost": {"number": "100", "commodity": "USD"}, "price": null, "acquisition_date": "2024-01-02", "label": "b"},
             ])
@@ -800,7 +800,7 @@ option "operating_currency" "USD"
         assert_eq!(
             new["lots"],
             json!([
-                {"account": "Assets:Cash", "amount": "-2520", "cost": null, "price": null, "acquisition_date": null, "label": null},
+                {"account": "Assets:Cash", "amount": "-2520", "cost": null, "price": null, "acquisition_date": null},
             ])
         );
     }

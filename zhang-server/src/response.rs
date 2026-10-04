@@ -216,7 +216,9 @@ pub struct CommodityLotEntity {
     pub cost: Option<Amount>,
     pub price: Option<Amount>,
     pub acquisition_date: Option<NaiveDate>,
-    /// the lot's label, from the `{cost, "label"}` it was bought with
+    /// the lot's label, from the `{cost, "label"}` it was bought with; left out when the lot has
+    /// none, so unlabelled lots serialize as before
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
 
