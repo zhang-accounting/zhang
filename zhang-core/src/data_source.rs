@@ -154,6 +154,20 @@ pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangRes
     Ok(entry.join(path))
 }
 
+/// Include a new output file once per append batch. Files already loaded by the ledger or
+/// included earlier in the batch need no new directive. The path is relative to the ledger root
+/// when possible, as both local and remote sources write it into the main file.
+pub fn include_for_append(ledger: &Ledger, endpoint: &PathBuf, included: &mut Vec<PathBuf>) -> Option<Directive> {
+    if has_path_visited(&ledger.visited_files, endpoint) || has_path_visited(included.iter(), endpoint) {
+        return None;
+    }
+    included.push(endpoint.clone());
+    let path = endpoint.strip_prefix(&ledger.entry.0).unwrap_or(endpoint);
+    Some(Directive::Include(Include {
+        file: ZhangString::QuoteString(path.to_str().unwrap().to_owned()),
+    }))
+}
+
 /// `directive` as it is written into `file`, a file of `ledger` named by its path within it. In a beancount ledger, the
 /// path of a `document`, within the ledger, is written relative to the directory of that file, as beancount reads it
 pub fn written_into(ledger: &Ledger, directive: Directive, file: &Path) -> Directive {
@@ -210,22 +224,8 @@ impl LocalFileSystemDataSource {
 
         LocalFileSystemDataSource::create_folder_if_not_exist(&endpoint)?;
 
-        // a file new to the ledger and to this append
-        let new_file = included.filter(|included| !has_path_visited(&ledger.visited_files, &endpoint) && !has_path_visited(included.iter(), &endpoint));
-        if let Some(included) = new_file {
-            included.push(endpoint.clone());
-            let path = match endpoint.strip_prefix(entry) {
-                Ok(relative_path) => relative_path.to_str().unwrap(),
-                Err(_) => endpoint.to_str().unwrap(),
-            };
-            self.append_directive(
-                ledger,
-                Directive::Include(Include {
-                    file: ZhangString::QuoteString(path.to_string()),
-                }),
-                None,
-                None,
-            )?;
+        if let Some(include) = included.and_then(|included| include_for_append(ledger, &endpoint, included)) {
+            self.append_directive(ledger, include, None, None)?;
         }
 
         let content = match ledger.data_source.get(endpoint.to_string_lossy().to_string()) {
