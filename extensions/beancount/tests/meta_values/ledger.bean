@@ -1,0 +1,92 @@
+; The metadata values beancount reads without quotes (#475): an account, a currency, a
+; number, an amount, a date, a tag, TRUE, FALSE and NULL, on a transaction, on its
+; postings and on the other directives. Checked against beancount 3.2.3 by generate.py.
+
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Cash
+2020-01-01 open Assets:Bank
+  account: Assets:Cash
+  currency: USD
+  number: 10.50
+  negative: -3
+  grouped: 1,000.00
+  expression: (1 + 2) * 3
+  amount: 10 USD
+  amount-expression: 1 + 2 USD
+  date: 2024-01-10
+  tag: #trip
+  yes: TRUE
+  no: FALSE
+  nothing: NULL
+2020-01-01 open Expenses:Food
+2020-01-01 open Equity:Opening
+
+2020-01-02 commodity EUR
+  account: Assets:Bank ; with a comment
+  amount: 1.10 USD
+
+2024-01-10 * "Transfer"
+  counterpart: Assets:Bank
+  currency: USD
+  number: 10
+  negative: -3
+  grouped: 1,000.00
+  expression: (1 + 2) * 3
+  amount: 10 USD
+  amount-expression: 1 + 2 USD
+  date: 2024-01-10
+  tag: #trip
+  yes: TRUE
+  no: FALSE
+  nothing: NULL
+  Assets:Cash  -10 USD
+    account: Assets:Bank
+    currency: USD
+    number: 10
+    amount: 10 USD ; with a comment
+    date: 2024-01-10
+    tag: #trip
+    yes: TRUE
+    no: FALSE
+    nothing: NULL
+  Assets:Bank
+
+2024-01-11 * "Lunch"
+  Assets:Cash  -5 USD
+  Expenses:Food  5 USD
+    counterpart: Assets:Cash
+    rate: 1.5
+
+2024-01-12 balance Assets:Bank 10 USD
+  account: Assets:Cash
+  amount: 10 USD
+
+2024-01-12 balance Assets:Cash 85 USD
+  account: Assets:Bank
+
+2024-01-12 note Assets:Cash "a note"
+  account: Assets:Bank
+  date: 2024-01-12
+
+2024-01-12 price EUR 1.10 USD
+  amount: 1.10 USD
+  yes: TRUE
+
+2024-01-12 event "location" "home"
+  account: Assets:Cash
+  nothing: NULL
+
+2020-01-01 pad Assets:Cash Equity:Opening
+  account: Assets:Bank
+
+2020-01-02 balance Assets:Cash 100 USD
+  account: Assets:Bank
+
+2024-01-15 custom "note" "x"
+  account: Assets:Cash
+  tag: #trip
+
+2024-01-16 close Expenses:Food
+  account: Assets:Cash
+  date: 2024-01-16

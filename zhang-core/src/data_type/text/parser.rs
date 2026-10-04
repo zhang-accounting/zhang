@@ -17,7 +17,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, not_line_ending, one_of, satisfy, space0, space1};
-use nom::combinator::{map, map_res, opt, peek, recognize, value, verify};
+use nom::combinator::{eof, map, map_res, opt, peek, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
@@ -492,13 +492,42 @@ pub fn meta_key(i: &str) -> IResult<&str, &str> {
     verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err() && !key.starts_with('*'))(i)
 }
 
-/// `key_value_line = (meta_key | quote_string) space* ":" space* string`
+/// Where a bare metadata value may end: the end of the input or of the line, whitespace, or a
+/// `;` comment.
+fn bare_value_end(i: &str) -> IResult<&str, ()> {
+    alt((value((), eof), value((), one_of(" \t\r\n;"))))(i)
+}
+
+/// `bare_meta_value`: a metadata value written without quotes, kept as it is written. A bare
+/// word, such as `USD`, `TRUE`, `NULL`, `1.5` or `2024-01-15`, and the values beancount writes
+/// bare that a word does not cover: an account (`Assets:Bank`), an amount (`10 USD`) and a
+/// number with group separators or arithmetic (`1,000`, `(1 + 2) * 3`). An account, amount or
+/// number is only read where the value ends there ([`bare_value_end`]), so `1.0.0` is the word
+/// `1.0.0` and not the number `1.0` followed by `.0`. A value never starts with whitespace,
+/// which a number expression would otherwise skip: ` 10` is not a bare value that reads back.
+pub fn bare_meta_value(i: &str) -> IResult<&str, &str> {
+    let (i, _) = peek(satisfy(|c: char| !c.is_whitespace()))(i)?;
+    alt((
+        terminated(
+            recognize(alt((value((), account_name), value((), posting_amount), value((), number_expr)))),
+            peek(bare_value_end),
+        ),
+        unquote_string_raw,
+    ))(i)
+}
+
+/// `meta_value = quote_string | bare_meta_value`
+pub fn meta_value(i: &str) -> IResult<&str, ZhangString> {
+    alt((quote_string, map(bare_meta_value, |s: &str| ZhangString::UnquoteString(s.to_string()))))(i)
+}
+
+/// `key_value_line = (meta_key | quote_string) space* ":" space* meta_value`
 pub fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
     let (i, key) = alt((map(meta_key, str::to_owned), map(quote_string, |key| key.to_plain_string())))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = char(':')(i)?;
     let (i, _) = space0(i)?;
-    let (i, value) = string(i)?;
+    let (i, value) = meta_value(i)?;
     Ok((i, (key, value)))
 }
 
@@ -966,10 +995,11 @@ pub fn is_valid_meta_key(key: &str) -> bool {
 }
 
 /// Whether `value` is a metadata value that reads back unchanged when written unquoted:
-/// the value grammar reads all of it as one bare value, such as `1.5`, `2024-01-15` or
-/// `TRUE`, and not as a quoted string or as a shorter value followed by something else.
+/// the value grammar ([`meta_value`]) reads all of it as one bare value, such as `1.5`,
+/// `2024-01-15`, `TRUE`, `Assets:Bank` or `10 USD`, and not as a quoted string or as a
+/// shorter value followed by something else.
 pub fn is_valid_bare_meta_value(value: &str) -> bool {
-    matches!(string(value), Ok(("", ZhangString::UnquoteString(read))) if read == value)
+    matches!(meta_value(value), Ok(("", ZhangString::UnquoteString(read))) if read == value)
 }
 
 /// Whether `flag` is a transaction flag that reads back as a flag.
@@ -2344,6 +2374,105 @@ mod test {
         }
     }
 
+    /// The metadata values beancount writes without quotes, which a zhang file reads the same way,
+    /// each kept as written (#475).
+    mod metadata_values {
+        use zhang_ast::{Directive, ZhangString};
+
+        use crate::data_type::text::parser::test::get_txn;
+        use crate::data_type::text::parser::{is_valid_bare_meta_value, parse};
+
+        /// Every kind of value, as `(key, text)`, once with a trailing comment.
+        const VALUES: &[(&str, &str)] = &[
+            ("account", "Assets:Bank:Checking"),
+            ("currency", "USD"),
+            ("number", "10.50"),
+            ("negative", "-3"),
+            ("grouped", "1,000.00"),
+            ("expression", "(1 + 2) * 3"),
+            ("amount", "10 USD"),
+            ("amount-expression", "1 + 2 USD"),
+            ("date", "2024-01-10"),
+            ("tag", "#trip"),
+            ("yes", "TRUE"),
+            ("no", "FALSE"),
+            ("nothing", "NULL"),
+        ];
+
+        fn lines(indent: &str) -> String {
+            VALUES
+                .iter()
+                .enumerate()
+                .map(|(index, (key, value))| {
+                    let comment = if index % 2 == 0 { " ; a comment" } else { "" };
+                    format!("{indent}{key}: {value}{comment}\n")
+                })
+                .collect()
+        }
+
+        fn assert_values(meta: &zhang_ast::Meta, context: &str) {
+            for (key, value) in VALUES {
+                assert_eq!(meta.get_one(*key), Some(&ZhangString::unquote(*value)), "{context}: {key}");
+            }
+        }
+
+        #[test]
+        fn directive_metadata_keeps_every_bare_value_as_written() {
+            let content = format!("2024-01-01 open Assets:Bank:Checking USD\n{}", lines("  "));
+            let directives = parse(&content, None).unwrap();
+            assert_eq!(directives.len(), 1, "{content}");
+            let Directive::Open(open) = &directives[0].data else {
+                panic!("expected an open directive, got {:?}", directives[0].data);
+            };
+            assert_values(&open.meta, "open");
+        }
+
+        #[test]
+        fn transaction_and_posting_metadata_keep_every_bare_value_as_written() {
+            let content = format!(
+                "2024-01-10 * \"Transfer\"\n{}  Assets:Cash -10 USD\n{}  Assets:Bank\n",
+                lines("  "),
+                lines("    ")
+            );
+            let txn = get_txn(&content);
+            assert_values(&txn.meta, "transaction");
+            assert_eq!(txn.postings.len(), 2);
+            assert_values(&txn.postings[0].meta, "posting");
+            assert!(txn.postings[1].meta.clone().get_flatten().is_empty());
+        }
+
+        #[test]
+        fn a_bare_value_is_read_whole_or_as_a_word() {
+            // a word that starts like a number or an account stays a word
+            for (text, value) in [("1.0.0", "1.0.0"), ("2024-01-10T10", "2024-01-10T10"), ("Assets", "Assets"), ("10USD", "10USD")] {
+                let txn = get_txn(&format!("2024-01-10 * \"x\"\n  k: {text}\n  Assets:Cash -10 USD\n  Assets:Bank\n"));
+                assert_eq!(txn.meta.get_one("k"), Some(&ZhangString::unquote(value)), "{text}");
+            }
+            // the comments of a zhang file still follow a bare value
+            for comment in ["; c", "# c", "// c"] {
+                let txn = get_txn(&format!(
+                    "2024-01-10 * \"x\"\n  k: 10 {comment}\n  n: Assets:Bank {comment}\n  Assets:Cash -10 USD\n  Assets:Bank\n"
+                ));
+                assert_eq!(txn.meta.get_one("k"), Some(&ZhangString::unquote("10")), "{comment}");
+                assert_eq!(txn.meta.get_one("n"), Some(&ZhangString::unquote("Assets:Bank")), "{comment}");
+            }
+            // anything after a value that is not a comment is still an error
+            for text in ["Assets:Bank 10 USD", "10 USD USD", "1 + 2 3", "Assets:Bank(x)"] {
+                assert!(parse(&format!("2024-01-01 open Assets:Cash\n  k: {text}\n"), None).is_err(), "{text}");
+            }
+        }
+
+        #[test]
+        fn an_edited_bare_value_stays_bare_when_it_reads_back() {
+            for valid in ["Assets:Bank", "10 USD", "1,000", "(1 + 2) * 3", "1 + 2 USD", "1.0.0"] {
+                assert!(is_valid_bare_meta_value(valid), "{valid}");
+            }
+            for invalid in ["Assets:Bank 10 USD", "10 USD USD", "Assets:", "10 ", " 10", " 1 + 2", "\t10 USD"] {
+                assert!(!is_valid_bare_meta_value(invalid), "{invalid:?}");
+            }
+        }
+    }
+
     /// The checks for names written unquoted run the grammar on the name.
     mod names {
         use crate::data_type::text::parser::{
@@ -2352,10 +2481,36 @@ mod test {
 
         #[test]
         fn bare_meta_values() {
-            for valid in ["1.5", "-2", "2024-01-15", "TRUE", "USD", "#tag", "a;b", "中文"] {
+            for valid in [
+                "1.5",
+                "-2",
+                "2024-01-15",
+                "TRUE",
+                "USD",
+                "#tag",
+                "a;b",
+                "中文",
+                "Assets:Bank",
+                "10 USD",
+                "1,000",
+                "1 + 2",
+            ] {
                 assert!(is_valid_bare_meta_value(valid), "{valid}");
             }
-            for invalid in ["", "from plugin", "a: b", "a:b", "\"quoted\"", "a\"b", "(x)", "a,b", "tab\t", "line\n", " x"] {
+            for invalid in [
+                "",
+                "from plugin",
+                "a: b",
+                "a:b",
+                "\"quoted\"",
+                "a\"b",
+                "(x)",
+                "a,b",
+                "tab\t",
+                "line\n",
+                " x",
+                " 10",
+            ] {
                 assert!(!is_valid_bare_meta_value(invalid), "{invalid:?}");
             }
         }

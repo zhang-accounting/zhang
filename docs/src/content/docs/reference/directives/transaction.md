@@ -179,8 +179,11 @@ own:
 Here `invoice` belongs to the transaction, `receipt` to the `Assets:Cash` posting and `category` to the
 `Expenses:Food` posting.
 
-A value is a quoted string, or a single word without spaces, quotes, colons, parentheses or commas, such as `123`,
-`2024-01-01` or `TRUE`. Write an account name as a value in quotes. Every value is kept as text.
+A value is a quoted string, or a bare value: a single word without spaces, quotes, colons, parentheses or commas,
+such as `123`, `2024-01-01`, `USD` or `TRUE`; an account name, such as `Assets:Bank`; an amount, such as `10.00 USD`;
+or a number with group separators or arithmetic, such as `1,000` or `(1 + 2) * 3`. These are the values Beancount
+reads without quotes, so a Beancount ledger that uses them loads in Zhang. Every value is kept as text, as written:
+`(1 + 2) * 3` stays `(1 + 2) * 3`, and is written back that way.
 
 ### Which lines belong to a posting
 
