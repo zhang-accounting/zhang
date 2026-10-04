@@ -9,7 +9,7 @@ import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests';
 import { operations } from '@/api/schemas';
 import Amount from '@/components/Amount';
 import PayeeNarration from '@/components/basic/PayeeNarration';
-import { budgetUsage, formatMonth, monthFromSearchParams, monthSearchParams, usageProgressClass } from '@/components/budget/budget-utils';
+import { budgetUsage, monthFromSearchParams, monthSearchParams, usageProgressClass } from '@/components/budget/budget-utils';
 import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
 import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
 import { KeyFigure, KeyFigures } from '@/components/layout/KeyFigures';
@@ -39,7 +39,7 @@ function toneClass(value: string | undefined) {
 }
 
 function SingleBudget() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const fmt = useDateFormat();
   const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { budgetName } = useParams();
@@ -167,7 +167,7 @@ function SingleBudget() {
     <PageShell>
       <PageHeader
         title={firstLoad ? <Skeleton className="h-7 w-48" /> : (budgetInfo?.alias ?? budgetInfo?.name ?? budgetName)}
-        description={refreshing ? <RefreshingLabel /> : t('budgets.detail_description', { month: formatMonth(date, i18n.language) })}
+        description={refreshing ? <RefreshingLabel /> : t('budgets.detail_description', { month: fmt.month(date) })}
         actions={
           <>
             <MonthSwitcher date={date} onChange={setDate} />
@@ -227,7 +227,7 @@ function SingleBudget() {
 
       <section aria-busy={refreshing} className={cn('flex flex-col gap-3 transition-opacity', refreshing && 'opacity-60')}>
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: formatMonth(date, i18n.language) })}</h2>
+          <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: fmt.month(date) })}</h2>
           {budgetInfo && (
             <OpenInExplore name="budgets.postings" params={{ accounts: budgetInfo.related_accounts, month: date, name: budgetInfo.name }} iconOnly />
           )}

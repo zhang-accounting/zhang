@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { formatMonth } from './budget-utils';
+import { useDateFormat } from '@/components/layout/use-date-format';
 
 interface Props {
   date: Date;
@@ -13,7 +13,8 @@ interface Props {
 
 /** Previous / current / next month control for budget intervals. Future months are not reachable. */
 export function MonthSwitcher({ date, onChange, className }: Props) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const fmt = useDateFormat();
   const isCurrentMonth = isSameMonth(date, new Date());
 
   return (
@@ -29,7 +30,7 @@ export function MonthSwitcher({ date, onChange, className }: Props) {
           <ChevronLeft />
         </Button>
         <span className="min-w-24 px-1 text-center text-sm font-medium tabular-nums" aria-live="polite">
-          {formatMonth(date, i18n.language)}
+          {fmt.month(date)}
         </span>
         <Button
           variant="ghost"
