@@ -80,8 +80,8 @@ impl JournalRequest {
     }
 }
 
-/// The page of an account's journal to return: `size` rows of page `page`, counting from 1. Without
-/// either, the whole journal.
+/// The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
+/// most 1000. Without either, the whole journal.
 #[derive(Debug, Default, Schematic, Deserialize)]
 pub struct AccountJournalRequest {
     pub page: Option<u32>,
@@ -91,9 +91,11 @@ pub struct AccountJournalRequest {
 impl AccountJournalRequest {
     /// The default `size` of a page, as in `GET /api/journals`.
     pub const DEFAULT_SIZE: u32 = 100;
+    /// The largest `size` of a page.
+    pub const MAX_SIZE: u32 = 1000;
 
-    /// The window of rows the request asks for; `None` for the whole journal. A page or a size of 0
-    /// is a 400.
+    /// The window of rows the request asks for; `None` for the whole journal. A page or a size of 0,
+    /// and a size above [`Self::MAX_SIZE`], are a 400.
     pub fn window(&self) -> Result<Option<crate::account_queries::JournalWindow>, crate::error::ServerError> {
         if self.page.is_none() && self.size.is_none() {
             return Ok(None);
@@ -103,6 +105,12 @@ impl AccountJournalRequest {
         if page == 0 || size == 0 {
             return Err(crate::error::ServerError::InvalidInput(format!(
                 "page and size count from 1, got page {page} and size {size}"
+            )));
+        }
+        if size > Self::MAX_SIZE {
+            return Err(crate::error::ServerError::InvalidInput(format!(
+                "a page has at most {} rows, got size {size}",
+                Self::MAX_SIZE
             )));
         }
         Ok(Some(crate::account_queries::JournalWindow {

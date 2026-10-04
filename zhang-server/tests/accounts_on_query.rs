@@ -1760,9 +1760,22 @@ async fn a_page_or_a_size_of_zero_is_a_bad_request() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         assert!(body["message"].as_str().unwrap().contains("count from 1"), "{body}");
     }
-    // the last page of the largest size is fine
-    let (status, _, page) = journal_page(&ledger, "Assets:Cash", u32::MAX, u32::MAX).await;
+    // a page far past the end of the largest size is empty
+    let (status, _, page) = journal_page(&ledger, "Assets:Cash", u32::MAX, 1000).await;
     assert_eq!((status, page), (StatusCode::OK, json!([])));
+}
+
+/// A page has at most 1000 rows: a larger size is a 400 that says so, whatever the page.
+#[tokio::test]
+async fn a_size_above_1000_is_a_bad_request() {
+    let ledger = fixture("timed_balances.zhang").await;
+    for (page, size) in [(1, 1001), (u32::MAX, u32::MAX)] {
+        let (status, total, body) = journal_page(&ledger, "Assets:Cash", page, size).await;
+        assert_eq!((status, total), (StatusCode::BAD_REQUEST, None), "{body}");
+        assert_eq!(body["message"], json!(format!("a page has at most 1000 rows, got size {size}")), "{body}");
+    }
+    let (status, total, page) = journal_page(&ledger, "Assets:Cash", 1, 1000).await;
+    assert_eq!((status, total, page.as_array().unwrap().len()), (StatusCode::OK, Some(6), 6));
 }
 
 /// A sale of twenty lots is one row: the journal has the assertion, the sale and the twenty buys, 22 rows, and on
