@@ -6,6 +6,8 @@
 //!
 //! The fixtures come from `tests/period/generate.py`, which runs the official beanquery with
 //! the conformance generator's validation (determinism, zhang's balance-check rows).
+//! Case 022 retains beanquery's zero-row fixture; #647 deliberately returns a single count of
+//! zero after CLOSE removes every posting, checked here as the exact accepted deviation.
 
 mod common;
 
@@ -170,8 +172,13 @@ fn compare(fixture: &Fixture, outcome: Result<QueryResult, zhang_query::QueryErr
     if types != fixture.column_types {
         return Some(format!("columns: expected {:?}, got {:?}", fixture.column_types, types));
     }
-    let mut expected = fixture
-        .rows
+    let accepted = (fixture.file == "022_close_before_the_ledger.json").then(|| {
+        assert!(fixture.rows.is_empty(), "revisit the #647 deviation if the oracle changes");
+        vec![vec![json!(0)]]
+    });
+    let mut expected = accepted
+        .as_ref()
+        .unwrap_or(&fixture.rows)
         .iter()
         .map(|row| {
             let cells = row.iter().zip(&fixture.column_types).map(|(cell, ty)| fixture_cell(cell, ty)).collect();

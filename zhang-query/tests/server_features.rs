@@ -1236,9 +1236,8 @@ fn d2_documents_group_filter_and_stay_empty_without_documents() {
         query(documents(), "SELECT path FROM #documents WHERE account = 'Assets:Bank'"),
         rows(&[&["docs/contract.pdf"], &["statements/2024-01.pdf"], &["attachments/card-slip.pdf"]])
     );
-    // a ledger without documents has an empty table; like beanquery (conformance case
-    // 031_aggregate_over_no_rows), an aggregate over no rows gives no row
-    assert_eq!(query(journal(), "SELECT count(*) FROM #documents"), rows(&[]));
+    // A ledger without documents has an empty table; #647 keeps its ungrouped count as zero.
+    assert_eq!(query(journal(), "SELECT count(*) FROM #documents"), rows(&[&["0"]]));
     assert_eq!(query(journal(), "SELECT path FROM #documents"), rows(&[]));
 }
 
@@ -1714,7 +1713,7 @@ fn l_parameters_give_the_results_of_the_same_literals() {
             "SELECT count(*) FROM #postings WHERE account IN :accounts",
             &Params::new().bind("accounts", set(&[]))
         ),
-        rows(&[])
+        rows(&[&["0"]])
     );
 }
 
@@ -1767,7 +1766,7 @@ fn l_icontains_is_a_case_insensitive_substring_test() {
     // lower-casing, not case folding: 'straße' does not contain 'strasse'
     assert_eq!(
         query(journal(), "SELECT count(*) FROM #transactions WHERE icontains(payee, 'STRASSE')"),
-        rows(&[])
+        rows(&[&["0"]])
     );
     // the needle is text, not a pattern
     assert_eq!(
@@ -1775,7 +1774,7 @@ fn l_icontains_is_a_case_insensitive_substring_test() {
             journal(),
             "SELECT count(*) FROM #transactions WHERE icontains(narration, '.*') OR icontains(narration, '(')"
         ),
-        rows(&[])
+        rows(&[&["0"]])
     );
     // the empty needle is in every string; NULL in, NULL out
     assert_eq!(
@@ -1861,7 +1860,7 @@ fn l_intersects_tests_two_sets_for_a_common_element() {
             "SELECT count(*) FROM #transactions WHERE intersects(accounts, :accounts)",
             &with("accounts", &[])
         ),
-        rows(&[])
+        rows(&[&["0"]])
     );
     assert_eq!(
         query(
@@ -1904,7 +1903,7 @@ fn l_under_matches_an_account_and_its_descendants() {
             journal(),
             "SELECT count(*) FROM #postings WHERE under(account, 'Assets:Ban') OR under(account, 'Assets:') OR under(account, 'assets')"
         ),
-        rows(&[])
+        rows(&[&["0"]])
     );
     assert_eq!(
         query(

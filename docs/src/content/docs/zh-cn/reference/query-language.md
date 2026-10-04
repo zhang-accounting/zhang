@@ -200,7 +200,7 @@ WHERE discrepancy IS NOT NULL
 - `set` 类型（如 `tags`）和 `inventory` 类型的值不能作为分组键。
 - 分组键本身不能包含聚合函数，聚合函数也不能嵌套（`sum(count(*))` 会报错）。
 - 同一个目标不能把聚合函数和聚合函数之外的列混在一起，即使这个列已经被分组。`number - sum(number)` 和 `possign(sum(position), account)` 都会报错，后者应写成 `sum(possign(position, account))`。只由聚合函数和常量构成的表达式，例如 `sum(number) / 12` 或 `units(sum(position))`，本身就是聚合表达式，可以正常使用。
-- 没有匹配任何分录的聚合查询不返回任何行。即使是 `SELECT count(*) WHERE FALSE`，结果也是空的，而不是一行 `0`。
+- 没有分组键的聚合查询，即使没有匹配的分录也返回一行：`count` 和数值 `sum` 返回 `0`，持仓 `sum` 返回空持仓，`first`、`last`、`min` 和 `max` 返回 `NULL`。`HAVING`、`LIMIT` 和 `OFFSET` 仍然生效。有显式或隐式分组键的查询在没有匹配时返回零行。
 
 ```sql
 SELECT root(account, 2) AS category, sum(position) AS total
@@ -1658,6 +1658,7 @@ ORDER BY date
 - **限制**。查询的长度、嵌套深度、正则表达式大小、执行时间和结果大小都有限制，见[限制](#限制)。
 - **错误带有位置信息**。只要能定位，每个查询错误都会给出出错的行和列。
 - **全程使用精确小数**。数字是任意精度的十进制数，金额不会以固定的小数位数存储。
+- **对空输入聚合**。没有分组键时，张记账在 `HAVING` 和分页之前返回一行聚合初始值；beanquery 0.2.0 返回零行。
 - **`BALANCES` 和 `JOURNAL` 的列名**与等价的 `SELECT` 相同：`sum(position)`、`sum(cost(position))` 和 `maxwidth(payee, 48)`。beanquery 把它们命名为 `SUM((position))`、`SUM(cost(position))` 和 `MAXWIDTH(payee, 48)`。
 - **累计余额**。`balance` 不能用在 `FROM` 或 `WHERE` 中，它累加的正好是通过这两个子句的行。beanquery 在每次计算该列时更新余额，所以在 `WHERE` 子句中，它累加的是被测试的行，而不是被保留的行。
 - **`account_sortkey`** 对第一段不是账户类型的名字，返回排在所有类型之后的键。beanquery 会报错。

@@ -99,6 +99,12 @@ struct Deviation {
 /// Deliberate differences between the engine and beanquery. Keep each entry justified.
 const ACCEPTED_DEVIATIONS: &[Deviation] = &[
     Deviation {
+        case: Some("aggregate_over_no_rows"),
+        reason: "an aggregate without group keys returns one row over empty input (#647): count and numeric sum \
+                 are zero, inventory sum is empty, and first/last/min/max are NULL; beanquery 0.2.0 returns no rows",
+        accepted: Accepted::Rows(r#"[[0, "0"]]"#),
+    },
+    Deviation {
         case: Some("null_logic_beanquery_quirks"),
         reason: "standard three-valued logic: NOT NULL is NULL (beanquery: TRUE) and NULL AND FALSE is FALSE \
                  (beanquery: NULL, because its AND stops at the first NULL operand)",

@@ -405,10 +405,36 @@ fn aggregates() {
 }
 
 #[test]
-#[should_panic(expected = "returned 0 rows")]
-fn aggregates_over_zero_rows_return_zero_rows() {
-    let rows = query("SELECT count(*) WHERE FALSE");
-    panic!("returned {} rows", rows.len());
+fn aggregates_over_zero_rows_return_their_initial_values() {
+    assert_eq!(
+        query(
+            "SELECT count(*), count(payee), sum(day), sum(number), sum(weight), sum(position), \
+             first(payee), last(payee), min(number), max(date), first(balance), last(balance) \
+             FROM #postings WHERE account = 'Assets:DoesNotExist'"
+        ),
+        vec![vec!["0", "0", "0", "0", "", "", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"]]
+    );
+    assert_eq!(one("SELECT count(*) + 1 WHERE FALSE"), "1");
+}
+
+#[test]
+fn empty_aggregate_groups_are_only_created_without_group_keys() {
+    for sql in [
+        "SELECT count(*) WHERE FALSE GROUP BY account",
+        "SELECT account, count(*) WHERE FALSE",
+        "SELECT 'constant', count(*) WHERE FALSE",
+        "SELECT account WHERE FALSE",
+        "SELECT first(balance) WHERE FALSE GROUP BY account HAVING count(*) = 0",
+        "SELECT last(balance) WHERE FALSE GROUP BY account HAVING last(balance) IS NULL",
+    ] {
+        assert!(query(sql).is_empty(), "{}", sql);
+    }
+    let empty = common::load_text("");
+    for table in ["postings", "transactions", "prices", "balances"] {
+        let sql = format!("SELECT count(*) FROM #{table}");
+        let result = Query::compile(&sql).unwrap().execute_at(&empty, &Params::new(), today()).unwrap();
+        assert_eq!(result.rows, vec![vec![Value::Int(0)]], "{}", sql);
+    }
 }
 
 #[test]

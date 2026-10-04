@@ -60,6 +60,20 @@ fn too_large(sql: &str, limit: u64) -> QueryError {
 }
 
 #[test]
+fn empty_aggregates_still_charge_their_accumulators_and_result() {
+    for sql in [
+        "SELECT count(*) WHERE FALSE",
+        "SELECT sum(number) WHERE FALSE LIMIT 1",
+        "SELECT first(balance) WHERE FALSE",
+    ] {
+        too_large(sql, 0);
+        assert_eq!(run(sql, Some(2)).unwrap(), run(sql, None).unwrap(), "{}", sql);
+    }
+    too_large("SELECT count(*), sum(number) WHERE FALSE", 1);
+    assert!(run("SELECT count(*), sum(number) WHERE FALSE", Some(2)).is_ok());
+}
+
+#[test]
 fn a_journal_of_open_lots_stops_at_the_limit() {
     // 400 rows of 7 cells and running balances of up to 200 lots
     assert!(run("JOURNAL", None).unwrap().rows.len() == 400);

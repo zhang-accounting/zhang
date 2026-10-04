@@ -257,8 +257,8 @@ fn in_a_set_parameter_is_null_aware() {
         expected(&[&["Assets:Bank"], &["Assets:Banking"]])
     );
     assert_eq!(rows_with("SELECT count(*) WHERE account NOT IN :accounts", &params), expected(&[&["4"]]));
-    // (an aggregate over no rows has no rows)
-    assert!(rows_with("SELECT count(*) WHERE account IN :none", &params).is_empty());
+    // An empty set matches no postings; the ungrouped count is still a single zero.
+    assert_eq!(rows_with("SELECT count(*) WHERE account IN :none", &params), expected(&[&["0"]]));
     // NULL in a list makes a miss unknown; a NULL needle is unknown too
     assert_eq!(
         rows_with("SELECT DISTINCT account IN ('Assets:Bank', NULL), payee IN :accounts ORDER BY 1", &params),
