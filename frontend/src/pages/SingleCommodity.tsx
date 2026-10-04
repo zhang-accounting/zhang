@@ -16,7 +16,8 @@ import { EmptyState, PageHeader, PageShell, ResponsiveList, type ResponsiveColum
 import { KeyFigure, KeyFigures } from '@/components/layout/KeyFigures';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -160,7 +161,11 @@ export default function SingleCommodity() {
 
   return (
     <PageShell>
-      <PageHeader title={commodityName} description={t('commodities.detail_description')}>
+      <PageHeader
+        title={commodityName}
+        description={t('commodities.detail_description')}
+        actions={<OpenInExplore name="commodities.lots" params={{ commodity: commodityName ?? '' }} iconOnly className="size-10 md:size-8" />}
+      >
         {info && (info.group || info.prefix || info.suffix) && (
           <div className="flex flex-wrap gap-2">
             {(info.prefix || info.suffix) && <Badge variant="outline">{info.prefix || info.suffix}</Badge>}
@@ -185,6 +190,9 @@ export default function SingleCommodity() {
         <CardHeader>
           <CardTitle>{t('commodities.price_history')}</CardTitle>
           <CardDescription>{t('commodities.price_history_description', { count: prices.length })}</CardDescription>
+          <CardAction>
+            <OpenInExplore name="commodities.prices" params={{ commodity: commodityName ?? '' }} iconOnly />
+          </CardAction>
         </CardHeader>
         <CardContent>
           {firstLoad ? (

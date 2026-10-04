@@ -26,7 +26,10 @@
 //! sum        := term (('+' | '-') term)*
 //! term       := unary (('*' | '/') unary)*
 //! unary      := '-' unary | '+' unary | primary
-//! primary    := '(' expr ')' | literal | $n | :name | name '(' ['*' | expr, ...] ')' | name ('.' name)*
+//! primary    := '(' expr ')' | literal | $n | :name | case | name '(' ['*' | expr, ...] ')' | name ('.' name)*
+//! case       := CASE WHEN expr THEN expr [WHEN expr THEN expr ...] [ELSE expr] END
+//!               (CASE, WHEN, THEN, ELSE and END are keywords only there: `case` not followed
+//!               by WHEN is a name)
 //! literal    := 'string' | "string" | 2024-01-31 | 12 | 12.50 | TRUE | FALSE | NULL
 //! ```
 //!
@@ -1069,6 +1072,9 @@ impl<'s> Parser<'s> {
         if let Some(call_rest) = skip_ws(rest).strip_prefix('(') {
             return self.call(call_rest, lower, start);
         }
+        if lower == "case" && is_keyword(skip_ws(rest), "when") {
+            return self.case(rest, start);
+        }
         if RESERVED.contains(&lower.as_str()) {
             return error(i, format!("expected an expression, found keyword {}", name.to_uppercase()));
         }
@@ -1085,6 +1091,33 @@ impl<'s> Parser<'s> {
             parts += 1;
         }
         self.leaf(rest, ExprKind::Column(lower), start)
+    }
+
+    /// `CASE WHEN cond THEN value ... [ELSE value] END`, after the `CASE`.
+    fn case(&self, mut i: &'s str, start: usize) -> PResult<'s, Expr> {
+        let mut branches = vec![];
+        while let Ok((after, _)) = keyword("when")(i) {
+            let (after, when) = cut(self.expr(after))?;
+            let Ok((after, _)) = keyword("then")(after) else {
+                return failure(skip_ws(after), format!("expected THEN after the WHEN condition, found {}", found(after)));
+            };
+            let (after, then) = cut(self.expr(after))?;
+            branches.push((when, then));
+            i = after;
+        }
+        let otherwise = match keyword("else")(i) {
+            Ok((after, _)) => {
+                let (after, otherwise) = cut(self.expr(after))?;
+                i = after;
+                Some(Box::new(otherwise))
+            }
+            Err(_) => None,
+        };
+        let Ok((rest, _)) = keyword("end")(i) else {
+            let expected = if otherwise.is_some() { "END" } else { "WHEN, ELSE or END" };
+            return failure(skip_ws(i), format!("expected {} in CASE, found {}", expected, found(i)));
+        };
+        self.leaf(rest, ExprKind::Case { branches, otherwise }, start)
     }
 
     /// The arguments of a call, after the opening parenthesis.

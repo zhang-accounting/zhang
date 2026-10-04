@@ -8,6 +8,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
+use chrono::{Datelike, NaiveDate};
 use regex::{Regex, RegexBuilder};
 
 pub(crate) use crate::ast::ArithOp;
@@ -31,6 +32,17 @@ pub(crate) enum CmpOp {
 }
 
 impl CmpOp {
+    /// The operator with its operands swapped: `a < b` is `b > a`.
+    pub(crate) fn flipped(self) -> CmpOp {
+        match self {
+            CmpOp::Lt => CmpOp::Gt,
+            CmpOp::Le => CmpOp::Ge,
+            CmpOp::Gt => CmpOp::Lt,
+            CmpOp::Ge => CmpOp::Le,
+            other => other,
+        }
+    }
+
     fn symbol(&self) -> &'static str {
         match self {
             CmpOp::Eq => "=",
@@ -117,6 +129,13 @@ pub(crate) enum CExpr {
     IsNull {
         expr: Box<CExpr>,
         negated: bool,
+    },
+    /// `CASE WHEN cond THEN value ... ELSE otherwise END`: the value of the first condition
+    /// that is TRUE (a NULL condition is not), else `otherwise` (`NULL` when the query has no
+    /// ELSE). Only the chosen value is evaluated.
+    Case {
+        branches: Vec<(CExpr, CExpr)>,
+        otherwise: Box<CExpr>,
     },
     /// `x [NOT] IN (constants)` or `x [NOT] IN <constant set>` as a hash lookup, which the
     /// optimizer prepares from [`CExpr::InList`] / [`CExpr::InSet`] once their items are
@@ -434,6 +453,70 @@ pub(crate) struct Execution {
     pub rewrites: Vec<Running>,
     /// the accounts the rows are limited to; `None` reads every row
     pub scope: Option<AccountScope>,
+    /// the last date of the rows a table that generates its rows generates; `None` generates
+    /// every row
+    pub until: Option<DateBound>,
+}
+
+/// The last date the rows a filter keeps can have, from a conjunct of the filter such as
+/// `date <= x` ([`crate::optimizer::date_bound`]). A table that generates its rows (the months
+/// of `#budgets`) generates none after it; the filter still applies to the rows it generates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DateBound {
+    /// a date constant, NULL, a date parameter, or today
+    pub value: BoundValue,
+    /// whether the value itself is excluded (`date < x`)
+    pub exclusive: bool,
+    /// whether the filter compares the month of the date (`yearmonth(date) = x`): every date
+    /// of the last month passes
+    pub month: bool,
+}
+
+/// The value of a [`DateBound`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BoundValue {
+    /// a date or NULL
+    Const(Value),
+    /// a date parameter, read when the query executes
+    Param(ParamRef),
+    /// `today()`, or `yearmonth(today())`, which is no later: the date of the execution
+    Today,
+}
+
+impl DateBound {
+    /// The last date the rows of one execution can have, with the parameters bound and `today`
+    /// the date of `today()`. A NULL bound holds for no row: nothing is generated.
+    pub fn resolve(&self, params: &Params, today: NaiveDate) -> NaiveDate {
+        let today = Value::Date(today);
+        let value = match &self.value {
+            BoundValue::Const(value) => Some(value),
+            BoundValue::Param(param) => params.get(param),
+            BoundValue::Today => Some(&today),
+        };
+        let Some(Value::Date(date)) = value else {
+            return NaiveDate::MIN;
+        };
+        let date = if self.exclusive { date.pred_opt().unwrap_or(NaiveDate::MIN) } else { *date };
+        if self.month {
+            let next = date.with_day(1).and_then(|first| first.checked_add_months(chrono::Months::new(1)));
+            next.and_then(|next| next.pred_opt()).unwrap_or(NaiveDate::MAX)
+        } else {
+            date
+        }
+    }
+}
+
+/// `date <= 2024-06-01`, `yearmonth(date) < :month`
+impl fmt::Display for DateBound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let subject = if self.month { "yearmonth(date)" } else { "date" };
+        let op = if self.exclusive { "<" } else { "<=" };
+        match &self.value {
+            BoundValue::Const(value) => write!(f, "{} {} {}", subject, op, CExpr::Const(value.clone())),
+            BoundValue::Param(param) => write!(f, "{} {} {}", subject, op, param),
+            BoundValue::Today => write!(f, "{} {} today()", subject, op),
+        }
+    }
 }
 
 impl Execution {
@@ -456,6 +539,7 @@ impl Execution {
             },
             rewrites: vec![],
             scope: None,
+            until: None,
         }
     }
 }
@@ -554,6 +638,9 @@ struct Compiler<'q> {
     table: &'static Table,
     param_types: &'q ParamTypes,
     aggregates: Vec<AggregateCall>,
+    /// the source of each aggregate call of `aggregates`, at the same index: a call that is
+    /// written again (`last(balance)` in two targets) reuses the first one's accumulation
+    aggregate_sources: Vec<(bool, Vec<Expr>)>,
     params: Vec<(ParamRef, DataType, Span)>,
     /// set while the HAVING condition is compiled
     having: Option<HavingScope>,
@@ -582,6 +669,7 @@ pub(crate) fn compile(src: &str, select: &Select, param_types: &ParamTypes) -> R
         table,
         param_types,
         aggregates: vec![],
+        aggregate_sources: vec![],
         params: vec![],
         having: None,
     };
@@ -956,7 +1044,63 @@ impl Compiler<'_> {
                     DataType::Bool,
                 )
             }
+            ExprKind::Case { branches, otherwise } => self.case(branches, otherwise.as_deref(), mode, info)?,
         })
+    }
+
+    /// `CASE WHEN ... END`: every condition is a boolean, and the values have one type, NULL
+    /// aside; integers are widened to decimals when other values are decimals.
+    fn case(&mut self, branches: &[(Expr, Expr)], otherwise: Option<&Expr>, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+        let mut conditions = Vec::with_capacity(branches.len());
+        let mut values = Vec::with_capacity(branches.len() + 1);
+        for (when, then) in branches {
+            let (condition, ty) = self.expr(when, mode, info)?;
+            if !matches!(ty, DataType::Bool | DataType::Null) {
+                return err(format!("a WHEN condition must be a boolean, got {}", ty), when.span);
+            }
+            conditions.push(condition);
+            values.push((self.expr(then, mode, info)?, then.span));
+        }
+        let otherwise = match otherwise {
+            Some(otherwise) => Some((self.expr(otherwise, mode, info)?, otherwise.span)),
+            None => None,
+        };
+        // the type of the values: the first that is not NULL, or decimal when some are int
+        // and the others decimal
+        let mut ty = DataType::Null;
+        for ((_, value_ty), value_span) in values.iter().chain(otherwise.iter()) {
+            ty = match (ty, *value_ty) {
+                (DataType::Null, other) | (other, DataType::Null) => other,
+                (DataType::Int, DataType::Decimal) | (DataType::Decimal, DataType::Int) => DataType::Decimal,
+                (a, b) if a == b => a,
+                (a, b) => {
+                    return err(
+                        format!("the values of a CASE must have one type, but this one is {} and an earlier one {}", b, a),
+                        *value_span,
+                    )
+                }
+            };
+        }
+        let widen = |(value, value_ty): Typed| {
+            if ty == DataType::Decimal && value_ty == DataType::Int {
+                CExpr::WidenInt(Box::new(value))
+            } else {
+                value
+            }
+        };
+        let branches = conditions
+            .into_iter()
+            .zip(values)
+            .map(|(condition, (value, _))| (condition, widen(value)))
+            .collect();
+        let otherwise = otherwise.map_or(CExpr::Const(Value::Null), |(value, _)| widen(value));
+        Ok((
+            CExpr::Case {
+                branches,
+                otherwise: Box::new(otherwise),
+            },
+            ty,
+        ))
     }
 
     fn logical(&mut self, op: LogicalOp, operands: &[Expr], mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
@@ -1094,12 +1238,23 @@ impl Compiler<'_> {
             return err(format!("{}() is not supported for intervals: intervals have no order", name), span);
         }
         let ty = resolved.function.returns.resolve(&types);
+        info.has_aggregate = true;
+        // the same function over the same arguments accumulates the same value: compute it once
+        let same = self.aggregates.iter().zip(&self.aggregate_sources).position(|(call, (call_star, call_args))| {
+            std::ptr::eq(call.function, resolved.function)
+                && *call_star == star
+                && call_args.len() == args.len()
+                && call_args.iter().zip(args).all(|(a, b)| a.same_as(b))
+        });
+        if let Some(idx) = same {
+            return Ok((CExpr::Aggregate(idx), ty));
+        }
         let arg = widen(compiled, &resolved.widen).into_iter().next();
         self.aggregates.push(AggregateCall {
             function: resolved.function,
             arg,
         });
-        info.has_aggregate = true;
+        self.aggregate_sources.push((star, args.to_vec()));
         Ok((CExpr::Aggregate(self.aggregates.len() - 1), ty))
     }
 
@@ -1506,6 +1661,13 @@ impl CExpr {
                 expr: boxed(expr, f)?,
                 negated,
             },
+            CExpr::Case { branches, otherwise } => CExpr::Case {
+                branches: branches
+                    .into_iter()
+                    .map(|(condition, value)| Ok((f(condition)?, f(value)?)))
+                    .collect::<Result<_, _>>()?,
+                otherwise: boxed(otherwise, f)?,
+            },
             CExpr::InConst { needle, set, negated } => CExpr::InConst {
                 needle: boxed(needle, f)?,
                 set,
@@ -1535,6 +1697,11 @@ impl CExpr {
             CExpr::InSet { needle, set, .. } => vec![needle, set],
             CExpr::InList { needle, items, .. } => std::iter::once(needle.as_ref()).chain(items.iter()).collect(),
             CExpr::IsNull { expr, .. } => vec![expr],
+            CExpr::Case { branches, otherwise } => branches
+                .iter()
+                .flat_map(|(condition, value)| [condition, value])
+                .chain(std::iter::once(otherwise.as_ref()))
+                .collect(),
             CExpr::InConst { needle, .. } => vec![needle],
             CExpr::StrTest { subject, .. } => vec![subject],
         }
@@ -1726,6 +1893,13 @@ impl fmt::Display for CExpr {
                 f.write_str("))")
             }
             CExpr::IsNull { expr, negated } => write!(f, "({} IS {}NULL)", expr, if *negated { "NOT " } else { "" }),
+            CExpr::Case { branches, otherwise } => {
+                f.write_str("CASE")?;
+                for (condition, value) in branches {
+                    write!(f, " WHEN {} THEN {}", condition, value)?;
+                }
+                write!(f, " ELSE {} END", otherwise)
+            }
             CExpr::InConst { needle, set, negated } => {
                 write!(f, "({} {}IN ", needle, if *negated { "NOT " } else { "" })?;
                 if set.from_set {
@@ -1804,6 +1978,9 @@ impl fmt::Display for Plan {
         }
         for rewrite in &self.execution.rewrites {
             writeln!(f, "rewrite: {} -> running {}", rewrite.expression(), rewrite.name())?;
+        }
+        if let Some(until) = &self.execution.until {
+            writeln!(f, "generate: the rows up to {}", until)?;
         }
         if let Some(scope) = &self.execution.scope {
             writeln!(f, "scan: the rows of the accounts {}", scope)?;

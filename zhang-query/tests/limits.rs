@@ -121,6 +121,68 @@ fn the_default_limit_covers_the_fava_demo_ledger() {
     }
 }
 
+/// The smallest result size limit a query runs within: the most values it holds at once.
+fn peak(sql: &str) -> u64 {
+    let (mut low, mut high) = (0u64, 1u64);
+    while run(sql, Some(high)).is_err() {
+        low = high;
+        high *= 2;
+    }
+    // `low` fails, `high` runs
+    while high - low > 1 {
+        let middle = low + (high - low) / 2;
+        if run(sql, Some(middle)).is_ok() {
+            high = middle;
+        } else {
+            low = middle;
+        }
+    }
+    high
+}
+
+#[test]
+fn an_aggregate_written_twice_is_computed_and_held_once() {
+    let once = "SELECT date, last(balance) WHERE account ~ 'Broker' GROUP BY date";
+    let thrice = "SELECT date, last(balance), units(last(balance)), cost(last(balance)) WHERE account ~ 'Broker' GROUP BY date";
+    // one accumulation feeds the three targets
+    let explain = Query::compile(thrice).unwrap().explain();
+    assert!(explain.contains("agg#0: last(") && !explain.contains("agg#1"), "{}", explain);
+    // with the same results as three accumulations
+    let result = run(thrice, None).unwrap();
+    let apart = run(
+        "SELECT date, last(balance), units(last(balance)), cost(last(balance)) WHERE account ~ 'Broker' GROUP BY date ORDER BY date",
+        None,
+    )
+    .unwrap();
+    assert_eq!(result.rows, apart.rows);
+    for (row, single) in result.rows.iter().zip(run(once, None).unwrap().rows) {
+        assert_eq!(row[1], single[1]);
+    }
+    // the groups hold one balance each, not three: 200 balances of up to 200 lots, then the
+    // rows add the two small targets
+    let (once, thrice) = (peak(once), peak(thrice));
+    assert!(thrice < once + once / 10, "held {} values for three targets, {} for one", thrice, once);
+}
+
+#[test]
+fn having_drops_groups_before_they_hold_their_balance() {
+    // the last 3 of 200 days: only their balances are built
+    let kept = "SELECT date, last(balance) WHERE account ~ 'Broker' GROUP BY date HAVING max(date) >= 2020-07-16";
+    let result = run(kept, None).unwrap();
+    assert_eq!(result.rows.len(), 3);
+    let all = "SELECT date, last(balance) WHERE account ~ 'Broker' GROUP BY date";
+    // the 197 dropped groups hold about 600 values (a date, a pick and a max(date) each) until
+    // HAVING drops them; once released, the 3 kept balances of about 200 lots fit in 700, which
+    // the dropped groups' 600 would not leave room for
+    assert!(run(kept, Some(700)).is_ok(), "{}", run(kept, Some(700)).unwrap_err());
+    let (kept, all) = (peak(kept), peak(all));
+    assert!(kept < 700, "the kept groups held {} values", kept);
+    assert!(all > 20_000, "all the groups held {} values", all);
+    // a HAVING that reads the deferred value itself still sees it
+    let on_balance = "SELECT date, last(balance) WHERE account ~ 'Broker' GROUP BY date HAVING length(str(last(balance))) > 0";
+    assert_eq!(run(on_balance, None).unwrap().rows.len(), 200);
+}
+
 /// The rows before OFFSET of a query without ORDER BY are not built, as those past LIMIT: an error that
 /// only computing their targets would raise is not reported. They still go through WHERE, whose errors
 /// are.

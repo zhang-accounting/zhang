@@ -5,8 +5,8 @@ BQL-compatible query engine (issue #434, Phases 1 to 3, and issue #479, Phase 4)
 were produced by the official Python **beanquery**, not by zhang, so they are
 the reference the engine is cross-validated against.
 
-- `cases/NNN_<name>.json`: one fixture per query (171 cases: 001–060 for
-  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–171 for Phase 4).
+- `cases/NNN_<name>.json`: one fixture per query (173 cases: 001–060 for
+  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–173 for Phase 4).
 - `generate.py`: the generator. It holds the case list and writes the fixtures.
 - Oracle versions used: **beancount 3.2.3, beanquery 0.2.0** (Python 3.9).
 
@@ -611,6 +611,13 @@ DISTINCT` over one account, as case 001 does.
 - **`offset`** is an ordinary name in beanquery, which has no `OFFSET`; zhang's
   `OFFSET` is only a keyword right after a `LIMIT` count, so the name keeps
   working (171).
+- **An aggregate written more than once** has the same value in every target
+  that writes it (zhang accumulates it once), and **the scale of a decimal
+  literal** tells two aggregates apart: `max(number * 1.0)` and
+  `max(number * 1.00)` are the same number with one and two more decimal
+  places, which `str()` shows, since the harness compares numbers without
+  their scale (172, 173). The equivalence tests cannot catch a compiler that
+  merges them, since both of their paths share the compiler.
 
 Accepted deviations (see `ACCEPTED_DEVIATIONS` in the harness), decided by the
 lead on #479:
@@ -655,7 +662,7 @@ These are deliberately out of scope or not exercisable on this ledger:
 
 ## Cases
 
-171 cases:
+173 cases:
 
 - Phase 1 (001–060), 60 cases: 47 `engine` with rows, 6 `ledger-dependent`, and 7 errors (`engine`).
 - Phase 2 (061–100), 40 cases: 13 `engine` and 15 `ledger-dependent` with rows, 3 `engine` and 2
@@ -665,8 +672,9 @@ These are deliberately out of scope or not exercisable on this ledger:
   `ledger-dependent` csv cases, and 13 errors (`engine`). By feature: `HAVING` 9 (6 with rows, 3
   errors), `PIVOT BY` 12 (6 with rows, 6 errors), `FROM #table` 21 (17 with rows, 4 errors), and
   3 csv cases (1 pivot, 2 tables). 12 cases set `strict_names`.
-- Phase 4 (146–171), 26 cases: 22 `engine` with rows and 4 errors (`engine`). By area: `date` 8,
-  `interval` 8, `directives` 5, `select` 1, `error` 4. 3 of them are accepted deviations (154, 158, 159).
+- Phase 4 (146–173), 28 cases: 24 `engine` with rows and 4 errors (`engine`). By area: `date` 8,
+  `interval` 8, `directives` 5, `select` 1, `aggregate` 2, `error` 4. 3 of them are accepted deviations
+  (154, 158, 159).
 
 | # | Case | Phase | Area | Kind | Ordered | Expect |
 |---|---|---|---|---|---|---|
@@ -841,3 +849,5 @@ These are deliberately out of scope or not exercisable on this ledger:
 | 169 | `error_date_bin_int_stride` | 4 | error | engine | no | error |
 | 170 | `error_open_date_of_a_date` | 4 | error | engine | no | error |
 | 171 | `offset_is_a_name` | 4 | select | engine | yes | 2 rows |
+| 172 | `aggregate_written_twice` | 4 | aggregate | engine | yes | 4 rows |
+| 173 | `aggregate_literal_scale` | 4 | aggregate | engine | no | 1 rows |

@@ -1,11 +1,10 @@
 use axum::extract::State;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine as _;
 use gotcha::api;
 
 use crate::error::ServerError;
 use crate::request::FileUpdateRequest;
 use crate::response::{Created, FileDetailEntity, ResponseWrapper};
+use crate::routes::Base64Path;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::{ApiResult, ServerResult};
 
@@ -24,9 +23,7 @@ pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<Stri
 }
 
 #[api(group = "file")]
-pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::Path<(String,)>) -> ApiResult<FileDetailEntity> {
-    let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
+pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename): Base64Path) -> ApiResult<FileDetailEntity> {
     let ledger = ledger.read().await;
 
     let content = ledger.data_source.async_get(filename.to_owned()).await?;
@@ -37,11 +34,9 @@ pub async fn get_file_content(ledger: State<SharedLedger>, path: axum::extract::
 
 #[api(group = "file")]
 pub async fn update_file_content(
-    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: axum::extract::Path<(String,)>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Base64Path(filename): Base64Path,
     axum::extract::Json(payload): axum::extract::Json<FileUpdateRequest>,
 ) -> ServerResult<Created> {
-    let encoded_file_path = path.0 .0;
-    let filename = String::from_utf8(BASE64_STANDARD.decode(encoded_file_path).unwrap()).unwrap();
     // the whole file: it edits no place the ledger loaded, so it needs the ledger reloaded first no more than a
     // ledger that loads. It is saved even when the files cannot be loaded, to fix them
     let mut ledger = ledger.write().await;
@@ -55,12 +50,10 @@ pub async fn update_file_content(
 mod save_test {
     use std::sync::Arc;
 
-    use axum::extract::{Path, State};
+    use axum::extract::State;
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use axum::Json;
-    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-    use base64::Engine as _;
     use tokio::sync::{mpsc, RwLock};
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::ledger::Ledger;
@@ -68,6 +61,7 @@ mod save_test {
     use super::update_file_content;
     use crate::request::{CreateTransactionRequest, FileUpdateRequest};
     use crate::routes::transaction::create_new_transaction;
+    use crate::routes::Base64Path;
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
 
@@ -99,7 +93,7 @@ mod save_test {
         let (sender, _receiver) = mpsc::channel(8);
         let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
         let save = |content: String| {
-            let path = Path((BASE64_STANDARD.encode(main.to_string_lossy().as_bytes()),));
+            let path = Base64Path(main.to_string_lossy().into_owned());
             update_file_content(state.clone(), reload.clone(), path, Json(FileUpdateRequest { content }))
         };
         let create = || {

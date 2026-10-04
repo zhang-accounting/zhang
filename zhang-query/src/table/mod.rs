@@ -42,7 +42,7 @@ mod postings;
 mod prices;
 
 use std::cell::OnceCell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::path::Path;
 
@@ -116,7 +116,18 @@ pub(crate) type RecordSource = for<'a> fn(&'a Ledger, &'a Store, Projection) -> 
 
 /// Builds the generated rows of a record table, in the table's row order, calling
 /// [`Limits::row`] for every row before it builds it.
-pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, &'a Store, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
+/// It gets `today()` of the execution, and the last date a row needs to have (see
+/// [`crate::optimizer::date_bound`]): rows dated after it are not generated.
+pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, &'a Store, Generation, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
+
+/// What a [`GeneratedSource`] needs to know of the execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Generation {
+    /// `today()` of the execution
+    pub today: NaiveDate,
+    /// the last date the rows the filter keeps can have; `None` generates every row
+    pub until: Option<NaiveDate>,
+}
 
 /// The limits of one execution as a [`GeneratedSource`] sees them: every generated row costs
 /// one value of the result budget, and the deadline is checked as rows are generated, so a
@@ -164,6 +175,7 @@ static TABLES: &[&Table] = &[
     &directives::COMMODITIES,
     &budgets::BUDGETS,
     &budgets::BUDGET_EVENTS,
+    &budgets::BUDGET_DEFINITIONS,
     &errors::ERRORS,
 ];
 
@@ -292,6 +304,8 @@ pub(crate) enum Record<'a> {
     },
     /// one month of a budget
     Budget(budgets::BudgetMonth<'a>),
+    /// a budget, as its directives define it
+    BudgetDefinition(budgets::BudgetDefinition<'a>),
     /// one effect of a budget directive
     BudgetEvent(budgets::BudgetEvent<'a>),
     /// a ledger error
@@ -307,6 +321,7 @@ impl<'a> Record<'a> {
             Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive_meta(&directive.data)),
             Record::Document(document) => Some(document.metadata()),
             Record::Budget(month) => month.metadata(),
+            Record::BudgetDefinition(budget) => Some(budget.meta),
             Record::BudgetEvent(event) => directive_meta(&event.directive.data),
             // an error's details are not directive metadata (see `meta`)
             Record::Error(_) => None,
@@ -438,13 +453,13 @@ impl<'a> Dataset<'a> {
     /// The rows of the projection's table (of the `postings` table, those in `scope`);
     /// generated rows count against `limits`.
     pub fn build(
-        ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, scope: &Scope, limits: &mut Limits<'_>,
+        ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, scope: &Scope, until: Option<NaiveDate>, limits: &mut Limits<'_>,
     ) -> Result<Self, LocatedError> {
         let cache = LedgerCache::of(ledger, store);
         let records = match projection.table().rows {
             Rows::Postings => return Ok(Dataset::postings(ledger, store, cache, today, projection, scope)),
             Rows::Records(source) => source(ledger, store, projection),
-            Rows::Generated(source) => source(ledger, store, projection, limits)?,
+            Rows::Generated(source) => source(ledger, store, Generation { today, until }, projection, limits)?,
         };
         Ok(Dataset {
             table: projection.table(),
@@ -505,6 +520,11 @@ impl<'a> Dataset<'a> {
     /// The `open` and `close` directives of `account`, for `open_date()`, `open_meta()`, ...
     pub fn account_directives(&self, account: &str) -> Option<AccountDirectives<'a>> {
         self.cache.lookups(self.ledger, self.store).account(self.ledger, account)
+    }
+
+    /// The budgets a posting of `account` dated `date` counts in (see [`lookups::Lookups::budgets_at`]).
+    pub fn budgets_at(&self, account: &str, date: NaiveDate) -> Option<&'a BTreeSet<String>> {
+        self.cache.lookups(self.ledger, self.store).budgets_at(account, date)
     }
 
     /// The `commodity` directive of `currency`, for `commodity_meta()`.

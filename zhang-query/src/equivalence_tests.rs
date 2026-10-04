@@ -262,7 +262,7 @@ fn assert_equivalent_with(ledger: &Ledger, queries: &[&str], types: &ParamTypes,
         if let Ok(optimized) = &optimized {
             assert!(optimized.total.is_some(), "{sql}");
         }
-        if compile().plan.execution.scope.is_some() {
+        if compile().plan.execution.scope.is_some() || compile().plan.execution.until.is_some() {
             assert_same(sql, run(unscoped(compile()), &options), optimized.clone());
         }
         // counting the rows changes nothing else
@@ -288,9 +288,11 @@ fn assert_equivalent_with(ledger: &Ledger, queries: &[&str], types: &ParamTypes,
     }
 }
 
-/// `query` reading every row instead of the rows of its account scope.
+/// `query` reading every row instead of the rows of its account scope, and generating every
+/// row instead of those up to its date bound.
 fn unscoped(mut query: Query) -> Query {
     query.plan.execution.scope = None;
+    query.plan.execution.until = None;
     query
 }
 
@@ -713,5 +715,85 @@ fn the_ledger_cache_keeps_results() {
     for mut ledger in [fava_demo_ledger(), load_text(&random_lots_ledger(5, 120))] {
         let queries = QUERIES.iter().map(|sql| (*sql, Params::new())).chain(scoped_queries()).collect::<Vec<_>>();
         assert_cache_keeps_results(&mut ledger, &queries);
+    }
+}
+
+/// A table that generates its rows (the months of `#budgets`) generates none after the date
+/// bound of its filter, and returns what generating every row returns: the bound only leaves
+/// out rows the filter drops, and the months before it are computed from the same entries.
+#[test]
+fn date_bounds_keep_results() {
+    let ledger = load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Travel
+  budget: travel
+2024-01-01 price USD 7 CNY
+2024-01-01 budget food CNY
+2024-03-01 budget travel CNY
+2024-01-01 budget-add food 100 CNY
+2024-01-10 * "Shop" "lunch"
+  Expenses:Food 30 CNY
+  Assets:Bank
+2024-02-10 * "Shop" "dinner"
+  Expenses:Food 10 USD
+  Assets:Bank -70 CNY
+2024-03-05 budget-transfer food travel 20 CNY
+2024-04-02 * "Airline" "flight"
+  Expenses:Travel 15 CNY
+  Assets:Bank
+2024-05-01 budget-close travel
+"#,
+    );
+    let month = |m: u32| Params::new().bind("month", NaiveDate::from_ymd_opt(2024, m, 1).unwrap());
+    let queries: Vec<(&str, Params)> = vec![
+        ("SELECT name, date, assigned, activity, available, closed FROM #budgets WHERE date <= 2024-02-01", Params::new()),
+        ("SELECT name, date, available FROM #budgets WHERE date < 2024-03-01", Params::new()),
+        ("SELECT name, date, available FROM #budgets WHERE 2024-03-15 >= date AND name = 'food'", Params::new()),
+        ("SELECT name, available FROM #budgets WHERE date = :month", month(3)),
+        ("SELECT name, available FROM #budgets WHERE date = :month", month(1)),
+        ("SELECT name, available FROM #budgets WHERE yearmonth(date) = :month", month(4)),
+        ("SELECT name, available FROM #budgets WHERE yearmonth(date) < :month", month(3)),
+        (
+            "SELECT name, last(date), CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END FROM #budgets WHERE date <= :month GROUP BY name ORDER BY name",
+            month(6),
+        ),
+        ("SELECT name, count(*) FROM #budgets WHERE name != 'x' AND date <= :month GROUP BY name", month(2)),
+        // today, in the documented idiom for this month
+        ("SELECT name, date, available FROM #budgets WHERE date = yearmonth(today())", Params::new()),
+        ("SELECT name, count(*) FROM #budgets WHERE date <= today() GROUP BY name", Params::new()),
+        // a NULL bound holds for no row
+        ("SELECT count(*) FROM #budgets WHERE date <= :month", Params::new().bind("month", Value::Null)),
+        // a month before every budget
+        ("SELECT name FROM #budgets WHERE date <= :month", Params::new().bind("month", NaiveDate::from_ymd_opt(2023, 12, 31).unwrap())),
+    ];
+    let types = ParamTypes::new().bind("month", DataType::Date);
+    for (sql, params) in &queries {
+        let compile = || Query::compile_with_params(sql, &types).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        assert!(compile().plan.execution.until.is_some(), "{sql}");
+        assert_equivalent_with(&ledger, &[sql], &types, params);
+        let bounded = compile().execute_with_options(&ledger, params, &options());
+        let full = unscoped(compile()).execute_with_options(&ledger, params, &options());
+        assert_same(sql, full, bounded);
+    }
+    // filters that keep later rows generate every row
+    for sql in [
+        "SELECT name FROM #budgets WHERE date >= 2024-02-01",
+        "SELECT name FROM #budgets WHERE date != 2024-02-01",
+        "SELECT name FROM #budgets WHERE date <= 2024-02-01 OR name = 'food'",
+        "SELECT name FROM #budgets WHERE NOT date > 2024-02-01",
+        // a conjunct that may fail before the bound: generating every row evaluates it on later rows
+        "SELECT name FROM #budgets WHERE year * 1000 > 0 AND date <= 2024-02-01",
+        // the other tables read their rows
+        "SELECT date FROM #budget_events WHERE date <= 2024-02-01",
+        "SELECT date WHERE date <= 2024-02-01",
+    ] {
+        let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        assert!(query.plan.execution.until.is_none(), "{sql}");
     }
 }

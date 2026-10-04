@@ -1,0 +1,16 @@
+{
+  "name": "aggregate_literal_scale",
+  "query": "SELECT str(max(number * 1.0)) AS one, str(max(number * 1.00)) AS two WHERE account ~ 'Expenses:Food' AND currency = 'USD'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "rows",
+  "columns": [
+    {"name": "one", "type": "str"},
+    {"name": "two", "type": "str"}
+  ],
+  "rows": [
+    ["123.770", "123.7700"]
+  ],
+  "notes": "The scale of a decimal literal is part of the aggregate: the two maxima are the same number, with one and two more decimal places, so they are not the same aggregate. str() shows the scale, which the harness otherwise ignores when it compares numbers."
+}

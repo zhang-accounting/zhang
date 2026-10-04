@@ -809,8 +809,8 @@ option "timezone" "UTC"
             .count();
         assert_eq!(pads, 2, "{journal}");
         let request = zhang_server::request::StatisticRequest {
-            from: chrono::Utc::now() - chrono::Duration::days(30),
-            to: chrono::Utc::now() + chrono::Duration::days(30),
+            from: days_ago(30).to_string(),
+            to: tomorrow().checked_add_days(Days::new(30)).unwrap().to_string(),
         };
         let (status, summary) =
             respond(zhang_server::routes::statistics::get_statistic_summary(scratch.state().await, axum::extract::Query(request)).await).await;

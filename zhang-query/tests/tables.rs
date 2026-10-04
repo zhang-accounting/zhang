@@ -75,6 +75,46 @@ fn prices_rows_come_in_ledger_order() {
     );
 }
 
+/// zhang extension: `time` and `timestamp` tell apart the quotes of one day. A price without a
+/// time is at local midnight, and the quotes of a day come in time order whatever their written
+/// order. Asia/Shanghai is UTC+8 without daylight saving, so 2024-01-15 00:00:00 +08:00 is
+/// 1705248000 (19737 days of 86400 s since 1970-01-01, minus 8 hours).
+#[test]
+fn prices_have_the_time_and_timestamp_of_their_directive() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "USD"
+option "timezone" "Asia/Shanghai"
+
+1970-01-01 commodity USD
+1970-01-01 commodity BTC
+
+2024-01-15 18:00 price BTC 42000 USD
+2024-01-15 price BTC 40000 USD
+2024-01-15 09:30:15 price BTC 41000 USD
+"#,
+    );
+    let run = |sql: &str| -> Vec<Vec<String>> {
+        let result = Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
+        result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
+    };
+    assert_eq!(
+        run("SELECT date, time, timestamp, amount FROM #prices"),
+        vec![
+            vec!["2024-01-15", "00:00:00", "1705248000", "40000 USD"],
+            vec!["2024-01-15", "09:30:15", "1705282215", "41000 USD"],
+            vec!["2024-01-15", "18:00:00", "1705312800", "42000 USD"],
+        ]
+    );
+    // the latest quote of each currency
+    assert_eq!(
+        run("SELECT currency, last(date), last(time), last(amount) FROM #prices GROUP BY currency"),
+        vec![vec!["BTC", "2024-01-15", "18:00:00", "42000 USD"]]
+    );
+    // they are extensions: SELECT * stays beanquery's
+    assert_eq!(run("SELECT * FROM #prices")[0], vec!["2024-01-15", "BTC", "40000 USD"]);
+}
+
 #[test]
 fn table_queries_filter_group_order_and_limit() {
     assert_eq!(
@@ -121,7 +161,7 @@ fn columns_belong_to_their_table() {
     assert_eq!((err.kind, err.column), (QueryErrorKind::Compile, Some(8)));
     assert_eq!(
         err.message,
-        "unknown column 'account' in #prices (its columns are date, currency, amount, meta)"
+        "unknown column 'account' in #prices (its columns are date, currency, amount, meta, time, timestamp)"
     );
     let err = error("SELECT * FROM #prices WHERE balance IS NULL");
     assert!(err.message.contains("unknown column 'balance' in #prices"), "{}", err.message);
@@ -142,7 +182,7 @@ fn explain_names_the_table_and_projects_its_columns() {
          agg#0: count(*)\n\
          filter: (year(date) = 2024)\n\
          group by: [0]\n\
-         project: [currency, date] (2 of 4 columns)\n"
+         project: [currency, date] (2 of 6 columns)\n"
     );
     // the default table is not named
     let postings = Query::compile("SELECT count(*) FROM #postings").unwrap();
@@ -188,7 +228,9 @@ fn the_schema_describes_every_table() {
             ("date", DataType::Date),
             ("currency", DataType::Str),
             ("amount", DataType::Amount),
-            ("meta", DataType::Str)
+            ("meta", DataType::Str),
+            ("time", DataType::Str),
+            ("timestamp", DataType::Int)
         ]
     );
     let names = schema.tables.iter().map(|table| table.name).collect::<Vec<_>>();
@@ -207,6 +249,7 @@ fn the_schema_describes_every_table() {
             "commodities",
             "budgets",
             "budget_events",
+            "budget_definitions",
             "errors"
         ]
     );

@@ -849,10 +849,8 @@ mod test {
     /// the status and the body of the download of the document at `path`
     async fn download(state: &axum::extract::State<zhang_server::state::SharedLedger>, path: &str) -> (u16, String) {
         use axum::response::IntoResponse;
-        use base64::Engine as _;
 
-        let encoded = base64::engine::general_purpose::STANDARD.encode(path);
-        let response = zhang_server::routes::document::download_document(state.clone(), axum::extract::Path((encoded,)))
+        let response = zhang_server::routes::document::download_document(state.clone(), zhang_server::routes::Base64Path(path.to_owned()))
             .await
             .into_response();
         let status = response.status().as_u16();

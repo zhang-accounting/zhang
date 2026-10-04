@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -131,6 +131,11 @@ impl FunctionContext for Env<'_, '_> {
         self.impure.set(self.impure.get() || self.data.is_none());
         self.data?.commodity_directive(currency)
     }
+
+    fn account_budgets(&self, account: &str, date: NaiveDate) -> Option<BTreeSet<String>> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data?.budgets_at(account, date).cloned()
+    }
 }
 
 /// Evaluate a constant expression at compile time; `None` when it reads the execution
@@ -246,10 +251,22 @@ impl CExpr {
                 eval_in_list(needle, items, *negated, env)
             }
             CExpr::IsNull { expr, negated } => Ok(Value::Bool(expr.eval(env)?.is_null() != *negated)),
+            CExpr::Case { branches, otherwise } => eval_case(branches, otherwise, env),
             CExpr::InConst { needle, set, negated } => eval_in_const(needle, set, *negated, env),
             CExpr::StrTest { subject, test, .. } => eval_str_test(subject, test, env),
         }
     }
+}
+
+/// `CASE`: the value of the first branch whose condition is TRUE, else `otherwise`. A NULL
+/// condition is not TRUE. Only the chosen value is evaluated.
+fn eval_case(branches: &[(CExpr, CExpr)], otherwise: &CExpr, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    for (condition, value) in branches {
+        if condition.eval(env)? == Value::Bool(true) {
+            return value.eval(env);
+        }
+    }
+    otherwise.eval(env)
 }
 
 /// `x [NOT] IN <constants>` with the items hashed: a string needle is looked up in place.
@@ -576,6 +593,108 @@ impl Accumulator {
             Accumulator::Pick(it) => it.unwrap_or(Value::Null),
             Accumulator::PickRow(_) => unreachable!("the replay resolves deferred aggregates"),
         }
+    }
+}
+
+impl Accumulator {
+    /// The value it would finish with, without finishing it; `None` for a deferred one, whose
+    /// value only the replay knows.
+    fn peek(&self) -> Option<Value> {
+        match self {
+            Accumulator::Count(it) | Accumulator::SumInt(it) => Some(Value::Int(*it)),
+            Accumulator::SumDecimal(it) => Some(Value::Decimal(it.clone())),
+            Accumulator::SumInventory(it) => Some(Value::Inventory(it.clone())),
+            Accumulator::Pick(it) => Some(it.clone().unwrap_or(Value::Null)),
+            Accumulator::PickRow(_) => None,
+        }
+    }
+}
+
+/// The aggregates (by index) and the targets that an expression reads.
+fn references(expr: &CExpr, aggregates: &mut BTreeSet<usize>, targets: &mut BTreeSet<usize>) {
+    match expr {
+        CExpr::Aggregate(idx) => {
+            aggregates.insert(*idx);
+        }
+        CExpr::Target(idx) => {
+            targets.insert(*idx);
+        }
+        _ => {}
+    }
+    for child in expr.children() {
+        references(child, aggregates, targets);
+    }
+}
+
+/// Apply HAVING to the groups before the replay of their deferred `first()` / `last()`, when
+/// it reads none of them (as `HAVING max(date) >= :from` next to `last(balance)`): the groups
+/// it drops then never hold their deferred values, which can be inventories of every open lot,
+/// so a query over a long history that keeps only its last groups costs what those keep. The
+/// groups it keeps are tested again when they are finished, to the same result.
+fn drop_before_replay(
+    plan: &Plan, keys: &[usize], deferred: &[usize], groups: &mut IndexMap<Vec<Value>, Vec<Accumulator>>, budget: &mut Budget, base: &Env<'_, '_>,
+) -> Result<(), LocatedError> {
+    let Some(having) = &plan.having else {
+        return Ok(());
+    };
+    let (mut aggregates, mut targets) = (BTreeSet::new(), BTreeSet::new());
+    references(having, &mut aggregates, &mut targets);
+    for target in &targets {
+        if !keys.contains(target) {
+            references(&plan.targets[*target].expr, &mut aggregates, &mut BTreeSet::new());
+        }
+    }
+    if aggregates.iter().any(|idx| deferred.contains(idx)) {
+        return Ok(());
+    }
+    let mut failure = None;
+    groups.retain(|key, accumulators| {
+        if failure.is_some() {
+            return true;
+        }
+        let finished = accumulators
+            .iter()
+            .enumerate()
+            .map(|(idx, accumulator)| {
+                if aggregates.contains(&idx) {
+                    accumulator.peek().unwrap_or(Value::Null)
+                } else {
+                    Value::Null
+                }
+            })
+            .collect::<Vec<_>>();
+        let env = Env {
+            aggregates: &finished,
+            ..*base
+        };
+        let mut cells = vec![Value::Null; plan.targets.len()];
+        for target in &targets {
+            cells[*target] = match keys.iter().position(|key_idx| key_idx == target) {
+                Some(pos) => key[pos].clone(),
+                None => match plan.targets[*target].expr.eval(&env) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        failure = Some(error);
+                        return true;
+                    }
+                },
+            };
+        }
+        match having.eval(&Env { cells: &cells, ..env }) {
+            Ok(Value::Bool(true)) => true,
+            Ok(_) => {
+                budget.release(row_weight(key) + accumulators.iter().map(Accumulator::weight).sum::<u64>());
+                false
+            }
+            Err(error) => {
+                failure = Some(error);
+                true
+            }
+        }
+    });
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
 }
 
@@ -1120,6 +1239,10 @@ pub(crate) fn execute_within(
             // only the first groups were built (no HAVING and no DISTINCT drop any)
             let counted = first_groups.map(|_| (groups.len() + later_groups.len()) as u64);
             drop(later_groups);
+            if !deferred.is_empty() {
+                // the groups that HAVING drops never get the values of their deferred aggregates
+                drop_before_replay(plan, keys, deferred, &mut groups, &mut budget, &base)?;
+            }
             if !deferred.is_empty() {
                 // the replay evaluates every deferred first()/last() at the row it picks
                 let mut needs = vec![];
