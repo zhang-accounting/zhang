@@ -120,3 +120,70 @@ fn written_postings_keep_legs_of_different_written_postings_apart() {
     let written = written_postings(vec![a, plain.clone(), b]);
     assert_eq!(written, vec![posting("Assets:A", None, None), plain, posting("Assets:B", None, None)]);
 }
+
+fn written(index: usize, units: Option<Amount>, cost: Option<PostingCost>) -> Option<WrittenPosting> {
+    Some(WrittenPosting { index, units, cost })
+}
+
+#[test]
+fn legs_a_stage_moved_apart_are_kept_as_booked() {
+    // a plugin put the income between the two legs of the sale: restoring the written posting per
+    // run would double the sale, so the legs stay as booked, and the income still reads as written
+    let mut first = posting("Assets:S", Some(amount(-10, "USD")), Some(cost(Some(amount(10, "CNY")), Some("2024-05-16"))));
+    first.written = written(0, Some(amount(-15, "USD")), Some(cost(None, None)));
+    let mut second = posting("Assets:S", Some(amount(-5, "USD")), Some(cost(Some(amount(11, "CNY")), Some("2024-05-17"))));
+    second.written = first.written.clone();
+    let mut income = posting("Income:I", Some(amount(155, "CNY")), None);
+    income.written = written(1, None, None);
+
+    let result = written_postings(vec![first.clone(), income, second.clone()]);
+
+    let mut raw_first = first.clone();
+    raw_first.written = None;
+    let mut raw_second = second.clone();
+    raw_second.written = None;
+    assert_eq!(result, vec![raw_first, posting("Income:I", None, None), raw_second]);
+}
+
+#[test]
+fn distinct_postings_sharing_an_index_are_kept_as_booked() {
+    // a plugin duplicated a leg onto another account and kept its `written`: merging them would
+    // drop the second account from the export, so both stay as booked
+    let mut a = posting("Assets:A", Some(amount(-10, "USD")), Some(cost(Some(amount(10, "CNY")), Some("2024-05-16"))));
+    a.written = written(0, Some(amount(-10, "USD")), Some(cost(None, None)));
+    let mut b = posting("Assets:B", Some(amount(-10, "USD")), Some(cost(Some(amount(10, "CNY")), Some("2024-05-16"))));
+    b.written = a.written.clone();
+    let mut income = posting("Income:I", Some(amount(200, "CNY")), None);
+    income.written = written(1, None, None);
+
+    let result = written_postings(vec![a.clone(), b.clone(), income]);
+
+    let mut raw_a = a.clone();
+    raw_a.written = None;
+    let mut raw_b = b.clone();
+    raw_b.written = None;
+    assert_eq!(result, vec![raw_a, raw_b, posting("Income:I", None, None)]);
+}
+
+#[test]
+fn a_complete_split_is_restored_even_when_other_indexes_are_incomplete() {
+    // the legs of one sale are complete; the index of another posting was duplicated
+    let sale = written(0, Some(amount(-15, "USD")), Some(cost(None, None)));
+    let mut first = posting("Assets:S", Some(amount(-10, "USD")), Some(cost(Some(amount(10, "CNY")), Some("2024-05-16"))));
+    first.written = sale.clone();
+    let mut second = posting("Assets:S", Some(amount(-5, "USD")), Some(cost(Some(amount(11, "CNY")), Some("2024-05-17"))));
+    second.written = sale;
+    let mut fee = posting("Expenses:Fee", Some(amount(1, "CNY")), None);
+    fee.written = written(1, None, None);
+    let mut copied_fee = posting("Expenses:Other", Some(amount(1, "CNY")), None);
+    copied_fee.written = written(1, None, None);
+
+    let result = written_postings(vec![first, second, fee.clone(), copied_fee.clone()]);
+
+    fee.written = None;
+    copied_fee.written = None;
+    assert_eq!(
+        result,
+        vec![posting("Assets:S", Some(amount(-15, "USD")), Some(cost(None, None))), fee, copied_fee]
+    );
+}

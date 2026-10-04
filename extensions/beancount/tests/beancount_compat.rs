@@ -259,3 +259,47 @@ fn on_the_local_disk_documents_are_looked_at_not_listed() {
     drop(store);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn a_booked_split_exports_in_beancount_syntax_as_written_and_parses_back() {
+    use beancount::Beancount;
+    use zhang_ast::amount::Amount;
+    use zhang_ast::{Date, Posting, PostingCost, WrittenPosting};
+
+    let source = "2014-01-03 * \"sell\"\n  Assets:Cash -15 HOOL {}\n  Equity:X\n";
+    let written = txn(source);
+    // what booking makes of it: one leg per lot, the implicit posting interpolated
+    let leg = |units: i64, cost: i64, date: &str| Posting {
+        units: Some(Amount::new(BigDecimal::from(units), "HOOL")),
+        cost: Some(PostingCost {
+            base: Some(Amount::new(BigDecimal::from(cost), "USD")),
+            date: Some(Date::Date(chrono::NaiveDate::from_str(date).unwrap())),
+            label: None,
+            total: false,
+        }),
+        written: Some(WrittenPosting {
+            index: 0,
+            units: written.postings[0].units.clone(),
+            cost: written.postings[0].cost.clone(),
+        }),
+        ..written.postings[0].clone()
+    };
+    let mut booked = written.clone();
+    booked.postings = vec![
+        leg(-10, 100, "2014-01-01"),
+        leg(-5, 110, "2014-01-02"),
+        Posting {
+            units: Some(Amount::new(BigDecimal::from(1550), "USD")),
+            written: Some(WrittenPosting {
+                index: 1,
+                units: None,
+                cost: None,
+            }),
+            ..written.postings[1].clone()
+        },
+    ];
+
+    let exported = Beancount::default().export(Spanned::new(Directive::Transaction(booked), SpanInfo::default()));
+    assert_eq!(exported, "2014-01-03 * \"sell\"\n  Assets:Cash -15 HOOL { }\n  Equity:X");
+    assert_eq!(txn(&exported), written, "the export parses back to the transaction as written");
+}
