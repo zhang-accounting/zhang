@@ -254,26 +254,24 @@ impl DataSource for OpendalDataSource {
         }
     }
 
-    /// a file only: a directory, which a WebDAV service reads as a page listing it, is not one, nor an entry the
-    /// service refuses to read, as it refuses a link leading out of its directory. One stat before the read
+    /// a file only, with one stat before the read: what the stat tells a directory, which a WebDAV service reads as a
+    /// page listing it, or another kind of entry, is not read. A stat that fails otherwise than for a missing entry,
+    /// as on a WebDAV service without a working PROPFIND, leaves the read to tell: its error decides. A refusal, as a
+    /// scoped access policy or an expired token makes, is [`ZhangError::ReadRefused`], not a missing file
     async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
-        let failed = |err: opendal::Error| ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err));
-        let missing = |err: &opendal::Error| {
-            matches!(
-                err.kind(),
-                ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::IsADirectory | ErrorKind::NotADirectory
-            )
-        };
         match self.operator.stat(&path).await {
             Ok(metadata) if metadata.is_file() => {}
             Ok(_) => return Ok(None),
-            Err(err) if missing(&err) => return Ok(None),
-            Err(err) => return Err(failed(err)),
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(err) => debug!("[opendal] cannot stat {}, reading it: {}", path, err),
         }
         match self.operator.read(&path).await {
             Ok(data) => Ok(Some(data.to_vec())),
-            Err(err) if missing(&err) => Ok(None),
-            Err(err) => Err(failed(err)),
+            Err(err) => match err.kind() {
+                ErrorKind::NotFound | ErrorKind::IsADirectory | ErrorKind::NotADirectory => Ok(None),
+                ErrorKind::PermissionDenied => Err(ZhangError::ReadRefused(path)),
+                _ => Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err))),
+            },
         }
     }
 
@@ -893,6 +891,12 @@ mod test {
         directories: Arc<std::sync::Mutex<Vec<String>>>,
         /// paths whose stat and read fail with an error of this kind
         failing: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
+        /// paths whose stat only fails with an error of this kind, as on a WebDAV service without a working PROPFIND
+        failing_stats: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
+        /// paths whose read only fails with an error of this kind
+        failing_reads: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
+        /// paths whose stat tells an entry that is neither a file nor a directory
+        special: Arc<std::sync::Mutex<Vec<String>>>,
     }
 
     impl Counting {
@@ -919,8 +923,11 @@ mod test {
             self.layer.calls.lock().unwrap().push(format!("{} {}", call, path));
         }
 
-        fn failure(&self, path: &str) -> opendal::Result<()> {
-            match self.layer.failing.lock().unwrap().iter().find(|(failing, _)| failing == path) {
+        /// the error of `path` in `failing`, or in `only`
+        fn failure(&self, path: &str, only: &std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>) -> opendal::Result<()> {
+            let failing = self.layer.failing.lock().unwrap();
+            let only = only.lock().unwrap();
+            match failing.iter().chain(only.iter()).find(|(failing, _)| failing == path) {
                 Some((_, kind)) => Err(opendal::Error::new(*kind, "the service failed")),
                 None => Ok(()),
             }
@@ -954,7 +961,10 @@ mod test {
 
         async fn stat(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpStat) -> opendal::Result<opendal::raw::RpStat> {
             self.count("stat", path);
-            self.failure(path)?;
+            self.failure(path, &self.layer.failing_stats)?;
+            if self.layer.special.lock().unwrap().iter().any(|it| it == path) {
+                return Ok(opendal::raw::RpStat::new(opendal::MetadataBuilder::unknown().build()));
+            }
             match self.is_directory(path) {
                 true => self.inner.stat(ctx, &format!("{}/", path), args).await,
                 false => self.inner.stat(ctx, path, args).await,
@@ -963,7 +973,7 @@ mod test {
 
         fn read(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpRead) -> opendal::Result<Self::Reader> {
             self.count("read", path);
-            self.failure(path)?;
+            self.failure(path, &self.layer.failing_reads)?;
             match self.is_directory(path) {
                 true => self.inner.read(ctx, &format!("{}/index.html", path), args),
                 false => self.inner.read(ctx, path, args),
@@ -1110,16 +1120,111 @@ mod test {
         assert_eq!(download(&state, "attachments/u9").await.0, 404);
         assert_eq!(counting.calls(), vec![stat("attachments/u9")]);
 
-        // an entry the service refuses to read, as a link out of its directory, is missing; a service failing is an error
-        operator.write("attachments/refused.pdf", b"refused".to_vec()).await.unwrap();
-        operator.write("attachments/broken.pdf", b"broken".to_vec()).await.unwrap();
+        // an entry the service refuses to read, as a scoped access policy or a link out of a WebDAV directory makes it,
+        // is refused, not missing; a service failing is an error
+        for file in [
+            "refused.pdf",
+            "broken.pdf",
+            "stat refused.pdf",
+            "stat unsupported.pdf",
+            "stat broken.pdf",
+            "read broken.pdf",
+            "special",
+        ] {
+            operator.write(&format!("attachments/{}", file), file.as_bytes().to_vec()).await.unwrap();
+        }
         counting.failing.lock().unwrap().extend([
             ("attachments/refused.pdf".to_owned(), opendal::ErrorKind::PermissionDenied),
             ("attachments/broken.pdf".to_owned(), opendal::ErrorKind::Unexpected),
         ]);
-        assert_eq!(download(&state, "attachments/refused.pdf").await.0, 404);
+        counting.calls();
+        assert_eq!(
+            download(&state, "attachments/refused.pdf").await,
+            (
+                403,
+                "{\"message\":\"the storage refused to read attachments/refused.pdf\",\"origin\":\"with_rejection\"}".to_owned()
+            )
+        );
+        assert_eq!(counting.calls(), vec![stat("attachments/refused.pdf"), read("attachments/refused.pdf")]);
         let (status, message) = download(&state, "attachments/broken.pdf").await;
         assert_eq!(status, 500, "{}", message);
+        // the stat failed otherwise than for a missing entry: the read was tried, and its error decided
+        assert_eq!(counting.calls(), vec![stat("attachments/broken.pdf"), read("attachments/broken.pdf")]);
+
+        // a stat that fails otherwise than for a missing entry, as without a working PROPFIND: the read tells
+        counting.failing_stats.lock().unwrap().extend([
+            ("attachments/stat refused.pdf".to_owned(), opendal::ErrorKind::PermissionDenied),
+            ("attachments/stat unsupported.pdf".to_owned(), opendal::ErrorKind::Unsupported),
+            ("attachments/stat broken.pdf".to_owned(), opendal::ErrorKind::Unexpected),
+            ("attachments/stat gone.pdf".to_owned(), opendal::ErrorKind::Unexpected),
+        ]);
+        for file in ["stat refused.pdf", "stat unsupported.pdf", "stat broken.pdf"] {
+            let path = format!("attachments/{}", file);
+            assert_eq!(download(&state, &path).await, (200, file.to_owned()), "{}", path);
+            assert_eq!(counting.calls(), vec![stat(&path), read(&path)]);
+        }
+        assert_eq!(download(&state, "attachments/stat gone.pdf").await.0, 404);
+        // a read failing after a good stat is an error, not a missing document
+        counting
+            .failing_reads
+            .lock()
+            .unwrap()
+            .push(("attachments/read broken.pdf".to_owned(), opendal::ErrorKind::Unexpected));
+        counting.calls();
+        assert_eq!(download(&state, "attachments/read broken.pdf").await.0, 500);
+        assert_eq!(counting.calls(), vec![stat("attachments/read broken.pdf"), read("attachments/read broken.pdf")]);
+
+        // an entry that is neither a file nor a directory is never read
+        counting.special.lock().unwrap().push("attachments/special".to_owned());
+        counting.calls();
+        assert_eq!(download(&state, "attachments/special").await.0, 404);
+        assert_eq!(counting.calls(), vec![stat("attachments/special")]);
+    }
+
+    /// On a remote source whose stat fails, a download reads the document, and the read's error decides: missing is
+    /// a 404, refused a 403, anything else a 500.
+    #[tokio::test]
+    async fn without_a_working_stat_the_read_decides() {
+        let counting = Counting::default();
+        let operator = Operator::new(Memory::default()).unwrap().layer(counting.clone());
+        operator.write("main.bean", b"1970-01-01 open Assets:Cash\n".to_vec()).await.unwrap();
+        for file in ["refused.pdf", "broken.pdf"] {
+            operator.write(&format!("attachments/{}", file), b"%PDF".to_vec()).await.unwrap();
+        }
+        for (file, kind) in [
+            ("refused.pdf", opendal::ErrorKind::PermissionDenied),
+            ("broken.pdf", opendal::ErrorKind::Unexpected),
+            ("gone.pdf", opendal::ErrorKind::Unexpected),
+        ] {
+            counting
+                .failing_stats
+                .lock()
+                .unwrap()
+                .push((format!("attachments/{}", file), opendal::ErrorKind::Unsupported));
+            if file != "gone.pdf" {
+                counting.failing_reads.lock().unwrap().push((format!("attachments/{}", file), kind));
+            }
+        }
+        let source = OpendalDataSource {
+            operator,
+            data_type: Box::new(beancount::Beancount {}),
+            is_beancount: true,
+            local_root: None,
+        };
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let entry = std::path::PathBuf::from(format!("/no-stat-{}", nanos));
+        let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
+        let state = axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        for (file, status) in [("gone.pdf", 404), ("refused.pdf", 403), ("broken.pdf", 500)] {
+            let path = format!("attachments/{}", file);
+            assert_eq!(download(&state, &path).await.0, status, "{}", path);
+            assert_eq!(
+                counting.calls().iter().filter(|it| it.ends_with(&path)).count(),
+                2,
+                "{}: a stat and a read",
+                path
+            );
+        }
     }
 
     /// The documents kept from a remote source are kept for their ledger: two ledgers with a document at one path each

@@ -79,7 +79,7 @@ impl IntoResponse for ServerError {
         }
         let message = match &self {
             // nothing was written: the file changed since the ledger was loaded
-            ServerError::CoreError(error @ ZhangError::FileChanged(_)) => error.to_string(),
+            ServerError::CoreError(error @ (ZhangError::FileChanged(_) | ZhangError::ReadRefused(_))) => error.to_string(),
             other => other.to_string(),
         };
         let payload = json!({
@@ -89,7 +89,7 @@ impl IntoResponse for ServerError {
 
         let status = match self {
             ServerError::NotFound | ServerError::NoSuchTransaction(_) | ServerError::NoSuchDocument(_) => StatusCode::NOT_FOUND,
-            ServerError::OutsideLedger(_) => StatusCode::FORBIDDEN,
+            ServerError::OutsideLedger(_) | ServerError::CoreError(ZhangError::ReadRefused(_)) => StatusCode::FORBIDDEN,
             ServerError::BadRequest | ServerError::InvalidInput(_) => StatusCode::BAD_REQUEST,
             ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::Conflict(_) => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,

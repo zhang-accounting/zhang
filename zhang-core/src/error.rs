@@ -52,6 +52,10 @@ pub enum ZhangError {
     /// nothing is written
     #[error("the file {0} changed since the ledger was loaded, so nothing was written: try again, on the ledger reloaded")]
     FileChanged(String),
+    /// the storage of the ledger refused to read the file at this path, as a scoped access policy or an expired token
+    /// makes it: whether the file is there is not known
+    #[error("the storage refused to read {0}")]
+    ReadRefused(String),
 }
 
 pub trait IoErrorIntoZhangError<T> {

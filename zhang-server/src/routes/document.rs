@@ -10,6 +10,7 @@ use gotcha::api;
 use itertools::Itertools;
 use log::info;
 use zhang_core::ledger::Ledger;
+use zhang_core::ZhangError;
 
 use crate::error::ServerError;
 use crate::response::{DocumentEntity, ResponseWrapper};
@@ -95,16 +96,25 @@ fn path_in_ledger(ledger: &Ledger, requested: &str) -> ServerResult<String> {
 /// one written outside it: only what the directory holds is served.
 async fn read_local(root: &std::path::Path, requested: &str, paths: &[String]) -> ServerResult<Option<Vec<u8>>> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let refused = |error: std::io::Error, path: &str| match error.kind() {
+        std::io::ErrorKind::PermissionDenied => ServerError::CoreError(ZhangError::ReadRefused(path.to_owned())),
+        _ => ServerError::IoError(error),
+    };
     for path in paths {
         // the file it names, through any link; none when there is nothing there
-        let Ok(file) = root.join(path).canonicalize() else { continue };
+        let file = match root.join(path).canonicalize() {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => return Err(refused(error, path)),
+            Err(_) => continue,
+        };
         if !file.starts_with(&root) {
             return Err(ServerError::OutsideLedger(format!(
                 "the document {requested} is outside the ledger's directory, so it cannot be downloaded"
             )));
         }
+        // a regular file only, never a directory, a pipe or a device
         if file.is_file() {
-            return Ok(Some(tokio::fs::read(file).await?));
+            return tokio::fs::read(file).await.map(Some).map_err(|error| refused(error, path));
         }
     }
     Ok(None)
@@ -267,5 +277,69 @@ mod download_test {
             );
         }
         assert_eq!(download(&state, path("attachments/u1/dangling.pdf")).await.0, 404);
+    }
+
+    /// A ledger opened through a link to its directory serves its documents: the directory is compared as it is on
+    /// the disk, not as it was named.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_ledger_opened_through_a_link_serves_its_documents() {
+        // not canonicalized: the temporary directory may itself be reached through a link
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("attachments")).unwrap();
+        std::fs::write(real.join("attachments/a.pdf"), "the statement").unwrap();
+        std::fs::write(real.join("main.zhang"), "1970-01-01 open Assets:Cash\n").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(link.clone(), "main.zhang".to_owned(), source).await.unwrap();
+        let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
+        for path in ["attachments/a.pdf".to_owned(), link.join("attachments/a.pdf").to_string_lossy().into_owned()] {
+            assert_eq!(
+                download(&state, BASE64_STANDARD.encode(&path)).await,
+                (200, "the statement".to_owned()),
+                "{path}"
+            );
+        }
+    }
+
+    /// Only a regular file is read: a pipe, which would block the read, or a device, is no document. A file the
+    /// system refuses to read is refused, not missing.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn only_a_readable_regular_file_is_served() {
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("attachments")).unwrap();
+        std::fs::write(root.join("main.zhang"), "1970-01-01 open Assets:Cash\n").unwrap();
+        let pipe = root.join("attachments/pipe.pdf");
+        assert!(std::process::Command::new("mkfifo").arg(&pipe).status().unwrap().success());
+        // a writer, should anything read the pipe: that read then ends with what it writes
+        let writer = pipe.clone();
+        std::thread::spawn(move || {
+            if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(writer) {
+                pipe.write_all(b"from the pipe").ok();
+            }
+        });
+        let secret = root.join("attachments/secret.pdf");
+        std::fs::write(&secret, "secret").unwrap();
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(root.clone(), "main.zhang".to_owned(), source).await.unwrap();
+        let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
+
+        assert_eq!(download(&state, BASE64_STANDARD.encode("attachments/pipe.pdf")).await.0, 404);
+        // a user the system lets read anything, as root, reads it
+        if std::fs::read(&secret).is_err() {
+            assert_eq!(
+                download(&state, BASE64_STANDARD.encode("attachments/secret.pdf")).await,
+                (403, "the storage refused to read attachments/secret.pdf".to_owned())
+            );
+        }
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 }

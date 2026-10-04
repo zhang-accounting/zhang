@@ -82,12 +82,14 @@ where
     }
 
     /// The content of the file at `path`, relative to the ledger root and written with `/`, or `None` when there is
-    /// no file there. [`DataSource::async_get`] reads a missing file as empty on some sources, to append to it.
+    /// no file there. [`ZhangError::ReadRefused`] when the source refuses to read it, which tells nothing of whether it
+    /// is there. [`DataSource::async_get`] reads a missing file as empty on some sources, to append to it.
     async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
-        match self.async_get(path).await {
+        match self.async_get(path.clone()).await {
             Ok(content) => Ok(Some(content)),
             Err(ZhangError::FileNotFound) => Ok(None),
             Err(ZhangError::IoError(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(ZhangError::IoError(error)) if error.kind() == std::io::ErrorKind::PermissionDenied => Err(ZhangError::ReadRefused(path)),
             Err(error) => Err(error),
         }
     }
@@ -322,7 +324,8 @@ mod get_existing_test {
         }
     }
 
-    /// A file is missing only when the source says it is not there: any other error stays an error.
+    /// A file is missing only when the source says it is not there; a refusal to read it is a refusal, and any other
+    /// error stays an error.
     #[test]
     fn a_file_is_missing_only_when_the_source_says_so() {
         let get = |path: &str| ready(Answering.async_get_existing(path.to_owned()));
@@ -330,7 +333,7 @@ mod get_existing_test {
         assert_eq!(get("empty.pdf").unwrap(), Some(vec![]));
         assert_eq!(get("gone.pdf").unwrap(), None);
         assert_eq!(get("gone too.pdf").unwrap(), None);
-        assert!(matches!(get("denied.pdf"), Err(ZhangError::IoError(_))));
+        assert!(matches!(get("denied.pdf"), Err(ZhangError::ReadRefused(path)) if path == "denied.pdf"));
         assert!(matches!(get("broken.pdf"), Err(ZhangError::CustomError(_))));
     }
 }
