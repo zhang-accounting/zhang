@@ -1,6 +1,6 @@
 //! The account endpoints on the query engine (#479), checked three ways on every fixture ledger: every
-//! `integration-tests` ledger in each of its formats, the example ledger, and the ledgers of
-//! `tests/accounts_on_query/`. More ledgers can be added with `ZHANG_ACCOUNTS_GOLDEN_EXTRA`, a `;`-separated
+//! `integration-tests` ledger in each of its formats, the example ledger, the beancount oracle ledgers of
+//! `extensions/beancount/tests/balance_assertions/`, and the ledgers of `tests/accounts_on_query/`. More ledgers can be added with `ZHANG_ACCOUNTS_GOLDEN_EXTRA`, a `;`-separated
 //! list of `<dir>/<entry file>` paths, and `ZHANG_ACCOUNTS_GOLDEN_REPORT=1` prints every difference.
 //!
 //! 1. **Against the store**, independently of the query engine. zhang records the order it processed the
@@ -181,8 +181,11 @@ async fn journal_page(ledger: &SharedLedger, account: &str, page: u32, size: u32
     respond_with_total(get_account_journals(State(ledger.clone()), UrlPath((account.to_owned(),)), UrlQuery(request)).await).await
 }
 
+/// Whether `text` is a decimal, such as `35.000`, or `0E-28`, as a zero of 28 decimals is written.
 fn is_decimal(text: &str) -> bool {
-    text.chars().any(|it| it.is_ascii_digit()) && text.chars().all(|it| it.is_ascii_digit() || it == '.' || it == '-') && text.parse::<BigDecimal>().is_ok()
+    text.chars().any(|it| it.is_ascii_digit())
+        && text.chars().all(|it| it.is_ascii_digit() || matches!(it, '.' | '-' | 'E'))
+        && text.parse::<BigDecimal>().is_ok()
 }
 
 /// `value` with its decimal strings normalized, so `35` and `35.000` compare equal, and its objects
@@ -202,8 +205,11 @@ fn canonical(value: &Value) -> Value {
     }
 }
 
-/// A decimal as the canonical form writes it: without trailing zeros or an exponent.
+/// A decimal as the canonical form writes it: without trailing zeros, zero as `0`.
 fn decimal_string(number: &BigDecimal) -> String {
+    if number.is_zero() {
+        return "0".to_owned();
+    }
     let normalized = number.normalized();
     if normalized.fractional_digit_count() < 0 {
         normalized.with_scale(0).to_string()
@@ -296,7 +302,8 @@ impl Report {
 }
 
 /// The fixture ledgers: every `integration-tests` ledger in each of its formats, the example ledger, the
-/// ledgers of `tests/accounts_on_query/`, and those of `ZHANG_ACCOUNTS_GOLDEN_EXTRA`.
+/// beancount oracle ledgers, the ledgers of `tests/accounts_on_query/`, and those of
+/// `ZHANG_ACCOUNTS_GOLDEN_EXTRA`.
 fn fixtures() -> Vec<(String, PathBuf, String)> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").canonicalize().unwrap();
     let mut fixtures = vec![];
@@ -314,6 +321,18 @@ fn fixtures() -> Vec<(String, PathBuf, String)> {
                 fixtures.push((name, dir.clone(), entry.to_owned()));
             }
         }
+    }
+    // the beancount oracle ledgers of pads, balances and document paths
+    let oracle = root.join("extensions/beancount/tests/balance_assertions");
+    let mut files = std::fs::read_dir(&oracle)
+        .unwrap()
+        .map(|it| it.unwrap().path())
+        .filter(|it| it.extension().is_some_and(|extension| extension == "bean"))
+        .collect::<Vec<_>>();
+    files.sort();
+    for file in files {
+        let entry = file.file_name().unwrap().to_string_lossy().into_owned();
+        fixtures.push((format!("balance_assertions/{entry}"), oracle.clone(), entry));
     }
     let own = root.join("zhang-server/tests/accounts_on_query");
     let mut files = std::fs::read_dir(&own).unwrap().map(|it| it.unwrap().path()).collect::<Vec<_>>();
@@ -569,7 +588,10 @@ fn as_stored(journal: &[Value]) -> Vec<Value> {
     journal
         .iter()
         .map(|row| {
-            let amount = |value: &Value| format!("{} {}", value["number"].as_str().unwrap(), value["commodity"].as_str().unwrap());
+            let amount = |value: &Value| {
+                let number = value["number"].as_str().unwrap();
+                format!("{} {}", decimal_string(&number.parse().unwrap()), value["commodity"].as_str().unwrap())
+            };
             if row["asserted"].is_null() {
                 json!({
                     "account": row["account"],
