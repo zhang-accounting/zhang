@@ -56,7 +56,7 @@ The `attachments/` directory is fixed; no option changes it. On a ledger stored 
 
 ## View documents
 
-- The **Documents** page lists every document, newest first, as a grid or a list, with the account or transaction it belongs to. Images can be previewed; other files open in a new tab.
+- The **Documents** page lists every document, newest first, as a grid or a list, with the account or transaction it belongs to; a document written on a posting shows its transaction and the posting's account. The documents of one transaction come in the order they are written. Images can be previewed; other files open in a new tab.
 - An account's **Documents** tab lists the documents of that account.
 - A transaction's preview on the Journals page shows its documents, and the journal marks the transactions that have some.
 

@@ -164,7 +164,7 @@ LIMIT :size OFFSET :offset
 ```
 
 - The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. `GET /api/journals` and `GET /api/errors` take a page `size` from 1 to 1000, 100 by default, and answer another size with HTTP 400 and the message `size must be between 1 and 1000`; a page past the last one is empty.
-- Rows come newest first, in the [processing order](/user-guide/query-language/#processing-order): by date and the time written, then at one time the balance entries (balance assertions and every transaction flagged `P`) before the other transactions, in the order of your files, with a `balance ... with pad` after the other balance entries of its time, its padding among them, where Zhang checks it. A balance assertion therefore stands right above the postings its balance includes. On a day daylight saving skips a time, an entry written in the gap keeps its place but shows the time it is stored at, the first one after the gap.
+- Rows come newest first, in the [processing order](/reference/query-language/#processing-order): by date and the time written, then at one time the balance entries (balance assertions and every transaction flagged `P`) before the other transactions, in the order of your files, with a `balance ... with pad` after the other balance entries of its time, its padding among them, where Zhang checks it. A balance assertion therefore stands right above the postings its balance includes. On a day daylight saving skips a time, an entry written in the gap keeps its place but shows the time it is stored at, the first one after the gap.
 - A transaction with the flag `P` is a padding transaction, which the page shows as a `BalancePad` item. A `balance` row is a `BalanceCheck` item, built from `journals.balance_checks`.
 
 #### `journals.postings`
@@ -189,9 +189,9 @@ WHERE id IN :ids
 GROUP BY id, posting_index, account, automatic, balanced
 ```
 
-- A posting that [lot booking](/user-guide/query-language/#lot-booking) splits into several rows is one row again, its units added up. Its cost is the per-unit cost of its lots, so a `{{1000 USD}}` cost of 10 units is `100 USD`. A reduction booked against lots of different costs has none: `cost_number` and `max_cost_number` (and the currencies) differ, or `lots_at_cost` is less than `lots`.
+- A posting that [lot booking](/reference/query-language/#lot-booking) splits into several rows is one row again, its units added up. Its cost is the per-unit cost of its lots, so a `{{1000 USD}}` cost of 10 units is `100 USD`. A reduction booked against lots of different costs has none: `cost_number` and `max_cost_number` (and the currencies) differ, or `lots_at_cost` is less than `lots`.
 - A posting written without an amount (`automatic`) has no units in the journal, only the inferred ones.
-- `balance_before` and `balance_after` are the balance of the posting's own account, in the posting's currency, around it: [`account_balance`](/user-guide/query-language/#the-account-balance) does not depend on `WHERE`.
+- `balance_before` and `balance_after` are the balance of the posting's own account, in the posting's currency, around it: [`account_balance`](/reference/query-language/#the-account-balance) does not depend on `WHERE`.
 
 #### `journals.balance_checks`
 

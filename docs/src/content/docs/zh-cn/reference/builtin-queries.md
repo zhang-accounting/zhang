@@ -164,7 +164,7 @@ LIMIT :size OFFSET :offset
 ```
 
 - 页数按 `LIMIT` 和 `OFFSET` 之前的总行数计算。`GET /api/journals` 和 `GET /api/errors` 的页大小 `size` 为 1 到 1000，默认 100；其他大小返回 HTTP 400，消息为 `size must be between 1 and 1000`；超过最后一页的页码返回空页。
-- 行按[处理顺序](/zh-cn/user-guide/query-language/#处理顺序)排列，最新的在前：先按日期和书写的时刻；同一时刻内，余额条目（余额断言和所有标记为 `P` 的交易）在其他交易之前，各自按文件中的顺序；`balance ... with pad` 排在同一时刻的其他余额条目（包括它的补齐交易）之后，即张记账检查它的位置。因此余额断言紧挨在它的余额所包含的分录之上。在夏令时跳过某个时刻的那一天，写在跳过区间内的条目位置不变，但显示的是它存储的时刻，即跳过区间之后的第一个时刻。
+- 行按[处理顺序](/zh-cn/reference/query-language/#处理顺序)排列，最新的在前：先按日期和书写的时刻；同一时刻内，余额条目（余额断言和所有标记为 `P` 的交易）在其他交易之前，各自按文件中的顺序；`balance ... with pad` 排在同一时刻的其他余额条目（包括它的补齐交易）之后，即张记账检查它的位置。因此余额断言紧挨在它的余额所包含的分录之上。在夏令时跳过某个时刻的那一天，写在跳过区间内的条目位置不变，但显示的是它存储的时刻，即跳过区间之后的第一个时刻。
 - 标记为 `P` 的交易是补齐交易，页面显示为 `BalancePad` 条目。`balance` 行是 `BalanceCheck` 条目，由 `journals.balance_checks` 补全。
 
 #### `journals.postings`
@@ -189,9 +189,9 @@ WHERE id IN :ids
 GROUP BY id, posting_index, account, automatic, balanced
 ```
 
-- [批次记账](/zh-cn/user-guide/query-language/#批次记账)拆成多行的分录重新合为一行，数量相加。它的成本是所记入批次的单位成本，因此 10 个单位的 `{{1000 USD}}` 成本为 `100 USD`。减仓记入成本不同的多个批次时没有成本：此时 `cost_number` 与 `max_cost_number`（或两个币种）不同，或 `lots_at_cost` 小于 `lots`。
+- [批次记账](/zh-cn/reference/query-language/#批次记账)拆成多行的分录重新合为一行，数量相加。它的成本是所记入批次的单位成本，因此 10 个单位的 `{{1000 USD}}` 成本为 `100 USD`。减仓记入成本不同的多个批次时没有成本：此时 `cost_number` 与 `max_cost_number`（或两个币种）不同，或 `lots_at_cost` 小于 `lots`。
 - 书写时没有金额的分录（`automatic`）在流水中没有数量，只有推算出的数量。
-- `balance_before` 和 `balance_after` 是分录所在账户在该币种下记账前后的余额：[`account_balance`](/zh-cn/user-guide/query-language/#账户余额) 不受 `WHERE` 影响。
+- `balance_before` 和 `balance_after` 是分录所在账户在该币种下记账前后的余额：[`account_balance`](/zh-cn/reference/query-language/#账户余额) 不受 `WHERE` 影响。
 
 #### `journals.balance_checks`
 

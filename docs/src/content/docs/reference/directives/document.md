@@ -62,7 +62,8 @@ YYYY-MM-DD * "<Payee>" "<Narration>"
 ### In the web UI
 
 - The documents page lists every document, newest first: the `document` directives and the `document` metadata of
-  transactions. An account's page lists the documents of that account, and a transaction's preview shows its
+  transactions, a transaction's in the order written. A document written on a posting shows the posting's account next
+  to its transaction. An account's page lists the documents of that account, and a transaction's preview shows its
   documents.
 - Uploading a file on an account page saves it as `attachments/<random id>/<file name>` under the ledger root and
   adds a `document` directive dated now, in the file that the

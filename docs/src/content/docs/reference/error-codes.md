@@ -7,8 +7,9 @@ sidebar:
 
 When Zhang loads a ledger, it reports the problems it finds as errors. The ledger still loads: the errors page of the
 web UI lists them, with the directive that caused each one, and so do `GET /api/errors` and the
-[`#errors`](/reference/query-language/#errors) query table. Each error has a code, listed below with the message the
-errors page shows for it.
+[`#errors`](/reference/query-language/#errors) query table. They come by file, then by position in the file, and the
+errors page shows where each one is as its file and the byte offsets of the directive. Each error has a code, listed
+below with the message the errors page shows for it.
 
 Some problems stop the ledger from loading instead; they have no code. See
 [When the ledger does not load](#when-the-ledger-does-not-load).
