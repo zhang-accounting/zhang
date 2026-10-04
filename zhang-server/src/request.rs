@@ -53,12 +53,6 @@ pub struct StatisticGraphRequest {
     pub interval: StatisticInterval,
 }
 
-#[derive(Schematic, Deserialize)]
-pub struct ReportRequest {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
-}
-
 #[derive(Schematic, Deserialize, Debug)]
 pub struct JournalRequest {
     pub page: Option<u32>,
