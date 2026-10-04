@@ -532,8 +532,9 @@ fn journal_field_reason(path: &str, old_record: &Value, new_record: &Value, old:
 }
 
 /// The postings, `(item id, posting index)`, of the transactions and paddings of a whole journal (newest first) whose
-/// account's running balance in their currency broke its chain at them or before: their balance before is not the
-/// balance after the previous posting of the account in that currency.
+/// account's running balance in their currency broke its chain at them or before: a posting's balance before is not
+/// the balance after the previous posting of the account in that currency, or its balance after is not its balance
+/// before plus its units. Both together leave no deviation that is consistent with the chain.
 fn broken_chains(journal: &[Value]) -> BTreeSet<(String, usize)> {
     let mut after: BTreeMap<(String, String), bigdecimal::BigDecimal> = BTreeMap::new();
     let mut broken_accounts: BTreeSet<(String, String)> = BTreeSet::new();
@@ -545,14 +546,17 @@ fn broken_chains(journal: &[Value]) -> BTreeSet<(String, usize)> {
                 posting["account_before"]["commodity"].as_str().unwrap_or_default().to_owned(),
             );
             let before = number(&posting["account_before"]["number"]).unwrap_or_default();
+            let this_after = number(&posting["account_after"]["number"]).unwrap_or_default();
+            let units = number(&posting["inferred_unit"]["number"]).unwrap_or_default();
             let previous = after.get(&account).cloned().unwrap_or_default();
-            if before != previous {
+            let same_currency = posting["inferred_unit"]["commodity"] == posting["account_before"]["commodity"];
+            if before != previous || !same_currency || &this_after - &before != units {
                 broken_accounts.insert(account.clone());
             }
             if broken_accounts.contains(&account) {
                 broken.insert((item["id"].as_str().unwrap_or_default().to_owned(), index));
             }
-            after.insert(account, number(&posting["account_after"]["number"]).unwrap_or_default());
+            after.insert(account, this_after);
         }
     }
     broken
@@ -1084,4 +1088,41 @@ async fn bench_old_and_new() {
             .await,
         );
     }
+}
+
+/// A journal (newest first) of one account, from its postings' `(units, before, after)`, oldest first.
+fn chain(postings: &[(i64, i64, i64)]) -> Vec<Value> {
+    let amount = |number: i64| serde_json::json!({"number": number.to_string(), "commodity": "CNY"});
+    postings
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(idx, (units, before, after))| {
+            serde_json::json!({
+                "type": "Transaction",
+                "id": format!("t{}", idx),
+                "postings": [{
+                    "account": "Assets:Cash",
+                    "inferred_unit": amount(*units),
+                    "account_before": amount(*before),
+                    "account_after": amount(*after),
+                }],
+            })
+        })
+        .collect()
+}
+
+/// The chain check catches a running balance that deviates consistently with the chain: from one posting on, every
+/// balance is off by the same amount, so each balance before is the balance after the previous posting, but that
+/// posting's balance after is not its balance before plus its units. A golden difference there is not accepted, even
+/// where the old chain broke at the same posting.
+#[test]
+fn a_running_balance_that_deviates_consistently_breaks_the_chain() {
+    assert!(broken_chains(&chain(&[(-1, 0, -1), (-1, -1, -2), (-1, -2, -3)])).is_empty());
+    let deviating = chain(&[(-1, 0, -1), (-1, -1, -3), (-1, -3, -4)]);
+    let broken = broken_chains(&deviating);
+    assert_eq!(broken, BTreeSet::from([("t1".to_owned(), 0), ("t2".to_owned(), 0)]));
+    // a balance before that does not follow the previous balance after, as the old journal at a daylight saving gap
+    let skipped = chain(&[(-1, 0, -1), (-1, -1, -2), (-1, -1, -2), (-1, -2, -3)]);
+    assert_eq!(broken_chains(&skipped), BTreeSet::from([("t2".to_owned(), 0), ("t3".to_owned(), 0)]));
 }
