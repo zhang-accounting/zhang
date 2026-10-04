@@ -293,6 +293,49 @@ pub struct LoadResult {
 }
 
 #[cfg(test)]
+mod get_existing_test {
+    use super::DataSource;
+    use crate::{ZhangError, ZhangResult};
+
+    /// a source answering each path in its own way
+    struct Answering;
+
+    impl DataSource for Answering {
+        fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+            match path.as_str() {
+                "here.pdf" => Ok(b"content".to_vec()),
+                "empty.pdf" => Ok(vec![]),
+                "gone.pdf" => Err(ZhangError::FileNotFound),
+                "gone too.pdf" => Err(ZhangError::IoError(std::io::Error::from(std::io::ErrorKind::NotFound))),
+                "denied.pdf" => Err(ZhangError::IoError(std::io::Error::from(std::io::ErrorKind::PermissionDenied))),
+                _ => Err(ZhangError::CustomError("the source failed".to_owned())),
+            }
+        }
+    }
+
+    /// the output of `future`, which is ready at once
+    fn ready<F: std::future::Future>(future: F) -> F::Output {
+        let mut future = std::pin::pin!(future);
+        match future.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
+            std::task::Poll::Ready(output) => output,
+            std::task::Poll::Pending => panic!("the future is not ready"),
+        }
+    }
+
+    /// A file is missing only when the source says it is not there: any other error stays an error.
+    #[test]
+    fn a_file_is_missing_only_when_the_source_says_so() {
+        let get = |path: &str| ready(Answering.async_get_existing(path.to_owned()));
+        assert_eq!(get("here.pdf").unwrap(), Some(b"content".to_vec()));
+        assert_eq!(get("empty.pdf").unwrap(), Some(vec![]));
+        assert_eq!(get("gone.pdf").unwrap(), None);
+        assert_eq!(get("gone too.pdf").unwrap(), None);
+        assert!(matches!(get("denied.pdf"), Err(ZhangError::IoError(_))));
+        assert!(matches!(get("broken.pdf"), Err(ZhangError::CustomError(_))));
+    }
+}
+
+#[cfg(test)]
 mod test {
     use std::sync::Arc;
 

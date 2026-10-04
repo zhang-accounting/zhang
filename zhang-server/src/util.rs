@@ -1,36 +1,55 @@
-use std::future::Future;
 use std::path::PathBuf;
-use std::str::FromStr;
 
-use log::info;
 use zhang_core::ZhangResult;
 
-/// The content `fetch` gives for `key`, kept in the data cache once fetched, for documents of a remote source. When
-/// `fetch` finds nothing, nothing is kept. An empty file kept is not used: earlier versions kept a missing document so.
-/// The file of a key is named by its hash, so no key names a file outside the cache.
-pub async fn cacheable_data<F>(key: &str, fetch: F) -> ZhangResult<Option<Vec<u8>>>
-where
-    F: Future<Output = ZhangResult<Option<Vec<u8>>>>,
-{
+/// Where the documents read from a remote source are kept on the local disk. Earlier versions kept them in
+/// `.cache/data`, with a missing document kept as an empty file: that folder is not read, so a file kept here is the
+/// document as read, an empty one too.
+const DOCUMENT_CACHE: &str = ".cache/documents";
+
+/// The name in the cache of the document at `path` of the ledger at `root`: the hash of both, each preceded by its
+/// length, so no two of them share one.
+pub fn document_cache_key(root: &std::path::Path, path: &str) -> String {
     use sha2::Digest;
 
-    let data_cache_folder = PathBuf::from_str(".cache/data").expect("Cannot create path");
-    tokio::fs::create_dir_all(&data_cache_folder).await?;
-    let hash = sha2::Sha256::digest(key.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let target_file = data_cache_folder.join(hash);
+    let mut hash = sha2::Sha256::new();
+    for part in [root.to_string_lossy().as_bytes(), path.as_bytes()] {
+        hash.update((part.len() as u64).to_le_bytes());
+        hash.update(part);
+    }
+    hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+}
 
-    match tokio::fs::read(&target_file).await {
-        Ok(data) if !data.is_empty() => Ok(Some(data)),
-        _ => {
-            info!("missing cache with key [{}]...", key);
-            let fetched = fetch.await?;
-            if let Some(data) = &fetched {
-                tokio::fs::write(&target_file, data).await?;
-            }
-            Ok(fetched)
-        }
+/// The document kept in the cache under `key`, if it is.
+pub async fn cached_document(key: &str) -> Option<Vec<u8>> {
+    tokio::fs::read(PathBuf::from(DOCUMENT_CACHE).join(key)).await.ok()
+}
+
+/// Keep `content`, a document read, in the cache under `key`. It is written aside then moved, so a reader never finds
+/// part of it.
+pub async fn cache_document(key: &str, content: &[u8]) -> ZhangResult<()> {
+    let folder = PathBuf::from(DOCUMENT_CACHE);
+    tokio::fs::create_dir_all(&folder).await?;
+    let aside = folder.join(format!("{key}.{}", uuid::Uuid::new_v4()));
+    tokio::fs::write(&aside, content).await?;
+    tokio::fs::rename(&aside, folder.join(key)).await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod cache_key_test {
+    use std::path::Path;
+
+    use super::document_cache_key as key;
+
+    /// The root and the path each count by themselves: no root and path written together the same way share a name.
+    #[test]
+    fn a_cache_key_tells_the_root_from_the_path() {
+        assert_ne!(key(Path::new("/ledger"), "a/b.pdf"), key(Path::new("/ledger/a"), "b.pdf"));
+        assert_ne!(key(Path::new("/l"), "ab.pdf"), key(Path::new("/la"), "b.pdf"));
+        assert_ne!(key(Path::new("/ledger"), "a.pdf"), key(Path::new("/other"), "a.pdf"));
+        assert_eq!(key(Path::new("/ledger"), "a/b.pdf"), key(Path::new("/ledger"), "a/b.pdf"));
+        let name = key(Path::new("/ledger"), "a/b.pdf");
+        assert!(name.len() == 64 && name.chars().all(|it| it.is_ascii_hexdigit()), "{name}");
     }
 }

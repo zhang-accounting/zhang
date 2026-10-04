@@ -14,13 +14,13 @@ use zhang_core::ledger::Ledger;
 use crate::error::ServerError;
 use crate::response::{DocumentEntity, ResponseWrapper};
 use crate::state::SharedLedger;
-use crate::util::cacheable_data;
+use crate::util::{cache_document, cached_document, document_cache_key};
 use crate::{ApiResult, ServerResult};
 
-/// The document at a path within the ledger, given as its base64, as the documents are listed: at that path, or at its
-/// alternate ([`DocumentDomain::alternate`](zhang_core::store::DocumentDomain::alternate)) when nothing is there. A path that is not that of a file within the
-/// ledger's directory is a 400, or a 403 for one outside it, which a document may name but is not served; a document
-/// found nowhere is a 404.
+/// The document at a path within the ledger, given as its base64, as the documents are listed: the file at that path,
+/// or at its alternate ([`DocumentDomain::alternate`](zhang_core::store::DocumentDomain::alternate)) when there is
+/// none, never a directory. A path that is not that of a file within the ledger's directory is a 400, or a 403 for one
+/// outside it, also through a link, which a document may name but is not served; a document found nowhere is a 404.
 // #[api(group = "document")]
 pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)>) -> ServerResult<impl IntoResponse> {
     let encoded = path.0 .0;
@@ -42,18 +42,8 @@ pub async fn download_document(ledger: State<SharedLedger>, path: Path<(String,)
     let file_name = path.rsplit('/').next().unwrap_or_default().to_owned();
     let candidates = std::iter::once(path).chain(alternate).collect_vec();
     let content = match ledger.data_source.local_root(&ledger.entry.0) {
-        // on the local disk, read as it is
-        Some(root) => read_first(&ledger, Some(&root), &candidates).await?,
-        None => {
-            let key = format!("{}\n{}", ledger.entry.0.display(), candidates.join("\n"));
-            cacheable_data(&key, async {
-                info!("loading the document {:?} from the source...", candidates);
-                read_first(&ledger, None, &candidates)
-                    .await
-                    .map_err(|it| zhang_core::ZhangError::CustomError(it.to_string()))
-            })
-            .await?
-        }
+        Some(root) => read_local(&root, &requested, &candidates).await?,
+        None => read_remote(&ledger, &candidates).await?,
     };
     let Some(content) = content else {
         return Err(ServerError::NoSuchDocument(format!("the document {requested} does not exist")));
@@ -70,6 +60,9 @@ fn path_in_ledger(ledger: &Ledger, requested: &str) -> ServerResult<String> {
             "the document {requested} is outside the ledger's directory, so it cannot be downloaded"
         ))
     };
+    if requested.contains(['\n', '\0']) {
+        return Err(ServerError::InvalidInput(format!("{requested:?} is not the path of a document")));
+    }
     let requested_path = std::path::Path::new(requested);
     let relative = match requested_path.is_absolute() {
         true => {
@@ -97,19 +90,39 @@ fn path_in_ledger(ledger: &Ledger, requested: &str) -> ServerResult<String> {
     }
 }
 
-/// the content of the file at the first of `paths`, within the ledger, there is one at; `None` when there is none.
-/// `root` is the ledger's directory on the local disk, if it is there
-async fn read_first(ledger: &Ledger, root: Option<&std::path::Path>, paths: &[String]) -> ServerResult<Option<Vec<u8>>> {
+/// the content of the file at the first of `paths` there is one at, within the ledger's directory `root` on the local
+/// disk, read as it is; `None` when there is none. A path leading outside the directory through a link is refused, as
+/// one written outside it: only what the directory holds is served.
+async fn read_local(root: &std::path::Path, requested: &str, paths: &[String]) -> ServerResult<Option<Vec<u8>>> {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     for path in paths {
-        let content = match root {
-            Some(root) => match root.join(path).is_file() {
-                true => Some(tokio::fs::read(root.join(path)).await?),
-                false => None,
-            },
-            None => ledger.data_source.async_get_existing(path.clone()).await?,
-        };
-        if content.is_some() {
-            return Ok(content);
+        // the file it names, through any link; none when there is nothing there
+        let Ok(file) = root.join(path).canonicalize() else { continue };
+        if !file.starts_with(&root) {
+            return Err(ServerError::OutsideLedger(format!(
+                "the document {requested} is outside the ledger's directory, so it cannot be downloaded"
+            )));
+        }
+        if file.is_file() {
+            return Ok(Some(tokio::fs::read(file).await?));
+        }
+    }
+    Ok(None)
+}
+
+/// the content of the file at the first of `paths` there is one at, within `ledger` on a remote source; `None` when
+/// there is none. A path read once is kept in the cache, by itself: a document read at its alternate is read at its
+/// path again first next time, so a file put there since is served.
+async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<Vec<u8>>> {
+    for path in paths {
+        let key = document_cache_key(&ledger.entry.0, path);
+        if let Some(content) = cached_document(&key).await {
+            return Ok(Some(content));
+        }
+        info!("loading the document {:?} from the source...", path);
+        if let Some(content) = ledger.data_source.async_get_existing(path.clone()).await? {
+            cache_document(&key, &content).await?;
+            return Ok(Some(content));
         }
     }
     Ok(None)
@@ -208,6 +221,8 @@ mod download_test {
             assert_eq!(download(&state, path(missing)).await, (404, format!("the document {missing} does not exist")));
         }
         for (encoded, why) in [
+            (path("a\nb.pdf"), "\"a\\nb.pdf\" is not the path of a document"),
+            (path("a\0b.pdf"), "\"a\\0b.pdf\" is not the path of a document"),
             (path("."), "\".\" is not the path of a document"),
             (path(""), "\"\" is not the path of a document"),
             ("not base64!".to_owned(), "\"not base64!\" is not the base64 of the path of a document"),
@@ -215,5 +230,42 @@ mod download_test {
         ] {
             assert_eq!(download(&state, encoded).await, (400, why.to_owned()));
         }
+    }
+
+    /// A link within the ledger's directory is followed; one leading out of it, to a file or through a directory, is
+    /// refused, as a path written outside it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_link_out_of_the_ledger_is_not_followed() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "outside").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("attachments/u1")).unwrap();
+        std::fs::write(root.join("attachments/a.pdf"), "the statement").unwrap();
+        let link = |target: &std::path::Path, name: &str| std::os::unix::fs::symlink(target, root.join(name)).unwrap();
+        link(&outside.path().join("secret.txt"), "attachments/u1/link.pdf");
+        link(outside.path(), "attachments/u1/rootlink");
+        link(&root.join("attachments/a.pdf"), "attachments/u1/inside.pdf");
+        link(&root.join("attachments"), "attachments/u1/dirlink");
+        link(&root.join("attachments/gone.pdf"), "attachments/u1/dangling.pdf");
+        std::fs::write(root.join("main.zhang"), "1970-01-01 open Assets:Cash\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::async_load(root.clone(), "main.zhang".to_owned(), source).await.unwrap();
+        let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
+        let path = |path: &str| BASE64_STANDARD.encode(path);
+
+        for within in ["attachments/u1/inside.pdf", "attachments/u1/dirlink/a.pdf"] {
+            assert_eq!(download(&state, path(within)).await, (200, "the statement".to_owned()), "{within}");
+        }
+        for out in ["attachments/u1/link.pdf", "attachments/u1/rootlink/secret.txt"] {
+            let (status, message) = download(&state, path(out)).await;
+            assert_eq!(status, 403, "{out}: {message}");
+            assert_eq!(
+                message,
+                format!("the document {out} is outside the ledger's directory, so it cannot be downloaded")
+            );
+        }
+        assert_eq!(download(&state, path("attachments/u1/dangling.pdf")).await.0, 404);
     }
 }
