@@ -1,7 +1,8 @@
 //! The golden comparison of the journal, new-transaction, documents and errors endpoints (#479): the
 //! hand-written handlers (`*_legacy`) against the built-in queries that replace them, on every ledger
-//! of `integration-tests` and `examples`, in each format it has, the fava demo ledger, and the survey
-//! probes in `tests/fixtures/journals`.
+//! of `integration-tests` and `examples`, in each format it has, the fava demo ledger, the survey
+//! probes and review ledgers in `tests/fixtures/journals`, and the beancount ledgers of the balance
+//! assertion oracle in `extensions/beancount/tests/balance_assertions`.
 //!
 //! The JSON of both is compared after normalising map order. Lists are matched item by item by what
 //! identifies an item (a transaction by its id, a balance assertion by its date, account and amount,
@@ -75,6 +76,22 @@ fn fixtures() -> Vec<Fixture> {
                 });
             }
         }
+    }
+    // the beancount ledgers of the balance assertion oracle: pads, balances and document paths as beancount reads them
+    let oracle = workspace().join("extensions/beancount/tests/balance_assertions");
+    let mut ledgers = std::fs::read_dir(&oracle)
+        .unwrap()
+        .map(|it| it.unwrap().path())
+        .filter(|it| it.extension().is_some_and(|extension| extension == "bean"))
+        .collect::<Vec<_>>();
+    ledgers.sort();
+    for ledger in ledgers {
+        let entry = ledger.file_name().unwrap().to_string_lossy().into_owned();
+        fixtures.push(Fixture {
+            name: format!("beancount-oracle/{}", entry),
+            dir: oracle.clone(),
+            entry,
+        });
     }
     if let Ok(extra) = std::env::var("ZHANG_GOLDEN_EXTRA") {
         for item in extra.split(',').filter(|it| !it.is_empty()) {
