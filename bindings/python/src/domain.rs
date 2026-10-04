@@ -139,14 +139,6 @@ impl PostingDomain {
     pub fn inferred_amount(&self) -> Amount {
         Amount(self.0.inferred_amount.clone())
     }
-    #[getter]
-    pub fn previous_amount(&self) -> Amount {
-        Amount(self.0.previous_amount.clone())
-    }
-    #[getter]
-    pub fn after_amount(&self) -> Amount {
-        Amount(self.0.after_amount.clone())
-    }
 }
 
 #[pyclass]

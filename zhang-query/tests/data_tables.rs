@@ -1272,19 +1272,6 @@ fn today_is_the_ledgers_clock_in_its_timezone() {
     );
 }
 
-/// The table reads the directives and the booked postings: it gives the same rows without
-/// the budgets zhang keeps in its store.
-#[test]
-fn budgets_do_not_read_the_store_budgets() {
-    let ledger = common::load_text(BUDGETS);
-    let all = "SELECT name, alias, category, currency, date, year, month, assigned, added, activity, available, accounts, closed FROM #budgets";
-    let before = run(&ledger, all);
-    assert_eq!(before.len(), 9);
-    ledger.store.write().unwrap().budgets.clear();
-    assert_eq!(run(&ledger, all), before);
-    assert_eq!(run(&ledger, BUDGET_FIGURES), budget_figures());
-}
-
 /// The price of USD changes in the middle of March: from 7 CNY (set in February) to 8 CNY on
 /// the 10th.
 const MID_MONTH_PRICE: &str = r#"
@@ -1433,5 +1420,67 @@ fn the_documented_examples_run() {
         .map(|row| row[2].clone())
         .collect::<Vec<_>>(),
         ["receipts/d.pdf", "receipts/abs.pdf", "receipts/a.pdf", "receipts/b.pdf", "receipts/c.pdf"]
+    );
+}
+
+/// #479: activity previously tested through Store.budgets is now checked through the
+/// canonical table. Postings before the definition do not count, but are still booked.
+#[test]
+fn budget_activity_uses_only_postings_after_its_definition() {
+    let ledger = common::load_text(
+        r#"
+1970-01-01 open Assets:Cash
+1970-01-01 open Expenses:Food
+  budget: Food
+2023-02-01 "Shop" "before definition"
+  Assets:Cash -10 CNY
+  Expenses:Food 10 CNY
+2023-03-01 budget Food CNY
+2023-03-02 "Shop" "after definition"
+  Assets:Cash -20 CNY
+  Expenses:Food 20 CNY
+2023-03-03 "Shop" "another posting"
+  Assets:Cash -5 CNY
+  Expenses:Food 5 CNY
+"#,
+    );
+    assert_eq!(run(&ledger, "SELECT date, activity FROM #budgets"), rows(&[&["2023-03-01", "25 CNY"]]));
+    assert_eq!(run(&ledger, "SELECT sum(number) WHERE account = 'Expenses:Food'"), rows(&[&["35"]]));
+}
+
+/// #479: inferred expense units from dated and empty-cost sales remain the budget activity,
+/// including metadata of the expense posting, now that the loader keeps no budget totals.
+#[test]
+fn budget_activity_counts_booked_cost_sales_and_preserves_posting_metadata() {
+    let ledger = common::load_text(
+        r#"
+1970-01-01 commodity USD
+1970-01-01 open Assets:A
+1970-01-01 open Income:I
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Fun
+  budget: fun
+2024-05-01 budget food CNY
+2024-05-01 budget fun CNY
+2024-05-16 * "buy"
+  Assets:A 10 USD {10 CNY}
+  Income:I -100 CNY
+2024-05-17 * "dated cost sale"
+  Assets:A -5 USD {10 CNY, 2024-05-16}
+  Expenses:Food
+    memo: "lunch"
+2024-05-18 * "empty cost sale"
+  Assets:A -5 USD {}
+  Expenses:Fun
+"#,
+    );
+    assert_eq!(
+        run(&ledger, "SELECT name, activity FROM #budgets"),
+        rows(&[&["food", "50 CNY"], &["fun", "50 CNY"]])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT number, meta('memo') WHERE account = 'Expenses:Food'"),
+        rows(&[&["50", "lunch"]])
     );
 }

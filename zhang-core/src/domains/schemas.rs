@@ -41,14 +41,6 @@ pub enum AccountStatus {
     Close,
 }
 
-#[derive(Debug, Clone)]
-pub struct AccountBalanceDomain {
-    pub datetime: NaiveDateTime,
-    pub account: String,
-    pub account_status: AccountStatus,
-    pub balance: Amount,
-}
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PriceDomain {
     pub datetime: NaiveDateTime,

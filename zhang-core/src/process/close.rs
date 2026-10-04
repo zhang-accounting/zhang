@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bigdecimal::Zero;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Close, SpanInfo};
 
@@ -16,9 +15,9 @@ impl DirectiveProcess for Close {
         process::check_account_existed(self.account.name(), ledger, span)?;
         process::check_account_closed(self.account.name(), ledger, span)?;
 
-        let balances = operations.single_account_latest_balances(self.account.name())?;
-        let has_non_zero_balance = balances.into_iter().any(|balance| !balance.balance.number.is_zero());
-        if has_non_zero_balance {
+        // Booking already holds the true units at this point in the stream. A close checks the
+        // account itself, not its subtree; an assertion does not change these units.
+        if ledger.booker_mut().has_non_zero_balance(self.account.name()) {
             operations.new_error(ErrorKind::CloseNonZeroAccount, span, HashMap::default())?;
         }
         Ok(true)

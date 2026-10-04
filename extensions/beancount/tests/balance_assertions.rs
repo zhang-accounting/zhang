@@ -137,7 +137,6 @@ fn oracle(case: &Value) -> Outcome {
 
 fn zhang(case: &str) -> Outcome {
     let ledger = load(case);
-    let operations = ledger.operations();
     let store = ledger.store.read().unwrap();
 
     // the sums of the postings, which is what the balances shown are
@@ -148,11 +147,13 @@ fn zhang(case: &str) -> Outcome {
         *units += &posting.inferred_amount.number;
     }
     for (account, held) in balances.iter_mut() {
-        let shown = operations
-            .single_account_latest_balances(account)
-            .unwrap()
+        let mut booked = BTreeMap::<String, BigDecimal>::new();
+        for lot in store.commodity_lots.get(account).into_iter().flatten() {
+            *booked.entry(lot.commodity.clone()).or_default() += &lot.amount;
+        }
+        let shown = booked
             .into_iter()
-            .map(|it| (it.balance.commodity, it.balance.number.normalized()))
+            .map(|(currency, units)| (currency, units.normalized()))
             .filter(|(_, units)| !units.is_zero())
             .collect::<BTreeMap<_, _>>();
         held.retain(|_, units| !units.is_zero());

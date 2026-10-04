@@ -479,6 +479,16 @@ impl Booker {
         self.lots
     }
 
+    /// Whether the account's own booked units are nonzero in any commodity, where the store
+    /// fold stands. Lots at different costs or with different labels can cancel in units.
+    pub(crate) fn has_non_zero_balance(&self, account: &str) -> bool {
+        let mut units: HashMap<&str, BigDecimal> = HashMap::new();
+        for lot in self.lots.get(account).into_iter().flatten() {
+            *units.entry(&lot.commodity).or_default() += &lot.amount;
+        }
+        units.values().any(|number| !number.is_zero())
+    }
+
     fn booking_method(&self, account_name: &str) -> BookingMethod {
         self.methods.get(account_name).copied().unwrap_or(self.default_method)
     }

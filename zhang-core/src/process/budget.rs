@@ -3,17 +3,14 @@ use std::collections::HashMap;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Budget, BudgetAdd, BudgetClose, BudgetTransfer, SpanInfo};
 
-use crate::domains::Operations;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
-use crate::store::BudgetEventType;
 use crate::ZhangResult;
 
 impl DirectiveProcess for Budget {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        let mut operations = ledger.operations();
-        if operations.contains_budget(&self.name) {
-            operations.new_error(ErrorKind::DefineDuplicatedBudget, span, HashMap::default())?;
+        if is_defined(ledger, &self.name) {
+            ledger.operations().new_error(ErrorKind::DefineDuplicatedBudget, span, HashMap::default())?;
             Ok(false)
         } else {
             Ok(true)
@@ -21,74 +18,60 @@ impl DirectiveProcess for Budget {
     }
 
     fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
-        operations.init_budget(
-            &self.name,
-            &self.commodity,
-            self.date.to_timezone_datetime(&ledger.options.timezone),
-            self.meta.get_one("alias").map(|it| it.as_str().to_owned()),
-            self.meta.get_one("category").map(|it| it.as_str().to_owned()),
-        )?;
+        ledger
+            .defined_budgets
+            .as_mut()
+            .expect("budget state is set during the store fold")
+            .insert(self.name.clone());
         Ok(())
     }
 }
 
 impl DirectiveProcess for BudgetAdd {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        budget_exists(&mut ledger.operations(), &self.name, span)
+        budget_exists(ledger, &self.name, span)
     }
 
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
-        operations.budget_add_assigned_amount(
-            &self.name,
-            self.date.to_timezone_datetime(&ledger.options.timezone),
-            BudgetEventType::AddAssignedAmount,
-            self.amount.clone(),
-        )?;
-
+    fn process(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         Ok(())
     }
 }
 
 impl DirectiveProcess for BudgetTransfer {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        let mut operations = ledger.operations();
-        Ok(budget_exists(&mut operations, &self.from, span)? && budget_exists(&mut operations, &self.to, span)?)
+        Ok(budget_exists(ledger, &self.from, span)? && budget_exists(ledger, &self.to, span)?)
     }
 
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
-        operations.budget_transfer(
-            self.date.to_timezone_datetime(&ledger.options.timezone),
-            &self.from,
-            &self.to,
-            self.amount.clone(),
-        )?;
+    fn process(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         Ok(())
     }
 }
 
 impl DirectiveProcess for BudgetClose {
     fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        budget_exists(&mut ledger.operations(), &self.name, span)
+        budget_exists(ledger, &self.name, span)
     }
 
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
-        // todo: check if budget is empty
-
-        operations.budget_close(&self.name, self.date.clone())?;
+    fn process(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         Ok(())
     }
 }
 
-/// whether the budget `name` exists; a [`ErrorKind::BudgetDoesNotExist`] error is recorded at `span` when it does not
-fn budget_exists(operations: &mut Operations, name: &str, span: &SpanInfo) -> ZhangResult<bool> {
-    if operations.contains_budget(name) {
+/// Only names are needed to validate the stream. Budget calculations belong to the query engine.
+pub(super) fn is_defined(ledger: &Ledger, name: &str) -> bool {
+    ledger
+        .defined_budgets
+        .as_ref()
+        .expect("budget state is set during the store fold")
+        .contains(name)
+}
+
+/// A directive using an undefined budget reports an error at its span.
+fn budget_exists(ledger: &mut Ledger, name: &str, span: &SpanInfo) -> ZhangResult<bool> {
+    if is_defined(ledger, name) {
         Ok(true)
     } else {
-        operations.new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
+        ledger.operations().new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
         Ok(false)
     }
 }

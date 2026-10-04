@@ -3,12 +3,16 @@ title: 内置查询
 description: 张记账所显示的各项数字背后有文档说明的 BQL 查询，如何在查询页面打开并修改它们，以及列出这些查询、填入参数值的 HTTP 接口。
 ---
 
-张记账显示的各项数字正在改为由*内置查询*计算（[#479](https://github.com/zhang-accounting/zhang/issues/479)）。内置查询是用张记账的[查询语言](/zh-cn/reference/query-language/)写成的具名查询，页面带着几个参数（例如报表的日期）在你的账本上执行它。页面只负责排列查询结果，所以每个数字背后的逻辑都是一个可以在本页读到的查询。
+张记账的读取端点通过*内置查询*计算各项数字（[#479](https://github.com/zhang-accounting/zhang/issues/479)）。内置查询是用张记账的[查询语言](/zh-cn/reference/query-language/)写成的具名查询，页面带着几个参数（例如报表的日期）在你的账本上执行它。页面只负责排列查询结果，所以每个数字背后的逻辑都是一个可以在本页读到的查询。
 
 你可以在**查询**页面打开某个数字背后的查询，页面当时使用的参数值已经填好，然后修改它：换一个日期范围、加入更多账户、换一种分组方式、画成图表。应用能显示的任何内容，你都可以自己查询并加以变化，无需等待新版本。
 
-:::note[迁移进行中]
-下面按页面列出内置查询。如果某个页面的小节里还没有查询，说明该页面仍在用代码计算它的数字。
+:::note[库 API 迁移]
+读取端点迁移后，旧的 `Operations` 余额、账户列表、收款方列表和预算计算方法，以及 `AccountBalanceDomain`、`Store.budgets` 和对应聚合类型已删除（WASM playground 返回的序列化 Store 也不再包含这些字段）。请改用下面的查询，以及 `#budget_definitions`、`#budgets` 和 `#budget_events`。
+
+Rust 的 `PostingDomain` 不再存储 `previous_amount` 和 `after_amount`，Python 绑定中的同名 getter 也已删除。请使用查询引擎的 [`account_balance`](/zh-cn/reference/query-language/#账户余额) 列读取一条分录后的真实账户余额。`inferred_amount` 仍表示该分录实际记入的数量。预算 HTTP 响应的事件类型仍为 `AddAssignedAmount` 和 `Transfer`；对应的 Rust 枚举现位于 `zhang_server::response`。
+
+`GET /api/store` 已在 [#606](https://github.com/zhang-accounting/zhang/pull/606) 中单独移除。请通过公开端点或 `POST /api/query` 读取数据。
 :::
 
 ## 打开查询

@@ -1,27 +1,21 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::{Add, Sub};
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveTime};
+use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
-use indexmap::IndexMap;
 use itertools::Itertools;
 use log::debug;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo};
+use zhang_ast::{Account, Currency, Flag, Meta, PostingCost, Rounding, SpanInfo};
 
 use crate::domains::schemas::{
-    AccountBalanceDomain, AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain,
-    TransactionInfoDomain,
+    AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
 };
-use crate::store::{
-    BalanceAssertionDomain, BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain,
-    Store, TransactionDomain,
-};
+use crate::store::{BalanceAssertionDomain, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain, Store, TransactionDomain};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -116,7 +110,7 @@ impl Operations {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
         &mut self, trx_id: &Uuid, posting_idx: usize, flag: Option<Flag>, account_name: &str, unit: Option<Amount>, cost: Option<PostingCost>,
-        inferred_amount: Amount, previous_amount: Amount, after_amount: Amount, meta: Meta,
+        inferred_amount: Amount, meta: Meta,
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
@@ -135,11 +129,9 @@ impl Operations {
             unit,
             cost: cost.and_then(|it| it.base),
             inferred_amount,
-            previous_amount,
-            after_amount,
             metas: PostingMetaDomain::of(meta),
         };
-        store.push_posting(posting.clone());
+        store.postings.push(posting.clone());
         let txn_header = store
             .transactions
             .get_mut(trx_id)
@@ -218,19 +210,6 @@ impl Operations {
         let store = self.read();
         Ok(store.queries.clone())
     }
-
-    pub(crate) fn account_target_day_balance(&mut self, account_name: &str, datetime: DateTime<Tz>, currency: &str) -> ZhangResult<Option<Amount>> {
-        let store = self.read();
-
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-
-        let posting = store.last_posting_at(account.name(), currency, datetime);
-
-        Ok(posting.map(|it| Amount {
-            number: it.after_amount.number.clone(),
-            commodity: currency.to_owned(),
-        }))
-    }
 }
 
 impl Operations {
@@ -295,43 +274,6 @@ impl Operations {
         }))
     }
 
-    /// get target account's latest balance
-    /// because the account can have multiple commodities, so the result is the array.
-    pub fn single_account_latest_balances(&self, account_name: &str) -> ZhangResult<Vec<AccountBalanceDomain>> {
-        let store = self.read();
-
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-
-        let mut ret: IndexMap<Currency, BTreeMap<NaiveDate, Amount>> = IndexMap::new();
-
-        for posting in store
-            .postings
-            .iter()
-            .filter(|posting| posting.account.eq(&account))
-            .cloned()
-            .sorted_by_key(|posting| posting.trx_datetime)
-        {
-            let posting: PostingDomain = posting;
-            let date = posting.trx_datetime.naive_local().date();
-
-            let dated_amount = ret.entry(posting.after_amount.commodity.clone()).or_default();
-            dated_amount.insert(date, posting.after_amount);
-        }
-
-        Ok(ret
-            .into_iter()
-            .map(|(_, mut balance)| {
-                let (date, amount) = balance.pop_last().expect("");
-                AccountBalanceDomain {
-                    datetime: date.and_time(NaiveTime::default()),
-                    account: account.name().to_owned(),
-                    account_status: AccountStatus::Open,
-                    balance: amount,
-                }
-            })
-            .collect_vec())
-    }
-
     pub fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
@@ -341,23 +283,6 @@ impl Operations {
         let store = self.read();
 
         Ok(store.accounts.get(account_name).cloned())
-    }
-    pub fn all_accounts(&mut self) -> ZhangResult<Vec<String>> {
-        let store = self.read();
-        Ok(store.accounts.keys().map(|it| it.to_owned()).collect_vec())
-    }
-
-    pub fn all_payees(&mut self) -> ZhangResult<Vec<String>> {
-        let store = self.read();
-        let payees: HashSet<String> = store
-            .transactions
-            .values()
-            .filter_map(|it| it.payee.as_ref())
-            .filter(|it| !it.is_empty())
-            .map(|it| it.to_owned())
-            .collect();
-
-        Ok(payees.into_iter().collect_vec())
     }
 }
 
@@ -429,127 +354,7 @@ impl Operations {
     }
 }
 
-/// Budget Related Operations
 impl Operations {
-    /// check if budget exists
-    pub fn contains_budget(&self, name: impl AsRef<str>) -> bool {
-        let store = self.read();
-        store.budgets.contains_key(name.as_ref())
-    }
-
-    /// init or create a new budget
-    pub fn init_budget(
-        &mut self, name: impl Into<String>, commodity: impl Into<String>, date: DateTime<Tz>, alias: Option<String>, category: Option<String>,
-    ) -> ZhangResult<()> {
-        let mut store = self.write();
-        let name = name.into();
-        let commodity = commodity.into();
-        let interval = (date.year() as u32) * 100 + date.month();
-
-        let budget_domain = store.budgets.entry(name.clone()).or_insert(BudgetDomain {
-            name,
-            commodity: commodity.clone(),
-            alias,
-            category,
-            closed: false,
-            detail: Default::default(),
-        });
-        budget_domain.detail.entry(interval).or_insert(BudgetIntervalDetail {
-            date: interval,
-            events: vec![],
-            assigned_amount: Amount::zero(&commodity),
-            activity_amount: Amount::zero(&commodity),
-        });
-        Ok(())
-    }
-
-    /// get target month's detail. The budget must exist (check with [Self::contains_budget])
-    pub fn budget_month_detail(&self, name: impl Into<String>, interval: u32) -> ZhangResult<Option<BudgetIntervalDetail>> {
-        let store = self.read();
-        let name = name.into();
-        let target_budget = store.budgets.get(&name).expect("budget does not exist");
-
-        Ok(target_budget
-            .detail
-            .iter()
-            .filter(|item| item.0 <= &interval)
-            .max_by_key(|item| item.0)
-            .map(|item| item.1.clone())
-            .map(|fetched_detail| {
-                if fetched_detail.date == interval {
-                    fetched_detail
-                } else {
-                    BudgetIntervalDetail {
-                        date: interval,
-                        events: vec![],
-                        assigned_amount: fetched_detail.assigned_amount.sub(fetched_detail.activity_amount.number),
-                        activity_amount: Amount::zero(&target_budget.commodity),
-                    }
-                }
-            }))
-    }
-
-    /// add amount to target month's budget. The budget must exist (check with [Self::contains_budget])
-    pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: DateTime<Tz>, event_type: BudgetEventType, amount: Amount) -> ZhangResult<()> {
-        self.update_budget_month(name.into(), date, |detail| {
-            detail.assigned_amount = detail.assigned_amount.add(amount.number.clone());
-            detail.events.push(BudgetEvent {
-                datetime: date,
-                timestamp: date.timestamp(),
-                amount,
-                event_type,
-            });
-        })
-    }
-
-    /// transfer amount between budgets
-    pub fn budget_transfer(&mut self, date: DateTime<Tz>, from: impl Into<String>, to: impl Into<String>, amount: Amount) -> ZhangResult<()> {
-        self.budget_add_assigned_amount(from, date, BudgetEventType::Transfer, amount.neg())?;
-        self.budget_add_assigned_amount(to, date, BudgetEventType::Transfer, amount)?;
-        Ok(())
-    }
-
-    /// close budget
-    pub fn budget_close(&mut self, name: impl AsRef<str>, _date: Date) -> ZhangResult<()> {
-        let mut store = self.write();
-        let name = name.as_ref();
-        if let Some(budget) = store.budgets.get_mut(name) {
-            budget.closed = true;
-        }
-        Ok(())
-    }
-
-    /// add activity to target month's budget. The budget must exist (check with [Self::contains_budget])
-    pub fn budget_add_activity(&mut self, name: impl Into<String>, date: DateTime<Tz>, amount: Amount) -> ZhangResult<()> {
-        self.update_budget_month(name.into(), date, |detail| {
-            detail.activity_amount = detail.activity_amount.add(amount.number);
-        })
-    }
-
-    /// apply `update` to the detail of budget `name` in the month of `date`, which is created on first use from the
-    /// latest earlier month (see [Self::budget_month_detail]), or empty. The budget must exist
-    fn update_budget_month(&mut self, name: String, date: DateTime<Tz>, update: impl FnOnce(&mut BudgetIntervalDetail)) -> ZhangResult<()> {
-        let interval = (date.year() as u32) * 100 + date.month();
-
-        let previous_budget_detail = self.budget_month_detail(&name, interval)?;
-
-        let mut store = self.write();
-        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
-
-        let detail = target_budget
-            .detail
-            .entry(interval)
-            .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
-                date: interval,
-                events: vec![],
-                assigned_amount: Amount::zero(&target_budget.commodity),
-                activity_amount: Amount::zero(&target_budget.commodity),
-            }));
-
-        update(detail);
-        Ok(())
-    }
-
     pub fn get_account_budget(&self, account_name: impl AsRef<str>) -> ZhangResult<Vec<String>> {
         let metas = self.metas(MetaType::AccountMeta, account_name)?;
         Ok(metas.into_iter().filter(|meta| meta.key.eq("budget")).map(|meta| meta.value).collect_vec())

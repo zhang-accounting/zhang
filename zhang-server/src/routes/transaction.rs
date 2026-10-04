@@ -1217,7 +1217,7 @@ mod string_round_trip_test {
             .read()
             .postings
             .iter()
-            .map(|it| (it.flag.clone(), it.after_amount.number.to_string()))
+            .map(|it| (it.flag.clone(), it.inferred_amount.number.to_string()))
             .collect::<Vec<_>>();
         assert_eq!(store, vec![(Some(Flag::Okay), "-6".to_owned()), (None, "6".to_owned())]);
 

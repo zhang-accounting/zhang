@@ -1229,10 +1229,18 @@ fn budget_activity_of_implicit_postings_next_to_cost_postings() {
           Expenses:Fun
     "#});
     let store = ledger.store.read().unwrap();
-    let activity = |budget: &str| store.budgets[budget].detail[&202405].activity_amount.to_string();
-    assert_eq!(activity("food"), "50 CNY");
+    let expense = |account: &str| {
+        store
+            .postings
+            .iter()
+            .find(|posting| posting.account.name() == account)
+            .unwrap()
+            .inferred_amount
+            .to_string()
+    };
+    assert_eq!(expense("Expenses:Food"), "50 CNY");
     // booking-split design E4, #423: the implicit posting gets the booked cost, 5 × 10 CNY
-    assert_eq!(activity("fun"), "50 CNY");
+    assert_eq!(expense("Expenses:Fun"), "50 CNY");
 }
 
 /// A split a stage broke apart: the legs of one written posting are no longer adjacent (a

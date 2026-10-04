@@ -55,6 +55,10 @@ pub struct Ledger {
     /// booking state of the store fold; only present while the fold runs
     pub(crate) booker: Option<Booker>,
 
+    /// Names defined so far, solely for budget validation during the store fold. The query engine
+    /// computes budget figures from directives and booked postings; no budget totals are stored.
+    pub(crate) defined_budgets: Option<HashSet<String>>,
+
     /// the (account, budget) pairs whose undefined budget the store fold already reported
     pub(crate) reported_undefined_budgets: HashSet<(String, String)>,
 
@@ -194,6 +198,7 @@ impl Ledger {
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
             booker: None,
+            defined_budgets: None,
             reported_undefined_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
             derived: Derived::default(),
@@ -437,6 +442,7 @@ impl Ledger {
             booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
         }
         self.booker = Some(booker);
+        self.defined_budgets = Some(HashSet::new());
         // the `balance ... with pad` directives of the balance entries being folded: their checks are kept after
         // the last one, where the balance-check stage checked them, so they follow their padding in the journal
         let mut pads: Vec<(BalancePad, SpanInfo)> = vec![];
@@ -484,6 +490,7 @@ impl Ledger {
         self.insert_pad_assertions(&mut pads, &mut assertions)?;
         let booker = self.booker.take().expect("the booker is set at the start of the fold");
         self.operations().write().commodity_lots = booker.into_lots();
+        self.defined_budgets = None;
         Ok(())
     }
 
@@ -1534,6 +1541,7 @@ mod test {
 
         fn journal(ledger: &Ledger) -> Vec<(Flag, Vec<BookedPosting>)> {
             let store = ledger.store.read().unwrap();
+            let mut balances: std::collections::HashMap<(String, String), BigDecimal> = std::collections::HashMap::new();
             store
                 .transactions
                 .values()
@@ -1542,7 +1550,11 @@ mod test {
                     let postings = it
                         .postings
                         .iter()
-                        .map(|p| (p.account.name().to_owned(), p.inferred_amount.number.clone(), p.after_amount.number.clone()))
+                        .map(|p| {
+                            let amount = balances.entry((p.account.name().to_owned(), p.inferred_amount.commodity.clone())).or_default();
+                            *amount += &p.inferred_amount.number;
+                            (p.account.name().to_owned(), p.inferred_amount.number.clone(), amount.clone())
+                        })
                         .collect_vec();
                     (it.flag.clone(), postings)
                 })
@@ -2409,12 +2421,6 @@ mod test {
                 .sum()
         }
 
-        /// activity of budget `name` in `interval`, if the budget has a detail for it
-        fn activity(ledger: &Ledger, name: &str, interval: u32) -> Option<BigDecimal> {
-            let detail = ledger.operations().budget_month_detail(name, interval).unwrap();
-            detail.map(|detail| detail.activity_amount.number)
-        }
-
         #[test]
         fn should_report_an_undefined_budget_and_book_the_transaction() {
             // this used to panic with `budget does not exist` (#446)
@@ -2428,7 +2434,7 @@ mod test {
             assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
             assert_eq!(balance(&ledger, "Assets:Cash"), BigDecimal::from(-10));
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(10));
-            assert!(!ledger.operations().contains_budget("Food"));
+            assert!(ledger.defined_budgets.is_none(), "validation state is dropped after loading");
         }
 
         #[test]
@@ -2460,7 +2466,7 @@ mod test {
         }
 
         #[test]
-        fn should_add_activity_to_a_defined_budget() {
+        fn should_book_postings_to_a_defined_budget() {
             let ledger = load(indoc! {r#"
                 2023-01-01 budget Food CNY
                 2023-02-01 "Shop" "lunch"
@@ -2472,11 +2478,11 @@ mod test {
             "#});
 
             assert_eq!(errors(&ledger), vec![]);
-            assert_eq!(activity(&ledger, "Food", 202302), Some(BigDecimal::from(30)));
+            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
         }
 
         #[test]
-        fn should_skip_activity_before_the_budget_is_defined() {
+        fn should_report_postings_before_the_budget_is_defined() {
             // like `budget-add`, a budget only exists from its definition on in the stream
             let ledger = load(indoc! {r#"
                 2023-02-01 "Shop" "lunch"
@@ -2489,8 +2495,7 @@ mod test {
             "#});
 
             assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
-            assert_eq!(activity(&ledger, "Food", 202302), None);
-            assert_eq!(activity(&ledger, "Food", 202303), Some(BigDecimal::from(20)));
+            assert_eq!(ledger.store.read().unwrap().transactions.len(), 2);
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
         }
     }
