@@ -7,21 +7,27 @@
 //! store fold will book, in stream order — the stream is sorted, so "every
 //! transaction before this directive" is "every transaction up to its datetime".
 //! Only transactions move a balance: a balance assertion never does.
+//!
+//! The stream reaches these stages booked ([`BookingStage`](crate::pipeline::BookingStage)
+//! ran before the plugins), so [`UnitBalances`] sums the units of the booked postings and
+//! reads the lots an account holds at cost off the legs that carry a cost. It books nothing
+//! itself, except a transaction a stage left unbooked (the padding transactions it makes, a
+//! plugin's posting without units), which it completes the way the store fold will.
 //! [`ActiveAccountsStage`](crate::pipeline::ActiveAccountsStage) folds the account
 //! lifecycle ([`AccountStates`]) the same way.
 
 use std::collections::{BTreeMap, HashMap};
-use std::ops::{Add, Sub};
+use std::ops::{Add, AddAssign, Sub};
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Commodity, Directive, Open, Rounding, Transaction};
+use zhang_ast::{Account, Commodity, Directive, Open, Posting, Rounding, Transaction};
 
 use super::StageContext;
-use crate::booking::{group_units, written_groups, BookOutcome, Booker};
+use crate::booking::{group_units, weighs_by_lots, written_groups, BookOutcome, Booker};
 use crate::constants::{DEFAULT_BOOKING_METHOD, KEY_DEFAULT_BOOKING_METHOD, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
 use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::inventory::BookingMethod;
@@ -50,11 +56,22 @@ pub struct UnitBalances {
     /// account name -> commodity -> units of the postings of that account alone, sorted by
     /// name so that an account's sub-accounts are a range
     balances: BTreeMap<String, HashMap<String, BigDecimal>>,
-    /// books every transaction like the store fold, so an implicit posting gets the amount the
-    /// fold gives it, interpolated from the lots its transaction books against. Its errors are
-    /// the fold's to report
+    /// account name -> lot (commodity, cost, acquisition date, label) -> units held in it, from the
+    /// booked legs that carry a cost: the lots the store fold ends with, sorted by name like
+    /// `balances`
+    at_cost: BTreeMap<String, HashMap<LotKey, BigDecimal>>,
+    /// completes the one kind of transaction the stages leave unbooked and the store fold accepts:
+    /// a posting without units next to postings that weigh as written, which is what the pad
+    /// stage's own padding transactions are (the stream is booked again after the plugins, so a
+    /// plugin's output never gets here unbooked). It interpolates as the fold will; it holds no
+    /// lots, and never needs them. Its errors are the fold's to report
     booker: Booker,
 }
+
+/// a lot a booked leg names: its commodity, and its per-unit cost (the number normalized, so
+/// `10` and `10.0` are one lot, as they are one lot to the booker), acquisition date and label
+/// as text
+type LotKey = (String, String);
 
 /// a booker set up like the store fold's: the ledger's default booking method and `commodities`,
 /// those defined before the stream starts (by the options)
@@ -87,6 +104,7 @@ impl UnitBalances {
     pub fn new(default_booking_method: BookingMethod, commodities: &[CommodityDomain]) -> Self {
         Self {
             balances: BTreeMap::new(),
+            at_cost: BTreeMap::new(),
             booker: booker(default_booking_method, commodities),
         }
     }
@@ -107,24 +125,40 @@ impl UnitBalances {
         define_commodity(&mut self.booker, commodity, options);
     }
 
-    /// book a transaction the way the store fold does: transactions the fold
-    /// rejects (their implicit posting cannot be interpolated) are skipped,
-    /// every other posting adds its units, or for an implicit posting the amount
-    /// interpolated from the other postings. Returns the units of each posting, none
-    /// for a transaction skipped
+    /// fold a transaction: every posting adds its units. A transaction the booking stage
+    /// booked is summed as it is. One left with a posting without units is completed first,
+    /// as the store fold will complete it, when nothing in it weighs by lots (the padding
+    /// transactions); otherwise, and when its implicit posting cannot be interpolated, the fold
+    /// rejects it, and it is skipped here too. Returns the units of each posting as written
+    /// (the legs booking split from it summed), none for a transaction skipped
     pub fn apply_transaction(&mut self, txn: &Transaction) -> Vec<Amount> {
-        // a rejected transaction does not reach the store; nothing to book here. A copy is
-        // booked: the stream keeps the postings as written
-        let mut booked = txn.clone();
-        let BookOutcome::Booked(_) = self.booker.book(&mut booked) else {
-            return vec![];
+        let completed;
+        let txn = if txn.postings.iter().all(|posting| posting.units.is_some()) {
+            txn
+        } else {
+            // the booking stage left it unbooked. Its weights decide: with a `{}` posting among
+            // them the stage could not book it, so the fold cannot either (an unbooked `{}`
+            // posting after the stage means the transaction is unbookable)
+            if txn.postings.iter().any(weighs_by_lots) {
+                return vec![];
+            }
+            // a copy is completed: the stream keeps the postings a stage left
+            let mut copy = txn.clone();
+            let BookOutcome::Booked(_) = self.booker.book(&mut copy) else {
+                return vec![];
+            };
+            completed = copy;
+            &completed
         };
-        // the units of every posting as written: the legs booking split from it summed
-        written_groups(&booked.postings)
+        written_groups(&txn.postings)
             .into_iter()
             .map(|group| {
-                let units = group_units(group.legs);
-                self.add(&group.legs[0].account, &units);
+                let legs = group.legs;
+                let units = group_units(legs);
+                self.add(&legs[0].account, &units);
+                for leg in legs {
+                    self.add_at_cost(leg);
+                }
                 units
             })
             .collect()
@@ -134,6 +168,25 @@ impl UnitBalances {
         let commodities = self.balances.entry(account.name().to_owned()).or_default();
         let balance = commodities.entry(amount.commodity.clone()).or_insert_with(BigDecimal::zero);
         *balance = (&*balance).add(&amount.number);
+    }
+
+    /// a booked leg carrying a cost adds its units to the lot it names; a leg without a cost
+    /// number (`{}` no lot covered) is held without cost, like the store fold's default lot
+    fn add_at_cost(&mut self, leg: &Posting) {
+        let (Some(units), Some(cost)) = (&leg.units, leg.cost.as_ref().and_then(|cost| cost.base.as_ref())) else {
+            return;
+        };
+        let spec = leg.cost.as_ref().expect("a cost number comes with a cost spec");
+        let lot = format!(
+            "{} {} {:?} {:?}",
+            cost.number.normalized(),
+            cost.commodity,
+            spec.date.as_ref().map(|it| it.naive_date()),
+            spec.label
+        );
+        let key = (units.commodity.clone(), lot);
+        let lots = self.at_cost.entry(leg.account.name().to_owned()).or_default();
+        lots.entry(key).or_insert_with(BigDecimal::zero).add_assign(&units.number);
     }
 
     /// the current units of `commodity` of the account and all its sub-accounts; zero if they hold none
@@ -149,9 +202,17 @@ impl UnitBalances {
             .fold(BigDecimal::zero(), |sum, units| sum + units)
     }
 
-    /// whether the account or one of its sub-accounts holds `commodity` at cost, in a lot with a cost
+    /// whether the account or one of its sub-accounts holds `commodity` at cost: a lot of it with
+    /// a cost, which some booked legs filled and later ones did not empty
     pub fn holds_at_cost(&self, account: &Account, commodity: &str) -> bool {
-        self.booker.holds_at_cost(account.name(), commodity)
+        let name = account.name();
+        let sub_accounts = self.at_cost.range(format!("{name}:")..format!("{name};"));
+        self.at_cost
+            .get_key_value(name)
+            .into_iter()
+            .chain(sub_accounts)
+            .flat_map(|(_, lots)| lots)
+            .any(|((lot_commodity, _), units)| lot_commodity == commodity && !units.is_zero())
     }
 
     /// [`UnitBalances::balance`] as an amount
@@ -292,6 +353,73 @@ mod test {
         assert_eq!(balances.balance(&account("Assets:Cash"), "USD"), BigDecimal::from(-230));
         assert_eq!(balances.balance(&account("Assets:Cash"), "CNY"), BigDecimal::from(10));
         assert_eq!(balances.balance(&account("Assets:Broker"), "AAPL"), BigDecimal::from(5));
+    }
+
+    /// `content` booked as the booking stage books it, then folded
+    fn fold_booked(content: &str) -> UnitBalances {
+        let mut booker = crate::booking::Booker::new(BookingMethod::Fifo);
+        let mut balances = UnitBalances::new(BookingMethod::Fifo, &[]);
+        for mut directive in parse(content) {
+            match &mut directive {
+                Directive::Open(open) => {
+                    booker.apply_open(open);
+                    balances.apply_open(open);
+                }
+                Directive::Transaction(txn) => {
+                    let _ = booker.book(txn);
+                    assert!(txn.postings.iter().all(|it| it.units.is_some()), "the stage booked it");
+                    balances.apply_transaction(txn);
+                }
+                _ => {}
+            }
+        }
+        balances
+    }
+
+    #[test]
+    fn should_sum_booked_legs_and_read_the_lots_off_them() {
+        let balances = fold_booked(indoc! {r#"
+            2023-01-01 * "buy two lots"
+              Assets:Broker 3 AAPL {10 USD}
+              Assets:Broker:Sub 2 AAPL {11 USD}
+              Assets:Cash
+            2023-01-02 * "sell across both, the legs split"
+              Assets:Broker -3 AAPL {}
+              Assets:Broker:Sub -1 AAPL {}
+              Assets:Cash 45 USD
+              Income:Gains
+            2023-01-03 * "a short lot at another cost"
+              Assets:Short -1 AAPL {12 USD}
+              Assets:Cash 12 USD
+            2023-01-04 * "nothing at cost"
+              Assets:Plain 1 AAPL
+              Assets:Cash -10 USD
+        "#});
+
+        assert_eq!(balances.balance(&account("Assets:Broker"), "AAPL"), BigDecimal::from(1));
+        assert_eq!(balances.balance(&account("Assets:Cash"), "USD"), BigDecimal::from(-52 + 45 + 12 - 10));
+        assert_eq!(balances.balance(&account("Income:Gains"), "USD"), BigDecimal::from(-4));
+        // the first lot is sold out, the second (a sub-account's) still holds one share
+        assert!(balances.holds_at_cost(&account("Assets:Broker"), "AAPL"));
+        assert!(balances.holds_at_cost(&account("Assets:Broker:Sub"), "AAPL"));
+        assert!(!balances.holds_at_cost(&account("Assets:Broker"), "USD"));
+        // a lot sold short is held at cost too; units without a cost are not
+        assert!(balances.holds_at_cost(&account("Assets:Short"), "AAPL"));
+        assert!(!balances.holds_at_cost(&account("Assets:Plain"), "AAPL"));
+        assert!(!balances.holds_at_cost(&account("Assets:Brokerage"), "AAPL"));
+    }
+
+    #[test]
+    fn should_complete_a_transaction_a_stage_left_unbooked() {
+        // the padding transaction the pad stage makes: an implicit leg, which the store fold
+        // interpolates; completed here the same way
+        let balances = fold(indoc! {r#"
+            2023-01-01 P "pad"
+              Assets:A 7 USD
+              Equity:Open
+        "#});
+        assert_eq!(balances.balance(&account("Assets:A"), "USD"), BigDecimal::from(7));
+        assert_eq!(balances.balance(&account("Equity:Open"), "USD"), BigDecimal::from(-7));
     }
 
     #[test]

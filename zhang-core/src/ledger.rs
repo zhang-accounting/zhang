@@ -276,7 +276,10 @@ impl Ledger {
     }
 
     /// the lots every account holds at the end of `day`: those of the transactions dated on it or before, booked as
-    /// the load books them. A transaction dated after it, such as a sale planned ahead, is left out
+    /// the load books them. A transaction dated after it, such as a sale planned ahead, is left out.
+    ///
+    /// The directives hold the booked postings, and booking a booked transaction again changes nothing, so this
+    /// replay gives exactly the lots the store fold (pass 2) built from the same transactions
     pub fn lots_at_end_of(&self, day: NaiveDate) -> HashMap<String, Vec<CommodityLotRecord>> {
         let mut booker = Booker::new(self.options.default_booking_method);
         for commodity in self.operations().read().commodities.values() {
@@ -531,8 +534,11 @@ impl Ledger {
 
     /// the stages to run: the user's WASM plugins declared `stage: "raw"`, then [`BookingStage`],
     /// then the other plugins, each in declaration order (only with the plugin runtime and
-    /// `features.plugins` on) and on the stream as plugins of ABI v1 see it ([`AbiV1View`]), then
-    /// the built-in stages
+    /// `features.plugins` on) and on the stream as plugins of ABI v1 see it ([`AbiV1View`]), then,
+    /// when a plugin ran after booking, [`BookingStage`] once more, so that the pad and
+    /// balance-check stages see what the plugins added or changed booked against the real lots,
+    /// exactly as the store fold will (booking a booked transaction again changes nothing), then
+    /// the built-in stages. A load without such plugins books exactly twice: the stage and the fold
     fn build_stages(&self) -> Vec<Box<dyn ProcessStage>> {
         #[cfg(feature = "plugin_runtime")]
         let plugin_stages = |stage: PluginStage| -> Vec<Box<dyn ProcessStage>> {
@@ -553,12 +559,17 @@ impl Ledger {
         let (test_raw, test_booked): (SlottedStages, SlottedStages) = test::TEST_STAGES.take().into_iter().partition(|(slot, _)| *slot == PluginStage::Raw);
         #[cfg(not(test))]
         let (test_raw, test_booked): (SlottedStages, SlottedStages) = (vec![], vec![]);
+        let booked_slot: Vec<Box<dyn ProcessStage>> = plugin_stages(PluginStage::Booked)
+            .into_iter()
+            .chain(test_booked.into_iter().map(|(_, stage)| stage))
+            .collect();
+        let rebook: Option<Box<dyn ProcessStage>> = (!booked_slot.is_empty()).then(|| Box::new(BookingStage) as Box<dyn ProcessStage>);
         plugin_stages(PluginStage::Raw)
             .into_iter()
             .chain(test_raw.into_iter().map(|(_, stage)| stage))
             .chain(std::iter::once(Box::new(BookingStage) as Box<dyn ProcessStage>))
-            .chain(plugin_stages(PluginStage::Booked))
-            .chain(test_booked.into_iter().map(|(_, stage)| stage))
+            .chain(booked_slot)
+            .chain(rebook)
             .chain(builtin_stages())
             .collect()
     }
@@ -833,6 +844,133 @@ mod test {
             ]
         );
         assert_eq!(error_kinds(&ledger), vec![ErrorKind::NoEnoughCommodityLot]);
+    }
+
+    /// the names of the stages the next load runs, with `stages` in a plugin's place
+    fn stage_names(stages: Vec<(PluginStage, Box<dyn ProcessStage>)>) -> Vec<String> {
+        TEST_STAGES.replace(stages);
+        let ledger = load_from_temp_str(LOTS);
+        TEST_STAGES.replace(TEST_STAGES.take());
+        // the load took the queued stages; queue them again for this call, which takes them too
+        let names = ledger.build_stages().iter().map(|it| it.name().to_owned()).collect();
+        assert!(TEST_STAGES.take().is_empty());
+        names
+    }
+
+    #[test]
+    fn booking_runs_once_without_plugins_and_again_after_the_plugins_that_run_booked() {
+        assert_eq!(stage_names(vec![]), ["booking", "active-accounts", "balance-pad", "balance-check"]);
+
+        let log = Rc::new(RefCell::new(vec![]));
+        TEST_STAGES.replace(vec![(PluginStage::Raw, stage("raw", &log, |it| it))]);
+        let ledger = load_from_temp_str(LOTS);
+        TEST_STAGES.replace(vec![(PluginStage::Raw, stage("raw", &log, |it| it))]);
+        let names: Vec<String> = ledger.build_stages().iter().map(|it| it.name().to_owned()).collect();
+        assert_eq!(
+            names,
+            ["raw", "booking", "active-accounts", "balance-pad", "balance-check"],
+            "a raw plugin needs no second pass"
+        );
+
+        TEST_STAGES.replace(vec![(PluginStage::Booked, stage("booked", &log, |it| it))]);
+        let names: Vec<String> = ledger.build_stages().iter().map(|it| it.name().to_owned()).collect();
+        assert_eq!(names, ["booking", "booked", "booking", "active-accounts", "balance-pad", "balance-check"]);
+    }
+
+    /// what the pad and balance-check stages see is what the store holds: a plugin's `{}` sale with
+    /// an implicit posting is booked against the real lots before they run
+    #[test]
+    fn a_plugins_sale_with_an_implicit_posting_is_booked_before_the_balance_check() {
+        let log = Rc::new(RefCell::new(vec![]));
+        let ledger = load_with_stages(
+            &format!(
+                "{LOTS}{}",
+                indoc! {r#"
+                    2024-05-20 balance Assets:S 2 USD
+                    2024-05-20 balance Income:I -22 CNY
+                "#}
+            ),
+            vec![(
+                PluginStage::Booked,
+                stage("insert a sale", &log, |mut directives| {
+                    directives.extend(
+                        ZhangDataType {}
+                            .transform(
+                                indoc! {r#"
+                                    2024-05-19 * "plugin sale"
+                                      Assets:S -3 USD {}
+                                      Income:I
+                                "#}
+                                .to_owned(),
+                                None,
+                            )
+                            .unwrap(),
+                    );
+                    directives
+                }),
+            )],
+        );
+        // 20 bought, 15 sold by hand, 3 by the plugin: 2 left; the plugin's income is 3 × 11 CNY
+        assert_eq!(error_kinds(&ledger), vec![]);
+        assert_eq!(rows(&ledger, "plugin sale"), vec!["Assets:S -3 USD = -3 USD", "Income:I ? = 33 CNY"]);
+        let store = ledger.store.read().unwrap();
+        assert!(
+            store.balance_assertions.iter().all(|it| it.passed),
+            "{:?}",
+            store.balance_assertions.iter().map(|it| (&it.account, &it.balance)).collect::<Vec<_>>()
+        );
+    }
+
+    /// a lot a plugin adds before a hand-written `{}` sale: the sale books against it (its `{}`
+    /// leg is not booked until then), and the pad stage sees the account hold nothing at cost
+    /// afterwards, like the store
+    #[test]
+    fn a_plugins_purchase_before_a_written_sale_is_booked_before_the_pad_stage() {
+        let log = Rc::new(RefCell::new(vec![]));
+        let ledger = load_with_stages(
+            indoc! {r#"
+                1970-01-01 commodity USD
+                1970-01-01 commodity CNY
+                1970-01-01 open Assets:S
+                1970-01-01 open Assets:Cash
+                1970-01-01 open Equity:Open
+                2024-05-18 * "sell"
+                  Assets:S -2 USD { }
+                  Assets:Cash 14 CNY
+                2024-05-20 pad Assets:S Equity:Open
+                2024-05-21 balance Assets:S 5 USD
+            "#},
+            vec![(
+                PluginStage::Booked,
+                stage("insert a purchase", &log, |mut directives| {
+                    directives.extend(
+                        ZhangDataType {}
+                            .transform(
+                                indoc! {r#"
+                                    2024-05-16 * "plugin buy"
+                                      Assets:S 2 USD { 7 CNY }
+                                      Assets:Cash -14 CNY
+                                "#}
+                                .to_owned(),
+                                None,
+                            )
+                            .unwrap(),
+                    );
+                    directives
+                }),
+            )],
+        );
+        // the sale reduces the plugin's lot in full: nothing is held at cost, so the pad is not an
+        // error, and it pads the 5 USD the assertion needs
+        assert_eq!(error_kinds(&ledger), vec![]);
+        assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD None None"]);
+        let store = ledger.store.read().unwrap();
+        assert!(store.balance_assertions.iter().all(|it| it.passed));
+        let sale = transaction(&ledger.directives, "sell");
+        assert_eq!(
+            sale.postings[0].cost.as_ref().and_then(|it| it.base.as_ref()).map(ToString::to_string),
+            Some("7 CNY".to_owned())
+        );
     }
 
     #[test]

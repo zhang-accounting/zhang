@@ -94,9 +94,10 @@ While Zhang loads a ledger, the directive stream runs through these stages, in t
 1. **your plugins declared `stage: "raw"`**, in the order their `plugin` directives are declared;
 2. **booking**: every transaction is booked, as Beancount books before its plugins run. A posting written without an amount gets the amount interpolated from the others; a cost becomes the per-unit cost and acquisition date of the lot it books against; a sale across several lots becomes one posting per lot. A transaction Zhang cannot book (two postings without an amount, say) is left as written;
 3. **your other plugins**, in the order their `plugin` directives are declared;
-4. **active accounts**: postings to accounts that are not open are reported;
-5. **pad**: each `pad` and `balance … with pad` adds the padding transaction (flag `P`) its assertion needs;
-6. **balance check**: each balance assertion is checked. It books nothing: a failing one is an error.
+4. **booking again**, only when a plugin ran in step 3: what the plugins added or changed is booked against the real lots, so the next steps see the stream exactly as Zhang will build the ledger from it. Booking a booked transaction again changes nothing, so a plugin that changed nothing costs nothing here;
+5. **active accounts**: postings to accounts that are not open are reported;
+6. **pad**: each `pad` and `balance … with pad` adds the padding transaction (flag `P`) its assertion needs;
+7. **balance check**: each balance assertion is checked. It books nothing: a failing one is an error.
 
 Then the ledger is built from the final stream: it books again what the stages left unbooked (a transaction a plugin added with a posting without an amount, the padding transactions), reports booking errors and checks that every transaction balances.
 
