@@ -187,7 +187,7 @@ fn materialize(dir: &FsPath) -> PathBuf {
             }
         }
     }
-    let target = tempfile::tempdir().unwrap().into_path();
+    let target = tempfile::tempdir().unwrap().keep();
     let mut files = vec![];
     copy(dir, &target, &mut files);
     for file in files.into_iter().filter(|it| it.extension().is_some_and(|ext| ext == "zhang" || ext == "bean")) {
@@ -486,7 +486,7 @@ mod worked_examples {
 
     /// The ledger of `text` with its clock pinned at `instant` (RFC 3339).
     pub(super) async fn ledger_at(text: &str, instant: &str) -> SharedLedger {
-        let dir = tempfile::tempdir().unwrap().into_path();
+        let dir = tempfile::tempdir().unwrap().keep();
         std::fs::write(dir.join("main.zhang"), text).unwrap();
         let instant = chrono::DateTime::parse_from_rfc3339(instant).unwrap().to_utc();
         Fixture {

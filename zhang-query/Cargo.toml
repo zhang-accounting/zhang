@@ -17,4 +17,4 @@ uuid = { version = "1", default-features = false }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-tempfile = "3.3.0"
+tempfile = "3.20"
