@@ -54,7 +54,7 @@ YYYY-MM-DD * "<Payee>" "<Narration>"
 
 ### 在网页界面中
 
-- 文档页面按从新到旧的顺序列出所有文档：`document` 指令，以及交易的 `document` 元数据，同一笔交易的按书写顺序。写在记账行上的文档在交易旁边同时显示这条记账行的账户。账户页面列出该账户的文档，交易的详情显示它的文档。
+- 文档页面按从新到旧的顺序列出所有文档：`document` 指令，以及交易的 `document` 元数据，同一笔交易的按书写顺序。写在记账行上的文档既有这条记账行的账户，也有它的交易：网格显示账户，列表两者都显示。账户页面列出该账户的文档，交易的详情显示它的文档。
 - 在账户页面上传的文件，保存为账本根目录下的 `attachments/<random id>/<file name>`，并添加一条日期为当前时间的 `document` 指令，写到 [`directive_output_path`](/zh-cn/reference/directives/options/#directive_output_path) 选项所选的文件中。
 - 在交易上上传的文件以同样的方式保存，并在包含该交易的文件中，紧接交易首行之下添加一行 `document` 元数据。
 
