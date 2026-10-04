@@ -402,8 +402,8 @@ A metadata value or option that Zhang reads has a value it does not understand:
 
 - the `booking_method` metadata of an `open`, or the `default_booking_method` option, is not a booking method. The
   account books with the ledger's default booking method, and an invalid option leaves the default at `FIFO`;
-- the `timeout` or `allowed_paths` metadata of a [`plugin`](/reference/directives/plugin/#capabilities) directive is
-  invalid. The plugin runs with the default for that capability.
+- the `timeout`, `allowed_paths` or `stage` metadata of a [`plugin`](/reference/directives/plugin/#capabilities)
+  directive is invalid. The plugin runs with the default for that capability.
 
 ```zhang
 2024-01-01 open Assets:Cash

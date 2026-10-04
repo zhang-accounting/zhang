@@ -89,7 +89,7 @@ fn report(outcome: &BookOutcome) -> Vec<String> {
 }
 
 /// the postings of every transaction of the stream, as [`show`]s them
-fn postings(directives: &[Spanned<Directive>]) -> Vec<Vec<String>> {
+pub(crate) fn postings(directives: &[Spanned<Directive>]) -> Vec<Vec<String>> {
     directives
         .iter()
         .filter_map(|it| match &it.data {
@@ -101,7 +101,7 @@ fn postings(directives: &[Spanned<Directive>]) -> Vec<Vec<String>> {
 
 /// `account units {cost}`, then ` <- #index units {cost}` as written when booking changed the
 /// posting; `?` for no units
-fn show(posting: &Posting) -> String {
+pub(crate) fn show(posting: &Posting) -> String {
     let units = |units: &Option<zhang_ast::amount::Amount>| units.as_ref().map_or("?".to_owned(), ToString::to_string);
     let cost = |cost: &Option<PostingCost>| cost.as_ref().map(|it| format!(" {}", show_cost(it))).unwrap_or_default();
     let mut out = format!("{} {}{}", posting.account.name(), units(&posting.units), cost(&posting.cost));

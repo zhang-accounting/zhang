@@ -10,6 +10,7 @@ use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned, Transac
 
 use super::balance::{exceeds_tolerance, AccountStates, UnitBalances};
 use super::{AssertionOutcome, ProcessStage, StageContext};
+use crate::booking::written_groups;
 use crate::data_type::is_beancount_endpoint;
 use crate::ledger::Ledger;
 use crate::ZhangResult;
@@ -156,7 +157,8 @@ impl<'a> IgnoredTimes<'a> {
         Self { timed, pads }
     }
 
-    /// a transaction of the stream, with the units it booked to each of its postings
+    /// a transaction of the stream, with the units it booked to each of its postings as written
+    /// (one amount per group of booked legs, [`written_groups`])
     fn transaction(&mut self, directive: &Spanned<Directive>, txn: &Transaction, units: &[Amount]) {
         let Some(at) = directive.datetime() else { return };
         let Some(balances) = self.timed.get_mut(&at.date()) else { return };
@@ -167,8 +169,8 @@ impl<'a> IgnoredTimes<'a> {
             if at.time() >= *time {
                 continue;
             }
-            for (posting, units) in txn.postings.iter().zip(units) {
-                let name = posting.account.name();
+            for (group, units) in written_groups(&txn.postings).into_iter().zip(units) {
+                let name = group.legs[0].account.name();
                 let under = name == account.name() || name.strip_prefix(account.name()).is_some_and(|rest| rest.starts_with(':'));
                 if under && units.commodity == *commodity {
                     *changed += &units.number;

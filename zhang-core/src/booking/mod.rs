@@ -2,8 +2,12 @@
 //!
 //! [`Booker`] is a pure fold over the directive stream. It sees the `open`s (for the per-account
 //! booking methods) and every transaction, in stream order, and keeps the lots of every account
-//! itself. It never reads or writes the [`Store`](crate::store::Store) and needs no timezone: the
-//! store fold publishes [`Booker::into_lots`] as `Store.commodity_lots` at its end.
+//! itself. It never reads or writes the [`Store`](crate::store::Store) and needs no timezone. It
+//! runs twice per load (design §2): pass 1 is the [`BookingStage`](crate::pipeline::BookingStage),
+//! before the plugins, whose errors and lots are dropped; pass 2 is the store fold over the final
+//! stream, which leaves booked postings as they are ([`is_booked`]), completes the ones a stage left
+//! unbooked, reports every booking error once and publishes [`Booker::into_lots`] as
+//! `Store.commodity_lots` at its end.
 //!
 //! [`Booker::book`] books a whole transaction (E2-E4):
 //! 1. the explicit postings whose weight their lots decide, a cost without a number (`{}`), are
@@ -750,6 +754,16 @@ fn fresh_indexes(postings: &[Posting]) -> Vec<usize> {
         .collect()
 }
 
+/// whether every posting of the transaction is booked, structurally (design §5.2): it has units,
+/// and its cost, if any, has a number and a date. The written form plays no part, so a plugin that
+/// drops it changes nothing here. A `{}` leg no lot covered (E9) is not booked by this definition,
+/// and books to itself again
+pub(crate) fn is_booked(txn: &Transaction) -> bool {
+    txn.postings
+        .iter()
+        .all(|posting| posting.units.is_some() && posting.cost.as_ref().is_none_or(|cost| cost.base.is_some() && cost.date.is_some()))
+}
+
 /// the most decimals written in the transaction per commodity: of the units, and of the cost and
 /// price numbers, per-unit or total, of every posting. `@ 7.12345 CNY` counts 5 for CNY and
 /// `{{1000 USD}}` 0 for USD. A booked leg counts what its posting was written as: the lot cost it
@@ -854,4 +868,4 @@ mod test {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -34,6 +34,7 @@ const WASM_TARGET: &str = "wasm32-unknown-unknown";
 struct Examples {
     guard: PathBuf,
     summary: PathBuf,
+    lots: PathBuf,
 }
 
 /// the example plugins, built on first use; `None` when the wasm32 target is missing and the tests are skipped
@@ -57,7 +58,14 @@ fn build_examples() -> Option<Examples> {
     let output = Command::new(cargo)
         .current_dir(workspace)
         .args(["build", "--release", "--target", WASM_TARGET])
-        .args(["-p", "zhang-plugin-example-guard", "-p", "zhang-plugin-example-summary"])
+        .args([
+            "-p",
+            "zhang-plugin-example-guard",
+            "-p",
+            "zhang-plugin-example-summary",
+            "-p",
+            "zhang-plugin-example-lots",
+        ])
         .arg("--target-dir")
         .arg(&target_dir)
         .output()
@@ -71,6 +79,7 @@ fn build_examples() -> Option<Examples> {
     Some(Examples {
         guard: built.join("zhang_plugin_example_guard.wasm"),
         summary: built.join("zhang_plugin_example_summary.wasm"),
+        lots: built.join("zhang_plugin_example_lots.wasm"),
     })
 }
 
@@ -352,4 +361,102 @@ async fn the_summary_router_queries_the_ledger_and_answers_html_and_json() {
     assert_eq!((status, body.as_str()), (StatusCode::NOT_FOUND, "no page at /nope"));
     let (status, _, _) = send(&app, Request::post("/api/plugins/summary/").body(Body::empty()).unwrap()).await;
     assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+}
+
+const LOTS_LEDGER: &str = r#"option "features.plugin" "true"
+option "operating_currency" "USD"
+plugin "{module}"
+{stage}
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Income:Gains
+
+2024-01-10 * "buy a"
+  Assets:Broker 10 AAPL {100 USD}
+  Assets:Cash -1000 USD
+
+2024-01-20 * "buy b"
+  Assets:Broker 10 AAPL {110 USD}
+  Assets:Cash -1100 USD
+
+2024-02-01 * "sell across both"
+  Assets:Broker -15 AAPL {}
+  Assets:Cash 1800 USD
+  Income:Gains
+"#;
+
+/// the narration of every transaction with its `lots` meta
+fn lots_metas(ledger: &Ledger) -> Vec<(String, String)> {
+    ledger
+        .directives
+        .iter()
+        .filter_map(|it| match &it.data {
+            Directive::Transaction(txn) => Some((
+                txn.narration.as_ref().unwrap().as_str().to_owned(),
+                txn.meta.get_one("lots").map(|it| it.as_str().to_owned()).unwrap_or_default(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// the booked view (design #423, D6): a plugin sees the postings booked, units interpolated, costs resolved to
+/// the lot and a sale split per lot; declared `stage: "raw"` it sees them as written. The store is the same either way
+#[test]
+fn the_lots_processor_sees_booked_postings_by_default_and_written_ones_in_the_raw_stage() {
+    let Some(examples) = examples() else {
+        return;
+    };
+    let dir = ledger_dir(&examples.lots, &[]);
+    let module = module_path(&dir, &examples.lots);
+
+    let booked = load(&dir, &LOTS_LEDGER.replace("{module}", &module).replace("{stage}\n", ""));
+    assert_eq!(
+        lots_metas(&booked),
+        vec![
+            (
+                "buy a".to_owned(),
+                "Assets:Broker 10 AAPL {100 USD, 2024-01-10}; Assets:Cash -1000 USD".to_owned()
+            ),
+            (
+                "buy b".to_owned(),
+                "Assets:Broker 10 AAPL {110 USD, 2024-01-20}; Assets:Cash -1100 USD".to_owned()
+            ),
+            (
+                "sell across both".to_owned(),
+                "Assets:Broker -10 AAPL {100 USD, 2024-01-10}; Assets:Broker -5 AAPL {110 USD, 2024-01-20}; Assets:Cash 1800 USD; Income:Gains -250 USD"
+                    .to_owned()
+            ),
+        ]
+    );
+
+    let raw = load(&dir, &LOTS_LEDGER.replace("{module}", &module).replace("{stage}", "  stage: \"raw\""));
+    assert_eq!(
+        lots_metas(&raw),
+        vec![
+            ("buy a".to_owned(), "Assets:Broker 10 AAPL {100 USD}; Assets:Cash -1000 USD".to_owned()),
+            ("buy b".to_owned(), "Assets:Broker 10 AAPL {110 USD}; Assets:Cash -1100 USD".to_owned()),
+            (
+                "sell across both".to_owned(),
+                "Assets:Broker -15 AAPL {}; Assets:Cash 1800 USD; Income:Gains ?".to_owned()
+            ),
+        ]
+    );
+
+    // the plugin reads the view only: the store books the same lots and rows, one row per written posting
+    for ledger in [&booked, &raw] {
+        let store = ledger.store.read().unwrap();
+        assert_eq!(store.errors.len(), 0);
+        assert_eq!(store.postings.len(), 7);
+        let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
+        assert_eq!(gains.inferred_amount.to_string(), "-250 USD");
+        assert_eq!(gains.unit, None, "the implicit posting stays implicit in its row");
+        let lots = store.commodity_lots["Assets:Broker"]
+            .iter()
+            .map(|lot| format!("{} {}", lot.amount, lot.commodity))
+            .collect::<Vec<_>>();
+        assert_eq!(lots, vec!["5 AAPL"]);
+    }
 }

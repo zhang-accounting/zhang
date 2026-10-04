@@ -63,6 +63,7 @@ A plugin can do nothing outside its own memory unless its directive grants it. T
 | `allowed_paths` | Read-only access to these files and directories of the ledger. Repeat the key for several. | no file access |
 | `timeout` | How long one call into the plugin may run. | 60 seconds |
 | `seed` | Nothing. Any text, mixed into the seed the plugin derives its random values from. | none |
+| `stage` | Where the plugin runs while the ledger loads: `"booked"`, after Zhang has booked the transactions, or `"raw"`, before. | `"booked"` |
 
 **`allowed_hosts`.** Each value is a host name, such as `api.example.com`, matched against the host of each request
 the plugin sends. A `*` in it matches any characters, so `*.example.com` grants every sub-domain of `example.com`.
@@ -91,6 +92,13 @@ receives the whole ledger, so grant files and hosts together only to a plugin yo
 [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta), and the plugin gets the default. If a key is
 repeated, its last value counts.
 
+**`stage`.** `"booked"` runs the plugin's processor and mapper after Zhang has booked the transactions: a posting
+written without an amount has the amount Zhang inferred, a cost names the per-unit cost and acquisition date of the
+lot it matched, and a sale across several lots is one posting per lot, as a Beancount plugin sees them. `"raw"` runs
+them before booking, on the transactions as written. Any other value is reported as
+[`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta), and the plugin runs `"booked"`. If the key is
+repeated, its last value counts. See [the stage order contract](/developers/writing-plugins/#the-stage-order-contract).
+
 **`seed`.** A plugin's seed depends only on its directive: the module as written, the number of `plugin` directives
 before it that declare the same module, and the `seed` value. Changing `seed` changes the random values, such as
 generated ids, that the plugin derives from it, without moving the directive.
@@ -115,10 +123,11 @@ A plugin can also read settings that change over time from [`custom`](/reference
 
 - Zhang reads the module through the ledger's data source, from the ledger root. It keeps a copy in `.cache/plugins`
   under the directory you start `zhang serve` from. When a local module changes, `zhang serve` reloads the ledger.
-- Plugins run in the order of their `plugin` directives, every time the ledger loads, before Zhang's own steps: the
-  check of accounts that are not open, then [padding](/reference/directives/balance/#padding-with-with-pad), then
-  balance checks. A plugin therefore sees the transactions as written, before the padding transactions exist. It
-  never sees a `pad` directive: a `balance` a `pad` serves is shown to it as a `balance … with pad` (see
+- Plugins run in the order of their `plugin` directives, every time the ledger loads, after Zhang has booked the
+  transactions (plugins declared `stage: "raw"` run before that) and before Zhang's own steps: the check of accounts
+  that are not open, then [padding](/reference/directives/balance/#padding-with-with-pad), then balance checks. A
+  plugin therefore sees the transactions booked, before the padding transactions exist. It never sees a `pad`
+  directive: a `balance` a `pad` serves is shown to it as a `balance … with pad` (see
   [the stage order contract](/developers/writing-plugins/#the-stage-order-contract)).
 - Declaring the same module twice gives two separate plugins, each with its own settings and seed.
 - A module that is missing or cannot be loaded, or a plugin call that fails or runs past its `timeout`, stops the
@@ -130,7 +139,7 @@ A plugin can also read settings that change over time from [`custom`](/reference
 
 | Error | When |
 |---|---|
-| [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | A `timeout` or `allowed_paths` value is invalid. The error points at the `plugin` directive. |
+| [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | A `timeout`, `allowed_paths` or `stage` value is invalid. The error points at the `plugin` directive. |
 | [`PluginError`](/reference/error-codes/#pluginerror) | The plugin reports a problem in the ledger. |
 
 ## Beancount compatibility

@@ -22,11 +22,14 @@ use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
-use crate::pipeline::{builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, ProcessStage, StageContext};
+use crate::pipeline::{builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, BookingStage, PluginStage, ProcessStage, StageContext};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
 use crate::store::{BalanceAssertionDomain, CommodityLotRecord, Store};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
+
+/// stages with the slot ([`PluginStage`]) they run in, relative to the booking stage
+type SlottedStages = Vec<(PluginStage, Box<dyn ProcessStage>)>;
 
 pub struct Ledger {
     pub entry: (PathBuf, String),
@@ -526,23 +529,38 @@ impl Ledger {
         (metas, dated)
     }
 
-    /// the stages to run: the user's WASM plugins in declaration order (only with
-    /// the plugin runtime and `features.plugins` on), each on the stream as plugins of
-    /// ABI v1 see it ([`AbiV1View`]), then the built-in stages
+    /// the stages to run: the user's WASM plugins declared `stage: "raw"`, then [`BookingStage`],
+    /// then the other plugins, each in declaration order (only with the plugin runtime and
+    /// `features.plugins` on) and on the stream as plugins of ABI v1 see it ([`AbiV1View`]), then
+    /// the built-in stages
     fn build_stages(&self) -> Vec<Box<dyn ProcessStage>> {
         #[cfg(feature = "plugin_runtime")]
-        let plugin_stages: Vec<Box<dyn ProcessStage>> = if self.options.features.plugins {
-            self.plugins
-                .build_stages()
-                .into_iter()
-                .map(|stage| Box::new(crate::pipeline::AbiV1View::new(stage)) as Box<dyn ProcessStage>)
-                .collect()
-        } else {
-            vec![]
+        let plugin_stages = |stage: PluginStage| -> Vec<Box<dyn ProcessStage>> {
+            if self.options.features.plugins {
+                self.plugins
+                    .build_stages(stage)
+                    .into_iter()
+                    .map(|stage| Box::new(crate::pipeline::AbiV1View::new(stage)) as Box<dyn ProcessStage>)
+                    .collect()
+            } else {
+                vec![]
+            }
         };
         #[cfg(not(feature = "plugin_runtime"))]
-        let plugin_stages: Vec<Box<dyn ProcessStage>> = vec![];
-        plugin_stages.into_iter().chain(builtin_stages()).collect()
+        let plugin_stages = |_stage: PluginStage| -> Vec<Box<dyn ProcessStage>> { vec![] };
+        // the native stages a test runs in a plugin's place, after the plugins of their slot
+        #[cfg(test)]
+        let (test_raw, test_booked): (SlottedStages, SlottedStages) = test::TEST_STAGES.take().into_iter().partition(|(slot, _)| *slot == PluginStage::Raw);
+        #[cfg(not(test))]
+        let (test_raw, test_booked): (SlottedStages, SlottedStages) = (vec![], vec![]);
+        plugin_stages(PluginStage::Raw)
+            .into_iter()
+            .chain(test_raw.into_iter().map(|(_, stage)| stage))
+            .chain(std::iter::once(Box::new(BookingStage) as Box<dyn ProcessStage>))
+            .chain(plugin_stages(PluginStage::Booked))
+            .chain(test_booked.into_iter().map(|(_, stage)| stage))
+            .chain(builtin_stages())
+            .collect()
     }
 
     /// run the pipeline over the full directive stream; stage-reported errors are
@@ -572,15 +590,280 @@ impl Ledger {
 #[cfg(test)]
 mod test {
 
+    use std::cell::RefCell;
+    use std::rc::Rc;
     use std::sync::Arc;
 
+    use indoc::indoc;
     use tempfile::tempdir;
-    use zhang_ast::{Directive, SpanInfo, Spanned};
+    use zhang_ast::error::ErrorKind;
+    use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
 
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::ledger::Ledger;
+    use crate::pipeline::{PluginStage, ProcessStage, StageContext};
+    use crate::ZhangResult;
+
+    thread_local! {
+        /// the stages the next load of this thread runs in a plugin's place, in the slot of their
+        /// [`PluginStage`]: a seam for tests of what plugins can do to the stream, without WASM.
+        /// [`Ledger::build_stages`] takes them
+        pub(crate) static TEST_STAGES: RefCell<super::SlottedStages> = const { RefCell::new(vec![]) };
+    }
+
+    /// what a test stage does to the stream
+    type Edit = Box<dyn Fn(Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>>>;
+
+    /// a stage standing in for a plugin: `edit` gets the stream, and a log of what every test stage
+    /// saw, in the order they ran
+    struct TestStage {
+        name: &'static str,
+        log: Rc<RefCell<Vec<String>>>,
+        edit: Edit,
+    }
+
+    impl ProcessStage for TestStage {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn process(&self, directives: Vec<Spanned<Directive>>, _ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
+            // whether the transactions the stage sees are booked: every posting has units
+            let booked = directives
+                .iter()
+                .filter_map(|it| match &it.data {
+                    Directive::Transaction(txn) => Some(txn.postings.iter().all(|posting| posting.units.is_some())),
+                    _ => None,
+                })
+                .all(|it| it);
+            self.log
+                .borrow_mut()
+                .push(format!("{}: {}", self.name, if booked { "booked" } else { "as written" }));
+            Ok((self.edit)(directives))
+        }
+    }
+
+    /// load `content` with `stages` running in a plugin's place, in their slots
+    fn load_with_stages(content: &str, stages: Vec<(PluginStage, Box<dyn ProcessStage>)>) -> Ledger {
+        TEST_STAGES.replace(stages);
+        let ledger = load_from_temp_str(content);
+        assert!(TEST_STAGES.take().is_empty(), "the load took the test stages");
+        ledger
+    }
+
+    fn stage(
+        name: &'static str, log: &Rc<RefCell<Vec<String>>>, edit: impl Fn(Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> + 'static,
+    ) -> Box<dyn ProcessStage> {
+        Box::new(TestStage {
+            name,
+            log: log.clone(),
+            edit: Box::new(edit),
+        })
+    }
+
+    /// the transaction of the stream whose narration is `narration`
+    fn transaction<'a>(directives: &'a [Spanned<Directive>], narration: &str) -> &'a Transaction {
+        directives
+            .iter()
+            .find_map(|it| match &it.data {
+                Directive::Transaction(txn) if txn.narration.as_ref().is_some_and(|it| it.as_str() == narration) => Some(txn),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("a transaction {narration:?}"))
+    }
+
+    /// the store's rows of the transaction `narration`: `account unit-as-written = inferred`
+    fn rows(ledger: &Ledger, narration: &str) -> Vec<String> {
+        let store = ledger.store.read().unwrap();
+        let mut txns = store
+            .transactions
+            .values()
+            .filter(|it| it.narration.as_deref() == Some(narration))
+            .collect::<Vec<_>>();
+        txns.sort_by_key(|it| it.sequence);
+        txns.iter()
+            .flat_map(|txn| &txn.postings)
+            .map(|row| {
+                format!(
+                    "{} {} = {}",
+                    row.account.name(),
+                    row.unit.as_ref().map_or("?".to_owned(), ToString::to_string),
+                    row.inferred_amount
+                )
+            })
+            .collect()
+    }
+
+    fn error_kinds(ledger: &Ledger) -> Vec<ErrorKind> {
+        ledger.store.read().unwrap().errors.iter().map(|it| it.error_type.clone()).collect()
+    }
+
+    fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
+        let store = ledger.store.read().unwrap();
+        store
+            .commodity_lots
+            .get(account)
+            .map(|lots| {
+                lots.iter()
+                    .map(|lot| {
+                        format!(
+                            "{} {} {:?} {:?}",
+                            lot.amount,
+                            lot.commodity,
+                            lot.cost.as_ref().map(ToString::to_string),
+                            lot.acquisition_date
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    const LOTS: &str = indoc! {r#"
+        1970-01-01 commodity USD
+        1970-01-01 commodity CNY
+        1970-01-01 open Assets:S
+        1970-01-01 open Income:I
+        2024-05-16 * "buy"
+          Assets:S 10 USD { 10 CNY }
+          Income:I -100 CNY
+        2024-05-17 * "buy more"
+          Assets:S 10 USD { 11 CNY }
+          Income:I -110 CNY
+        2024-05-18 * "sell"
+          Assets:S -15 USD {}
+          Income:I
+    "#};
+
+    #[test]
+    fn raw_stages_see_the_stream_as_written_and_booked_stages_see_it_booked_in_slot_order() {
+        let log = Rc::new(RefCell::new(vec![]));
+        let ledger = load_with_stages(
+            LOTS,
+            vec![
+                (PluginStage::Booked, stage("second booked", &log, |it| it)),
+                (PluginStage::Raw, stage("raw", &log, |it| it)),
+                (PluginStage::Booked, stage("first booked", &log, |it| it)),
+            ],
+        );
+        // raw stages before booking, then the booked ones in their declaration order; stages that
+        // change nothing change nothing
+        assert_eq!(log.borrow().as_slice(), ["raw: as written", "second booked: booked", "first booked: booked"]);
+        assert_eq!(error_kinds(&ledger), vec![]);
+        assert_eq!(rows(&ledger, "sell"), vec!["Assets:S -15 USD = -15 USD", "Income:I ? = 155 CNY"]);
+    }
+
+    #[test]
+    fn a_plugin_selling_a_lot_earlier_leaves_the_booked_legs_pinned_and_the_fold_reports_the_shortfall() {
+        let log = Rc::new(RefCell::new(vec![]));
+        let ledger = load_with_stages(
+            LOTS,
+            vec![(
+                PluginStage::Booked,
+                stage("insert an earlier sale", &log, |mut directives| {
+                    // sells the whole first lot on 05-16, after the sale of 05-18 was booked against it
+                    let sale = ZhangDataType {}
+                        .transform(
+                            indoc! {r#"
+                                2024-05-16 * "sell first"
+                                  Assets:S -10 USD { 10 CNY }
+                                  Income:I 100 CNY
+                            "#}
+                            .to_owned(),
+                            None,
+                        )
+                        .unwrap();
+                    directives.extend(sale);
+                    directives
+                }),
+            )],
+        );
+        // the 05-18 legs still name the lots pass 1 matched: -10 of the 05-16 lot (now empty) and
+        // -5 of the 05-17 one. Pass 2 books the final stream: the 05-16 leg is short by 10, which
+        // it reports once, and the lots are those of the final stream
+        let sell = transaction(&ledger.directives, "sell");
+        let legs: Vec<String> = sell
+            .postings
+            .iter()
+            .map(|it| {
+                format!(
+                    "{} {:?}",
+                    it.units.as_ref().unwrap(),
+                    it.cost.as_ref().and_then(|cost| cost.date.as_ref()).map(|date| date.naive_date().to_string())
+                )
+            })
+            .collect();
+        assert_eq!(legs, vec!["-10 USD Some(\"2024-05-16\")", "-5 USD Some(\"2024-05-17\")", "155 CNY None"]);
+        assert_eq!(error_kinds(&ledger), vec![ErrorKind::NoEnoughCommodityLot]);
+        assert_eq!(
+            lots(&ledger, "Assets:S"),
+            vec!["5 USD Some(\"11 CNY\") Some(2024-05-17)", "-10 USD Some(\"10 CNY\") Some(2024-05-16)"]
+        );
+        assert_eq!(rows(&ledger, "sell"), vec!["Assets:S -15 USD = -15 USD", "Income:I ? = 155 CNY"]);
+    }
+
+    #[test]
+    fn a_plugin_duplicating_a_transaction_gets_both_booked_and_the_second_reported() {
+        let log = Rc::new(RefCell::new(vec![]));
+        let ledger = load_with_stages(
+            LOTS,
+            vec![(
+                PluginStage::Booked,
+                stage("duplicate the sale", &log, |mut directives| {
+                    let sale = directives
+                        .iter()
+                        .find(|it| matches!(&it.data, Directive::Transaction(txn) if txn.narration.as_ref().is_some_and(|it| it.as_str() == "sell")))
+                        .unwrap()
+                        .clone();
+                    directives.push(sale);
+                    directives
+                }),
+            )],
+        );
+        // both copies share a span and get distinct ids; the second finds no lots left
+        assert_eq!(
+            rows(&ledger, "sell"),
+            vec![
+                "Assets:S -15 USD = -15 USD",
+                "Income:I ? = 155 CNY",
+                "Assets:S -15 USD = -15 USD",
+                "Income:I ? = 155 CNY"
+            ]
+        );
+        assert_eq!(error_kinds(&ledger), vec![ErrorKind::NoEnoughCommodityLot]);
+    }
+
+    #[test]
+    fn a_plugin_moving_the_legs_of_a_split_apart_gets_them_as_booked() {
+        let log = Rc::new(RefCell::new(vec![]));
+        let ledger = load_with_stages(
+            LOTS,
+            vec![(
+                PluginStage::Booked,
+                stage("reorder the legs", &log, |mut directives| {
+                    for directive in &mut directives {
+                        if let Directive::Transaction(txn) = &mut directive.data {
+                            if txn.narration.as_ref().is_some_and(|it| it.as_str() == "sell") {
+                                // [S -10, S -5, I] -> [S -10, I, S -5]
+                                let income = txn.postings.remove(2);
+                                txn.postings.insert(1, income);
+                            }
+                        }
+                    }
+                    directives
+                }),
+            )],
+        );
+        assert_eq!(error_kinds(&ledger), vec![]);
+        // one row per leg, as booked: the written form is not restored for a split broken apart
+        assert_eq!(
+            rows(&ledger, "sell"),
+            vec!["Assets:S -10 USD = -10 USD", "Income:I ? = 155 CNY", "Assets:S -5 USD = -5 USD"]
+        );
+        assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD Some(\"11 CNY\") Some(2024-05-17)"]);
+    }
 
     fn fake_span_info() -> SpanInfo {
         SpanInfo {

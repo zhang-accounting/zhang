@@ -52,8 +52,9 @@ A plugin can do nothing outside its own memory unless its directive grants it.
 | `allowed_paths` | read-only access to these files and directories of the ledger. Repeat the key for several. | no file access |
 | `timeout` | how long one call into the plugin may run: whole seconds (`"90"`) or a number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"2m"`), at most a day | 60 seconds |
 | `seed` | nothing; any text, mixed into the plugin's [seed](#determinism) | none |
+| `stage` | where the plugin's processor and mapper run: `"booked"`, after Zhang has booked the transactions, or `"raw"`, before, on the transactions as written (see [the stage order contract](#the-stage-order-contract)) | `"booked"` |
 
-An invalid `timeout` or `allowed_paths` value is reported as a [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) error on the directive, and the plugin gets the default.
+An invalid `timeout`, `allowed_paths` or `stage` value is reported as a [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) error on the directive, and the plugin gets the default.
 
 #### `allowed_paths`
 
@@ -90,18 +91,21 @@ A plugin that is both a processor and a mapper runs its processor first. A type 
 
 While Zhang loads a ledger, the directive stream runs through these stages, in this order:
 
-1. **your plugins**, in the order their `plugin` directives are declared;
-2. **active accounts**: postings to accounts that are not open are reported;
-3. **pad**: each `pad` and `balance … with pad` adds the padding transaction (flag `P`) its assertion needs;
-4. **balance check**: each balance assertion is checked. It books nothing: a failing one is an error.
+1. **your plugins declared `stage: "raw"`**, in the order their `plugin` directives are declared;
+2. **booking**: every transaction is booked, as Beancount books before its plugins run. A posting written without an amount gets the amount interpolated from the others; a cost becomes the per-unit cost and acquisition date of the lot it books against; a sale across several lots becomes one posting per lot. A transaction Zhang cannot book (two postings without an amount, say) is left as written;
+3. **your other plugins**, in the order their `plugin` directives are declared;
+4. **active accounts**: postings to accounts that are not open are reported;
+5. **pad**: each `pad` and `balance … with pad` adds the padding transaction (flag `P`) its assertion needs;
+6. **balance check**: each balance assertion is checked. It books nothing: a failing one is an error.
 
-Then the transactions are booked and the ledger is built.
+Then the ledger is built from the final stream: it books again what the stages left unbooked (a transaction a plugin added with a posting without an amount, the padding transactions), reports booking errors and checks that every transaction balances.
 
 What a plugin sees:
 
 - **The full stream**, sorted by date: undated directives (`option`, `plugin`, `include`, comments) first; within one date, `open` and `commodity`, then balance directives, then everything else. Zhang re-sorts the stream after every stage, so a plugin may return directives in any order of dates; directives of the same date and kind keep the order the plugin returns them in, which is the order of their day.
 - Every directive kind, including `custom`, `option` and `plugin` directives. Options and plugins are applied before the stages run, so an `option` or `plugin` directive a plugin adds has no effect.
-- **Transactions as written, before booking.** A posting written without an amount has no amount yet, and costs are not matched to lots. A later version of Zhang will offer plugins a booked view as well; this guide will say so when it lands.
+- **Booked transactions**, as a Beancount plugin sees them: every posting has an amount, every cost has a per-unit number and a date, and a sale across several lots is several postings, one per lot. A posting booking changed carries a [`written`](#exports) field with what the user wrote; pass it through. A plugin declared `stage: "raw"` sees the transactions **as written** instead: a posting written without an amount has none yet, and costs are not matched to lots. Choose it for a plugin that rewrites postings before booking, such as one filling in accounts or amounts.
+- **Booked legs stay booked.** A leg names the lot booking matched before your plugins ran. A plugin that changes the stream so that the leg would now book differently, by inserting an earlier sale of that lot, say, does not re-book it: Zhang books the final stream once more when it builds the ledger, reports what no longer fits as an error on the transaction (a lot sold short is a [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot)), and keeps the leg as it is, as Beancount keeps what a plugin returns. The per-unit cost of a leg bought at a total cost, `{{1000 USD}}` over 3 units, is the exact quotient, which can be long; the total as written is in the leg's `written.cost`.
 - The `balance` directives themselves, but not the padding transactions (flag `P`) the pad stage creates: it runs after the plugins.
 - **No `pad` directives.** ABI v1 predates the [`pad` directive](/reference/directives/balance/#the-pad-directive), and a plugin built against an older `zhang-ast` cannot read it. So Zhang sets every `pad` aside before it calls a plugin. A `balance` that a `pad` serves is shown to the plugin as the `balance … with pad` it was before Zhang had `pad`, with the pad's account: a plugin sees the stream a Beancount ledger gave it before. What the plugin returns is its word, and Zhang puts each `pad` back only where it pads what the plugin returned:
   - a `pad` whose `balance … with pad`s all come back as `balance … with pad`, of one account from one pad account, is put back with that account and pad account, so a plugin may rename either or change the pad account. Its balances turn back into `balance`s, with their tolerance, and keep everything else the plugin changed in them. A plugin that changes nothing gets exactly the stream it was given;
@@ -202,7 +206,7 @@ What the SDK offers:
 | `prices` | `PriceMap::from_stream(&stream)`, `rate(base, quote, date)`, `convert(amount, target, date)` for [exchange rates](#exchange-rates) |
 | `router` | `Request`, `Response`, `query(bql)`, `ledger_info()` |
 
-On a native target the SDK still compiles: `plugin!` exports nothing and host functions answer `unavailable`, so `cargo test` runs your plugin logic without Zhang, with a `Config::from_map(...)` standing in for the host's config. Two complete plugins, a processor and a router, live in [`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples); Zhang's own tests build and run them.
+On a native target the SDK still compiles: `plugin!` exports nothing and host functions answer `unavailable`, so `cargo test` runs your plugin logic without Zhang, with a `Config::from_map(...)` standing in for the host's config. Three complete plugins, two processors (`guard`, and `lots`, which shows the booked view) and a router, live in [`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples); Zhang's own tests build and run them.
 
 ## Determinism
 
@@ -254,7 +258,7 @@ It gives the same rates as Zhang's query engine uses for `convert`, `value` and 
 
 **Precision:** rates from `price` directives are exact. An inverse that terminates is exact too (`1 / 8 = 0.125`); one that does not is rounded half-even to 28 significant digits, as beancount's decimal context and Zhang's query engine do (`1 / 7 = 0.1428571428571428571428571429`). `convert` rounds a product to 28 significant digits only when it has more.
 
-**Implicit prices:** `PriceMap::from_stream_with_implicit` also takes the prices written on postings, `@` per unit and `@@` in total, like beancount's `implicit_prices` plugin. Zhang itself does not use them, so the rates they add differ from what Zhang shows; it is an opt-in for plugins ported from beancount. A posting written without units is skipped: plugins see transactions before booking, so it carries no price yet.
+**Implicit prices:** `PriceMap::from_stream_with_implicit` also takes the prices written on postings, `@` per unit and `@@` in total, like beancount's `implicit_prices` plugin. Zhang itself does not use them, so the rates they add differ from what Zhang shows; it is an opt-in for plugins ported from beancount. A posting without units, which only a plugin running `stage: "raw"` sees, is skipped: it carries no price yet.
 
 ## Reporting errors
 

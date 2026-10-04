@@ -1,0 +1,14 @@
+[package]
+name = "zhang-plugin-example-lots"
+version = "0.1.0"
+edition = "2021"
+description = "Example zhang processor plugin: writes the booked view of each transaction at cost into its `lots` meta"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# a plugin outside this repository depends on it through git:
+# zhang-plugin-sdk = { git = "https://github.com/zhang-accounting/zhang", tag = "v…" }
+zhang-plugin-sdk = { path = "../.." }

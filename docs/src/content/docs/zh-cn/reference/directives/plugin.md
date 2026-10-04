@@ -58,6 +58,7 @@ plugin "plugins/receipts.wasm"
 | `allowed_paths` | 以只读方式访问账本中的这些文件和目录。多个就重复这个键。 | 不能访问文件 |
 | `timeout` | 对插件的一次调用最多可以运行多久。 | 60 秒 |
 | `seed` | 不授予任何东西。任意文本，混入插件生成随机值所用的种子。 | 无 |
+| `stage` | 插件在加载账本时运行的阶段：`"booked"`，在张记账完成记账之后；或 `"raw"`，在记账之前。 | `"booked"` |
 
 **`allowed_hosts`**：每个值是一个主机名，例如 `api.example.com`，与插件发出的每个请求的主机进行匹配。其中的 `*` 匹配任意字符，所以 `*.example.com` 授予 `example.com` 的所有子域名。端口和路径不参与匹配。
 
@@ -74,6 +75,8 @@ plugin "plugins/receipts.wasm"
 :::
 
 **`timeout`**：整数秒（`"90"`），或者带单位 `ms`、`s`、`m` 或 `h` 的整数（`"500ms"`、`"30s"`、`"2m"`）。它必须大于零，且不超过一天。无效的值会报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta)，插件使用默认值。如果一个键重复出现，以它的最后一个值为准。
+
+**`stage`**：`"booked"` 让插件的 processor 和 mapper 在张记账完成记账之后运行：没有写金额的记账行带有张记账推算出的金额，成本写明它所匹配批次的单位成本和取得日期，跨多个批次的卖出是每个批次一行，与 Beancount 插件看到的一样。`"raw"` 让它们在记账之前运行，看到的是按原样写下的交易。其他值会报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta)，插件按 `"booked"` 运行。如果这个键重复出现，以它的最后一个值为准。见[阶段顺序约定](/zh-cn/developers/writing-plugins/#阶段顺序约定)。
 
 **`seed`**：插件的种子只取决于它的指令：按原样书写的模块、在它之前声明同一模块的 `plugin` 指令的数量，以及 `seed` 的值。修改 `seed` 会改变插件由它派生的随机值（例如生成的 id），而不必移动这条指令。
 
@@ -92,7 +95,7 @@ plugin "plugins/receipts.wasm"
 ### 加载与顺序
 
 - 张记账通过账本的数据源，从账本根目录读取模块。它在启动 `zhang serve` 的目录下的 `.cache/plugins` 中保留一份副本。本地模块发生变化时，`zhang serve` 会重新加载账本。
-- 插件按其 `plugin` 指令的顺序运行，每次加载账本时都会运行，并且在张记账自己的步骤之前：先检查未开立的账户，然后[补齐](/zh-cn/reference/directives/balance/#用-with-pad-补齐)，然后检查余额。因此插件看到的是写下的交易，此时补齐交易还不存在。插件从不会看到 `pad` 指令：由某条 `pad` 补齐的 `balance` 会以 `balance … with pad` 的样子交给它（见[阶段顺序约定](/zh-cn/developers/writing-plugins/#阶段顺序约定)）。
+- 插件按其 `plugin` 指令的顺序运行，每次加载账本时都会运行，在张记账完成记账之后（声明了 `stage: "raw"` 的插件在记账之前运行），并且在张记账自己的步骤之前：先检查未开立的账户，然后[补齐](/zh-cn/reference/directives/balance/#用-with-pad-补齐)，然后检查余额。因此插件看到的是记账后的交易，此时补齐交易还不存在。插件从不会看到 `pad` 指令：由某条 `pad` 补齐的 `balance` 会以 `balance … with pad` 的样子交给它（见[阶段顺序约定](/zh-cn/developers/writing-plugins/#阶段顺序约定)）。
 - 同一个模块声明两次，会得到两个独立的插件，各自有自己的设置和种子。
 - 模块缺失或无法加载，或者插件调用失败或运行超过 `timeout`，都会让账本无法加载。如果 `zhang serve` 已经在运行，它会继续提供重新加载之前的账本。
 - 网页界面的设置页面列出已加载的插件。router 插件在 `/api/plugins/<name>` 提供服务；见 [Router 插件](/zh-cn/guides/router-plugins/)。
@@ -101,7 +104,7 @@ plugin "plugins/receipts.wasm"
 
 | 错误 | 触发条件 |
 |---|---|
-| [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) | `timeout` 或 `allowed_paths` 的值无效。错误指向这条 `plugin` 指令。 |
+| [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) | `timeout`、`allowed_paths` 或 `stage` 的值无效。错误指向这条 `plugin` 指令。 |
 | [`PluginError`](/zh-cn/reference/error-codes/#pluginerror) | 插件报告了账本中的问题。 |
 
 ## Beancount 兼容性

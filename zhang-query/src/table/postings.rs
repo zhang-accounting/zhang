@@ -20,7 +20,7 @@ use std::collections::{BTreeSet, HashMap};
 use bigdecimal::{BigDecimal, Signed, Zero};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Meta, PostingCost, SingleTotalPrice, Transaction};
+use zhang_ast::{Directive, Meta, Posting, PostingCost, SingleTotalPrice};
 use zhang_core::domains::schemas::MetaType;
 use zhang_core::inventory::BookingMethod;
 use zhang_core::ledger::Ledger;
@@ -175,14 +175,14 @@ pub(super) struct Draft<'a> {
 }
 
 /// The postings of the stored transaction `txn`, the entry `entry` of the table, before
-/// booking; `parsed` is its directive, when it could be matched.
+/// booking; `parsed` is its directive's postings as written, when it could be matched.
 pub(super) fn drafts<'a, 'c>(
-    entry: usize, txn: &'a TransactionDomain, parsed: Option<&'a Transaction>, accounts: &'c mut Accounts,
+    entry: usize, txn: &'a TransactionDomain, parsed: Option<Vec<Posting>>, accounts: &'c mut Accounts,
 ) -> impl Iterator<Item = Draft<'a>> + use<'a, 'c> {
     let date = txn.datetime.date_naive();
     txn.postings.iter().enumerate().map(move |(posting_index, posting)| {
         let units = &posting.inferred_amount;
-        let parsed_posting = parsed.and_then(|it| it.postings.get(posting_index));
+        let parsed_posting = parsed.as_ref().and_then(|it| it.get(posting_index));
         let cost = match parsed_posting {
             Some(parsed_posting) => parsed_posting.cost.as_ref().map(|cost| cost_spec(cost, units)),
             // without the parsed directive only the cost number kept by the store is known

@@ -56,16 +56,38 @@ pub struct UnitBalances {
     booker: Booker,
 }
 
+/// a booker set up like the store fold's: the ledger's default booking method and `commodities`,
+/// those defined before the stream starts (by the options)
+pub(crate) fn booker(default_booking_method: BookingMethod, commodities: &[CommodityDomain]) -> Booker {
+    let mut booker = Booker::new(default_booking_method);
+    for commodity in commodities {
+        booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
+    }
+    booker
+}
+
+/// the booker of a stage, set up from its context
+pub(crate) fn stage_booker(ctx: &StageContext) -> Booker {
+    booker(default_booking_method(ctx.options), &ctx.commodities)
+}
+
+/// fold a `commodity` directive into `booker`: implicit postings in it are rounded at its precision,
+/// as the store fold defines it from the same options
+pub(crate) fn define_commodity(booker: &mut Booker, commodity: &Commodity, options: &[OptionDomain]) {
+    let default_precision = option_value::<i32>(options, KEY_DEFAULT_COMMODITY_PRECISION);
+    let default_rounding = option_value::<Rounding>(options, KEY_DEFAULT_ROUNDING);
+    // an invalid `rounding` meta aborts the load in the store fold; nothing to define here
+    if let Ok((precision, rounding)) = commodity_precision(commodity, default_precision, default_rounding) {
+        booker.define_commodity(&commodity.currency, precision, rounding);
+    }
+}
+
 impl UnitBalances {
     /// `commodities` are those defined before the stream starts (by the options)
     pub fn new(default_booking_method: BookingMethod, commodities: &[CommodityDomain]) -> Self {
-        let mut booker = Booker::new(default_booking_method);
-        for commodity in commodities {
-            booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
-        }
         Self {
             balances: BTreeMap::new(),
-            booker,
+            booker: booker(default_booking_method, commodities),
         }
     }
 
@@ -82,12 +104,7 @@ impl UnitBalances {
     /// fold a `commodity`: implicit postings in it are rounded at its precision, as the store fold
     /// defines it from the same options
     pub fn apply_commodity(&mut self, commodity: &Commodity, options: &[OptionDomain]) {
-        let default_precision = option_value::<i32>(options, KEY_DEFAULT_COMMODITY_PRECISION);
-        let default_rounding = option_value::<Rounding>(options, KEY_DEFAULT_ROUNDING);
-        // an invalid `rounding` meta aborts the load in the store fold; nothing to define here
-        if let Ok((precision, rounding)) = commodity_precision(commodity, default_precision, default_rounding) {
-            self.booker.define_commodity(&commodity.currency, precision, rounding);
-        }
+        define_commodity(&mut self.booker, commodity, options);
     }
 
     /// book a transaction the way the store fold does: transactions the fold

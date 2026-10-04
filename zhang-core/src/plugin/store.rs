@@ -14,7 +14,7 @@ use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
 use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
 use crate::pipeline::StageContext;
-use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration};
+use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
 use crate::plugin::router::unavailable_host_functions;
@@ -101,12 +101,16 @@ impl PluginStore {
         self.ordered.iter().filter(|(plugin, _)| plugin.declaration.directive.module == module).count()
     }
 
-    /// build the pipeline stages in plugin declaration order.
-    /// a plugin supporting both types contributes its processor stage first, then its mapper stage.
-    pub fn build_stages(&self) -> Vec<Box<dyn crate::pipeline::ProcessStage>> {
+    /// build the pipeline stages of the plugins declared to run in `stage` (their `stage` meta,
+    /// [`PluginStage`]), in plugin declaration order. A plugin supporting both types contributes its
+    /// processor stage first, then its mapper stage.
+    pub fn build_stages(&self, stage: PluginStage) -> Vec<Box<dyn crate::pipeline::ProcessStage>> {
         use crate::plugin::stage::{WasmMapperStage, WasmProcessorStage};
         let mut stages: Vec<Box<dyn crate::pipeline::ProcessStage>> = vec![];
         for (plugin, types) in &self.ordered {
+            if plugin.declaration.capabilities.stage != stage {
+                continue;
+            }
             if types.contains(&PluginType::Processor) {
                 stages.push(Box::new(WasmProcessorStage { plugin: plugin.clone() }));
             }
