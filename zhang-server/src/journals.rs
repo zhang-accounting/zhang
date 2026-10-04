@@ -140,16 +140,18 @@ pub async fn journal(ledger: &SharedLedger, params: JournalRequest) -> ServerRes
 /// The journal items of the rows of a [`JOURNAL`] page, in their order: their postings and
 /// balance checks are read with [`JOURNAL_POSTINGS`] and [`JOURNAL_BALANCE_CHECKS`].
 fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<JournalItemEntity>> {
-    let columns = Columns::of(page);
-    let ids_of = |kind: &str| -> BTreeSet<String> {
-        page.rows
-            .iter()
-            .filter(|row| columns.get(row, "type").as_str() == Some(kind))
-            .filter_map(|row| optional_string(columns.get(row, "id")))
-            .collect()
+    let columns = Columns::of(JOURNAL, page);
+    let ids_of = |kind: &str| -> ServerResult<BTreeSet<String>> {
+        let mut ids = BTreeSet::new();
+        for row in &page.rows {
+            if columns.get(row, "type")?.as_str() == Some(kind) {
+                ids.extend(optional_string(columns.get(row, "id")?));
+            }
+        }
+        Ok(ids)
     };
-    let transaction_ids = ids_of("transaction");
-    let balance_ids = ids_of("balance");
+    let transaction_ids = ids_of("transaction")?;
+    let balance_ids = ids_of("balance")?;
 
     // as written: tags and links in their order, which the engine's sets sort and the edit form writes back as
     // listed, and a narration that is absent, which the engine reads as '' as beancount does
@@ -174,26 +176,25 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
     let mut postings: HashMap<String, Vec<PostingRow>> = HashMap::new();
     if !transaction_ids.is_empty() {
         let result = execute(ledger, JOURNAL_POSTINGS, &Params::new().bind("ids", transaction_ids), false)?;
-        let posting_columns = Columns::of(&result);
+        let posting_columns = Columns::of(JOURNAL_POSTINGS, &result);
         for row in &result.rows {
-            let posting = PostingRow::of(&posting_columns, row);
-            postings.entry(string(posting_columns.get(row, "id"))).or_default().push(posting);
+            let posting = PostingRow::of(&posting_columns, row)?;
+            postings.entry(string(posting_columns.get(row, "id")?)).or_default().push(posting);
         }
     }
     let mut checks: HashMap<String, BalanceCheckRow> = HashMap::new();
     if !balance_ids.is_empty() {
         let result = execute(ledger, JOURNAL_BALANCE_CHECKS, &Params::new().bind("ids", balance_ids), false)?;
-        let check_columns = Columns::of(&result);
+        let check_columns = Columns::of(JOURNAL_BALANCE_CHECKS, &result);
         for row in &result.rows {
-            checks.insert(string(check_columns.get(row, "id")), BalanceCheckRow::of(&check_columns, row));
+            checks.insert(string(check_columns.get(row, "id")?), BalanceCheckRow::of(&check_columns, row)?);
         }
     }
 
-    Ok(page
-        .rows
+    page.rows
         .iter()
         .map(|row| {
-            let mut entry = EntryRow::of(&columns, row);
+            let mut entry = EntryRow::of(&columns, row)?;
             if let Some(written) = written.get(&entry.id) {
                 entry.narration = written.narration.clone();
                 entry.tags = written.tags.clone();
@@ -201,9 +202,9 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
             }
             let postings = postings.remove(&entry.id).unwrap_or_default();
             let check = checks.remove(&entry.id);
-            journal_item(entry, postings, check)
+            Ok(journal_item(entry, postings, check))
         })
-        .collect())
+        .collect()
 }
 
 /// What the journal shows of a transaction as it is written.
@@ -228,19 +229,19 @@ struct EntryRow {
 }
 
 impl EntryRow {
-    fn of(columns: &Columns, row: &[Value]) -> EntryRow {
-        EntryRow {
-            id: string(columns.get(row, "id")),
-            seq: sequence(columns.get(row, "seq")),
-            kind: string(columns.get(row, "type")),
-            datetime: datetime(columns.get(row, "date"), columns.get(row, "time")),
-            flag: optional_string(columns.get(row, "flag")),
-            payee: optional_string(columns.get(row, "payee")),
-            narration: optional_string(columns.get(row, "narration")),
-            tags: strings(columns.get(row, "tags")),
-            links: strings(columns.get(row, "links")),
-            metas: metas(columns.get(row, "metas")),
-        }
+    fn of(columns: &Columns, row: &[Value]) -> ServerResult<EntryRow> {
+        Ok(EntryRow {
+            id: string(columns.get(row, "id")?),
+            seq: sequence(columns.get(row, "seq")?),
+            kind: string(columns.get(row, "type")?),
+            datetime: datetime(columns.get(row, "date")?, columns.get(row, "time")?),
+            flag: optional_string(columns.get(row, "flag")?),
+            payee: optional_string(columns.get(row, "payee")?),
+            narration: optional_string(columns.get(row, "narration")?),
+            tags: strings(columns.get(row, "tags")?),
+            links: strings(columns.get(row, "links")?),
+            metas: metas(columns.get(row, "metas")?),
+        })
     }
 }
 
@@ -251,31 +252,31 @@ struct PostingRow {
 }
 
 impl PostingRow {
-    fn of(columns: &Columns, row: &[Value]) -> PostingRow {
-        let currency = string(columns.get(row, "currency"));
-        let in_currency = |name| Amount::new(columns.get(row, name).as_decimal().unwrap_or_default(), currency.clone());
-        let units = in_currency("number");
+    fn of(columns: &Columns, row: &[Value]) -> ServerResult<PostingRow> {
+        let currency = string(columns.get(row, "currency")?);
+        let in_currency = |name| -> ServerResult<Amount> { Ok(Amount::new(columns.get(row, name)?.as_decimal().unwrap_or_default(), currency.clone())) };
+        let units = in_currency("number")?;
         // the cost of its lots when they all have the same; none when booking split it across lots of different costs
-        let same = |min: &str, max: &str| columns.get(row, min) == columns.get(row, max);
-        let every_lot_at_cost = columns.get(row, "lots") == columns.get(row, "lots_at_cost");
-        let cost = match (columns.get(row, "cost_number").as_decimal(), columns.get(row, "cost_currency").as_str()) {
-            (Some(number), Some(currency)) if every_lot_at_cost && same("cost_number", "max_cost_number") && same("cost_currency", "max_cost_currency") => {
+        let same = |min: &str, max: &str| -> ServerResult<bool> { Ok(columns.get(row, min)? == columns.get(row, max)?) };
+        let every_lot_at_cost = same("lots", "lots_at_cost")?;
+        let cost = match (columns.get(row, "cost_number")?.as_decimal(), columns.get(row, "cost_currency")?.as_str()) {
+            (Some(number), Some(currency)) if every_lot_at_cost && same("cost_number", "max_cost_number")? && same("cost_currency", "max_cost_currency")? => {
                 Some(Amount::new(number, currency))
             }
             _ => None,
         };
-        PostingRow {
-            balanced: columns.get(row, "balanced").as_bool().unwrap_or(true),
+        Ok(PostingRow {
+            balanced: columns.get(row, "balanced")?.as_bool().unwrap_or(true),
             posting: JournalTransactionPostingEntity {
-                account: string(columns.get(row, "account")),
-                unit: (!columns.get(row, "automatic").as_bool().unwrap_or(false)).then(|| units.clone()),
+                account: string(columns.get(row, "account")?),
+                unit: (!columns.get(row, "automatic")?.as_bool().unwrap_or(false)).then(|| units.clone()),
                 cost,
                 inferred_unit: units,
-                account_before: in_currency("balance_before"),
-                account_after: in_currency("balance_after"),
-                metas: metas(columns.get(row, "metas")),
+                account_before: in_currency("balance_before")?,
+                account_after: in_currency("balance_after")?,
+                metas: metas(columns.get(row, "metas")?),
             },
-        }
+        })
     }
 }
 
@@ -291,16 +292,16 @@ struct BalanceCheckRow {
 }
 
 impl BalanceCheckRow {
-    fn of(columns: &Columns, row: &[Value]) -> BalanceCheckRow {
-        BalanceCheckRow {
-            account: string(columns.get(row, "account")),
-            tolerance: columns.get(row, "tolerance").as_decimal(),
-            actual: amount(columns.get(row, "actual")),
-            difference: amount(columns.get(row, "difference")),
-            asserted: amount(columns.get(row, "asserted")),
-            amount: amount(columns.get(row, "amount")),
-            passed: columns.get(row, "passed").as_bool().unwrap_or(false),
-        }
+    fn of(columns: &Columns, row: &[Value]) -> ServerResult<BalanceCheckRow> {
+        Ok(BalanceCheckRow {
+            account: string(columns.get(row, "account")?),
+            tolerance: columns.get(row, "tolerance")?.as_decimal(),
+            actual: amount(columns.get(row, "actual")?),
+            difference: amount(columns.get(row, "difference")?),
+            asserted: amount(columns.get(row, "asserted")?),
+            amount: amount(columns.get(row, "amount")?),
+            passed: columns.get(row, "passed")?.as_bool().unwrap_or(false),
+        })
     }
 }
 
@@ -399,22 +400,22 @@ pub async fn info_for_new_transaction(ledger: &SharedLedger) -> ServerResult<Inf
 pub async fn documents(ledger: &SharedLedger) -> ServerResult<Vec<DocumentEntity>> {
     with_ledger(&ledger.0, |ledger| {
         let result = execute(ledger, DOCUMENTS, &Params::new(), false)?;
-        let columns = Columns::of(&result);
-        Ok(result
+        let columns = Columns::of(DOCUMENTS, &result);
+        result
             .rows
             .iter()
             .map(|row| {
-                let path = string(columns.get(row, "path"));
-                DocumentEntity {
-                    datetime: datetime(columns.get(row, "date"), columns.get(row, "time")),
+                let path = string(columns.get(row, "path")?);
+                Ok(DocumentEntity {
+                    datetime: datetime(columns.get(row, "date")?, columns.get(row, "time")?),
                     filename: Path::new(&path).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default(),
                     extension: mime_guess::from_path(&path).first().map(|it| it.to_string()),
-                    account: optional_string(columns.get(row, "account")),
-                    trx_id: optional_string(columns.get(row, "transaction_id")),
+                    account: optional_string(columns.get(row, "account")?),
+                    trx_id: optional_string(columns.get(row, "transaction_id")?),
                     path,
-                }
+                })
             })
-            .collect())
+            .collect()
     })
     .await
 }
@@ -427,28 +428,31 @@ pub async fn errors(ledger: &SharedLedger, params: JournalRequest) -> ServerResu
     let (page, size, offset) = page_window(&params)?;
     with_ledger(&ledger.0, move |ledger| {
         let result = execute(ledger, ERRORS, &Params::new().bind("size", i64::from(size)).bind("offset", offset), true)?;
-        let columns = Columns::of(&result);
+        let columns = Columns::of(ERRORS, &result);
         let records = result
             .rows
             .iter()
             .map(|row| {
-                let position = |name| columns.get(row, name).as_int().and_then(|it| usize::try_from(it).ok());
-                let span = position("span_start").map(|start| SpanInfoEntity {
-                    start,
-                    end: position("span_end").unwrap_or(start),
-                    content: string(columns.get(row, "source")),
-                    filename: optional_string(columns.get(row, "file")),
-                    line: position("line"),
-                    column: position("column"),
-                });
-                ErrorEntity {
-                    id: string(columns.get(row, "id")),
+                let position = |name| -> ServerResult<Option<usize>> { Ok(columns.get(row, name)?.as_int().and_then(|it| usize::try_from(it).ok())) };
+                let span = match position("span_start")? {
+                    Some(start) => Some(SpanInfoEntity {
+                        start,
+                        end: position("span_end")?.unwrap_or(start),
+                        content: string(columns.get(row, "source")?),
+                        filename: optional_string(columns.get(row, "file")?),
+                        line: position("line")?,
+                        column: position("column")?,
+                    }),
+                    None => None,
+                };
+                Ok(ErrorEntity {
+                    id: string(columns.get(row, "id")?),
                     span,
-                    error_type: ErrorKind::from_str(columns.get(row, "kind").as_str().unwrap_or_default()).unwrap_or(ErrorKind::PluginError),
-                    metas: columns.get(row, "metas").as_metas().unwrap_or_default().iter().cloned().collect(),
-                }
+                    error_type: ErrorKind::from_str(columns.get(row, "kind")?.as_str().unwrap_or_default()).unwrap_or(ErrorKind::PluginError),
+                    metas: columns.get(row, "metas")?.as_metas().unwrap_or_default().iter().cloned().collect(),
+                })
             })
-            .collect();
+            .collect::<ServerResult<Vec<_>>>()?;
         Ok(Pageable::new(total(&result), page, size, records))
     })
     .await

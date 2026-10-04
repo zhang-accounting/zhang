@@ -42,6 +42,10 @@ pub enum ServerError {
     #[error("there is no built-in query named {0}")]
     UnknownBuiltinQuery(String),
 
+    /// the mapping of a built-in query read a column the query does not select, a bug; answered with HTTP 500
+    #[error("the built-in query {query} has no column {column}")]
+    MissingColumn { query: String, column: String },
+
     /// the files of the ledger changed, and cannot be loaded as they are now: a write that edits the ledger as loaded
     /// writes nothing until they are fixed. Answered with HTTP 409
     #[error("the ledger cannot be loaded from its files as they are now, so nothing was written. Fix them in the file editor, then try again: {0}")]

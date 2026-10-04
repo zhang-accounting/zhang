@@ -926,7 +926,7 @@ option "operating_currency" "CNY"
             other => panic!("{:?}", other),
         };
         // `activity` is a number in the budget's currency
-        let activity = |row: &crate::cells::Row<'_>| match (row.get("activity"), row.get("currency")) {
+        let activity = |row: &crate::cells::Row<'_>| match (row.get("activity").unwrap(), row.get("currency").unwrap()) {
             (Value::Decimal(number), Value::Str(currency)) => json!({"number": number.to_string(), "commodity": currency}),
             other => panic!("{:?}", other),
         };
@@ -937,22 +937,22 @@ option "operating_currency" "CNY"
             let (list, infos) = {
                 let ledger = ledger.read().await;
                 let result = crate::builtin::execute(&ledger, "budgets.month", &Params::new().bind("month", date), false).unwrap();
-                let list = rows(&result)
+                let list = rows("budgets.month", &result)
                     .map(|row| {
                         json!({
-                            "name": cell(row.get("name")), "alias": cell(row.get("alias")), "category": cell(row.get("category")),
-                            "closed": cell(row.get("closed")), "assigned_amount": cell(row.get("assigned")),
-                            "activity_amount": activity(&row), "available_amount": cell(row.get("available")),
+                            "name": cell(row.get("name").unwrap()), "alias": cell(row.get("alias").unwrap()), "category": cell(row.get("category").unwrap()),
+                            "closed": cell(row.get("closed").unwrap()), "assigned_amount": cell(row.get("assigned").unwrap()),
+                            "activity_amount": activity(&row), "available_amount": cell(row.get("available").unwrap()),
                         })
                     })
                     .collect::<Vec<_>>();
                 let infos = ["food", "trip"].map(|name| {
                     let params = Params::new().bind("name", name).bind("month", date);
                     let result = crate::builtin::execute(&ledger, "budgets.budget_month", &params, false).unwrap();
-                    let figures = rows(&result).next().map(|row| {
+                    let figures = rows("budgets.budget_month", &result).next().map(|row| {
                         json!({
-                            "closed": cell(row.get("closed")), "assigned_amount": cell(row.get("assigned")),
-                            "activity_amount": activity(&row), "available_amount": cell(row.get("available")),
+                            "closed": cell(row.get("closed").unwrap()), "assigned_amount": cell(row.get("assigned").unwrap()),
+                            "activity_amount": activity(&row), "available_amount": cell(row.get("available").unwrap()),
                         })
                     });
                     (name, figures)
