@@ -972,10 +972,18 @@ fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
 
 /// Parse a full zhang text file into a list of spanned directives.
 pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<Directive>>, ParseError> {
-    let file = file.into();
+    parse_items(input_str, file.into(), content_item, error_at)
+}
+
+/// Read a whole text file with a format's item parser and error constructor. Both formats
+/// share whitespace handling, byte spans, escape-error locations and the progress guard;
+/// their directive grammars and public error types remain with the callers.
+pub fn parse_items<'a, T: std::fmt::Debug + PartialEq, E>(
+    input_str: &'a str, file: Option<PathBuf>, mut item: impl FnMut(&'a str) -> IResult<&'a str, Option<T>>, error_at: impl Fn(&'a str, &'a str, &str) -> E,
+) -> Result<Vec<Spanned<T>>, E> {
     let original = input_str;
     let mut rest = input_str;
-    let mut directives: Vec<Spanned<Directive>> = Vec::new();
+    let mut directives = Vec::new();
 
     loop {
         while let Ok((next, _)) = blank_line(rest) {
@@ -986,7 +994,7 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
         }
 
         let start = offset(original, rest);
-        let (next, directive) = content_item(rest).map_err(|err| match invalid_escape_at(&err) {
+        let (next, directive) = item(rest).map_err(|err| match invalid_escape_at(&err) {
             Some(escape) => error_at(original, escape, "invalid escape sequence"),
             None => error_at(original, rest, "unexpected input"),
         })?;
