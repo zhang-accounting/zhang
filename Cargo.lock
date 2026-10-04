@@ -1281,7 +1281,6 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
  "crypto-common 0.1.7",
- "subtle",
 ]
 
 [[package]]
@@ -1984,15 +1983,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "hmac"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
-dependencies = [
- "digest 0.10.7",
-]
 
 [[package]]
 name = "hmac"
@@ -3928,7 +3918,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "hex",
- "hmac 0.13.0",
+ "hmac",
  "http 1.5.0",
  "jiff",
  "log",
@@ -6882,7 +6872,7 @@ dependencies = [
  "futures-util",
  "gotcha",
  "gotcha_core",
- "hmac 0.12.1",
+ "hmac",
  "indexmap 2.14.2",
  "itertools",
  "log",
@@ -6896,7 +6886,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_qs",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "strum",
  "tempfile",
  "thiserror 2.0.21",
