@@ -37,7 +37,7 @@ thiserror = "2"
 tokio = { version = "1", features = ['macros', "tracing", "signal", "rt-multi-thread"] }
 log = "0.4"
 itertools = "0.14"
-strum = { version = "0.26", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 # pinned: from 0.4.8 on, a zero is displayed without its scale ("0" instead of "0.00"), which changes zhang's API JSON
 # and written ledgers
 bigdecimal = { version = "=0.4.3", features = ["serde"] }
