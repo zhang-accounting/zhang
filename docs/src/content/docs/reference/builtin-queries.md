@@ -3,12 +3,16 @@ title: Built-in Queries
 description: The documented BQL queries behind the figures Zhang shows, how to open one on the Query page and adapt it, and the HTTP endpoints that list them and fill in their parameters.
 ---
 
-The figures Zhang shows are moving onto *built-in queries* ([#479](https://github.com/zhang-accounting/zhang/issues/479)). A built-in query is a named query in Zhang's [query language](/reference/query-language/) that a page runs against your ledger, with a few parameters such as the dates of a report. The page only arranges the result, so the logic behind a figure is a query you can read on this page.
+Zhang's read endpoints use *built-in queries* ([#479](https://github.com/zhang-accounting/zhang/issues/479)). A built-in query is a named query in Zhang's [query language](/reference/query-language/) that a page runs against your ledger, with a few parameters such as the dates of a report. The page only arranges the result, so the logic behind a figure is a query you can read on this page.
 
 You can open the query behind a figure on the **Query** page, with the values the page used filled in, and change it: another date range, more accounts, another grouping, a chart. Anything the app shows, you can also query, and vary, without waiting for a new release.
 
-:::note[Moving in progress]
-The sections below list the built-in queries by page. A page whose section has no queries yet still computes its figures in code.
+:::note[Library API migration]
+The read endpoint migration removes the old `Operations` balance, account-list, payee-list and budget calculation methods, `AccountBalanceDomain`, `Store.budgets` and its aggregate types. These fields are also removed from the serialized Store returned by the WASM playground. Use the queries below, `#budget_definitions`, `#budgets` and `#budget_events` instead.
+
+Rust `PostingDomain` no longer stores `previous_amount` or `after_amount`; the Python binding's getters with those names are also removed. Use the query engine's [`account_balance`](/reference/query-language/#the-account-balance) column for a posting's actual running balance. `inferred_amount` still gives the units that the posting books. Budget event kinds in the HTTP response remain `AddAssignedAmount` and `Transfer`; the Rust response enum now lives in `zhang_server::response`.
+
+`GET /api/store` was retired separately in [#606](https://github.com/zhang-accounting/zhang/pull/606). Read through the public endpoints or `POST /api/query`.
 :::
 
 ## Opening a query

@@ -1,13 +1,10 @@
 use std::collections::HashMap;
-use std::ops::{Add, Mul};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
-use bigdecimal::{BigDecimal, Zero};
 use itertools::Itertools;
 use log::{trace, warn};
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
@@ -94,17 +91,6 @@ impl DirectiveProcess for Transaction {
                 Some(written) => (written.units.clone(), written.cost.clone()),
                 None => (posting.units.clone(), posting.cost.clone()),
             };
-            let option = operations.account_target_day_balance(
-                posting.account.name(),
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                &inferred_amount.commodity,
-            )?;
-
-            let previous = option.unwrap_or(Amount {
-                number: BigDecimal::zero(),
-                commodity: inferred_amount.commodity.clone(),
-            });
-            let after_number = (&previous.number).add(&inferred_amount.number);
             operations.insert_transaction_posting(
                 &id,
                 posting_idx,
@@ -112,9 +98,7 @@ impl DirectiveProcess for Transaction {
                 posting.account.name(),
                 unit,
                 cost,
-                inferred_amount.clone(),
-                Amount::new(previous.number, previous.commodity.clone()),
-                Amount::new(after_number, previous.commodity),
+                inferred_amount,
                 posting.meta.clone(),
             )?;
 
@@ -123,16 +107,13 @@ impl DirectiveProcess for Transaction {
             // transaction that loses activity, instead of once per posting
             let budgets_name = operations.get_account_budget(posting.account.name())?;
             for budget in budgets_name {
-                if !operations.contains_budget(&budget) {
+                if !super::budget::is_defined(ledger, &budget) {
                     let account_name = posting.account.name().to_owned();
                     if ledger.reported_undefined_budgets.insert((account_name.clone(), budget.clone())) {
                         let metas = HashMap::of2("account_name", account_name, "budget_name", budget);
                         operations.new_error(ErrorKind::BudgetDoesNotExist, span, metas)?;
                     }
-                    continue;
                 }
-                let budget_activity_amount = inferred_amount.mul(BigDecimal::from(posting.account.get_account_sign()));
-                operations.budget_add_activity(budget, self.date.to_timezone_datetime(&ledger.options.timezone), budget_activity_amount)?;
             }
         }
         for error in booked.errors {

@@ -1,10 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
-#[cfg(feature = "openapi")]
-use gotcha_core::Schematic;
 use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
@@ -18,14 +16,8 @@ pub struct Store {
     pub accounts: HashMap<String, AccountDomain>,
     pub commodities: IndexMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionDomain>,
-    /// in insertion order. The load appends with `Store::push_posting`, which keeps the index of
-    /// `Store::last_posting_at` in step; nothing removes or reorders a posting
+    /// Booked postings in store order; running balances are computed by the query engine.
     pub postings: Vec<PostingDomain>,
-    /// per account and commodity of `after_amount`, the positions in [`Store::postings`] of its postings, sorted by
-    /// `(trx_datetime, position)`. A posting pushed to `postings` directly, not with [`Store::push_posting`], is not
-    /// in it
-    #[serde(skip)]
-    posting_index: HashMap<String, HashMap<String, Vec<usize>>>,
 
     /// the `balance` assertions, in ledger order. They are not transactions and have no postings:
     /// an assertion changes no balance
@@ -35,8 +27,6 @@ pub struct Store {
     pub(crate) balance_assertion_ids: HashSet<Uuid>,
 
     pub prices: Vec<PriceDomain>,
-
-    pub budgets: HashMap<String, BudgetDomain>,
 
     // by account
     pub commodity_lots: HashMap<String, Vec<CommodityLotRecord>>,
@@ -62,31 +52,6 @@ pub struct Store {
 }
 
 impl Store {
-    /// append a posting to [`Store::postings`] and index it. Every indexed position is lower than the new one, so the
-    /// new position goes after those dated on or before the posting and before those dated after it, which keeps
-    /// the positions sorted by `(trx_datetime, position)` when postings come out of datetime order
-    pub(crate) fn push_posting(&mut self, posting: PostingDomain) {
-        let position = self.postings.len();
-        let datetime = posting.trx_datetime;
-        let positions = self
-            .posting_index
-            .entry(posting.account.name().to_owned())
-            .or_default()
-            .entry(posting.after_amount.commodity.clone())
-            .or_default();
-        self.postings.push(posting);
-        let postings = &self.postings;
-        positions.insert(positions.partition_point(|&it| postings[it].trx_datetime <= datetime), position);
-    }
-
-    /// of the postings of `account` whose `after_amount` is in `commodity`, the latest dated on or before `datetime`,
-    /// and of several dated the same, the last inserted: the last of a stable sort by datetime
-    pub(crate) fn last_posting_at(&self, account: &str, commodity: &str, datetime: DateTime<Tz>) -> Option<&PostingDomain> {
-        let positions = self.posting_index.get(account)?.get(commodity)?;
-        let on_or_before = positions.partition_point(|&it| self.postings[it].trx_datetime <= datetime);
-        on_or_before.checked_sub(1).map(|it| &self.postings[positions[it]])
-    }
-
     /// append a meta to [`Store::metas`] and index it, with any meta pushed to `metas` directly since the last one
     pub(crate) fn push_meta(&mut self, meta: MetaDomain) {
         self.metas.push(meta);
@@ -190,8 +155,6 @@ pub struct PostingDomain {
     pub unit: Option<Amount>,
     pub cost: Option<Amount>,
     pub inferred_amount: Amount,
-    pub previous_amount: Amount,
-    pub after_amount: Amount,
     /// metadata of the posting, sorted by key (the values of a repeated key in ledger
     /// order). The transaction's own metadata is in [`Store::metas`].
     pub metas: Vec<PostingMetaDomain>,
@@ -277,41 +240,6 @@ pub struct CommodityLotRecord {
     pub label: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct BudgetDomain {
-    pub name: String,
-    pub alias: Option<String>,
-    pub category: Option<String>,
-    pub closed: bool,
-    pub detail: BTreeMap<u32, BudgetIntervalDetail>,
-    pub commodity: String,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct BudgetIntervalDetail {
-    /// year and month pair, calculated as `year*100+month`, E.G. `202312`
-    pub date: u32,
-    pub assigned_amount: Amount,
-    // todo: budget event for addition, transfer and close
-    pub events: Vec<BudgetEvent>,
-    pub activity_amount: Amount,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct BudgetEvent {
-    pub datetime: DateTime<Tz>,
-    pub timestamp: i64,
-    pub amount: Amount,
-    pub event_type: BudgetEventType,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-#[cfg_attr(feature = "openapi", derive(Schematic))]
-pub enum BudgetEventType {
-    AddAssignedAmount,
-    Transfer,
-}
-
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
@@ -350,112 +278,6 @@ mod test {
 
         let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
         assert_eq!(account_type.as_trx(), None);
-    }
-}
-
-#[cfg(test)]
-mod posting_index_test {
-    use bigdecimal::{BigDecimal, Zero};
-    use chrono::{DateTime, Duration, TimeZone};
-    use chrono_tz::Tz;
-    use itertools::Itertools;
-    use uuid::Uuid;
-    use zhang_ast::amount::Amount;
-    use zhang_ast::{Flag, Meta, SpanInfo};
-
-    use crate::domains::Operations;
-    use crate::store::Store;
-
-    /// the day balance as found before the postings were indexed: scan every posting, keep those of the account
-    /// and commodity dated on or before `datetime`, sort them by datetime (a stable sort) and take the last
-    fn scan(store: &Store, account: &str, commodity: &str, datetime: DateTime<Tz>) -> Option<BigDecimal> {
-        store
-            .postings
-            .iter()
-            .filter(|posting| posting.account.name() == account)
-            .filter(|posting| posting.after_amount.commodity == commodity)
-            .filter(|posting| posting.trx_datetime <= datetime)
-            .sorted_by_key(|posting| posting.trx_datetime)
-            .next_back()
-            .map(|posting| posting.after_amount.number.clone())
-    }
-
-    /// After every transaction, the indexed lookup finds the posting a scan of every posting finds, at every datetime
-    /// of the ledger and between them. The transactions come out of datetime order, many postings share a datetime
-    /// (also within one transaction), and they spread over an account, its sub-account and another account, each in
-    /// several commodities. Every posting has its own number, so a lookup that finds another posting fails
-    #[test]
-    fn the_day_balance_lookup_finds_what_a_scan_of_every_posting_finds() {
-        let timezone = Tz::Asia__Shanghai;
-        let mut operations = Operations {
-            timezone,
-            store: Default::default(),
-        };
-        let accounts = ["Assets:Bank", "Assets:Bank:Card", "Expenses:Food"];
-        let commodities = ["CNY", "USD", "BTC"];
-        // a few datetimes, two of them a second apart, so that many postings share one
-        let datetimes = [(1, 1, 0, 0), (1, 1, 0, 1), (1, 2, 12, 0), (2, 1, 0, 0), (3, 1, 0, 0)]
-            .map(|(month, day, hour, second)| timezone.with_ymd_and_hms(2024, month, day, hour, 0, second).unwrap());
-        // every datetime, an hour before and an hour after it: before all, between and after all of them
-        let targets = datetimes
-            .iter()
-            .flat_map(|datetime| [*datetime - Duration::hours(1), *datetime, *datetime + Duration::hours(1)])
-            .collect_vec();
-
-        // xorshift: the same sequence on every run
-        let mut state = 0x2545_f491_4f6c_dd1d_u64;
-        let mut below = |bound: usize| {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            (state % bound as u64) as usize
-        };
-        let mut latest = datetimes[0];
-        let mut out_of_order = 0;
-        for sequence in 0..120 {
-            let id = Uuid::from_u128(sequence as u128 + 1);
-            let datetime = datetimes[below(datetimes.len())];
-            if datetime < latest {
-                out_of_order += 1;
-            }
-            latest = latest.max(datetime);
-            operations
-                .insert_transaction(&id, sequence, datetime, Flag::Okay, None, None, vec![], vec![], &SpanInfo::default())
-                .unwrap();
-            for posting_idx in 0..1 + below(3) {
-                let account = accounts[below(accounts.len())];
-                let commodity = commodities[below(commodities.len())];
-                let zero = Amount::new(BigDecimal::zero(), commodity);
-                let after = Amount::new(BigDecimal::from(sequence * 10 + posting_idx as i32), commodity);
-                operations
-                    .insert_transaction_posting(&id, posting_idx, None, account, None, None, zero.clone(), zero, after, Meta::default())
-                    .unwrap();
-            }
-
-            for account in accounts {
-                for commodity in commodities.into_iter().chain(["EUR"]) {
-                    for target in targets.iter().copied() {
-                        let found = operations.account_target_day_balance(account, target, commodity).unwrap();
-                        let scanned = scan(&operations.read(), account, commodity, target);
-                        assert_eq!(
-                            found.map(|it| it.number),
-                            scanned,
-                            "{account} in {commodity} at {target}, after transaction {sequence}"
-                        );
-                    }
-                }
-            }
-        }
-
-        let store = operations.read();
-        let sharing_a_datetime = store
-            .postings
-            .iter()
-            .map(|posting| (posting.account.name(), &posting.after_amount.commodity, posting.trx_datetime))
-            .duplicates()
-            .count();
-        assert!(out_of_order > 0, "some transactions come out of datetime order");
-        assert!(sharing_a_datetime > 0, "some postings of an account and commodity share a datetime");
     }
 }
 

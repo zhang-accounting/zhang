@@ -13,7 +13,6 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::{AccountType, Currency};
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus, QueryDomain};
 use zhang_core::plugin::PluginType;
-use zhang_core::store::BudgetEventType;
 
 use crate::error::ServerError;
 use crate::ServerResult;
@@ -332,6 +331,13 @@ pub struct BudgetInfoEntity {
     pub assigned_amount: Amount,
     pub activity_amount: Amount,
     pub available_amount: Amount,
+}
+
+/// The event kinds in the existing budget HTTP response.
+#[derive(Clone, Debug, Serialize, Schematic)]
+pub enum BudgetEventType {
+    AddAssignedAmount,
+    Transfer,
 }
 
 #[derive(Serialize, Schematic)]

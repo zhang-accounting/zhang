@@ -264,14 +264,33 @@ fn month_pair(date: NaiveDate) -> (u32, u32) {
 pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     let ledger = ledger.read().await;
     let store = ledger.store.read().unwrap();
-    let budgets = store.budgets.keys().cloned().collect::<BTreeSet<_>>();
+    // Discover the probe domain from the fixture's directives, independently of the engine.
+    let budgets = ledger
+        .directives
+        .iter()
+        .filter_map(|directive| match &directive.data {
+            zhang_ast::Directive::Budget(budget) => Some(budget.name.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let budget_dates = ledger
+        .directives
+        .iter()
+        .filter_map(|directive| match &directive.data {
+            zhang_ast::Directive::Budget(budget) => Some(budget.date.naive_date()),
+            zhang_ast::Directive::BudgetAdd(add) => Some(add.date.naive_date()),
+            zhang_ast::Directive::BudgetTransfer(transfer) => Some(transfer.date.naive_date()),
+            zhang_ast::Directive::BudgetClose(close) => Some(close.date.naive_date()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let first = budget_dates.iter().min().copied();
+    let last_detail = budget_dates.iter().max().copied();
     let mut months = BTreeSet::new();
-    let first = store.budgets.values().flat_map(|it| it.detail.keys()).min().copied();
-    let last_detail = store.budgets.values().flat_map(|it| it.detail.keys()).max().copied();
     let last_posting = store.postings.iter().map(|it| it.trx_datetime.date_naive()).max();
     if let (Some(first), Some(last)) = (first, last_detail) {
-        let first = NaiveDate::from_ymd_opt((first / 100) as i32, first % 100, 1).unwrap();
-        let last = NaiveDate::from_ymd_opt((last / 100) as i32, last % 100, 1).unwrap();
+        let first = first.with_day(1).unwrap();
+        let last = last.with_day(1).unwrap();
         let last = last_posting.map(|it| it.with_day(1).unwrap()).map_or(last, |it| it.max(last));
         let start = first - Months::new(1);
         let end = last + Months::new(2);

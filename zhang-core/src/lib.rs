@@ -214,9 +214,9 @@ mod test {
             documents.sort();
             assert_eq!(documents, vec!["receipts/posting.pdf", "receipts/transaction.pdf"]);
 
-            // budgets read the account metadata as before
-            let detail = operations.budget_month_detail("food", 202401)?.expect("budget month");
-            assert_eq!(detail.activity_amount.number, bigdecimal::BigDecimal::from(5));
+            // Budget ownership remains account metadata; figures are computed by zhang-query.
+            let budgets = operations.metas(MetaType::AccountMeta, "Expenses:Food")?;
+            assert_eq!(budgets.iter().find(|meta| meta.key == "budget").unwrap().value, "food");
             Ok(())
         }
 
@@ -303,18 +303,29 @@ mod test {
                   Expenses:A
             "#})
             .ledger;
-            let mut operations = ledger.operations();
-            let result = operations.all_accounts().unwrap();
+            let store = ledger.store.read().unwrap();
+            let result = store.accounts.keys().cloned().collect::<Vec<_>>();
             assert!(result.contains(&"Assets:A".to_owned()));
             assert!(result.contains(&"Expenses:A".to_owned()));
         }
     }
 
     mod account_balance {
+        use std::collections::BTreeMap;
+
         use bigdecimal::BigDecimal;
         use indoc::indoc;
 
+        use crate::ledger::Ledger;
         use crate::test::load_from_text;
+
+        fn balances(ledger: &Ledger, account: &str) -> BTreeMap<String, BigDecimal> {
+            let mut amounts = BTreeMap::new();
+            for posting in ledger.store.read().unwrap().postings.iter().filter(|posting| posting.account.name() == account) {
+                *amounts.entry(posting.inferred_amount.commodity.clone()).or_default() += &posting.inferred_amount.number;
+            }
+            amounts
+        }
 
         #[test]
         fn should_return_zero_balance_given_zero_directive() -> Result<(), Box<dyn std::error::Error>> {
@@ -322,9 +333,7 @@ mod test {
                 1970-01-01 open Assets:MyCard
             "#});
 
-            let operations = ledger.operations();
-
-            let result = operations.single_account_latest_balances("Assets:MyCard")?;
+            let result = balances(&ledger, "Assets:MyCard");
             assert_eq!(0, result.len());
 
             Ok(())
@@ -339,17 +348,8 @@ mod test {
                   Expenses:Lunch 50 CNY
             "#});
 
-            let operations = ledger.operations();
-
-            let lunch_balance = operations.single_account_latest_balances("Expenses:Lunch")?.pop().unwrap();
-            assert_eq!(lunch_balance.account, "Expenses:Lunch");
-            assert_eq!(lunch_balance.balance.number, BigDecimal::from(50));
-            assert_eq!(lunch_balance.balance.commodity, "CNY");
-
-            let card_balance = operations.single_account_latest_balances("Assets:MyCard")?.pop().unwrap();
-            assert_eq!(card_balance.account, "Assets:MyCard");
-            assert_eq!(card_balance.balance.number, BigDecimal::from(-50));
-            assert_eq!(card_balance.balance.commodity, "CNY");
+            assert_eq!(balances(&ledger, "Expenses:Lunch"), BTreeMap::from([("CNY".to_owned(), BigDecimal::from(50))]));
+            assert_eq!(balances(&ledger, "Assets:MyCard"), BTreeMap::from([("CNY".to_owned(), BigDecimal::from(-50))]));
             Ok(())
         }
 
@@ -368,12 +368,7 @@ mod test {
                     Expenses:B
             "#});
 
-            let operations = ledger.operations();
-
-            let mut result = operations.single_account_latest_balances("Assets:A").unwrap();
-            let balance = result.pop().unwrap();
-            assert_eq!(balance.balance.number, BigDecimal::from(2970i32));
-            assert_eq!(balance.balance.commodity, "CNY");
+            assert_eq!(balances(&ledger, "Assets:A"), BTreeMap::from([("CNY".to_owned(), BigDecimal::from(2970))]));
         }
     }
     mod commodity {
@@ -655,56 +650,6 @@ mod test {
             // 00:00 -04 = 04:00 UTC = 01:00 -03
             assert_eq!(transaction_instants(&ledger)["this day has no midnight"], utc("2023-09-03T04:00:00Z"));
             Ok(())
-        }
-    }
-
-    mod transaction {
-        use indoc::indoc;
-
-        use crate::test::load_store;
-
-        #[test]
-        fn should_get_all_payees() {
-            let ledger = load_store(indoc! {r#"
-                1970-01-01 commodity USD
-                1970-01-01 open Assets:A
-                1970-01-01 open Expenses:A
-
-                1970-01-02 "Apple Inc" "iPhone 15"
-                  Assets:A -1000 USD
-                  Expenses:A
-
-                1970-01-02 "Origan Inc" "iPhone 15"
-                  Assets:A -1000 USD
-                  Expenses:A
-            "#})
-            .ledger;
-            let mut operations = ledger.operations();
-            let result = operations.all_payees().unwrap();
-            assert!(result.contains(&"Origan Inc".to_owned()));
-            assert!(result.contains(&"Apple Inc".to_owned()));
-        }
-
-        #[test]
-        fn should_remove_duplicated_payees() {
-            let ledger = load_store(indoc! {r#"
-                1970-01-01 commodity USD
-                1970-01-01 open Assets:A
-                1970-01-01 open Expenses:A
-
-                1970-01-02 "Apple Inc" "iPhone 15"
-                  Assets:A -1000 USD
-                  Expenses:A
-
-                1970-01-02 "Apple Inc" "iPhone 15"
-                  Assets:A -1000 USD
-                  Expenses:A
-            "#})
-            .ledger;
-            let mut operations = ledger.operations();
-            let result = operations.all_payees().unwrap();
-            assert!(result.contains(&"Apple Inc".to_owned()));
-            assert_eq!(1, result.len());
         }
     }
 }
