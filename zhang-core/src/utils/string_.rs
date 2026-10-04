@@ -58,9 +58,6 @@ use zhang_ast::{SpanInfo, ZhangString};
 
 pub trait StringExt {
     fn to_quote(&self) -> ZhangString;
-    fn to_unquote(&self) -> ZhangString;
-    fn into_quote(self) -> ZhangString;
-    fn into_unquote(self) -> ZhangString;
 
     fn replace_by_span(&mut self, span: &SpanInfo, content: &str);
 }
@@ -68,18 +65,6 @@ pub trait StringExt {
 impl StringExt for String {
     fn to_quote(&self) -> ZhangString {
         ZhangString::QuoteString(self.to_owned())
-    }
-
-    fn to_unquote(&self) -> ZhangString {
-        ZhangString::UnquoteString(self.to_owned())
-    }
-
-    fn into_quote(self) -> ZhangString {
-        ZhangString::QuoteString(self)
-    }
-
-    fn into_unquote(self) -> ZhangString {
-        ZhangString::UnquoteString(self)
     }
 
     fn replace_by_span(&mut self, span: &SpanInfo, content: &str) {
