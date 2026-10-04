@@ -1,0 +1,30 @@
+[
+  {
+    "uri": "/api/accounts",
+    "validations": [
+      ["$.data[?(@.name=='Assets:Bank')].amount.detail.USD", "100"],
+      ["$.data[?(@.name=='Assets:Bank')].amount.calculated.number", "800"],
+      ["$.data[?(@.name=='Assets:Bank')].amount.calculated.commodity", "CNY"]
+    ]
+  },
+  {
+    "uri": "/api/statistic/summary?from=2024-01-01&to=2024-12-31",
+    "validations": [
+      ["$.data.balance.detail.USD", "100"],
+      ["$.data.balance.calculated.number", "800"],
+      ["$.data.balance.calculated.commodity", "CNY"]
+    ]
+  },
+  {
+    "uri": "/api/commodities",
+    "validations": [
+      ["$.data[?(@.name=='USD')].total_amount", "100"]
+    ]
+  },
+  {
+    "uri": "/api/commodities/USD",
+    "validations": [
+      ["$.data.info.total_amount", "100"]
+    ]
+  }
+]

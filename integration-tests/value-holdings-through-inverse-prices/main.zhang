@@ -1,0 +1,17 @@
+option "title" "Inverse prices"
+option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Equity:Opening
+
+2024-01-02 * "Opening"
+  Assets:Bank 100 USD
+  Equity:Opening -100 USD
+
+; only the opposite direction is quoted: 1 CNY = 0.125 USD, so 1 USD = 8 CNY
+2024-01-01 price CNY 0.125 USD
+; a price in the future is not the latest price
+2099-01-01 price CNY 0.1 USD
