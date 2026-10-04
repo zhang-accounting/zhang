@@ -141,16 +141,28 @@ impl ZhangDataTypeExportable for Transaction {
 impl ZhangDataTypeExportable for Posting {
     type Output = String;
     fn export_as(self, style: QuoteStyle) -> String {
-        // todo cost and price
-        let cost_string = self.cost.map(|it| it.export_as(style));
         let vec1 = vec![
-            self.flag.map(|it| format!(" {}", it.export_as(style))),
+            // the posting's own flag goes before the account, a space apart: `! Assets:Cash -10 CNY`
+            self.flag.map(|it| it.export_as(style)),
             Some(self.account.export_as(style)),
             self.units.map(|it| it.export_as(style)),
-            cost_string,
+            self.cost.map(|it| it.export_as(style)),
             self.price.map(|it| it.export_as(style)),
+            self.comment.map(posting_comment),
         ];
         vec1.into_iter().flatten().join(" ")
+    }
+}
+
+/// The comment at the end of a posting line, after `;`, which zhang and beancount both read as a
+/// comment. It stays on the line: a line break, which only a plugin can put in a comment, is
+/// written as a space.
+fn posting_comment(comment: String) -> String {
+    let comment = comment.replace(['\r', '\n'], " ");
+    if comment.is_empty() {
+        ";".to_owned()
+    } else {
+        format!("; {comment}")
     }
 }
 
@@ -848,6 +860,67 @@ mod test {
         let reparsed = data_type.transform(expected.to_owned(), None).unwrap().pop().unwrap();
         assert_eq!(reparsed.data, directive);
         assert_eq!(data_type.export(Spanned::new(reparsed.data, SpanInfo::default())), expected);
+    }
+
+    /// A posting's own flag is written before its account, a space apart, and its comment at the
+    /// end of its line (#474): what is read is written and read back unchanged.
+    #[test]
+    fn posting_flags_and_comments_round_trip() {
+        use zhang_ast::{Directive, Flag};
+
+        use crate::utils::string_::QuoteStyle;
+
+        let source = indoc! {r#"
+            2024-01-10 * "Broker" "sell"
+              note: "t"
+              ! Assets:Broker -5 AAPL {} @ 200 USD   ; check the lot
+                receipt: "r-1"
+              *   Assets:Bank 1000 USD
+              ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD // fees
+              # Income:Gains ;
+              Expenses:Fees 2 USD
+        "#};
+        let expected = indoc! {r#"
+            2024-01-10 * "Broker" "sell"
+              note: "t"
+              ! Assets:Broker -5 AAPL { } @ 200 USD ; check the lot
+                receipt: "r-1"
+              * Assets:Bank 1000 USD
+              ? Assets:Broker 2 AAPL {{ 400 USD }} @@ 420 USD ; fees
+              # Income:Gains ;
+              Expenses:Fees 2 USD
+        "#}
+        .trim();
+        assert_eq!(parse_and_export(source.trim()), expected);
+
+        let data_type = ZhangDataType {};
+        let directive = data_type.transform(source.to_owned(), None).unwrap().pop().unwrap().data;
+        let Directive::Transaction(txn) = &directive else { unreachable!() };
+        let flags = txn.postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+        let custom = |flag: &str| Some(Flag::Custom(flag.to_owned()));
+        assert_eq!(flags, vec![Some(Flag::Warning), Some(Flag::Okay), custom("?"), custom("#"), None]);
+        assert_eq!(txn.postings[3].comment.as_deref(), Some(""));
+        // the beancount style writes the same text
+        assert_eq!(txn.clone().export_as(QuoteStyle::Beancount), expected);
+        assert_round_trips(directive);
+    }
+
+    #[test]
+    fn a_line_break_in_a_posting_comment_is_written_as_a_space() {
+        use zhang_ast::Directive;
+
+        let data_type = ZhangDataType {};
+        let mut directive = data_type
+            .transform("2024-01-10 * \"Lunch\"\n  ! Assets:Cash -10 USD\n  Expenses:Food\n".to_owned(), None)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let Directive::Transaction(txn) = &mut directive.data else { unreachable!() };
+        txn.postings[0].comment = Some("from\na plugin".to_owned());
+        assert_eq!(
+            data_type.export(directive),
+            "2024-01-10 * \"Lunch\"\n  ! Assets:Cash -10 USD ; from a plugin\n  Expenses:Food"
+        );
     }
 
     #[test]

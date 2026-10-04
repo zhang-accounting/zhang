@@ -171,7 +171,8 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
             validate::amount(unit, &rules)?;
         }
         postings.push(Posting {
-            flag: None,
+            // a request carries no posting flag: the posting it edits keeps its own, such as `!`
+            flag: original_posting.and_then(|it| it.flag.clone()),
             account: validate::account(&posting.account, &rules)?,
             units: posting.unit,
             cost: None,
@@ -424,7 +425,7 @@ mod string_round_trip_test {
     use tokio::sync::{mpsc, RwLock};
     use uuid::Uuid;
     use zhang_ast::amount::Amount;
-    use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
+    use zhang_ast::{Directive, Flag, SpanInfo, Spanned, Transaction};
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
@@ -1216,14 +1217,25 @@ mod string_round_trip_test {
     /// Write `ledger` as the `main.bean` of a new ledger, apply `update` to its only
     /// transaction and return the file written, after checking it reloads without errors.
     async fn edit_bean(ledger: &str, update: CreateTransactionRequest) -> String {
-        let dir = std::env::temp_dir().join(format!("zhang-edit-bean-{}", Uuid::new_v4()));
+        edit_ledger("main.bean", ledger, update).await.0
+    }
+
+    /// Write `ledger` as the `main` file (`main.bean` or `main.zhang`) of a new ledger, apply
+    /// `update` to its only transaction and return the file written, after checking it reloads
+    /// without errors, with the ledger it reloads to.
+    async fn edit_ledger(main: &str, ledger: &str, update: CreateTransactionRequest) -> (String, Ledger) {
+        let dir = std::env::temp_dir().join(format!("zhang-edit-ledger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
         let opens = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n";
-        std::fs::write(dir.join("main.bean"), format!("{opens}{ledger}")).unwrap();
+        std::fs::write(dir.join(main), format!("{opens}{ledger}")).unwrap();
         let load = || async {
-            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+            let source = if main.ends_with(".bean") {
+                Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
+            } else {
+                Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
+            };
+            Ledger::async_load(dir.clone(), main.to_owned(), source).await.expect("load ledger")
         };
         let loaded = load().await;
         let id = loaded.operations().read().transactions.values().next().unwrap().id;
@@ -1232,10 +1244,49 @@ mod string_round_trip_test {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
-        let written = std::fs::read_to_string(dir.join("main.bean")).unwrap();
-        assert!(load().await.operations().read().errors.is_empty(), "{written}");
+        let written = std::fs::read_to_string(dir.join(main)).unwrap();
+        let reloaded = load().await;
+        assert!(reloaded.operations().read().errors.is_empty(), "{written}");
         std::fs::remove_dir_all(dir).ok();
-        written
+        (written, reloaded)
+    }
+
+    /// An edit keeps the flag of each posting it edits (#474): a request carries no posting
+    /// flag, so the posting it is matched to, as for metadata, gives it.
+    #[tokio::test]
+    async fn an_edit_keeps_the_flags_of_the_postings() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  ! Assets:Cash -5 CNY\n    rate: 1.5\n  * Expenses:Food 5 CNY\n";
+        for main in ["main.zhang", "main.bean"] {
+            // amounts changed and postings reordered, each keeps its flag
+            let update = edit(&[("Expenses:Food", 6, &[]), ("Assets:Cash", -6, &[("rate", "1.5")])]);
+            let (written, reloaded) = edit_ledger(main, ledger, update).await;
+            let postings = &written[written.find("\n  * Expenses:Food").expect(&written)..];
+            assert_eq!(
+                postings, "\n  * Expenses:Food 6 CNY\n  ! Assets:Cash -6 CNY\n    rate: 1.5\n",
+                "{main}: {written}"
+            );
+            let flags = reloaded
+                .operations()
+                .read()
+                .postings
+                .iter()
+                .map(|it| (it.account.name().to_owned(), it.flag.clone()))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                flags,
+                vec![("Expenses:Food".to_owned(), Some(Flag::Okay)), ("Assets:Cash".to_owned(), Some(Flag::Warning))],
+                "{main}"
+            );
+
+            // a posting the request splits matches none of the transaction: it is new, without a flag
+            let update = edit(&[("Assets:Cash", -2, &[]), ("Assets:Cash", -3, &[]), ("Expenses:Food", 5, &[])]);
+            let (written, _) = edit_ledger(main, ledger, update).await;
+            let postings = &written[written.find("\n  Assets:Cash -2 CNY").expect(&written)..];
+            assert_eq!(
+                postings, "\n  Assets:Cash -2 CNY\n  Assets:Cash -3 CNY\n  * Expenses:Food 5 CNY\n",
+                "{main}: {written}"
+            );
+        }
     }
 
     /// A posting of an [`edit`]: an account, a number of CNY and its metadata.

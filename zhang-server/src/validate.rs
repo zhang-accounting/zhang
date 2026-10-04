@@ -196,11 +196,11 @@ pub fn meta_key(key: &str, rules: &Rules) -> ServerResult<()> {
 }
 
 pub fn flag(flag: &str) -> ServerResult<()> {
-    // every flag zhang reads (`*`, `!`, `#`, `A`-`Z`) is a beancount flag too
+    // every flag zhang reads (`*`, `!`, `#`, `&`, `?`, `%`, `A`-`Z`) is a beancount flag too
     if is_valid_transaction_flag(flag) {
         Ok(())
     } else {
-        Err(invalid("flag", flag, "it is `*`, `!`, `#` or an uppercase ASCII letter"))
+        Err(invalid("flag", flag, "it is `*`, `!`, `#`, `&`, `?`, `%` or an uppercase ASCII letter"))
     }
 }
 

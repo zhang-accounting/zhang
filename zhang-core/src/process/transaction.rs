@@ -75,6 +75,7 @@ impl DirectiveProcess for Transaction {
             operations.insert_transaction_posting(
                 &id,
                 posting_idx,
+                posting.flag.clone(),
                 posting.account.name(),
                 posting.units.clone(),
                 posting.cost.clone(),

@@ -289,13 +289,9 @@ fn random_layouts_attach_by_the_beancount_rule() {
     let mut rng = XorShift(0x6265_616e_0001);
     for _ in 0..1000 {
         let (text, expected) = random_layout(&mut rng, Rule::Beancount);
-        let mut txn = parse_one(&text);
+        let txn = parse_one(&text);
         assert_eq!(Shape::of(&txn), expected, "beancount format, text:\n{text:?}");
-        // and what was read is written and read back unchanged (the exporter drops posting
-        // comments, which is older and unrelated)
-        for posting in &mut txn.postings {
-            posting.comment = None;
-        }
+        // and what was read, posting comments included, is written and read back unchanged
         assert_round_trips(&txn);
     }
 }

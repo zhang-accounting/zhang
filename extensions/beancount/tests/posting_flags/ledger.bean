@@ -1,0 +1,56 @@
+; Postings with a flag of their own (#474): every flag beancount takes on a posting,
+; with metadata, a cost, a price, a comment and an elided amount. Checked against
+; beancount 3.2.3 by generate.py.
+
+option "operating_currency" "USD"
+
+2020-01-01 commodity USD
+2020-01-01 commodity AAPL
+
+2020-01-01 open Assets:Cash
+2020-01-01 open Assets:Bank
+2020-01-01 open Assets:Broker
+2020-01-01 open Expenses:Food
+2020-01-01 open Expenses:Drinks
+2020-01-01 open Expenses:Fees
+2020-01-01 open Income:Gains
+2020-01-01 open Equity:Opening
+
+2020-01-02 * "Opening"
+  Assets:Cash  100 USD
+  Assets:Bank  1000 USD
+  Equity:Opening
+
+2020-01-10 * "Lunch" "a posting flagged to check, the other elided"
+  ! Assets:Cash  -10 USD
+  Expenses:Food
+
+2020-01-11 ! "Dinner" "every posting flagged, the elided one too"
+  * Assets:Cash  -20 USD ; paid in cash
+  ! Expenses:Food  15 USD
+  #	Expenses:Drinks
+
+2020-01-12 * "Cafe" "the other flags beancount takes"
+  & Assets:Cash  -1 USD
+  ? Assets:Cash  -2 USD
+  % Assets:Cash  -3 USD
+  P Assets:Cash  -4 USD
+  C Assets:Cash  -5 USD
+  X   Expenses:Food  15 USD
+
+2020-01-13 * "Broker" "buy, with metadata"
+  ! Assets:Broker  10 AAPL {100 USD}
+    receipt: "r-1"
+  * Assets:Bank  -1000 USD
+    statement: "s-1"
+
+2020-01-14 * "Broker" "sell at a price"
+  ! Assets:Broker  -4 AAPL {} @ 110 USD ; check the gain
+  ! Assets:Bank  440 USD
+  Expenses:Fees  0 USD
+  ! Income:Gains
+
+2020-01-15 * "Broker" "a total price"
+  ? Assets:Broker  -1 AAPL {100 USD} @@ 105 USD
+  Assets:Bank  105 USD
+  Income:Gains  -5 USD

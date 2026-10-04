@@ -1,0 +1,38 @@
+; Postings with a flag of their own (#474): every flag beancount takes on a posting, on a
+; posting with metadata, a comment or an elided amount. The same ledger as main.bean.
+option "operating_currency" "USD"
+
+2020-01-01 commodity USD
+
+2020-01-01 open Assets:Cash
+2020-01-01 open Assets:Bank
+2020-01-01 open Expenses:Food
+2020-01-01 open Expenses:Drinks
+2020-01-01 open Equity:Opening
+
+2020-01-02 * "Opening"
+  Assets:Cash  100 USD
+  Assets:Bank  1000 USD
+  Equity:Opening
+
+2020-01-10 * "Lunch"
+  ! Assets:Cash  -10 USD
+  Expenses:Food
+
+2020-01-11 ! "Dinner"
+  * Assets:Cash  -20 USD ; paid in cash
+    receipt: "r-1"
+  ! Expenses:Food  15 USD
+  #	Expenses:Drinks
+
+2020-01-12 * "Cafe"
+  & Assets:Bank  -1 USD
+  ? Assets:Bank  -2 USD
+  % Assets:Bank  -3 USD
+  P Assets:Bank  -4 USD
+  X   Expenses:Drinks
+
+2020-01-13 balance Assets:Cash  70 USD
+2020-01-13 balance Assets:Bank  990 USD
+2020-01-13 balance Expenses:Food  25 USD
+2020-01-13 balance Expenses:Drinks  15 USD
