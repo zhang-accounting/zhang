@@ -231,7 +231,7 @@ impl DataSource for OpendalDataSource {
             visited.push(pathbuf);
         }
         let res = LoadResult {
-            directives: self.transform(directives)?,
+            directives,
             visited_files: visited,
         };
         Ok(res)
@@ -492,9 +492,6 @@ impl OpendalDataSource {
                 msg: it.to_string(),
             })
         }
-    }
-    fn transform(&self, directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {
-        Ok(directives)
     }
     async fn get_file_content(&self, path: PathBuf) -> ZhangResult<String> {
         let path = path.to_str().expect("cannot convert path to string");
