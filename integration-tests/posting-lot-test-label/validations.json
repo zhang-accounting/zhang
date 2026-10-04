@@ -1,0 +1,15 @@
+[
+  {
+    "uri": "/api/store",
+    "validations": [
+      ["$.data.errors.length()", 0],
+      ["$.data.commodity_lots.['Assets:L'].length()", 2],
+      ["$.data.commodity_lots.['Assets:L'].[0].amount", "10"],
+      ["$.data.commodity_lots.['Assets:L'].[0].cost.number", "10"],
+      ["$.data.commodity_lots.['Assets:L'].[0].label", "a"],
+      ["$.data.commodity_lots.['Assets:L'].[1].amount", "9"],
+      ["$.data.commodity_lots.['Assets:L'].[1].cost.number", "11"],
+      ["$.data.commodity_lots.['Assets:L'].[1].label", "b"]
+    ]
+  }
+]

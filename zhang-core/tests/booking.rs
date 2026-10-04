@@ -66,15 +66,19 @@ fn metas<const N: usize>(pairs: [(&str, &str); N]) -> BTreeMap<String, String> {
     pairs.into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())).collect()
 }
 
-/// lots of one account in store order, as `units {cost, acquisition date}`
+/// lots of one account in store order, as `units {cost, acquisition date, "label"}`
 fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
     let store = ledger.store.read().unwrap();
     let lots = store.commodity_lots.get(account).cloned().unwrap_or_default();
     lots.iter()
-        .map(|lot| match (&lot.cost, &lot.acquisition_date) {
-            (None, None) => format!("{} {}", lot.amount, lot.commodity),
-            (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}}}", lot.amount, lot.commodity),
-            (cost, date) => format!("{} {} {cost:?} {date:?}", lot.amount, lot.commodity),
+        .map(|lot| {
+            let label = lot.label.as_ref().map(|label| format!(", \"{label}\"")).unwrap_or_default();
+            match (&lot.cost, &lot.acquisition_date) {
+                (None, None) if label.is_empty() => format!("{} {}", lot.amount, lot.commodity),
+                (None, None) => format!("{} {} {{{}}}", lot.amount, lot.commodity, label.trim_start_matches(", ")),
+                (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}{label}}}", lot.amount, lot.commodity),
+                (cost, date) => format!("{} {} {cost:?} {date:?}{label}", lot.amount, lot.commodity),
+            }
         })
         .collect()
 }
@@ -340,6 +344,134 @@ fn fifo_and_lifo_reductions_matching_several_lots_are_not_errors() {
         assert_eq!(errors(&ledger), vec![], "{method}");
         assert_eq!(lots(&ledger, "Assets:S"), expected, "{method}");
     }
+}
+
+/// two lots of `Assets:S` labelled `a` and `b`, bought on consecutive days
+const TWO_LABELLED_LOTS: &str = indoc! {r#"
+    2024-05-16 * "buy a"
+      Assets:S 10 USD { 10 CNY, "a" }
+      Income:I -100 CNY
+    2024-05-17 * "buy b"
+      Assets:S 10 USD { 11 CNY, "b" }
+      Income:I -110 CNY
+"#};
+
+/// `Assets:S` opened with `booking_method: "{method}"`, holding [`TWO_LABELLED_LOTS`], then `sales` on 2024-05-18
+fn load_two_labelled_lots(method: &str, sales: &str) -> Ledger {
+    load(&formatdoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "{method}"
+        {TWO_LABELLED_LOTS}
+        2024-05-18 * "sell"
+        {sales}
+    "#})
+}
+
+#[test]
+fn label_reduction_reduces_the_lot_of_that_label() {
+    // #498: the label selects the lot, whichever lot the booking method would take first; a label
+    // matching a single lot is not ambiguous under STRICT, as in beancount
+    for method in ["FIFO", "LIFO", "STRICT"] {
+        let ledger = load_two_labelled_lots(method, "  Assets:S -1 USD {, \"b\"}\n  Income:I");
+        assert_eq!(errors(&ledger), vec![], "{method}");
+        assert_eq!(inferred(&ledger, 3), vec!["-1 USD", "11 CNY"], "{method}");
+        assert_eq!(
+            lots(&ledger, "Assets:S"),
+            vec!["10 USD {10 CNY, 2024-05-16, \"a\"}", "9 USD {11 CNY, 2024-05-17, \"b\"}"],
+            "{method}"
+        );
+    }
+}
+
+#[test]
+fn label_reduction_with_a_cost_matches_the_lot_of_both() {
+    let ledger = load_two_labelled_lots("STRICT", "  Assets:S -1 USD {11 CNY, \"b\"}\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec!["10 USD {10 CNY, 2024-05-16, \"a\"}", "9 USD {11 CNY, 2024-05-17, \"b\"}"]
+    );
+
+    // no lot is labelled `b` at that cost: like a sale of units not held, it opens a short lot of
+    // exactly what it writes, dated by the sale, and is reported (beancount reports it too)
+    let ledger = load_two_labelled_lots("FIFO", "  Assets:S -1 USD {10 CNY, \"b\"}\n  Income:I 10 CNY");
+    assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-1".to_owned()))]);
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec![
+            "10 USD {10 CNY, 2024-05-16, \"a\"}",
+            "10 USD {11 CNY, 2024-05-17, \"b\"}",
+            "-1 USD {10 CNY, 2024-05-18, \"b\"}"
+        ]
+    );
+}
+
+#[test]
+fn unlabelled_reduction_matches_labelled_lots() {
+    // a spec without a label is a wildcard on the label, like one without a date on the date
+    let ledger = load_two_labelled_lots("FIFO", "  Assets:S -15 USD {}\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(inferred(&ledger, 3), vec!["-15 USD", "155 CNY"]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {11 CNY, 2024-05-17, \"b\"}"]);
+
+    let ledger = load_two_labelled_lots("LIFO", "  Assets:S -5 USD {10 CNY}\n  Income:I");
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec!["5 USD {10 CNY, 2024-05-16, \"a\"}", "10 USD {11 CNY, 2024-05-17, \"b\"}"]
+    );
+}
+
+#[test]
+fn augmentations_of_different_labels_open_distinct_lots() {
+    // the same cost on the same day, labelled `a`, `b` and not at all: three lots. A later
+    // purchase extends the lot of exactly its label
+    let ledger = load(indoc! {r#"
+        2024-05-16 * "buy"
+          Assets:A 10 USD { 10 CNY, "a" }
+          Assets:A 10 USD { 10 CNY, "b" }
+          Assets:A 10 USD { 10 CNY }
+          Income:I -300 CNY
+        2024-05-16 * "buy more of a"
+          Assets:A 3 USD { 10 CNY, "a" }
+          Income:I -30 CNY
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(
+        lots(&ledger, "Assets:A"),
+        vec![
+            "13 USD {10 CNY, 2024-05-16, \"a\"}",
+            "10 USD {10 CNY, 2024-05-16, \"b\"}",
+            "10 USD {10 CNY, 2024-05-16}"
+        ]
+    );
+}
+
+#[test]
+fn strict_ambiguous_match_lists_the_labels_of_the_lots() {
+    let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "STRICT"
+        2024-05-16 * "buy"
+          Assets:S 10 USD { 10 CNY, "a" }
+          Assets:S 10 USD { 10 CNY, "b" }
+          Income:I -200 CNY
+        2024-05-18 * "sell"
+          Assets:S -5 USD { 10 CNY }
+          Income:I
+    "#});
+    assert_eq!(
+        error_details(&ledger),
+        vec![(
+            ErrorKind::AmbiguousLotMatch,
+            r#"2024-05-18 * "sell""#.to_owned(),
+            metas([
+                ("account_name", "Assets:S"),
+                ("matched_lots", "10 USD {10 CNY, 2024-05-16, \"a\"}, 10 USD {10 CNY, 2024-05-16, \"b\"}"),
+                ("transaction_amount", "-5"),
+            ])
+        )]
+    );
 }
 
 #[test]

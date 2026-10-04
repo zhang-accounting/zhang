@@ -1,0 +1,17 @@
+1970-01-01 commodity USD
+1970-01-01 commodity CNY
+1970-01-01 open Assets:L
+  booking_method: "STRICT"
+1970-01-01 open Income:I
+
+2024-05-16 * "buy a"
+  Assets:L 10 USD { 10 CNY, "a" }
+  Income:I -100 CNY
+
+2024-05-17 * "buy b"
+  Assets:L 10 USD { 11 CNY, "b" }
+  Income:I -110 CNY
+
+2024-05-18 * "sell one of lot b by its label alone: not ambiguous under STRICT"
+  Assets:L -1 USD {, "b"}
+  Income:I

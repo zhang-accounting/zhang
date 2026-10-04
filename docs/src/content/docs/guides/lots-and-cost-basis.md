@@ -88,7 +88,7 @@ To sell from particular lots, write their cost instead of `{}`:
 
 - `{172.00 USD}` takes from the lots held at 172.00 USD, whatever their date.
 - `{172.00 USD, 2024-03-15}` takes only from the lot acquired on 15 March 2024.
-- Labels show in queries, but Zhang does not use them to choose the lots a sale takes from.
+- `{172.00 USD, "first"}`, or `{, "first"}` without the cost, takes only from the lot labelled `first`. A label written on a purchase, such as `{172.00 USD, "first"}`, names its lot: lots that differ only by label are kept apart, and a purchase without a label never adds to a labelled lot.
 
 ### Selling more than you hold
 

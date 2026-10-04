@@ -25,8 +25,11 @@
 //!
 //! Lot matching follows beancount (E5, [`LotFilter`]): the fields a cost spec gives are criteria
 //! and the missing ones wildcards, so a reduction `{10 CNY}` matches the lots held at 10 CNY from any
-//! acquisition date. Its other known quirks (E6, E8 and E9 in the design, pinned by
-//! `tests/booking.rs`) are kept on purpose; fixing them is left to separate, behavior-changing PRs.
+//! acquisition date, and `{, "a"}` the lots labelled `a` whatever their cost (#498). An
+//! augmentation opens or extends the lot of exactly what it writes, label included: lots that
+//! differ only by label are distinct. Its other known quirks (E6, E8 and E9 in the design, pinned
+//! by `tests/booking.rs`) are kept on purpose; fixing them is left to separate, behavior-changing
+//! PRs.
 //!
 //! Booking methods (E1, E7, E10):
 //! - `FIFO` and `LIFO` take the matching lots by acquisition date, oldest or newest first, like
@@ -140,13 +143,25 @@ type LotsSnapshot = Vec<(String, Option<Vec<CommodityLotRecord>>)>;
 /// the lots a cost posting books against ([`Booker::lot_filter`]). As in beancount, the fields its
 /// cost spec gives are criteria and the missing ones wildcards (E5): a reduction `{10 CNY}` matches
 /// the lots held at 10 CNY from any acquisition date, `{10 CNY, 2024-05-16}` only the ones acquired
-/// that day, and `{}` every lot held at cost
+/// that day, `{, "a"}` the lots labelled `a`, and `{}` every lot held at cost
 struct LotFilter<'a> {
     commodity: &'a str,
     /// the lots' cost; `None` matches every lot held at cost
     cost: Option<&'a Amount>,
     /// the lots' acquisition date; `None` matches any
     date: Option<NaiveDate>,
+    /// the lots' label
+    label: LabelFilter<'a>,
+}
+
+/// how a [`LotFilter`] matches the label of a lot (#498)
+#[derive(Clone, Copy)]
+enum LabelFilter<'a> {
+    /// any label, or none: a reduction written without a label
+    Any,
+    /// exactly this label, `None` being a lot without one: a reduction naming a label, or an
+    /// augmentation, which opens or extends the lot of exactly the label it writes
+    Exactly(Option<&'a str>),
 }
 
 impl Booker {
@@ -402,21 +417,28 @@ impl Booker {
         self.methods.get(account_name).copied().unwrap_or(self.default_method)
     }
 
-    /// the lots `units` with the cost spec `cost` book against in the account. A cost with a number
-    /// but no date matches lots of any date when the posting reduces them, that is when a lot it
-    /// matches holds the opposite sign (like beancount's `is_reduced_by`). Otherwise the posting
-    /// augments: it adds to the lot of its cost acquired on the transaction's date, or opens it
+    /// the lots `units` with the cost spec `cost` book against in the account. The posting reduces
+    /// when a lot its spec matches holds the opposite sign (like beancount's `is_reduced_by`): a
+    /// cost with a number but no date then matches lots of any date, and a spec without a label
+    /// lots of any label. Otherwise the posting augments: it adds to the lot of exactly what it
+    /// writes, its cost acquired on the transaction's date when it gives no date, and its label or
+    /// none, or opens that lot
     fn lot_filter<'a>(&self, account_name: &str, units: &'a Amount, cost: &'a PostingCost, txn_date: NaiveDate) -> LotFilter<'a> {
         let mut filter = LotFilter {
             commodity: &units.commodity,
             cost: cost.base.as_ref(),
             date: cost.date.as_ref().map(|it| it.naive_date()),
+            label: match &cost.label {
+                Some(label) => LabelFilter::Exactly(Some(label)),
+                None => LabelFilter::Any,
+            },
         };
-        if filter.cost.is_some() && filter.date.is_none() {
-            let lots = self.lots.get(account_name).map(Vec::as_slice).unwrap_or_default();
-            if !matching_lots(lots, &filter).any(|lot| reduces(lot, &units.number)) {
+        let lots = self.lots.get(account_name).map(Vec::as_slice).unwrap_or_default();
+        if !matching_lots(lots, &filter).any(|lot| reduces(lot, &units.number)) {
+            if filter.cost.is_some() && filter.date.is_none() {
                 filter.date = Some(txn_date);
             }
+            filter.label = LabelFilter::Exactly(cost.label.as_deref());
         }
         filter
     }
@@ -472,6 +494,7 @@ impl Booker {
                 amount: BigDecimal::zero(),
                 acquisition_date: None,
                 cost: None,
+                label: None,
             };
             entry.push(new_lot_record.clone());
             new_lot_record
@@ -502,6 +525,7 @@ impl Booker {
                     .map(|it| it.naive_date())
                     .or_else(|| lot_meta.base.as_ref().map(|_| txn_date)),
                 cost: lot_meta.base.clone(),
+                label: lot_meta.label.clone(),
             };
             entry.push(new_lot_record.clone());
             new_lot_record
@@ -536,6 +560,10 @@ fn matching_lots<'a>(lots: &'a [CommodityLotRecord], filter: &'a LotFilter<'a>) 
                 None => lot.cost.is_some(),
             }
             && filter.date.is_none_or(|date| lot.acquisition_date == Some(date))
+            && match filter.label {
+                LabelFilter::Any => true,
+                LabelFilter::Exactly(label) => lot.label.as_deref() == label,
+            }
     })
 }
 
@@ -630,11 +658,13 @@ fn add_weight(sum: &mut BTreeMap<Currency, BigDecimal>, weight: impl IntoIterato
     }
 }
 
-/// a lot as `units {cost, acquisition date}`, for error metas
+/// a lot as `units {cost, acquisition date, "label"}`, for error metas; a lot without a label
+/// reads as before
 fn describe_lot(lot: &CommodityLotRecord) -> String {
+    let label = lot.label.as_ref().map(|label| format!(", \"{label}\"")).unwrap_or_default();
     match (&lot.cost, &lot.acquisition_date) {
-        (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}}}", lot.amount, lot.commodity),
-        (Some(cost), None) => format!("{} {} {{{cost}}}", lot.amount, lot.commodity),
+        (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}{label}}}", lot.amount, lot.commodity),
+        (Some(cost), None) => format!("{} {} {{{cost}{label}}}", lot.amount, lot.commodity),
         (None, _) => format!("{} {}", lot.amount, lot.commodity),
     }
 }
@@ -654,6 +684,7 @@ mod test {
             amount: BigDecimal::from(units),
             cost: Some(Amount::new(BigDecimal::from(100), "USD")),
             acquisition_date: None,
+            label: None,
         }
     }
 
