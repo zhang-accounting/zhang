@@ -4,25 +4,17 @@ import { useId, useState } from 'react';
 import { FileWithPath, useDropzone } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { apiBaseUrl } from '@/api/fetcher';
+import { uploadDocuments } from '@/api/requests';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { AutoDrawer, AutoDrawerTrigger } from '@/components/ui/auto-drawer';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { apiErrorMessage, responseError } from '@/lib/api-error';
+import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { accountSelectItemsAtom } from '@/states/account';
 
 interface Props {
   onUploaded?: () => void;
-}
-
-/** Multipart upload; the generated OpenAPI client JSON-encodes bodies, so this uses fetch directly. */
-async function uploadDocuments(account: string, files: File[]) {
-  const formData = new FormData();
-  files.forEach((file) => formData.append('file', file));
-  const response = await fetch(`${apiBaseUrl}/api/accounts/${encodeURIComponent(account)}/documents`, { method: 'POST', body: formData });
-  if (!response.ok) throw await responseError(response);
 }
 
 /** "Upload" action for the documents page: pick an account, drop files, upload them as account documents. */
@@ -45,7 +37,7 @@ export function DocumentUploadDialog({ onUploaded }: Props) {
     if (!account || files.length === 0) return;
     setUploading(true);
     try {
-      await uploadDocuments(account, files);
+      await uploadDocuments('accounts', account, files);
       toast.success(t('documents.upload_success', { count: files.length }));
       reset();
       setOpen(false);

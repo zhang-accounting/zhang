@@ -1,4 +1,5 @@
 import { ApiError } from 'openapi-typescript-fetch';
+import { responseError } from '@/lib/api-error';
 import { apiBaseUrl, openAPIFetcher, reportUnauthorized } from './fetcher';
 
 export const retrieveBudgets = openAPIFetcher.path('/api/budgets').method('get').create();
@@ -54,6 +55,17 @@ export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').meth
 export const retrieveSavedQueries = openAPIFetcher.path('/api/query/saved').method('get').create();
 
 export const retrieveBuiltinQueryText = openAPIFetcher.path('/api/query/builtins/{name}/text').method('post').create();
+
+/**
+ * Uploads `files` as documents of an account or a transaction (`POST /api/{accounts|transactions}/{id}/documents`). Plain
+ * `fetch`: the generated client JSON-encodes the body, which drops the multipart files.
+ */
+export async function uploadDocuments(target: 'accounts' | 'transactions', id: string, files: File[]): Promise<void> {
+  const formData = new FormData();
+  files.forEach((file) => formData.append('file', file));
+  const response = await fetch(`${apiBaseUrl}/api/${target}/${encodeURIComponent(id)}/documents`, { method: 'POST', body: formData });
+  if (!response.ok) throw await responseError(response);
+}
 
 /**
  * Runs a query through `POST /api/query/csv` and returns the CSV file. A query error is thrown as an `ApiError`
