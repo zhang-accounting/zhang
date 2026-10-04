@@ -52,11 +52,15 @@ The web UI shows totals in the [operating currency](/reference/directives/option
 list, and in the figures of the home and report pages.
 
 - An amount in the operating currency counts as it is.
-- An amount in another commodity is converted with the latest price of **that commodity in the operating currency**,
-  dated on or before the date of the figure: today for the account list, the end of the period for a report.
-- Only a price of that exact pair counts. The opposite pair is not inverted, so `price CNY 0.14 USD` does not value
-  USD in CNY, and no conversion goes through a third commodity. An amount without such a price is left out of the
-  total. The account's amounts per commodity still show it.
+- The figures and charts of the home and report pages convert with the query language's
+  [`convert`](/reference/query-language/#valuation-functions): the latest price dated on or before the date of the
+  figure (the end of the period, or a chart point's last day), in either direction, and through the cost currency
+  for a holding at cost without a price of its own. Their [built-in queries](/reference/builtin-queries/#report)
+  show how.
+- The account list converts an amount in another commodity with the latest price of **that commodity in the
+  operating currency**, dated today or before. Only a price of that exact pair counts there. The opposite pair is
+  not inverted, so `price CNY 0.14 USD` does not value USD in CNY, and no conversion goes through a third commodity.
+- An amount that no price converts is left out of the total. The amounts per commodity still show it.
 - The commodities page shows each commodity's latest price in the operating currency: the latest one in the ledger,
   even if it is dated in the future. A commodity's own page lists all its prices.
 
@@ -67,8 +71,8 @@ without prices of its own uses the inverse of the opposite pair, a pair quoted i
 history, and a commodity's price in itself is 1. See
 [Valuation functions](/reference/query-language/#valuation-functions).
 
-So the web UI and queries can value the same holding differently. With only the price below, a query converts
-10 EUR into 80 CNY, while the web UI leaves the EUR out of its CNY totals:
+So the account list and queries can value the same holding differently. With only the price below, a query, and
+the home and report pages, convert 10 EUR into 80 CNY, while the account list leaves the EUR out of its CNY totals:
 
 ```zhang
 option "operating_currency" "CNY"
@@ -77,7 +81,7 @@ option "operating_currency" "CNY"
 2024-01-02 price CNY 0.125 EUR
 ```
 
-To have the web UI value a commodity, write its prices in the operating currency.
+To have the account list value a commodity, write its prices in the operating currency.
 
 Plugins do not receive precomputed prices. A plugin that needs rates builds them from the `price` directives in the
 stream; see [Exchange rates](/developers/writing-plugins/#exchange-rates).

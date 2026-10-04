@@ -82,6 +82,14 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         params: &[("payee", DataType::Str), ("tags", DataType::Set)],
     },
     // ---- report: /api/statistic/* ----
+    crate::report::NET_WORTH,
+    crate::report::LIABILITIES,
+    crate::report::FLOWS,
+    crate::report::TRANSACTION_COUNT,
+    crate::report::NET_WORTH_TREND,
+    crate::report::CHANGES,
+    crate::report::ACCOUNT_TOTALS,
+    crate::report::TOP_POSTINGS,
     // ---- accounts: /api/accounts/* ----
     // an account's page is its subtree: `under(account, :account)`
     BuiltinQuery {
@@ -181,6 +189,116 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     // ---- journals: /api/journals, /api/for-new-transaction, /api/documents, /api/errors ----
     // ---- budgets and commodities: /api/budgets/*, /api/commodities/* ----
+    BuiltinQuery {
+        name: "budgets.month",
+        description: "Every budget as of a month (its first day): its last month in #budgets up to that month, carried over to the month when it is later.",
+        bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
+              last(date) AS last_month, \
+              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
+              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
+              last(available) AS available, last(closed) AS closed \
+              FROM #budgets \
+              WHERE date <= :month \
+              GROUP BY name \
+              ORDER BY name",
+        params: &[("month", DataType::Date)],
+    },
+    BuiltinQuery {
+        name: "budgets.budget",
+        description: "One budget: its display name, category, commodity, and the accounts whose postings are its activity.",
+        bql: "SELECT name, alias, category, currency, accounts \
+              FROM #budget_definitions \
+              WHERE name = :name",
+        params: &[("name", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "budgets.budget_month",
+        description: "One budget as of a month (its first day), as in budgets.month.",
+        bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
+              last(date) AS last_month, \
+              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
+              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
+              last(available) AS available, last(closed) AS closed \
+              FROM #budgets \
+              WHERE name = :name AND date <= :month \
+              GROUP BY name",
+        params: &[("name", DataType::Str), ("month", DataType::Date)],
+    },
+    BuiltinQuery {
+        name: "budgets.events",
+        description: "What the budget-add and budget-transfer directives put into a budget in a month (its first day), newest first.",
+        bql: "SELECT date, time, timestamp, type, amount \
+              FROM #budget_events \
+              WHERE name = :name AND type != 'close' AND yearmonth(date) = :month \
+              ORDER BY timestamp DESC",
+        params: &[("name", DataType::Str), ("month", DataType::Date)],
+    },
+    BuiltinQuery {
+        name: "budgets.postings",
+        description: "The postings of a budget in a month (its first day), newest first, with each account's balance after them.",
+        bql: "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units, \
+              only(currency, account_balance) AS balance \
+              WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date) \
+              ORDER BY timestamp DESC",
+        params: &[("accounts", DataType::Set), ("month", DataType::Date), ("name", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "commodities.totals",
+        description: "How many units of each commodity the Assets and Liabilities accounts hold, for the commodities they hold.",
+        bql: "SELECT currency, sum(number) AS total \
+              WHERE under(account, 'Assets') OR under(account, 'Liabilities') \
+              GROUP BY currency \
+              HAVING sum(number) != 0 \
+              ORDER BY currency",
+        params: &[],
+    },
+    BuiltinQuery {
+        name: "commodities.total",
+        description: "How many units of a commodity the Assets and Liabilities accounts hold; no row if they hold none.",
+        bql: "SELECT currency, sum(number) AS total \
+              WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities')) \
+              GROUP BY currency \
+              HAVING sum(number) != 0",
+        params: &[("commodity", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "commodities.latest_prices",
+        description: "The latest price of each commodity quoted in a currency, with its date and time.",
+        bql: "SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price \
+              FROM #prices \
+              WHERE currency(amount) = :currency \
+              GROUP BY currency \
+              ORDER BY currency",
+        params: &[("currency", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "commodities.latest_price",
+        description: "The latest price of a commodity quoted in a currency, with its date and time.",
+        bql: "SELECT currency, last(date) AS date, last(time) AS time, last(amount) AS price \
+              FROM #prices \
+              WHERE currency = :commodity AND currency(amount) = :currency \
+              GROUP BY currency",
+        params: &[("commodity", DataType::Str), ("currency", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "commodities.lots",
+        description: "The lots of a commodity the Assets and Liabilities accounts hold, by account, then oldest first.",
+        bql: "SELECT account, cost_date, cost_number, cost_currency, sum(number) AS units \
+              WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities')) \
+              GROUP BY account, cost_date, cost_number, cost_currency \
+              HAVING sum(number) != 0 \
+              ORDER BY account, cost_date, cost_number",
+        params: &[("commodity", DataType::Str)],
+    },
+    BuiltinQuery {
+        name: "commodities.prices",
+        description: "Every price of a commodity, in any currency, oldest first.",
+        bql: "SELECT date, time, amount \
+              FROM #prices \
+              WHERE currency = :commodity \
+              ORDER BY date, time",
+        params: &[("commodity", DataType::Str)],
+    },
 ];
 
 /// The built-in query named `name`.
@@ -362,18 +480,19 @@ mod test {
                     ty
                 );
             }
-            // the counts of LIMIT and OFFSET take no NULL: the engine rejects one at the parameter
+            // the counts of LIMIT and OFFSET and the dates of OPEN ON and CLOSE ON take no NULL:
+            // the engine rejects one at the parameter, so they keep a value
             let words = builtin.bql.split_whitespace().collect::<Vec<_>>();
-            let count = |name: &str| {
+            let required = |name: &str| {
                 words
                     .windows(2)
-                    .any(|it| ["LIMIT", "OFFSET"].contains(&it[0].to_uppercase().as_str()) && it[1] == format!(":{}", name))
+                    .any(|it| ["LIMIT", "OFFSET", "ON"].contains(&it[0].to_uppercase().as_str()) && it[1] == format!(":{}", name))
             };
             for null in [false, true] {
                 let values = builtin
                     .params
                     .iter()
-                    .map(|(name, ty)| (name.to_string(), (!null || count(name)).then(|| sample(*ty))))
+                    .map(|(name, ty)| (name.to_string(), (!null || required(name)).then(|| sample(*ty))))
                     .collect::<HashMap<_, _>>();
                 let params = json_params(builtin, values).unwrap();
                 let written = text(builtin, &params).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));

@@ -422,6 +422,16 @@ pub enum BudgetIntervalEventEntity {
 }
 
 impl BudgetIntervalEventEntity {
+    /// the Unix time of the event
+    pub(crate) fn timestamp(&self) -> i64 {
+        match self {
+            BudgetIntervalEventEntity::BudgetEvent(budget_event) => budget_event.timestamp,
+            BudgetIntervalEventEntity::Posting(posting) => posting.timestamp,
+        }
+    }
+
+    /// what the old handler sorted by: the UTC time of a budget event, but the local time of a posting
+    #[cfg(test)]
     pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
         match self {
             BudgetIntervalEventEntity::BudgetEvent(budget_event) => DateTime::from_timestamp(budget_event.timestamp, 0)

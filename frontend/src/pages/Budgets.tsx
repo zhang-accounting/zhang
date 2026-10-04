@@ -11,6 +11,7 @@ import BudgetCategory from '@/components/budget/BudgetCategory';
 import { budgetUsage, monthFromSearchParams, monthSearchParams, sumByCommodity, usageProgressClass } from '@/components/budget/budget-utils';
 import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { KeyFigure, KeyFigures } from '@/components/layout/KeyFigures';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -97,6 +98,7 @@ export default function Budgets() {
         actions={
           <>
             <MonthSwitcher date={date} onChange={setDate} />
+            <OpenInExplore name="budgets.month" params={{ month: date }} iconOnly className="size-10 md:size-8" />
             <Button variant="outline" size="icon" className="size-10 md:size-8" aria-label={t('REFRESH')} onClick={retry} disabled={loading}>
               <RotateCw className={cn(loading && 'animate-spin')} />
             </Button>

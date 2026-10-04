@@ -156,7 +156,7 @@ A transaction balances when, in each commodity, the sum of its weights rounds to
 
 ## See your lots
 
-- The **Commodities** page lists every commodity. Open one, such as `AAPL`, to see its **Lots** tab: each lot with its account, acquisition date, cost and amount.
+- The **Commodities** page lists every commodity. Open one, such as `AAPL`, to see its **Lots** tab: each lot held in an `Assets` or `Liabilities` account, with its account, acquisition date, cost and amount.
 - In [queries](/guides/querying/), `position` shows a posting's units with their cost, `cost()` gives the book value and `value()` the market value at the latest `price`:
 
   ```sql

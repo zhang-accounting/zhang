@@ -17,6 +17,7 @@ import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -167,7 +168,12 @@ function SingleBudget() {
       <PageHeader
         title={firstLoad ? <Skeleton className="h-7 w-48" /> : (budgetInfo?.alias ?? budgetInfo?.name ?? budgetName)}
         description={refreshing ? <RefreshingLabel /> : t('budgets.detail_description', { month: formatMonth(date, i18n.language) })}
-        actions={<MonthSwitcher date={date} onChange={setDate} />}
+        actions={
+          <>
+            <MonthSwitcher date={date} onChange={setDate} />
+            <OpenInExplore name="budgets.budget_month" params={{ name: budgetName ?? '', month: date }} iconOnly className="size-10 md:size-8" />
+          </>
+        }
       >
         {budgetInfo && (budgetInfo.alias || budgetInfo.category || budgetInfo.closed) && (
           <div className="flex flex-wrap items-center gap-2">
@@ -220,7 +226,12 @@ function SingleBudget() {
       </Card>
 
       <section aria-busy={refreshing} className={cn('flex flex-col gap-3 transition-opacity', refreshing && 'opacity-60')}>
-        <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: formatMonth(date, i18n.language) })}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: formatMonth(date, i18n.language) })}</h2>
+          {budgetInfo && (
+            <OpenInExplore name="budgets.postings" params={{ accounts: budgetInfo.related_accounts, month: date, name: budgetInfo.name }} iconOnly />
+          )}
+        </div>
         {eventsError ? (
           <EmptyState icon={TriangleAlert} title={t('page_state.load_failed')} description={eventsError.message} />
         ) : (

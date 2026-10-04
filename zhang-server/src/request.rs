@@ -1,11 +1,14 @@
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Datelike, Local, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use gotcha::Schematic;
 use serde::Deserialize;
 use zhang_ast::amount::Amount;
 use zhang_ast::Flag;
+
+use crate::error::ServerError;
+use crate::ServerResult;
 
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
@@ -26,22 +29,27 @@ pub struct FileUpdateRequest {
     pub content: String,
 }
 
-#[derive(Schematic, Deserialize)]
+/// The buckets of the report graph: calendar days, weeks starting on Monday, or months.
+#[derive(Schematic, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatisticInterval {
     Day,
     Week,
     Month,
 }
 
+/// A report range. `from` and `to` are ledger dates, `YYYY-MM-DD`, both inclusive; an RFC 3339
+/// instant is still accepted and read as its date in the ledger's timezone.
 #[derive(Schematic, Deserialize)]
 pub struct StatisticRequest {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    pub from: String,
+    pub to: String,
 }
+
+/// A report range, as in [`StatisticRequest`], and the buckets of the graph.
 #[derive(Schematic, Deserialize)]
 pub struct StatisticGraphRequest {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    pub from: String,
+    pub to: String,
     pub interval: StatisticInterval,
 }
 
@@ -173,9 +181,24 @@ pub struct BudgetListRequest {
     pub year: Option<u32>,
 }
 impl BudgetListRequest {
+    /// the old handlers' month, `year * 100 + month`, by default the server's current one
+    #[cfg(test)]
     pub fn as_interval(&self) -> u32 {
-        let time = Local::now();
+        let time = chrono::Local::now();
         self.year.unwrap_or(time.year() as u32) * 100 + self.month.unwrap_or(time.month())
+    }
+
+    /// the first day of the requested month; the year and the month default to those of `today`
+    pub fn month_or(&self, today: NaiveDate) -> ServerResult<NaiveDate> {
+        BudgetListRequest::month_of(self.year.unwrap_or(today.year() as u32), self.month.unwrap_or(today.month()))
+    }
+
+    /// the first day of a month; a 400 if there is no such month
+    pub fn month_of(year: u32, month: u32) -> ServerResult<NaiveDate> {
+        i32::try_from(year)
+            .ok()
+            .and_then(|year| NaiveDate::from_ymd_opt(year, month, 1))
+            .ok_or_else(|| ServerError::InvalidInput(format!("there is no month {} in the year {}", month, year)))
     }
 }
 

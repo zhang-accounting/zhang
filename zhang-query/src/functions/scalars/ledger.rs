@@ -1,5 +1,6 @@
 //! beanquery 0.2.0's functions over the ledger's `open`, `close` and `commodity` directives:
-//! `open_date`, `close_date`, `open_meta` and `commodity_meta` (also `currency_meta`).
+//! `open_date`, `close_date`, `open_meta` and `commodity_meta` (also `currency_meta`), and zhang's
+//! `account_budgets`.
 //!
 //! As in beancount, an account's directives are its earliest `open` and earliest `close`, and
 //! a currency's is its last `commodity` directive. An unknown account or currency is NULL.
@@ -42,6 +43,16 @@ pub(super) fn open_meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Val
     let account = name_arg(args, "open_meta")?;
     let meta = ctx.account_directives(account).and_then(|it| it.open).map(|open| &open.meta);
     meta_result(meta, args.get(1), "open_meta")
+}
+
+/// `account_budgets(account, date)`: the budgets the account counts in at the date (a zhang
+/// extension): those of its latest `open` on or before the date.
+pub(super) fn account_budgets(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+    let account = name_arg(args, "account_budgets")?;
+    let Value::Date(date) = args[1] else {
+        return Err("account_budgets() expects a date".to_owned());
+    };
+    Ok(Value::Set(ctx.account_budgets(account, date).unwrap_or_default()))
 }
 
 /// `commodity_meta(currency)`: the metadata of the currency's `commodity` directive, and

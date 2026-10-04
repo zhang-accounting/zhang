@@ -27,7 +27,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use chrono::NaiveDate;
 use uuid::Uuid;
@@ -53,7 +53,8 @@ pub(crate) struct LedgerCache {
     fingerprint: Fingerprint,
     entries: OnceLock<Entries>,
     postings: OnceLock<Postings>,
-    prices: OnceLock<PriceMap>,
+    /// shared, so a caller can keep valuing with it after releasing the ledger
+    prices: OnceLock<Arc<PriceMap>>,
     /// the `id` of every `#entries` row, by `seq`
     entry_ids: OnceLock<Vec<String>>,
     /// the `seq` of the transactions whose metadata, or the metadata of one of their postings,
@@ -160,7 +161,12 @@ impl LedgerCache {
     }
 
     pub fn prices(&self, store: &Store) -> &PriceMap {
-        self.prices.get_or_init(|| PriceMap::from_prices(&store.prices))
+        self.shared_prices(store)
+    }
+
+    /// The price map of [`LedgerCache::prices`], to keep beyond the ledger's lock.
+    pub fn shared_prices(&self, store: &Store) -> &Arc<PriceMap> {
+        self.prices.get_or_init(|| Arc::new(PriceMap::from_prices(&store.prices)))
     }
 
     /// The `id` of the `#entries` row `seq`: a transaction has its stored id (the `id` of its

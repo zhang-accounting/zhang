@@ -66,7 +66,7 @@ pub mod value;
 
 use std::time::Duration;
 
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 pub use zhang_ast::amount::Amount;
 use zhang_core::ledger::Ledger;
 
@@ -180,11 +180,12 @@ impl Query {
             .collect()
     }
 
-    /// Execute against a ledger, with `today()` read from the system clock in the ledger's
-    /// timezone, the [`DEFAULT_TIMEOUT`] and the [`DEFAULT_MAX_RESULT_VALUES`].
+    /// Execute against a ledger, with `today()` read from the ledger's clock in its timezone
+    /// ([`Ledger::today`]: the system clock, unless the ledger was loaded with a fixed one), the
+    /// [`DEFAULT_TIMEOUT`] and the [`DEFAULT_MAX_RESULT_VALUES`].
     ///
-    /// This reads the system clock; on targets without one (e.g. `wasm32-unknown-unknown`)
-    /// use [`Query::execute_at`].
+    /// The system clock is missing on some targets (e.g. `wasm32-unknown-unknown`); use
+    /// [`Query::execute_at`] there.
     pub fn execute(&self, ledger: &Ledger, params: &Params) -> Result<QueryResult, QueryError> {
         self.execute_with_options(
             ledger,
@@ -299,7 +300,7 @@ impl Query {
         } else {
             &self.plan
         };
-        let today = options.today.unwrap_or_else(|| Utc::now().with_timezone(&ledger.options.timezone).date_naive());
+        let today = options.today.unwrap_or_else(|| ledger.today());
         let store = ledger
             .store
             .read()
@@ -311,8 +312,9 @@ impl Query {
         let data = match &period {
             None => {
                 let scope = self.plan.execution.scope.as_ref().map(|scope| scope.resolve(params)).unwrap_or_default();
+                let until = self.plan.execution.until.as_ref().map(|until| until.resolve(params, today));
                 let mut limits = table::Limits::new(deadline.as_ref(), &mut budget);
-                table::Dataset::build(ledger, &store, today, self.projection, &scope, &mut limits).map_err(|err| err.resolve(&self.source))?
+                table::Dataset::build(ledger, &store, today, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
             }
             Some(period) => {
                 equity = period::EquityAccounts::from_options(&store.options);
@@ -350,7 +352,8 @@ pub const DEFAULT_MAX_RESULT_VALUES: u64 = 1_000_000;
 /// Options of one execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecuteOptions {
-    /// the date returned by `today()`; `None` reads the system clock in the ledger's timezone
+    /// the date returned by `today()`; `None` reads the ledger's clock in its timezone
+    /// ([`Ledger::today`])
     pub today: Option<NaiveDate>,
     /// stop with a [`QueryErrorKind::Timeout`] error once the execution has run this long
     /// (checked every few hundred rows); `None` for no limit. A limit reads the monotonic
