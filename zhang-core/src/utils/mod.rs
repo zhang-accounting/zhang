@@ -5,6 +5,10 @@ pub mod hashmap;
 pub mod id;
 pub mod string_;
 
+/// The UTF-8 byte order mark some Windows editors write at the start of a file. It is no part of the text: the
+/// parsers skip it, and a file that has one keeps it when it is written back ([`crate::data_source::FileText`])
+pub const BOM: &str = "\u{feff}";
+
 pub fn has_path_visited<'a>(visited: impl IntoIterator<Item = &'a PathBuf>, path: &PathBuf) -> bool {
     visited.into_iter().any(|pathbuf| pathbuf.eq(path))
 }

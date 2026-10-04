@@ -613,6 +613,41 @@ mod test {
         assert_coffee_written_to(dir.path(), "main.zhang", &ledger, "data/2024/01.zhang");
     }
 
+    /// A ledger whose main file starts with a UTF-8 byte order mark, as some Windows editors save it, loads in both
+    /// formats (#505): `zhang serve` on it exited with status 1. The spans index the text after the mark.
+    #[tokio::test]
+    async fn a_file_starting_with_a_byte_order_mark_loads() {
+        for main in ["main.zhang", "main.bean"] {
+            let dir = tempdir().unwrap();
+            std::fs::write(
+                dir.path().join(main),
+                format!("\u{feff}{OPENS}2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n"),
+            )
+            .unwrap();
+            let mut opts = ServerOpts {
+                path: dir.path().to_path_buf(),
+                endpoint: main.to_string(),
+                addr: "".to_string(),
+                port: 0,
+                auth: None,
+                passkey: None,
+                source: None,
+                no_report: true,
+            };
+            let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+
+            let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source)
+                .await
+                .unwrap_or_else(|e| panic!("{}: {}", main, e));
+
+            assert_eq!(ledger.directives[0].span.start, 0, "{main}");
+            assert_eq!(ledger.directives[0].span.content.trim_end(), "1970-01-01 open Assets:Cash", "{main}");
+            let store = ledger.store.read().unwrap();
+            assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
+            assert_eq!(store.transactions.len(), 1, "{main}");
+        }
+    }
+
     #[tokio::test]
     async fn an_append_includes_each_new_file_once() {
         // a batch of balances writes several directives to one new file: beancount refuses a file included twice

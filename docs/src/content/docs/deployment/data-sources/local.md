@@ -33,6 +33,8 @@ ledger/
 
 The extension of the main file selects the format of the whole ledger: `.zhang`, or `.bean`, `.beancount` and `.bc` for beancount. If the main file does not exist, Zhang starts with an empty ledger.
 
+The files are UTF-8. A file that starts with a byte order mark (BOM), as some Windows editors write it, is read as if it started without one, and Zhang keeps the mark when it writes the file.
+
 The web UI writes to these files:
 
 - A new transaction, balance check or document is appended to the file that the [`directive_output_path`](/reference/directives/options/) option names for its date, `data/{year}/{month}.zhang` by default (with the extension of the main file). The first time a file is used, Zhang appends an `include` for it to the main file.

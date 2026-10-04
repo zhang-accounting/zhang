@@ -1,5 +1,7 @@
 use axum::extract::State;
 use gotcha::api;
+use zhang_core::data_source::FileText;
+use zhang_core::utils::BOM;
 
 use crate::error::ServerError;
 use crate::request::FileUpdateRequest;
@@ -27,7 +29,8 @@ pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename):
     let ledger = ledger.read().await;
 
     let content = ledger.data_source.async_get(filename.to_owned()).await?;
-    let content = String::from_utf8(content).unwrap();
+    // without the byte order mark the file may start with, as the parsers read it (#505)
+    let content = FileText::new(String::from_utf8(content).unwrap()).text;
 
     ResponseWrapper::json(FileDetailEntity { path: filename, content })
 }
@@ -41,7 +44,15 @@ pub async fn update_file_content(
     // ledger that loads. It is saved even when the files cannot be loaded, to fix them
     let mut ledger = ledger.write().await;
 
-    let saved = ledger.data_source.async_save(&ledger, filename, payload.content.as_bytes()).await;
+    // the editor shows the file without the byte order mark it may start with: a file that has one keeps it (#505).
+    // A file that cannot be read is written as sent: the save, which may fix it, is never held up by the read
+    let had_bom = match ledger.data_source.async_get_existing(filename.clone()).await {
+        Ok(Some(existing)) => existing.starts_with(BOM.as_bytes()),
+        _ => false,
+    };
+    let mut content = FileText::new(payload.content);
+    content.bom |= had_bom;
+    let saved = ledger.data_source.async_save(&ledger, filename, &content.into_bytes()).await;
     wrote(&mut ledger, &reload_sender, saved.map_err(ServerError::from))?;
     Ok(Created)
 }
@@ -58,7 +69,7 @@ mod save_test {
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::ledger::Ledger;
 
-    use super::update_file_content;
+    use super::{get_file_content, update_file_content};
     use crate::request::{CreateTransactionRequest, FileUpdateRequest};
     use crate::routes::transaction::create_new_transaction;
     use crate::routes::Base64Path;
@@ -74,6 +85,45 @@ mod save_test {
             .and_then(|it| it["message"].as_str().map(str::to_owned))
             .unwrap_or_default();
         (status, message)
+    }
+
+    /// The editor shows a file starting with a UTF-8 byte order mark without the mark, and a save from it keeps the
+    /// mark, once (#505); a file without one gets none.
+    #[tokio::test]
+    async fn the_editor_keeps_a_byte_order_mark_it_does_not_show() {
+        let dir = std::env::temp_dir().join(format!("zhang-file-bom-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = dir.join("main.zhang");
+        let opens = "1970-01-01 open Assets:Cash\n";
+        std::fs::write(&main, format!("\u{feff}{opens}")).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(zhang_core::data_type::text::ZhangDataType {}));
+        let loaded = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
+        let (sender, _receiver) = mpsc::channel(8);
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+        let path = || Base64Path(main.to_string_lossy().into_owned());
+        let shown = || async {
+            let response = get_file_content(state.clone(), path()).await.into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["data"]["content"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let save = |content: String| update_file_content(state.clone(), reload.clone(), path(), Json(FileUpdateRequest { content }));
+
+        assert_eq!(shown().await, opens);
+        let edited = format!("{opens}1970-01-01 open Assets:Bank\n");
+        assert_eq!(answer(save(edited.clone()).await).await.0, StatusCode::CREATED);
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), format!("\u{feff}{edited}"));
+        assert_eq!(shown().await, edited);
+
+        std::fs::write(&main, opens).unwrap();
+        assert_eq!(answer(save(edited.clone()).await).await.0, StatusCode::CREATED);
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), edited, "a file without a mark gets none");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     /// A save of a file that does not parse is written, and so is the save fixing it: a save edits no place the

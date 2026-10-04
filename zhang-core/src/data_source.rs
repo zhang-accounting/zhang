@@ -9,7 +9,7 @@ use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 use crate::data_type::{document_path_in_file, is_beancount_endpoint, DataType};
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
-use crate::utils::has_path_visited;
+use crate::utils::{has_path_visited, BOM};
 use crate::{ZhangError, ZhangResult};
 
 /// `DataSource` is the protocol to describe how the `DataType` be stored and be transformed into standard directives.
@@ -95,13 +95,13 @@ where
         }
     }
 
-    /// The content of the file at `path`, to edit the directives at `spans` in place: each of them must still be
+    /// The text of the file at `path`, to edit the directives at `spans` in place: each of them must still be
     /// what the ledger loaded there ([`SpanInfo::content`]). [`ZhangError::FileChanged`] when one is not, the file
     /// having changed since the ledger was loaded: the ledger must be reloaded for places that are not stale. A
     /// writer holds the ledger exclusively from this read until it saved the file, so no other write comes between
-    async fn async_get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<String> {
-        let content = String::from_utf8(self.async_get(path.clone()).await?)?;
-        unchanged(&path, &content, spans)?;
+    async fn async_get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<FileText> {
+        let content = FileText::new(String::from_utf8(self.async_get(path.clone()).await?)?);
+        unchanged(&path, &content.text, spans)?;
         Ok(content)
     }
     async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
@@ -181,7 +181,37 @@ pub fn written_into(ledger: &Ledger, directive: Directive, file: &Path) -> Direc
     }
 }
 
-/// whether the directives at `spans` are still what the ledger loaded in `content`, the content of the file at `path`
+/// The text of a file of the ledger, read to edit it in place: the file's content after the byte order mark it may
+/// start with ([`BOM`]), which the parsers skip too, so the spans of the ledger index the text; the mark is written
+/// back before it ([`FileText::into_bytes`])
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileText {
+    /// whether the file starts with a byte order mark
+    pub bom: bool,
+    /// the text after the mark
+    pub text: String,
+}
+
+impl FileText {
+    /// the text of a file whose content is `content`
+    pub fn new(mut content: String) -> Self {
+        let bom = content.starts_with(BOM);
+        if bom {
+            content.drain(..BOM.len());
+        }
+        FileText { bom, text: content }
+    }
+
+    /// the content to write back: the mark the file had, then the text
+    pub fn into_bytes(self) -> Vec<u8> {
+        match self.bom {
+            true => [BOM.as_bytes(), self.text.as_bytes()].concat(),
+            false => self.text.into_bytes(),
+        }
+    }
+}
+
+/// whether the directives at `spans` are still what the ledger loaded in `content`, the text of the file at `path`
 pub fn unchanged(path: &str, content: &str, spans: &[SpanInfo]) -> ZhangResult<()> {
     match spans.iter().all(|span| content.get(span.start..span.end) == Some(span.content.as_str())) {
         true => Ok(()),
@@ -656,6 +686,48 @@ mod test {
         let store = reloaded.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 2);
+    }
+
+    /// A file starting with a UTF-8 byte order mark, as some Windows editors save it, loads (#505): the mark is
+    /// skipped, and the spans index the text after it, which the write paths slice. An append keeps the mark, once.
+    #[test]
+    fn a_file_starting_with_a_byte_order_mark_loads_and_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main.zhang");
+        let opens = "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
+        std::fs::write(&main, format!("\u{feff}{opens}")).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+
+        let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap();
+
+        assert!(ledger.store.read().unwrap().errors.is_empty(), "{:?}", ledger.store.read().unwrap().errors);
+        let spans = ledger.directives.iter().map(|it| &it.span).collect::<Vec<_>>();
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].start, 0, "the first directive starts where the text after the mark does");
+        for span in spans {
+            assert_eq!(opens.get(span.start..span.end), Some(span.content.as_str()), "{span:?}");
+        }
+
+        let coffee: Vec<Directive> = ZhangDataType {}
+            .transform("2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n".to_owned(), None)
+            .unwrap()
+            .into_iter()
+            .map(|it| it.data)
+            .collect();
+        ledger.data_source.append(&ledger, coffee).unwrap();
+
+        let written = std::fs::read_to_string(&main).unwrap();
+        assert!(written.starts_with(&format!("\u{feff}{opens}")), "{written:?}");
+        assert_eq!(written.matches('\u{feff}').count(), 1, "{written:?}");
+        assert_eq!(written.matches("include \"data/2024/01.zhang\"").count(), 1, "{written}");
+        assert!(
+            !std::fs::read_to_string(dir.path().join("data/2024/01.zhang")).unwrap().contains('\u{feff}'),
+            "a new file gets no mark"
+        );
+        let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
+        let store = reloaded.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(store.transactions.len(), 1);
     }
 
     /// A pattern names the files that exist, whole names only, in any part of the path (#494): `*.zhang` next to the

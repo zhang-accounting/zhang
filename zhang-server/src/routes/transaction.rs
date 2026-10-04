@@ -248,8 +248,8 @@ async fn write_transaction_documents(ledger: &Ledger, span: &TransactionInfoDoma
         .data_source
         .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span.span))
         .await?;
-    insert_transaction_metas(&mut content, span.span_start, span.span_end, &lines);
-    ledger.data_source.async_save(ledger, source_file_path, content.as_bytes()).await?;
+    insert_transaction_metas(&mut content.text, span.span_start, span.span_end, &lines);
+    ledger.data_source.async_save(ledger, source_file_path, &content.into_bytes()).await?;
     Ok(())
 }
 
@@ -300,8 +300,10 @@ pub async fn update_single_transaction(
             .data_source
             .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))
             .await?;
-        content.replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
-        ledger.data_source.async_save(&ledger, source_file_path, content.as_bytes()).await?;
+        content
+            .text
+            .replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
+        ledger.data_source.async_save(&ledger, source_file_path, &content.into_bytes()).await?;
         ServerResult::Ok(())
     }
     .await;
@@ -1510,6 +1512,52 @@ mod string_round_trip_test {
             "{written}"
         );
     }
+    /// An edit of a transaction in a file starting with a UTF-8 byte order mark (#505) replaces the transaction,
+    /// not the bytes three places after it, in both formats; the file keeps its mark, once.
+    #[tokio::test]
+    async fn an_edit_in_a_file_with_a_byte_order_mark_keeps_it() {
+        let opens = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n";
+        let coffee = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n";
+        for main in ["main.zhang", "main.bean"] {
+            let dir = std::env::temp_dir().join(format!("zhang-bom-transaction-{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let dir = dir.canonicalize().unwrap();
+            let path = dir.join(main);
+            std::fs::write(&path, format!("\u{feff}{opens}{coffee}")).unwrap();
+            let load = || async {
+                let source = if main.ends_with(".bean") {
+                    Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
+                } else {
+                    Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
+                };
+                Ledger::async_load(dir.clone(), main.to_owned(), source)
+                    .await
+                    .unwrap_or_else(|e| panic!("{main}: {e}"))
+            };
+            let loaded = load().await;
+            let id = loaded.operations().read().transactions.values().next().unwrap().id;
+            let (state, reload) = states(loaded);
+
+            let update = edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
+            let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+                .await
+                .into_response();
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(status, StatusCode::OK, "{main}: {}", String::from_utf8_lossy(&body));
+
+            let written = std::fs::read_to_string(&path).unwrap();
+            assert!(written.starts_with(&format!("\u{feff}{opens}")), "{main}: {written:?}");
+            assert_eq!(written.matches('\u{feff}').count(), 1, "{main}: {written:?}");
+            assert!(!written.contains("-5 CNY"), "{main}: the transaction is replaced:\n{written}");
+            assert!(written.contains("Assets:Cash -6 CNY"), "{main}: {written}");
+            let reloaded = load().await;
+            assert!(reloaded.operations().read().errors.is_empty(), "{main}: {written}");
+            assert_eq!(reloaded.operations().read().transactions.len(), 1, "{main}: {written}");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
     /// A document or an update of a transaction in a file changed since the ledger was loaded is refused with a 409,
     /// and nothing is written: the transaction is no longer where the ledger loaded it, and has another id. Tried
     /// again, the ledger is reloaded first: the old id is a 404, and the id of the journal reopened is written in the
