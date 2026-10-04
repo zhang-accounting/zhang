@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::{Add, AddAssign, Sub};
+use std::ops::{Add, Sub};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -28,50 +28,9 @@ use crate::{ZhangError, ZhangResult};
 
 pub mod schemas;
 
-pub struct AccountCommodityLot {
-    pub account: Account,
-    pub amount: BigDecimal,
-    pub cost: Option<Amount>,
-    pub price: Option<Amount>,
-    pub acquisition_date: Option<NaiveDate>,
-}
-
 pub struct Operations {
     pub timezone: Tz,
     pub store: Arc<RwLock<Store>>,
-}
-
-impl Operations {
-    /// single commodity prices
-    pub fn commodity_prices(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<PriceDomain>> {
-        let store = self.read();
-        let commodity = commodity.as_ref();
-        Ok(store.prices.iter().filter(|price| price.commodity.eq(commodity)).cloned().collect_vec())
-    }
-}
-
-impl Operations {
-    /// single commodity lots
-    pub fn commodity_lots(&self, commodity: impl AsRef<str>) -> ZhangResult<Vec<AccountCommodityLot>> {
-        let store = self.read();
-        let commodity = commodity.as_ref();
-        let mut ret = vec![];
-        for (account, lots) in store.commodity_lots.iter() {
-            for lot in lots.iter() {
-                if lot.commodity.eq(commodity) {
-                    let lot = lot.clone();
-                    ret.push(AccountCommodityLot {
-                        account: Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?,
-                        amount: lot.amount,
-                        cost: lot.cost,
-                        acquisition_date: lot.acquisition_date,
-                        price: None,
-                    })
-                }
-            }
-        }
-        Ok(ret)
-    }
 }
 
 impl Operations {
@@ -278,32 +237,6 @@ impl Operations {
             number: it.after_amount.number.clone(),
             commodity: currency.to_owned(),
         }))
-    }
-
-    pub fn get_latest_price(&self, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
-        let store = self.read();
-        let option = store
-            .prices
-            .iter()
-            .filter(|price| price.commodity.eq(from.as_ref()))
-            .filter(|price| price.target_commodity.eq(to.as_ref()))
-            .sorted_by_key(|it| it.datetime)
-            .next_back()
-            .cloned();
-        Ok(option)
-    }
-    pub fn get_commodity_balances(&self, commodity: impl AsRef<str>) -> ZhangResult<BigDecimal> {
-        let mut total = BigDecimal::zero();
-        let store = self.read();
-        let commodity = commodity.as_ref();
-        for (account, lots) in store.commodity_lots.iter() {
-            let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
-            if account.account_type == AccountType::Assets || account.account_type == AccountType::Liabilities {
-                let account_sum: BigDecimal = lots.iter().filter(|lot| lot.commodity.eq(commodity)).map(|it| &it.amount).sum();
-                total.add_assign(account_sum);
-            }
-        }
-        Ok(total)
     }
 }
 

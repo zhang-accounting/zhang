@@ -1,6 +1,6 @@
-//! Golden comparison of the budget and commodity endpoints: each handler that runs built-in
-//! queries against the handler it replaces ([`budget::legacy`], [`commodity::legacy`]), on every
-//! ledger of `integration-tests/` and `examples/`, in both formats where there are both (#479).
+//! Golden comparison of the budget endpoints: each handler that runs built-in queries against
+//! the handler it replaces ([`budget::legacy`]), on every ledger of `integration-tests/` and
+//! `examples/`, in both formats where there are both (#479).
 //!
 //! A difference is accepted only when it is one of the documented ones (see [`Reason`]); anything
 //! else fails. `golden_report` (ignored) runs the same comparison on more ledgers, given as
@@ -30,7 +30,7 @@ use zhang_core::ledger::Ledger;
 use super::budget_reference::{Figures, Reference};
 use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
 use crate::response::ResponseWrapper;
-use crate::routes::{budget, commodity};
+use crate::routes::budget;
 use crate::state::SharedLedger;
 use crate::ServerResult;
 
@@ -68,12 +68,11 @@ where
 
 /// The endpoints compared, with their arguments.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum Probe {
     BudgetList { month: Option<(u32, u32)> },
     BudgetInfo { name: String, month: Option<(u32, u32)> },
     BudgetInterval { name: String, year: u32, month: u32 },
-    Commodities,
-    Commodity { name: String },
 }
 
 impl Probe {
@@ -82,8 +81,6 @@ impl Probe {
             Probe::BudgetList { .. } => "GET /api/budgets",
             Probe::BudgetInfo { .. } => "GET /api/budgets/{name}",
             Probe::BudgetInterval { .. } => "GET /api/budgets/{name}/interval/{y}/{m}",
-            Probe::Commodities => "GET /api/commodities",
-            Probe::Commodity { .. } => "GET /api/commodities/{name}",
         }
     }
 
@@ -96,7 +93,6 @@ impl Probe {
         match self {
             Probe::BudgetList { month } | Probe::BudgetInfo { month, .. } => Probe::month_of(month),
             Probe::BudgetInterval { year, month, .. } => NaiveDate::from_ymd_opt(*year as i32, *month, 1),
-            _ => None,
         }
     }
 
@@ -132,14 +128,6 @@ impl Probe {
                     call(budget::get_budget_interval_detail(state(), path())).await,
                 )
             }
-            Probe::Commodities => (
-                call(commodity::legacy::get_all_commodities(state())).await,
-                call(commodity::get_all_commodities(state())).await,
-            ),
-            Probe::Commodity { name } => (
-                call(commodity::legacy::get_single_commodity(state(), Path((name.clone(),)))).await,
-                call(commodity::get_single_commodity(state(), Path((name,)))).await,
-            ),
         }
     }
 }
@@ -303,7 +291,7 @@ fn month_pair(date: NaiveDate) -> (u32, u32) {
     (date.year() as u32, date.month())
 }
 
-/// The probes of a ledger: every endpoint, for every budget and commodity, an unknown one, and
+/// The probes of a ledger: every endpoint, for every budget, an unknown one, and
 /// the months around the budgets' series: before the first, every month of it (sampled when it is
 /// long), and after the last. A series that runs years past the current month, because of a date
 /// typo, is probed up to a few months after the current one, and at its last month.
@@ -311,7 +299,6 @@ pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     let ledger = ledger.read().await;
     let store = ledger.store.read().unwrap();
     let budgets = store.budgets.keys().cloned().collect::<BTreeSet<_>>();
-    let commodities = store.commodities.keys().cloned().collect::<Vec<_>>();
     let mut months = BTreeSet::new();
     let first = store.budgets.values().flat_map(|it| it.detail.keys()).min().copied();
     let last_detail = store.budgets.values().flat_map(|it| it.detail.keys()).max().copied();
@@ -357,13 +344,6 @@ pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
             });
         }
     }
-    probes.push(Probe::Commodities);
-    probes.extend(
-        commodities
-            .into_iter()
-            .chain(std::iter::once("NO-SUCH-COMMODITY".to_owned()))
-            .map(|name| Probe::Commodity { name }),
-    );
     probes
 }
 
@@ -395,12 +375,6 @@ pub(crate) async fn compare(ledger: &SharedLedger) -> Vec<Compared> {
 /// fixes, or one of its decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Reason {
-    /// the old handler panicked on an unknown commodity (`.expect("cannot find commodity")`)
-    UnknownCommodityIsNotFound,
-    /// decision 9: commodity lots list Assets and Liabilities holdings only
-    LotsOfAssetsAndLiabilitiesOnly,
-    /// the lots came in HashMap order; now by account, acquisition date and cost
-    LotsInDeterministicOrder,
     /// the budgets came in HashMap order; now by name
     BudgetsInNameOrder,
     /// decision 8: `closed` is per month, not the final state
@@ -437,9 +411,6 @@ pub(crate) enum Reason {
 impl Reason {
     pub(crate) fn describe(self) -> &'static str {
         match self {
-            Reason::UnknownCommodityIsNotFound => "an unknown commodity is a 404 instead of a panic",
-            Reason::LotsOfAssetsAndLiabilitiesOnly => "lots list Assets and Liabilities holdings only (decision 9)",
-            Reason::LotsInDeterministicOrder => "lots in deterministic order (were in HashMap order)",
             Reason::BudgetsInNameOrder => "budgets in name order (were in HashMap order)",
             Reason::ClosedPerMonth => "closed is per month (decision 8)",
             Reason::ActivityConverted => "activity converted to the budget's commodity at its date (decision 8)",
@@ -668,10 +639,6 @@ pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Co
         return Ok(reasons);
     }
     let (mut old_json, new_json) = match (probe, old, new) {
-        (Probe::Commodity { .. }, Outcome::Panic, Outcome::Status(404)) => {
-            reasons.insert(Reason::UnknownCommodityIsNotFound);
-            return Ok(reasons);
-        }
         (Probe::BudgetList { .. } | Probe::BudgetInfo { .. }, Outcome::Json(_), Outcome::Status(400))
             if context
                 .reference
@@ -685,33 +652,6 @@ pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Co
         _ => return Err(format!("old {:?}, new {:?}", old, new)),
     };
     match probe {
-        Probe::Commodity { .. } => {
-            // the documented order of the new lots: by account, then acquisition date and cost,
-            // without either first; the new lots are compared as they come
-            let lot_key = |lot: &Json| {
-                (
-                    lot["account"].as_str().unwrap_or_default().to_owned(),
-                    lot["acquisition_date"].as_str().map(str::to_owned),
-                    lot["cost"]["number"].as_str().and_then(|it| BigDecimal::from_str(it).ok()),
-                )
-            };
-            if let Some(lots) = old_json["lots"].as_array_mut() {
-                let before = lots.len();
-                lots.retain(|lot| {
-                    lot["account"]
-                        .as_str()
-                        .is_some_and(|it| it.starts_with("Assets:") || it.starts_with("Liabilities:"))
-                });
-                if lots.len() != before {
-                    reasons.insert(Reason::LotsOfAssetsAndLiabilitiesOnly);
-                }
-                let before = lots.clone();
-                lots.sort_by_key(|lot| lot_key(lot));
-                if before != *lots {
-                    reasons.insert(Reason::LotsInDeterministicOrder);
-                }
-            }
-        }
         Probe::BudgetList { .. } => {
             let name = |it: &Json| it["name"].as_str().unwrap_or_default().to_owned();
             if let Some(budgets) = old_json.as_array_mut() {
@@ -781,7 +721,6 @@ pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Co
                 }
             }
         }
-        Probe::Commodities => {}
     }
     if old_json == new_json {
         Ok(reasons)
@@ -1186,11 +1125,23 @@ option "operating_currency" "USD"
 2024-03-01 price AAPL 900 CNY
 "#;
 
+    /// What `GET /api/commodities/{name}` answers.
+    async fn commodity(ledger: &SharedLedger, name: &str) -> Outcome {
+        let state = State(SharedLedger(ledger.0.clone()));
+        call(crate::routes::commodity::get_single_commodity(state, Path((name.to_owned(),)))).await.0
+    }
+
+    async fn commodity_json(ledger: &SharedLedger, name: &str) -> Json {
+        match commodity(ledger, name).await {
+            Outcome::Json(json) => json,
+            other => panic!("{}: {:?}", name, other),
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn commodity_lots_are_assets_and_liabilities_holdings_in_order() {
         let ledger = ledger_of(COMMODITIES).await;
-        let (old, new) = json_answers(&ledger, Probe::Commodity { name: "AAPL".to_owned() }).await;
-        assert_eq!(old["info"], new["info"]);
+        let new = commodity_json(&ledger, "AAPL").await;
         assert_eq!(
             new["info"],
             json!({
@@ -1206,7 +1157,6 @@ option "operating_currency" "USD"
                 {"account": "Assets:Broker", "amount": "5", "cost": {"number": "120", "commodity": "USD"}, "price": null, "acquisition_date": "2024-02-01"},
             ])
         );
-        assert_eq!(old["prices"], new["prices"]);
         assert_eq!(
             new["prices"],
             json!([
@@ -1216,19 +1166,8 @@ option "operating_currency" "USD"
             ])
         );
 
-        // the old handler also listed Income:Gains as a holding of USD
-        let (old, new) = json_answers(&ledger, Probe::Commodity { name: "USD".to_owned() }).await;
-        let accounts = |json: &Json| {
-            let mut accounts = json["lots"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|lot| lot["account"].as_str().unwrap().to_owned())
-                .collect::<Vec<_>>();
-            accounts.sort();
-            accounts
-        };
-        assert_eq!(accounts(&old), vec!["Assets:Cash", "Income:Gains", "Liabilities:Loan"]);
+        // Income:Gains is not a holding of USD
+        let new = commodity_json(&ledger, "USD").await;
         assert_eq!(
             new["lots"],
             json!([
@@ -1236,16 +1175,10 @@ option "operating_currency" "USD"
                 {"account": "Liabilities:Loan", "amount": "-5000", "cost": null, "price": null, "acquisition_date": null},
             ])
         );
-        assert_eq!(
-            (old["info"]["total_amount"].clone(), new["info"]["total_amount"].clone()),
-            (json!("-1120"), json!("-1120"))
-        );
+        assert_eq!(new["info"]["total_amount"], json!("-1120"));
 
         // an unknown commodity
-        assert_eq!(
-            answers(&ledger, Probe::Commodity { name: "NOPE".to_owned() }).await,
-            (Outcome::Panic, Outcome::Status(404))
-        );
+        assert_eq!(commodity(&ledger, "NOPE").await, Outcome::Status(404));
     }
 }
 
