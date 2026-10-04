@@ -3,10 +3,12 @@ use std::sync::Arc;
 
 use beancount::Beancount;
 use wasm_bindgen::prelude::*;
+use zhang_core::ast::{Directive, Spanned};
 use zhang_core::clock::Clock;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
+use zhang_core::ZhangResult;
 
 use crate::data_source::InMemoryDataSource;
 
@@ -69,59 +71,39 @@ pub fn greet() {
 #[wasm_bindgen]
 pub fn parse(content: &str) -> PlayGroundParse {
     console_error_panic_hook::set_once();
-    let zhang_data_type = ZhangDataType {};
-    let beancount_data_type = Beancount::default();
-
     let source = Arc::new(InMemoryDataSource {
         data_type: Box::new(ZhangDataType {}),
     });
-    let zhang_parse_result = zhang_data_type.transform(content.to_owned(), None);
-    let beancount_parse_result = beancount_data_type.transform(content.to_owned(), None);
-    let (is_zhang_pass, zhang_store, zhang_error_msg) = match zhang_parse_result {
-        Ok(data) => {
-            let result = Ledger::process(LedgerProcessContext {
-                directives: data,
-                entry: (PathBuf::from("/"), "".to_owned()),
-                visited_files: vec![],
-                data_source: source.clone(),
-                // never read: the playground runs no plugins, and nothing else asks for the time
-                clock: Clock::System,
-            })
-            .unwrap();
-            let result1 = result.store.read().unwrap();
-            let store_js_value = serde_wasm_bindgen::to_value(&*result1).unwrap();
-            (true, Some(store_js_value), None)
-        }
-        Err(e) => (false, None, Some(e.to_string())),
-    };
-
-    let (is_beancount_pass, beancount_store, beancount_error_msg) = match beancount_parse_result {
-        Ok(data) => {
-            let result = Ledger::process(LedgerProcessContext {
-                directives: data,
-                entry: (PathBuf::from("/"), "".to_owned()),
-                visited_files: vec![],
-                data_source: source.clone(),
-                // never read: the playground runs no plugins, and nothing else asks for the time
-                clock: Clock::System,
-            })
-            .unwrap();
-            let result1 = result.store.read().unwrap();
-            let store_js_value = serde_wasm_bindgen::to_value(&*result1).unwrap();
-            (true, Some(store_js_value), None)
-        }
-        Err(e) => (false, None, Some(e.to_string())),
-    };
     PlayGroundParse {
-        zhang: ParseResult {
-            is_pass: is_zhang_pass,
-            msg: zhang_error_msg,
-            store: zhang_store,
-        },
-        beancount: ParseResult {
-            is_pass: is_beancount_pass,
-            msg: beancount_error_msg,
-            store: beancount_store,
+        zhang: parse_result(ZhangDataType {}.transform(content.to_owned(), None), &source),
+        beancount: parse_result(Beancount::default().transform(content.to_owned(), None), &source),
+    }
+}
+
+/// the playground result of one data type: the store of the processed directives, or the parse error
+fn parse_result(parsed: ZhangResult<Vec<Spanned<Directive>>>, source: &Arc<InMemoryDataSource>) -> ParseResult {
+    match parsed {
+        Ok(directives) => {
+            let ledger = Ledger::process(LedgerProcessContext {
+                directives,
+                entry: (PathBuf::from("/"), "".to_owned()),
+                visited_files: vec![],
+                data_source: source.clone(),
+                // never read: the playground runs no plugins, and nothing else asks for the time
+                clock: Clock::System,
+            })
+            .unwrap();
+            let store = ledger.store.read().unwrap();
+            ParseResult {
+                is_pass: true,
+                msg: None,
+                store: Some(serde_wasm_bindgen::to_value(&*store).unwrap()),
+            }
+        }
+        Err(e) => ParseResult {
+            is_pass: false,
+            msg: Some(e.to_string()),
+            store: None,
         },
     }
 }
