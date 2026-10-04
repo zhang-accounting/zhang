@@ -48,13 +48,9 @@ pub(crate) trait DirectiveProcess: std::fmt::Debug {
 #[async_trait::async_trait]
 pub(crate) trait DirectivePreProcess {
     /// sync function of pre handler
-    fn pre_process(&self, _ledger: &mut Ledger) -> ZhangResult<()> {
-        Ok(())
-    }
+    fn pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()>;
     /// async function of pre handler
-    async fn async_pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()> {
-        self.pre_process(ledger)
-    }
+    async fn async_pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()>;
 }
 
 fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
