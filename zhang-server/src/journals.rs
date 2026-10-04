@@ -20,6 +20,7 @@ use zhang_ast::{Directive, Flag, SpanInfo, Transaction};
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
+use zhang_core::data_type::text::parser::transaction_has_unexported_text;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::QuoteStyle;
 use zhang_query::{Params, QueryResult, Value};
@@ -157,6 +158,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                     tags: transaction.tags.clone(),
                     links: transaction.links.clone(),
                     postings: written_transaction(ledger, &transaction.span).map(|directive| written_postings(directive, style)),
+                    edit_drops_text: transaction_has_unexported_text(&transaction.span.content),
                 };
                 Some((id.clone(), written))
             })
@@ -186,6 +188,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                 entry.narration = written.narration.clone();
                 entry.tags = written.tags.clone();
                 entry.links = written.links.clone();
+                entry.edit_drops_text = written.edit_drops_text;
                 // the postings of the journal are the written ones in their order ([`JOURNAL_POSTINGS`] groups the
                 // booked legs by the posting they were written as); the written forms are attached only when they
                 // line up with them, account by account
@@ -212,6 +215,8 @@ struct Written {
     /// the postings as written, each with its account, when the transaction's directive is in the ledger: not for
     /// one a plugin made
     postings: Option<Vec<(String, WrittenPostingEntity)>>,
+    /// whether the text of the transaction has lines an edit drops ([`transaction_has_unexported_text`])
+    edit_drops_text: bool,
 }
 
 /// The transaction directive of `ledger` read from `span`: the one starting where it starts, in its file. `None` for
@@ -253,6 +258,8 @@ struct EntryRow {
     tags: Vec<String>,
     links: Vec<String>,
     metas: Vec<MetaEntity>,
+    /// see [`Written::edit_drops_text`]; `false` until the written forms are read
+    edit_drops_text: bool,
 }
 
 impl EntryRow {
@@ -268,6 +275,7 @@ impl EntryRow {
             tags: strings(row.set("tags")?),
             links: strings(row.set("links")?),
             metas: metas(row.get("metas")?),
+            edit_drops_text: false,
         })
     }
 }
@@ -404,6 +412,7 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
         is_balanced,
         postings,
         metas: entry.metas,
+        edit_drops_text: entry.edit_drops_text,
     })
 }
 

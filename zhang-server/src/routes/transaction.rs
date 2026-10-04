@@ -2063,6 +2063,28 @@ mod string_round_trip_test {
         }
     }
 
+    /// The journal says whether an edit drops text of a transaction (#473, #443): one with a comment line between
+    /// its postings, or a comment on its header line, loses it when the transaction is rewritten from the form, so
+    /// a client warns first; a plain one, and one whose comments are on its posting lines, loses nothing.
+    #[tokio::test]
+    async fn the_journal_says_whether_an_edit_drops_text() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  ; paid in cash\n  Expenses:Food 5 CNY\n\n\
+                      2024-01-16 * \"Bob\" \"tea\" ; with milk\n  Assets:Cash -3 CNY\n  Expenses:Food 3 CNY\n\n\
+                      2024-01-17 * \"Bob\" \"water\"\n  Assets:Cash -1 CNY ; tap\n    rate: 1\n  Expenses:Food 1 CNY\n";
+        for main in ["main.zhang", "main.bean"] {
+            let (dir, loaded) = stock_ledger(main, ledger).await;
+            let records = journals(loaded).await;
+            let drops = |narration: &str| {
+                let record = records.as_array().unwrap().iter().find(|it| it["narration"] == narration);
+                record.unwrap_or_else(|| panic!("{main}: {narration}"))["edit_drops_text"].clone()
+            };
+            assert_eq!(drops("coffee"), json!(true), "{main}: a comment line between the postings");
+            assert_eq!(drops("tea"), json!(true), "{main}: a comment on the header line");
+            assert_eq!(drops("water"), json!(false), "{main}: a posting's comment is written back");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
     /// The journal shows the cost, the price and the comment of each posting as they are written, in the forms the
     /// update request takes, so that a client can send them back or change them; a balance check's entry has none.
     #[tokio::test]

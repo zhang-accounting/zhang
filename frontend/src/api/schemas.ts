@@ -1576,6 +1576,12 @@ export interface operations {
                 | {
                     /** Format: date-time */
                     datetime: string;
+                    /**
+                     * @description whether an edit through the API, which rewrites the transaction from its directive, drops text of it: a comment
+                     * line between its postings, a comment on its header line or after a metadata line. A client warns before such
+                     * an edit; `false` for a transaction a plugin made, which cannot be edited at all
+                     */
+                    edit_drops_text: boolean;
                     flag: string;
                     /** Format: uuid */
                     id: string;
