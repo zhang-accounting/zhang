@@ -70,34 +70,10 @@ pub fn mul_in_context(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
     product
 }
 
-/// Render a decimal without exponent notation, preserving its scale (`-12.50` stays `-12.50`).
+/// Render a decimal without exponent notation, preserving its scale (`-12.50` stays `-12.50`), as
+/// zhang-core's [`zhang_core::utils::plain_decimal`] writes it.
 pub fn to_plain_string(value: &BigDecimal) -> String {
-    let (int_val, scale) = value.as_bigint_and_exponent();
-    let negative = int_val.sign() == bigdecimal::num_bigint::Sign::Minus;
-    let digits = int_val.magnitude().to_string();
-    let mut out = String::with_capacity(digits.len() + 3);
-    if negative {
-        out.push('-');
-    }
-    if scale <= 0 {
-        out.push_str(&digits);
-        if digits != "0" {
-            out.extend(std::iter::repeat_n('0', (-scale) as usize));
-        }
-    } else {
-        let scale = scale as usize;
-        if digits.len() > scale {
-            let (int_part, frac_part) = digits.split_at(digits.len() - scale);
-            out.push_str(int_part);
-            out.push('.');
-            out.push_str(frac_part);
-        } else {
-            out.push_str("0.");
-            out.extend(std::iter::repeat_n('0', scale - digits.len()));
-            out.push_str(&digits);
-        }
-    }
-    out
+    zhang_core::utils::plain_decimal(value)
 }
 
 #[cfg(test)]
