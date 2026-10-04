@@ -45,10 +45,6 @@ export const reloadLedger = openAPIFetcher.path('/api/reload').method('post').cr
 
 export const updateTransaction = openAPIFetcher.path('/api/transactions/{transaction_id}').method('put').create();
 
-export const uploadTransactionDocument = openAPIFetcher.path('/api/transactions/{transaction_id}/documents').method('post').create();
-
-export const uploadAccountDocument = openAPIFetcher.path('/api/accounts/{account_name}/documents').method('post').create();
-
 export const createAccountBalance = openAPIFetcher.path('/api/accounts/{account_name}/balances').method('post').create();
 
 export const executeQuery = openAPIFetcher.path('/api/query').method('post').create();
@@ -56,8 +52,6 @@ export const executeQuery = openAPIFetcher.path('/api/query').method('post').cre
 export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').method('get').create();
 
 export const retrieveSavedQueries = openAPIFetcher.path('/api/query/saved').method('get').create();
-
-export const retrieveBuiltinQueries = openAPIFetcher.path('/api/query/builtins').method('get').create();
 
 export const retrieveBuiltinQueryText = openAPIFetcher.path('/api/query/builtins/{name}/text').method('post').create();
 
