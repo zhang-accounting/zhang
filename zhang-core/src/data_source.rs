@@ -189,6 +189,26 @@ pub fn unchanged(path: &str, content: &str, spans: &[SpanInfo]) -> ZhangResult<(
     }
 }
 
+/// The file of `ledger` the directive at `span` was read from, named as [`DataSource::async_get`] takes it: where
+/// the directive is edited in place. `None` when `span` is no place in a file of the ledger: it names no file, or
+/// one the ledger did not load, or it holds no text. That is the span of a directive a plugin made, which is in no
+/// file; the text at its span, if there is any there, is some other directive's, and must not be edited as it.
+///
+/// Whether the text there is still what the ledger loaded is [`DataSource::async_get_unchanged`]'s to check.
+pub fn loaded_file(ledger: &Ledger, span: &SpanInfo) -> Option<String> {
+    let file = span.filename.as_ref()?;
+    if span.start >= span.end || span.content.is_empty() {
+        return None;
+    }
+    // a local source names a file by its full path, a remote one by its path within the ledger
+    let entry = &ledger.entry.0;
+    let loaded = ledger
+        .visited_files
+        .iter()
+        .any(|visited| visited == file || visited.strip_prefix(entry).is_ok_and(|within| within == file));
+    loaded.then(|| file.to_string_lossy().to_string())
+}
+
 /// An `include` path with `*` in it: a pattern naming every file that matches, as beancount's `include` does. `*`
 /// stands for any run of characters other than `/` within one part of the path, in any part and any number of times;
 /// every other character is literal, and a part matches a whole name. A leading `*` does not match a hidden name, one

@@ -31,6 +31,7 @@ use gotcha::Schematic;
 use serde::Serialize;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Flag, Posting, SpanInfo, Spanned, Transaction, ZhangString};
+use zhang_core::data_source::loaded_file;
 use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
@@ -267,10 +268,11 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
         }
     }
 
-    // the balances of the same account and commodity for tomorrow, which the new ones replace
+    // the balances of the same account and commodity for tomorrow, which the new ones replace: those in a file of
+    // the ledger, where they can be. One a plugin made is in none (#476), so the new one is appended
     let replaced = |directive: &Spanned<Directive>| match &directive.data {
         Directive::BalanceCheck(check) => {
-            directive.span.filename.is_some()
+            loaded_file(ledger, &directive.span).is_some()
                 && check.date.naive_date() == tomorrow
                 && rows
                     .iter()
