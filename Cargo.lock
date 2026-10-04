@@ -7098,7 +7098,16 @@ dependencies = [
  "tempfile",
  "zhang-ast",
  "zhang-core",
+ "zhang-price-map",
  "zhang-query",
+]
+
+[[package]]
+name = "zhang-price-map"
+version = "0.1.0"
+dependencies = [
+ "bigdecimal",
+ "chrono",
 ]
 
 [[package]]
@@ -7125,6 +7134,7 @@ dependencies = [
  "uuid",
  "zhang-ast",
  "zhang-core",
+ "zhang-price-map",
 ]
 
 [[package]]

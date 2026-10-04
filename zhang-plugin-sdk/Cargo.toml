@@ -9,6 +9,7 @@ publish = false
 autoexamples = false
 
 [dependencies]
+zhang-price-map = { version = "0.1", path = "../zhang-price-map" }
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
 serde = { workspace = true }
 serde_json = { workspace = true }
