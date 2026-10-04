@@ -453,6 +453,10 @@ pub(crate) struct Execution {
     pub rewrites: Vec<Running>,
     /// the accounts the rows are limited to; `None` reads every row
     pub scope: Option<AccountScope>,
+    /// the targets of a top-k query ([`LimitMode::TopK`]) built only for the rows LIMIT and
+    /// OFFSET keep: visible, no ORDER BY key, infallible and not reading a running total. The
+    /// scan ranks every row by its keys alone.
+    pub late_targets: Vec<usize>,
     /// the last date of the rows a table that generates its rows generates; `None` generates
     /// every row
     pub until: Option<DateBound>,
@@ -539,6 +543,7 @@ impl Execution {
             },
             rewrites: vec![],
             scope: None,
+            late_targets: vec![],
             until: None,
         }
     }
@@ -1972,6 +1977,9 @@ impl fmt::Display for Plan {
             };
             let offset = self.offset.as_ref().map(|offset| format!(" offset {}", count_text(offset))).unwrap_or_default();
             writeln!(f, "limit: {}{}{}", count_text(limit), offset, how)?;
+            if !self.execution.late_targets.is_empty() {
+                writeln!(f, "late targets: {:?} (built for the kept rows only)", self.execution.late_targets)?;
+            }
         }
         if let Some(pivot) = &self.pivot {
             writeln!(f, "pivot by: {} (rows), {} (columns)", pivot.rows, pivot.columns)?;

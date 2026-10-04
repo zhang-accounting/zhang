@@ -1,0 +1,28 @@
+option "title" "probe2"
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Cash:Sub
+1970-01-01 open Expenses:Food
+
+2024-02-01 10:00:00 * "Morning" "written first, at 10:00"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-02-01 * "Dateonly" "written second, no time"
+  Assets:Cash -2 CNY
+  Expenses:Food
+
+2024-02-02 * "Docs" "two documents on the transaction"
+  document: "a.pdf"
+  document: "c.pdf"
+  Assets:Cash -3 CNY
+  Expenses:Food
+
+2024-02-03 * "Child" "posting to a child account"
+  Assets:Cash:Sub -4 CNY
+  Expenses:Food
+
+2024-02-04 document Assets:Cash:Sub "sub.pdf"

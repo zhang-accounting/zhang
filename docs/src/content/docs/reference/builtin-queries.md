@@ -427,7 +427,132 @@ WHERE source = 'directive' AND under(account, :account)
 
 ### Journals
 
-No queries yet.
+The journal page (`GET /api/journals`), the payees and accounts the new-transaction form suggests (`GET /api/for-new-transaction`), the documents page (`GET /api/documents`) and the error list (`GET /api/errors`).
+
+#### `journals.page`
+
+One page of the journal, newest first: the transactions, padding transactions included, and the balance assertions that match a keyword, tags and links, where a NULL parameter leaves its filter out.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `keyword` | `str` | the search text, or `NULL` for none: a transaction matches if its payee, narration, tags, links or accounts contain it, ignoring case, and a balance assertion if its accounts or the words `Balance Check` do. It is plain text, never a regular expression. |
+| `tags` | `set` | the tags, any of which a transaction must have, or `NULL` for any; a balance assertion has none |
+| `links` | `set` | the links, any of which a transaction must have, or `NULL` for any |
+| `size` | `int` | the number of rows of a page, from 1 to 1000 |
+| `offset` | `int` | the rows before the page: `(page - 1) × size` |
+
+```sql
+SELECT seq, type, id, date, time, flag, payee, narration, tags, links, metas
+FROM #entries
+WHERE (type = 'transaction'
+       AND (:tags IS NULL OR intersects(tags, :tags))
+       AND (:links IS NULL OR intersects(links, :links))
+       AND (:keyword IS NULL OR icontains(payee, :keyword) OR icontains(narration, :keyword)
+            OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword)))
+   OR (type = 'balance' AND :tags IS NULL AND :links IS NULL
+       AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword)))
+ORDER BY seq DESC
+LIMIT :size OFFSET :offset
+```
+
+- The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. `GET /api/journals` and `GET /api/errors` take a page `size` from 1 to 1000, 100 by default, and answer another size with HTTP 400 and the message `size must be between 1 and 1000`; a page past the last one is empty.
+- Rows come newest first, in the [processing order](/reference/query-language/#processing-order): by date and the time written, then at one time the balance entries (balance assertions and every transaction flagged `P`) before the other transactions, in the order of your files, with a `balance ... with pad` after the other balance entries of its time, its padding among them, where Zhang checks it. A balance assertion therefore stands right above the postings its balance includes. On a day daylight saving skips a time, an entry written in the gap keeps its place but shows the time it is stored at, moved forward by the length of the gap: `02:30` in New York on 2024-03-10 shows as `03:30`.
+- A transaction with the flag `P` is a padding transaction, which the page shows as a `BalancePad` item. A `balance` row is a `BalanceCheck` item, built from `journals.balance_checks`.
+
+#### `journals.postings`
+
+The postings of some transactions as written, in ledger order, with their units, whether those were inferred, the per-unit costs of their lots and the balance of their account in their currency before and after them.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `ids` | `set` | the ids of the transactions, those of a page of `journals.page` |
+
+```sql
+SELECT id, posting_index, account, automatic, balanced,
+       first(currency) AS currency,
+       sum(number) AS number,
+       count(*) AS lots, count(cost_number) AS lots_at_cost,
+       min(cost_number) AS cost_number, max(cost_number) AS max_cost_number,
+       min(cost_currency) AS cost_currency, max(cost_currency) AS max_cost_currency,
+       number(last(only(currency, account_balance))) - sum(number) AS balance_before,
+       number(last(only(currency, account_balance))) AS balance_after,
+       first(metas) AS metas
+WHERE id IN :ids
+GROUP BY id, posting_index, account, automatic, balanced
+```
+
+- A posting that [lot booking](/reference/query-language/#lot-booking) splits into several rows is one row again, its units added up. Its cost is the per-unit cost of its lots, so a `{{1000 USD}}` cost of 10 units is `100 USD`. A reduction booked against lots of different costs has none: `cost_number` and `max_cost_number` (and the currencies) differ, or `lots_at_cost` is less than `lots`.
+- A posting written without an amount (`automatic`) has no units in the journal, only the inferred ones.
+- `balance_before` and `balance_after` are the balance of the posting's own account, in the posting's currency, around it: [`account_balance`](/reference/query-language/#the-account-balance) does not depend on `WHERE`.
+
+#### `journals.balance_checks`
+
+Some balance assertions with the asserted amount, the account's true balance, their difference and whether the assertion holds.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `ids` | `set` | the ids of the assertions, those of a page of `journals.page` |
+
+```sql
+SELECT id, account, amount, tolerance, actual, passed,
+       amount - actual AS difference,
+       actual + (amount - actual) AS asserted
+FROM #balances
+WHERE id IN :ids
+```
+
+`asserted` is the asserted amount written with the decimal places of the balance too.
+
+#### `journals.payees`
+
+Every payee of the ledger's transactions, once and sorted, without those of the padding transactions.
+
+```sql
+SELECT DISTINCT payee
+FROM #transactions
+WHERE payee IS NOT NULL AND payee != '' AND flag != 'P'
+ORDER BY payee
+```
+
+#### `journals.accounts`
+
+The open accounts, sorted by name.
+
+```sql
+SELECT account
+FROM #accounts
+WHERE open IS NOT NULL AND close IS NULL
+ORDER BY account
+```
+
+#### `journals.documents`
+
+Every document of the ledger, newest first: the document directives and the documents that transactions and their postings name in their metadata.
+
+```sql
+SELECT date, time, path, account, transaction_id
+FROM #documents
+ORDER BY seq DESC
+```
+
+`path` is the path to download the document by, relative to the ledger's directory. A document named by a posting belongs to the posting's account.
+
+#### `journals.errors`
+
+One page of the ledger's errors, by file and then by position in the file.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `size` | `int` | the number of errors of a page, from 1 to 1000 |
+| `offset` | `int` | the errors before the page: `(page - 1) × size` |
+
+```sql
+SELECT id, kind, file, span_start, span_end, source, metas
+FROM #errors
+LIMIT :size OFFSET :offset
+```
+
+The error list shows where each error is as its file and the byte offsets of its directive in it.
 
 ### Budgets and commodities
 

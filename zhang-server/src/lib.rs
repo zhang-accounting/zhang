@@ -45,6 +45,7 @@ pub mod broadcast;
 pub mod builtin;
 mod cells;
 pub mod error;
+pub mod journals;
 pub mod report;
 pub mod request;
 pub mod response;

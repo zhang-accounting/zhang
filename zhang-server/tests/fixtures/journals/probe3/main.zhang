@@ -1,0 +1,19 @@
+option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Income:Gains
+
+2024-01-01 * "Buy" "total cost syntax"
+  Assets:Broker 10 AAPL {{1000 USD}}
+  Assets:Cash -1000 USD
+
+2024-01-02 * "Buy" "per-unit"
+  Assets:Broker 5 AAPL {120 USD}
+  Assets:Cash -600 USD
+
+2024-01-03 * "Sell" "empty cost spec reduces FIFO"
+  Assets:Broker -12 AAPL {} @ 130 USD
+  Assets:Cash 1560 USD
+  Income:Gains

@@ -184,6 +184,92 @@ WHERE source = 'directive' AND under(account, :account)",
         params: &[("account", DataType::Str)],
     },
     // ---- journals: /api/journals, /api/for-new-transaction, /api/documents, /api/errors ----
+    BuiltinQuery {
+        name: "journals.page",
+        description: "One page of the journal, newest first: the transactions, padding transactions included, and the balance \
+                      assertions that match a keyword, tags and links, where a NULL parameter leaves its filter out.",
+        bql: "SELECT seq, type, id, date, time, flag, payee, narration, tags, links, metas \
+              FROM #entries \
+              WHERE (type = 'transaction' \
+                     AND (:tags IS NULL OR intersects(tags, :tags)) \
+                     AND (:links IS NULL OR intersects(links, :links)) \
+                     AND (:keyword IS NULL OR icontains(payee, :keyword) OR icontains(narration, :keyword) \
+                          OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword))) \
+                 OR (type = 'balance' AND :tags IS NULL AND :links IS NULL \
+                     AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword))) \
+              ORDER BY seq DESC \
+              LIMIT :size OFFSET :offset",
+        params: &[
+            ("keyword", DataType::Str),
+            ("tags", DataType::Set),
+            ("links", DataType::Set),
+            ("size", DataType::Int),
+            ("offset", DataType::Int),
+        ],
+    },
+    BuiltinQuery {
+        name: "journals.postings",
+        description: "The postings of some transactions as written, in ledger order, with their units, whether those were inferred, \
+                      the per-unit costs of their lots and the balance of their account in their currency before and after them.",
+        bql: "SELECT id, posting_index, account, automatic, balanced, \
+                     first(currency) AS currency, \
+                     sum(number) AS number, \
+                     count(*) AS lots, count(cost_number) AS lots_at_cost, \
+                     min(cost_number) AS cost_number, max(cost_number) AS max_cost_number, \
+                     min(cost_currency) AS cost_currency, max(cost_currency) AS max_cost_currency, \
+                     number(last(only(currency, account_balance))) - sum(number) AS balance_before, \
+                     number(last(only(currency, account_balance))) AS balance_after, \
+                     first(metas) AS metas \
+              WHERE id IN :ids \
+              GROUP BY id, posting_index, account, automatic, balanced",
+        params: &[("ids", DataType::Set)],
+    },
+    BuiltinQuery {
+        name: "journals.balance_checks",
+        description: "Some balance assertions with the asserted amount, the account's true balance, their difference and whether the \
+                      assertion holds.",
+        bql: "SELECT id, account, amount, tolerance, actual, passed, \
+                     amount - actual AS difference, \
+                     actual + (amount - actual) AS asserted \
+              FROM #balances \
+              WHERE id IN :ids",
+        params: &[("ids", DataType::Set)],
+    },
+    BuiltinQuery {
+        name: "journals.payees",
+        description: "Every payee of the ledger's transactions, once and sorted, without those of the padding transactions.",
+        bql: "SELECT DISTINCT payee \
+              FROM #transactions \
+              WHERE payee IS NOT NULL AND payee != '' AND flag != 'P' \
+              ORDER BY payee",
+        params: &[],
+    },
+    BuiltinQuery {
+        name: "journals.accounts",
+        description: "The open accounts, sorted by name.",
+        bql: "SELECT account \
+              FROM #accounts \
+              WHERE open IS NOT NULL AND close IS NULL \
+              ORDER BY account",
+        params: &[],
+    },
+    BuiltinQuery {
+        name: "journals.documents",
+        description: "Every document of the ledger, newest first: the document directives and the documents that transactions and \
+                      their postings name in their metadata.",
+        bql: "SELECT date, time, path, account, transaction_id \
+              FROM #documents \
+              ORDER BY seq DESC",
+        params: &[],
+    },
+    BuiltinQuery {
+        name: "journals.errors",
+        description: "One page of the ledger's errors, by file and then by position in the file.",
+        bql: "SELECT id, kind, file, span_start, span_end, source, metas \
+              FROM #errors \
+              LIMIT :size OFFSET :offset",
+        params: &[("size", DataType::Int), ("offset", DataType::Int)],
+    },
     // ---- budgets and commodities: /api/budgets/*, /api/commodities/* ----
     BuiltinQuery {
         name: "budgets.month",

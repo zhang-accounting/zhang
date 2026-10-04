@@ -1,0 +1,28 @@
+option "operating_currency" "CNY"
+option "timezone" "America/New_York"
+1970-01-01 commodity CNY
+2024-01-01 open Assets:Cash
+2024-01-01 open Expenses:Food
+
+2024-03-09 * "Before" "the day before"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-10 01:30:00 * "DST" "before the gap"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+; 02:00 to 03:00 does not exist in New York on 2024-03-10: zhang stores 02:30 at 03:30
+2024-03-10 02:30:00 * "DST" "in the gap"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-10 03:15:00 * "DST" "after the gap"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-10 03:15:00 balance Assets:Cash -3 CNY
+
+2024-03-11 * "After" "the day after"
+  Assets:Cash -1 CNY
+  Expenses:Food

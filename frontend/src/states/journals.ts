@@ -5,6 +5,7 @@ import { atomWithRefresh, loadable } from 'jotai/utils';
 import { groupBy } from 'lodash-es';
 import { openAPIFetcher } from '../api/fetcher';
 import { loadable_unwrap } from './index';
+import { JOURNAL_PAGE_SIZE } from '@/components/journalLines/journal-utils';
 
 const findJournals = openAPIFetcher.path('/api/journals').method('get').create();
 
@@ -19,7 +20,7 @@ export const journalFetcher = atomWithRefresh(async (get) => {
   const tags = get(journalTagsAtom);
   const links = get(journalLinksAtom);
 
-  return (await findJournals({ page, keyword, tags, links, size: 100 })).data.data;
+  return (await findJournals({ page, keyword, tags, links, size: JOURNAL_PAGE_SIZE })).data.data;
 });
 
 export const journalAtom = loadable(journalFetcher);

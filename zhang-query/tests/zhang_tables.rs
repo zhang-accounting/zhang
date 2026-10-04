@@ -352,10 +352,22 @@ fn errors_come_by_file_then_position() {
             &["BudgetDoesNotExist", "Budget does not exist"],
         ])
     );
-    // meta() reads what zhang records about the error
+    // meta() reads what zhang records about the error, and metas lists it all, sorted by key
     assert_eq!(
         query("SELECT kind FROM #errors WHERE meta('txn_id') IS NOT NULL"),
         rows(&[&["UnbalancedTransaction"]])
+    );
+    assert_eq!(
+        query("SELECT kind, metas FROM #errors WHERE kind IN ('AccountBalanceCheckError', 'MultipleOperatingCurrencyDetect')"),
+        rows(&[
+            &["MultipleOperatingCurrencyDetect", ""],
+            &["AccountBalanceCheckError", "account_name: Assets:Bank"],
+        ])
+    );
+    let txn_id = query("SELECT meta('txn_id') FROM #errors WHERE kind = 'UnbalancedTransaction'");
+    assert_eq!(
+        query("SELECT str(metas) FROM #errors WHERE kind = 'UnbalancedTransaction'"),
+        rows(&[&[format!("txn_id: {}", txn_id[0][0]).as_str()]])
     );
     assert_eq!(
         query("SELECT kind, file FROM #errors ORDER BY date DESC LIMIT 1"),
@@ -376,7 +388,7 @@ fn explain_and_projection_of_the_zhang_tables() {
          agg#0: count(*)\n\
          filter: (date >= 2024-01-01)\n\
          group by: [0]\n\
-         project: [date, kind] (2 of 11 columns)\n"
+         project: [date, kind] (2 of 12 columns)\n"
     );
     let compiled = Query::compile("SELECT name, sum(number(activity)) FROM #budgets WHERE 'Expenses:Food' IN accounts GROUP BY name").unwrap();
     assert_eq!(compiled.table(), "budgets");
@@ -489,6 +501,7 @@ fn the_schema_describes_the_zhang_tables() {
             ("id", DataType::Str),
             ("span_start", DataType::Int),
             ("span_end", DataType::Int),
+            ("metas", DataType::Metas),
         ]
     );
     assert_eq!(

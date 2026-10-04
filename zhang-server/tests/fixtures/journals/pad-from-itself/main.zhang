@@ -1,0 +1,21 @@
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+2024-01-01 open Assets:Bank
+2024-01-01 open Assets:Cash
+2024-01-01 open Income:Salary
+2024-01-01 open Expenses:Food
+
+2024-01-10 * "Employer" "salary"
+  Assets:Bank 100 CNY
+  Income:Salary
+
+; padding an account from itself books nothing, so the check that follows it fails
+2024-02-01 balance Assets:Bank 120 CNY with pad Assets:Bank
+2024-02-01 balance Assets:Cash 0 CNY
+2024-02-01 * "Shop" "on the day of the pad"
+  Assets:Bank -5 CNY
+  Expenses:Food
+
+; already at the asserted amount: no padding, and the check passes
+2024-02-02 balance Assets:Bank 95 CNY with pad Assets:Bank
+2024-02-02 balance Assets:Bank 95 CNY

@@ -50,3 +50,20 @@ export function transactionEditBlocker(data: JournalTransactionItem): 'cost_or_p
 
 /** Raw Edit deep link. Journals do not expose their source file, so this opens the editor on its default file. */
 export const RAW_EDIT_URI = '/edit';
+
+/** The journal page size the Journals page asks for. */
+export const JOURNAL_PAGE_SIZE = 100;
+
+/**
+ * The parameters of the built-in query `journals.page` for a page of the journal, as the server binds them: an empty
+ * keyword, and no tags or links, filter nothing.
+ */
+export function journalQueryParams(page: number, keyword: string, tags: string[], links: string[]) {
+  return {
+    keyword: keyword === '' ? null : keyword,
+    tags: tags.length > 0 ? tags : null,
+    links: links.length > 0 ? links : null,
+    size: JOURNAL_PAGE_SIZE,
+    offset: (Math.max(page, 1) - 1) * JOURNAL_PAGE_SIZE,
+  };
+}

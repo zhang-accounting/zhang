@@ -212,7 +212,33 @@ pub(crate) fn plan_execution(plan: &mut Plan) {
     plan.execution.rewrites = rewrites;
     plan.execution.limit = limit_mode(plan);
     plan.execution.scope = account_scope(plan);
+    plan.execution.late_targets = late_targets(plan);
     plan.execution.until = date_bound(plan);
+}
+
+/// The targets a top-k query builds only for the rows it keeps (see
+/// [`crate::compiler::Execution::late_targets`]): ranking a row needs its ORDER BY keys only, and
+/// every other target that can never fail and reads no running total gives the same value
+/// whenever it is evaluated, so the rows that LIMIT and OFFSET drop need not build it. A page of
+/// a wide query then costs one evaluation of its keys per row.
+fn late_targets(plan: &Plan) -> Vec<usize> {
+    if plan.execution.limit != LimitMode::TopK {
+        return vec![];
+    }
+    let reads_running = |expr: &CExpr| {
+        let mut stack = vec![expr];
+        while let Some(expr) = stack.pop() {
+            if matches!(expr, CExpr::Running(_) | CExpr::Target(_)) {
+                return true;
+            }
+            stack.extend(expr.children());
+        }
+        false
+    };
+    (0..plan.visible)
+        .filter(|idx| plan.order.iter().all(|(key, _)| key != idx))
+        .filter(|idx| infallible(&plan.targets[*idx].expr) && !reads_running(&plan.targets[*idx].expr))
+        .collect()
 }
 
 /// The last date the rows of a table that generates its rows (the months of `#budgets`) need

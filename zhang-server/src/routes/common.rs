@@ -12,7 +12,7 @@ use zhang_core::domains::schemas::OptionDomain;
 use crate::request::JournalRequest;
 use crate::response::{BasicInfoEntity, ErrorEntity, Pageable, ResponseWrapper};
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
-use crate::ApiResult;
+use crate::{journals, ApiResult};
 
 pub async fn backend_only_info() -> &'static str {
     "hello zhang,\n\
@@ -54,8 +54,17 @@ pub async fn get_basic_info(ledger: State<SharedLedger>) -> ApiResult<BasicInfoE
     })
 }
 
+/// The ledger's errors, one page at a time, by file and then by position in the file: the built-in
+/// query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
+/// page past the last one is empty.
 #[api(group = "error")]
 pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
+    ResponseWrapper::json(journals::errors(&ledger, params.0).await?)
+}
+
+/// The hand-written [`get_errors`] the built-in query replaces, kept to compare them until it is
+/// removed (#479).
+pub async fn get_errors_legacy(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let errors = operations.errors()?;

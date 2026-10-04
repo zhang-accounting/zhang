@@ -1,0 +1,87 @@
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 commodity HOUR
+
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:USBank
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Old
+1970-01-01 open Assets:Vacation
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Travel
+  budget: food
+1970-01-01 open Expenses:Vacation
+1970-01-01 open Income:Salary
+1970-01-01 open Income:Vacation
+1970-01-01 open Equity:Opening
+
+2025-03-01 budget food CNY
+2025-03-01 budget-add food 1000 CNY
+
+2025-03-31 price USD 7.0 CNY
+2025-04-30 price USD 7.3 CNY
+2025-03-31 price AAPL 200 USD
+
+2025-03-31 "Opening" "opening CNY"
+  Assets:Bank 10000 CNY
+  Assets:Old 50 CNY
+  Equity:Opening -10050 CNY
+
+2025-03-31 "Opening" "opening USD"
+  Assets:USBank 1000 USD
+  Equity:Opening -1000 USD
+
+2025-03-31 23:30:00 "Late" "late march dinner"
+  Expenses:Food 40 CNY
+  Assets:Bank
+
+2025-04-01 "Landlord" "big rent on the first"
+  Expenses:Food 1630 CNY
+  Assets:Bank
+
+2025-04-01 "Garage" "car on the first"
+  Expenses:Travel 1500 CNY
+  Assets:Bank
+
+2025-04-02 "Airline" "US trip"
+  Expenses:Travel 300 USD
+  Assets:USBank
+
+2025-04-03 "Broker" "buy AAPL"
+  Assets:Broker 3 AAPL {150 USD}
+  Assets:USBank
+
+2025-04-05 "Employer" "vacation hours"
+  Assets:Vacation 8 HOUR
+  Income:Vacation
+
+2025-04-06 "Employer" "vacation used"
+  Expenses:Vacation 1200 HOUR
+  Assets:Vacation
+
+2025-04-10 "Employer" "salary"
+  Income:Salary -20000 CNY
+  Assets:Bank
+
+2025-04-15 balance Assets:Bank 5000 CNY
+
+2025-04-20 "Move" "empty old"
+  Assets:Old -50 CNY
+  Assets:Bank
+
+2025-04-21 close Assets:Old
+
+2025-04-30 23:30:00 "Late" "late april dinner"
+  Expenses:Food 60 CNY
+  Assets:Bank
+
+2025-05-01 "Landlord" "may rent"
+  Expenses:Food 1630 CNY
+  Assets:Bank
+
+2025-05-02 budget-close food

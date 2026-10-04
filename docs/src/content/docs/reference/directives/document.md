@@ -88,8 +88,9 @@ from that copy afterwards. Documents on the local disk are read from the disk ea
 ### In the web UI
 
 - The documents page lists every document, newest first: the `document` directives and the `document` metadata of
-  transactions. An account's page lists the `document` directives of that account and of its sub-accounts, and
-  a transaction's preview shows its documents.
+  transactions, a transaction's in the order written. A document written on a posting has the posting's account and
+  its transaction: the grid view shows the account, the list view both. An account's page lists the `document`
+  directives of that account and of its sub-accounts, and a transaction's preview shows its documents.
 - Uploading a file on an account page saves it as `attachments/<random id>/<file name>` under the ledger root and
   adds a `document` directive dated now, in the file that the
   [`directive_output_path`](/reference/directives/options/#directive_output_path) option selects. In a Beancount file,

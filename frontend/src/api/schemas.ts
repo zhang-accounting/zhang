@@ -177,11 +177,19 @@ export interface paths {
     get: operations['get_single_commodity'];
   };
   '/api/documents': {
-    /** Get Documents */
+    /**
+     * Get Documents
+     * @description Every document of the ledger, newest first: the built-in query `journals.documents`.
+     */
     get: operations['get_documents'];
   };
   '/api/errors': {
-    /** Get Errors */
+    /**
+     * Get Errors
+     * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
+     * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
+     * page past the last one is empty.
+     */
     get: operations['get_errors'];
   };
   '/api/files': {
@@ -195,7 +203,11 @@ export interface paths {
     put: operations['update_file_content'];
   };
   '/api/for-new-transaction': {
-    /** Get Info For New Transactions */
+    /**
+     * Get Info For New Transactions
+     * @description The payees and the open accounts the new-transaction form suggests: the built-in queries
+     * `journals.payees` and `journals.accounts`.
+     */
     get: operations['get_info_for_new_transactions'];
   };
   '/api/info': {
@@ -206,7 +218,11 @@ export interface paths {
     /**
      * Get Journals
      * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-     * among the transactions; it books nothing.
+     * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
+     * of a page from `journals.postings` and `journals.balance_checks`.
+     *
+     * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
+     * empty.
      */
     get: operations['get_journals'];
   };
@@ -1296,7 +1312,10 @@ export interface operations {
       };
     };
   };
-  /** Get Documents */
+  /**
+   * Get Documents
+   * @description Every document of the ledger, newest first: the built-in query `journals.documents`.
+   */
   get_documents: {
     responses: {
       /** @description default return */
@@ -1317,7 +1336,12 @@ export interface operations {
       };
     };
   };
-  /** Get Errors */
+  /**
+   * Get Errors
+   * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
+   * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
+   * page past the last one is empty.
+   */
   get_errors: {
     parameters: {
       query?: {
@@ -1435,7 +1459,11 @@ export interface operations {
       };
     };
   };
-  /** Get Info For New Transactions */
+  /**
+   * Get Info For New Transactions
+   * @description The payees and the open accounts the new-transaction form suggests: the built-in queries
+   * `journals.payees` and `journals.accounts`.
+   */
   get_info_for_new_transactions: {
     responses: {
       /** @description default return */
@@ -1476,7 +1504,11 @@ export interface operations {
   /**
    * Get Journals
    * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-   * among the transactions; it books nothing.
+   * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
+   * of a page from `journals.postings` and `journals.balance_checks`.
+   *
+   * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
+   * empty.
    */
   get_journals: {
     parameters: {

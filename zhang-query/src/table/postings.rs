@@ -892,7 +892,26 @@ pub static COLUMNS: &[ColumnDef] = &[
         reads: Reads::POSTING,
         borrow: Borrow::Contains(|data, row, kind| data.entry(row).errors.is_some_and(|errors| errors.contains(kind))),
     },
+    ColumnDef {
+        name: "automatic",
+        ty: DataType::Bool,
+        description: "TRUE when the posting was written without an amount and zhang inferred its units to balance the transaction \
+                      (beancount's automatic postings); FALSE when its amount is written. A zhang extension.",
+        get: Get::Posting(|data, row| Value::Bool(automatic(data, row))),
+        reads: Reads::POSTING,
+        borrow: Borrow::No,
+    },
 ];
+
+/// Whether the row's posting was written without an amount, which zhang inferred. The leg of
+/// the padding account of a padding transaction is such a posting too.
+fn automatic(data: &Dataset<'_>, row: &Row<'_>) -> bool {
+    data.entry(row)
+        .txn
+        .postings
+        .get(row.posting_index)
+        .is_some_and(|posting| posting.unit.is_none())
+}
 
 #[cfg(test)]
 mod tests {

@@ -26,11 +26,19 @@ use crate::response::{
     ResponseWrapper,
 };
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
-use crate::{validate, ApiResult, ServerResult};
+use crate::{journals, validate, ApiResult, ServerResult};
 
+/// The payees and the open accounts the new-transaction form suggests: the built-in queries
+/// `journals.payees` and `journals.accounts`.
 #[api(group = "transaction")]
 // todo rename api
 pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>) -> ApiResult<InfoForNewTransaction> {
+    ResponseWrapper::json(journals::info_for_new_transaction(&ledger).await?)
+}
+
+/// The hand-written [`get_info_for_new_transactions`] the built-in queries replace, kept to compare
+/// them with it until it is removed (#479).
+pub async fn get_info_for_new_transactions_legacy(ledger: State<SharedLedger>) -> ApiResult<InfoForNewTransaction> {
     let guard = ledger.read().await;
     let mut operations = guard.operations();
 
@@ -50,9 +58,19 @@ enum JournalEntry {
 }
 
 /// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-/// among the transactions; it books nothing.
+/// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
+/// of a page from `journals.postings` and `journals.balance_checks`.
+///
+/// A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
+/// empty.
 #[api(group = "transaction")]
 pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
+    ResponseWrapper::json(journals::journal(&ledger, params.0).await?)
+}
+
+/// The hand-written [`get_journals`] the built-in queries replace, kept to compare them with it until
+/// it is removed (#479).
+pub async fn get_journals_legacy(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     let ledger = ledger.read().await;
     let mut operations = ledger.operations();
     let params = params.0;

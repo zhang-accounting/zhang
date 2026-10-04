@@ -15,7 +15,7 @@ use crate::response::{DocumentEntity, ResponseWrapper};
 use crate::routes::Base64Path;
 use crate::state::SharedLedger;
 use crate::util::{cache_document, cached_document, document_cache_key};
-use crate::{ApiResult, ServerResult};
+use crate::{journals, ApiResult, ServerResult};
 
 /// The document at a path within the ledger, given as its base64, as the documents are listed: the file at that path,
 /// or at its alternate ([`DocumentDomain::alternate`](zhang_core::store::DocumentDomain::alternate)) when there is
@@ -132,8 +132,15 @@ async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<V
     Ok(None)
 }
 
+/// Every document of the ledger, newest first: the built-in query `journals.documents`.
 #[api(group = "document")]
 pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
+    ResponseWrapper::json(journals::documents(&ledger).await?)
+}
+
+/// The hand-written [`get_documents`] the built-in query replaces, kept to compare them until it is
+/// removed (#479).
+pub async fn get_documents_legacy(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
     let ledger = ledger.read().await;
     let operations = ledger.operations();
     let store = operations.read();

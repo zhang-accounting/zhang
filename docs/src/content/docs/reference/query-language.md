@@ -243,7 +243,7 @@ HAVING sum(number) > 1000
 - `LIMIT 0` returns no rows, and an offset past the end returns no rows either.
 - A parameter must be bound to an integer. A negative or `NULL` value, or an offset and limit whose sum does not fit in 64 bits, is an error at the parameter, never a silently different window.
 - Without `ORDER BY`, the rows come in ledger order, so a page is stable as long as the ledger does not change.
-- Pages are cheap: without `ORDER BY` the query only counts the rows before `OFFSET`, without building them, and stops once it has the rows it keeps, so a page holds its own rows only; with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all.
+- Pages are cheap: without `ORDER BY` the query only counts the rows before `OFFSET`, without building them, and stops once it has the rows it keeps, so a page holds its own rows only; with `ORDER BY` it keeps only the first `OFFSET + LIMIT` rows while it scans instead of sorting them all. It ranks a row by its `ORDER BY` keys alone, and computes the other targets only for the rows of the page, unless a target can fail, as division can, or reads the [running balance](#the-running-balance) while it scans.
 - So, as for the rows past `LIMIT`, the targets of the rows before `OFFSET` of a query without `ORDER BY` are not computed, and an error only computing one of them would raise, such as an integer overflow, is not reported. Those rows still go through `WHERE`, so an error of the condition is.
 
 A query can also ask for the total number of rows before `LIMIT` and `OFFSET`, for example to show the number of pages: the `count_total` option of the Rust API, and of [`POST /api/query`](#run-a-query). Rows past the window are only counted, not built.
@@ -636,13 +636,14 @@ Two booking cases are still handled differently by Zhang's ledger processing tha
 | `metas` | `metas` | Metadata of the posting as a list of `(key, value)` pairs, sorted by key, with every value of a repeated key in the order written. See [Structured metadata](#structured-metadata). Zhang extension. |
 | `entry_metas` | `metas` | Metadata of the posting's transaction, in the same form. Zhang extension. |
 | `balance` | `inventory` | The [running balance](#the-running-balance): the sum of the positions of the rows up to and including this one. It cannot be used in `FROM` or `WHERE`. |
-| `time` | `str` | Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one; on a day daylight saving skips that time, the first time after the gap, as Zhang stores it (`02:30` in New York on 2024-03-10 is `03:30:00`, midnight in São Paulo on 2018-11-04 is `01:00:00`). Zhang extension. |
+| `time` | `str` | Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one; on a day daylight saving skips that time, moved forward by the length of the gap, as Zhang stores it (`02:30` in New York on 2024-03-10 is `03:30:00`, midnight in São Paulo on 2018-11-04 is `01:00:00`). Zhang extension. |
 | `timestamp` | `int` | Unix time of the transaction's date and time, in seconds. Zhang extension. |
 | `seq` | `int` | Position of the transaction in the [processing order](#processing-order), counting from 0, as in [`#entries`](#entries). All postings of a transaction share it, so `ORDER BY seq DESC` lists the newest transactions first, in a stable order. `NULL` for the [synthetic transactions](#synthetic-transactions) of the period clauses. Zhang extension. |
 | `posting_index` | `int` | Position of the posting in its transaction as written, counting from 0. When [booking](#lot-booking) splits a posting into one row per lot, the rows share it. Zhang extension. |
 | `account_balance` | `inventory` | The [account balance](#the-account-balance): the balance of the posting's account right after this posting. Zhang extension. |
 | `balanced` | `bool` | `FALSE` if Zhang found that the transaction does not balance (an `UnbalancedTransaction` error), otherwise `TRUE`. Zhang extension. |
 | `errors` | `set` | The kinds of the errors Zhang recorded for the transaction, named as in the `kind` column of [`#errors`](#errors), such as `UnbalancedTransaction` or `AccountDoesNotExist`. Empty if there are none. Zhang extension. |
+| `automatic` | `bool` | `TRUE` if the posting was written without an amount and Zhang inferred its units to balance the transaction, as beancount marks such postings automatic; `FALSE` if its amount is written. The padding account's posting of a padding transaction is automatic too. Zhang extension. |
 
 ### The running balance
 
@@ -725,7 +726,7 @@ The `seq` column of `#entries`, `#transactions`, `#balances`, `#documents` and t
 
 This is the order in which balances change: the [running balance](#the-running-balance) of the postings adds them up in this order, and an assertion comes right after the postings its `actual` balance includes, so merging the rows of `#balances` and of the postings by `seq` lists every assertion in its place. The rows of the postings table and of `#transactions` come in this order. Without `ORDER BY`, the rows of `#entries` and of the other directive tables keep beancount's order, by date and then by kind: `open` first (before a `commodity` of the same day), then the balance assertions, the other directives, and `document` and `close` last, whatever their times. The two orders differ only within a day: Zhang keeps same-day `commodity` and `open` directives in the order of your files, sorts the directives of a day by their time (a timed `open` after the transactions written without a time), puts a balance after the transactions before its time and after a padding written before it, and leaves a `document` or a `close` where it is. `ORDER BY seq` lists the rows in Zhang's order.
 
-The time that decides the order is the time written. On a day daylight saving skips a time, a directive written in the gap is stored at the first time after it, and `ORDER BY seq` can list the `time` and `timestamp` columns out of order there: in New York on 2024-03-10, an entry written at `02:30`, stored at `03:30:00`, comes before one written at `03:15`.
+The time that decides the order is the time written. On a day daylight saving skips a time, a directive written in the gap is stored moved forward by the length of the gap, and `ORDER BY seq` can list the `time` and `timestamp` columns out of order there: in New York on 2024-03-10, an entry written at `02:30`, stored at `03:30:00`, comes before one written at `03:15`.
 
 ```sql
 SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
@@ -744,7 +745,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `meta` | `str` | Metadata of the directive. |
 | `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the padded and pad accounts of a `pad` or a `balance ... with pad`. Empty for other directives. |
 | `seq` | `int` | Position of the directive in the [processing order](#processing-order), counting from 0. `ORDER BY seq DESC` lists the newest entries first. Without `ORDER BY` the rows keep beancount's order, which can differ within a day. Zhang extension. |
-| `time`, `timestamp` | `str`, `int` | Time of day of the directive in the ledger's timezone (`HH:MM:SS`), as in `postings`: the time written, or midnight without one; on a day daylight saving skips that time, the first time after the gap, as Zhang stores it (`02:30` in New York on 2024-03-10 is `03:30:00`, midnight in São Paulo on 2018-11-04 is `01:00:00`); and the Unix time of its date and time, in seconds. Zhang extension. |
+| `time`, `timestamp` | `str`, `int` | Time of day of the directive in the ledger's timezone (`HH:MM:SS`), as in `postings`: the time written, or midnight without one; on a day daylight saving skips that time, moved forward by the length of the gap, as Zhang stores it (`02:30` in New York on 2024-03-10 is `03:30:00`, midnight in São Paulo on 2018-11-04 is `01:00:00`); and the Unix time of its date and time, in seconds. Zhang extension. |
 | `metas` | `metas` | Metadata of the directive as `(key, value)` pairs, see [Structured metadata](#structured-metadata). Zhang extension, not part of `SELECT *`. |
 
 ### #transactions
@@ -963,7 +964,7 @@ GROUP BY name
 - `kind` is the error code, such as `UnbalancedTransaction`. [Error Codes](/reference/error-codes/) explains each code and how to fix it. `message` is the sentence the errors page shows for it.
 - `file` is the file of the directive that caused the error, relative to the ledger's directory, as in the web UI's file list. `source` is the text of that directive. `line` and `column` are `NULL` for now, because Zhang does not record line numbers yet.
 - `date` is the date of the directive, or `NULL` for an undated one such as an `option`. `account` is the account the error is about, for errors that name one, such as `AccountDoesNotExist`, `AccountClosed` and `AccountBalanceCheckError`.
-- `meta(key)` reads the other details Zhang records about an error. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
+- `meta(key)` reads the other details Zhang records about an error, and `metas` lists them all. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
 - `id` is the id of the error in `GET /api/errors`, and `span_start` and `span_end` are where the directive that caused it starts and ends in its file, as byte offsets. The id is derived from the directive's position, so the errors of one directive share it, and an error in a transaction has the transaction's `id`.
 - Rows are ordered by file, then by position in the file. `SELECT *` is short for `SELECT file, date, kind, account, message`.
 
@@ -980,6 +981,7 @@ GROUP BY name
 | `id` | `str` | Id of the error, the `id` of `GET /api/errors`. |
 | `span_start` | `int` | Byte offset in its file where the directive that caused the error starts, or `NULL` if unknown. |
 | `span_end` | `int` | Byte offset in its file where the directive that caused the error ends, or `NULL` if unknown. |
+| `metas` | `metas` | The details Zhang records about the error, such as `txn_id` and `account_name`, as [structured pairs](#structured-metadata) sorted by key: the `metas` of `GET /api/errors`. |
 
 How many errors of each kind there are:
 
@@ -1442,7 +1444,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 }
 ```
 
-- `columns` has one entry per column, 33 in all, in the order of the [column table](#columns).
+- `columns` has one entry per column, 34 in all, in the order of the [column table](#columns).
 - `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets`, `budget_events` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
 - `functions` has one entry per overload, 100 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
