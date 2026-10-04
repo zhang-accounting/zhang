@@ -74,7 +74,7 @@ YYYY-MM-DD [HH:MM[:SS]] commodity <Name>
 
 - 商品从它的日期起有定义。日期早于定义的交易、`price` 或 `open` 会报告 [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine)。同一日期内，`open` 和 `commodity` 保持文件中的顺序：把 `commodity` 写在列出它的 `open` 上方。
 - 对于交易，张记账检查它配平时所用的商品：普通记账行的数量单位、带 `@` 的记账行的价格商品、带成本的记账行的成本商品。
-- [主货币](/zh-cn/reference/directives/options/#operating_currency)由它的选项定义，默认精度为 2。为它写一条 `commodity` 指令会替换这个定义，例如为了给它加上前缀。
+- [主货币](/zh-cn/reference/directives/options/#operating_currency)由它的选项定义，精度和舍入方式取自 [`default_commodity_precision`](/zh-cn/reference/directives/options/#default_commodity_precision) 和 [`default_rounding`](/zh-cn/reference/directives/options/#default_rounding)。为它写一条 `commodity` 指令会替换这个定义，例如为了给它加上前缀。
 - 同一名称的第二条 `commodity` 指令会完全替换第一条：它没有写出的元数据恢复为默认值。
 - 网页界面的货币页面按分组列出每种商品，以及它在 `Assets` 和 `Liabilities` 账户中的持有总量和以主货币表示的最新价格。
 

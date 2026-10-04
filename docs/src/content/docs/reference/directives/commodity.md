@@ -85,8 +85,10 @@ up.
   keep their file order: write the `commodity` above an `open` that lists it.
 - For a transaction, Zhang checks the commodities it balances in: the units of a plain posting, the price commodity
   of a posting with `@`, the cost commodity of a posting with a cost.
-- The [operating currency](/reference/directives/options/#operating_currency) is defined by its option, with
-  precision 2 by default. A `commodity` directive for it replaces that definition, for example to give it a prefix.
+- The [operating currency](/reference/directives/options/#operating_currency) is defined by its option, with the
+  precision and rounding of [`default_commodity_precision`](/reference/directives/options/#default_commodity_precision)
+  and [`default_rounding`](/reference/directives/options/#default_rounding). A `commodity` directive for it replaces
+  that definition, for example to give it a prefix.
 - A second `commodity` directive for the same name replaces the first one entirely: metadata it leaves out goes back
   to the default.
 - The commodities page of the web UI lists every commodity by group, with the total held in `Assets` and

@@ -5,7 +5,7 @@ use std::str::FromStr;
 use cfg_if::cfg_if;
 use chrono_tz::Tz;
 use itertools::Itertools;
-use log::error;
+use log::{error, warn};
 use minijinja::Environment;
 use once_cell::sync::OnceCell;
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
@@ -23,13 +23,18 @@ use crate::{ZhangError, ZhangResult};
 pub struct InMemoryOptions {
     pub operating_currency: String,
     pub default_rounding: Rounding,
-    /// the precision of a commodity whose directive has no valid `precision` meta
+    /// the precision of a commodity whose directive has no valid `precision` meta, the operating currency included
     pub default_commodity_precision: i32,
+    /// deprecated: stands in for [`default_commodity_precision`](Self::default_commodity_precision) for the operating
+    /// currency when the ledger does not write that option. It never gives a balance assertion a tolerance
     pub default_balance_tolerance_precision: i32,
     pub default_booking_method: BookingMethod,
     pub timezone: Tz,
     pub features: Features,
     pub directive_output_path: String,
+    /// whether the ledger writes `default_commodity_precision`, as opposed to the default
+    /// [`BuiltinOption::default_options`] adds for it; only a written one overrides the deprecated option
+    commodity_precision_written: bool,
 }
 
 #[derive(Debug, AsRefStr, EnumIter, EnumString)]
@@ -91,10 +96,17 @@ impl BuiltinOption {
                         key: ZhangString::quote(it.as_ref()),
                         value: ZhangString::quote(it.default_value()),
                     }),
+                    // no text and no file: `is_default_directive` tells these from the options the ledger writes
                     SpanInfo::default(),
                 )
             })
             .collect_vec()
+    }
+
+    /// whether `span` is that of an option [`BuiltinOption::default_options`] added for a key the ledger does not
+    /// write, rather than of one written in the ledger: a written option carries its source text
+    pub fn is_default_directive(span: &SpanInfo) -> bool {
+        span.content.is_empty() && span.filename.is_none()
     }
 }
 
@@ -105,29 +117,34 @@ impl InMemoryOptions {
         if let Ok(option) = BuiltinOption::from_str(&key) {
             match option {
                 BuiltinOption::OperatingCurrency => {
-                    let precision = self.default_balance_tolerance_precision;
-                    let prefix: Option<String> = None;
-                    let suffix: Option<String> = None;
-                    let rounding = self.default_rounding;
-
                     let has_operating_currency = operation.option::<String>(&key)?.is_some();
                     if has_operating_currency {
                         operation.new_error(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default())?;
                     }
-                    operation.insert_commodity(&value, precision, prefix, suffix, rounding)?;
-
                     value.clone_into(&mut self.operating_currency);
+                    self.define_operating_currency(operation)?;
                 }
                 BuiltinOption::DefaultRounding => {
                     self.default_rounding = Rounding::from_str(&value).map_err(|_| ZhangError::InvalidOptionValue)?;
+                    self.define_operating_currency(operation)?;
                 }
                 BuiltinOption::DefaultBalanceTolerancePrecision => {
+                    if !BuiltinOption::is_default_directive(span) {
+                        warn!(
+                            "option \"{key}\" is deprecated: it gives balance assertions no tolerance, and sets the precision of the \
+                             operating currency only while \"default_commodity_precision\" is not set; set that option, or a \
+                             `commodity` directive, instead"
+                        );
+                    }
                     if let Ok(ret) = value.parse::<i32>() {
                         self.default_balance_tolerance_precision = ret
                     }
+                    self.define_operating_currency(operation)?;
                 }
                 BuiltinOption::DefaultCommodityPrecision => {
                     self.default_commodity_precision = value.parse::<i32>().map_err(|_| ZhangError::InvalidOptionValue)?;
+                    self.commodity_precision_written |= !BuiltinOption::is_default_directive(span);
+                    self.define_operating_currency(operation)?;
                 }
                 BuiltinOption::Timezone => match value.parse::<Tz>() {
                     Ok(tz) => {
@@ -162,6 +179,23 @@ impl InMemoryOptions {
 
         Ok(value)
     }
+
+    /// the precision of the commodity `operating_currency` defines: `default_commodity_precision` when the ledger
+    /// writes it, else the deprecated `default_balance_tolerance_precision` (both default to the same built-in value)
+    fn operating_currency_precision(&self) -> i32 {
+        if self.commodity_precision_written {
+            self.default_commodity_precision
+        } else {
+            self.default_balance_tolerance_precision
+        }
+    }
+
+    /// (re)define the commodity of the operating currency from the options read so far. Every option it depends on
+    /// calls this, so the definition the last option leaves is the same whatever their order; a dated `commodity`
+    /// directive for it, processed after every option, replaces it
+    fn define_operating_currency(&self, operation: &mut Operations) -> ZhangResult<()> {
+        operation.insert_commodity(&self.operating_currency, self.operating_currency_precision(), None, None, self.default_rounding)
+    }
 }
 
 impl Default for InMemoryOptions {
@@ -175,6 +209,7 @@ impl Default for InMemoryOptions {
             timezone: DEFAULT_TIMEZONE.parse().expect("invalid timezone"),
             features: Features::default(),
             directive_output_path: DEFAULT_DIRECTIVE_OUTPUT_PATH.to_string(),
+            commodity_precision_written: false,
         }
     }
 }

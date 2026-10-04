@@ -46,7 +46,7 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 | [`default_booking_method`](#default_booking_method) | `STRICT`、`FIFO` 或 `LIFO` | `FIFO` |
 | [`default_commodity_precision`](#default_commodity_precision) | 整数 | `2` |
 | [`default_rounding`](#default_rounding) | `RoundDown` 或 `RoundUp` | `RoundDown` |
-| [`default_balance_tolerance_precision`](#default_balance_tolerance_precision) | 整数 | `2` |
+| [`default_balance_tolerance_precision`](#default_balance_tolerance_precision)（已弃用） | 整数 | `2` |
 | [`directive_output_path`](#directive_output_path) | 路径模板 | `data/{{year}}/{{month_str}}.{{ext}}` |
 | [`features.plugin`](#featuresplugin) | `true` 或 `false` | `false` |
 | [`account_previous_balances` 及另外五个选项](#查询中的会计期间) | 账户名、一种货币 | 与 Beancount 相同 |
@@ -59,7 +59,7 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 
 网页界面显示合计时所用的货币：账户的价值，以及总览页面和统计报表页面中的数字。其他货币的金额会用[价格](/zh-cn/reference/directives/price/#在网页界面中)换算成这种货币。
 
-- 这个选项本身就定义了该货币，所以它不需要 `commodity` 指令。它的精度是在此选项之前设置的 [`default_balance_tolerance_precision`](#default_balance_tolerance_precision) 的值，舍入方式是在此选项之前设置的 [`default_rounding`](#default_rounding) 的值。为它写一条 [`commodity`](/zh-cn/reference/directives/commodity/) 指令会替换这个定义。
+- 这个选项本身就定义了该货币，所以它不需要 `commodity` 指令。它的精度是 [`default_commodity_precision`](#default_commodity_precision) 的值，舍入方式是 [`default_rounding`](#default_rounding) 的值，与这些选项写在哪里无关。为它写一条 [`commodity`](/zh-cn/reference/directives/commodity/) 指令会替换这个定义。
 - 张记账只支持一种主货币。第二次设置这个选项，会在该选项上报告 [`MultipleOperatingCurrencyDetect`](/zh-cn/reference/error-codes/#multipleoperatingcurrencydetect) 错误；张记账使用最后一个值，并把每个值都定义为货币。
 - 没有这个选项时，主货币为 `CNY`，并且 `CNY` 已被定义。
 
@@ -81,11 +81,11 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 
 ### `default_commodity_precision`
 
-没有有效 `precision` 元数据的[商品](/zh-cn/reference/directives/commodity/#精度)所用的精度：网页界面显示几位小数，以及交易配平时所用的小数位数。它不适用于 `operating_currency` 定义的货币。不是整数的值会让账本无法加载，并给出消息 `option value is invalid`。
+没有有效 `precision` 元数据的[商品](/zh-cn/reference/directives/commodity/#精度)所用的精度，包括 `operating_currency` 定义的货币：网页界面显示几位小数，以及交易配平时所用的小数位数。不是整数的值会让账本无法加载，并给出消息 `option value is invalid`。
 
 ### `default_rounding`
 
-没有 `rounding` 元数据的[商品](/zh-cn/reference/directives/commodity/#舍入)所用的舍入方式；如果它设置在 `operating_currency` 之前，也是该选项所定义货币的舍入方式。
+没有 `rounding` 元数据的[商品](/zh-cn/reference/directives/commodity/#舍入)所用的舍入方式，包括 `operating_currency` 定义的货币。
 
 - `RoundDown`：舍去的第一位小数是 5 时向下舍入，所以精度为 2 时 `0.005` 舍入为 `0.00`。
 - `RoundUp`：舍去的第一位小数是 5 时向上舍入，所以精度为 2 时 `0.005` 舍入为 `0.01`。
@@ -94,7 +94,7 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 
 ### `default_balance_tolerance_precision`
 
-这个选项虽然叫这个名字，却不给余额断言任何容差：除非用 `~` 写明容差，否则断言必须精确相等（见[余额](/zh-cn/reference/directives/balance/)）。它只设置 [`operating_currency`](#operating_currency) 所定义货币的精度，而且只在设置于该选项之前时生效。不是整数的值会被忽略。要设置主货币的精度，最好使用带 `precision` 元数据的 `commodity` 指令。
+已弃用。这个选项虽然叫这个名字，却不给余额断言任何容差：除非用 `~` 写明容差，否则断言必须精确相等（见[余额](/zh-cn/reference/directives/balance/)）。为了兼容，张记账仍会读取它：没有写 `default_commodity_precision` 时，它设置 [`operating_currency`](#operating_currency) 所定义货币的精度，与这两个选项写在哪里无关；写了 `default_commodity_precision` 时，它没有任何作用。不是整数的值会被忽略。设置它会在日志中留下一条警告：请改用 [`default_commodity_precision`](#default_commodity_precision)，或带 `precision` 元数据的 `commodity` 指令。
 
 ### `directive_output_path`
 
