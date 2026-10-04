@@ -181,5 +181,5 @@ react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `
 ## Adding a shadcn component
 1. From `frontend/`: `npx shadcn@latest add <name>` (docs: https://ui.shadcn.com/docs/components/base/<name>).
 2. `pnpm run prettier:fix` (CLI output uses double quotes), then `pnpm run build`.
-3. `src/components/ui/*` is CLI-owned: do not hand-edit. Known local deltas to re-apply after `--overwrite`:
-   `scroll-area.tsx` (unused React import removed) and `hooks/use-mobile.ts` (synchronous initial state).
+3. `src/components/ui/*` is CLI-owned: do not hand-edit. Known local delta to re-apply after `--overwrite`:
+   `hooks/use-mobile.ts` (synchronous initial state).
