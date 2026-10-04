@@ -40,7 +40,7 @@ The web UI writes to these files:
 - A new transaction, balance check or document is appended to the file that the [`directive_output_path`](/reference/directives/options/) option names for its date, `data/{year}/{month}.zhang` by default (with the extension of the main file). The first time a file is used, Zhang appends an `include` for it to the main file.
 - Editing a transaction rewrites it in the file it comes from.
 - An uploaded document is stored as `attachments/<random id>/<file name>`, and linked from the account or the transaction.
-- **Raw Editing** saves the whole file you edited.
+- **Raw Editing** saves the whole file you edited. It does not overwrite a file that changed since you opened it, by a transaction or balance check recorded in the web UI, an uploaded document or an edit outside: the save is refused, and the editor offers to reload the file (discarding your edits) or to keep editing. Through the API, `GET /api/files/{path}` answers with the `sha256` of the content it serves; a `PUT` that sends it back as `expected_sha256` is refused with 409, writing nothing, when the file no longer matches it, and a `PUT` without it overwrites the file.
 - Registering a passkey writes `.zhang/passkeys.json`, see [Authentication](/deployment/authentication/#where-passkeys-are-stored).
 
 ## When Zhang reloads

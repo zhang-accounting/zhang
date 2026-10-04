@@ -8,6 +8,7 @@ use crate::request::FileUpdateRequest;
 use crate::response::{Created, FileDetailEntity, ResponseWrapper};
 use crate::routes::Base64Path;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
+use crate::util::sha256_hex;
 use crate::{ApiResult, ServerResult};
 
 #[api(group = "file")]
@@ -24,15 +25,28 @@ pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<Stri
     ResponseWrapper::json(ret)
 }
 
+/// The fingerprint of a file as the editor is shown it: the SHA-256, in hex, of its content after the byte order mark
+/// it may start with, which the editor is not shown ([`FileText`]). Computed from the bytes on disk both when the file
+/// is shown and when it is saved over, so the two are hashed alike.
+fn fingerprint(file: &[u8]) -> String {
+    sha256_hex(file.strip_prefix(BOM.as_bytes()).unwrap_or(file))
+}
+
 #[api(group = "file")]
 pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename): Base64Path) -> ApiResult<FileDetailEntity> {
     let ledger = ledger.read().await;
 
     let content = ledger.data_source.async_get(filename.to_owned()).await?;
+    // the fingerprint of the file as shown: a save sends it back, so a file changed since is not overwritten (#506)
+    let sha256 = fingerprint(&content);
     // without the byte order mark the file may start with, as the parsers read it (#505)
     let content = FileText::new(String::from_utf8(content).unwrap()).text;
 
-    ResponseWrapper::json(FileDetailEntity { path: filename, content })
+    ResponseWrapper::json(FileDetailEntity {
+        path: filename,
+        content,
+        sha256,
+    })
 }
 
 #[api(group = "file")]
@@ -44,12 +58,30 @@ pub async fn update_file_content(
     // ledger that loads. It is saved even when the files cannot be loaded, to fix them
     let mut ledger = ledger.write().await;
 
-    // the editor shows the file without the byte order mark it may start with: a file that has one keeps it (#505).
-    // A file that cannot be read is written as sent: the save, which may fix it, is never held up by the read
-    let had_bom = match ledger.data_source.async_get_existing(filename.clone()).await {
-        Ok(Some(existing)) => existing.starts_with(BOM.as_bytes()),
-        _ => false,
+    // the file as it is now, read once: for the fingerprint the editor loaded it with, and for the byte order mark it
+    // may start with. A file that cannot be read is written as sent: the save, which may fix it, is never held up by
+    // the read (#505), unless the save is to be checked against the fingerprint, which nothing stands in for
+    let existing = match ledger.data_source.async_get_existing(filename.clone()).await {
+        Ok(existing) => existing,
+        Err(error) if payload.expected_sha256.is_some() => return Err(error.into()),
+        Err(_) => None,
     };
+
+    // a file that changed since the editor loaded it (a transaction or a balance check recorded in the UI, a document
+    // uploaded, an edit outside) is not overwritten, which would undo the change (#506). The ledger is held
+    // exclusively from the read to the save, as for an edit in place, so no write comes between. A file that is gone
+    // has nothing to undo, and is written. A save without the fingerprint, from an older client, overwrites the file
+    // as before
+    if let (Some(expected), Some(existing)) = (&payload.expected_sha256, &existing) {
+        if !fingerprint(existing).eq_ignore_ascii_case(expected) {
+            return Err(ServerError::Conflict(format!(
+                "the file {filename} changed since it was opened in the editor, so nothing was written: reload it to see the change, and make your edit again"
+            )));
+        }
+    }
+
+    // the editor shows the file without the byte order mark it may start with: a file that has one keeps it (#505)
+    let had_bom = existing.is_some_and(|existing| existing.starts_with(BOM.as_bytes()));
     let mut content = FileText::new(payload.content);
     content.bom |= had_bom;
     let saved = ledger.data_source.async_save(&ledger, filename, &content.into_bytes()).await;
@@ -59,6 +91,7 @@ pub async fn update_file_content(
 
 #[cfg(test)]
 mod save_test {
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use axum::extract::State;
@@ -74,7 +107,172 @@ mod save_test {
     use crate::routes::transaction::create_new_transaction;
     use crate::routes::Base64Path;
     use crate::state::{SharedLedger, SharedReloadSender};
+    use crate::util::sha256_hex;
     use crate::ReloadSender;
+
+    const LEDGER: &str = "option \"operating_currency\" \"CNY\"\n2020-01-01 commodity CNY\n2024-01-01 open Assets:A\n2024-01-01 open Income:X\n";
+
+    /// A ledger loaded from `ledger` as its main file, `main.bean`: its directory, the main file, and the states the
+    /// routes take.
+    async fn opened(ledger: &str) -> (PathBuf, PathBuf, State<SharedLedger>, State<SharedReloadSender>) {
+        let dir = std::env::temp_dir().join(format!("zhang-file-save-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let main = dir.join("main.bean");
+        std::fs::write(&main, ledger).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+        let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
+        let (sender, _receiver) = mpsc::channel(8);
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
+        (dir, main, state, reload)
+    }
+
+    /// What the editor is served for `main`: its content, and the fingerprint of it.
+    async fn shown(state: &State<SharedLedger>, main: &Path) -> (String, String) {
+        let response = get_file_content(state.clone(), Base64Path(main.to_string_lossy().into_owned()))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
+        let data = &body["data"];
+        (data["content"].as_str().unwrap().to_owned(), data["sha256"].as_str().unwrap().to_owned())
+    }
+
+    fn new_transaction() -> CreateTransactionRequest {
+        serde_json::from_value(serde_json::json!({
+            "datetime": "2024-06-01T12:00:00Z",
+            "payee": "Shop",
+            "flag": "Okay",
+            "narration": "seed",
+            "postings": [
+                {"account": "Assets:A", "unit": {"number": "50", "commodity": "CNY"}},
+                {"account": "Income:X", "unit": null}
+            ],
+            "metas": [],
+            "tags": [],
+            "links": []
+        }))
+        .unwrap()
+    }
+
+    /// A save carries the fingerprint the file was served with, and a file that changed since is not overwritten
+    /// (#506): a transaction recorded in the UI, which appends to the file, or an edit outside. The save is refused
+    /// with 409, and the file is left as it is; reloaded, the editor saves again. A save without the fingerprint,
+    /// from an older client, overwrites the file as before.
+    #[tokio::test]
+    async fn a_save_from_an_editor_whose_file_changed_since_is_refused_and_writes_nothing() {
+        let (dir, main, state, reload) = opened(LEDGER).await;
+        let save = |content: String, expected_sha256: Option<String>| {
+            let path = Base64Path(main.to_string_lossy().into_owned());
+            update_file_content(state.clone(), reload.clone(), path, Json(FileUpdateRequest { content, expected_sha256 }))
+        };
+        let on_disk = || std::fs::read(&main).unwrap();
+
+        let (content, fingerprint) = shown(&state, &main).await;
+        assert_eq!(content, LEDGER);
+        assert_eq!(fingerprint, sha256_hex(LEDGER.as_bytes()));
+
+        // the file as it was served: written
+        let edited = format!("{LEDGER}2024-01-01 open Assets:B\n");
+        assert_eq!(answer(save(edited.clone(), Some(fingerprint)).await).await.0, StatusCode::CREATED);
+        assert_eq!(on_disk(), edited.as_bytes());
+        let (_, fingerprint) = shown(&state, &main).await;
+
+        // a transaction recorded in the UI appends to the main file in between (the include of its output file)
+        let (status, message) = answer(create_new_transaction(state.clone(), reload.clone(), Json(new_transaction())).await).await;
+        assert_eq!(status, StatusCode::OK, "{message}");
+        let appended = on_disk();
+        assert_ne!(appended, edited.as_bytes(), "the main file changed");
+        let stale = format!("{edited}2024-01-01 open Assets:C\n");
+        let (status, message) = answer(save(stale.clone(), Some(fingerprint)).await).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert!(
+            message.contains("changed since it was opened in the editor, so nothing was written"),
+            "{message}"
+        );
+        assert!(message.contains("reload it"), "{message}");
+        assert_eq!(on_disk(), appended, "the file is left byte for byte as it was");
+
+        // reloaded, the editor saves
+        let (content, fingerprint) = shown(&state, &main).await;
+        assert_eq!(content.as_bytes(), appended);
+        let merged = format!("{content}2024-01-01 open Assets:C\n");
+        assert_eq!(answer(save(merged.clone(), Some(fingerprint)).await).await.0, StatusCode::CREATED);
+        assert_eq!(on_disk(), merged.as_bytes());
+
+        // an edit outside in between: a save from the editor as it was is refused the same
+        let (_, fingerprint) = shown(&state, &main).await;
+        let outside = format!("{merged}2024-01-01 open Assets:D\n");
+        std::fs::write(&main, &outside).unwrap();
+        let (status, message) = answer(save(stale, Some(fingerprint)).await).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert_eq!(on_disk(), outside.as_bytes());
+
+        // a client sending no fingerprint overwrites the file, as before
+        assert_eq!(answer(save(merged.clone(), None).await).await.0, StatusCode::CREATED);
+        assert_eq!(on_disk(), merged.as_bytes());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// The fingerprint is of the file as the editor is shown it, without the byte order mark it may start with
+    /// (#505): the fingerprint of the text shown. A save with it is written, and keeps the mark.
+    #[tokio::test]
+    async fn the_fingerprint_is_of_the_file_as_shown_without_its_byte_order_mark() {
+        let (dir, main, state, reload) = opened(LEDGER).await;
+        std::fs::write(&main, format!("\u{feff}{LEDGER}")).unwrap();
+        let (content, fingerprint) = shown(&state, &main).await;
+        assert_eq!(content, LEDGER, "the mark is not shown");
+        assert_eq!(fingerprint, sha256_hex(content.as_bytes()), "the fingerprint is of the text shown");
+
+        let edited = format!("{LEDGER}2024-01-01 open Assets:B\n");
+        let path = Base64Path(main.to_string_lossy().into_owned());
+        let request = FileUpdateRequest {
+            content: edited.clone(),
+            expected_sha256: Some(fingerprint),
+        };
+        assert_eq!(
+            answer(update_file_content(state.clone(), reload.clone(), path, Json(request)).await).await.0,
+            StatusCode::CREATED
+        );
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), format!("\u{feff}{edited}"), "the mark is kept");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// The check does not hold up fixing a file that does not parse (#508): the fix is saved with the fingerprint of
+    /// the broken file as shown, the ledger loading or not. A buffer older than the broken file is refused the same,
+    /// and leaves the file as it is.
+    #[tokio::test]
+    async fn a_file_that_does_not_parse_is_fixed_with_the_fingerprint_it_is_shown_with() {
+        let (dir, main, state, reload) = opened(LEDGER).await;
+        let save = |content: String, expected_sha256: Option<String>| {
+            let path = Base64Path(main.to_string_lossy().into_owned());
+            update_file_content(state.clone(), reload.clone(), path, Json(FileUpdateRequest { content, expected_sha256 }))
+        };
+        let create = || create_new_transaction(state.clone(), reload.clone(), Json(new_transaction()));
+
+        let (_, fingerprint) = shown(&state, &main).await;
+        let broken = format!("{LEDGER}this is not beancount\n");
+        assert_eq!(answer(save(broken.clone(), Some(fingerprint.clone())).await).await.0, StatusCode::CREATED);
+        let (status, message) = answer(create().await).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert!(message.contains("the ledger cannot be loaded from its files as they are now"), "{message}");
+
+        // a buffer from before the break is refused, and the broken file is left for the fix
+        let (status, message) = answer(save(LEDGER.to_owned(), Some(fingerprint)).await).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), broken);
+
+        // the fix, from the editor showing the broken file, is written while the ledger cannot be loaded
+        let (content, fingerprint) = shown(&state, &main).await;
+        assert_eq!(content, broken);
+        assert_eq!(answer(save(LEDGER.to_owned(), Some(fingerprint)).await).await.0, StatusCode::CREATED);
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), LEDGER);
+        let (status, message) = answer(create().await).await;
+        assert_eq!(status, StatusCode::OK, "{message}");
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     async fn answer(response: impl IntoResponse) -> (StatusCode, String) {
         let response = response.into_response();
@@ -112,7 +310,17 @@ mod save_test {
                 .unwrap()
                 .to_owned()
         };
-        let save = |content: String| update_file_content(state.clone(), reload.clone(), path(), Json(FileUpdateRequest { content }));
+        let save = |content: String| {
+            update_file_content(
+                state.clone(),
+                reload.clone(),
+                path(),
+                Json(FileUpdateRequest {
+                    content,
+                    expected_sha256: None,
+                }),
+            )
+        };
 
         assert_eq!(shown().await, opens);
         let edited = format!("{opens}1970-01-01 open Assets:Bank\n");
@@ -144,7 +352,15 @@ mod save_test {
         let reload = State(SharedReloadSender(Arc::new(ReloadSender(sender))));
         let save = |content: String| {
             let path = Base64Path(main.to_string_lossy().into_owned());
-            update_file_content(state.clone(), reload.clone(), path, Json(FileUpdateRequest { content }))
+            update_file_content(
+                state.clone(),
+                reload.clone(),
+                path,
+                Json(FileUpdateRequest {
+                    content,
+                    expected_sha256: None,
+                }),
+            )
         };
         let create = || {
             let request: CreateTransactionRequest = serde_json::from_value(serde_json::json!({

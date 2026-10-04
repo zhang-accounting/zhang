@@ -323,6 +323,11 @@
     "saved_toast_description": "The ledger will be reloaded in a moment.",
     "save_failed": "Failed to save the file",
     "load_failed": "Failed to load the file",
+    "conflict_title": "This file changed since you opened it",
+    "conflict_description": "Something else wrote to it: a transaction or balance check recorded in the app, an uploaded document, or an edit outside. Your changes were not saved. Reload the file to see its new content and make your edit again, or keep editing to copy your changes out first.",
+    "conflict_reload": "Reload file",
+    "conflict_reload_confirm": "Reload the file as it is now? Your unsaved changes in the editor will be discarded.",
+    "conflict_keep_editing": "Keep editing",
     "no_files_title": "No files",
     "no_files_description": "The ledger has no editable source files.",
     "leave_confirm": "You have unsaved changes. Leave this page and discard them?"

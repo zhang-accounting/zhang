@@ -20,6 +20,14 @@ pub fn document_cache_key(root: &std::path::Path, path: &str) -> String {
     hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The fingerprint of a file's content, its SHA-256 in hex: `GET /api/files/{path}` serves a file with it, and a save
+/// through `PUT /api/files/{path}` sends it back as `expected_sha256`, to be refused when the file changed since.
+pub fn sha256_hex(content: &[u8]) -> String {
+    use sha2::Digest;
+
+    sha2::Sha256::digest(content).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// The document kept in the cache under `key`, if it is.
 pub async fn cached_document(key: &str) -> Option<Vec<u8>> {
     tokio::fs::read(PathBuf::from(DOCUMENT_CACHE).join(key)).await.ok()
