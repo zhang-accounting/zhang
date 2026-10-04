@@ -44,21 +44,6 @@ pub enum DataType {
 }
 
 impl DataType {
-    pub const ALL: [DataType; 12] = [
-        DataType::Null,
-        DataType::Bool,
-        DataType::Int,
-        DataType::Decimal,
-        DataType::Str,
-        DataType::Date,
-        DataType::Set,
-        DataType::Amount,
-        DataType::Position,
-        DataType::Inventory,
-        DataType::Interval,
-        DataType::Metas,
-    ];
-
     pub fn name(&self) -> &'static str {
         match self {
             DataType::Null => "null",
@@ -284,15 +269,6 @@ impl Inventory {
         ret
     }
 
-    /// Like [`Inventory::reduce`] but with a fallible reducer.
-    pub fn try_reduce<E>(&self, mut f: impl FnMut(&Position) -> Result<Amount, E>) -> Result<Inventory, E> {
-        let mut ret = Inventory::new();
-        for position in self.positions() {
-            ret.add_amount(&f(&position)?);
-        }
-        Ok(ret)
-    }
-
     /// The units of every lot, merged per currency.
     pub fn units(&self) -> Inventory {
         // like `reduce`, without copying the costs it drops
@@ -356,10 +332,6 @@ pub struct Interval {
 impl Interval {
     pub fn new(months: i64, days: i64) -> Self {
         Interval { months, days }
-    }
-
-    pub fn is_zero(&self) -> bool {
-        self.months == 0 && self.days == 0
     }
 
     /// `date` moved by the interval: by the months first (the day of the month is kept,
@@ -535,21 +507,9 @@ impl Value {
             _ => None,
         }
     }
-    pub fn as_position(&self) -> Option<&Position> {
-        match self {
-            Value::Position(it) => Some(it),
-            _ => None,
-        }
-    }
     pub fn as_inventory(&self) -> Option<&Inventory> {
         match self {
             Value::Inventory(it) => Some(it),
-            _ => None,
-        }
-    }
-    pub fn as_interval(&self) -> Option<Interval> {
-        match self {
-            Value::Interval(it) => Some(*it),
             _ => None,
         }
     }

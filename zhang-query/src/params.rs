@@ -79,10 +79,6 @@ impl Params {
             named: self.named.iter().map(|(name, value)| (name.clone(), value.data_type())).collect(),
         }
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.positional.is_empty() && self.named.is_empty()
-    }
 }
 
 /// The declared types of query parameters.
