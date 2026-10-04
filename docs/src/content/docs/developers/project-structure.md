@@ -20,7 +20,6 @@ Zhang is a Rust workspace, a React web UI and this documentation site, all in th
 | `zhang-plugin-sdk/` | `zhang-plugin-sdk` | The Rust SDK for WASM plugins, with two example plugins in `examples/`. See [Writing Plugins](/developers/writing-plugins/). |
 | `bindings/wasm/` | `zhang-wasm` | The parsers compiled to WebAssembly with wasm-pack, for the online playground. |
 | `bindings/python/` | `zhang-python` | Experimental Python bindings (PyO3, built with maturin). |
-| `zhang-sql/` | | A paused SQL feature, excluded from the workspace. |
 | `frontend/` | | The web UI: React, TypeScript, Vite and Tailwind CSS. |
 | `docs/` | | This site, built with Astro and Starlight. See `docs/README.md`. |
 | `integration-tests/` | | End-to-end test cases: one folder per case, with a ledger and the API responses it must produce. |

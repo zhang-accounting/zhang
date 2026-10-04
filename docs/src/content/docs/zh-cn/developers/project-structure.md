@@ -20,7 +20,6 @@ sidebar:
 | `zhang-plugin-sdk/` | `zhang-plugin-sdk` | WASM 插件的 Rust SDK，`examples/` 中有两个示例插件。见[编写插件](/zh-cn/developers/writing-plugins/)。 |
 | `bindings/wasm/` | `zhang-wasm` | 用 wasm-pack 编译为 WebAssembly 的解析器，供在线 Playground 使用。 |
 | `bindings/python/` | `zhang-python` | 实验性的 Python 绑定（PyO3，用 maturin 构建）。 |
-| `zhang-sql/` | | 已暂停的 SQL 功能，不在 workspace 中。 |
 | `frontend/` | | 网页界面：React、TypeScript、Vite 和 Tailwind CSS。 |
 | `docs/` | | 本站点，用 Astro 和 Starlight 构建。见 `docs/README.md`。 |
 | `integration-tests/` | | 端到端测试用例：每个用例一个文件夹，包含一个账本以及它必须产生的 API 响应。 |
