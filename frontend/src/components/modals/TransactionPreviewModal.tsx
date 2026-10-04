@@ -5,11 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
 import { JournalItem } from '@/api/types';
 import { editTransactionAtom, journalAtom, previewJournalAtom, refetchJournal } from '../../states/journals';
-import { transactionEditBlocker } from '../journalLines/journal-utils';
 import JournalPreview from '../journalPreview/JournalPreview';
 import { AutoDrawer } from '../ui/auto-drawer';
 import { Button } from '../ui/button';
-import { RawEditNote } from './RawEditNote';
 
 /** Journal detail: Dialog >= md, bottom Drawer < md. Mount next to `TransactionEditModal` so "Edit" can hand over. */
 export const TransactionPreviewModal = () => {
@@ -50,10 +48,8 @@ export const TransactionPreviewModal = () => {
     if (!open) setPreviewJournal(undefined);
   };
 
-  const editBlocked = shown?.type === 'Transaction' && transactionEditBlocker(shown) !== null;
-
   const onEdit = () => {
-    if (shown?.type !== 'Transaction' || editBlocked) return;
+    if (shown?.type !== 'Transaction') return;
     setPreviewJournal(undefined);
     setEditTransaction(shown);
   };
@@ -71,7 +67,7 @@ export const TransactionPreviewModal = () => {
             {t('TRANSACTION_PREVIEW_MODAL_CLOSE')}
           </Button>
           {shown?.type === 'Transaction' && (
-            <Button className="h-10 md:h-8" onClick={onEdit} disabled={editBlocked} aria-describedby={editBlocked ? 'txn-edit-blocked-note' : undefined}>
+            <Button className="h-10 md:h-8" onClick={onEdit}>
               <Pencil data-icon="inline-start" />
               {t('ledger.journal.edit')}
             </Button>
@@ -79,7 +75,6 @@ export const TransactionPreviewModal = () => {
         </>
       }
     >
-      {editBlocked && <RawEditNote id="txn-edit-blocked-note" className="mt-4 md:mt-0" />}
       <JournalPreview data={shown} />
     </AutoDrawer>
   );

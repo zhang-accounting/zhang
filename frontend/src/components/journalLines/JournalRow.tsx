@@ -1,18 +1,16 @@
 import BigNumber from 'bignumber.js';
 import { useSetAtom } from 'jotai';
-import { ArrowLeft, ArrowRight, FileCode, Pencil, ZoomIn } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Pencil, ZoomIn } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
 import { JournalBalanceCheckItem, JournalBalancePadItem, JournalItem, JournalTransactionItem } from '@/api/types';
 import Amount from '@/components/Amount';
 import { useDateFormat } from '@/components/layout/use-date-format';
-import { RAW_EDIT_URI } from '@/lib/raw-edit-link';
 import { cn } from '@/lib/utils';
 import { editTransactionAtom, previewJournalAtom } from '@/states/journals';
 import { calculate } from '@/utils/trx-calculator';
 import { JournalChips, JournalStatusBadge, StatusEdge } from './JournalBits';
-import { isBalanceCheckPassed, transactionEditBlocker } from './journal-utils';
+import { isBalanceCheckPassed } from './journal-utils';
 import { LineMenu } from './LineMenu';
 
 type Posting = JournalTransactionItem['postings'][number];
@@ -149,11 +147,9 @@ function useWhen(datetime: string, showDate?: boolean) {
 
 function TransactionRow({ data, showDate, dense }: RowProps<JournalTransactionItem>) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const setPreviewJournal = useSetAtom(previewJournalAtom);
   const setEditTransaction = useSetAtom(editTransactionAtom);
   const when = useWhen(data.datetime, showDate);
-  const editBlocked = transactionEditBlocker(data) !== null;
   const summary = Array.from(calculate(data).values());
   const net = summary[0]?.number;
   const direction = net === undefined || net.isZero() ? 'transfer' : net.isPositive() ? 'in' : 'out';
@@ -187,10 +183,7 @@ function TransactionRow({ data, showDate, dense }: RowProps<JournalTransactionIt
       menu={
         <LineMenu
           actions={[
-            editBlocked
-              ? { label: t('ledger.journal.edit'), icon: Pencil, onClick: () => undefined, disabled: true, hint: t('ledger.txn.edit_blocked_short') }
-              : { label: t('ledger.journal.edit'), icon: Pencil, onClick: () => setEditTransaction(data) },
-            ...(editBlocked ? [{ label: t('ledger.txn.open_raw_edit'), icon: FileCode, onClick: () => navigate(RAW_EDIT_URI) }] : []),
+            { label: t('ledger.journal.edit'), icon: Pencil, onClick: () => setEditTransaction(data) },
             { label: t('ledger.journal.preview'), icon: ZoomIn, onClick: openPreview },
           ]}
         />

@@ -35,20 +35,6 @@ export function hasDocuments(data: JournalTransactionItem) {
   return transactionDocuments(data).length > 0;
 }
 
-/**
- * Why the transaction form cannot safely rewrite this transaction, or `null` when it can.
- *
- * The update API rebuilds every posting from `{ account, unit, metas }` only, so cost (`{…}`) and price (`@ …`) annotations would be
- * silently dropped. The journal payload exposes `cost`, but not prices: a balanced transaction can only mix commodities through
- * a cost or a price, so postings in more than one commodity are treated as "has cost / price" too. Posting comments and posting
- * flags are not in the payload at all (see `TransactionEditModal`, which asks for confirmation instead).
- */
-export function transactionEditBlocker(data: JournalTransactionItem): 'cost_or_price' | null {
-  if (data.postings.some((posting) => posting.cost)) return 'cost_or_price';
-  const commodities = new Set(data.postings.map((posting) => posting.unit?.commodity ?? posting.inferred_unit.commodity));
-  return commodities.size > 1 ? 'cost_or_price' : null;
-}
-
 /** The journal page size the Journals page asks for. */
 export const JOURNAL_PAGE_SIZE = 100;
 

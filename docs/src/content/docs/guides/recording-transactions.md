@@ -87,11 +87,14 @@ Select **New transaction** at the top of the sidebar, and fill in:
 - **Date**: pick the day. A new transaction gets the current time of day.
 - **Payee** and **Narration**.
 - **Postings**: an account and an amount written as `amount commodity`, such as `-28 CNY`. Leave one amount empty and Zhang fills it in.
-- **Metadata**: key and value pairs for the transaction, and for each posting.
+- **Posting details**, behind the details button of a posting: its **cost** and **price**, written as in a ledger file (`{150 USD}`, `{{1500 USD}}` or `{}` for the cost, `@ 6 USD` or `@@ 60 USD` for the price; see [Lots and cost basis](/guides/lots-and-cost-basis/)), a **comment** for the end of its line, and its metadata.
+- **Metadata**: key and value pairs for the transaction.
 
-The form has no fields for tags, links, costs or prices. For those, write the transaction in a file, for example on the **Raw Editing** page, which edits the ledger files in the browser.
+The form has no fields for tags or links. For those, write the transaction in a file, for example on the **Raw Editing** page, which edits the ledger files in the browser.
 
-To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form, so comments on its postings are dropped, while the [flags of its postings](/reference/directives/transaction/#posting-flags) stay. Transactions with a cost or a price cannot be edited in the form, nor can a transaction a plugin generated: it is in no file of the ledger, so the edit is refused and nothing is written.
+To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form: each posting keeps its cost, price, comment, metadata and [flag](/reference/directives/transaction/#posting-flags), and a posting written without an amount stays that way. Only the layout of the text and comment lines between the postings are not kept. A transaction a plugin generated cannot be edited: it is in no file of the ledger, so the edit is refused and nothing is written.
+
+The same holds for the API: `PUT /api/transactions/{id}` takes a `cost`, a `price` and a `comment` per posting in the same forms, keeps those of a posting when the fields are left out, and removes one sent as `null`.
 
 ### Where new entries are written
 
