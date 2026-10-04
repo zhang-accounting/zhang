@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveTime};
 use chrono_tz::Tz;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -252,20 +252,6 @@ impl Operations {
             .get(key.as_ref())
             .map(|value| T::from_str(value).map_err(|_| ZhangError::InvalidOptionValue))
             .transpose()
-    }
-
-    pub fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
-        let store = self.read();
-        let price = store
-            .prices
-            .iter()
-            .filter(|price| price.commodity.eq(from.as_ref()))
-            .filter(|price| price.target_commodity.eq(to.as_ref()))
-            .filter(|price| price.datetime.le(&date))
-            // `max_by_key` returns the last of several equal maxima, so the last same-day price wins
-            .max_by_key(|price| price.datetime)
-            .cloned();
-        Ok(price)
     }
 
     pub fn metas(&self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {

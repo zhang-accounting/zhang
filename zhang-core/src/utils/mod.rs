@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-pub mod calculable;
 pub mod date_range;
 pub mod hashmap;
 pub mod id;
