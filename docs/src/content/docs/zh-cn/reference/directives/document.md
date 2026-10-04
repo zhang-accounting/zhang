@@ -91,7 +91,7 @@ YYYY-MM-DD * "<Payee>" "<Narration>"
 
 `document` 指令在 Beancount 中的语法相同。有两点不同：
 
-- 张记账与 Beancount 一样，把 Beancount 文件中的相对路径解析为相对于声明该指令的文件所在的目录，并且仍能找到早期版本写成相对于账本根目录的文档（见[路径](#路径)）。在查询中，`#documents` 的 `filename` 列遵循 Beancount 的规则，`path` 列给出写下的路径。
+- 张记账与 Beancount 一样，把 Beancount 文件中的相对路径解析为相对于声明该指令的文件所在的目录，并且仍能找到早期版本写成相对于账本根目录的文档（见[路径](#路径)）。在查询中，`#documents` 的 `filename` 列遵循 Beancount 的规则，`path` 列给出网页界面打开文件所用的、在账本中的路径。
 - Beancount 的 `documents` 选项会按文件名在目录树中查找文档，它在张记账中没有作用。请为每个文件写一条 `document` 指令或元数据。
 
 ## 相关页面
