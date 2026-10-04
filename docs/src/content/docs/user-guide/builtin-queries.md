@@ -159,15 +159,12 @@ WHERE (type = 'transaction'
             OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword)))
    OR (type = 'balance' AND :tags IS NULL AND :links IS NULL
        AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword)))
-ORDER BY timestamp DESC,
-         type = 'transaction' AND flag != 'P' DESC,
-         type = 'balance' AND length(accounts) > 1 DESC,
-         seq DESC
+ORDER BY seq DESC
 LIMIT :size OFFSET :offset
 ```
 
 - The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. `GET /api/journals` and `GET /api/errors` take a page `size` from 1 to 1000, 100 by default, and answer another size with HTTP 400 and the message `size must be between 1 and 1000`; a page past the last one is empty.
-- Rows come newest first, in the order Zhang checks them: by time, and at one time the balance assertions, the padding transactions (flag `P`), the `balance ... with pad`s, which are checked after the paddings of their time, then the other transactions, each in ledger order. A `balance ... with pad` names its pad account in `accounts`. This is the order of `#entries` except for the `balance ... with pad`s, which `#entries` lists before their paddings for now; once `seq` follows the order Zhang checks a day in, the `ORDER BY` becomes `seq DESC`.
+- Rows come newest first, in the [processing order](/user-guide/query-language/#processing-order): by date and the time written, then at one time the balance entries (balance assertions and every transaction flagged `P`) before the other transactions, in the order of your files, with a `balance ... with pad` after the other balance entries of its time, its padding among them, where Zhang checks it. A balance assertion therefore stands right above the postings its balance includes. On a day daylight saving skips a time, an entry written in the gap keeps its place but shows the time it is stored at, the first one after the gap.
 - A transaction with the flag `P` is a padding transaction, which the page shows as a `BalancePad` item. A `balance` row is a `BalanceCheck` item, built from `journals.balance_checks`.
 
 #### `journals.postings`

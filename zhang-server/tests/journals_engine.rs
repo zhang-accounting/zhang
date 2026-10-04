@@ -194,17 +194,14 @@ async fn the_journal_lists_transactions_and_assertions_newest_first_as_zhang_che
             "Transaction Cafe lunch",
         ]
     );
-    // `sequence` is the position in #entries, which lists the `balance ... with pad` before its padding for now
+    // `sequence` is the position in the processing order, newest first
     let sequences = page["records"]
         .as_array()
         .unwrap()
         .iter()
         .map(|it| it["sequence"].as_i64().unwrap())
         .collect::<Vec<_>>();
-    let mut sorted = sequences.clone();
-    sorted.sort_by(|a, b| b.cmp(a));
-    sorted.swap(4, 5);
-    assert_eq!(sequences, sorted);
+    assert!(sequences.windows(2).all(|it| it[0] > it[1]), "{sequences:?}");
     assert_eq!(record(&page, "in another file")["is_balanced"], false);
     assert_eq!(record(&page, "a.b")["is_balanced"], true);
 }
@@ -425,6 +422,33 @@ async fn balance_assertions_and_pads_keep_their_shape() {
     assert_eq!(pad["postings"][1]["account"], "Equity:Open");
     assert_eq!(pad["postings"][1]["unit"], Value::Null);
     assert_eq!(pad["postings"][1]["inferred_unit"], amount("-110.00", "CNY"));
+}
+
+/// The processing order within one time: a plain balance written after a padding comes after it, and a
+/// `balance ... with pad` after every balance entry of its time; the check of the parent account includes the
+/// padding of its sub-account.
+#[tokio::test]
+async fn a_balance_written_after_a_padding_comes_after_it() {
+    let scratch = Scratch::new(&[("main.zhang", include_str!("fixtures/journals/review-padorder/main.zhang"))]);
+    let ledger = scratch.ledger().await;
+    let page = page(&ledger, None, None).await;
+    let order = page["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| format!("{} {} {}", it["type"].as_str().unwrap(), it["narration"].as_str().unwrap(), it["passed"]))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        order,
+        vec![
+            "BalanceCheck Assets:Bank:Sub true",
+            "BalanceCheck Assets:Cash true",
+            // 100 of the salary and the 50 padded into the sub-account
+            "BalanceCheck Assets:Bank true",
+            "BalancePad pad Assets:Bank:Sub to Equity:Open null",
+            "Transaction salary null",
+        ]
+    );
 }
 
 #[tokio::test]

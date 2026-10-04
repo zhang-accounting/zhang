@@ -159,15 +159,12 @@ WHERE (type = 'transaction'
             OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword)))
    OR (type = 'balance' AND :tags IS NULL AND :links IS NULL
        AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword)))
-ORDER BY timestamp DESC,
-         type = 'transaction' AND flag != 'P' DESC,
-         type = 'balance' AND length(accounts) > 1 DESC,
-         seq DESC
+ORDER BY seq DESC
 LIMIT :size OFFSET :offset
 ```
 
 - 页数按 `LIMIT` 和 `OFFSET` 之前的总行数计算。`GET /api/journals` 和 `GET /api/errors` 的页大小 `size` 为 1 到 1000，默认 100；其他大小返回 HTTP 400，消息为 `size must be between 1 and 1000`；超过最后一页的页码返回空页。
-- 行按张记账检查它们的顺序排列，最新的在前：先按时刻；同一时刻内依次是余额断言、补齐交易（标记为 `P`）、`balance ... with pad`（在同一时刻的补齐交易之后检查），然后是其他交易，各自按账本顺序。`balance ... with pad` 的 `accounts` 中有它的补齐来源账户。除 `balance ... with pad` 外，这就是 `#entries` 的顺序；`#entries` 目前把 `balance ... with pad` 列在它的补齐交易之前，等 `seq` 遵循张记账检查一天的顺序后，`ORDER BY` 将改为 `seq DESC`。
+- 行按[处理顺序](/zh-cn/user-guide/query-language/#处理顺序)排列，最新的在前：先按日期和书写的时刻；同一时刻内，余额条目（余额断言和所有标记为 `P` 的交易）在其他交易之前，各自按文件中的顺序；`balance ... with pad` 排在同一时刻的其他余额条目（包括它的补齐交易）之后，即张记账检查它的位置。因此余额断言紧挨在它的余额所包含的分录之上。在夏令时跳过某个时刻的那一天，写在跳过区间内的条目位置不变，但显示的是它存储的时刻，即跳过区间之后的第一个时刻。
 - 标记为 `P` 的交易是补齐交易，页面显示为 `BalancePad` 条目。`balance` 行是 `BalanceCheck` 条目，由 `journals.balance_checks` 补全。
 
 #### `journals.postings`
