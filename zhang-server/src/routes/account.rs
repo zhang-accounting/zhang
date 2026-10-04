@@ -2,7 +2,6 @@ use axum::extract::{Multipart, Path, State};
 use axum::{debug_handler, Json};
 use gotcha::api;
 use log::info;
-use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Date, Directive, Document, ZhangString};
 use zhang_core::domains::schemas::AccountJournalDomain;
@@ -54,15 +53,11 @@ pub async fn upload_account_document(
     let mut ledger_stage = ledger.for_writing().await?;
     let account = validate::account(&account_name, &Rules::of(&ledger_stage))?;
     let written = async {
-        let entry = &ledger_stage.entry.0;
         let mut documents = vec![];
         for (file_name, content_buf) in files {
-            let v4 = Uuid::new_v4();
-            let buf = entry.join("attachments").join(v4.to_string()).join(&file_name);
-            let striped_buf = buf.strip_prefix(entry).unwrap();
+            let (v4, striped_path_string) = super::attachment_path(&file_name);
             info!("uploading document `{}`(id={}) to account {}", file_name, v4, account_name);
 
-            let striped_path_string = striped_buf.to_string_lossy().to_string();
             ledger_stage
                 .data_source
                 .async_save(&ledger_stage, striped_path_string.to_owned(), &content_buf)
