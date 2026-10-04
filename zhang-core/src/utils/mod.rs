@@ -4,7 +4,6 @@ pub mod calculable;
 pub mod date_range;
 pub mod hashmap;
 pub mod id;
-pub mod logging;
 pub mod price_grip;
 pub mod string_;
 
