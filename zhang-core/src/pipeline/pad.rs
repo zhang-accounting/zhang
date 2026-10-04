@@ -160,6 +160,7 @@ pub fn serving_pads(directives: &[Spanned<Directive>], gone: impl Fn(&Spanned<Di
                 end: place,
                 content: String::new(),
                 filename: None,
+                ..SpanInfo::default()
             },
         ));
     }

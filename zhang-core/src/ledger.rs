@@ -1017,6 +1017,7 @@ mod test {
             end: 0,
             content: "".to_string(),
             filename: None,
+            ..SpanInfo::default()
         }
     }
     fn test_parse_zhang(content: &str) -> Vec<Spanned<Directive>> {

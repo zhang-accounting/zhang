@@ -438,6 +438,8 @@ pub async fn errors(ledger: &SharedLedger, params: JournalRequest) -> ServerResu
                     end: position("span_end").unwrap_or(start),
                     content: string(columns.get(row, "source")),
                     filename: optional_string(columns.get(row, "file")),
+                    line: position("line"),
+                    column: position("column"),
                 });
                 ErrorEntity {
                     id: string(columns.get(row, "id")),

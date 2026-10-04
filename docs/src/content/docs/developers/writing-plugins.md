@@ -343,8 +343,10 @@ Inputs and outputs are Extism plug-in input and output, as JSON.
 A directive is the serde JSON of `zhang-ast`'s `Spanned<Directive>`, of a kind ABI v1 knows: Zhang never hands a plugin a `pad` directive (see [the stage order contract](#the-stage-order-contract)). For example:
 
 ```json
-{"data": {"Comment": {"content": "; a note"}}, "span": {"start": 0, "end": 8, "content": "; a note", "filename": "/ledger/main.zhang"}}
+{"data": {"Comment": {"content": "; a note"}}, "span": {"start": 0, "end": 8, "content": "; a note", "filename": "/ledger/main.zhang", "line": 1, "column": 1}}
 ```
+
+`start` and `end` are byte offsets in the file, `line` and `column` where the directive starts, 1-based, the column counting characters; both are left out for a directive that was not read from a file. A span a plugin sends back, to `zhang_emit_error`, may leave them out too.
 
 An export fails by returning a non-zero code with an Extism error; for a processor or mapper that aborts the load.
 

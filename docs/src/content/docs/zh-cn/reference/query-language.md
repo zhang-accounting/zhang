@@ -962,7 +962,7 @@ GROUP BY name
 `#errors` 中每个账本错误对应一行，即网页界面的错误页面列出、`GET /api/errors` 返回的那些问题。
 
 - `kind` 是错误码，例如 `UnbalancedTransaction`。[错误码](/zh-cn/reference/error-codes/)解释了每个代码及其修复方法。`message` 是错误页面为它显示的那句话（英文界面中的文字）。
-- `file` 是引发错误的指令所在的文件，路径相对于账本目录，与网页界面的文件列表一致。`source` 是该指令的文本。`line` 和 `column` 目前为 `NULL`，因为张记账还不记录行号。
+- `file` 是引发错误的指令所在的文件，路径相对于账本目录，与网页界面的文件列表一致。`source` 是该指令的文本。`line` 和 `column` 是该指令开始的行号和列号，从 1 起算，列号按字符计；指令不是从文件读取的（例如插件生成的）时，两者为 `NULL`。
 - `date` 是该指令的日期；没有日期的指令（例如 `option`）为 `NULL`。`account` 是错误涉及的账户，只有指明了账户的错误才有，例如 `AccountDoesNotExist`、`AccountClosed` 和 `AccountBalanceCheckError`。
 - `meta(key)` 读取张记账为错误记录的其他信息，`metas` 列出全部信息。交易中的错误，`meta('txn_id')` 是该交易的 `id`，与 postings 表中的一致。分录引用了未定义的预算时，有 `meta('budget_name')`。
 - `id` 是错误在 `GET /api/errors` 中的 id，`span_start` 和 `span_end` 是引发错误的指令在其文件中开始和结束的位置（字节偏移）。id 由指令的位置得出，因此同一条指令的错误共用一个 id，交易中的错误的 id 就是该交易的 `id`。
@@ -973,8 +973,8 @@ GROUP BY name
 | `kind` | `str` | 错误码，例如 `UnbalancedTransaction`，即 `GET /api/errors` 中的 `error_type`。 |
 | `message` | `str` | 错误页面对该错误的说明。 |
 | `file` | `str` | 引发错误的指令所在的文件，路径相对于账本目录；文件不在账本目录中时为完整路径。 |
-| `line` | `int` | 指令在文件中的行号。目前总是 `NULL`。 |
-| `column` | `int` | 指令在行中的列号。目前总是 `NULL`。 |
+| `line` | `int` | 引发错误的指令在其文件中开始的行号，从 1 起算；未知时为 `NULL`。 |
+| `column` | `int` | 该指令在行中开始的列号，从 1 起算，按字符计；未知时为 `NULL`。 |
 | `date` | `date` | 指令的日期，没有日期的指令为 `NULL`。 |
 | `account` | `str` | 错误涉及的账户，错误没有指明账户时为 `NULL`。 |
 | `source` | `str` | 引发错误的指令的文本。 |

@@ -281,7 +281,7 @@ fn errors_of_the_error_fixtures() {
     );
     assert_eq!(
         run(&ledger, "SELECT source, line, column, meta('txn_id') IS NOT NULL FROM #errors"),
-        rows(&[&["1970-01-01 \"\" \"\"\n  Assets:BankCard 1 C", "NULL", "NULL", "TRUE"]])
+        rows(&[&["1970-01-01 \"\" \"\"\n  Assets:BankCard 1 C", "5", "1", "TRUE"]])
     );
 
     let ledger = fixture("should_raise_unbalance_error_for_unbalanced_txn");

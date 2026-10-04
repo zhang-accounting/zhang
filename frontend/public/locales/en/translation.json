@@ -50,7 +50,8 @@
     "AmbiguousLotMatch": "Reduction matches several lots, which is ambiguous under the STRICT booking method",
     "PluginError": "Plugin {{meta.plugin}}: {{meta.message}}"
   },
-  "ERROR_BOX_LOCATION": "{{file}} · bytes {{start}}–{{end}}",
+  "ERROR_BOX_LOCATION": "{{file}} · lines {{start}}–{{end}}",
+  "ERROR_BOX_LOCATION_LINE": "{{file}} · line {{line}}",
   "LEDGER_IS_HEALTHY": "Ledger is healthy, no errors",
   "accounts": {
     "hide_closed_accounts": "Hide closed accounts"

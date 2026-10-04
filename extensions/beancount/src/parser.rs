@@ -26,9 +26,9 @@ use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, comma_separator, commodity_name, flag_char, indentation_width, is_digit, key_value_line, number_expr, offset, parse_items, posting_amount,
-    posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag, unquote_string_raw, CostComponent, PostingMeta,
-    TransactionLine,
+    account_name, comma_separator, commodity_name, flag_char, indentation_width, is_digit, key_value_line, line_column, number_expr, offset, parse_items,
+    posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag, unquote_string_raw,
+    CostComponent, PostingMeta, TransactionLine,
 };
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
@@ -712,10 +712,7 @@ fn content_item(i: &str) -> IResult<&str, Option<BeancountDirective>> {
 }
 
 fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
-    let position = offset(original, rest);
-    let consumed = &original[..position];
-    let line = consumed.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = position - consumed.rfind('\n').map(|index| index + 1).unwrap_or(0) + 1;
+    let (line, column) = line_column(original, (1, 0), offset(original, rest));
     ParseError {
         message: format!("failed to parse beancount file: {} at line {}, column {}", message, line, column),
     }

@@ -551,12 +551,12 @@ ORDER BY seq DESC
 | `offset` | `int` | 该页之前的错误数：`(page - 1) × size` |
 
 ```sql
-SELECT id, kind, file, span_start, span_end, source, metas
+SELECT id, kind, file, line, column, span_start, span_end, source, metas
 FROM #errors
 LIMIT :size OFFSET :offset
 ```
 
-错误列表以文件和指令在其中的字节偏移表示错误所在的位置。
+错误列表以文件和指令所在的行表示错误所在的位置（由 `line` 和 `source` 的行数得出）；`span_start` 和 `span_end` 是写入时用来替换该指令的字节偏移。
 
 ### 预算与商品
 

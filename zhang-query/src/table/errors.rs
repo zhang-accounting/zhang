@@ -12,10 +12,10 @@
 //! - **Where it is.** `file` is the file of the directive that raised the error, relative to
 //!   the ledger's directory as the UI's file list names it (the full path if the file is
 //!   outside it), and `source` is the text of that directive, the snippet the UI opens for an
-//!   error. `line` and `column` are reserved for its position and are `NULL` for now: zhang
-//!   records where a directive starts as an offset into its file, not as a line, and does not
-//!   keep the file's text once it is loaded. Rows still come in the order of the files: by
-//!   `file`, then by position in the file, which is line order.
+//!   error. `line` and `column` are where the directive starts, 1-based, the column counting
+//!   characters; both are `NULL` for a directive that was not read from a file, such as one a
+//!   plugin made up. Rows come in the order of the files: by `file`, then by position in the
+//!   file, which is line order.
 //! - **When and what it concerns.** `date` is the date of the directive (`NULL` for undated
 //!   ones, such as options), and `account` the account the error is about, for the errors
 //!   that name one (an account that does not exist or is closed, a failed balance check).
@@ -205,14 +205,14 @@ static COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "line",
         DataType::Int,
-        "Line of the directive in its file; NULL for now, as zhang does not record line numbers yet.",
-        |_, _| Value::Null,
+        "Line in its file where the directive that raised the error starts, 1-based, or NULL if unknown.",
+        |_, record| span_position(record, |span| span.line),
     ),
     ColumnDef::record(
         "column",
         DataType::Int,
-        "Column of the directive in its line; NULL for now, as zhang does not record line numbers yet.",
-        |_, _| Value::Null,
+        "Column in its line where the directive that raised the error starts, 1-based and counting characters, or NULL if unknown.",
+        |_, record| span_position(record, |span| span.column),
     ),
     ColumnDef::record(
         "date",
@@ -252,13 +252,13 @@ static COLUMNS: &[ColumnDef] = &[
         "span_start",
         DataType::Int,
         "Byte offset in its file where the directive that raised the error starts, or NULL if unknown.",
-        |_, record| span_offset(record, |span| span.start),
+        |_, record| span_position(record, |span| Some(span.start)),
     ),
     ColumnDef::record(
         "span_end",
         DataType::Int,
         "Byte offset in its file where the directive that raised the error ends, or NULL if unknown.",
-        |_, record| span_offset(record, |span| span.end),
+        |_, record| span_position(record, |span| Some(span.end)),
     ),
     ColumnDef::record(
         "metas",
@@ -276,11 +276,12 @@ fn error_metas(error: &ErrorDomain) -> Vec<(String, String)> {
     metas
 }
 
-/// An offset of the span of the error's directive; NULL for an error without one.
-fn span_offset(record: &Record<'_>, offset: fn(&SpanInfo) -> usize) -> Value {
+/// A position of the span of the error's directive; NULL for an error without one, or whose span lacks it.
+fn span_position(record: &Record<'_>, position: impl Fn(&SpanInfo) -> Option<usize>) -> Value {
     ledger_error(record)
         .and_then(|it| it.error.span.as_ref())
-        .and_then(|span| i64::try_from(offset(span)).ok())
+        .and_then(position)
+        .and_then(|it| i64::try_from(it).ok())
         .map_or(Value::Null, Value::Int)
 }
 
