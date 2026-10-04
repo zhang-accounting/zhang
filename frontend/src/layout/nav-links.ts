@@ -35,6 +35,7 @@ export const MOBILE_MORE_LINKS: NavLink[] = [BUDGETS_LINK, COMMODITIES_LINK, DOC
 
 export const UPGRADE_GUIDE_URL = 'https://zhang-accounting.kilerd.me/deployment/upgrading/';
 export const BUDGET_DOCS_URL = 'https://zhang-accounting.kilerd.me/reference/directives/budget/';
+export const GITHUB_REPO_URL = 'https://github.com/zhang-accounting/zhang';
 
 /** `/` matches exactly; other links also match their sub-routes (e.g. `/accounts/Assets:Bank`). */
 export function isLinkActive(pathname: string, uri: string) {
