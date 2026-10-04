@@ -595,16 +595,15 @@ The default table is `postings`. It has one row for every posting of every trans
 
 ### Lot booking
 
-The `position`, `cost_*` and `weight` columns of a posting held at cost depend on the lot it is booked against. The query engine books lots per account and currency, in ledger order, the way Beancount does:
+The `position`, `cost_*` and `weight` columns of a posting held at cost depend on the lot it is booked against. The rows are Zhang's own booking: Zhang books every transaction while it loads the ledger, per account and currency and in ledger order, the way Beancount does, and the query engine reads the booked postings. Queries, the journal and the commodity pages therefore show the same lots.
 
 - **Reductions.** A posting at cost whose sign is opposite to an open lot (selling what you bought, for example) reduces lots. The fields written in its cost, that is the cost number and currency, the date and the label, must match the lot. Fields that are left out match any lot. `-4 AAPL {100 USD}` reduces lots bought at 100 USD on any date, `-4 AAPL {100 USD, 2024-01-02}` reduces only the one bought on 2024-01-02, `-4 AAPL {100 USD, "a"}` only the one labeled `a`, and `-4 AAPL {}` reduces any lot.
-- **Choosing among matching lots.** Matching lots are used oldest first (FIFO), or newest first (LIFO) if the account's `booking_method` is `LIFO`. A reduction that spans several lots is split into one row per lot, each with the units taken from that lot and the lot's cost.
-- **Augmentations.** Any other posting at cost opens a lot, or adds to an identical one. A cost without a date, such as `10 AAPL {100 USD}`, is dated by its transaction, so `cost_date` is never `NULL` for a posting held at cost.
-- **Leftovers.** If no open lot covers all of a reduction, the remainder is booked as an augmentation. A cost without a number, such as `{}`, cannot open a lot, so that remainder has no cost.
+- **Choosing among matching lots.** Matching lots are used oldest first (FIFO), or newest first (LIFO) if the account's `booking_method` is `LIFO`. Under `STRICT`, a reduction matching several lots must take all of them in full; otherwise Zhang reports an [`AmbiguousLotMatch`](/reference/error-codes/#ambiguouslotmatch) error and books oldest first. A reduction that spans several lots is split into one row per lot, each with the units taken from that lot and the lot's cost.
+- **Augmentations.** Any other posting at cost opens a lot, or adds to an identical one. A cost without a date, such as `10 AAPL {100 USD}`, is dated by its transaction, so `cost_date` is never `NULL` for a posting held at cost. An augmentation written `{}` joins the first lot the account holds at cost, and its row carries that lot's cost.
+- **Leftovers.** If no open lot covers all of a reduction, Zhang reports a [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot) error and books the remainder as an augmentation. A cost without a number, such as `{}`, cannot open a lot, so that remainder has no cost.
+- **Total costs.** The `cost_number` of a lot bought with a total cost, such as `3 AAPL {{1000 USD}}`, is the total divided by the units, to 28 significant digits as in beanquery.
 
-:::note
-Two booking cases are still handled differently by Zhang's ledger processing than by the query engine. Zhang currently matches a reduction that gives a cost but no date only against lots dated on the day of the reduction, and records an error otherwise ([#436](https://github.com/zhang-accounting/zhang/issues/436)). The `STRICT`, `AVERAGE`, `AVERAGE_ONLY` and `NONE` booking methods are not implemented yet ([#437](https://github.com/zhang-accounting/zhang/issues/437)), and the query engine books accounts that use them as FIFO for now.
-:::
+The booking methods are described in [Lots and Cost Basis](/guides/lots-and-cost-basis/#choose-a-booking-method).
 
 ### Columns
 
@@ -1655,7 +1654,7 @@ One row per day with postings, with the account's balance at the end of the day.
 - **One-element lists work.** `payee IN ('Amazon')` works in Zhang. beanquery reads `('Amazon')` as a parenthesized string and needs `('Amazon',)`.
 - **Comments** start with `--`. beanquery's `;` line comments and `/* */` block comments are not supported. A single `;` is only allowed at the end of the query.
 - **Regular expressions** use Rust syntax, which has no look-around or back-references.
-- **Booking methods.** Accounts that use `STRICT`, `AVERAGE`, `AVERAGE_ONLY` or `NONE` are booked FIFO for now, and an ambiguous `STRICT` match is not an error. See [Lot booking](#lot-booking).
+- **Booking methods.** `NONE`, `AVERAGE` and `AVERAGE_ONLY` are not implemented: an account using one of them is reported ([`UnsupportedBookingMethod`](/reference/error-codes/#unsupportedbookingmethod)) and books with the ledger's default method. See [Lot booking](#lot-booking).
 - **Limits.** Queries are limited in length, nesting depth, regular-expression size, execution time and result size. See [Limits](#limits).
 - **Errors carry a position.** Every query error reports the line and column where it was found, whenever it can be located.
 - **Exact decimals throughout.** Numbers are arbitrary-precision decimals, and amounts are never stored with a fixed number of decimal places.

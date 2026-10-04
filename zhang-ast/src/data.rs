@@ -229,9 +229,17 @@ pub fn written_groups(postings: &[Posting]) -> Vec<WrittenGroup<'_>> {
 /// The units of a group of booked legs ([`written_groups`]): their sum, in the commodity of the
 /// posting they were written as. Every leg of a booked group has units.
 pub fn group_units(legs: &[Posting]) -> Amount {
-    let units = legs.iter().map(|leg| leg.units.as_ref().expect("a booked posting has units"));
-    let commodity = legs[0].units.as_ref().expect("a booked posting has units").commodity.clone();
-    Amount::new(units.map(|it| &it.number).sum(), commodity)
+    booked_group_units(legs).expect("a booked posting has units")
+}
+
+/// The units of a group of legs ([`written_groups`]) when every leg is booked: their sum, in the
+/// commodity of the first. `None` when a leg has no units, as in a transaction the ledger could not
+/// book (its implicit posting is never interpolated), which a reader of the ledger's directives
+/// may meet where [`group_units`] would panic.
+pub fn booked_group_units(legs: &[Posting]) -> Option<Amount> {
+    let commodity = legs.first()?.units.as_ref()?.commodity.clone();
+    let number: Option<BigDecimal> = legs.iter().map(|leg| leg.units.as_ref().map(|it| &it.number)).sum();
+    Some(Amount::new(number?, commodity))
 }
 
 /// `postings` as written: each complete group of [`written_groups`] merged back into the posting

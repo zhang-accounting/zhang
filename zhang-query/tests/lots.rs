@@ -376,3 +376,66 @@ fn augmentation_with_cost_and_no_date_is_dated_by_its_transaction() {
         ]
     );
 }
+
+/// The rows are zhang's own booking (#458): where the query engine's former lot logic and the
+/// ledger's disagreed, the rows now follow the ledger. Two such cases, pinned.
+#[test]
+fn rows_follow_the_ledgers_booking() {
+    // E6 of the booking-split design: an augmentation written `{}` joins the first lot held at
+    // cost, so its row carries that lot's cost (the engine used to give it none, and a weight of
+    // its bare units)
+    let ledger = r#"
+1970-01-01 open Assets:Broker
+
+2024-01-10 * "Broker" "buy"
+  Assets:Broker    10 AAPL {100 USD}
+  Assets:Bank   -1000 USD
+
+2024-01-20 * "Broker" "add to the lot"
+  Assets:Broker     3 AAPL {}
+  Assets:Bank    -300 USD
+"#;
+    assert_eq!(
+        query(ledger, "SELECT number, cost_number, cost_date, weight WHERE narration = 'add to the lot'"),
+        vec![row(&["3", "100", "2024-01-10", "300 USD"]), row(&["-300", "NULL", "NULL", "-300 USD"])]
+    );
+    assert_eq!(holdings(ledger, "Assets:Broker"), "13 AAPL {100 USD, 2024-01-10}");
+
+    // a posting written without units but with a cost spec books the default lot of the weight
+    // commodity, its spec ignored, as the ledger has always booked it; the engine used to open a
+    // lot at that cost for it
+    let ledger = r#"
+1970-01-01 open Assets:A
+
+2024-05-16 * "an implicit posting that carries a cost spec"
+  Income:Gains -100 USD
+  Assets:A { 10 AAPL }
+"#;
+    assert_eq!(
+        query(ledger, "SELECT account, number, currency, cost_number WHERE account = 'Assets:A'"),
+        vec![row(&["Assets:A", "100", "USD", "NULL"])]
+    );
+
+    // a sale of more than the lot holds, on the day the lot was bought and at its cost: the part
+    // the lot covers and the remainder name the same lot, so they are one row (the engine used to
+    // list them as two rows of -10). The ledger reports the shortfall as NoEnoughCommodityLot
+    let ledger = r#"
+1970-01-01 open Assets:Broker
+
+2024-01-10 * "Broker" "buy"
+  Assets:Broker    10 AAPL {100 USD}
+  Assets:Bank   -1000 USD
+
+2024-01-10 * "Broker" "sell more than held"
+  Assets:Broker   -20 AAPL {100 USD}
+  Assets:Bank    2000 USD
+"#;
+    assert_eq!(
+        query(
+            ledger,
+            "SELECT number, cost_number, cost_date WHERE narration = 'sell more than held' AND account = 'Assets:Broker'"
+        ),
+        vec![row(&["-20", "100", "2024-01-10"])]
+    );
+    assert_eq!(holdings(ledger, "Assets:Broker"), "-10 AAPL {100 USD, 2024-01-10}");
+}
