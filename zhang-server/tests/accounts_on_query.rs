@@ -17,7 +17,10 @@
 //!    - valuation uses the engine's price lookup, with inverse rates and the cost currency (decision 3);
 //!    - `trx_id` is the id of the transaction, not of the posting (a bug), and an assertion row's is its id;
 //!    - a parent account's page is its subtree (decision 6);
-//!    - the narration of a transaction written without one is `""`, as the engine has it, where it was null.
+//!    - the narration of a transaction written without one is `""`, as the engine has it, where it was null;
+//!    - on a day daylight saving skips a time, the hand-written endpoints took the posting stored last as the
+//!      latest, where zhang processed the postings by the time written: their balance of the account and of the
+//!      day was that after an earlier posting, and their journal was in the order of the stored times (a bug).
 //!
 //!    A leaf account's journal must be exactly the hand-written one but for these: its rows in the same
 //!    order, the rows of one transaction newest first, by posting.
@@ -35,6 +38,7 @@ use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use bigdecimal::{BigDecimal, Zero};
+use chrono::TimeZone;
 use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
 use zhang_ast::{Directive, Spanned};
@@ -242,6 +246,10 @@ enum Reason {
     Subtree,
     /// accepted by the lead: the narration of a transaction without one is `""`, as the engine has it
     EmptyNarration,
+    /// a bug of the hand-written endpoints: on a day daylight saving skips a time, a posting written in the gap
+    /// is stored past it, and they took the posting stored last as the latest, where zhang processed the
+    /// postings by the time written
+    DaylightSavingGap,
     /// no expected difference explains it
     Unexplained,
 }
@@ -255,6 +263,7 @@ impl Reason {
             Reason::TransactionId => "bug: `trx_id` was the posting id; an assertion row has the id of its check, as in /api/journals",
             Reason::Subtree => "decision 6: a parent account's page is its subtree",
             Reason::EmptyNarration => "accepted: a transaction without a narration has \"\" (was null)",
+            Reason::DaylightSavingGap => "bug: legacy balance on a DST-gap day",
             Reason::Unexplained => "UNEXPLAINED",
         }
     }
@@ -384,8 +393,12 @@ struct StoredPosting {
     sequence: i32,
     /// its date in the ledger's timezone
     date: String,
+    /// its stored time, in Unix seconds
+    timestamp: i64,
     number: BigDecimal,
     currency: String,
+    /// the balance of its account in its currency after it, as zhang stored it
+    after: BigDecimal,
 }
 
 /// A balance assertion as zhang checked it.
@@ -414,6 +427,20 @@ struct Stored {
     assertions: Vec<StoredAssertion>,
     /// the `document` directives: account and path
     documents: Vec<(String, String)>,
+    /// the days of postings on which daylight saving skips a time in the ledger's timezone
+    gap_days: BTreeSet<String>,
+    /// the id of every transaction and assertion → its place in the order zhang processed the ledger
+    sequence_of: HashMap<String, i32>,
+}
+
+/// The balances of an account the hand-written endpoints took ([`Stored::legacy_balances`]).
+struct LegacyBalances {
+    /// its balance per currency, with the operating currency, as the canonical detail of the list
+    units: Value,
+    /// its balance at the end of each day, as the canonical history
+    history: Value,
+    /// whether a currency's balance is not the last one zhang processed off a day daylight saving skips a time on
+    off_gap: bool,
 }
 
 impl Stored {
@@ -428,8 +455,10 @@ impl Stored {
                 transaction: posting.trx_id.to_string(),
                 sequence: posting.trx_sequence,
                 date: posting.trx_datetime.naive_local().date().to_string(),
+                timestamp: posting.trx_datetime.timestamp(),
                 number: posting.inferred_amount.number.clone(),
                 currency: posting.inferred_amount.commodity.clone(),
+                after: posting.after_amount.number.clone(),
             })
             .collect::<Vec<_>>();
         // stable: the postings of a transaction keep their order
@@ -447,6 +476,21 @@ impl Stored {
             })
             .collect::<Vec<_>>();
         assertions.sort_by_key(|assertion| assertion.sequence);
+        let timezone = guard.options.timezone;
+        let gap_days = postings
+            .iter()
+            .map(|posting| posting.date.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|date| {
+                let date = date.parse::<chrono::NaiveDate>().unwrap();
+                // a local time of the day that does not exist
+                (0..24 * 4).any(|quarter| {
+                    let time = chrono::NaiveTime::from_hms_opt(quarter / 4, quarter % 4 * 15, 0).unwrap();
+                    matches!(timezone.from_local_datetime(&date.and_time(time)), chrono::LocalResult::None)
+                })
+            })
+            .collect();
         Stored {
             operating_currency: guard.options.operating_currency.clone(),
             opened: store.accounts.keys().cloned().collect(),
@@ -479,6 +523,66 @@ impl Stored {
                     DocumentType::Trx(_) => None,
                 })
                 .collect(),
+            gap_days,
+            sequence_of: store
+                .transactions
+                .values()
+                .map(|it| (it.id.to_string(), it.sequence))
+                .chain(store.balance_assertions.iter().map(|it| (it.id.to_string(), it.sequence)))
+                .collect(),
+        }
+    }
+
+    /// What the hand-written endpoints took for the balance of `account` per currency, and per day: the
+    /// stored balance after the last of its own postings in the order of their stored times. With the
+    /// currencies where that is not the balance after the last posting zhang processed, which must be
+    /// postings of a day daylight saving skips a time on.
+    fn legacy_balances(&self, account: &str) -> LegacyBalances {
+        let mut own = self.postings.iter().filter(|it| it.account == account).collect::<Vec<_>>();
+        let last_processed = own
+            .iter()
+            .map(|posting| (posting.currency.as_str(), posting.after.clone()))
+            .collect::<BTreeMap<_, _>>();
+        // stable: postings stored at the same time keep the order zhang processed them in
+        own.sort_by_key(|posting| posting.timestamp);
+        let mut latest: BTreeMap<&str, &StoredPosting> = BTreeMap::new();
+        let mut days: BTreeMap<&str, BTreeMap<&str, &StoredPosting>> = BTreeMap::new();
+        for posting in &own {
+            latest.insert(posting.currency.as_str(), posting);
+            days.entry(posting.currency.as_str()).or_default().insert(posting.date.as_str(), posting);
+        }
+        let mut units = latest
+            .iter()
+            .map(|(currency, posting)| (currency.to_string(), json!(decimal_string(&posting.after))))
+            .collect::<Map<_, _>>();
+        units.entry(self.operating_currency.clone()).or_insert_with(|| json!("0"));
+        let processed_days = self
+            .postings
+            .iter()
+            .filter(|it| it.account == account)
+            .map(|posting| ((posting.currency.as_str(), posting.date.as_str()), &posting.after))
+            .collect::<BTreeMap<_, _>>();
+        let off_gap = latest
+            .iter()
+            .any(|(currency, posting)| last_processed[currency] != posting.after && !self.gap_days.contains(&posting.date))
+            || days.iter().any(|(currency, days)| {
+                days.iter()
+                    .any(|(date, posting)| processed_days[&(*currency, *date)] != &posting.after && !self.gap_days.contains(*date))
+            });
+        let history = days
+            .into_iter()
+            .map(|(currency, days)| {
+                let days = days
+                    .into_iter()
+                    .map(|(date, posting)| json!({"date": date, "balance": {"number": decimal_string(&posting.after), "commodity": currency}}))
+                    .collect::<Vec<_>>();
+                (currency.to_owned(), Value::Array(days))
+            })
+            .collect::<Map<_, _>>();
+        LegacyBalances {
+            units: Value::Object(units),
+            history: json!({ "balance": history }),
+            off_gap,
         }
     }
 
@@ -638,13 +742,14 @@ fn holds_other_currencies(account: &Value, operating_currency: &str) -> bool {
 }
 
 /// Why an account of the list or the page differs, `before` and `after` canonical.
-fn account_reason(before: &Value, after: &Value, operating_currency: &str) -> Reason {
+fn account_reason(before: &Value, after: &Value, operating_currency: &str, legacy: &LegacyBalances) -> Reason {
     let fields = differing_fields(before, after);
-    let valuation_only = fields.iter().all(|field| field == "amount")
-        && before["amount"]["detail"] == after["amount"]["detail"]
-        && holds_other_currencies(after, operating_currency);
-    if valuation_only {
+    let amount_only = fields.iter().all(|field| field == "amount");
+    let (before_units, after_units) = (&before["amount"]["detail"], &after["amount"]["detail"]);
+    if amount_only && before_units == after_units && holds_other_currencies(after, operating_currency) {
         Reason::Valuation
+    } else if amount_only && before_units != after_units && *before_units == legacy.units && !legacy.off_gap {
+        Reason::DaylightSavingGap
     } else {
         Reason::Unexplained
     }
@@ -695,6 +800,22 @@ fn journal_reasons(account: &str, before: &[Value], after: &[Value], stored: &St
         .filter(|row| row["account"] == account || !row["asserted"].is_null())
         .cloned()
         .collect::<Vec<_>>();
+    // the stored time and the place in the order zhang processed the ledger of each block, by the id of its
+    // transaction or of its assertion's check, and its stored day
+    let keys = blocks(&after)
+        .iter()
+        .map(|block| {
+            let row = &block[0];
+            let Some(sequence) = stored.sequence_of.get(row["trx_id"].as_str().unwrap_or_default()) else {
+                return None;
+            };
+            let day = row["datetime"].as_str().unwrap_or_default().chars().take(10).collect::<String>();
+            Some((row["timestamp"].as_i64().unwrap_or_default(), *sequence, day))
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(keys) = keys else {
+        return vec![Reason::Unexplained];
+    };
     for row in &mut after {
         if !row["asserted"].is_null() {
             if row["trx_id"].is_string() {
@@ -721,10 +842,37 @@ fn journal_reasons(account: &str, before: &[Value], after: &[Value], stored: &St
     if before.len() != after.len() {
         return vec![Reason::Unexplained];
     }
-    for (before, after) in before.iter().zip(&after) {
+    // the hand-written journal had the blocks by their stored time, then by their place, newest first: on a day
+    // daylight saving skips a time, a posting written in the gap is stored past it, after one zhang processed later,
+    // and its stored balance, which counted the postings stored before it, left out the later one
+    let mut legacy_order = (0..after.len()).collect::<Vec<_>>();
+    legacy_order.sort_by_key(|block| std::cmp::Reverse((keys[*block].0, keys[*block].1)));
+    let mut gap_days = BTreeSet::new();
+    for (place, block) in legacy_order.iter().enumerate() {
+        if place != *block {
+            if !stored.gap_days.contains(&keys[*block].2) {
+                return vec![Reason::Unexplained];
+            }
+            gap_days.insert(keys[*block].2.clone());
+            reasons.insert(Reason::DaylightSavingGap);
+        }
+    }
+    let without_balance = |rows: &[Value]| {
+        rows.iter()
+            .map(|row| {
+                let mut row = row.clone();
+                row.as_object_mut().unwrap().remove("account_after");
+                row
+            })
+            .collect::<Vec<_>>()
+    };
+    for (before, block) in before.iter().zip(&legacy_order) {
+        let after = &after[*block];
         let newest_first = before.iter().rev().cloned().collect::<Vec<_>>();
         if &newest_first != after {
-            return vec![Reason::Unexplained];
+            if !gap_days.contains(&keys[*block].2) || without_balance(&newest_first) != without_balance(after) {
+                return vec![Reason::Unexplained];
+            }
         }
         if before != after {
             reasons.insert(Reason::DeterministicOrder);
@@ -828,7 +976,7 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
                     ledger_name,
                     "GET /api/accounts",
                     name,
-                    account_reason(before, after, &operating_currency),
+                    account_reason(before, after, &operating_currency, &stored.legacy_balances(name)),
                     before,
                     after,
                 );
@@ -884,7 +1032,7 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
                     ledger_name,
                     "GET /api/accounts/{a}",
                     &account,
-                    account_reason(&before, &after, &operating_currency),
+                    account_reason(&before, &after, &operating_currency, &stored.legacy_balances(&account)),
                     &before,
                     &after,
                 );
@@ -945,10 +1093,13 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
         report.expect(ledger_name, "history", &account, &canonical(&stored.history(&account)), &after);
         if before != after {
             let subtree = after_journal.iter().any(|row| row["account"] != account.as_str());
+            let legacy = stored.legacy_balances(&account);
             let reason = if by_date(&before) == after {
                 Reason::DeterministicOrder
             } else if subtree {
                 Reason::Subtree
+            } else if by_date(&before) == canonical(&legacy.history) && !legacy.off_gap {
+                Reason::DaylightSavingGap
             } else {
                 Reason::Unexplained
             };
@@ -1495,6 +1646,46 @@ async fn the_journal_of_a_parent_follows_the_order_zhang_processed_the_ledger_in
         ]
     );
     assert_eq!(journal[2]["datetime"], json!("2024-03-10T03:30:00"));
+}
+
+/// In London, which skips 01:00 to 02:00 on 2024-03-31, the transactions written at 01:10 and 01:40 are stored at
+/// 02:10 and 02:40, after the one of 02:15, but zhang processes them by the time written: the balance of 7 checks
+/// the two of the gap, and the cash ends at 4. The hand-written endpoints took the transaction stored last for the
+/// latest, so their balance of the account and of the day was 7.
+#[tokio::test]
+async fn a_day_daylight_saving_skips_a_time_on_ends_with_the_posting_written_last() {
+    let ledger = fixture("postings_in_a_daylight_saving_gap.zhang").await;
+    let (_, journal) = whole_journal(&ledger, "Assets:Cash").await;
+    assert_eq!(
+        lines(&journal),
+        [
+            "Assets:Cash | Shop | -3 CNY | 4 CNY",
+            "Assets:Cash | Balance Check | 0 CNY | 7 CNY | = 7 CNY, 7 CNY, true",
+            "Assets:Cash | Shop | -2 CNY | 7 CNY",
+            "Assets:Cash | Shop | -1 CNY | 9 CNY",
+            "Assets:Cash | Self | 10 CNY | 10 CNY",
+        ]
+    );
+    let path = || UrlPath(("Assets:Cash".to_owned(),));
+    let (_, page) = respond(get_account_info(State(ledger.clone()), path()).await).await;
+    assert_eq!(page["amount"]["detail"], json!({"CNY": "4"}));
+    let (_, history) = respond(get_account_balance_data(State(ledger.clone()), path()).await).await;
+    assert_eq!(
+        history["balance"]["CNY"][1],
+        json!({"date": "2024-03-31", "balance": {"number": "4", "commodity": "CNY"}})
+    );
+    // the hand-written page and history
+    let (_, page) = respond(legacy_get_account_info(State(ledger.clone()), path()).await).await;
+    assert_eq!(number(&page["amount"]["detail"]["CNY"]), decimal("7"));
+    let (_, history) = respond(legacy_get_account_balance_data(State(ledger.clone()), path()).await).await;
+    let gap_day = history["balance"]["CNY"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|it| it["date"] == "2024-03-31")
+        .unwrap()
+        .clone();
+    assert_eq!(number(&gap_day["balance"]["number"]), decimal("7"));
 }
 
 /// A transaction written without a narration has `""`, where the hand-written journal had null; one written
