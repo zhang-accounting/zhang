@@ -1,9 +1,9 @@
-import { Buffer } from 'buffer';
+import { base64Path } from '@/api/requests';
 import { Document } from '@/api/types';
 
 /** URL serving the raw document (images are previewed, everything else opens in a new tab). */
 export function documentUrl(path: string) {
-  return `/api/documents/${Buffer.from(path).toString('base64')}`;
+  return `/api/documents/${base64Path(path)}`;
 }
 
 export function documentExtension(document: Pick<Document, 'extension' | 'filename'>) {

@@ -1,12 +1,11 @@
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
-import { Buffer } from 'buffer';
 import { Check, RotateCcw, Save, TriangleAlert } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { toast } from 'sonner';
-import { retrieveFile, updateFile } from '@/api/requests';
+import { base64Path, retrieveFile, updateFile } from '@/api/requests';
 import { EmptyState } from '@/components/layout';
 import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -34,7 +33,7 @@ const EDITOR_THEME = EditorView.theme({
 export default function SingleFileEdit({ path, onDirtyChange, className }: Props) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
-  const encodedPath = useMemo(() => Buffer.from(path).toString('base64'), [path]);
+  const encodedPath = useMemo(() => base64Path(path), [path]);
   const [content, setContent] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
