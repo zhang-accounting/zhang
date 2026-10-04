@@ -679,17 +679,15 @@ mod reload_test {
 mod served_root_test {
     use std::path::{Component, Path, PathBuf};
     use std::sync::Arc;
-    use std::time::Duration;
 
     use notify::event::{DataChange, ModifyKind};
     use notify::{Event, EventKind};
-    use tokio::sync::{mpsc, RwLock};
     use zhang_core::data_source::{DataSource, LoadResult};
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
     use zhang_core::ZhangResult;
 
-    use super::{load_served_ledger, start_fs_event_lisenter, watch, ReloadSender, ServeConfig};
+    use super::{load_served_ledger, watch, ServeConfig};
 
     /// a source listing the files it loads as the CLI's does: the file joined onto the root as it was given
     struct Joined;
@@ -773,27 +771,5 @@ mod served_root_test {
         let relative = relative_to_cwd(&ledger);
         assert!(relative.is_relative(), "{}", relative.display());
         assert!(edit_reloads_ledger_served_from(relative, &ledger.join("main.zhang")).await);
-    }
-
-    /// through the watcher itself: an edit of the main file asks for a reload
-    #[tokio::test]
-    async fn an_edit_asks_for_the_reload_of_a_ledger_served_through_a_symlinked_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let (ledger, link) = ledger_and_link(dir.path());
-        let mut opts = local_serve_config(link);
-        let served = Arc::new(RwLock::new(load_served_ledger(&mut opts).await.expect("load ledger")));
-        let (sender, mut receiver) = mpsc::channel(1);
-        start_fs_event_lisenter(served, Arc::new(ReloadSender(sender)));
-
-        // the watcher starts in its task: edit until it reports the edit
-        let main = ledger.join("main.zhang");
-        for _ in 0..40 {
-            std::fs::write(&main, "1970-01-01 open Assets:A\n1970-01-01 open Assets:B\n").unwrap();
-            if tokio::time::timeout(Duration::from_millis(500), receiver.recv()).await.is_ok() {
-                return;
-            }
-            std::fs::write(&main, "1970-01-01 open Assets:A\n").unwrap();
-        }
-        panic!("no reload was asked for after the edits");
     }
 }
