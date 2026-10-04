@@ -3,7 +3,7 @@ import { useAtomValue } from 'jotai';
 import { Search, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router';
 import { AccountListItem } from '@/api/types';
 import Amount from '@/components/Amount';
 import { sumByCommodity } from '@/components/budget/budget-utils';

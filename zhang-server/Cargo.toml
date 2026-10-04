@@ -58,4 +58,4 @@ async-trait = { workspace = true }
 beancount = { version = "0.1", path = "../extensions/beancount" }
 webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }
 tower = { version = "0.4", features = ["util"] }
-tempfile = "3.3.0"
+tempfile = "3.20"

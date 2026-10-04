@@ -596,7 +596,7 @@ mod test {
     }
 
     fn load_from_temp_str(content: &str) -> Ledger {
-        let temp_dir = tempdir().unwrap().into_path();
+        let temp_dir = tempdir().unwrap().keep();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
@@ -614,7 +614,7 @@ mod test {
         directives.push(copy);
         let ledger = Ledger::process(super::LedgerProcessContext {
             directives,
-            entry: (tempdir().unwrap().into_path(), "main.zhang".to_owned()),
+            entry: (tempdir().unwrap().keep(), "main.zhang".to_owned()),
             visited_files: vec![],
             data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
             clock: crate::clock::Clock::System,
@@ -1843,7 +1843,7 @@ mod test {
 
         #[test]
         fn should_store_queries_from_included_files() {
-            let temp_dir = tempdir().unwrap().into_path();
+            let temp_dir = tempdir().unwrap().keep();
             std::fs::write(
                 temp_dir.join("main.zhang"),
                 indoc! {r#"
@@ -1899,7 +1899,7 @@ mod test {
             /// `plugins/echo.wat`; `{module}` in `content` is the module's absolute path
             fn load_with_plugin(content: &str) -> (PathBuf, Ledger) {
                 // canonical, like the root `load_with_data_source` resolves
-                let root = tempdir().unwrap().into_path().canonicalize().unwrap();
+                let root = tempdir().unwrap().keep().canonicalize().unwrap();
                 std::fs::create_dir(root.join("plugins")).unwrap();
                 let module = root.join("plugins/echo.wat");
                 std::fs::write(&module, ECHO).unwrap();
@@ -1990,7 +1990,7 @@ mod test {
 
         #[test]
         fn should_reload_with_the_same_clock() {
-            let root = tempdir().unwrap().into_path().canonicalize().unwrap();
+            let root = tempdir().unwrap().keep().canonicalize().unwrap();
             std::fs::write(root.join("main.zhang"), LEDGER).unwrap();
             let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
             let loaded = source.load(root.to_string_lossy().to_string(), "main.zhang".to_owned()).unwrap();

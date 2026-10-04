@@ -3,7 +3,7 @@ import { ArrowLeft, ListX, TriangleAlert } from 'lucide-react';
 import { OpReturnType } from 'openapi-typescript-fetch';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { useAsync, useAsyncRetry } from 'react-use';
 import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests';
 import { operations } from '@/api/schemas';

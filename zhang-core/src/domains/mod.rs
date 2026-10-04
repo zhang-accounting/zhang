@@ -534,32 +534,15 @@ impl Operations {
 
     /// add amount to target month's budget. The budget must exist (check with [Self::contains_budget])
     pub fn budget_add_assigned_amount(&mut self, name: impl Into<String>, date: DateTime<Tz>, event_type: BudgetEventType, amount: Amount) -> ZhangResult<()> {
-        let name = name.into();
-        let interval = (date.year() as u32) * 100 + date.month();
-
-        let previous_budget_detail = self.budget_month_detail(&name, interval)?;
-
-        let mut store = self.write();
-        let target_budget = store.budgets.get_mut(&name).expect("budget does not exist");
-
-        let detail = target_budget
-            .detail
-            .entry(interval)
-            .or_insert(previous_budget_detail.unwrap_or(BudgetIntervalDetail {
-                date: interval,
-                events: vec![],
-                assigned_amount: Amount::zero(&target_budget.commodity),
-                activity_amount: Amount::zero(&target_budget.commodity),
-            }));
-
-        detail.assigned_amount = detail.assigned_amount.add(amount.number.clone());
-        detail.events.push(BudgetEvent {
-            datetime: date,
-            timestamp: date.timestamp(),
-            amount,
-            event_type,
-        });
-        Ok(())
+        self.update_budget_month(name.into(), date, |detail| {
+            detail.assigned_amount = detail.assigned_amount.add(amount.number.clone());
+            detail.events.push(BudgetEvent {
+                datetime: date,
+                timestamp: date.timestamp(),
+                amount,
+                event_type,
+            });
+        })
     }
 
     /// transfer amount between budgets
@@ -581,7 +564,14 @@ impl Operations {
 
     /// add activity to target month's budget. The budget must exist (check with [Self::contains_budget])
     pub fn budget_add_activity(&mut self, name: impl Into<String>, date: DateTime<Tz>, amount: Amount) -> ZhangResult<()> {
-        let name = name.into();
+        self.update_budget_month(name.into(), date, |detail| {
+            detail.activity_amount = detail.activity_amount.add(amount.number);
+        })
+    }
+
+    /// apply `update` to the detail of budget `name` in the month of `date`, which is created on first use from the
+    /// latest earlier month (see [Self::budget_month_detail]), or empty. The budget must exist
+    fn update_budget_month(&mut self, name: String, date: DateTime<Tz>, update: impl FnOnce(&mut BudgetIntervalDetail)) -> ZhangResult<()> {
         let interval = (date.year() as u32) * 100 + date.month();
 
         let previous_budget_detail = self.budget_month_detail(&name, interval)?;
@@ -599,7 +589,7 @@ impl Operations {
                 activity_amount: Amount::zero(&target_budget.commodity),
             }));
 
-        detail.activity_amount = detail.activity_amount.add(amount.number);
+        update(detail);
         Ok(())
     }
 

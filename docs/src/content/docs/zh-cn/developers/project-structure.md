@@ -38,7 +38,7 @@ sidebar:
 
 ## 在本地构建和运行
 
-你需要稳定版 Rust 工具链、Node.js 和 [pnpm](https://pnpm.io/) 9，运行 Python 绑定的测试还需要 Python 3。插件 SDK 的测试还需要 `wasm32-unknown-unknown` target（`rustup target add wasm32-unknown-unknown`）；没有它时，这些测试在本地会被跳过。
+你需要稳定版 Rust 工具链、Node.js 22.22 或更高版本和 [pnpm](https://pnpm.io/) 9，运行 Python 绑定的测试还需要 Python 3。插件 SDK 的测试还需要 `wasm32-unknown-unknown` target（`rustup target add wasm32-unknown-unknown`）；没有它时，这些测试在本地会被跳过。
 
 `zhang-server` 的 `frontend` feature 会嵌入 `frontend/dist`，启用这个 feature 时该文件夹必须存在。如果你还没有构建网页界面，可以像 CI 一样创建一个空文件夹：
 
