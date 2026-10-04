@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { RotateCw, ServerCrash } from 'lucide-react';
 import { ReactNode, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router';
 import { onUnauthorized } from '@/api/fetcher';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';

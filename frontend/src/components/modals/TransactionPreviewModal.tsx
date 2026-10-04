@@ -2,7 +2,7 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Pencil } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { JournalItem } from '@/api/types';
 import { editTransactionAtom, journalAtom, previewJournalAtom, refetchJournal } from '../../states/journals';
 import { transactionEditBlocker } from '../journalLines/journal-utils';

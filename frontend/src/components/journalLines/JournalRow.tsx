@@ -3,7 +3,7 @@ import { useSetAtom } from 'jotai';
 import { ArrowLeft, ArrowRight, FileCode, Pencil, ZoomIn } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { JournalBalanceCheckItem, JournalBalancePadItem, JournalItem, JournalTransactionItem } from '@/api/types';
 import Amount from '@/components/Amount';
 import { useDateFormat } from '@/components/layout/use-date-format';

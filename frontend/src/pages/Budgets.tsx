@@ -3,7 +3,7 @@ import { groupBy, sortBy } from 'lodash-es';
 import { PiggyBank, RotateCw } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useAsyncRetry } from 'react-use';
 import { retrieveBudgets } from '@/api/requests';
 import Amount from '@/components/Amount';
