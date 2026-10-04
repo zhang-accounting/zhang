@@ -1,34 +1,37 @@
 [
   {
-    "uri": "/api/store",
+    "uri": "/api/errors",
     "validations": [
       [
-        "$.data.errors.length()",
+        "$.data.records.length()",
         0
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/commodities/USD",
+    "validations": [
       [
-        "$.data.commodity_lots.['Assets:AppStore:US'].[0].amount",
+        "$.data.lots[?(@.account=='Assets:AppStore:US')].amount",
         "-1.33"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/commodities/CNY",
+    "validations": [
       [
-        "$.data.commodity_lots.['Assets:AppStore:US'].[0].commodity",
-        "USD"
-      ],
-      [
-        "$.data.commodity_lots.['Equity:Opening-Balances'].[0].amount",
-        "82.03"
-      ],
-      [
-        "$.data.commodity_lots.['Equity:Opening-Balances'].[0].commodity",
-        "CNY"
-      ],
-      [
-        "$.data.commodity_lots.['Liabilities:CreditCard'].[0].amount",
+        "$.data.lots[?(@.account=='Liabilities:CreditCard')].amount",
         "-72.51"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Equity:Opening-Balances",
+    "validations": [
       [
-        "$.data.commodity_lots.['Liabilities:CreditCard'].[0].commodity",
-        "CNY"
+        "$.data.amount.detail.CNY",
+        "82.03"
       ]
     ]
   }

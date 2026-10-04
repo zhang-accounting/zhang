@@ -1,8 +1,8 @@
 [
     {
-        "uri":"/api/store",
+        "uri":"/api/options",
         "validations": [
-            ["$.data.options.title", "My Accounting"]
+            ["$.data[?(@.key=='title')].value", "My Accounting"]
         ]
     }
 ]

@@ -30,16 +30,23 @@
     ]
   },
   {
-    "uri": "/api/store",
+    "uri": "/api/errors",
     "validations": [
-      ["$.data.errors.length()", 0],
-      ["$.data.commodity_lots.['Assets:A'].length()", 2],
-      ["$.data.commodity_lots.['Assets:A'].[0].amount", "5"],
-      ["$.data.commodity_lots.['Assets:A'].[0].cost.number", "11"],
-      ["$.data.commodity_lots.['Assets:A'].[0].acquisition_date", "2024-05-15"],
-      ["$.data.commodity_lots.['Assets:A'].[1].amount", "10"],
-      ["$.data.commodity_lots.['Assets:A'].[1].cost.number", "10.5"],
-      ["$.data.commodity_lots.['Assets:A'].[1].acquisition_date", "2024-05-18"]
+      ["$.data.records.length()", 0]
+    ]
+  },
+  {
+    "uri": "/api/commodities/USD",
+    "validations": [
+      ["$.data.lots.length()", 2],
+      ["$.data.lots[0].account", "Assets:A"],
+      ["$.data.lots[0].amount", "5"],
+      ["$.data.lots[0].cost.number", "11"],
+      ["$.data.lots[0].acquisition_date", "2024-05-15"],
+      ["$.data.lots[1].account", "Assets:A"],
+      ["$.data.lots[1].amount", "10"],
+      ["$.data.lots[1].cost.number", "10.5"],
+      ["$.data.lots[1].acquisition_date", "2024-05-18"]
     ]
   }
 ]

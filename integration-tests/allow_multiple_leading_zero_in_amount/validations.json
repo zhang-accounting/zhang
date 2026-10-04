@@ -1,9 +1,9 @@
 [
   {
-    "uri": "/api/store",
+    "uri": "/api/errors",
     "validations": [
       [
-        "$.data.errors.length()",
+        "$.data.records.length()",
         0
       ]
     ]
