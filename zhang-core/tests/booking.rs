@@ -268,26 +268,23 @@ fn strict_insufficient_single_match_reports_no_enough_lot() {
 #[test]
 fn strict_reduction_beyond_several_matches_is_ambiguous_and_insufficient() {
     // like beancount, more than the total of several matching lots is ambiguous; booking it like
-    // FIFO then runs out of lots. The 5 USD no lot covers have no cost: they weigh 5 USD, which
-    // nothing balances
+    // FIFO then runs out of lots. The unresolved remainder rejects the entire transaction.
     let ledger = load_two_lots("STRICT", "  Assets:S -25 USD {}\n  Income:I 210 CNY");
     assert_eq!(
         errors(&ledger),
         vec![
             (ErrorKind::AmbiguousLotMatch, Some("-25".to_owned())),
             (ErrorKind::NoEnoughCommodityLot, Some("-25".to_owned())),
-            (ErrorKind::UnbalancedTransaction, None),
+            (ErrorKind::TransactionCannotInferTradeAmount, None),
         ]
     );
-    assert_eq!(lots(&ledger, "Assets:S"), vec!["-5 USD"]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["10 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"]);
 }
 
 #[test]
 fn insufficient_empty_cost_sale_with_implicit_posting_is_rejected_after_its_booking_errors() {
-    // the 5 USD no lot covers have no cost and weigh 5 USD, so the implicit posting would need two
-    // commodities (210 CNY and 5 USD). Like any transaction whose implicit posting cannot be
-    // interpolated, it is rejected and the lots stay as they were; the booking problems that
-    // explain it come first (beancount reports the reduction's error and drops the postings)
+    // The 5 USD no lot covers have no cost. Reject the transaction and retain the lots;
+    // report the booking problems before the failed inference.
     for (method, booking_errors) in [
         ("FIFO", vec![(ErrorKind::NoEnoughCommodityLot, Some("-25".to_owned()))]),
         (
@@ -300,7 +297,7 @@ fn insufficient_empty_cost_sale_with_implicit_posting_is_rejected_after_its_book
     ] {
         let ledger = load_two_lots(method, "  Assets:S -25 USD {}\n  Income:I");
         let mut expected = booking_errors;
-        expected.push((ErrorKind::TransactionExplicitPostingHaveMultipleCommodity, None));
+        expected.push((ErrorKind::TransactionCannotInferTradeAmount, None));
         assert_eq!(errors(&ledger), expected, "{method}");
         assert_eq!(
             lots(&ledger, "Assets:S"),
@@ -314,10 +311,13 @@ fn insufficient_empty_cost_sale_with_implicit_posting_is_rejected_after_its_book
 
 #[test]
 fn strict_augmentation_is_never_ambiguous() {
-    // an augmentation books like FIFO; `{}` still merges into the first cost lot (E6)
+    // An augmentation infers its cost and opens a lot on its own date (E6).
     let ledger = load_two_lots("STRICT", "  Assets:S 3 USD {}\n  Income:I -30 CNY");
     assert_eq!(errors(&ledger), vec![]);
-    assert_eq!(lots(&ledger, "Assets:S"), vec!["13 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"]);
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec!["10 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}", "3 USD {10 CNY, 2024-05-18}"]
+    );
 }
 
 #[test]
@@ -493,8 +493,8 @@ fn lifo_takes_the_newest_lot_whether_labelled_or_not() {
 }
 
 #[test]
-fn a_labelled_lot_without_cost_is_not_the_default_lot() {
-    // `{, "a"}` without a cost opens a labelled lot; units booked without a cost spec go to the
+fn a_labelled_lot_with_an_inferred_cost_is_not_the_default_lot() {
+    // `{, "a"}` infers its cost and opens a labelled lot; units without a cost spec go to the
     // default lot, which carries no label
     let ledger = load(indoc! {r#"
         2024-05-16 * "buy"
@@ -505,7 +505,7 @@ fn a_labelled_lot_without_cost_is_not_the_default_lot() {
           Income:I -5 USD
     "#});
     assert_eq!(errors(&ledger), vec![]);
-    assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {\"a\"}", "5 USD"]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {1 USD, 2024-05-16, \"a\"}", "5 USD"]);
 }
 
 #[test]
@@ -1028,24 +1028,27 @@ fn e5_strict_undated_cost_matching_lots_of_several_dates_is_ambiguous() {
 }
 
 #[test]
-fn current_behavior_e6_empty_cost_augmentation_merges_into_the_first_cost_lot() {
-    // current behavior (booking-split design E6, #423); expected to change in a follow-up fix PR.
-    // Changed by the booked-weights fix; beancount interpolates the cost instead: the 3 USD merge
-    // into the 10 CNY lot and weigh 30 CNY at its cost
-    for (other, expected_errors, expected_inferred) in [
-        ("Income:I -30 CNY", vec![], "-30 CNY"),
-        ("Income:I -3 USD", vec![(ErrorKind::UnbalancedTransaction, None)], "-3 USD"),
-        ("Income:I", vec![], "-30 CNY"),
-    ] {
+fn e6_empty_cost_augmentation_infers_a_new_lot_or_rejects_ambiguous_input() {
+    for (other, cost) in [("Income:I -30 CNY", Some("10 CNY")), ("Income:I -3 USD", Some("1 USD")), ("Income:I", None)] {
         let ledger = load(&formatdoc! {r#"
             {BUY_10_AT_10}
             2024-05-17 * "buy with an empty cost"
               Assets:A 3 USD {{}}
               {other}
         "#});
-        assert_eq!(errors(&ledger), expected_errors, "{other}");
-        assert_eq!(inferred(&ledger, 2), vec!["3 USD", expected_inferred], "{other}");
-        assert_eq!(lots(&ledger, "Assets:A"), vec!["13 USD {10 CNY, 2024-05-16}"], "{other}");
+        if let Some(cost) = cost {
+            assert_eq!(errors(&ledger), vec![], "{other}");
+            assert_eq!(
+                lots(&ledger, "Assets:A"),
+                vec!["10 USD {10 CNY, 2024-05-16}".to_owned(), format!("3 USD {{{cost}, 2024-05-17}}")],
+                "{other}"
+            );
+            assert_eq!(inferred(&ledger, 2), vec!["3 USD", other.strip_prefix("Income:I ").unwrap()], "{other}");
+        } else {
+            assert_eq!(errors(&ledger), vec![(ErrorKind::TransactionCannotInferTradeAmount, None)]);
+            assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {10 CNY, 2024-05-16}"]);
+            assert!(inferred(&ledger, 2).is_empty());
+        }
     }
 }
 
@@ -1059,8 +1062,7 @@ fn e8_a_failing_balance_check_leaves_the_lots_alone() {
 }
 
 #[test]
-fn current_behavior_e9_empty_cost_reduction_without_cost_lots_adds_a_second_default_lot() {
-    // current behavior (booking-split design E9, #423); expected to change in a follow-up fix PR
+fn e9_empty_cost_reduction_without_cost_lots_leaves_the_holdings_unchanged() {
     let ledger = load(indoc! {r#"
         2024-05-16 * "plain units"
           Assets:A 5 USD
@@ -1072,8 +1074,102 @@ fn current_behavior_e9_empty_cost_reduction_without_cost_lots_adds_a_second_defa
           Assets:A 1 USD
           Income:I -1 USD
     "#});
-    assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-3".to_owned()))]);
-    assert_eq!(lots(&ledger, "Assets:A"), vec!["6 USD", "-3 USD"]);
+    assert_eq!(
+        errors(&ledger),
+        vec![
+            (ErrorKind::NoEnoughCommodityLot, Some("-3".to_owned())),
+            (ErrorKind::TransactionCannotInferTradeAmount, None)
+        ]
+    );
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["6 USD"]);
+}
+
+#[test]
+fn an_unmatched_empty_cost_rolls_back_every_posting_and_is_ignored_by_balance_stages() {
+    let ledger = load(&formatdoc! {r#"
+        {BUY_10_AT_10}
+        2024-05-17 * "cash first, then an insufficient sale"
+          Income:I 150 CNY
+          Assets:A -15 USD {{}}
+        2024-05-18 balance Assets:A 10 USD
+        2024-05-19 * "a valid transaction after the rejected sale"
+          Assets:A 1 USD {{10 CNY}}
+          Income:I -10 CNY
+        2024-05-20 balance Assets:A 11 USD
+    "#});
+    assert_eq!(
+        errors(&ledger),
+        vec![
+            (ErrorKind::NoEnoughCommodityLot, Some("-15".to_owned())),
+            (ErrorKind::TransactionCannotInferTradeAmount, None)
+        ]
+    );
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["10 USD {10 CNY, 2024-05-16}", "1 USD {10 CNY, 2024-05-19}"]);
+    assert_eq!(lots(&ledger, "Income:I"), vec!["-110 CNY"]);
+}
+
+#[test]
+fn an_empty_cost_reduction_can_use_a_lot_bought_earlier_in_the_same_transaction() {
+    let ledger = load(indoc! {r#"
+        2024-05-16 * "buy and reduce"
+          Assets:A 2 USD {10 CNY}
+          Assets:A -1 USD {}
+          Income:I -10 CNY
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["1 USD {10 CNY, 2024-05-16}"]);
+}
+
+#[test]
+fn a_sale_then_an_empty_cost_augmentation_infers_the_new_lot_in_written_order() {
+    let ledger = load(&formatdoc! {r#"
+        {BUY_10_AT_10}
+        2024-05-17 * "sell all then buy"
+          Assets:A -10 USD {{}}
+          Assets:A 3 USD {{}}
+          Income:I 70 CNY
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["3 USD {10 CNY, 2024-05-17}"]);
+    assert_eq!(lots(&ledger, "Income:I"), vec!["-30 CNY"]);
+}
+
+#[test]
+fn a_missing_cost_uses_the_counterposting_not_the_written_price() {
+    let ledger = load(indoc! {r#"
+        2024-05-16 * "infer a labelled total cost"
+          Assets:A 3 USD {{, "a"}} @ 100 CNY
+          Income:I -30 CNY
+        2024-05-17 * "sell that lot"
+          Assets:A -1 USD {, "a"}
+          Income:I
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["2 USD {10 CNY, 2024-05-16, \"a\"}"]);
+    assert_eq!(inferred(&ledger, 2), vec!["-1 USD", "10 CNY"]);
+}
+
+#[test]
+fn missing_costs_that_are_not_uniquely_determined_leave_no_lots_or_store_rows() {
+    for (body, kind) in [
+        ("Assets:A 3 USD {}\n  Income:I", ErrorKind::TransactionCannotInferTradeAmount),
+        (
+            "Assets:A 3 USD {}\n  Assets:A 2 USD {}\n  Income:I -50 CNY",
+            ErrorKind::TransactionCannotInferTradeAmount,
+        ),
+        ("Assets:A 0 USD {}\n  Income:I 0 CNY", ErrorKind::TransactionCannotInferTradeAmount),
+        ("Assets:A 3 USD {}\n  Income:I 30 CNY", ErrorKind::TransactionCannotInferTradeAmount),
+        (
+            "Assets:A 3 USD {}\n  Income:I -20 CNY\n  Income:I -1 USD",
+            ErrorKind::TransactionExplicitPostingHaveMultipleCommodity,
+        ),
+    ] {
+        let ledger = load(&format!("2024-05-16 * \"undetermined cost\"\n  {body}\n"));
+        assert_eq!(errors(&ledger), vec![(kind, None)], "{body}");
+        assert!(lots(&ledger, "Assets:A").is_empty(), "{body}");
+        assert!(lots(&ledger, "Income:I").is_empty(), "{body}");
+        assert!(ledger.store.read().unwrap().transactions.is_empty(), "{body}");
+    }
 }
 
 /// `Assets:S` opened with `booking_method: "{method}"`, holding a lot acquired on 2024-05-10, then

@@ -930,7 +930,8 @@ mod test {
 
     /// a lot a plugin adds before a hand-written `{}` sale: the sale books against it (its `{}`
     /// leg is not booked until then), and the pad stage sees the account hold nothing at cost
-    /// afterwards, like the store
+    /// afterwards, like the store. Cash is implicit so the initial empty cost cannot infer a
+    /// new short lot before the plugin supplies the purchase.
     #[test]
     fn a_plugins_purchase_before_a_written_sale_is_booked_before_the_pad_stage() {
         let log = Rc::new(RefCell::new(vec![]));
@@ -943,7 +944,7 @@ mod test {
                 1970-01-01 open Equity:Open
                 2024-05-18 * "sell"
                   Assets:S -2 USD { }
-                  Assets:Cash 14 CNY
+                  Assets:Cash
                 2024-05-20 pad Assets:S Equity:Open
                 2024-05-21 balance Assets:S 5 USD
             "#},

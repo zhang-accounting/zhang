@@ -381,9 +381,8 @@ fn augmentation_with_cost_and_no_date_is_dated_by_its_transaction() {
 /// ledger's disagreed, the rows now follow the ledger. Two such cases, pinned.
 #[test]
 fn rows_follow_the_ledgers_booking() {
-    // E6 of the booking-split design: an augmentation written `{}` joins the first lot held at
-    // cost, so its row carries that lot's cost (the engine used to give it none, and a weight of
-    // its bare units)
+    // E6 of the booking-split design: an augmentation written `{}` infers its cost from the
+    // counterposting and opens a lot on its own date.
     let ledger = r#"
 1970-01-01 open Assets:Broker
 
@@ -397,9 +396,9 @@ fn rows_follow_the_ledgers_booking() {
 "#;
     assert_eq!(
         query(ledger, "SELECT number, cost_number, cost_date, weight WHERE narration = 'add to the lot'"),
-        vec![row(&["3", "100", "2024-01-10", "300 USD"]), row(&["-300", "NULL", "NULL", "-300 USD"])]
+        vec![row(&["3", "100", "2024-01-20", "300 USD"]), row(&["-300", "NULL", "NULL", "-300 USD"])]
     );
-    assert_eq!(holdings(ledger, "Assets:Broker"), "13 AAPL {100 USD, 2024-01-10}");
+    assert_eq!(holdings(ledger, "Assets:Broker"), "10 AAPL {100 USD, 2024-01-10}, 3 AAPL {100 USD, 2024-01-20}");
 
     // a posting written without units but with a cost spec books the default lot of the weight
     // commodity, its spec ignored, as the ledger has always booked it; the engine used to open a

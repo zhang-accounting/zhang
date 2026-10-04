@@ -132,17 +132,17 @@ impl UnitBalances {
     /// rejects it, and it is skipped here too. Returns the units of each posting as written
     /// (the legs booking split from it summed), none for a transaction skipped
     pub fn apply_transaction(&mut self, txn: &Transaction) -> Vec<Amount> {
+        // An unresolved explicit cost after booking is an unbookable transaction (E6/E9),
+        // including one whose units were all written. The store fold rejects it too.
+        if txn.postings.iter().any(weighs_by_lots) {
+            return vec![];
+        }
         let completed;
         let txn = if txn.postings.iter().all(|posting| posting.units.is_some()) {
             txn
         } else {
-            // the booking stage left it unbooked. Its weights decide: with a `{}` posting among
-            // them the stage could not book it, so the fold cannot either (an unbooked `{}`
-            // posting after the stage means the transaction is unbookable)
-            if txn.postings.iter().any(weighs_by_lots) {
-                return vec![];
-            }
-            // a copy is completed: the stream keeps the postings a stage left
+            // Complete a copy, such as the padding stage's implicit leg; the stream keeps
+            // the postings the stage left. Unresolved costs were rejected above.
             let mut copy = txn.clone();
             let BookOutcome::Booked(_) = self.booker.book(&mut copy) else {
                 return vec![];

@@ -10,7 +10,7 @@ use crate::ZhangResult;
 /// posting gets its interpolated units, a cost spec becomes the per-unit cost and acquisition date
 /// of the lot it books against, and a reduction spanning several lots becomes one posting per lot
 /// ([`Booker::book`](crate::booking::Booker::book)). A transaction booking rejects (several
-/// implicit postings, nothing to infer a commodity from, weights in several commodities) is left
+/// implicit postings, unresolved costs, nothing to infer a commodity from, weights in several commodities) is left
 /// as written.
 ///
 /// Like beancount's booking, which runs before the plugins and whose balances are dropped, this
@@ -85,12 +85,7 @@ mod test {
             vec![
                 vec!["Assets:A 10 USD {10 CNY, 2024-05-16} <- #0 10 USD {10 CNY}", "Income:I -100 CNY <- #1 ?"],
                 vec!["Assets:A 10 USD {11 CNY, 2024-05-17} <- #0 10 USD {{110 CNY}}", "Income:I -110 CNY"],
-                vec![
-                    "Assets:A -10 USD {10 CNY, 2024-05-16} <- #0 -25 USD {}",
-                    "Assets:A -10 USD {11 CNY, 2024-05-17} <- #0 -25 USD {}",
-                    "Assets:A -5 USD {} <- #0 -25 USD {}",
-                    "Income:I 260 CNY",
-                ],
+                vec!["Assets:A -25 USD {}", "Income:I 260 CNY"],
             ]
         );
         // the lots run short on the sale: the error is the store fold's to report, not this stage's
