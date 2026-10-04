@@ -7,7 +7,7 @@
 use std::ops::{Div, Mul};
 use std::str::FromStr;
 
-use bigdecimal::{BigDecimal, One, Signed, Zero};
+use bigdecimal::{BigDecimal, Signed, Zero};
 use chrono::NaiveDate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -72,12 +72,6 @@ pub struct LotMeta {
     pub price: Option<Amount>,
 }
 
-impl LotMeta {
-    pub fn is_default_lot(&self) -> bool {
-        self.cost.is_none() && self.price.is_none()
-    }
-}
-
 /// A borrowed view pairing a [`Transaction`] with one of its [`Posting`]s; hosts
 /// the trade-amount / cost / lot inference.
 #[derive(Debug, PartialEq, Eq)]
@@ -91,21 +85,6 @@ impl TxnPosting<'_> {
         self.posting.units.clone()
     }
 
-    /// if cost is not specified, and it can be indicated from price. e.g.
-    /// `Assets:Card 1 CNY @ 10 AAA` then cost `10 AAA` can be indicated from single price`@ 10 AAA`
-    pub fn costs(&self) -> Option<Amount> {
-        let units = self.posting.units.as_ref().map(|it| it.number.clone()).unwrap_or_else(BigDecimal::one);
-        self.posting
-            .cost
-            .as_ref()
-            .and_then(|cost| cost.base.clone().map(|base| if cost.total { per_unit_cost(base, &units) } else { base }))
-            .or_else(|| {
-                self.posting.price.as_ref().map(|price| match price {
-                    SingleTotalPrice::Single(single_price) => single_price.clone(),
-                    SingleTotalPrice::Total(total_price) => per_unit_price(total_price, &units),
-                })
-            })
-    }
     /// trade amount means the amount used for other postings to calculate balance: the posting's
     /// weight as written
     /// 1. if `unit` is null, return null
