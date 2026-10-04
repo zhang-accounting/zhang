@@ -12,18 +12,18 @@ use std::path::Path;
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDate, NaiveTime};
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::Account;
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::domains::schemas::{AccountJournalDomain, AccountStatus};
 use zhang_core::ledger::Ledger;
-use zhang_query::{Inventory, Params, QueryResult, Value};
+use zhang_query::{Inventory, Params, QueryResult};
 
 use crate::builtin::{self, calculated_amount};
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, DocumentEntity};
 use crate::state::SharedLedger;
-use crate::ServerResult;
+use crate::{cells, ServerResult};
 
 /// The built-in queries of the account endpoints, in [`crate::builtin::BUILTINS`].
 const LIST: &str = "accounts.list";
@@ -45,48 +45,6 @@ fn run(ledger: &Ledger, name: &str, params: &Params) -> ServerResult<QueryResult
 /// response see the same ledger.
 pub async fn with_ledger<T: Send + 'static>(ledger: &SharedLedger, f: impl FnOnce(&Ledger) -> ServerResult<T> + Send + 'static) -> ServerResult<T> {
     crate::routes::query::with_ledger(&ledger.0, f).await
-}
-
-// ---------------------------------------------------------------------------------------
-// cells
-
-fn text(value: &Value) -> Option<String> {
-    value.as_str().map(str::to_owned)
-}
-
-fn date(value: &Value) -> Option<NaiveDate> {
-    value.as_date()
-}
-
-fn decimal(value: &Value) -> BigDecimal {
-    value.as_decimal().unwrap_or_else(BigDecimal::zero)
-}
-
-fn amount(value: &Value) -> Option<Amount> {
-    value.as_amount().cloned()
-}
-
-/// The date and time of a row, from its `date` and `time` (`HH:MM:SS`) cells.
-fn datetime(date_cell: &Value, time_cell: &Value) -> NaiveDateTime {
-    let date = date(date_cell).unwrap_or_default();
-    let time = time_cell
-        .as_str()
-        .and_then(|it| NaiveTime::parse_from_str(it, "%H:%M:%S").ok())
-        .unwrap_or_default();
-    date.and_time(time)
-}
-
-/// The column indexes of a result, by name.
-struct Columns(HashMap<String, usize>);
-
-impl Columns {
-    fn of(result: &QueryResult) -> Columns {
-        Columns(result.columns.iter().enumerate().map(|(idx, column)| (column.name.clone(), idx)).collect())
-    }
-
-    fn get<'r>(&self, row: &'r [Value], name: &str) -> &'r Value {
-        &row[*self.0.get(name).unwrap_or_else(|| panic!("column {name}"))]
-    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -142,23 +100,24 @@ impl Balance {
 /// totals add up the rows of the account and of the accounts under it, as the account tree does.
 fn summaries(accounts: &QueryResult, balances: &QueryResult) -> BTreeMap<String, Summary> {
     let mut summaries: BTreeMap<String, Summary> = BTreeMap::new();
-    let columns = Columns::of(accounts);
-    for row in &accounts.rows {
-        let summary = summaries.entry(text(columns.get(row, "account")).unwrap_or_default()).or_default();
-        summary.open = date(columns.get(row, "open"));
-        summary.close = date(columns.get(row, "close"));
-        summary.alias = text(columns.get(row, "alias"));
+    for row in cells::rows(accounts) {
+        let summary = summaries.entry(row.str("account").unwrap_or_default()).or_default();
+        summary.open = row.date("open");
+        summary.close = row.date("close");
+        summary.alias = row.str("alias");
     }
-    let columns = Columns::of(balances);
-    for row in &balances.rows {
-        let summary = summaries.entry(text(columns.get(row, "account")).unwrap_or_default()).or_default();
-        let currency = text(columns.get(row, "currency")).unwrap_or_default();
-        summary.own.units.add_amount(&Amount::new(decimal(columns.get(row, "units")), currency.clone()));
+    for row in cells::rows(balances) {
+        let summary = summaries.entry(row.str("account").unwrap_or_default()).or_default();
+        let currency = row.str("currency").unwrap_or_default();
+        summary
+            .own
+            .units
+            .add_amount(&Amount::new(row.decimal("units").unwrap_or_default(), currency.clone()));
         summary.own.currencies.insert(currency);
-        if let Some(value) = columns.get(row, "value").as_inventory() {
+        if let Some(value) = row.get("value").as_inventory() {
             summary.own.value.add_inventory(value);
         }
-        let first = date(columns.get(row, "first_date"));
+        let first = row.date("first_date");
         summary.first_posting = match (summary.first_posting, first) {
             (Some(earlier), Some(first)) => Some(earlier.min(first)),
             (earlier, first) => earlier.or(first),
@@ -216,10 +175,7 @@ pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
 /// postings; a name that is no account name is a 400.
 fn has_page(ledger: &Ledger, account: &str) -> ServerResult<bool> {
     crate::validate::account(account, &crate::validate::Rules::Zhang)?;
-    let named = |result: &QueryResult| {
-        let columns = Columns::of(result);
-        result.rows.iter().any(|row| columns.get(row, "account").as_str() == Some(account))
-    };
+    let named = |result: &QueryResult| cells::rows(result).any(|row| row.str("account").as_deref() == Some(account));
     if named(&run(ledger, SUBTREE, &Params::new().bind("account", account))?) {
         return Ok(true);
     }
@@ -305,24 +261,21 @@ fn units_of(inventory: Option<&Inventory>, currency: &str) -> Amount {
 }
 
 fn posting_rows(result: &QueryResult) -> Vec<PostingRow> {
-    let columns = Columns::of(result);
-    result
-        .rows
-        .iter()
+    cells::rows(result)
         .map(|row| {
-            let currency = text(columns.get(row, "currency")).unwrap_or_default();
+            let currency = row.str("currency").unwrap_or_default();
             PostingRow {
-                seq: columns.get(row, "seq").as_int().unwrap_or_default(),
+                seq: row.int("seq").unwrap_or_default(),
                 journal: AccountJournalDomain {
-                    datetime: datetime(columns.get(row, "date"), columns.get(row, "time")),
-                    timestamp: columns.get(row, "timestamp").as_int().unwrap_or_default(),
-                    account: text(columns.get(row, "account")).unwrap_or_default(),
-                    trx_id: text(columns.get(row, "id")).unwrap_or_default(),
-                    payee: text(columns.get(row, "payee")),
-                    narration: text(columns.get(row, "narration")),
-                    inferred_unit: Amount::new(decimal(columns.get(row, "units")), currency.clone()),
+                    datetime: row.datetime("date", "time").unwrap_or_default(),
+                    timestamp: row.int("timestamp").unwrap_or_default(),
+                    account: row.str("account").unwrap_or_default(),
+                    trx_id: row.str("id").unwrap_or_default(),
+                    payee: row.str("payee"),
+                    narration: row.str("narration"),
+                    inferred_unit: Amount::new(row.decimal("units").unwrap_or_default(), currency.clone()),
                     // the balance of the subtree after the posting, in its currency
-                    account_after: units_of(columns.get(row, "balance").as_inventory(), &currency),
+                    account_after: units_of(row.get("balance").as_inventory(), &currency),
                     asserted: None,
                     checked_balance: None,
                     passed: None,
@@ -334,30 +287,29 @@ fn posting_rows(result: &QueryResult) -> Vec<PostingRow> {
 
 /// The rows of `accounts.balance_assertions`, with their `seq`.
 fn assertion_rows(result: &QueryResult) -> Vec<(i64, AccountJournalDomain)> {
-    let columns = Columns::of(result);
-    result
-        .rows
-        .iter()
+    cells::rows(result)
         .map(|row| {
-            let asserted = amount(columns.get(row, "amount")).expect("an assertion asserts an amount");
-            let actual = amount(columns.get(row, "actual")).unwrap_or_else(|| Amount::new(BigDecimal::zero(), asserted.commodity.clone()));
+            let asserted = row.amount("amount").expect("an assertion asserts an amount");
+            let actual = row
+                .amount("actual")
+                .unwrap_or_else(|| Amount::new(BigDecimal::zero(), asserted.commodity.clone()));
             // zero, written with the decimals of the asserted amount and the balance
             let nothing = BigDecimal::zero().with_scale((&asserted.number - &actual.number).fractional_digit_count());
             let journal = AccountJournalDomain {
-                datetime: datetime(columns.get(row, "date"), columns.get(row, "time")),
-                timestamp: columns.get(row, "timestamp").as_int().unwrap_or_default(),
-                account: text(columns.get(row, "account")).unwrap_or_default(),
-                trx_id: text(columns.get(row, "id")).unwrap_or_default(),
+                datetime: row.datetime("date", "time").unwrap_or_default(),
+                timestamp: row.int("timestamp").unwrap_or_default(),
+                account: row.str("account").unwrap_or_default(),
+                trx_id: row.str("id").unwrap_or_default(),
                 payee: Some(BALANCE_CHECK_PAYEE.to_owned()),
-                narration: text(columns.get(row, "account")),
+                narration: row.str("account"),
                 inferred_unit: Amount::new(nothing, asserted.commodity.clone()),
                 // the running balance where it stands: the balance it was checked against
                 account_after: actual.clone(),
                 asserted: Some(asserted),
                 checked_balance: Some(actual),
-                passed: columns.get(row, "passed").as_bool(),
+                passed: row.bool("passed"),
             };
-            (columns.get(row, "seq").as_int().unwrap_or_default(), journal)
+            (row.int("seq").unwrap_or_default(), journal)
         })
         .collect()
 }
@@ -468,13 +420,12 @@ fn merge(postings: Vec<PostingRow>, first: u64, assertions: Vec<(i64, AccountJou
 pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<AccountBalanceHistoryEntity> {
     require_page(ledger, account)?;
     let result = run(ledger, BALANCE_HISTORY, &Params::new().bind("account", account))?;
-    let columns = Columns::of(&result);
     let mut balance: HashMap<String, Vec<AccountBalanceItemEntity>> = HashMap::new();
-    for row in &result.rows {
-        let currency = text(columns.get(row, "currency")).unwrap_or_default();
+    for row in cells::rows(&result) {
+        let currency = row.str("currency").unwrap_or_default();
         let item = AccountBalanceItemEntity {
-            date: date(columns.get(row, "date")).unwrap_or_default(),
-            balance: amount(columns.get(row, "balance")).unwrap_or_else(|| Amount::new(BigDecimal::zero(), currency.clone())),
+            date: row.date("date").unwrap_or_default(),
+            balance: row.amount("balance").unwrap_or_else(|| Amount::new(BigDecimal::zero(), currency.clone())),
         };
         balance.entry(currency).or_default().push(item);
     }
@@ -486,18 +437,15 @@ pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<A
 pub fn account_documents(ledger: &Ledger, account: &str) -> ServerResult<Vec<DocumentEntity>> {
     require_page(ledger, account)?;
     let result = run(ledger, DOCUMENTS, &Params::new().bind("account", account))?;
-    let columns = Columns::of(&result);
-    Ok(result
-        .rows
-        .iter()
+    Ok(cells::rows(&result)
         .map(|row| {
-            let path = text(columns.get(row, "path")).unwrap_or_default();
+            let path = row.str("path").unwrap_or_default();
             DocumentEntity {
-                datetime: datetime(columns.get(row, "date"), columns.get(row, "time")),
+                datetime: row.datetime("date", "time").unwrap_or_default(),
                 filename: Path::new(&path).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default(),
                 path,
                 extension: None,
-                account: text(columns.get(row, "account")),
+                account: row.str("account"),
                 trx_id: None,
             }
         })
