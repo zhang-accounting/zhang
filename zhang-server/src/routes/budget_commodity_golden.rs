@@ -1,18 +1,12 @@
-//! Golden comparison of the budget endpoints: each handler that runs built-in queries against
-//! the handler it replaces ([`budget::legacy`]), on every ledger of `integration-tests/` and
-//! `examples/`, in both formats where there are both (#479).
-//!
-//! A difference is accepted only when it is one of the documented ones (see [`Reason`]); anything
-//! else fails. `golden_report` (ignored) runs the same comparison on more ledgers, given as
-//! `ZHANG_GOLDEN_LEDGERS=dir[:dir...]`, and prints every difference with its reason and the
-//! timings of both handlers.
+//! Golden tests of the budget endpoints: on every ledger of `integration-tests/` and `examples/`,
+//! in both formats where there are both, every figure and posting the handlers answer is the
+//! independent computation's ([`Reference`]); and small hand-worked ledgers (#479).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::{Path as FsPath, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -21,7 +15,6 @@ use chrono::{Datelike, Months, NaiveDate};
 use serde::Serialize;
 use serde_json::Value as Json;
 use tokio::sync::RwLock;
-use zhang_ast::Directive;
 use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
@@ -42,31 +35,20 @@ pub(crate) enum Outcome {
     Panic,
 }
 
-impl Outcome {
-    fn json(&self) -> Option<&Json> {
-        match self {
-            Outcome::Json(json) => Some(json),
-            _ => None,
-        }
-    }
-}
-
-/// Run a handler, catching a panic as [`Outcome::Panic`], and time it.
-async fn call<T, F>(handler: F) -> (Outcome, Duration)
+/// Run a handler, catching a panic as [`Outcome::Panic`].
+async fn call<T, F>(handler: F) -> Outcome
 where
     T: Serialize + gotcha::Schematic + Send + 'static,
     F: Future<Output = ServerResult<ResponseWrapper<T>>> + Send + 'static,
 {
-    let start = Instant::now();
-    let outcome = match tokio::spawn(handler).await {
+    match tokio::spawn(handler).await {
         Err(_) => Outcome::Panic,
         Ok(Ok(wrapper)) => Outcome::Json(serde_json::to_value(&wrapper.data).expect("serializable")),
         Ok(Err(err)) => Outcome::Status(err.into_response().status().as_u16()),
-    };
-    (outcome, start.elapsed())
+    }
 }
 
-/// The endpoints compared, with their arguments.
+/// The endpoints tested, with their arguments.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum Probe {
@@ -76,14 +58,6 @@ pub(crate) enum Probe {
 }
 
 impl Probe {
-    pub(crate) fn kind(&self) -> &'static str {
-        match self {
-            Probe::BudgetList { .. } => "GET /api/budgets",
-            Probe::BudgetInfo { .. } => "GET /api/budgets/{name}",
-            Probe::BudgetInterval { .. } => "GET /api/budgets/{name}/interval/{y}/{m}",
-        }
-    }
-
     fn month_of(month: &Option<(u32, u32)>) -> Option<NaiveDate> {
         month.and_then(|(year, month)| NaiveDate::from_ymd_opt(year as i32, month, 1))
     }
@@ -103,36 +77,25 @@ impl Probe {
         })
     }
 
-    /// the old and the new handler's answers, and how long each took
-    pub(crate) async fn run(&self, ledger: &SharedLedger) -> ((Outcome, Duration), (Outcome, Duration)) {
-        let state = || State(SharedLedger(ledger.0.clone()));
+    /// the handler's answer
+    pub(crate) async fn run(&self, ledger: &SharedLedger) -> Outcome {
+        let state = State(SharedLedger(ledger.0.clone()));
         match self.clone() {
-            Probe::BudgetList { month } => (
-                call(budget::legacy::get_budget_list(state(), Probe::request(&month))).await,
-                call(budget::get_budget_list(state(), Probe::request(&month))).await,
-            ),
-            Probe::BudgetInfo { name, month } => (
-                call(budget::legacy::get_budget_info(state(), Path((name.clone(),)), Probe::request(&month))).await,
-                call(budget::get_budget_info(state(), Path((name,)), Probe::request(&month))).await,
-            ),
+            Probe::BudgetList { month } => call(budget::get_budget_list(state, Probe::request(&month))).await,
+            Probe::BudgetInfo { name, month } => call(budget::get_budget_info(state, Path((name,)), Probe::request(&month))).await,
             Probe::BudgetInterval { name, year, month } => {
-                let path = || {
-                    Path(BudgetIntervalDetailRequest {
-                        budget_name: name.clone(),
-                        year,
-                        month,
-                    })
-                };
-                (
-                    call(budget::legacy::get_budget_interval_detail(state(), path())).await,
-                    call(budget::get_budget_interval_detail(state(), path())).await,
-                )
+                let path = Path(BudgetIntervalDetailRequest {
+                    budget_name: name,
+                    year,
+                    month,
+                });
+                call(budget::get_budget_interval_detail(state, path)).await
             }
         }
     }
 }
 
-/// A ledger to compare on: its directory and main file.
+/// A ledger to test on: its directory and main file.
 #[derive(Debug, Clone)]
 pub(crate) struct Fixture {
     pub(crate) dir: PathBuf,
@@ -287,6 +250,9 @@ pub(crate) fn repository_fixtures() -> Vec<Fixture> {
     fixtures
 }
 
+/// The budget the probes ask about that no ledger defines.
+const UNKNOWN_BUDGET: &str = "no-such-budget";
+
 fn month_pair(date: NaiveDate) -> (u32, u32) {
     (date.year() as u32, date.month())
 }
@@ -327,7 +293,7 @@ pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     }
     let mut probes = vec![Probe::BudgetList { month: None }];
     probes.extend(months.iter().map(|month| Probe::BudgetList { month: Some(*month) }));
-    for name in budgets.iter().cloned().chain(std::iter::once("no-such-budget".to_owned())) {
+    for name in budgets.iter().cloned().chain(std::iter::once(UNKNOWN_BUDGET.to_owned())) {
         probes.push(Probe::BudgetInfo {
             name: name.clone(),
             month: None,
@@ -347,92 +313,11 @@ pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     probes
 }
 
-/// The result of one probe.
-pub(crate) struct Compared {
-    pub(crate) probe: Probe,
-    pub(crate) old: Outcome,
-    pub(crate) new: Outcome,
-    pub(crate) old_time: Duration,
-    pub(crate) new_time: Duration,
-}
-
-pub(crate) async fn compare(ledger: &SharedLedger) -> Vec<Compared> {
-    let mut compared = vec![];
-    for probe in probes(ledger).await {
-        let ((old, old_time), (new, new_time)) = probe.run(ledger).await;
-        compared.push(Compared {
-            probe,
-            old,
-            new,
-            old_time,
-            new_time,
-        });
-    }
-    compared
-}
-
-/// Why an answer of a new handler differs from the old one's: a bug of #479's list the move
-/// fixes, or one of its decisions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Reason {
-    /// the budgets came in HashMap order; now by name
-    BudgetsInNameOrder,
-    /// decision 8: `closed` is per month, not the final state
-    ClosedPerMonth,
-    /// decision 8: activity (and what budget directives add) is converted to the budget's
-    /// commodity at its date, instead of adding the numbers of other commodities
-    ActivityConverted,
-    /// a budget's accounts are the set of `#budgets`, in name order; they were in the order of
-    /// their `open` directives
-    RelatedAccountsInNameOrder,
-    /// the month's events are ordered by their Unix time; the old handler compared the UTC time of
-    /// a budget event with the local time of a posting
-    IntervalOrderedByTimestamp,
-    /// a month so far ahead (a date typo) that the budgets' months up to it are more than the
-    /// result size limit is a 400; the old handler stored the months with entries only
-    FarMonthIsTooLarge,
-    /// decision 7: an account whose `open` names several budgets is an account of each; the old
-    /// handlers read the store, which keeps only the last value of a repeated key
-    RepeatedBudgetMetadata,
-    /// a budget's related accounts are every account an `open` names it in, at any time; the old
-    /// handler read the store at the end of the load, which knows the last value of a repeated
-    /// key of the last `open` only
-    AccountsOfEveryOpen,
-    /// the postings of a month are those that count in the budget: of the accounts whose `open`
-    /// in effect at their date names it; the old handler listed every posting of the accounts
-    /// the store knew at the end of the load
-    IntervalPostingsOfTheBudget,
-    /// a posting's `account_after` is the account's balance after it in ledger order; the old
-    /// one was the balance at the posting's instant, which a time in a daylight saving gap
-    /// moves after later postings
-    AccountAfterInLedgerOrder,
-}
-
-impl Reason {
-    pub(crate) fn describe(self) -> &'static str {
-        match self {
-            Reason::BudgetsInNameOrder => "budgets in name order (were in HashMap order)",
-            Reason::ClosedPerMonth => "closed is per month (decision 8)",
-            Reason::ActivityConverted => "activity converted to the budget's commodity at its date (decision 8)",
-            Reason::RelatedAccountsInNameOrder => "related accounts in name order (were in open-directive order)",
-            Reason::IntervalOrderedByTimestamp => "events and postings ordered by Unix time (old mixed UTC and local times)",
-            Reason::FarMonthIsTooLarge => "a month whose series exceeds the result size limit is a 400 (a date typo far ahead)",
-            Reason::RepeatedBudgetMetadata => "an account whose open names several budgets counts in each (decision 7)",
-            Reason::AccountsOfEveryOpen => "related accounts are every account an open names the budget in (were the store's final state)",
-            Reason::IntervalPostingsOfTheBudget => "a month's postings are those counting in the budget, by the open in effect at their date",
-            Reason::AccountAfterInLedgerOrder => "account_after is the balance after the posting in ledger order (was by instant, wrong around a DST gap)",
-        }
-    }
-}
-
-/// What the classification needs to know of a ledger, read from its store and directives.
+/// What the checks need to know of a ledger.
 pub(crate) struct Context {
     /// the figures of the budgets as [`Reference`] computes them, independently of the handlers,
     /// or why it cannot
     reference: Result<Reference, String>,
-    /// the date of the first posting of a budget's accounts, or amount of a directive of the
-    /// budget, in another commodity than the budget's, by budget
-    foreign_from: BTreeMap<String, NaiveDate>,
     /// the current month in the ledger's timezone
     current_month: NaiveDate,
 }
@@ -440,50 +325,11 @@ pub(crate) struct Context {
 impl Context {
     pub(crate) async fn of(ledger: &SharedLedger) -> Context {
         let ledger = ledger.read().await;
-        let store = ledger.store.read().unwrap();
-        let first_of_month = |date: NaiveDate| date.with_day(1).unwrap();
-        let mut foreign_from: BTreeMap<String, NaiveDate> = BTreeMap::new();
-        let mut foreign = |name: &str, date: NaiveDate| {
-            let entry = foreign_from.entry(name.to_owned()).or_insert(date);
-            *entry = (*entry).min(date);
-        };
-        let commodity = |name: &str| store.budgets.get(name).map(|it| it.commodity.clone());
-        for directive in &ledger.directives {
-            match &directive.data {
-                Directive::BudgetAdd(add) if commodity(&add.name).is_some_and(|it| it != add.amount.commodity) => {
-                    foreign(&add.name, add.date.naive_date());
-                }
-                Directive::BudgetTransfer(transfer) => {
-                    for name in [&transfer.from, &transfer.to] {
-                        if commodity(name).is_some_and(|it| it != transfer.amount.commodity) {
-                            foreign(name, transfer.date.naive_date());
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        for meta in store.metas.iter().filter(|meta| meta.meta_type == "AccountMeta" && meta.key == "budget") {
-            let Some(budget_commodity) = commodity(&meta.value) else { continue };
-            for posting in store.postings.iter().filter(|it| it.account.name() == meta.type_identifier) {
-                if posting.inferred_amount.commodity != budget_commodity {
-                    foreign(&meta.value, posting.trx_datetime.date_naive());
-                }
-            }
-        }
-        let current_month = first_of_month(ledger.today());
         Context {
             reference: Reference::of(&ledger),
-            foreign_from,
-            current_month,
+            current_month: ledger.today().with_day(1).unwrap(),
         }
     }
-}
-
-fn sorted_by(items: &mut [Json], key: impl Fn(&Json) -> String) -> bool {
-    let before = items.to_vec();
-    items.sort_by_key(|it| key(it));
-    before != items
 }
 
 /// The number of an amount of the budget API, as a decimal rounded to 20 places: the reference
@@ -493,7 +339,7 @@ fn amount_number(json: &Json) -> Option<BigDecimal> {
     Some(number.with_scale_round(20, bigdecimal::RoundingMode::HalfEven))
 }
 
-/// Whether a budget's figures of the new handler (an object of `GET /api/budgets` or
+/// Whether a budget's figures of the handler (an object of `GET /api/budgets` or
 /// `GET /api/budgets/{name}`) are the independent computation's ([`Reference`]): the same
 /// amounts by value and the same `closed`. A month before the budget's first is all zero and
 /// open.
@@ -531,7 +377,7 @@ fn check_reference(new: &Json, name: &str, month: NaiveDate, context: &Context) 
     }
 }
 
-/// Whether the postings of a month's detail (of the new handler) are the reference's postings of
+/// Whether the postings of a month's detail (of the handler) are the reference's postings of
 /// the budget in the month: those of the accounts whose `open` in effect at their date names it,
 /// each with the units it books and its account's balance after it in ledger order.
 fn check_postings(events: &[Json], name: &str, month: NaiveDate, context: &Context) -> Result<(), String> {
@@ -578,308 +424,57 @@ fn check_postings(events: &[Json], name: &str, month: NaiveDate, context: &Conte
     }
 }
 
-/// Erase the documented differences of one budget's figures (`old` and `new` are the objects of
-/// one budget), noting their reasons. Amounts may only differ on a budget with amounts in other
-/// commodities, and only where the new ones are the independent computation's.
-fn budget_figures(old: &mut Json, new: &Json, name: &str, month: NaiveDate, context: &Context, reasons: &mut BTreeSet<Reason>) {
-    if old["closed"] != new["closed"] {
-        // the old handler said whether the budget is closed now; the new one whether it was closed by the month
-        // the first budget-close of the budget once it exists, as the reference finds it
-        let closed_from = context.reference.as_ref().ok().and_then(|reference| reference.closed_from(name));
-        let closed_by_month = closed_from.is_some_and(|from| from <= month);
-        if old["closed"] == Json::Bool(closed_from.is_some()) && new["closed"] == Json::Bool(closed_by_month) {
-            old["closed"] = new["closed"].clone();
-            reasons.insert(Reason::ClosedPerMonth);
-        }
-    }
-    let amounts = ["assigned_amount", "activity_amount", "available_amount"];
-    // the same number written with another scale (`0` and `0.0`) is the same figure
-    for key in amounts {
-        if old[key] != new[key] && old[key]["commodity"] == new[key]["commodity"] && amount_number(&old[key]) == amount_number(&new[key]) {
-            old[key] = new[key].clone();
-        }
-    }
-    if amounts.iter().any(|key| old[key] != new[key]) && check_reference(new, name, month, context).is_ok() {
-        // only a budget with amounts in other commodities by the end of the month, or with an
-        // account the store lost, can differ
-        let end_of_month = month + Months::new(1);
-        let foreign = context.foreign_from.get(name).is_some_and(|from| *from < end_of_month);
-        let repeated = context.reference.as_ref().is_ok_and(|reference| reference.repeated(name));
-        if foreign || repeated {
-            for key in amounts {
-                old[key] = new[key].clone();
-            }
-        }
-        if foreign {
-            reasons.insert(Reason::ActivityConverted);
-        }
-        if repeated {
-            reasons.insert(Reason::RepeatedBudgetMetadata);
-        }
-    }
-}
-
-/// The reasons why `new` differs from `old`, or the remaining difference if a documented reason
-/// does not explain it.
-pub(crate) fn classify(probe: &Probe, old: &Outcome, new: &Outcome, context: &Context) -> Result<BTreeSet<Reason>, String> {
-    let mut reasons = BTreeSet::new();
+/// Whether the handler's answer to `probe` is right: its figures and postings are the independent
+/// computation's, an unknown budget is a 404, and a month so far ahead (a date typo) that the
+/// budgets' months up to it are more than the result size limit is a 400.
+pub(crate) fn check(probe: &Probe, outcome: &Outcome, context: &Context) -> Result<(), String> {
     let month = probe.month().unwrap_or(context.current_month);
-    // every figure of the new handlers is the independent computation's, whatever the old said
-    match (probe, new) {
+    match (probe, outcome) {
         (Probe::BudgetList { .. }, Outcome::Json(Json::Array(budgets))) => {
             for budget in budgets {
                 check_reference(budget, budget["name"].as_str().unwrap_or_default(), month, context)?;
             }
+            Ok(())
         }
-        (Probe::BudgetInfo { name, .. }, Outcome::Json(budget)) => check_reference(budget, name, month, context)?,
-        (Probe::BudgetInterval { name, .. }, Outcome::Json(Json::Array(events))) => check_postings(events, name, month, context)?,
-        _ => {}
-    }
-    if old == new {
-        return Ok(reasons);
-    }
-    let (mut old_json, new_json) = match (probe, old, new) {
-        (Probe::BudgetList { .. } | Probe::BudgetInfo { .. }, Outcome::Json(_), Outcome::Status(400))
+        (Probe::BudgetInfo { name, .. }, Outcome::Json(budget)) if name != UNKNOWN_BUDGET => check_reference(budget, name, month, context),
+        (Probe::BudgetInterval { name, .. }, Outcome::Json(Json::Array(events))) if name != UNKNOWN_BUDGET => check_postings(events, name, month, context),
+        (Probe::BudgetInfo { name, .. } | Probe::BudgetInterval { name, .. }, Outcome::Status(404)) if name == UNKNOWN_BUDGET => Ok(()),
+        (Probe::BudgetList { .. } | Probe::BudgetInfo { .. }, Outcome::Status(400))
             if context
                 .reference
                 .as_ref()
                 .is_ok_and(|reference| reference.months_until(month) > crate::routes::query::max_result_values()) =>
         {
-            reasons.insert(Reason::FarMonthIsTooLarge);
-            return Ok(reasons);
+            Ok(())
         }
-        (_, Outcome::Json(old), Outcome::Json(new)) => (old.clone(), new.clone()),
-        _ => return Err(format!("old {:?}, new {:?}", old, new)),
-    };
-    match probe {
-        Probe::BudgetList { .. } => {
-            let name = |it: &Json| it["name"].as_str().unwrap_or_default().to_owned();
-            if let Some(budgets) = old_json.as_array_mut() {
-                if sorted_by(budgets, name) {
-                    reasons.insert(Reason::BudgetsInNameOrder);
-                }
-            }
-            if let (Some(old_budgets), Some(new_budgets)) = (old_json.as_array_mut(), new_json.as_array()) {
-                for (old_budget, new_budget) in old_budgets.iter_mut().zip(new_budgets) {
-                    let budget = name(new_budget);
-                    if name(old_budget) == budget {
-                        budget_figures(old_budget, new_budget, &budget, month, context, &mut reasons);
-                    }
-                }
-            }
-        }
-        Probe::BudgetInfo { name, .. } => {
-            if let Some(accounts) = old_json["related_accounts"].as_array_mut() {
-                if sorted_by(accounts, |it| it.as_str().unwrap_or_default().to_owned()) {
-                    reasons.insert(Reason::RelatedAccountsInNameOrder);
-                }
-            }
-            if old_json["related_accounts"] != new_json["related_accounts"] {
-                if let Ok(reference) = &context.reference {
-                    let expected = serde_json::to_value(reference.accounts(name).into_iter().collect::<Vec<_>>()).expect("serializable");
-                    if new_json["related_accounts"] == expected {
-                        old_json["related_accounts"] = expected;
-                        reasons.insert(Reason::AccountsOfEveryOpen);
-                    }
-                }
-            }
-            budget_figures(&mut old_json, &new_json, name, month, context, &mut reasons);
-        }
-        Probe::BudgetInterval { .. } => {
-            // newest first; of the same time, budget events first, then in the old order
-            let key = |it: &Json| (std::cmp::Reverse(it["timestamp"].as_i64().unwrap_or_default()), it["type"] != "BudgetEvent");
-            if let Some(events) = old_json.as_array_mut() {
-                let before = events.clone();
-                events.sort_by_key(|it| key(it));
-                if before != *events {
-                    reasons.insert(Reason::IntervalOrderedByTimestamp);
-                }
-            }
-            // the new postings are the reference's (checked above): where the old ones differ,
-            // in which postings count or in the balances after them, take the new ones
-            if let (Some(old_events), Some(new_events)) = (old_json.as_array_mut(), new_json.as_array()) {
-                let postings = |events: &[Json]| events.iter().filter(|it| it["type"] == "Posting").cloned().collect::<Vec<_>>();
-                let (old_postings, new_postings) = (postings(old_events), postings(new_events));
-                if old_postings != new_postings {
-                    let ids = |postings: &[Json]| {
-                        let mut ids = postings
-                            .iter()
-                            .map(|it| (it["trx_id"].to_string(), it["account"].to_string()))
-                            .collect::<Vec<_>>();
-                        ids.sort();
-                        ids
-                    };
-                    reasons.insert(if ids(&old_postings) != ids(&new_postings) {
-                        Reason::IntervalPostingsOfTheBudget
-                    } else {
-                        Reason::AccountAfterInLedgerOrder
-                    });
-                    let mut merged = old_events.iter().filter(|it| it["type"] != "Posting").cloned().collect::<Vec<_>>();
-                    merged.extend(new_postings);
-                    merged.sort_by_key(|it| key(it));
-                    *old_events = merged;
-                }
-            }
-        }
+        _ => Err(format!("unexpected answer {:?}", outcome)),
     }
-    if old_json == new_json {
-        Ok(reasons)
-    } else {
-        Err(json_diff(&old_json, &new_json))
-    }
-}
-
-/// The paths where two JSON values differ, with both values; at most a few.
-pub(crate) fn json_diff(old: &Json, new: &Json) -> String {
-    fn walk(path: String, old: &Json, new: &Json, out: &mut Vec<String>) {
-        if out.len() >= 4 || old == new {
-            return;
-        }
-        match (old, new) {
-            (Json::Object(a), Json::Object(b)) => {
-                for key in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
-                    walk(
-                        format!("{}.{}", path, key),
-                        a.get(key).unwrap_or(&Json::Null),
-                        b.get(key).unwrap_or(&Json::Null),
-                        out,
-                    );
-                }
-            }
-            (Json::Array(a), Json::Array(b)) if a.len() == b.len() => {
-                for (idx, (a, b)) in a.iter().zip(b).enumerate() {
-                    walk(format!("{}[{}]", path, idx), a, b, out);
-                }
-            }
-            _ => out.push(format!("{}: {} -> {}", if path.is_empty() { "$" } else { &path }, old, new)),
-        }
-    }
-    let mut out = vec![];
-    walk(String::new(), old, new, &mut out);
-    out.join("; ")
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    /// Every answer of the new handlers on the repository's ledgers is the old handler's, but for
-    /// the documented differences.
+    /// Every answer of the handlers on the repository's ledgers is right ([`check`]).
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_new_handlers_answer_as_the_old_ones_but_for_documented_differences() {
-        let mut unexplained = vec![];
+    async fn the_handlers_answer_the_reference_figures_on_every_ledger() {
+        let mut wrong = vec![];
         for fixture in repository_fixtures() {
             let Some(ledger) = fixture.try_load().await else { continue };
             let context = Context::of(&ledger).await;
-            for compared in compare(&ledger).await {
-                if let Err(diff) = classify(&compared.probe, &compared.old, &compared.new, &context) {
-                    unexplained.push(format!("{} {:?}: {}", fixture.name(), compared.probe, diff));
+            for probe in probes(&ledger).await {
+                if let Err(why) = check(&probe, &probe.run(&ledger).await, &context) {
+                    wrong.push(format!("{} {:?}: {}", fixture.name(), probe, why));
                 }
             }
         }
-        assert!(unexplained.is_empty(), "unexplained differences:\n{}", unexplained.join("\n"));
-    }
-
-    /// The probes of one endpoint on one ledger: how many, their differences by reasons with an
-    /// example, and the timings of both handlers.
-    #[derive(Default)]
-    struct Stats {
-        probes: u32,
-        differences: BTreeMap<String, (usize, String)>,
-        old_total: Duration,
-        new_total: Duration,
-        old_max: Duration,
-        new_max: Duration,
-    }
-
-    /// The comparison on the repository's ledgers and those of `ZHANG_GOLDEN_LEDGERS`, with every
-    /// difference and the timings of both handlers.
-    #[tokio::test(flavor = "multi_thread")]
-    #[ignore]
-    async fn golden_report() {
-        let mut fixtures = repository_fixtures();
-        if let Ok(extra) = std::env::var("ZHANG_GOLDEN_LEDGERS") {
-            for dir in extra.split(':').filter(|it| !it.is_empty()) {
-                fixtures.extend(fixtures_in(FsPath::new(dir)));
-            }
-        }
-        let mut unexplained = 0;
-        println!("| endpoint | ledger | probes | differ | reasons | example (old -> new) |");
-        println!("|---|---|---|---|---|---|");
-        let mut timings = vec![];
-        for fixture in fixtures {
-            let Some(ledger) = fixture.try_load().await else {
-                println!("| - | {} | - | - | not loadable with the local data source | - |", fixture.name());
-                continue;
-            };
-            let context = Context::of(&ledger).await;
-            let compared = compare(&ledger).await;
-            // per endpoint: probes, differences by reasons, an example of each, timings
-            let mut kinds: BTreeMap<&str, Stats> = BTreeMap::new();
-            for it in &compared {
-                let stats = kinds.entry(it.probe.kind()).or_default();
-                stats.probes += 1;
-                stats.old_total += it.old_time;
-                stats.new_total += it.new_time;
-                stats.old_max = stats.old_max.max(it.old_time);
-                stats.new_max = stats.new_max.max(it.new_time);
-                let classified = classify(&it.probe, &it.old, &it.new, &context);
-                if it.old == it.new && classified.is_ok() {
-                    continue;
-                }
-                let (reasons, example) = match classified {
-                    Ok(reasons) => (
-                        reasons.iter().map(|it| it.describe()).collect::<Vec<_>>().join("; "),
-                        match (it.old.json(), it.new.json()) {
-                            (Some(old), Some(new)) => json_diff(old, new),
-                            _ => format!("{:?} -> {:?}", it.old, it.new),
-                        },
-                    ),
-                    Err(diff) => {
-                        unexplained += 1;
-                        ("**UNEXPLAINED**".to_owned(), diff)
-                    }
-                };
-                let example = format!("{:?}: {}", it.probe, example).chars().take(400).collect::<String>();
-                stats.differences.entry(reasons).or_insert((0, example)).0 += 1;
-            }
-            for (kind, stats) in kinds {
-                for (reasons, (differ, example)) in &stats.differences {
-                    println!(
-                        "| {} | {} | {} | {} | {} | {} |",
-                        kind,
-                        fixture.name(),
-                        stats.probes,
-                        differ,
-                        reasons,
-                        example.replace('|', "\\|")
-                    );
-                }
-                timings.push((fixture.name(), kind, stats));
-            }
-        }
-        println!("\n| ledger | endpoint | probes | old mean | new mean | old max | new max |");
-        println!("|---|---|---|---|---|---|---|");
-        for (ledger, kind, stats) in timings {
-            println!(
-                "| {} | {} | {} | {:.2?} | {:.2?} | {:.2?} | {:.2?} |",
-                ledger,
-                kind,
-                stats.probes,
-                stats.old_total / stats.probes,
-                stats.new_total / stats.probes,
-                stats.old_max,
-                stats.new_max
-            );
-        }
-        assert_eq!(unexplained, 0, "unexplained differences");
+        assert!(wrong.is_empty(), "wrong answers:\n{}", wrong.join("\n"));
     }
 }
 
-/// The documented differences, on small ledgers whose figures are worked out by hand: what the old
-/// handlers answered, and what the new ones answer.
+/// Small ledgers whose figures are worked out by hand, and what the handlers answer.
 #[cfg(test)]
-mod documented_differences {
+mod worked_examples {
     use serde_json::json;
 
     use super::*;
@@ -903,14 +498,9 @@ mod documented_differences {
         .expect("the ledger loads")
     }
 
-    async fn answers(ledger: &SharedLedger, probe: Probe) -> (Outcome, Outcome) {
-        let ((old, _), (new, _)) = probe.run(ledger).await;
-        (old, new)
-    }
-
-    async fn json_answers(ledger: &SharedLedger, probe: Probe) -> (Json, Json) {
-        match answers(ledger, probe.clone()).await {
-            (Outcome::Json(old), Outcome::Json(new)) => (old, new),
+    pub(super) async fn json_answer(ledger: &SharedLedger, probe: Probe) -> Json {
+        match probe.run(ledger).await {
+            Outcome::Json(json) => json,
             other => panic!("{:?}: {:?}", probe, other),
         }
     }
@@ -919,12 +509,10 @@ mod documented_differences {
     /// - The flight of 2025-04-02 costs 300 USD: 2100.0 CNY at the price of 2025-03-31 (7.0),
     ///   the latest one on that date. With the 40 CNY taxi, April's activity is 2140.0 CNY, and
     ///   with the 200 CNY added on 2025-04-10 April starts with 1200 CNY, so 1200 - 2140.0 =
-    ///   -940.0 CNY is left. The old handler added 300 + 40 = 340 "CNY", leaving 860.
-    /// - `trip` is closed on 2025-05-02: closed from May, not before; the old handler said closed
-    ///   for every month.
+    ///   -940.0 CNY is left.
+    /// - `trip` is closed on 2025-05-02: closed from May, not before.
     /// - The budget-add of 2025-04-10 (00:00 +08:00, Unix 1744214400) is after the taxi of
-    ///   2025-04-09 20:00 +08:00 (1744200000); the old handler compared the add's UTC time
-    ///   (04-09 16:00) with the taxi's local time (20:00) and put the taxi first.
+    ///   2025-04-09 20:00 +08:00 (1744200000).
     pub(super) const BUDGETS: &str = r#"
 option "operating_currency" "CNY"
 option "timezone" "Asia/Shanghai"
@@ -993,21 +581,16 @@ option "timezone" "Asia/Shanghai"
             month: Some(month),
         };
         // before the budget starts: nothing, and not closed yet
-        let (old, new) = json_answers(&ledger, info((2025, 2))).await;
-        assert_eq!(figures(&old), of("0", "0", "0", true));
+        let new = json_answer(&ledger, info((2025, 2))).await;
         assert_eq!(figures(&new), of("0", "0", "0", false));
-        let (old, new) = json_answers(&ledger, info((2025, 3))).await;
-        assert_eq!(figures(&old), of("1000", "0", "1000", true));
+        let new = json_answer(&ledger, info((2025, 3))).await;
         assert_eq!(figures(&new), of("1000", "0", "1000", false));
-        let (old, new) = json_answers(&ledger, info((2025, 4))).await;
-        assert_eq!(figures(&old), of("1200", "340", "860", true));
+        let new = json_answer(&ledger, info((2025, 4))).await;
         assert_eq!(figures(&new), of("1200", "2140", "-940", false));
-        let (old, new) = json_answers(&ledger, info((2025, 5))).await;
-        assert_eq!(figures(&old), of("860", "0", "860", true));
+        let new = json_answer(&ledger, info((2025, 5))).await;
         assert_eq!(figures(&new), of("-940", "0", "-940", true));
         // after the current month (June 2025), the budget carries over
-        let (old, new) = json_answers(&ledger, info((2026, 1))).await;
-        assert_eq!(figures(&old), of("860", "0", "860", true));
+        let new = json_answer(&ledger, info((2026, 1))).await;
         assert_eq!(figures(&new), of("-940", "0", "-940", true));
         assert_eq!(new["related_accounts"], json!(["Expenses:Travel"]));
     }
@@ -1015,7 +598,7 @@ option "timezone" "Asia/Shanghai"
     #[tokio::test(flavor = "multi_thread")]
     async fn budgets_are_listed_by_name_and_their_accounts_sorted() {
         let ledger = ledger_of(BUDGETS).await;
-        let (_, new) = json_answers(&ledger, Probe::BudgetList { month: Some((2025, 4)) }).await;
+        let new = json_answer(&ledger, Probe::BudgetList { month: Some((2025, 4)) }).await;
         let names = new.as_array().unwrap().iter().map(|it| it["name"].clone()).collect::<Vec<_>>();
         assert_eq!(names, vec![json!("food"), json!("trip")]);
         assert_eq!(new[0]["alias"], json!("Groceries"));
@@ -1023,10 +606,10 @@ option "timezone" "Asia/Shanghai"
         assert_eq!(figures(&new[0]), of("440", "0", "440", false));
         assert_eq!(figures(&new[1]), of("1200", "2140", "-940", false));
         // a month before every budget lists none
-        let (old, new) = json_answers(&ledger, Probe::BudgetList { month: Some((2025, 2)) }).await;
-        assert_eq!((old, new), (json!([]), json!([])));
+        let new = json_answer(&ledger, Probe::BudgetList { month: Some((2025, 2)) }).await;
+        assert_eq!(new, json!([]));
 
-        let (old, new) = json_answers(
+        let new = json_answer(
             &ledger,
             Probe::BudgetInfo {
                 name: "food".to_owned(),
@@ -1034,7 +617,6 @@ option "timezone" "Asia/Shanghai"
             },
         )
         .await;
-        assert_eq!(old["related_accounts"], json!(["Expenses:Food", "Expenses:Dining"]));
         assert_eq!(new["related_accounts"], json!(["Expenses:Dining", "Expenses:Food"]));
     }
 
@@ -1046,7 +628,7 @@ option "timezone" "Asia/Shanghai"
             year: 2025,
             month: 4,
         };
-        let (old, new) = json_answers(&ledger, probe).await;
+        let new = json_answer(&ledger, probe).await;
         let summary = |json: &Json| {
             json.as_array()
                 .unwrap()
@@ -1063,7 +645,6 @@ option "timezone" "Asia/Shanghai"
         let add = (1744214400, "AddAssignedAmount 200".to_owned());
         let taxi = (1744200000, "late taxi 40".to_owned());
         let flight = (1743523200, "flight, in dollars 300".to_owned());
-        assert_eq!(summary(&old), vec![taxi.clone(), add.clone(), flight.clone()]);
         assert_eq!(summary(&new), vec![add, taxi, flight]);
         // the posting's local time, and its account's balance in its currency after it
         assert_eq!(new[1]["datetime"], json!("2025-04-09T20:00:00"));
@@ -1075,7 +656,7 @@ option "timezone" "Asia/Shanghai"
             year: 2025,
             month: 4,
         };
-        assert_eq!(answers(&ledger, unknown).await, (Outcome::Status(404), Outcome::Status(404)));
+        assert_eq!(unknown.run(&ledger).await, Outcome::Status(404));
         let response = budget::get_budget_interval_detail(
             State(SharedLedger(ledger.0.clone())),
             Path(BudgetIntervalDetailRequest {
@@ -1128,7 +709,7 @@ option "operating_currency" "USD"
     /// What `GET /api/commodities/{name}` answers.
     async fn commodity(ledger: &SharedLedger, name: &str) -> Outcome {
         let state = State(SharedLedger(ledger.0.clone()));
-        call(crate::routes::commodity::get_single_commodity(state, Path((name.to_owned(),)))).await.0
+        call(crate::routes::commodity::get_single_commodity(state, Path((name.to_owned(),)))).await
     }
 
     async fn commodity_json(ledger: &SharedLedger, name: &str) -> Json {
@@ -1189,16 +770,9 @@ mod fixed_clock {
     use serde_json::json;
     use zhang_query::{Params, Value};
 
-    use super::documented_differences::{figures, ledger_at, ledger_of, of, BUDGETS};
+    use super::worked_examples::{figures, json_answer as new_json, ledger_at, ledger_of, of, BUDGETS};
     use super::*;
     use crate::cells::rows;
-
-    async fn new_json(ledger: &SharedLedger, probe: Probe) -> Json {
-        match probe.run(ledger).await.1 .0 {
-            Outcome::Json(json) => json,
-            other => panic!("{:?}: {:?}", probe, other),
-        }
-    }
 
     /// Shanghai is UTC+8: at 2024-03-31 16:30 UTC it is already April 1st there. Without a month,
     /// the budget pages show April, the ledger's current month: 500 CNY assigned in March, 100
@@ -1271,10 +845,7 @@ option "operating_currency" "CNY"
             name: "food".to_owned(),
             month: Some((2025, 6)),
         };
-        let ((old, _), (new, _)) = info.run(&ledger).await;
-        assert_eq!(figures(new.json().unwrap()), of("700", "0", "700", false));
-        // the old handler carried it over the same way
-        assert_eq!(figures(old.json().unwrap()), of("700", "0", "700", false));
+        assert_eq!(figures(&new_json(&ledger, info).await), of("700", "0", "700", false));
         let april = new_json(&ledger, Probe::BudgetList { month: Some((2025, 4)) }).await;
         assert_eq!(figures(&april[0]), of("1000", "300", "700", false));
     }
@@ -1410,7 +981,7 @@ option "operating_currency" "CNY"
                 month: 1,
             },
         ] {
-            assert_eq!(probe.run(&ledger).await.1 .0, Outcome::Status(404), "{:?}", probe);
+            assert_eq!(probe.run(&ledger).await, Outcome::Status(404), "{:?}", probe);
         }
         let response = budget::get_budget_list(
             State(SharedLedger(ledger.0.clone())),
@@ -1432,15 +1003,8 @@ option "operating_currency" "CNY"
 mod budget_accounts {
     use serde_json::json;
 
-    use super::documented_differences::{figures, ledger_at, of};
+    use super::worked_examples::{figures, json_answer as new_json, ledger_at, of};
     use super::*;
-
-    async fn new_json(ledger: &SharedLedger, probe: Probe) -> Json {
-        match probe.run(ledger).await.1 .0 {
-            Outcome::Json(json) => json,
-            other => panic!("{:?}: {:?}", probe, other),
-        }
-    }
 
     fn narrations(detail: &Json) -> Vec<String> {
         detail
