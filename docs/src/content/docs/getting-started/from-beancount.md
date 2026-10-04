@@ -65,7 +65,7 @@ When Zhang writes a transaction, for example after you edit it in the web UI, it
 | `document` | Read. The path is relative to the file that holds the directive, as in beancount: see [Document paths](#document-paths). |
 | `price` | Read, for valuations in queries and the Commodities page. |
 | `query` | Read: the queries appear in the **Saved** menu of the [Query](/guides/querying/) page. |
-| `custom` | Read. `custom budget …` defines [budgets](/guides/budgets/): see [Budgets](#budgets). |
+| `custom` | Read. `custom "budget" …` defines [budgets](/guides/budgets/): see [Budgets](#budgets). |
 | `option` | Read. Only some options have an effect: see [Options](#options). |
 | `plugin` | Python plugins do not run: see [Plugins](#plugins). |
 | `include` | Read, including `*` patterns such as `include "2024/*.bean"`. |
@@ -154,7 +154,7 @@ Beancount's plugins are Python code, and Zhang does not run them, including the 
 
 #### Budgets
 
-Zhang reads `custom budget Food CNY`, `custom budget-add Food 2000 CNY`, `custom budget-transfer Fun Food 300 CNY` and `custom budget-close Food`, with the word `budget` and the budget names unquoted, and writes budgets that way. Beancount itself rejects these lines, because it needs a quoted type and quoted names; a quoted `custom "budget" "Food" CNY` is an ordinary `custom` directive for Zhang. So if you also check the ledger with `bean-check`, it reports the budget lines as errors.
+Zhang reads budgets written as `custom` directives in the form beancount accepts: `custom "budget" "Food" "CNY"`, `custom "budget-add" "Food" 2000 CNY`, `custom "budget-transfer" "Fun" "Food" 300 CNY` and `custom "budget-close" "Food"`, with a quoted type and quoted names, and writes budgets that way, so `bean-check` and Fava accept the ledger. The unquoted form earlier versions of Zhang wrote, `custom budget Food CNY`, is still read, but beancount rejects it with `Invalid token`: switch to the quoted form. See [Budget](/reference/directives/budget/#beancount-compatibility).
 
 ### Zhang-only features
 

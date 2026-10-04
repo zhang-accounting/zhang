@@ -109,19 +109,23 @@ Some details:
 
 ## Beancount compatibility
 
-Beancount has no budget directives. In a Beancount file, write them as `custom` directives whose type is the bare
-word, without quotes:
+Beancount has no budget directives. In a Beancount file, write them as `custom` directives in the form Beancount
+itself accepts: a quoted type, quoted budget names, a quoted commodity for `budget`, and a plain amount for
+`budget-add` and `budget-transfer`:
 
 | Zhang | Beancount file |
 |---|---|
-| `2024-01-01 budget Food CNY` | `2024-01-01 custom budget Food CNY` |
-| `2024-01-01 budget-add Food 2000 CNY` | `2024-01-01 custom budget-add Food 2000 CNY` |
-| `2024-01-20 budget-transfer Fun Food 100 CNY` | `2024-01-20 custom budget-transfer Fun Food 100 CNY` |
-| `2024-12-31 budget-close Food` | `2024-12-31 custom budget-close Food` |
+| `2024-01-01 budget Food CNY` | `2024-01-01 custom "budget" "Food" "CNY"` |
+| `2024-01-01 budget-add Food 2000 CNY` | `2024-01-01 custom "budget-add" "Food" 2000 CNY` |
+| `2024-01-20 budget-transfer Fun Food 100 CNY` | `2024-01-20 custom "budget-transfer" "Fun" "Food" 100 CNY` |
+| `2024-12-31 budget-close Food` | `2024-12-31 custom "budget-close" "Food"` |
 
-Zhang reads these forms in Beancount files and writes budgets this way into them. Beancount itself requires a quoted
-type and does not accept bare words such as `Food`, so `bean-check` and Fava report these lines as syntax errors.
-`custom "budget" …`, with a quoted type, is read as an ordinary [`custom`](/reference/directives/custom/) directive.
+Metadata lines follow as usual. `bean-check` and Fava accept these lines as ordinary `custom` entries; Zhang reads
+them as budgets and writes budgets this way into Beancount files. The unquoted form earlier versions of Zhang wrote,
+`custom budget Food CNY`, is still read, so existing ledgers keep working, but Beancount rejects it (`Invalid token`):
+switch to the quoted form when you also check the ledger with `bean-check`. A `custom "budget"` with other values,
+such as Fava's own budget entries (`custom "budget" Expenses:Coffee "daily" 4.00 EUR`), stays an ordinary
+[`custom`](/reference/directives/custom/) directive.
 
 ## Related
 

@@ -94,16 +94,16 @@ YYYY-MM-DD open <Account>
 
 ## Beancount 兼容性
 
-Beancount 没有预算指令。在 Beancount 文件中，把它们写成类型为裸词（不加引号）的 `custom` 指令：
+Beancount 没有预算指令。在 Beancount 文件中，把它们写成 Beancount 本身接受的 `custom` 指令：类型加引号，预算名加引号，`budget` 的货币加引号，`budget-add` 和 `budget-transfer` 的金额直接写：
 
 | 张记账 | Beancount 文件 |
 |---|---|
-| `2024-01-01 budget Food CNY` | `2024-01-01 custom budget Food CNY` |
-| `2024-01-01 budget-add Food 2000 CNY` | `2024-01-01 custom budget-add Food 2000 CNY` |
-| `2024-01-20 budget-transfer Fun Food 100 CNY` | `2024-01-20 custom budget-transfer Fun Food 100 CNY` |
-| `2024-12-31 budget-close Food` | `2024-12-31 custom budget-close Food` |
+| `2024-01-01 budget Food CNY` | `2024-01-01 custom "budget" "Food" "CNY"` |
+| `2024-01-01 budget-add Food 2000 CNY` | `2024-01-01 custom "budget-add" "Food" 2000 CNY` |
+| `2024-01-20 budget-transfer Fun Food 100 CNY` | `2024-01-20 custom "budget-transfer" "Fun" "Food" 100 CNY` |
+| `2024-12-31 budget-close Food` | `2024-12-31 custom "budget-close" "Food"` |
 
-张记账在 Beancount 文件中读取这些写法，也以这种方式把预算写入 Beancount 文件。Beancount 本身要求类型加引号，并且不接受 `Food` 这样的裸词，所以 `bean-check` 和 Fava 会把这些行报告为语法错误。类型加了引号的 `custom "budget" …` 会被读作普通的 [`custom`](/zh-cn/reference/directives/custom/) 指令。
+元数据行照常跟在后面。`bean-check` 和 Fava 把这些行当作普通的 `custom` 条目接受；张记账把它们读作预算，也以这种方式把预算写入 Beancount 文件。早期版本的张记账写出的不加引号的写法 `custom budget Food CNY` 仍然可以读取，现有账本不受影响，但 Beancount 会拒绝它（`Invalid token`）：如果你还用 `bean-check` 检查账本，请改用加引号的写法。带有其他值的 `custom "budget"`，例如 Fava 自己的预算条目（`custom "budget" Expenses:Coffee "daily" 4.00 EUR`），仍然是普通的 [`custom`](/zh-cn/reference/directives/custom/) 指令。
 
 ## 相关页面
 

@@ -52,7 +52,7 @@ YYYY-MM-DD custom "<plugin name>" "<key>" <Value> …
 ## Beancount 兼容性
 
 - Beancount 要求类型是带引号的字符串，值必须是带引号的字符串、数字、金额、日期、布尔值或账户。单独的裸词（例如 `CNY`）或不加引号的 `monthly`，在 Beancount 中是语法错误。张记账两种写法都能读取；如果文件还要在 Beancount 或 Fava 中加载，请按 Beancount 的写法书写值。
-- 在 Beancount 文件中，张记账把用裸词写的 `custom budget …`、`custom budget-add …`、`custom budget-transfer …` 和 `custom budget-close …` 读作[预算指令](/zh-cn/reference/directives/budget/)。其他任何 `custom` 指令，包括 `custom "budget" …`，仍然是 `custom` 指令。
+- 在 Beancount 文件中，张记账把 Beancount 接受的写法 `custom "budget" "Food" "CNY"`、`custom "budget-add" "Food" 2000 CNY`、`custom "budget-transfer" "Fun" "Food" 100 CNY` 和 `custom "budget-close" "Food"` 读作[预算指令](/zh-cn/reference/directives/budget/#beancount-兼容性)，也以这种方式写入预算。早期版本写出的不加引号的 `custom budget Food CNY` 仍然可以读取。带有其他值的 `custom "budget"`，例如 Fava 的 `custom "budget" Expenses:Coffee "daily" 4.00 EUR`，仍然是 `custom` 指令，其他任何类型也一样。
 
 ## 相关页面
 

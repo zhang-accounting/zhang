@@ -19,7 +19,7 @@ use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, not_line_ending, space0, space1};
-use nom::combinator::{map, map_res, opt, peek, recognize, value};
+use nom::combinator::{eof, map, map_res, opt, peek, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
@@ -410,20 +410,30 @@ fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     ))
 }
 
-/// `custom` directives. `custom budget ...` (and its `budget-add` / `budget-transfer`
-/// / `budget-close` variants) become budget directives; anything else is a generic
-/// custom directive.
+/// `custom` directives. A `custom` whose type is `budget`, `budget-add`, `budget-transfer` or
+/// `budget-close` is one of zhang's budget directives (#500): in the form beancount itself
+/// accepts, a quoted type, quoted names and, for `budget`, a quoted commodity, as in
+/// `custom "budget" "Food" "CNY"` and `custom "budget-add" "Food" 1000 CNY`; or in the unquoted
+/// form earlier versions of zhang wrote, `custom budget Food CNY`, which beancount rejects but
+/// existing ledgers still hold. A `custom` of a budget's type whose values are not a budget
+/// directive's, such as Fava's `custom "budget" Expenses:Coffee "daily" 4.00 EUR`, is a generic
+/// custom directive, as it was, and so is every other type.
 fn custom_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     let (i, _) = space1(i)?;
-    let subtype = peek(unquote_string_raw)(i).ok().map(|(_, word)| word);
-    match subtype {
-        Some("budget") => budget_body(date, i),
-        Some("budget-add") => budget_add_body(date, i),
-        Some("budget-transfer") => budget_transfer_body(date, i),
-        Some("budget-close") => budget_close_body(date, i),
-        _ => {
-            let (i, custom_type) = string(i)?;
-            let (i, values) = many1(preceded(space1, string_or_account))(i)?;
+    let (rest, custom_type) = string(i)?;
+    let budget = match custom_type.as_str() {
+        "budget" => budget_body(date.clone(), rest),
+        "budget-add" => budget_add_body(date.clone(), rest),
+        "budget-transfer" => budget_transfer_body(date.clone(), rest),
+        "budget-close" => budget_close_body(date.clone(), rest),
+        _ => Err(nom::Err::Error(nom::error::Error::new(rest, nom::error::ErrorKind::Tag))),
+    };
+    match budget {
+        Ok(directive) => Ok(directive),
+        // a malformed escape in a quoted value is reported where it is, as in every string
+        Err(nom::Err::Failure(error)) => Err(nom::Err::Failure(error)),
+        Err(_) => {
+            let (i, values) = many1(preceded(space1, string_or_account))(rest)?;
             Ok((
                 i,
                 Either::Left(Directive::Custom(Custom {
@@ -437,17 +447,43 @@ fn custom_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     }
 }
 
+/// The name of a budget: quoted, as beancount requires, or bare, as earlier versions of zhang
+/// wrote it.
+fn budget_name(i: &str) -> IResult<&str, String> {
+    map(string, ZhangString::to_plain_string)(i)
+}
+
+/// The commodity of a `custom "budget"`: quoted, `"CNY"`, the only form beancount accepts there,
+/// or bare, as earlier versions of zhang wrote it.
+fn budget_commodity(i: &str) -> IResult<&str, String> {
+    alt((
+        map_res(quote_string, |quoted| {
+            let name = quoted.to_plain_string();
+            let is_commodity = matches!(commodity_name(name.as_str()), Ok(("", _)));
+            is_commodity.then_some(name).ok_or(())
+        }),
+        commodity_name,
+    ))(i)
+}
+
+/// The end of a budget directive's line, left for the caller: blank, or a comment. A `custom` of
+/// a budget's type with more values than the budget directive has is a generic custom directive,
+/// not a budget directive with the rest of its line left over.
+fn budget_line_end(i: &str) -> IResult<&str, ()> {
+    peek(value((), tuple((space0, opt(inline_comment), alt((value((), line_ending), value((), eof)))))))(i)
+}
+
 fn budget_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("budget")(i)?;
     let (i, _) = space1(i)?;
-    let (i, name) = unquote_string_raw(i)?;
+    let (i, name) = budget_name(i)?;
     let (i, _) = space1(i)?;
-    let (i, commodity) = commodity_name(i)?;
+    let (i, commodity) = budget_commodity(i)?;
+    let (i, _) = budget_line_end(i)?;
     Ok((
         i,
         Either::Left(Directive::Budget(Budget {
             date,
-            name: name.to_string(),
+            name,
             commodity,
             meta: Meta::default(),
         })),
@@ -455,16 +491,16 @@ fn budget_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
 }
 
 fn budget_add_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("budget-add")(i)?;
     let (i, _) = space1(i)?;
-    let (i, name) = unquote_string_raw(i)?;
+    let (i, name) = budget_name(i)?;
     let (i, _) = space1(i)?;
     let (i, amount) = posting_amount(i)?;
+    let (i, _) = budget_line_end(i)?;
     Ok((
         i,
         Either::Left(Directive::BudgetAdd(BudgetAdd {
             date,
-            name: name.to_string(),
+            name,
             amount,
             meta: Meta::default(),
         })),
@@ -472,19 +508,19 @@ fn budget_add_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
 }
 
 fn budget_transfer_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("budget-transfer")(i)?;
     let (i, _) = space1(i)?;
-    let (i, from) = unquote_string_raw(i)?;
+    let (i, from) = budget_name(i)?;
     let (i, _) = space1(i)?;
-    let (i, to) = unquote_string_raw(i)?;
+    let (i, to) = budget_name(i)?;
     let (i, _) = space1(i)?;
     let (i, amount) = posting_amount(i)?;
+    let (i, _) = budget_line_end(i)?;
     Ok((
         i,
         Either::Left(Directive::BudgetTransfer(BudgetTransfer {
             date,
-            from: from.to_string(),
-            to: to.to_string(),
+            from,
+            to,
             amount,
             meta: Meta::default(),
         })),
@@ -492,14 +528,14 @@ fn budget_transfer_body(date: Date, i: &str) -> IResult<&str, BeancountDirective
 }
 
 fn budget_close_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("budget-close")(i)?;
     let (i, _) = space1(i)?;
-    let (i, name) = unquote_string_raw(i)?;
+    let (i, name) = budget_name(i)?;
+    let (i, _) = budget_line_end(i)?;
     Ok((
         i,
         Either::Left(Directive::BudgetClose(BudgetClose {
             date,
-            name: name.to_string(),
+            name,
             meta: Meta::default(),
         })),
     ))
@@ -1159,6 +1195,77 @@ mod test {
             assert!(matches!(directive, Directive::BudgetClose(..)));
             if let Directive::BudgetClose(inner) = directive {
                 assert_eq!(inner.name, "Diet");
+            }
+        }
+
+        /// The form beancount accepts (#500): a quoted type and quoted names, a quoted commodity for
+        /// `budget`, and a plain amount for `budget-add` and `budget-transfer`. Each is the same
+        /// directive as zhang's own budget directive, and as the unquoted form earlier versions of
+        /// zhang wrote in beancount files, which is still read.
+        #[test]
+        fn should_read_the_quoted_form_beancount_accepts_as_zhangs_budget_directives() {
+            let cases = [
+                (
+                    "2024-01-01 budget Food CNY\n  alias: \"外食\"\n  category: \"生活开销｜55%\"\n",
+                    "2024-01-01 custom \"budget\" \"Food\" \"CNY\"\n  alias: \"外食\"\n  category: \"生活开销｜55%\"\n",
+                    "2024-01-01 custom budget Food CNY\n  alias: \"外食\"\n  category: \"生活开销｜55%\"\n",
+                ),
+                (
+                    "2024-01-01 budget-add Food 2000 CNY\n",
+                    "2024-01-01 custom \"budget-add\" \"Food\" 2000 CNY\n",
+                    "2024-01-01 custom budget-add Food 2000 CNY\n",
+                ),
+                (
+                    "2024-01-20 budget-transfer Fun Food 100.5 CNY\n",
+                    "2024-01-20 custom \"budget-transfer\" \"Fun\" \"Food\" 100.5 CNY\n",
+                    "2024-01-20 custom budget-transfer Fun Food 100.5 CNY\n",
+                ),
+                (
+                    "2024-12-31 budget-close Food\n",
+                    "2024-12-31 custom \"budget-close\" \"Food\"\n",
+                    "2024-12-31 custom budget-close Food\n",
+                ),
+            ];
+            for (zhang, quoted, unquoted) in cases {
+                let expected = zhang_core::data_type::text::parser::parse(zhang, None::<std::path::PathBuf>)
+                    .unwrap()
+                    .pop()
+                    .unwrap()
+                    .data;
+                assert!(!matches!(expected, Directive::Custom(..)), "{}", zhang);
+                assert_eq!(get_left_directive(quoted), expected, "{}", quoted);
+                assert_eq!(get_left_directive(unquoted), expected, "{}", unquoted);
+            }
+        }
+
+        /// A quoted name holds what a bare word cannot, and a trailing comment is no part of the
+        /// directive.
+        #[test]
+        fn should_read_quoted_names_with_spaces_and_a_trailing_comment() {
+            let directive = get_left_directive("2024-01-01 custom \"budget\" \"Eating out: lunch\" \"CNY\" ; weekdays\n");
+            let Directive::Budget(budget) = directive else { panic!("{:?}", directive) };
+            assert_eq!((budget.name.as_str(), budget.commodity.as_str()), ("Eating out: lunch", "CNY"));
+            let directive = get_left_directive("2024-01-20 custom \"budget-transfer\" \"Eating out\" \"Fun money\" 100 CNY\n");
+            let Directive::BudgetTransfer(transfer) = directive else {
+                panic!("{:?}", directive)
+            };
+            assert_eq!((transfer.from.as_str(), transfer.to.as_str()), ("Eating out", "Fun money"));
+        }
+
+        /// A `custom` of a budget's type whose values are not a budget directive's stays a generic
+        /// custom directive, as it was: Fava's budgets, a quoted amount, more or fewer values.
+        #[test]
+        fn should_keep_a_custom_budget_of_another_shape_a_custom_directive() {
+            for line in [
+                "2024-01-01 custom \"budget\" Expenses:Coffee \"daily\" 4.00 EUR\n",
+                "2024-01-01 custom \"budget\" \"Food\" \"CNY\" \"monthly\"\n",
+                "2024-01-01 custom \"budget\" \"Food\"\n",
+                "2024-01-01 custom \"budget\" \"Food\" \"not a commodity\"\n",
+                "2024-01-01 custom \"budget-add\" \"Food\" \"2000 CNY\"\n",
+                "2024-01-01 custom \"budget-close\" \"Food\" \"CNY\"\n",
+            ] {
+                let directive = get_left_directive(line);
+                assert!(matches!(directive, Directive::Custom(..)), "{}: {:?}", line, directive);
             }
         }
     }

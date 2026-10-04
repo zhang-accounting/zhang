@@ -1,0 +1,83 @@
+[
+  {
+    "uri": "/api/errors",
+    "validations": [
+      [
+        "$.data.records.length()",
+        0
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets?year=2023&month=12",
+    "validations": [
+      [
+        "$.data.length()",
+        3
+      ],
+      [
+        "$.data[?(@.name=='food')].alias",
+        "外食"
+      ],
+      [
+        "$.data[?(@.name=='food')].category",
+        "生活开销｜55%"
+      ],
+      [
+        "$.data[?(@.name=='food')].assigned_amount.number",
+        "1100"
+      ],
+      [
+        "$.data[?(@.name=='food')].activity_amount.number",
+        "50"
+      ],
+      [
+        "$.data[?(@.name=='food')].available_amount.number",
+        "1050"
+      ],
+      [
+        "$.data[?(@.name=='fun')].alias",
+        "娱乐"
+      ],
+      [
+        "$.data[?(@.name=='fun')].assigned_amount.number",
+        "200.5"
+      ],
+      [
+        "$.data[?(@.name=='fun')].activity_amount.number",
+        "80"
+      ],
+      [
+        "$.data[?(@.name=='fun')].available_amount.number",
+        "120.5"
+      ],
+      [
+        "$.data[?(@.name=='vacation')].closed",
+        true
+      ],
+      [
+        "$.data[?(@.name=='vacation')].assigned_amount.number",
+        "0"
+      ]
+    ]
+  },
+  {
+    "uri": "/api/budgets/food?year=2023&month=12",
+    "validations": [
+      [
+        "$.data.name",
+        "food"
+      ],
+      [
+        "$.data.assigned_amount.number",
+        "1100"
+      ],
+      [
+        "$.data.related_accounts",
+        [
+          "Expenses:Food"
+        ]
+      ]
+    ]
+  }
+]
