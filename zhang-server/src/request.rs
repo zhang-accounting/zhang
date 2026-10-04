@@ -91,8 +91,8 @@ pub struct AccountJournalRequest {
 impl AccountJournalRequest {
     /// The default `size` of a page, as in `GET /api/journals`.
     pub const DEFAULT_SIZE: u32 = 100;
-    /// The largest `size` of a page.
-    pub const MAX_SIZE: u32 = 1000;
+    /// The largest `size` of a page, as in `GET /api/journals`.
+    pub const MAX_SIZE: u32 = crate::journals::MAX_PAGE_SIZE;
 
     /// The window of rows the request asks for; `None` for the whole journal. A page or a size of 0,
     /// and a size above [`Self::MAX_SIZE`], are a 400.
