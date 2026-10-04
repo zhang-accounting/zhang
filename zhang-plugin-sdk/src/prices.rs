@@ -168,6 +168,7 @@ mod test {
             price,
             comment: None,
             meta: Meta::default(),
+            written: None,
         }
     }
 

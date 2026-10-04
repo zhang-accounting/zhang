@@ -69,6 +69,7 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
             price: None,
             comment: None,
             meta: metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta)?,
+            written: None,
         });
     }
 

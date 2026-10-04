@@ -103,6 +103,7 @@ fn posting(name: &str, units: i64) -> Posting {
         price: None,
         comment: None,
         meta: Default::default(),
+        written: None,
     }
 }
 

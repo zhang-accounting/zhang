@@ -90,6 +90,7 @@ fn directives_with_strings(mut next: impl FnMut() -> String) -> Vec<Directive> {
                     price: None,
                     comment: None,
                     meta: Default::default(),
+                    written: None,
                 },
                 Posting {
                     flag: None,
@@ -99,6 +100,7 @@ fn directives_with_strings(mut next: impl FnMut() -> String) -> Vec<Directive> {
                     price: None,
                     comment: None,
                     meta: Default::default(),
+                    written: None,
                 },
             ],
             meta: txn_meta,

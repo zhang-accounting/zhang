@@ -128,9 +128,11 @@ impl ZhangDataTypeExportable for Transaction {
         // the transaction's metadata goes before the postings: beancount attaches a
         // metadata line that follows a posting to that posting. A posting's own metadata
         // follows it two levels deeper, which beancount and zhang (where it must be
-        // indented deeper than the posting) both read as the posting's
+        // indented deeper than the posting) both read as the posting's.
+        // Postings booking changed are written as the user wrote them: the legs of a split
+        // merged back, implicit units left out, the cost spec as written
         let meta = self.meta.export_as(style).into_iter().map(|it| format!("  {}", it));
-        let postings = self.postings.into_iter().flat_map(|mut posting| {
+        let postings = written_postings(self.postings).into_iter().flat_map(|mut posting| {
             let meta = std::mem::take(&mut posting.meta).export_as(style).into_iter().map(|it| format!("    {}", it));
             std::iter::once(format!("  {}", posting.export_as(style))).chain(meta)
         });
@@ -850,6 +852,70 @@ mod test {
     }
 
     #[test]
+    fn booked_postings_are_exported_as_written() {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Account, Date, Directive, Posting, PostingCost, WrittenPosting};
+
+        use crate::data_type::text::exporter::ZhangDataTypeExportable;
+        use crate::utils::string_::QuoteStyle;
+
+        let source = indoc! {r#"
+            2024-05-18 * "sell"
+              Assets:S -15 USD {}
+              Income:I
+        "#};
+        let directives = ZhangDataType {}.transform(source.to_owned(), None).unwrap();
+        let Directive::Transaction(mut txn) = directives.into_iter().next().unwrap().data else {
+            panic!("a transaction")
+        };
+        // what booking makes of it: one leg per lot, the implicit posting interpolated
+        let leg = |units: i64, cost: i64, date: &str| Posting {
+            flag: None,
+            account: Account::from_str("Assets:S").unwrap(),
+            units: Some(Amount::new(BigDecimal::from(units), "USD")),
+            cost: Some(PostingCost {
+                base: Some(Amount::new(BigDecimal::from(cost), "CNY")),
+                date: Some(Date::Date(chrono::NaiveDate::from_str(date).unwrap())),
+                label: None,
+                total: false,
+            }),
+            price: None,
+            comment: None,
+            meta: Default::default(),
+            written: Some(WrittenPosting {
+                index: 0,
+                units: txn.postings[0].units.clone(),
+                cost: txn.postings[0].cost.clone(),
+            }),
+        };
+        let income = Posting {
+            units: Some(Amount::new(BigDecimal::from(155), "CNY")),
+            written: Some(WrittenPosting {
+                index: 1,
+                units: None,
+                cost: None,
+            }),
+            ..txn.postings[1].clone()
+        };
+        txn.postings = vec![leg(-10, 10, "2024-05-16"), leg(-5, 11, "2024-05-17"), income];
+
+        // the legs merged back into the written posting, the implicit posting without units
+        // (the exporter writes an empty cost spec as `{ }`)
+        assert_eq!(
+            Directive::Transaction(txn).export_as(QuoteStyle::Zhang),
+            indoc! {r#"
+                2024-05-18 * "sell"
+                  Assets:S -15 USD { }
+                  Income:I
+            "#}
+            .trim()
+        );
+    }
+
+    #[test]
     fn posting_meta_is_written_under_its_posting_two_levels_deeper() {
         use zhang_ast::{Directive, SpanInfo, Spanned};
 
@@ -1209,6 +1275,7 @@ mod test {
                         price: None,
                         comment: None,
                         meta: posting_meta,
+                        written: None,
                     },
                     Posting {
                         flag: None,
@@ -1218,6 +1285,7 @@ mod test {
                         price: None,
                         comment: None,
                         meta: Default::default(),
+                        written: None,
                     },
                 ],
                 meta: txn_meta,

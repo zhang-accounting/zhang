@@ -317,6 +317,8 @@ A directive is the serde JSON of `zhang-ast`'s `Spanned<Directive>`, of a kind A
 
 An export fails by returning a non-zero code with an Extism error; for a processor or mapper that aborts the load.
 
+A posting may carry a `written` field: what the user wrote when booking changed the posting, as `{"index": 0, "units": …, "cost": …}` (`index` is the position of the written posting; the legs of a reduction booking split across lots are adjacent and share it, `units` is `null` for a posting written without an amount, `cost` is the cost spec as written). It is advisory: Zhang never reads it for balances, lots or errors, only to show journal rows and exports as written. It is absent when Zhang left the posting as written, so such a posting serializes exactly as before the field existed, and a plugin built against an older `zhang-ast` drops it, which only changes how those rows look. Pass it through unchanged; a plugin that changes the units or cost of a posting should drop its `written` field, so the row shows what the plugin wrote.
+
 ### Config
 
 Zhang hands every plugin instance a string-to-string Extism config:

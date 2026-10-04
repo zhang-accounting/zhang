@@ -29,6 +29,7 @@ pub fn posting(account: &str, units: Option<(&str, &str)>, meta: &[(&str, ZhangS
         price: None,
         comment: None,
         meta: meta.iter().map(|(key, value)| (key.to_string(), value.clone())).collect(),
+        written: None,
     }
 }
 
@@ -278,6 +279,7 @@ fn random_posting(rng: &mut XorShift) -> Posting {
         price,
         comment: None,
         meta: random_meta(rng, 3),
+        written: None,
     }
 }
 

@@ -389,6 +389,7 @@ fn transaction_posting(i: &str) -> IResult<&str, Posting> {
         price: None,
         comment: None,
         meta: Meta::default(),
+        written: None,
     };
     if let Some((amount, meta)) = unit {
         posting.units = amount;
