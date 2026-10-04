@@ -16,8 +16,8 @@ use zhang_ast::{Account, AccountType, Currency, Date, Flag, Meta, PostingCost, R
 
 use crate::constants::BALANCE_CHECK_PAYEE;
 use crate::domains::schemas::{
-    AccountBalanceDomain, AccountDailyBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, BalanceWithSubAccounts, CommodityDomain, ErrorDomain,
-    MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
+    AccountBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, BalanceWithSubAccounts, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
+    OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
 };
 use crate::store::{
     BalanceAssertionDomain, BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain,
@@ -329,44 +329,6 @@ impl Operations {
             .transpose()
     }
 
-    pub fn accounts_latest_balance(&mut self) -> ZhangResult<Vec<AccountDailyBalanceDomain>> {
-        let store = self.read();
-
-        let mut ret: HashMap<Account, IndexMap<Currency, BTreeMap<NaiveDate, Amount>>> = HashMap::new();
-
-        for posting in store.postings.iter().cloned().sorted_by_key(|posting| posting.trx_datetime) {
-            let posting: PostingDomain = posting;
-            let date = posting.trx_datetime.naive_local().date();
-
-            let account_inventory = ret.entry(posting.account).or_default();
-            let dated_amount = account_inventory.entry(posting.after_amount.commodity.clone()).or_default();
-            dated_amount.insert(date, posting.after_amount);
-        }
-
-        Ok(ret
-            .into_iter()
-            .flat_map(|(account, account_inventory)| {
-                account_inventory
-                    .into_iter()
-                    .map(|(_, mut dated)| {
-                        let (date, amount) = dated.pop_last().expect("");
-                        AccountDailyBalanceDomain {
-                            date,
-                            account: account.name().to_owned(),
-                            balance: amount,
-                        }
-                    })
-                    .collect_vec()
-            })
-            .collect_vec())
-    }
-
-    /// the price of one `from` in `to` as of `date`: the latest `price` directive for the pair
-    /// dated on or before `date`, like beancount.
-    ///
-    /// Prices with the same datetime replace each other: the last one in stream order wins
-    /// (the stream is sorted stably, so that is source order). Only the direct pair is looked
-    /// up: no inverse rate, and no identity rate for `from == to`.
     pub fn get_price(&mut self, date: NaiveDateTime, from: impl AsRef<str>, to: impl AsRef<str>) -> ZhangResult<Option<PriceDomain>> {
         let store = self.read();
         let price = store
@@ -402,35 +364,6 @@ impl Operations {
             .find(|meta| meta.key.eq(key.as_ref()))
             .cloned())
     }
-    pub fn typed_meta_value<T>(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> Result<Option<T>, ErrorKind>
-    where
-        T: FromStr<Err = ErrorKind>,
-    {
-        let store = self.read();
-
-        store
-            .metas
-            .iter()
-            .filter(|meta| meta.meta_type.eq(type_.as_ref()))
-            .filter(|meta| meta.type_identifier.eq(type_identifier.as_ref()))
-            .find(|meta| meta.key.eq(key.as_ref()))
-            .map(|it| T::from_str(&it.value))
-            .transpose()
-    }
-
-    pub fn trx_tags(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {
-        let store = self.read();
-        let tags = store.transactions.get(trx_id).map(|it| it.tags.clone()).unwrap_or_default();
-
-        Ok(tags)
-    }
-
-    pub fn trx_links(&mut self, trx_id: &Uuid) -> ZhangResult<Vec<String>> {
-        let store = self.read();
-        let tags = store.transactions.get(trx_id).map(|it| it.links.clone()).unwrap_or_default();
-
-        Ok(tags)
-    }
 
     pub fn commodity(&self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
         let store = self.read();
@@ -443,16 +376,6 @@ impl Operations {
 
     pub fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
         Ok(self.account(name)?.is_some())
-    }
-
-    pub fn transaction_counts(&mut self) -> ZhangResult<i64> {
-        let store = self.read();
-        Ok(store.transactions.len() as i64)
-    }
-
-    pub fn single_transaction(&mut self, id: &Uuid) -> ZhangResult<Option<TransactionDomain>> {
-        let store = self.read();
-        Ok(store.transactions.get(id).cloned())
     }
 
     pub fn transaction_span(&mut self, id: &Uuid) -> ZhangResult<Option<TransactionInfoDomain>> {
