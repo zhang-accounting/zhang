@@ -1,26 +1,48 @@
 ---
 title: Zhang Accounting Documentation
-description: a self-hosted powerful plain text accounting tool.
+description: A self-hosted, plain text double-entry accounting tool that reads beancount ledgers and serves a web UI on top of your files.
 template: splash
 hero:
-  tagline: Dive into the world of Zhang Accounting with our detailed documentation. Explore setup, advanced usage, troubleshooting, and more.
+  title: Zhang Accounting
+  tagline: A self-hosted, plain text double-entry accounting tool that speaks beancount.
   image:
-    file: ../../assets/logo-without-bg.png
+    file: ../../assets/logo.png
   actions:
-    - text: Setup of Installation
-      link: /installation/1-installation/
+    - text: Get started
+      link: /getting-started/introduction/
       icon: right-arrow
       variant: primary
-    - text: Try on Playground
-      link: https://zhang-playground.zeabur.app
+    - text: Try the playground
+      link: https://zhang-cloud.kilerd.me/playground
       icon: external
+      variant: minimal
 ---
-Welcome to the Zhang Accounting documentation. Here, you'll find everything you need to get started, optimize your accounting practices, and troubleshoot any issues you might encounter along the way. Whether you're a new user looking to set up Zhang Accounting for the first time, or an experienced accountant seeking to leverage advanced features, our comprehensive guides and examples are here to assist you.
 
-Dive into our documentation to explore detailed installation steps, data source configurations, directive usage, developer guides, error code explanations, and much more. Our goal is to provide you with all the resources necessary to make your accounting process as smooth and efficient as possible.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-We've recently expanded our documentation to include new sections on advanced usage, troubleshooting, and community contributions. These additions are designed to enhance your understanding of Zhang Accounting and encourage community engagement.
-
-If you're new to Zhang Accounting, we recommend starting with our installation guide. For advanced users, explore our sections on data sources, directives, and developer guides to get the most out of your accounting setup.
-
-Thank you for choosing Zhang Accounting. We're excited to support you on your accounting journey.
+<CardGrid>
+	<Card title="Plain text you own" icon="document">
+		Your books are text files in a folder you control: edit them in any editor and keep them in Git. Zhang reads beancount ledgers as they are. Start with [your first ledger](/getting-started/first-ledger/) or [bring a beancount ledger](/getting-started/from-beancount/).
+	</Card>
+	<Card title="A web UI on your files" icon="laptop">
+		Overview, journals, reports, balance sheet, budgets, commodities, documents and queries. What you record in the browser is written back to your files. [Take the tour](/getting-started/first-ledger/#a-tour-of-the-web-ui).
+	</Card>
+	<Card title="Lots and cost basis" icon="list-format">
+		Hold investments at cost and sell them with FIFO, LIFO or STRICT booking, with exact decimal amounts. See [lots and cost basis](/guides/lots-and-cost-basis/).
+	</Card>
+	<Card title="Budgets" icon="pen">
+		Monthly envelope budgets: assign money to a budget, then see what you spent and what is left. See [budgets](/guides/budgets/).
+	</Card>
+	<Card title="Documents" icon="add-document">
+		Attach receipts and statements to accounts and transactions, from your files or by uploading them in the web UI. See [documents](/guides/documents/).
+	</Card>
+	<Card title="Queries" icon="magnifier">
+		A BQL-compatible query language with `SELECT`, `BALANCES` and `JOURNAL`, in the web UI and over the API, with CSV export. See [querying](/guides/querying/).
+	</Card>
+	<Card title="Plugins" icon="puzzle">
+		Opt-in WebAssembly plugins check or transform the ledger, or serve their own pages and APIs, with only the capabilities you grant. See [plugins](/guides/plugins/) and [writing plugins](/developers/writing-plugins/).
+	</Card>
+	<Card title="Deploy anywhere" icon="rocket">
+		A Docker image and binaries for Linux and macOS. Keep the ledger on [local disk](/deployment/data-sources/local/), [S3](/deployment/data-sources/s3/), [WebDAV](/deployment/data-sources/webdav/) or [GitHub](/deployment/data-sources/github/), and sign in with a [password or passkeys](/deployment/authentication/).
+	</Card>
+</CardGrid>
