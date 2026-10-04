@@ -58,7 +58,6 @@
     "eslint-plugin-react-refresh": "^0.4.12",
     "express": "^4.21.0",
     "globals": "^15.9.0",
-    "husky": "^9.0.11",
     "openapi-typescript": "^6.7.5",
     "prettier": "^3.2.5",
     "tailwindcss": "^4.3.3",
@@ -66,10 +65,5 @@
     "typescript-eslint": "^8.7.0",
     "vite": "^5.4.8",
     "vite-plugin-compression": "^0.5.1"
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "pnpm run prettier:fix"
-    }
   }
 }
