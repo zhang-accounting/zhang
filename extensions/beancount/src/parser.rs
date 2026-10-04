@@ -13,13 +13,12 @@
 //! [`zhang_core::data_type::text::parser`], so both data types read them the same way.
 
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use chrono::{NaiveDate, NaiveTime};
 use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
-use nom::character::complete::{char, line_ending, satisfy, space0, space1};
+use nom::character::complete::{char, line_ending, space0, space1};
 use nom::combinator::{map, map_res, opt, peek, recognize, value};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, preceded, terminated, tuple};
@@ -27,9 +26,9 @@ use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
-    account_name, blank_line, comma_separator, commodity_name, indentation_width, inline_comment, is_digit, key_value_line, line_trailer, metas_block,
-    number_expr, offset, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, unquote_string_raw,
-    valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
+    account_name, blank_line, comma_separator, commodity_name, flag_char, indentation_width, inline_comment, is_digit, key_value_line, line_trailer,
+    metas_block, number_expr, offset, posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links,
+    transaction_flag, unquote_string_raw, valuable_comment, valuable_comment_body, CostComponent, PostingMeta, TransactionLine,
 };
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
@@ -116,27 +115,11 @@ fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)>
     Ok((i, (amount, Some(meta))))
 }
 
-/// `flag_char = "*" | "!" | "#" | "&" | "?" | "%" | ASCII_ALPHA_UPPER`: the characters beancount 3
-/// reads as the flag of a transaction or of a posting.
-fn flag_char(i: &str) -> IResult<&str, Flag> {
-    map(
-        satisfy(|c: char| matches!(c, '*' | '!' | '#' | '&' | '?' | '%') || c.is_ascii_uppercase()),
-        |c| Flag::from_str(&c.to_string()).expect("invalid flag"),
-    )(i)
-}
-
-fn transaction_flag(i: &str) -> IResult<&str, Flag> {
-    let (i, _) = space1(i)?;
-    alt((
-        // beancount's `txn` keyword is the explicit form of a completed transaction
-        map(tag("txn"), |_| Flag::Okay),
-        flag_char,
-    ))(i)
-}
-
 /// `posting_flag = flag_char space+`: the flag of a posting, before its account, such as the `!`
-/// of `! Assets:Cash -10 USD`. Beancount takes no `txn` there. The space is required, so an
-/// indented `*` or `#` comment such as `*Assets:Cash -10 USD` stays a comment.
+/// of `! Assets:Cash -10 USD`. Unlike a zhang file, a beancount file takes every flag beancount 3
+/// reads on a posting, `*` and `#` included, as beancount does. Beancount takes no `txn` there.
+/// The space is required, so an indented `*` or `#` comment such as `*Assets:Cash -10 USD` stays
+/// a comment.
 fn posting_flag(i: &str) -> IResult<&str, Flag> {
     terminated(flag_char, space1)(i)
 }

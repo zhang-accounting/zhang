@@ -343,7 +343,7 @@ pub fn is_posting_flag_char(c: char) -> bool {
 }
 
 /// `flag_char = "*" | "!" | "#" | "&" | "?" | "%" | ASCII_ALPHA_UPPER`
-fn flag_char(i: &str) -> IResult<&str, Flag> {
+pub fn flag_char(i: &str) -> IResult<&str, Flag> {
     map(satisfy(is_flag_char), |c| Flag::from_str(&c.to_string()).expect("invalid flag"))(i)
 }
 
@@ -357,7 +357,7 @@ fn flag(i: &str) -> IResult<&str, Flag> {
 }
 
 /// `transaction_flag = space+ flag`
-fn transaction_flag(i: &str) -> IResult<&str, Flag> {
+pub fn transaction_flag(i: &str) -> IResult<&str, Flag> {
     preceded(space1, flag)(i)
 }
 
