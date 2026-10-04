@@ -1364,7 +1364,7 @@ curl -X POST http://localhost:8000/api/query \
 - 执行时间包括构建 `postings` 表各行以及应用会计期间子句的时间。查询运行期间会持有账本的读锁，时间限制也限定了持有读锁的时长。
 - 结果大小把每个单元格计为一个值，库存中的每个持仓、集合中的每个元素、`metas` 值中的每个键值对以及文本中的每 64 字节（包括这些元素和键值对的文本）各再计一个值。查询在 `ORDER BY`、`DISTINCT` 和 `LIMIT` 之前收集的行也计算在内，聚合查询在构建过程中的分组，以及 [`#budgets`](#预算表) 生成的月份（每个月份计一个值）同样如此。`PIVOT BY` 生成的表计算所有单元格（包括空单元格），并在构建之前检查。超出限制的查询会报错，错误信息建议用 `FROM` 或 `WHERE` 缩小查询范围，或者加上 `LIMIT`。
 - 服务器管理员可以通过环境变量 `ZHANG_QUERY_MAX_RESULT_VALUES` 调高或调低结果大小的限制。
-- `LIMIT` 可以让结果保持较小，[累计余额](#累计余额)的计算方式也有帮助：除非查询按 `balance` 排序、分组或去重，否则只为最终出现在结果中的行构建 `balance`。`units(balance)` 和 `cost(balance)`（以及 `JOURNAL ... AT units` 和 `AT cost`）按货币累加，不保留批次。
+- `LIMIT` 可以让结果保持较小，[累计余额](#累计余额)的计算方式也有帮助：除非查询按 `balance` 排序、分组或去重，否则只为最终出现在结果中的行构建 `balance`。`units(balance)` 和 `cost(balance)`（以及 `JOURNAL ... AT units` 和 `AT cost`）按货币累加，不保留批次。没有 `ORDER BY` 时，如果每个分组的行在账本顺序中前后相连（例如 `GROUP BY date`，或按 `seq, posting_index` 对一笔按多个批次记账的记账行的各行分组），`LIMIT` 和 `OFFSET` 只构建它们返回的分组，无论这一页有多靠后。
 - 多次写出的同一个聚合，例如 `last(balance), units(last(balance))` 中的 `last(balance)`，只计算和保存一次。在分组查询中，如果 `HAVING` 不读取 `first(balance)` 和 `last(balance)`（例如 `GROUP BY date HAVING max(date) >= 2024-01-01`），它们只为 `HAVING` 保留的分组构建，因此这样的查询只花费保留的分组所占的开销，无论之前的历史有多长。
 - [CSV 导出](#csv-导出)同样受这些限制。
 

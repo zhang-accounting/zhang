@@ -348,6 +348,63 @@ fn totals_count_the_rows_before_the_window() {
     }
 }
 
+/// Grouped queries whose LIMIT keeps their first groups: the rows of a posting's lots, of a day and of a month come
+/// one after another, in one run, those of an account do not.
+const GROUPED: &[&str] = &[
+    "SELECT seq, posting_index, sum(number) AS units, first(currency), last(only(currency, units(balance))) GROUP BY seq, posting_index",
+    "SELECT seq, posting_index, sum(number), first(account) WHERE account ~ 'Assets' GROUP BY seq, posting_index",
+    "SELECT date, count(*), last(units(balance)), first(balance) GROUP BY date",
+    "SELECT year, month, sum(position) GROUP BY year, month",
+    "SELECT account, count(*), last(balance) GROUP BY account",
+    "SELECT payee, narration, count(*) GROUP BY payee, narration",
+];
+
+/// LIMIT and OFFSET keep the groups of their window out of all the groups in the order of their first row, and the
+/// total counts all of them, whether the groups come in runs, when only those of the window are built and the scan
+/// stops after it, or not, when every group is built.
+#[test]
+fn a_window_of_groups_is_that_window_of_all_the_groups() {
+    for ledger in [fava_demo_ledger(), load_text(&random_lots_ledger(7, 150))] {
+        let run = |sql: &str, count_total: bool| {
+            let options = ExecuteOptions { count_total, ..options() };
+            Query::compile(sql).unwrap().execute_with_options(&ledger, &Params::new(), &options).unwrap()
+        };
+        for sql in GROUPED {
+            let all = run(sql, false).rows;
+            let n = all.len();
+            assert!(n > 3, "{sql}");
+            for (limit, offset) in [(0, 0), (1, 0), (3, 2), (5, n - 3), (10, n), (n + 5, 0), (7, n / 2)] {
+                let windowed = format!("{sql} LIMIT {limit} OFFSET {offset}");
+                let expected = all.iter().skip(offset).take(limit).collect::<Vec<_>>();
+                let counted = run(&windowed, true);
+                assert_eq!(format!("{:?}", counted.rows.iter().collect::<Vec<_>>()), format!("{expected:?}"), "{windowed}");
+                assert_eq!(counted.total, Some(n as u64), "{windowed}");
+                assert_eq!(format!("{:?}", run(&windowed, false).rows), format!("{:?}", counted.rows), "{windowed}");
+            }
+        }
+    }
+}
+
+/// A page deep into groups that come in runs holds only its own groups: the lot rows of 800 postings grouped by
+/// posting, page 141 of 5 within a budget of 200 values, which building every group would exceed.
+#[test]
+fn a_deep_page_of_groups_in_runs_holds_only_its_own_groups() {
+    let ledger = load_text(&random_lots_ledger(3, 400));
+    let grouped = "SELECT seq, posting_index, sum(number), last(only(currency, units(balance))) GROUP BY seq, posting_index";
+    let run = |sql: &str| {
+        let options = ExecuteOptions {
+            max_result_values: Some(200),
+            ..options()
+        };
+        Query::compile(sql).unwrap().execute_with_options(&ledger, &Params::new(), &options)
+    };
+    let page = run(&format!("{grouped} LIMIT 5 OFFSET 700")).unwrap();
+    assert_eq!((page.rows.len(), page.total), (5, Some(800)));
+    // sorted, every group is built
+    let sorted = run(&format!("{grouped} ORDER BY seq LIMIT 5 OFFSET 700")).unwrap_err();
+    assert_eq!(sorted.kind, crate::QueryErrorKind::TooLarge);
+}
+
 #[test]
 fn decisions_keep_results_on_the_fava_demo_ledger() {
     assert_equivalent(&fava_demo_ledger(), QUERIES);
