@@ -13,7 +13,7 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
-use zhang_core::data_source::{directive_output_file, written_into, DataSource, LoadResult, SourceEntry};
+use zhang_core::data_source::{directive_output_file, included_file, written_into, DataSource, LoadResult, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -219,7 +219,7 @@ impl DataSource for OpendalDataSource {
             let file_content = self.get_file_content(striped_pathbuf.clone()).await?;
             let entity_directives = self.parse(&file_content, striped_pathbuf.clone())?;
 
-            entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
+            entity_directives.iter().filter_map(included_file).for_each(|buf| {
                 let fullpath = if buf.starts_with('/') {
                     PathBuf::from_str(&buf).unwrap()
                 } else {
@@ -491,12 +491,6 @@ impl OpendalDataSource {
                 path: path_string,
                 msg: it.to_string(),
             })
-        }
-    }
-    fn go_next(&self, directive: &Spanned<Directive>) -> Option<String> {
-        match &directive.data {
-            Directive::Include(include) => Some(include.file.clone().to_plain_string()),
-            _ => None,
         }
     }
     fn transform(&self, directives: Vec<Spanned<Directive>>) -> ZhangResult<Vec<Spanned<Directive>>> {

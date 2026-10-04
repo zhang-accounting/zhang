@@ -113,6 +113,14 @@ where
     }
 }
 
+/// the file an `include` directive names, as it is written, for a data source to load next; `None` for any other directive
+pub fn included_file(directive: &Spanned<Directive>) -> Option<String> {
+    match &directive.data {
+        Directive::Include(include) => Some(include.file.clone().to_plain_string()),
+        _ => None,
+    }
+}
+
 /// the file a new `directive` is appended to: the one the `directive_output_path` option renders for its date, in the
 /// ledger's directory, or the main file for a directive without a date. The template gets `type` (the kind of
 /// directive), `year`, `month`, `month_str` and `day`, `day_str` (zero-padded) and `ext`, the extension of the main
@@ -182,13 +190,6 @@ impl LocalFileSystemDataSource {
             data_type: Box::new(data_type),
         }
     }
-    fn go_next(&self, directive: &Spanned<Directive>) -> Option<String> {
-        match &directive.data {
-            Directive::Include(include) => Some(include.file.clone().to_plain_string()),
-            _ => None,
-        }
-    }
-
     pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) -> ZhangResult<()> {
         match filename.parent() {
             Some(folder) => std::fs::create_dir_all(folder).with_path(folder),
@@ -281,7 +282,7 @@ impl DataSource for LocalFileSystemDataSource {
                 .data_type
                 .transform(String::from_utf8_lossy(&file_content).to_string(), Some(pathbuf.to_string_lossy().to_string()))?;
 
-            entity_directives.iter().filter_map(|directive| self.go_next(directive)).for_each(|buf| {
+            entity_directives.iter().filter_map(included_file).for_each(|buf| {
                 let fullpath = if buf.starts_with('/') {
                     PathBuf::from(&buf)
                 } else {
