@@ -1,78 +1,55 @@
 [
   {
-    "uri": "/api/store",
+    "uri": "/api/errors",
     "validations": [
       [
-        "$.data.errors.length()",
+        "$.data.records.length()",
         0
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Assets:Cash",
+    "validations": [
       [
-        "$.data.commodity_lots.['Assets:Cash'].[0].amount",
+        "$.data.amount.detail.USD",
         "70"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Assets:Bank",
+    "validations": [
       [
-        "$.data.commodity_lots.['Assets:Bank'].[0].amount",
+        "$.data.amount.detail.USD",
         "990"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Expenses:Food",
+    "validations": [
       [
-        "$.data.commodity_lots.['Expenses:Food'].[0].amount",
+        "$.data.amount.detail.USD",
         "25"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Expenses:Drinks",
+    "validations": [
       [
-        "$.data.commodity_lots.['Expenses:Drinks'].[0].amount",
+        "$.data.amount.detail.USD",
         "15"
-      ],
+      ]
+    ]
+  },
+  {
+    "uri": "/api/accounts/Equity:Opening",
+    "validations": [
       [
-        "$.data.commodity_lots.['Equity:Opening'].[0].amount",
+        "$.data.amount.detail.USD",
         "-1100"
-      ],
-      [
-        "$.data.postings.length()",
-        13
-      ],
-      [
-        "$.data.postings[3].flag",
-        "Warning"
-      ],
-      [
-        "$.data.postings[4].flag",
-        null
-      ],
-      [
-        "$.data.postings[4].inferred_amount.number",
-        "10"
-      ],
-      [
-        "$.data.postings[5].flag",
-        "Warning"
-      ],
-      [
-        "$.data.postings[6].flag.Custom",
-        "X"
-      ],
-      [
-        "$.data.postings[7].flag.Custom",
-        "?"
-      ],
-      [
-        "$.data.postings[7].inferred_amount.number",
-        "5"
-      ],
-      [
-        "$.data.postings[8].flag.Custom",
-        "&"
-      ],
-      [
-        "$.data.postings[11].flag",
-        "BalancePad"
-      ],
-      [
-        "$.data.postings[12].flag",
-        "BalanceCheck"
-      ],
-      [
-        "$.data.postings[12].inferred_amount.number",
-        "10"
       ]
     ]
   },
@@ -98,6 +75,26 @@
       [
         "$.data.records[5].postings[2].inferred_unit.number",
         "5"
+      ],
+      [
+        "$.data.records[4].narration",
+        "Cafe"
+      ],
+      [
+        "$.data.records[4].postings.length()",
+        5
+      ],
+      [
+        "$.data.records[4].postings[4].inferred_unit.number",
+        "10"
+      ],
+      [
+        "$.data.records[6].narration",
+        "Lunch"
+      ],
+      [
+        "$.data.records[6].postings[1].inferred_unit.number",
+        "10"
       ]
     ]
   }
