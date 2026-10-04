@@ -813,9 +813,7 @@ fn journal_reasons(account: &str, before: &[Value], after: &[Value], stored: &St
         .iter()
         .map(|block| {
             let row = &block[0];
-            let Some(sequence) = stored.sequence_of.get(row["trx_id"].as_str().unwrap_or_default()) else {
-                return None;
-            };
+            let sequence = stored.sequence_of.get(row["trx_id"].as_str().unwrap_or_default())?;
             let day = row["datetime"].as_str().unwrap_or_default().chars().take(10).collect::<String>();
             Some((row["timestamp"].as_i64().unwrap_or_default(), *sequence, day))
         })
@@ -876,10 +874,8 @@ fn journal_reasons(account: &str, before: &[Value], after: &[Value], stored: &St
     for (before, block) in before.iter().zip(&legacy_order) {
         let after = &after[*block];
         let newest_first = before.iter().rev().cloned().collect::<Vec<_>>();
-        if &newest_first != after {
-            if !gap_days.contains(&keys[*block].2) || without_balance(&newest_first) != without_balance(after) {
-                return vec![Reason::Unexplained];
-            }
+        if &newest_first != after && (!gap_days.contains(&keys[*block].2) || without_balance(&newest_first) != without_balance(after)) {
+            return vec![Reason::Unexplained];
         }
         if before != after {
             reasons.insert(Reason::DeterministicOrder);
