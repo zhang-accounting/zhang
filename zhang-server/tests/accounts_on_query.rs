@@ -1,7 +1,7 @@
-//! The account endpoints on the query engine (#479), checked three ways on every fixture ledger: every
-//! `integration-tests` ledger in each of its formats, the example ledger, the beancount oracle ledgers of
-//! `extensions/beancount/tests/balance_assertions/`, and the ledgers of `tests/accounts_on_query/`. More ledgers can be added with `ZHANG_ACCOUNTS_GOLDEN_EXTRA`, a `;`-separated
-//! list of `<dir>/<entry file>` paths, and `ZHANG_ACCOUNTS_GOLDEN_REPORT=1` prints every difference.
+//! The account endpoints on the query engine (#479), checked on every fixture ledger: every `integration-tests`
+//! ledger in each of its formats, the example ledger, the beancount oracle ledgers of
+//! `extensions/beancount/tests/balance_assertions/`, and the ledgers of `tests/accounts_on_query/`. More ledgers can
+//! be added with `ZHANG_ACCOUNTS_GOLDEN_EXTRA`, a `;`-separated list of `<dir>/<entry file>` paths.
 //!
 //! 1. **Against the store**, independently of the query engine. zhang records the order it processed the
 //!    ledger in as the `sequence` of every transaction and checked assertion, and keeps every posting with
@@ -9,31 +9,13 @@
 //!    sub-accounts, with their running balance, and its assertions, each where zhang checked it), its
 //!    balance at the end of each day, its balances with and without sub-accounts, and its documents. The
 //!    endpoints must return exactly that.
-//! 2. **Against the hand-written implementation** they replace (`legacy_*`, kept until wave 3). Every
-//!    difference must be one #479 expects, and each kind is checked against the data, not taken on trust:
-//!    - accounts without `open` are listed (a bug of the hand-written list);
-//!    - the order is deterministic: accounts by name, histories by date (the hand-written ones came in hash
-//!      map order), and the rows of one transaction newest first, by posting;
-//!    - valuation uses the engine's price lookup, with inverse rates and the cost currency (decision 3);
-//!    - `trx_id` is the id of the transaction, not of the posting (a bug), and an assertion row's is its id;
-//!    - a parent account's page is its subtree (decision 6);
-//!    - the narration of a transaction written without one is `""`, as the engine has it, where it was null;
-//!    - a name that is no account is a 404 on every endpoint of an account page, and one that is no account name
-//!      (such as `Assets` alone) a 400, where the journal, history and documents were a 200 with nothing (or a
-//!      500) and the page a 404;
-//!    - on a day daylight saving skips a time, the hand-written endpoints took the posting stored last as the
-//!      latest, where zhang processed the postings by the time written: their balance of the account and of the
-//!      day was that after an earlier posting, and their journal was in the order of the stored times (a bug).
-//!
-//!    A leaf account's journal must be exactly the hand-written one but for these: its rows in the same
-//!    order, the rows of one transaction newest first, by posting.
-//! 3. **Pages**: the pages of every journal, put together, are the whole journal, and every page before the
+//! 2. **Pages**: the pages of every journal, put together, are the whole journal, and every page before the
 //!    last one is full.
 //!
-//! The tests after the golden diff check each difference and the journal order of the ledgers of
+//! The tests after the golden test check the endpoints and the journal order of the ledgers of
 //! `tests/accounts_on_query/` with values worked out by hand.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -41,7 +23,6 @@ use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use bigdecimal::{BigDecimal, Zero};
-use chrono::TimeZone;
 use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
 use zhang_ast::{Directive, Spanned};
@@ -52,10 +33,7 @@ use zhang_core::data_type::DataType;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::store::DocumentType;
 use zhang_server::request::AccountJournalRequest;
-use zhang_server::routes::account::{
-    get_account_balance_data, get_account_documents, get_account_info, get_account_journals, get_account_list, legacy_get_account_balance_data,
-    legacy_get_account_documents, legacy_get_account_info, legacy_get_account_journals, legacy_get_account_list,
-};
+use zhang_server::routes::account::{get_account_balance_data, get_account_documents, get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::Query as UrlQuery;
 use zhang_server::state::SharedLedger;
 
@@ -234,77 +212,13 @@ fn short(value: &Value) -> String {
     }
 }
 
-/// What makes a difference between the hand-written endpoints and the engine's expected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Reason {
-    /// #479 bug: accounts without `open` are missing from the list and totals
-    ListedWithoutOpen,
-    /// #479 slice A: the order is deterministic
-    DeterministicOrder,
-    /// #479 decision 3: valuation uses the engine's price lookup
-    Valuation,
-    /// #479 bug: account journals return a posting id as `trx_id`
-    TransactionId,
-    /// #479 decision 6: a parent account's page is its subtree
-    Subtree,
-    /// accepted by the lead: the narration of a transaction without one is `""`, as the engine has it
-    EmptyNarration,
-    /// review: a name that is no account is a 404 on every endpoint of an account page, one that is no account
-    /// name a 400, where the journal, history and documents were a 200 with nothing
-    NoAccount,
-    /// a bug of the hand-written endpoints: on a day daylight saving skips a time, a posting written in the gap
-    /// is stored past it, and they took the posting stored last as the latest, where zhang processed the
-    /// postings by the time written
-    DaylightSavingGap,
-    /// no expected difference explains it
-    Unexplained,
-}
-
-impl Reason {
-    fn describe(self) -> &'static str {
-        match self {
-            Reason::ListedWithoutOpen => "bug: accounts without `open` were missing",
-            Reason::DeterministicOrder => "deterministic order: accounts by name, history by date, a transaction's rows newest first",
-            Reason::Valuation => "decision 3: engine valuation (inverse rates, via the cost currency, latest of both directions)",
-            Reason::TransactionId => "bug: `trx_id` was the posting id; an assertion row has the id of its check, as in /api/journals",
-            Reason::Subtree => "decision 6: a parent account's page is its subtree",
-            Reason::EmptyNarration => "accepted: a transaction without a narration has \"\" (was null)",
-            Reason::NoAccount => "a name that is no account is a 404, one that is no account name a 400, as on its page (was a 200 with nothing)",
-            Reason::DaylightSavingGap => "bug: legacy balance on a DST-gap day",
-            Reason::Unexplained => "UNEXPLAINED",
-        }
-    }
-}
-
-struct Difference {
-    ledger: String,
-    endpoint: &'static str,
-    account: String,
-    reason: Reason,
-    before: String,
-    after: String,
-}
-
 #[derive(Default)]
 struct Report {
-    differences: Vec<Difference>,
-    compared: usize,
-    /// what disagrees with the store, which is a failure whatever the hand-written endpoints did
+    /// what disagrees with the store
     wrong: Vec<String>,
 }
 
 impl Report {
-    fn add(&mut self, ledger: &str, endpoint: &'static str, account: &str, reason: Reason, before: &Value, after: &Value) {
-        self.differences.push(Difference {
-            ledger: ledger.to_owned(),
-            endpoint,
-            account: account.to_owned(),
-            reason,
-            before: short(before),
-            after: short(after),
-        });
-    }
-
     /// `actual` must be `expected`, which the store says.
     fn expect(&mut self, ledger: &str, what: &str, account: &str, expected: &Value, actual: &Value) {
         if expected != actual {
@@ -400,12 +314,8 @@ struct StoredPosting {
     sequence: i32,
     /// its date in the ledger's timezone
     date: String,
-    /// its stored time, in Unix seconds
-    timestamp: i64,
     number: BigDecimal,
     currency: String,
-    /// the balance of its account in its currency after it, as zhang stored it
-    after: BigDecimal,
 }
 
 /// A balance assertion as zhang checked it.
@@ -425,29 +335,11 @@ struct Stored {
     opened: BTreeSet<String>,
     /// the accounts of the `close` directives
     closed: BTreeSet<String>,
-    /// posting id → transaction id
-    transaction_of: HashMap<String, String>,
-    /// the ids of the transactions written without a narration
-    without_narration: BTreeSet<String>,
     /// in the order zhang processed them, the postings of a transaction in their order
     postings: Vec<StoredPosting>,
     assertions: Vec<StoredAssertion>,
     /// the `document` directives: account and path
     documents: Vec<(String, String)>,
-    /// the days of postings on which daylight saving skips a time in the ledger's timezone
-    gap_days: BTreeSet<String>,
-    /// the id of every transaction and assertion → its place in the order zhang processed the ledger
-    sequence_of: HashMap<String, i32>,
-}
-
-/// The balances of an account the hand-written endpoints took ([`Stored::legacy_balances`]).
-struct LegacyBalances {
-    /// its balance per currency, with the operating currency, as the canonical detail of the list
-    units: Value,
-    /// its balance at the end of each day, as the canonical history
-    history: Value,
-    /// whether a currency's balance is not the last one zhang processed off a day daylight saving skips a time on
-    off_gap: bool,
 }
 
 impl Stored {
@@ -462,10 +354,8 @@ impl Stored {
                 transaction: posting.trx_id.to_string(),
                 sequence: posting.trx_sequence,
                 date: posting.trx_datetime.naive_local().date().to_string(),
-                timestamp: posting.trx_datetime.timestamp(),
                 number: posting.inferred_amount.number.clone(),
                 currency: posting.inferred_amount.commodity.clone(),
-                after: posting.after_amount.number.clone(),
             })
             .collect::<Vec<_>>();
         // stable: the postings of a transaction keep their order
@@ -483,21 +373,6 @@ impl Stored {
             })
             .collect::<Vec<_>>();
         assertions.sort_by_key(|assertion| assertion.sequence);
-        let timezone = guard.options.timezone;
-        let gap_days = postings
-            .iter()
-            .map(|posting| posting.date.clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .filter(|date| {
-                let date = date.parse::<chrono::NaiveDate>().unwrap();
-                // a local time of the day that does not exist
-                (0..24 * 4).any(|quarter| {
-                    let time = chrono::NaiveTime::from_hms_opt(quarter / 4, quarter % 4 * 15, 0).unwrap();
-                    matches!(timezone.from_local_datetime(&date.and_time(time)), chrono::LocalResult::None)
-                })
-            })
-            .collect();
         Stored {
             operating_currency: guard.options.operating_currency.clone(),
             opened: store.accounts.keys().cloned().collect(),
@@ -509,17 +384,6 @@ impl Stored {
                     _ => None,
                 })
                 .collect(),
-            transaction_of: store
-                .postings
-                .iter()
-                .map(|posting| (posting.id.to_string(), posting.trx_id.to_string()))
-                .collect(),
-            without_narration: store
-                .transactions
-                .values()
-                .filter(|it| it.narration.is_none())
-                .map(|it| it.id.to_string())
-                .collect(),
             postings,
             assertions,
             documents: store
@@ -530,66 +394,6 @@ impl Stored {
                     DocumentType::Trx(_) => None,
                 })
                 .collect(),
-            gap_days,
-            sequence_of: store
-                .transactions
-                .values()
-                .map(|it| (it.id.to_string(), it.sequence))
-                .chain(store.balance_assertions.iter().map(|it| (it.id.to_string(), it.sequence)))
-                .collect(),
-        }
-    }
-
-    /// What the hand-written endpoints took for the balance of `account` per currency, and per day: the
-    /// stored balance after the last of its own postings in the order of their stored times. With the
-    /// currencies where that is not the balance after the last posting zhang processed, which must be
-    /// postings of a day daylight saving skips a time on.
-    fn legacy_balances(&self, account: &str) -> LegacyBalances {
-        let mut own = self.postings.iter().filter(|it| it.account == account).collect::<Vec<_>>();
-        let last_processed = own
-            .iter()
-            .map(|posting| (posting.currency.as_str(), posting.after.clone()))
-            .collect::<BTreeMap<_, _>>();
-        // stable: postings stored at the same time keep the order zhang processed them in
-        own.sort_by_key(|posting| posting.timestamp);
-        let mut latest: BTreeMap<&str, &StoredPosting> = BTreeMap::new();
-        let mut days: BTreeMap<&str, BTreeMap<&str, &StoredPosting>> = BTreeMap::new();
-        for posting in &own {
-            latest.insert(posting.currency.as_str(), posting);
-            days.entry(posting.currency.as_str()).or_default().insert(posting.date.as_str(), posting);
-        }
-        let mut units = latest
-            .iter()
-            .map(|(currency, posting)| (currency.to_string(), json!(decimal_string(&posting.after))))
-            .collect::<Map<_, _>>();
-        units.entry(self.operating_currency.clone()).or_insert_with(|| json!("0"));
-        let processed_days = self
-            .postings
-            .iter()
-            .filter(|it| it.account == account)
-            .map(|posting| ((posting.currency.as_str(), posting.date.as_str()), &posting.after))
-            .collect::<BTreeMap<_, _>>();
-        let off_gap = latest
-            .iter()
-            .any(|(currency, posting)| last_processed[currency] != posting.after && !self.gap_days.contains(&posting.date))
-            || days.iter().any(|(currency, days)| {
-                days.iter()
-                    .any(|(date, posting)| processed_days[&(*currency, *date)] != &posting.after && !self.gap_days.contains(*date))
-            });
-        let history = days
-            .into_iter()
-            .map(|(currency, days)| {
-                let days = days
-                    .into_iter()
-                    .map(|(date, posting)| json!({"date": date, "balance": {"number": decimal_string(&posting.after), "commodity": currency}}))
-                    .collect::<Vec<_>>();
-                (currency.to_owned(), Value::Array(days))
-            })
-            .collect::<Map<_, _>>();
-        LegacyBalances {
-            units: Value::Object(units),
-            history: json!({ "balance": history }),
-            off_gap,
         }
     }
 
@@ -726,199 +530,20 @@ fn as_stored(journal: &[Value]) -> Vec<Value> {
 }
 
 // ---------------------------------------------------------------------------------------
-// the hand-written endpoints
+// the check
 
-/// The fields in which two objects differ.
-fn differing_fields(before: &Value, after: &Value) -> BTreeSet<String> {
-    let empty = Map::new();
-    let before = before.as_object().unwrap_or(&empty);
-    let after = after.as_object().unwrap_or(&empty);
-    before
-        .keys()
-        .chain(after.keys())
-        .filter(|key| before.get(*key) != after.get(*key))
-        .cloned()
-        .collect()
-}
-
-/// Whether an account holds anything but the operating currency, which only a price values.
-fn holds_other_currencies(account: &Value, operating_currency: &str) -> bool {
-    account["amount"]["detail"]
-        .as_object()
-        .is_some_and(|detail| detail.iter().any(|(currency, number)| currency != operating_currency && number != "0"))
-}
-
-/// Why an account of the list or the page differs, `before` and `after` canonical.
-fn account_reason(before: &Value, after: &Value, operating_currency: &str, legacy: &LegacyBalances) -> Reason {
-    let fields = differing_fields(before, after);
-    let amount_only = fields.iter().all(|field| field == "amount");
-    let (before_units, after_units) = (&before["amount"]["detail"], &after["amount"]["detail"]);
-    if amount_only && before_units == after_units && holds_other_currencies(after, operating_currency) {
-        Reason::Valuation
-    } else if amount_only && before_units != after_units && *before_units == legacy.units && !legacy.off_gap {
-        Reason::DaylightSavingGap
-    } else {
-        Reason::Unexplained
-    }
-}
-
-/// The blocks of a journal: the consecutive rows of one transaction, or one assertion.
-fn blocks(rows: &[Value]) -> Vec<Vec<Value>> {
-    let mut blocks: Vec<Vec<Value>> = vec![];
-    for row in rows {
-        let same = row["asserted"].is_null()
-            && blocks
-                .last()
-                .and_then(|block| block.last())
-                .is_some_and(|last| last["asserted"].is_null() && last["trx_id"] == row["trx_id"]);
-        match blocks.last_mut() {
-            Some(block) if same => block.push(row.clone()),
-            _ => blocks.push(vec![row.clone()]),
-        }
-    }
-    blocks
-}
-
-/// Why the engine's journal of `account` differs from the hand-written one, both canonical, `after`
-/// already checked against the store. The hand-written rows are those of the account itself, with its
-/// own running balance; the engine's rows of the account itself (all of them for a leaf account) must be
-/// exactly the same rows in the same order, once the expected differences are taken out: the rows of one
-/// transaction are newest first, by posting, where the hand-written journal had them in posting order.
-fn journal_reasons(account: &str, before: &[Value], after: &[Value], stored: &Stored) -> Vec<Reason> {
-    let mut reasons = BTreeSet::new();
-    let subtree = after.iter().any(|row| row["account"] != account);
-    // the hand-written id of a posting row is the posting's; an assertion row's is derived from it
-    let mut before = before.to_vec();
-    for row in &mut before {
-        if row["asserted"].is_null() {
-            let Some(transaction) = stored.transaction_of.get(row["trx_id"].as_str().unwrap_or_default()) else {
-                return vec![Reason::Unexplained];
-            };
-            if row["trx_id"] != json!(transaction) {
-                reasons.insert(Reason::TransactionId);
-                row["trx_id"] = json!(transaction);
-            }
-        } else {
-            row["trx_id"] = Value::Null;
-        }
-    }
-    let mut after = after
-        .iter()
-        .filter(|row| row["account"] == account || !row["asserted"].is_null())
-        .cloned()
-        .collect::<Vec<_>>();
-    // the stored time and the place in the order zhang processed the ledger of each block, by the id of its
-    // transaction or of its assertion's check, and its stored day
-    let keys = blocks(&after)
-        .iter()
-        .map(|block| {
-            let row = &block[0];
-            let sequence = stored.sequence_of.get(row["trx_id"].as_str().unwrap_or_default())?;
-            let day = row["datetime"].as_str().unwrap_or_default().chars().take(10).collect::<String>();
-            Some((row["timestamp"].as_i64().unwrap_or_default(), *sequence, day))
-        })
-        .collect::<Option<Vec<_>>>();
-    let Some(keys) = keys else {
-        return vec![Reason::Unexplained];
-    };
-    for row in &mut after {
-        if !row["asserted"].is_null() {
-            if row["trx_id"].is_string() {
-                reasons.insert(Reason::TransactionId);
-            }
-            row["trx_id"] = Value::Null;
-        }
-    }
-    for (before, after) in before.iter_mut().zip(&after) {
-        let without = stored.without_narration.contains(before["trx_id"].as_str().unwrap_or_default());
-        if before["asserted"].is_null() && without && before["narration"].is_null() && after["narration"] == json!("") {
-            reasons.insert(Reason::EmptyNarration);
-            before["narration"] = json!("");
-        }
-    }
-    if subtree {
-        reasons.insert(Reason::Subtree);
-        // the hand-written balance is the account's own
-        for row in before.iter_mut().chain(after.iter_mut()) {
-            row.as_object_mut().unwrap().remove("account_after");
-        }
-    }
-    let (before, after) = (blocks(&before), blocks(&after));
-    if before.len() != after.len() {
-        return vec![Reason::Unexplained];
-    }
-    // the hand-written journal had the blocks by their stored time, then by their place, newest first: on a day
-    // daylight saving skips a time, a posting written in the gap is stored past it, after one zhang processed later,
-    // and its stored balance, which counted the postings stored before it, left out the later one
-    let mut legacy_order = (0..after.len()).collect::<Vec<_>>();
-    legacy_order.sort_by_key(|block| std::cmp::Reverse((keys[*block].0, keys[*block].1)));
-    let mut gap_days = BTreeSet::new();
-    for (place, block) in legacy_order.iter().enumerate() {
-        if place != *block {
-            if !stored.gap_days.contains(&keys[*block].2) {
-                return vec![Reason::Unexplained];
-            }
-            gap_days.insert(keys[*block].2.clone());
-            reasons.insert(Reason::DaylightSavingGap);
-        }
-    }
-    let without_balance = |rows: &[Value]| {
-        rows.iter()
-            .map(|row| {
-                let mut row = row.clone();
-                row.as_object_mut().unwrap().remove("account_after");
-                row
-            })
-            .collect::<Vec<_>>()
-    };
-    for (before, block) in before.iter().zip(&legacy_order) {
-        let after = &after[*block];
-        let newest_first = before.iter().rev().cloned().collect::<Vec<_>>();
-        if &newest_first != after && (!gap_days.contains(&keys[*block].2) || without_balance(&newest_first) != without_balance(after)) {
-            return vec![Reason::Unexplained];
-        }
-        if before != after {
-            reasons.insert(Reason::DeterministicOrder);
-        }
-    }
-    reasons.into_iter().collect()
-}
-
-/// The history of a canonical balance history response, each currency's days in date order.
-fn by_date(history: &Value) -> Value {
-    let mut history = history.clone();
-    if let Some(currencies) = history["balance"].as_object_mut() {
-        for days in currencies.values_mut() {
-            if let Some(days) = days.as_array_mut() {
-                days.sort_by_key(|day| day["date"].as_str().unwrap_or_default().to_owned());
-            }
-        }
-    }
-    history
-}
-
-// ---------------------------------------------------------------------------------------
-// the comparison
-
-async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) {
+async fn check(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) {
     let stored = Stored::of(ledger).await;
-    let operating_currency = stored.operating_currency.clone();
 
     // the list
-    let (status, before_list) = respond(legacy_get_account_list(State(ledger.clone())).await).await;
+    let (status, list) = respond(get_account_list(State(ledger.clone())).await).await;
     assert_eq!(status, StatusCode::OK);
-    let (status, after_list) = respond(get_account_list(State(ledger.clone())).await).await;
-    assert_eq!(status, StatusCode::OK);
-    let names = |list: &Value| {
-        list.as_array()
-            .unwrap()
-            .iter()
-            .map(|it| it["name"].as_str().unwrap().to_owned())
-            .collect::<Vec<_>>()
-    };
-    let before_names = names(&before_list);
-    let after_names = names(&after_list);
-    report.compared += 1;
+    let names = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
     // every account with an `open` or `close` or a posting, by name
     let expected_names = stored
         .opened
@@ -927,75 +552,27 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
         .cloned()
         .chain(stored.postings.iter().map(|it| it.account.clone()))
         .collect::<BTreeSet<_>>();
-    report.expect(
-        ledger_name,
-        "list names",
-        "",
-        &json!(expected_names.iter().collect::<Vec<_>>()),
-        &json!(after_names),
-    );
-    let mut sorted_before = before_names.clone();
-    sorted_before.sort();
-    if sorted_before != before_names {
-        report.add(
-            ledger_name,
-            "GET /api/accounts",
-            "(order)",
-            Reason::DeterministicOrder,
-            &json!(before_names.iter().take(4).collect::<Vec<_>>()),
-            &json!(after_names.iter().take(4).collect::<Vec<_>>()),
-        );
-    }
-    let by_name = |list: &Value| {
-        list.as_array()
-            .unwrap()
-            .iter()
-            .map(|it| (it["name"].as_str().unwrap().to_owned(), canonical(it)))
-            .collect::<BTreeMap<_, _>>()
-    };
-    let before_accounts = by_name(&before_list);
-    let after_accounts = by_name(&after_list);
-    for (name, after) in &after_accounts {
+    report.expect(ledger_name, "list names", "", &json!(expected_names.iter().collect::<Vec<_>>()), &json!(names));
+    let accounts = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| (it["name"].as_str().unwrap().to_owned(), canonical(it)))
+        .collect::<BTreeMap<_, _>>();
+    for (name, account) in &accounts {
         // its own units and those with its sub-accounts, as the store has them
-        report.expect(ledger_name, "list units", name, &stored.units(|it| it == name), &after["amount"]["detail"]);
+        report.expect(ledger_name, "list units", name, &stored.units(|it| it == name), &account["amount"]["detail"]);
         report.expect(
             ledger_name,
             "list units with sub-accounts",
             name,
             &stored.units(|it| under(it, name)),
-            &after["balance_with_sub_accounts"],
+            &account["balance_with_sub_accounts"],
         );
-        match before_accounts.get(name) {
-            None => {
-                let reason = if stored.opened.contains(name) {
-                    Reason::Unexplained
-                } else {
-                    Reason::ListedWithoutOpen
-                };
-                report.add(ledger_name, "GET /api/accounts", name, reason, &Value::Null, after);
-            }
-            Some(before) if before != after => {
-                report.add(
-                    ledger_name,
-                    "GET /api/accounts",
-                    name,
-                    account_reason(before, after, &operating_currency, &stored.legacy_balances(name)),
-                    before,
-                    after,
-                );
-            }
-            Some(_) => {}
-        }
-    }
-    for (name, before) in &before_accounts {
-        if !after_accounts.contains_key(name) {
-            report.add(ledger_name, "GET /api/accounts", name, Reason::Unexplained, before, &Value::Null);
-        }
     }
 
-    for account in universe(&[&before_list, &after_list]) {
+    for account in universe(&[&list]) {
         let path = || UrlPath((account.clone(),));
-        report.compared += 4;
         // what the endpoints of the page answer: a page for an account the store has, a 400 for a name that is no
         // account name, and a 404 for any other
         let expected_status = if !zhang_core::data_type::text::parser::is_valid_account_name(&account) {
@@ -1007,18 +584,10 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
         };
 
         // the page
-        let (before_status, before) = respond(legacy_get_account_info(State(ledger.clone()), path()).await).await;
-        let (after_status, mut after) = respond(get_account_info(State(ledger.clone()), path()).await).await;
-        report.expect(
-            ledger_name,
-            "page status",
-            &account,
-            &json!(expected_status.as_u16()),
-            &json!(after_status.as_u16()),
-        );
-        if after_status == StatusCode::OK {
-            let subtree_total = after.as_object_mut().unwrap().remove("amount_with_sub_accounts").unwrap();
-            let subtree_total = canonical(&subtree_total);
+        let (status, page) = respond(get_account_info(State(ledger.clone()), path()).await).await;
+        report.expect(ledger_name, "page status", &account, &json!(expected_status.as_u16()), &json!(status.as_u16()));
+        if status == StatusCode::OK {
+            let subtree_total = canonical(&page["amount_with_sub_accounts"]);
             report.expect(
                 ledger_name,
                 "page units with sub-accounts",
@@ -1027,7 +596,7 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
                 &subtree_total["detail"],
             );
             // the value of the subtree is that of the accounts of the list in it
-            let listed = after_accounts
+            let listed = accounts
                 .iter()
                 .filter(|(name, _)| under(name, &account))
                 .map(|(_, it)| it["amount"]["calculated"]["number"].as_str().unwrap().parse::<BigDecimal>().unwrap())
@@ -1040,47 +609,9 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
                 &subtree_total["calculated"]["number"],
             );
         }
-        let mut before = before;
-        if let Some(page) = before.as_object_mut() {
-            page.remove("amount_with_sub_accounts");
-        }
-        let (before, after) = (canonical(&before), canonical(&after));
-        match (before_status, after_status) {
-            (StatusCode::OK, StatusCode::OK) if before != after => {
-                report.add(
-                    ledger_name,
-                    "GET /api/accounts/{a}",
-                    &account,
-                    account_reason(&before, &after, &operating_currency, &stored.legacy_balances(&account)),
-                    &before,
-                    &after,
-                );
-            }
-            (StatusCode::OK, StatusCode::OK) => {}
-            (StatusCode::NOT_FOUND, StatusCode::OK) if !stored.opened.contains(&account) && after_accounts.contains_key(&account) => {
-                report.add(ledger_name, "GET /api/accounts/{a}", &account, Reason::ListedWithoutOpen, &json!("404"), &after);
-            }
-            (StatusCode::NOT_FOUND, StatusCode::NOT_FOUND) => {}
-            (StatusCode::NOT_FOUND, StatusCode::BAD_REQUEST) => {
-                report.add(ledger_name, "GET /api/accounts/{a}", &account, Reason::NoAccount, &json!(404), &json!(400));
-            }
-            _ => report.add(
-                ledger_name,
-                "GET /api/accounts/{a}",
-                &account,
-                Reason::Unexplained,
-                &json!(before_status.as_u16()),
-                &json!(after_status.as_u16()),
-            ),
-        }
 
         if expected_status != StatusCode::OK {
-            let legacy = [
-                respond(legacy_get_account_journals(State(ledger.clone()), path()).await).await,
-                respond(legacy_get_account_balance_data(State(ledger.clone()), path()).await).await,
-                respond(legacy_get_account_documents(State(ledger.clone()), path()).await).await,
-            ];
-            let new = [
+            let answers = [
                 whole_journal(ledger, &account).await,
                 respond(get_account_balance_data(State(ledger.clone()), path()).await).await,
                 respond(get_account_documents(State(ledger.clone()), path()).await).await,
@@ -1090,93 +621,34 @@ async fn compare(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) 
                 "GET /api/accounts/{a}/balances",
                 "GET /api/accounts/{a}/documents",
             ];
-            for ((endpoint, (before_status, before)), (after_status, after)) in endpoints.into_iter().zip(legacy).zip(new) {
-                report.expect(ledger_name, endpoint, &account, &json!(expected_status.as_u16()), &json!(after_status.as_u16()));
-                // the hand-written endpoints had nothing for it
-                let nothing = before == json!([]) || before == json!({"balance": {}}) || before_status == StatusCode::INTERNAL_SERVER_ERROR;
-                let reason = if nothing { Reason::NoAccount } else { Reason::Unexplained };
-                report.add(ledger_name, endpoint, &account, reason, &before, &after);
+            for (endpoint, (status, _)) in endpoints.into_iter().zip(answers) {
+                report.expect(ledger_name, endpoint, &account, &json!(expected_status.as_u16()), &json!(status.as_u16()));
             }
             continue;
         }
 
         // the journal
-        let (before_status, before) = respond(legacy_get_account_journals(State(ledger.clone()), path()).await).await;
-        let (after_status, after) = whole_journal(ledger, &account).await;
-        assert_eq!((before_status, after_status), (StatusCode::OK, StatusCode::OK), "{ledger_name} {account}");
-        let before_journal = canonical(&before).as_array().unwrap().clone();
-        let after_journal = canonical(&after).as_array().unwrap().clone();
-        report.expect(
-            ledger_name,
-            "journal",
-            &account,
-            &json!(stored.journal(&account)),
-            &json!(as_stored(&after_journal)),
-        );
-        if before_journal != after_journal {
-            let first_difference = before_journal
-                .iter()
-                .zip(&after_journal)
-                .find(|(before, after)| before != after)
-                .map(|(before, after)| (before.clone(), after.clone()))
-                .unwrap_or_else(|| (json!(before_journal.len()), json!(after_journal.len())));
-            for reason in journal_reasons(&account, &before_journal, &after_journal, &stored) {
-                report.add(
-                    ledger_name,
-                    "GET /api/accounts/{a}/journals",
-                    &account,
-                    reason,
-                    &first_difference.0,
-                    &first_difference.1,
-                );
-            }
-        }
-        check_pages(report, ledger_name, ledger, &account, &after_journal).await;
+        let (status, journal) = whole_journal(ledger, &account).await;
+        assert_eq!(status, StatusCode::OK, "{ledger_name} {account}");
+        let journal = canonical(&journal).as_array().unwrap().clone();
+        report.expect(ledger_name, "journal", &account, &json!(stored.journal(&account)), &json!(as_stored(&journal)));
+        check_pages(report, ledger_name, ledger, &account, &journal).await;
 
         // the balance history
-        let (before_status, before) = respond(legacy_get_account_balance_data(State(ledger.clone()), path()).await).await;
-        let (after_status, after) = respond(get_account_balance_data(State(ledger.clone()), path()).await).await;
-        assert_eq!((before_status, after_status), (StatusCode::OK, StatusCode::OK), "{ledger_name} {account}");
-        let (before, after) = (canonical(&before), canonical(&after));
-        report.expect(ledger_name, "history", &account, &canonical(&stored.history(&account)), &after);
-        if before != after {
-            let subtree = after_journal.iter().any(|row| row["account"] != account.as_str());
-            let legacy = stored.legacy_balances(&account);
-            let reason = if by_date(&before) == after {
-                Reason::DeterministicOrder
-            } else if subtree {
-                Reason::Subtree
-            } else if by_date(&before) == canonical(&legacy.history) && !legacy.off_gap {
-                Reason::DaylightSavingGap
-            } else {
-                Reason::Unexplained
-            };
-            report.add(ledger_name, "GET /api/accounts/{a}/balances", &account, reason, &before, &after);
-        }
+        let (status, history) = respond(get_account_balance_data(State(ledger.clone()), path()).await).await;
+        assert_eq!(status, StatusCode::OK, "{ledger_name} {account}");
+        report.expect(ledger_name, "history", &account, &canonical(&stored.history(&account)), &canonical(&history));
 
         // the documents
-        let (before_status, before) = respond(legacy_get_account_documents(State(ledger.clone()), path()).await).await;
-        let (after_status, after) = respond(get_account_documents(State(ledger.clone()), path()).await).await;
-        assert_eq!((before_status, after_status), (StatusCode::OK, StatusCode::OK), "{ledger_name} {account}");
-        let (before, after) = (canonical(&before), canonical(&after));
-        let listed = json!(after
+        let (status, documents) = respond(get_account_documents(State(ledger.clone()), path()).await).await;
+        assert_eq!(status, StatusCode::OK, "{ledger_name} {account}");
+        let listed = json!(canonical(&documents)
             .as_array()
             .unwrap()
             .iter()
             .map(|it| json!([it["account"], it["path"]]))
             .collect::<Vec<_>>());
         report.expect(ledger_name, "documents", &account, &stored.documents(&account), &listed);
-        if before != after {
-            let own = after
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|it| it["account"] == account.as_str())
-                .cloned()
-                .collect::<Vec<_>>();
-            let reason = if Value::Array(own) == before { Reason::Subtree } else { Reason::Unexplained };
-            report.add(ledger_name, "GET /api/accounts/{a}/documents", &account, reason, &before, &after);
-        }
     }
 }
 
@@ -1210,56 +682,16 @@ async fn check_pages(report: &mut Report, ledger_name: &str, ledger: &SharedLedg
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_account_endpoints_are_what_the_store_says_and_differ_from_the_hand_written_ones_only_as_479_expects() {
+async fn the_account_endpoints_are_what_the_store_says() {
     let mut report = Report::default();
     for (name, dir, entry) in fixtures() {
         let ledger = load(&dir, &entry).await;
-        compare(&mut report, &name, &ledger).await;
-    }
-
-    let mut summary: BTreeMap<(&str, Reason), (usize, BTreeSet<&str>)> = BTreeMap::new();
-    for difference in &report.differences {
-        let entry = summary.entry((difference.endpoint, difference.reason)).or_default();
-        entry.0 += 1;
-        entry.1.insert(difference.ledger.as_str());
-    }
-    println!(
-        "{} responses compared, {} differences from the hand-written ones",
-        report.compared,
-        report.differences.len()
-    );
-    for ((endpoint, reason), (count, ledgers)) in &summary {
-        println!(
-            "{endpoint} | {} | {count} | {} ledgers: {}",
-            reason.describe(),
-            ledgers.len(),
-            ledgers.iter().cloned().collect::<Vec<_>>().join(", ")
-        );
-    }
-    if std::env::var("ZHANG_ACCOUNTS_GOLDEN_REPORT").is_ok() {
-        for difference in &report.differences {
-            println!(
-                "\n[{}] {} {} {}\n  before: {}\n  after:  {}",
-                difference.reason.describe(),
-                difference.ledger,
-                difference.endpoint,
-                difference.account,
-                difference.before,
-                difference.after
-            );
-        }
+        check(&mut report, &name, &ledger).await;
     }
     assert!(report.wrong.is_empty(), "not what the store says:\n{}", report.wrong.join("\n"));
-    let unexplained = report
-        .differences
-        .iter()
-        .filter(|it| it.reason == Reason::Unexplained)
-        .map(|it| format!("{} {} {}\n  before: {}\n  after:  {}", it.ledger, it.endpoint, it.account, it.before, it.after))
-        .collect::<Vec<_>>();
-    assert!(unexplained.is_empty(), "unexplained differences:\n{}", unexplained.join("\n"));
 }
 
-/// A ledger with one case of each expected difference, whose values are worked out by hand below.
+/// A ledger with one case of each change of #479, whose values are worked out by hand below.
 const DIFFERENCES: &str = r#"option "operating_currency" "CNY"
 1970-01-01 commodity CNY
 1970-01-01 commodity USD
@@ -1420,9 +852,6 @@ async fn holdings_are_valued_with_inverse_prices_and_through_their_cost_currency
     assert_eq!(value("Assets:Travel").await, (decimal("100"), json!("CNY")));
     // 10 AAPL at 12 USD, then 120 USD at 7 CNY: no AAPL price in CNY; the price of 2999 is not today's
     assert_eq!(value("Assets:Broker").await, (decimal("840"), json!("CNY")));
-    // the hand-written valuation found no direct price for either
-    let (_, page) = respond(legacy_get_account_info(State(ledger.clone()), UrlPath(("Assets:Travel".to_owned(),))).await).await;
-    assert_eq!(number(&page["amount"]["calculated"]["number"]), decimal("0"));
 }
 
 #[tokio::test]
@@ -1593,9 +1022,6 @@ async fn a_balance_with_a_time_stands_after_the_transactions_before_it() {
             "Assets:Cash | Self | 100 CNY | 100 CNY",
         ]
     );
-    // the hand-written journal has the same rows in the same order
-    let (_, legacy) = respond(legacy_get_account_journals(State(ledger.clone()), UrlPath(("Assets:Cash".to_owned(),))).await).await;
-    assert_eq!(lines(&legacy), lines(&journal));
 }
 
 /// The assertions of a day with pads, on the parent of the padded accounts:
@@ -1664,7 +1090,7 @@ async fn the_assertions_of_a_day_with_pads_stand_where_zhang_checks_them() {
 }
 
 /// After a `balance ... with pad`, the balance of the next day stands above it, and a failing check moved
-/// nothing: the journal of the hand-written implementation, row for row.
+/// nothing.
 #[tokio::test]
 async fn a_pad_between_two_checks_keeps_the_order_of_the_days() {
     let ledger = fixture("a_pad_between_checks.zhang").await;
@@ -1679,8 +1105,6 @@ async fn a_pad_between_two_checks_keeps_the_order_of_the_days() {
             "Assets:A | x | 165 CNY | 165 CNY",
         ]
     );
-    let (_, legacy) = respond(legacy_get_account_journals(State(ledger.clone()), UrlPath(("Assets:A".to_owned(),))).await).await;
-    assert_eq!(lines(&legacy), lines(&journal));
     // the newest is the balance of the 4th, then the pad's own check of the 3rd
     let dates = journal
         .as_array()
@@ -1736,8 +1160,7 @@ async fn the_journal_of_a_parent_follows_the_order_zhang_processed_the_ledger_in
 
 /// In London, which skips 01:00 to 02:00 on 2024-03-31, the transactions written at 01:10 and 01:40 are stored at
 /// 02:10 and 02:40, after the one of 02:15, but zhang processes them by the time written: the balance of 7 checks
-/// the two of the gap, and the cash ends at 4. The hand-written endpoints took the transaction stored last for the
-/// latest, so their balance of the account and of the day was 7.
+/// the two of the gap, and the cash ends at 4.
 #[tokio::test]
 async fn a_day_daylight_saving_skips_a_time_on_ends_with_the_posting_written_last() {
     let ledger = fixture("postings_in_a_daylight_saving_gap.zhang").await;
@@ -1760,22 +1183,9 @@ async fn a_day_daylight_saving_skips_a_time_on_ends_with_the_posting_written_las
         history["balance"]["CNY"][1],
         json!({"date": "2024-03-31", "balance": {"number": "4", "commodity": "CNY"}})
     );
-    // the hand-written page and history
-    let (_, page) = respond(legacy_get_account_info(State(ledger.clone()), path()).await).await;
-    assert_eq!(number(&page["amount"]["detail"]["CNY"]), decimal("7"));
-    let (_, history) = respond(legacy_get_account_balance_data(State(ledger.clone()), path()).await).await;
-    let gap_day = history["balance"]["CNY"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|it| it["date"] == "2024-03-31")
-        .unwrap()
-        .clone();
-    assert_eq!(number(&gap_day["balance"]["number"]), decimal("7"));
 }
 
-/// A transaction written without a narration has `""`, where the hand-written journal had null; one written
-/// without any string has no payee either. An account without `open` has a journal like any other.
+/// A transaction written without a narration has `""`; one written without any string has no payee either. An account without `open` has a journal like any other.
 #[tokio::test]
 async fn a_transaction_without_a_narration_has_an_empty_one() {
     let ledger = fixture("no_open_and_no_strings.zhang").await;

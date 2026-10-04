@@ -14,10 +14,9 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Currency, Date, Flag, Meta, PostingCost, Rounding, SpanInfo};
 
-use crate::constants::BALANCE_CHECK_PAYEE;
 use crate::domains::schemas::{
-    AccountBalanceDomain, AccountDomain, AccountJournalDomain, AccountStatus, BalanceWithSubAccounts, CommodityDomain, ErrorDomain, MetaDomain, MetaType,
-    OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
+    AccountBalanceDomain, AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain,
+    TransactionInfoDomain,
 };
 use crate::store::{
     BalanceAssertionDomain, BudgetDomain, BudgetEvent, BudgetEventType, BudgetIntervalDetail, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain,
@@ -359,138 +358,6 @@ impl Operations {
             .collect_vec())
     }
 
-    /// get target account's all balance
-    /// because the account can have multiple commodities, so the result is the array.
-    pub fn single_account_all_balances(&self, account_name: &str) -> ZhangResult<HashMap<Currency, HashMap<NaiveDate, Amount>>> {
-        let store = self.read();
-
-        let account = Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?;
-
-        let mut ret: HashMap<Currency, HashMap<NaiveDate, Amount>> = HashMap::new();
-
-        for posting in store
-            .postings
-            .iter()
-            .filter(|posting| posting.account.eq(&account))
-            .cloned()
-            .sorted_by_key(|posting| posting.trx_datetime)
-        {
-            let posting: PostingDomain = posting;
-            let date = posting.trx_datetime.naive_local().date();
-
-            let dated_amount = ret.entry(posting.after_amount.commodity.clone()).or_default();
-            dated_amount.insert(date, posting.after_amount);
-        }
-
-        Ok(ret)
-    }
-
-    /// the journal of one account, newest first: a row per posting and a row per balance assertion on the
-    /// account itself. Every row's `account_after` is the account's own running balance, that of its own
-    /// postings: an assertion changes it in no way. An assertion row also has the amount it asserted, the
-    /// balance it was checked against, which includes the sub-accounts, and whether it passed
-    pub fn account_journals(&mut self, account: &str) -> ZhangResult<Vec<AccountJournalDomain>> {
-        let store = self.read();
-        let account = Account::from_str(account).map_err(|_| ZhangError::InvalidAccount)?;
-
-        // both in ledger order: postings and assertions share one sequence
-        let postings = store.postings.iter().filter(|posting| posting.account.eq(&account)).collect_vec();
-        let assertions = store.balance_assertions.iter().filter(|assertion| assertion.account.eq(&account)).collect_vec();
-
-        // the account's own balance per currency where each assertion stands: after its last posting before it
-        let mut own_balance: HashMap<&str, &Amount> = HashMap::new();
-        let mut before = postings.iter().peekable();
-        let mut assertion_rows = Vec::with_capacity(assertions.len());
-        for assertion in assertions {
-            while let Some(posting) = before.next_if(|posting| posting.trx_sequence < assertion.sequence) {
-                own_balance.insert(posting.after_amount.commodity.as_str(), &posting.after_amount);
-            }
-            let own = own_balance
-                .get(assertion.amount.commodity.as_str())
-                .map(|it| (*it).clone())
-                .unwrap_or_else(|| Amount::new(BigDecimal::zero(), assertion.amount.commodity.clone()));
-            assertion_rows.push((assertion.datetime, assertion.sequence, assertion_journal_row(assertion, own)));
-        }
-
-        let posting_rows = postings.into_iter().map(|posting| {
-            let trx_header = store.transactions.get(&posting.trx_id);
-            let row = AccountJournalDomain {
-                datetime: posting.trx_datetime.naive_local(),
-                timestamp: posting.trx_datetime.timestamp(),
-                account: posting.account.name().to_owned(),
-                trx_id: posting.id.to_string(),
-                payee: trx_header.and_then(|it| it.payee.clone()),
-                narration: trx_header.and_then(|it| it.narration.clone()),
-                inferred_unit: posting.inferred_amount.clone(),
-                account_after: posting.after_amount.clone(),
-                asserted: None,
-                checked_balance: None,
-                passed: None,
-            };
-            (posting.trx_datetime, posting.trx_sequence, row)
-        });
-        Ok(posting_rows
-            .chain(assertion_rows)
-            .sorted_by(|(a_datetime, a_sequence, _), (b_datetime, b_sequence, _)| {
-                a_datetime.cmp(b_datetime).reverse().then(a_sequence.cmp(b_sequence).reverse())
-            })
-            .map(|(_, _, row)| row)
-            .collect_vec())
-    }
-
-    /// the balance of every account per currency including its sub-accounts: the sum of the postings of the
-    /// account and all its sub-accounts, which a balance assertion on the account is checked against. One pass
-    /// over the postings sums each account's own postings, which then go to the account and its ancestors
-    pub fn balances_with_sub_accounts(&self) -> ZhangResult<HashMap<String, BalanceWithSubAccounts>> {
-        let store = self.read();
-        let mut own: HashMap<&str, BTreeMap<&str, BigDecimal>> = HashMap::new();
-        for posting in &store.postings {
-            let units = own
-                .entry(posting.account.name())
-                .or_default()
-                .entry(posting.inferred_amount.commodity.as_str())
-                .or_insert_with(BigDecimal::zero);
-            *units += &posting.inferred_amount.number;
-        }
-        let mut ret: HashMap<String, BalanceWithSubAccounts> = store.accounts.keys().map(|name| (name.clone(), Default::default())).collect();
-        let names = store.accounts.keys().map(String::as_str).chain(own.keys().copied()).collect::<HashSet<_>>();
-        for name in names {
-            let held = own.get(name);
-            // the account itself, then each ancestor: `Assets:Bank` and `Assets` for `Assets:Bank:Checking`
-            let ancestors = name.match_indices(':').map(|(at, _)| &name[..at]);
-            for (index, receiver) in std::iter::once(name).chain(ancestors).enumerate() {
-                let Some(entry) = ret.get_mut(receiver) else { continue };
-                if index > 0 {
-                    entry.has_sub_accounts = true;
-                }
-                for (currency, units) in held.into_iter().flatten() {
-                    *entry.balance.entry((*currency).to_owned()).or_insert_with(BigDecimal::zero) += units;
-                }
-            }
-        }
-        Ok(ret)
-    }
-
-    /// [`Operations::balances_with_sub_accounts`] of one account, from its own postings and its sub-accounts' only
-    pub fn balance_with_sub_accounts(&self, account: &str) -> ZhangResult<BalanceWithSubAccounts> {
-        let store = self.read();
-        let sub_accounts = format!("{account}:");
-        let mut ret = BalanceWithSubAccounts {
-            has_sub_accounts: store.accounts.keys().any(|name| name.starts_with(&sub_accounts)),
-            ..Default::default()
-        };
-        for posting in &store.postings {
-            let name = posting.account.name();
-            let is_sub_account = name.starts_with(&sub_accounts);
-            if name != account && !is_sub_account {
-                continue;
-            }
-            ret.has_sub_accounts |= is_sub_account;
-            *ret.balance.entry(posting.inferred_amount.commodity.clone()).or_insert_with(BigDecimal::zero) += &posting.inferred_amount.number;
-        }
-        Ok(ret)
-    }
-
     pub fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
@@ -745,28 +612,5 @@ impl Operations {
     pub fn get_account_budget(&self, account_name: impl AsRef<str>) -> ZhangResult<Vec<String>> {
         let metas = self.metas(MetaType::AccountMeta, account_name)?;
         Ok(metas.into_iter().filter(|meta| meta.key.eq("budget")).map(|meta| meta.value).collect_vec())
-    }
-}
-
-/// the row of a balance assertion in its account's journal: it adds nothing, `account_after` is `own`, the
-/// account's own balance where the assertion stands, and `checked_balance` the balance the assertion was
-/// checked against, which includes the sub-accounts. Its id follows the posting rows' ids, derived from
-/// the assertion id like the id of a single posting
-fn assertion_journal_row(assertion: &BalanceAssertionDomain, own: Amount) -> AccountJournalDomain {
-    // zero, written with the decimals of the asserted amount and the balance
-    let difference = (&assertion.amount.number).sub(&assertion.balance.number);
-    let nothing = BigDecimal::zero().with_scale(difference.fractional_digit_count());
-    AccountJournalDomain {
-        datetime: assertion.datetime.naive_local(),
-        timestamp: assertion.datetime.timestamp(),
-        account: assertion.account.name().to_owned(),
-        trx_id: Uuid::from_txn_posting(&assertion.id, 0).to_string(),
-        payee: Some(BALANCE_CHECK_PAYEE.to_owned()),
-        narration: Some(assertion.account.name().to_owned()),
-        inferred_unit: Amount::new(nothing, assertion.amount.commodity.clone()),
-        account_after: own,
-        asserted: Some(assertion.amount.clone()),
-        checked_balance: Some(assertion.balance.clone()),
-        passed: Some(assertion.passed),
     }
 }

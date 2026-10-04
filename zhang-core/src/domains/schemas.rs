@@ -96,15 +96,6 @@ pub struct TransactionInfoDomain {
     pub span: zhang_ast::SpanInfo,
 }
 
-/// the balance of an account with its sub-accounts, which a balance assertion on the account is checked against
-#[derive(Debug, Clone, Default)]
-pub struct BalanceWithSubAccounts {
-    /// per currency, the sum of the postings of the account and all its sub-accounts
-    pub balance: std::collections::BTreeMap<Currency, BigDecimal>,
-    /// whether the account has sub-accounts
-    pub has_sub_accounts: bool,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "openapi", derive(Schematic))]
 pub struct AccountJournalDomain {
