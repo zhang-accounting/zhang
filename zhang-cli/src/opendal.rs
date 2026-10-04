@@ -545,8 +545,8 @@ mod test {
         let loaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).await;
         let Err(error) = loaded else { panic!("an include outside the ledger loaded") };
         let message = error.to_string();
-        assert!(message.contains(&format!("cannot include {}", outside_file.display())), "{message}");
-        assert!(message.contains("outside the ledger's directory"), "{message}");
+        assert!(message.contains(&format!("cannot include {}", outside_file.display())), "{}", message);
+        assert!(message.contains("outside the ledger's directory"), "{}", message);
 
         std::fs::write(dir.path().join("main.zhang"), OPENS).unwrap();
         let reloaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).await;
@@ -567,7 +567,7 @@ mod test {
 
         let loaded = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.zhang".to_owned(), Arc::new(source)).await;
         let Err(error) = loaded else { panic!("an include outside the ledger loaded") };
-        assert!(error.to_string().contains("cannot include /elsewhere/x.zhang"), "{error}");
+        assert!(error.to_string().contains("cannot include /elsewhere/x.zhang"), "{}", error);
     }
 
     #[tokio::test]
