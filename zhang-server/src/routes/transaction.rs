@@ -195,8 +195,8 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
     Ok(Directive::Transaction(Transaction {
         date: Date::Datetime(time),
         flag: Some(flag),
-        payee: Some(payload.payee.to_quote()),
-        narration: payload.narration.map(|it| it.to_quote()),
+        payee: Some(ZhangString::quote(payload.payee)),
+        narration: payload.narration.map(ZhangString::quote),
         tags: IndexSet::from_iter(payload.tags),
         links: IndexSet::from_iter(payload.links),
         postings,
@@ -226,7 +226,7 @@ fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original
         let value = if unchanged_bare {
             ZhangString::UnquoteString(value)
         } else {
-            value.to_quote()
+            ZhangString::quote(value)
         };
         meta.insert(key, value);
     }
