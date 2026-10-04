@@ -46,7 +46,7 @@ axum = { version = "0.7", features = ["macros", "multipart"] }
 gotcha = { version = "0.3", features = ["openapi"] }
 gotcha_core = { version = "0.3" }
 bytes = "1.6.0"
-chrono-tz = "0.8"
+chrono-tz = "0.10"
 http = "1.1"
 async-trait = "0.1"
 
