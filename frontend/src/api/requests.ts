@@ -2,6 +2,8 @@ import { ApiError } from 'openapi-typescript-fetch';
 import { responseError } from '@/lib/api-error';
 import { apiBaseUrl, openAPIFetcher, reportUnauthorized } from './fetcher';
 
+export const retrieveJournals = openAPIFetcher.path('/api/journals').method('get').create();
+
 export const retrieveBudgets = openAPIFetcher.path('/api/budgets').method('get').create();
 
 export const retrieveDocuments = openAPIFetcher.path('/api/documents').method('get').create();

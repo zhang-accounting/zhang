@@ -3,11 +3,9 @@ import { format } from 'date-fns';
 import { atom } from 'jotai';
 import { atomWithRefresh, loadable } from 'jotai/utils';
 import { groupBy } from 'lodash-es';
-import { openAPIFetcher } from '../api/fetcher';
+import { retrieveJournals } from '../api/requests';
 import { loadable_unwrap } from './index';
 import { JOURNAL_PAGE_SIZE } from '@/components/journalLines/journal-utils';
-
-const findJournals = openAPIFetcher.path('/api/journals').method('get').create();
 
 export const journalKeywordAtom = atom('');
 export const journalPageAtom = atom(1);
@@ -20,7 +18,7 @@ export const journalFetcher = atomWithRefresh(async (get) => {
   const tags = get(journalTagsAtom);
   const links = get(journalLinksAtom);
 
-  return (await findJournals({ page, keyword, tags, links, size: JOURNAL_PAGE_SIZE })).data.data;
+  return (await retrieveJournals({ page, keyword, tags, links, size: JOURNAL_PAGE_SIZE })).data.data;
 });
 
 export const journalAtom = loadable(journalFetcher);
@@ -38,7 +36,7 @@ export const groupedJournalsAtom = atom((get) => {
 export async function refetchJournal(target: JournalItem): Promise<JournalItem | undefined> {
   const keyword = target.payee || target.narration || '';
   for (let page = 1; page <= 20; page++) {
-    const { data } = (await findJournals({ page, keyword, tags: [], links: [], size: 100 })).data;
+    const { data } = (await retrieveJournals({ page, keyword, tags: [], links: [], size: 100 })).data;
     const found = data.records.find((record) => record.id === target.id);
     if (found) return found;
     if (page >= data.total_page) return undefined;

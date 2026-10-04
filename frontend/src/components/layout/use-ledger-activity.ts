@@ -1,11 +1,9 @@
 import { endOfDay, endOfMonth, isBefore, startOfDay, startOfMonth, subDays } from 'date-fns';
 import { useAtomValue } from 'jotai';
 import { useAsync } from 'react-use';
-import { openAPIFetcher } from '@/api/fetcher';
+import { retrieveJournals } from '@/api/requests';
 import { JournalItem } from '@/api/types';
 import { journalAtom } from '@/states/journals';
-
-const findJournals = openAPIFetcher.path('/api/journals').method('get').create();
 
 /**
  * Latest journals of the whole ledger (independent of the Journals page filters). Refetches whenever the shared journal
@@ -17,7 +15,7 @@ export function useRecentJournals(size = 6) {
   const signal = journals.state === 'loading' ? undefined : journals.state === 'hasData' ? journals.data : 'error';
   const { value, loading, error } = useAsync(async () => {
     if (signal === undefined) return undefined;
-    const res = await findJournals({ page: 1, size, keyword: '', tags: [], links: [] });
+    const res = await retrieveJournals({ page: 1, size, keyword: '', tags: [], links: [] });
     return res.data.data;
   }, [size, signal]);
   return { records: (value?.records ?? []) as JournalItem[], total: value?.total_count ?? 0, loading: loading || (!value && !error), error };
