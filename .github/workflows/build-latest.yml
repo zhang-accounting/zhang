@@ -75,8 +75,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+      # nextest runs the tests of all test binaries in parallel, where `cargo test` runs the binaries one after another
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      # the default members, like `cargo test` at the root
       - name: Run test
-        run: cargo test
+        run: cargo nextest run
+      # nextest does not run doctests
+      - name: Run doctests
+        run: cargo test --doc
       # zhang-server enables `plugin_runtime` of zhang-core, so the workspace build above always has it on.
       # Test zhang-core alone to cover the build without the plugin runtime.
       - name: Run zhang-core test without plugin runtime
