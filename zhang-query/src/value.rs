@@ -565,16 +565,19 @@ impl Value {
 /// Currencies beancount orders first when sorting positions.
 const COMMON_CURRENCIES: [&str; 8] = ["USD", "EUR", "JPY", "CAD", "GBP", "AUD", "NZD", "CHF"];
 
+/// beancount's rank of a currency when sorting positions: the common currencies in their
+/// order, then every other currency by the length of its name in characters (Python's `len`).
 fn currency_rank(currency: &str) -> usize {
     COMMON_CURRENCIES
         .iter()
         .position(|it| *it == currency)
-        .unwrap_or(COMMON_CURRENCIES.len() + currency.len())
+        .unwrap_or(COMMON_CURRENCIES.len() + currency.chars().count())
 }
 
-/// beancount's position sort key: (currency rank, cost number, cost currency, units number),
-/// with the currency name as a final tie-breaker so the order is total.
-pub(crate) fn position_sort_cmp(a: &Position, b: &Position) -> Ordering {
+/// beancount's position sort key as a comparison: (currency rank, cost number, cost currency,
+/// units number). The currency name, cost date and label take no part, so positions that
+/// compare equal keep their order under a stable sort, as beancount prints an inventory.
+pub(crate) fn position_sort_key_cmp(a: &Position, b: &Position) -> Ordering {
     let zero = BigDecimal::zero();
     let (a_cost_number, a_cost_currency) = a.cost.as_ref().map(|c| (&c.number, c.currency.as_str())).unwrap_or((&zero, ""));
     let (b_cost_number, b_cost_currency) = b.cost.as_ref().map(|c| (&c.number, c.currency.as_str())).unwrap_or((&zero, ""));
@@ -583,6 +586,12 @@ pub(crate) fn position_sort_cmp(a: &Position, b: &Position) -> Ordering {
         .then_with(|| a_cost_number.cmp(b_cost_number))
         .then_with(|| a_cost_currency.cmp(b_cost_currency))
         .then_with(|| a.units.number.cmp(&b.units.number))
+}
+
+/// [`position_sort_key_cmp`] with the currency name and the cost as final tie-breakers so the
+/// order is total (`ORDER BY`, `min()`, `max()` and `str()`).
+pub(crate) fn position_sort_cmp(a: &Position, b: &Position) -> Ordering {
+    position_sort_key_cmp(a, b)
         .then_with(|| a.units.commodity.cmp(&b.units.commodity))
         .then_with(|| a.cost.cmp(&b.cost))
 }
@@ -747,6 +756,22 @@ mod tests {
         inventory.add_amount(&amount("0.00", "USD"));
         assert_eq!(inventory.to_string(), "10 AAPL {100 USD, 2024-01-01}, 1.00 USD");
         assert_eq!(-inventory.clone(), -inventory);
+    }
+
+    #[test]
+    fn positions_rank_other_currencies_by_characters_like_beancount() {
+        // beancount ranks a currency outside the common ones by `len(currency)`, which counts
+        // characters, not bytes: a three-character CJK name sorts with "CNY", before "ABCD".
+        let position = |currency: &str| Value::Position(Position::new(amount("1", currency), None));
+        assert_eq!(position("人民币").sort_cmp(&position("ABCD")), Ordering::Less);
+        assert_eq!(position("AB").sort_cmp(&position("人民币")), Ordering::Less);
+        assert_eq!(position("USD").sort_cmp(&position("人民币")), Ordering::Less);
+        // a tie on the key is broken by the currency name, so the order stays total
+        assert_eq!(position("CNY").sort_cmp(&position("人民币")), Ordering::Less);
+        assert_eq!(
+            position_sort_key_cmp(&Position::new(amount("1", "CNY"), None), &Position::new(amount("1", "人民币"), None)),
+            Ordering::Equal
+        );
     }
 
     #[test]
