@@ -1334,3 +1334,30 @@ fn legs_a_stage_moved_apart_make_one_row_each_as_booked() {
         vec!["Assets:A -10 USD 10 CNY = -10 USD", "Income:I ? - = 155 CNY", "Assets:A -5 USD 11 CNY = -5 USD",]
     );
 }
+
+/// A total cost is spread over the absolute units, as in beancount: a sale written `-3 USD {{99 CNY}}`
+/// looks for the lot bought at `33 CNY` and reduces it. Before, the per-unit cost was `-33 CNY`,
+/// which matched no lot: the sale was reported as `NoEnoughCommodityLot` and opened a lot with a
+/// negative cost next to the one it should have reduced.
+#[test]
+fn a_total_cost_on_negative_units_reduces_the_lot_bought_at_that_cost() {
+    let ledger = load(indoc! {r#"
+        2024-05-16 * "buy at a total cost"
+          Assets:A 3 USD {{ 99 CNY }}
+          Income:I -99 CNY
+        2024-05-17 * "sell at the same total cost"
+          Assets:A -3 USD {{ 99 CNY }}
+          Income:I 99 CNY
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), Vec::<String>::new());
+
+    // the short lot a sale opens when nothing is held carries the positive per-unit cost
+    let ledger = load(indoc! {r#"
+        2024-05-19 * "negative units at a total cost, nothing held"
+          Assets:A -3 USD {{ 99 CNY }}
+          Income:I 99 CNY
+    "#});
+    assert_eq!(errors(&ledger), vec![(ErrorKind::NoEnoughCommodityLot, Some("-3".to_owned()))]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["-3 USD {33 CNY, 2024-05-19}"]);
+}

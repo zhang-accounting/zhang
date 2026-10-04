@@ -173,13 +173,15 @@ pub(crate) fn normalise_cost(mut cost: PostingCost, units: &BigDecimal) -> Posti
     cost
 }
 
-/// the per-unit cost of a total cost spread over `units`. Zero units have no per-unit cost: they
-/// book nothing, so the written total is kept instead of dividing by zero
+/// the per-unit cost of a total cost spread over `units`: `|T| / |units|`, so a sale written
+/// `-3 USD {{99 CNY}}` books against the lot bought at `33 CNY`, as in beancount, and a lot never
+/// carries a negative cost. Zero units have no per-unit cost: they book nothing, so the written
+/// total is kept instead of dividing by zero
 fn per_unit_cost(total: Amount, units: &BigDecimal) -> Amount {
     if units.is_zero() {
         total
     } else {
-        total.div(units.clone())
+        Amount::new(total.number.abs().div(units.abs()), total.commodity)
     }
 }
 
