@@ -13,7 +13,7 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, SpanInfo, Spanned};
-use zhang_core::data_source::{directive_output_file, include_for_append, included_file, written_into, DataSource, LoadResult, SourceEntry};
+use zhang_core::data_source::{directive_output_file, include_for_append, included_file, written_into, DataSource, IncludePattern, LoadResult, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -33,16 +33,6 @@ pub struct OpendalDataSource {
     is_beancount: bool,
     /// the directory the `Fs` service reads, the ledger root on the local disk; `None` for a remote service
     local_root: Option<PathBuf>,
-}
-
-async fn is_wildcard_pathbuf(pathbuf: &Path) -> bool {
-    pathbuf.to_string_lossy().to_string().contains("*")
-}
-
-#[derive(Debug)]
-struct WildcardPathComponent {
-    path: String,
-    remaining: Vec<String>,
 }
 
 #[async_trait::async_trait]
@@ -132,86 +122,17 @@ impl DataSource for OpendalDataSource {
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {
             let striped_pathbuf = &pathbuf.strip_prefix(&entry).expect("Cannot strip entry").to_path_buf();
-            if is_wildcard_pathbuf(striped_pathbuf).await {
-                // Split path into components and find wildcard level
-                let mut path_components: Vec<String> = striped_pathbuf.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
-                let first_component = path_components.remove(0);
-                let wildcard_component = WildcardPathComponent {
-                    path: first_component,
-                    remaining: path_components,
-                };
-                let mut queue: VecDeque<WildcardPathComponent> = VecDeque::new();
-                queue.push_back(wildcard_component);
-
-                let mut final_file_paths: Vec<PathBuf> = vec![];
-                while let Some(mut current_component) = queue.pop_front() {
-                    let mut current_path = PathBuf::new();
-                    current_path.push(current_component.path);
-
-                    let next_component = current_component.remaining.remove(0);
-
-                    let next_component_path = current_path.join(&next_component);
-                    if !next_component.contains('*') {
-                        // if the next component is not a wildcard, we can just add it to the current path
-                        queue.push_back(WildcardPathComponent {
-                            path: next_component_path.to_string_lossy().to_string(),
-                            remaining: current_component.remaining,
-                        });
-                        continue;
-                    }
-                    // if the next component is a wildcard, we need to add all the files in the current path to the final file paths
-
-                    let current_path_str = format!("{}/", current_path.to_string_lossy());
-                    let files = self
-                        .operator
-                        .list(&current_path_str)
-                        .await
-                        .map_err(|e| ZhangError::CustomError(format!("fail to list files in parent directory [{}] : {}", current_path.display(), e)))?;
-
-                    let re = regex::Regex::new(&next_component.replace('*', "[^/]+")).unwrap();
-
-                    for entry in files {
-                        let entry_name = entry.path();
-                        // `list` also returns the listed directory itself, which is not a child to match
-                        if entry_name == current_path_str {
-                            continue;
-                        }
-
-                        if entry.metadata().is_dir() {
-                            let striped_entry_name = entry.path().strip_prefix(&current_path_str).unwrap().strip_suffix("/").unwrap();
-                            if re.is_match(striped_entry_name) {
-                                // Build full path
-                                if !current_component.remaining.is_empty() {
-                                    queue.push_back(WildcardPathComponent {
-                                        path: current_path.join(striped_entry_name).to_string_lossy().to_string(),
-                                        remaining: current_component.remaining.clone(),
-                                    });
-                                }
-                            }
-                        } else {
-                            let striped_entry_name = entry_name.strip_prefix(&current_path_str).unwrap();
-                            if re.is_match(striped_entry_name) {
-                                // Build full path
-                                let is_remaining_empty = current_component.remaining.is_empty();
-                                if is_remaining_empty {
-                                    final_file_paths.push(current_path.join(striped_entry_name));
-                                }
-                            }
-                        }
-                    }
-                }
-                for file_path in final_file_paths {
-                    let fullpath = if file_path.as_path().starts_with("/") {
-                        file_path
-                    } else {
-                        entry.join(file_path)
-                    };
-                    load_queue.push_back(fullpath);
-                }
+            if let Some(pattern) = IncludePattern::parse(striped_pathbuf) {
+                // listed through the blocking helper, as plugins list during a load; a directory that is not there
+                // holds nothing
+                let files = pattern.expand(Path::new(""), |dir| match self.list(dir.to_string_lossy().into_owned(), usize::MAX) {
+                    Err(ZhangError::FileNotFound) => Ok(vec![]),
+                    listed => listed,
+                })?;
+                load_queue.extend(files.into_iter().map(|file| entry.join(file)));
                 continue;
-            } else {
-                debug!("visited entry file: {:?}", striped_pathbuf.display());
             }
+            debug!("visited entry file: {:?}", striped_pathbuf.display());
             if utils::has_path_visited(&visited, &pathbuf) {
                 continue;
             }
@@ -519,6 +440,67 @@ mod test {
 
     fn entry(name: &str, is_dir: bool) -> SourceEntry {
         SourceEntry { name: name.to_owned(), is_dir }
+    }
+
+    /// the ledger loaded from the `main.zhang` at the root of a remote-like source holding `files`
+    async fn load_remote(files: &[(&str, &str)]) -> Ledger {
+        let operator = Operator::new(Memory::default()).unwrap();
+        for (path, content) in files {
+            operator.write(path, content.as_bytes().to_vec()).await.unwrap();
+        }
+        let source = OpendalDataSource {
+            operator,
+            data_type: Box::new(ZhangDataType {}),
+            is_beancount: false,
+            local_root: None,
+        };
+        Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.zhang".to_owned(), Arc::new(source))
+            .await
+            .unwrap()
+    }
+
+    /// A pattern names the files that exist, whole names only, in any part of the path (#494): `*.zhang` at the root
+    /// and `data/*/accounts.zhang`, with a literal last part, stopped the load before, and `*.zhang` took
+    /// `01.zhang.bak`, whose entries were loaded twice. The main file matches its own pattern and is still read once;
+    /// the hidden `.#01.zhang` is left out.
+    #[tokio::test]
+    async fn an_include_pattern_names_matching_files_at_any_depth() {
+        let transaction = |day: &str| format!("2024-01-{day} * \"shop\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n");
+        let (first, backup, hidden, second, other) = (transaction("01"), transaction("02"), transaction("03"), transaction("04"), transaction("05"));
+        let ledger = load_remote(&[
+            (
+                "main.zhang",
+                "include \"*.zhang\"\ninclude \"data/*/*.zhang\"\ninclude \"data/*/accounts.zhang\"\ninclude \"nothing/*.zhang\"\n",
+            ),
+            ("accounts.zhang", "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n"),
+            ("data/2024/01.zhang", &first),
+            ("data/2024/01.zhang.bak", &backup),
+            ("data/2024/.#01.zhang", &hidden),
+            ("data/2025/02.zhang", &second),
+            ("data/2025/accounts.zhang", "1970-01-01 open Assets:Bank\n"),
+            ("data/other.zhang", &other),
+        ])
+        .await;
+
+        let mut visited: Vec<String> = ledger
+            .visited_files
+            .iter()
+            .map(|it| it.strip_prefix("/ledger").unwrap().to_string_lossy().into_owned())
+            .collect();
+        visited.sort();
+        assert_eq!(
+            visited,
+            vec![
+                "accounts.zhang",
+                "data/2024/01.zhang",
+                "data/2025/02.zhang",
+                "data/2025/accounts.zhang",
+                "main.zhang"
+            ]
+        );
+        let store = ledger.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(store.transactions.len(), 2);
     }
 
     #[tokio::test]

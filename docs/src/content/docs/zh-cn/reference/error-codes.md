@@ -405,4 +405,3 @@ option "operating_currency" "EUR"
 - 文件中的**语法错误**。消息会指出文件、行和列，例如 `failed to parse zhang file: unexpected input at line 4, column 3`。
 - [`default_rounding`](/zh-cn/reference/directives/options/#default_rounding) 或 [`directive_output_path`](/zh-cn/reference/directives/options/#directive_output_path) 选项的**无效值**，或者[商品](/zh-cn/reference/directives/commodity/#舍入)的 `rounding` 元数据的无效值。消息为 `option value is invalid`。
 - 启用插件时，**插件**的模块缺失或无法加载，或者插件调用失败或运行超过 `timeout`。见[插件](/zh-cn/reference/directives/plugin/#加载与顺序)。
-- 超出[通配符的限制](/zh-cn/reference/directives/include/#通配符)的 **`include` 模式**。

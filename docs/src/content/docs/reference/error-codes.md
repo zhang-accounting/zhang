@@ -497,4 +497,3 @@ the ledger as it was.
   metadata of a [commodity](/reference/directives/commodity/#rounding). The message is `option value is invalid`.
 - **A plugin** whose module is missing or cannot be loaded, or whose call fails or runs past its `timeout`, while
   plugins are enabled. See [Plugin](/reference/directives/plugin/#loading-and-order).
-- **An `include` pattern** outside the [limits of wildcards](/reference/directives/include/#wildcards).

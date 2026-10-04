@@ -34,7 +34,6 @@ reqwest = { version = "0.13", default-features = false }
 
 async-recursion = "1.0.5"
 chrono = "0.4"
-regex = "1"
 
 [dev-dependencies]
 gotcha = { workspace = true }

@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use chrono::Datelike;
 use log::{debug, warn};
@@ -189,6 +189,97 @@ pub fn unchanged(path: &str, content: &str, spans: &[SpanInfo]) -> ZhangResult<(
     }
 }
 
+/// An `include` path with `*` in it: a pattern naming every file that matches, as beancount's `include` does. `*`
+/// stands for any run of characters other than `/` within one part of the path, in any part and any number of times;
+/// every other character is literal, and a part matches a whole name. A leading `*` does not match a hidden name, one
+/// starting with `.`, as in a shell. The last part names files, the parts before it directories.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludePattern {
+    /// whether the pattern starts at the root of the file system (or of the data source)
+    absolute: bool,
+    /// the parts of the path, `.` left out and `..` folded into the literal part before it when there is one
+    parts: Vec<String>,
+}
+
+impl IncludePattern {
+    /// the pattern `path` is, or `None` when it has no `*` and names one file
+    pub fn parse(path: &Path) -> Option<IncludePattern> {
+        if !path.to_string_lossy().contains('*') {
+            return None;
+        }
+        let mut absolute = false;
+        let mut parts: Vec<String> = vec![];
+        for component in path.components() {
+            match component {
+                Component::RootDir | Component::Prefix(_) => absolute = true,
+                Component::CurDir => {}
+                Component::ParentDir => match parts.last() {
+                    Some(last) if last != ".." && !last.contains('*') => {
+                        parts.pop();
+                    }
+                    _ => parts.push("..".to_owned()),
+                },
+                Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            }
+        }
+        Some(IncludePattern { absolute, parts })
+    }
+
+    /// the files the pattern names under `base`, which an absolute pattern ignores, in the order of their names
+    /// within each directory. `list` gives the entries of a directory, none for one that is not there. The parts
+    /// before the first `*` are joined without a look; from there on, a part names only entries the listing holds, so
+    /// `data/*/accounts.zhang` names the `accounts.zhang` files that exist
+    pub fn expand(&self, base: &Path, mut list: impl FnMut(&Path) -> ZhangResult<Vec<SourceEntry>>) -> ZhangResult<Vec<PathBuf>> {
+        let mut paths = vec![if self.absolute { PathBuf::from("/") } else { base.to_path_buf() }];
+        let mut listing = false;
+        for (index, part) in self.parts.iter().enumerate() {
+            let is_last = index + 1 == self.parts.len();
+            listing |= part.contains('*');
+            if !listing {
+                paths = paths.into_iter().map(|path| path.join(part)).collect();
+                continue;
+            }
+            let mut matched = vec![];
+            for path in paths {
+                let mut entries = list(&path)?;
+                entries.sort_by(|a, b| a.name.cmp(&b.name));
+                for entry in entries {
+                    if entry.is_dir != is_last && segment_matches(part, &entry.name) {
+                        matched.push(path.join(&entry.name));
+                    }
+                }
+            }
+            paths = matched;
+        }
+        Ok(paths)
+    }
+}
+
+/// whether `name`, one part of a path, is what `pattern`, one part of an [`IncludePattern`], names: `*` stands for any
+/// run of characters, a leading one for a run that does not start with `.`, and the rest is literal and whole
+pub fn segment_matches(pattern: &str, name: &str) -> bool {
+    let mut pieces = pattern.split('*');
+    let first = pieces.next().unwrap_or_default();
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let pieces: Vec<&str> = pieces.collect();
+    let Some((last, middle)) = pieces.split_last() else {
+        // no `*`: the whole name
+        return rest.is_empty();
+    };
+    if first.is_empty() && name.starts_with('.') {
+        return false;
+    }
+    for piece in middle {
+        match rest.find(piece) {
+            Some(at) => rest = &rest[at + piece.len()..],
+            None => return false,
+        }
+    }
+    rest.ends_with(last)
+}
+
 /// `LocalFileSystemDataSource` is the data source that store the data in the local file system.
 ///
 /// # Warning
@@ -209,6 +300,25 @@ impl LocalFileSystemDataSource {
             Some(folder) => std::fs::create_dir_all(folder).with_path(folder),
             None => Ok(()),
         }
+    }
+
+    /// the entries of the directory at `dir` on the local disk, none when there is no directory there
+    fn entries(dir: &Path) -> ZhangResult<Vec<SourceEntry>> {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => return Ok(vec![]),
+            Err(e) => return Err(e).with_path(dir),
+        };
+        entries
+            .map(|entry| {
+                let entry = entry?;
+                Ok(SourceEntry {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    is_dir: entry.path().is_dir(),
+                })
+            })
+            .collect::<Result<Vec<_>, std::io::Error>>()
+            .with_path(dir)
     }
 
     /// append `directive` to `file`, or to the file `directive_output_path` gives it ([`directive_output_file`]), which
@@ -272,6 +382,10 @@ impl DataSource for LocalFileSystemDataSource {
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
         while let Some(pathbuf) = load_queue.pop_front() {
+            if let Some(pattern) = IncludePattern::parse(&pathbuf) {
+                load_queue.extend(pattern.expand(&entry, Self::entries)?);
+                continue;
+            }
             debug!("visited entry file: {:?}", pathbuf.display());
 
             if has_path_visited(&visited, &pathbuf) {
@@ -372,6 +486,122 @@ mod get_existing_test {
 }
 
 #[cfg(test)]
+mod include_pattern_test {
+    use std::path::Path;
+
+    use super::{segment_matches, IncludePattern, SourceEntry};
+    use crate::ZhangResult;
+
+    /// A part matches a whole name: `*` is any run of characters, a leading `*` none starting with `.`, the rest is
+    /// literal, `.` included.
+    #[test]
+    fn a_part_matches_whole_names() {
+        for (pattern, name, matches) in [
+            ("*.zhang", "01.zhang", true),
+            ("*.zhang", "01.zhang.bak", false),
+            ("*.zhang", ".#01.zhang", false),
+            (".*", ".hidden", true),
+            ("*", "anything", true),
+            ("2024-*-*.zhang", "2024-01-15.zhang", true),
+            ("2024-*-*.zhang", "2024-0115.zhang", false),
+            ("report(*).zhang", "report(1).zhang", true),
+            ("report(*).zhang", "report1.zhang", false),
+            ("a*b*c", "abc", true),
+            ("a*b*c", "axxbyyc", true),
+            ("a*b*c", "ac", false),
+            ("*ab*b", "ab", false),
+            ("accounts.zhang", "accounts.zhang", true),
+            ("accounts.zhang", "accounts.zhang.bak", false),
+            ("x.zhang", "x_zhang", false),
+        ] {
+            assert_eq!(segment_matches(pattern, name), matches, "{pattern} against {name}");
+        }
+    }
+
+    /// A pattern is the parts of its path: a path without `*` is none, `.` is dropped, `..` folds into the literal
+    /// part before it, and a leading `/` makes it absolute.
+    #[test]
+    fn a_pattern_is_the_parts_of_its_path() {
+        assert_eq!(IncludePattern::parse(Path::new("data/2024.zhang")), None);
+        let pattern = IncludePattern::parse(Path::new("./data/2024/../*/x*.zhang")).unwrap();
+        assert_eq!(
+            (pattern.absolute, pattern.parts),
+            (false, vec!["data".to_owned(), "*".to_owned(), "x*.zhang".to_owned()])
+        );
+        let pattern = IncludePattern::parse(Path::new("/ledger/*.zhang")).unwrap();
+        assert_eq!((pattern.absolute, pattern.parts), (true, vec!["ledger".to_owned(), "*.zhang".to_owned()]));
+        assert_eq!(
+            IncludePattern::parse(Path::new("../*.zhang")).unwrap().parts,
+            vec!["..".to_owned(), "*.zhang".to_owned()]
+        );
+    }
+
+    /// Over a listing, the last part names files and the parts before it directories, in name order; a part without
+    /// `*` after one with it names only what exists; a directory that is not there lists nothing.
+    #[test]
+    fn a_pattern_names_the_files_a_listing_holds() {
+        let tree: &[(&str, &[(&str, bool)])] = &[
+            (
+                "",
+                &[
+                    ("data", true),
+                    ("main.zhang", false),
+                    ("accounts.zhang", false),
+                    ("notes.txt", false),
+                    (".#accounts.zhang", false),
+                ],
+            ),
+            ("data", &[("2025", true), ("2024", true), ("readme.zhang", false)]),
+            (
+                "data/2024",
+                &[
+                    ("b.zhang", false),
+                    ("a.zhang", false),
+                    ("a.zhang.bak", false),
+                    ("accounts.zhang", false),
+                    ("old", true),
+                ],
+            ),
+            ("data/2025", &[("c.zhang", false)]),
+        ];
+        let list = |dir: &Path| -> ZhangResult<Vec<SourceEntry>> {
+            let dir = dir.to_string_lossy();
+            Ok(tree
+                .iter()
+                .find(|(path, _)| *path == dir)
+                .map(|(_, entries)| {
+                    entries
+                        .iter()
+                        .map(|(name, is_dir)| SourceEntry {
+                            name: name.to_string(),
+                            is_dir: *is_dir,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default())
+        };
+        let expand = |pattern: &str| -> Vec<String> {
+            IncludePattern::parse(Path::new(pattern))
+                .unwrap()
+                .expand(Path::new(""), list)
+                .unwrap()
+                .iter()
+                .map(|it| it.to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(expand("*.zhang"), vec!["accounts.zhang", "main.zhang"]);
+        assert_eq!(
+            expand("data/*/*.zhang"),
+            vec!["data/2024/a.zhang", "data/2024/accounts.zhang", "data/2024/b.zhang", "data/2025/c.zhang"]
+        );
+        assert_eq!(expand("data/*/accounts.zhang"), vec!["data/2024/accounts.zhang"]);
+        assert_eq!(expand("data/*"), vec!["data/readme.zhang"]);
+        assert_eq!(expand("data/20*/a.zhang"), vec!["data/2024/a.zhang"]);
+        assert_eq!(expand("missing/*.zhang"), Vec::<String>::new());
+    }
+}
+
+#[cfg(test)]
 mod test {
     use std::sync::Arc;
 
@@ -404,6 +634,55 @@ mod test {
         assert_eq!(main.matches("include \"data/2024/01.zhang\"").count(), 1, "{main}");
         let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
         let store = reloaded.store.read().unwrap();
+        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(store.transactions.len(), 2);
+    }
+
+    /// A pattern names the files that exist, whole names only, in any part of the path (#494): `*.zhang` next to the
+    /// main file, `data/*/*.zhang`, and `data/*/accounts.zhang` with a literal last part. The main file matches its
+    /// own pattern and is still read once; `01.zhang.bak` and the hidden `.#01.zhang` are left out.
+    #[test]
+    fn an_include_pattern_names_matching_files_at_any_depth() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let write = |path: &str, content: &str| {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        };
+        let transaction = |day: &str| format!("2024-01-{day} * \"shop\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n");
+        write(
+            "main.zhang",
+            "include \"*.zhang\"\ninclude \"data/*/*.zhang\"\ninclude \"data/*/accounts.zhang\"\ninclude \"nothing/*.zhang\"\n",
+        );
+        write("accounts.zhang", "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n");
+        write("data/2024/01.zhang", &transaction("01"));
+        write("data/2024/01.zhang.bak", &transaction("02"));
+        write("data/2024/.#01.zhang", &transaction("03"));
+        write("data/2025/02.zhang", &transaction("04"));
+        write("data/2025/accounts.zhang", "1970-01-01 open Assets:Bank\n");
+        write("data/other.zhang", &transaction("05"));
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+
+        let mut visited: Vec<String> = ledger
+            .visited_files
+            .iter()
+            .map(|it| it.strip_prefix(&root).unwrap().to_string_lossy().into_owned())
+            .collect();
+        visited.sort();
+        assert_eq!(
+            visited,
+            vec![
+                "accounts.zhang",
+                "data/2024/01.zhang",
+                "data/2025/02.zhang",
+                "data/2025/accounts.zhang",
+                "main.zhang"
+            ]
+        );
+        let store = ledger.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 2);
     }

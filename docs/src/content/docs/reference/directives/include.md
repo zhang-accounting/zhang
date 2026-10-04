@@ -16,7 +16,7 @@ include "<Path>"
 
 | Part | Required | Description |
 |---|---|---|
-| `"<Path>"` | yes | The file to read, in double quotes. A relative path is relative to the directory of the file that holds the `include`. It may contain `*` in its last part. |
+| `"<Path>"` | yes | The file to read, in double quotes. A relative path is relative to the directory of the file that holds the `include`. Any part of it may contain `*`, see [Wildcards](#wildcards). |
 
 An `include` has no date and no metadata. It can be written in any file of the ledger, at any position.
 
@@ -44,21 +44,18 @@ name matches `*.zhang`, and the matching files of every directory under `data`.
 
 ### Wildcards
 
-`*` stands for one or more characters other than `/`, within one part of the path:
+`*` stands for any run of characters other than `/`, within one part of the path, and can be used in any part, more
+than once in a part if needed (`2024-*-*.zhang`). Every other character is taken literally, and a part matches a
+whole name: `*.zhang` matches `01.zhang`, not `01.zhang.bak`, and `report(*).zhang` matches `report(1).zhang`.
 
-- `data/*.zhang` matches the files directly in `data`.
-- `data/*/*.zhang` matches the files one directory below `data`. A directory part without `*` can follow a part with
-  one, as in `data/*/archive/*.zhang`.
+- `data/*.zhang` matches the files directly in `data`, and `*.zhang` in the main file at the ledger root matches
+  the files next to it.
+- `data/*/*.zhang` matches the files one directory below `data`. A part without `*` can come before or after a part
+  with one, as in `data/*/archive/*.zhang` or `data/*/accounts.zhang`.
+- The last part names files, the parts before it directories. A `*` at the start of a part does not match a hidden
+  name, one starting with `.`, as in a shell: `*.zhang` leaves an editor's `.#01.zhang` out.
+- The matching files are read in the order of their names.
 - A pattern that matches no file includes nothing, without an error.
-
-:::caution[Limits of wildcards]
-- The last part of the path, the file name, must contain `*`. A pattern with `*` only in a directory part, such as
-  `data/*/accounts.zhang`, stops Zhang from loading the ledger.
-- The pattern must point into a sub-directory of the ledger root. `include "*.zhang"` in the main file at the root
-  also stops Zhang from loading the ledger. Move the files into a directory and include `that-directory/*.zhang`.
-- A pattern also matches longer names that contain a match: `*.zhang` matches `01.zhang.bak` too, and the `.` in
-  it matches any character. Keep other files out of the directories you include with a pattern.
-:::
 
 ### Files read once
 
@@ -92,7 +89,8 @@ naming the file, line and column.
 Beancount's `include` has the same syntax and also accepts patterns. Zhang differs:
 
 - Beancount reports an `include` that matches no file. Zhang reads a missing file as empty, without an error.
-- Beancount's patterns follow Python's glob rules. Zhang's `*` works only within the limits above.
+- Beancount's patterns follow Python's glob rules. Zhang's `*` works the same way, but `?` and `[...]` are not
+  special in Zhang: they match themselves.
 
 ## Related
 
