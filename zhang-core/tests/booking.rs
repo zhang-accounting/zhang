@@ -1234,3 +1234,103 @@ fn budget_activity_of_implicit_postings_next_to_cost_postings() {
     // booking-split design E4, #423: the implicit posting gets the booked cost, 5 × 10 CNY
     assert_eq!(activity("fun"), "50 CNY");
 }
+
+/// A split a stage broke apart: the legs of one written posting are no longer adjacent (a
+/// plugin moved another posting between them). The store shows them as booked, one row per leg,
+/// as the exporter does, instead of restoring the written posting twice.
+#[test]
+fn legs_a_stage_moved_apart_make_one_row_each_as_booked() {
+    use std::str::FromStr;
+
+    use bigdecimal::BigDecimal;
+    use zhang_core::ast::amount::Amount;
+    use zhang_core::ast::{Date, Directive, Posting, PostingCost, WrittenPosting};
+    use zhang_core::clock::Clock;
+    use zhang_core::data_source::DataSource;
+    use zhang_core::ledger::LedgerProcessContext;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::write(
+        root.join("main.zhang"),
+        format!(
+            "{HEADER}{}",
+            indoc! {r#"
+                2024-05-16 * "buy"
+                  Assets:A 10 USD { 10 CNY }
+                  Income:I -100 CNY
+                2024-05-17 * "buy"
+                  Assets:A 10 USD { 11 CNY }
+                  Income:I -110 CNY
+                2024-05-18 * "sell across both lots"
+                  Assets:A -15 USD {}
+                  Income:I
+            "#}
+        ),
+    )
+    .unwrap();
+    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    let mut loaded = source.load(root.to_string_lossy().to_string(), "main.zhang".to_owned()).unwrap();
+
+    // what booking makes of the sale, with the income posting moved between the two legs
+    let Directive::Transaction(sale) = &mut loaded.directives.last_mut().unwrap().data else {
+        panic!("the sale")
+    };
+    let written_sale = WrittenPosting {
+        index: 0,
+        units: sale.postings[0].units.clone(),
+        cost: sale.postings[0].cost.clone(),
+    };
+    let leg = |units: i64, cost: i64, date: &str| Posting {
+        units: Some(Amount::new(BigDecimal::from(units), "USD")),
+        cost: Some(PostingCost {
+            base: Some(Amount::new(BigDecimal::from(cost), "CNY")),
+            date: Some(Date::Date(chrono::NaiveDate::from_str(date).unwrap())),
+            label: None,
+            total: false,
+        }),
+        written: Some(written_sale.clone()),
+        ..sale.postings[0].clone()
+    };
+    let income = Posting {
+        units: Some(Amount::new(BigDecimal::from(155), "CNY")),
+        written: Some(WrittenPosting {
+            index: 1,
+            units: None,
+            cost: None,
+        }),
+        ..sale.postings[1].clone()
+    };
+    sale.postings = vec![leg(-10, 10, "2024-05-16"), income, leg(-5, 11, "2024-05-17")];
+
+    let ledger = Ledger::process(LedgerProcessContext {
+        directives: loaded.directives,
+        entry: (root, "main.zhang".to_owned()),
+        visited_files: loaded.visited_files,
+        data_source: source,
+        clock: Clock::System,
+    })
+    .unwrap();
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["5 USD {11 CNY, 2024-05-17}"]);
+
+    let store = ledger.store.read().unwrap();
+    let rows: Vec<String> = store
+        .postings
+        .iter()
+        .skip(4)
+        .map(|row| {
+            format!(
+                "{} {} {} = {}",
+                row.account.name(),
+                row.unit.as_ref().map_or("?".to_owned(), ToString::to_string),
+                row.cost.as_ref().map_or("-".to_owned(), ToString::to_string),
+                row.inferred_amount
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec!["Assets:A -10 USD 10 CNY = -10 USD", "Income:I ? - = 155 CNY", "Assets:A -5 USD 11 CNY = -5 USD",]
+    );
+}

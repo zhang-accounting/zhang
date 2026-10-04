@@ -141,14 +141,7 @@ impl TxnPosting<'_> {
             LotMeta {
                 txn_date: self.txn.date.naive_date(),
 
-                cost: self.posting.cost.clone().map(|mut cost| {
-                    if cost.total {
-                        // normalise total cost to per-unit for lot bookkeeping
-                        cost.base = cost.base.map(|base| per_unit_cost(base, &unit.number));
-                        cost.total = false;
-                    }
-                    cost
-                }),
+                cost: self.posting.cost.clone().map(|cost| normalise_cost(cost, &unit.number)),
                 price: self.posting.price.clone().map(|price| match price {
                     SingleTotalPrice::Single(amount) => amount,
 
@@ -168,6 +161,16 @@ impl TxnPosting<'_> {
     pub fn account_name(&self) -> String {
         self.posting.account.content.clone()
     }
+}
+
+/// `cost` as lots keep it: a total cost (`{{T}}`) becomes the per-unit cost of `units`
+pub(crate) fn normalise_cost(mut cost: PostingCost, units: &BigDecimal) -> PostingCost {
+    if cost.total {
+        // normalise total cost to per-unit for lot bookkeeping
+        cost.base = cost.base.map(|base| per_unit_cost(base, units));
+        cost.total = false;
+    }
+    cost
 }
 
 /// the per-unit cost of a total cost spread over `units`. Zero units have no per-unit cost: they

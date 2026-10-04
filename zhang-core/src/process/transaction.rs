@@ -11,7 +11,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Flag, SpanInfo, Transaction};
 
-use crate::booking::BookOutcome;
+use crate::booking::{group_units, written_groups, BookOutcome};
 use crate::constants::TXN_ID;
 use crate::domains::schemas::MetaType;
 use crate::ledger::Ledger;
@@ -27,8 +27,10 @@ impl DirectiveProcess for Transaction {
         let id = ledger.operations().unused_id(Uuid::from_span(span));
         let txn_meta = || HashMap::of(TXN_ID, id.to_string());
 
-        // booking first: the lots decide the weights the implicit posting is interpolated from (E4)
-        let booked = match ledger.booker_mut().book(self) {
+        // booking first: the lots decide the weights the implicit posting is interpolated from (E4).
+        // A copy is booked: the stream keeps the postings as written
+        let mut booked_txn = self.clone();
+        let booked = match ledger.booker_mut().book(&mut booked_txn) {
             BookOutcome::Booked(booked) => booked,
             // the transaction is rejected: it never reaches the store, nor its lots
             BookOutcome::Unbookable { kind, errors } => {
@@ -60,7 +62,18 @@ impl DirectiveProcess for Transaction {
             span,
         )?;
 
-        for (posting_idx, (posting, inferred_amount)) in self.postings.iter().zip(booked.units).enumerate() {
+        // one row per posting as written: the legs booking split from it, adjacent and sharing
+        // `written.index`, are summed into it, so the rows, their ids and the balances are those
+        // of the written postings. A split a stage broke apart (`written_groups`) is one row per
+        // leg, as booked, like the exporter shows it
+        for (posting_idx, group) in written_groups(&booked_txn.postings).into_iter().enumerate() {
+            let legs = group.legs;
+            let posting = &legs[0];
+            let inferred_amount = group_units(legs);
+            let (unit, cost) = match group.written {
+                Some(written) => (written.units.clone(), written.cost.clone()),
+                None => (posting.units.clone(), posting.cost.clone()),
+            };
             let option = operations.account_target_day_balance(
                 posting.account.name(),
                 self.date.to_timezone_datetime(&ledger.options.timezone),
@@ -77,8 +90,8 @@ impl DirectiveProcess for Transaction {
                 posting_idx,
                 posting.flag.clone(),
                 posting.account.name(),
-                posting.units.clone(),
-                posting.cost.clone(),
+                unit,
+                cost,
                 inferred_amount.clone(),
                 Amount::new(previous.number, previous.commodity.clone()),
                 Amount::new(after_number, previous.commodity),
