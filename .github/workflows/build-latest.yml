@@ -32,6 +32,10 @@ jobs:
       - name: frontend style check
         run: pnpm run prettier:check
         working-directory: ./frontend
+      # fails on lint errors only; warnings are printed but pass, as locally
+      - name: frontend lint
+        run: pnpm lint
+        working-directory: ./frontend
   frontend-build:
     runs-on: ubuntu-22.04
     steps:
@@ -48,6 +52,9 @@ jobs:
 
       - name: frontend install
         run: pnpm install
+        working-directory: ./frontend
+      - name: frontend test
+        run: pnpm test
         working-directory: ./frontend
       - name: frontend build
         run: pnpm build
