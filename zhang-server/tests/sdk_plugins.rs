@@ -35,6 +35,7 @@ struct Examples {
     guard: PathBuf,
     summary: PathBuf,
     lots: PathBuf,
+    balances: PathBuf,
 }
 
 /// the example plugins, built on first use; `None` when the wasm32 target is missing and the tests are skipped
@@ -65,6 +66,8 @@ fn build_examples() -> Option<Examples> {
             "zhang-plugin-example-summary",
             "-p",
             "zhang-plugin-example-lots",
+            "-p",
+            "zhang-plugin-example-balances",
         ])
         .arg("--target-dir")
         .arg(&target_dir)
@@ -80,6 +83,7 @@ fn build_examples() -> Option<Examples> {
         guard: built.join("zhang_plugin_example_guard.wasm"),
         summary: built.join("zhang_plugin_example_summary.wasm"),
         lots: built.join("zhang_plugin_example_lots.wasm"),
+        balances: built.join("zhang_plugin_example_balances.wasm"),
     })
 }
 
@@ -459,4 +463,54 @@ fn the_lots_processor_sees_booked_postings_by_default_and_written_ones_in_the_ra
             .collect::<Vec<_>>();
         assert_eq!(lots, vec!["5 AAPL"]);
     }
+}
+
+/// The SDK helper consumes the real plugin input: both split legs, filled implicit units and
+/// resolved cost dates. Its metadata survives the WASM round-trip and the materialize fold.
+#[test]
+fn the_balances_processor_accumulates_booked_units_and_costs_and_rejects_raw_costs() {
+    let Some(examples) = examples() else { return };
+    let dir = ledger_dir(&examples.balances, &[]);
+    let module = module_path(&dir, &examples.balances);
+    let content = LOTS_LEDGER.replace("{module}", &module).replace("{110 USD}", "{{1100 USD}}");
+    let targets = "  account: \"Assets\"\n  account: \"Assets:Broker\"\n  account: \"Income:Gains\"\n  account: \"Assets:Missing\"";
+    for (scope, assets) in [
+        ("subtree", json!({"units": {"AAPL": "5", "USD": "-300"}, "cost": {"USD": "250"}})),
+        ("exact", json!({"units": {}, "cost": {}})),
+    ] {
+        let ledger = load(&dir, &content.replace("{stage}", &format!("{targets}\n  scope: \"{scope}\"")));
+        assert!(ledger.store.read().unwrap().errors.is_empty());
+        let sale = ledger
+            .directives
+            .iter()
+            .find_map(|entry| match &entry.data {
+                Directive::Transaction(txn) if txn.narration.as_ref().unwrap().as_str() == "sell across both" => Some(txn),
+                _ => None,
+            })
+            .unwrap();
+        let balances: Value = serde_json::from_str(sale.meta.get_one("balances").unwrap().as_str()).unwrap();
+        assert_eq!(
+            balances,
+            json!({
+                "Assets": assets,
+                "Assets:Broker": {"units": {"AAPL": "5"}, "cost": {"USD": "550"}},
+                "Income:Gains": {"units": {"USD": "-250"}, "cost": {"USD": "-250"}},
+                "Assets:Missing": {"units": {}, "cost": {}},
+            })
+        );
+        assert_eq!(sale.meta.get_one("cost-dates").unwrap().as_str(), "2024-01-10, 2024-01-20");
+        assert_eq!(ledger.store.read().unwrap().postings.len(), 7, "the example only adds metadata");
+    }
+    let raw = load(&dir, &content.replace("{stage}", &format!("{targets}\n  stage: \"raw\"")));
+    let store = raw.store.read().unwrap();
+    assert_eq!(store.errors.len(), 3);
+    assert!(store
+        .errors
+        .iter()
+        .all(|error| error.error_type == ErrorKind::PluginError && error.metas["rule"] == "unbooked"));
+    assert!(raw.directives.iter().all(|entry| match &entry.data {
+        Directive::Transaction(txn) => txn.meta.get_one("balances").is_none(),
+        _ => true,
+    }));
+    assert_eq!(store.postings.len(), 7, "reporting unbooked input still lets Zhang book the ledger");
 }

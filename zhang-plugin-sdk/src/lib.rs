@@ -11,6 +11,7 @@
 //! - [`fs`] reads the ledger files the plugin's `allowed_paths` grant;
 //! - [`errors`] reports problems in the ledger's error list;
 //! - [`prices`] gives exchange rates from the stream's `price` directives, as zhang computes them;
+//! - [`realization`] accumulates booked quantities and costs for selected accounts or subtrees;
 //! - [`router`] serves HTTP requests and queries the ledger.
 //!
 //! ```no_run
@@ -67,6 +68,7 @@ mod error;
 pub mod errors;
 pub mod fs;
 pub mod prices;
+pub mod realization;
 pub mod router;
 
 pub use bigdecimal;
@@ -91,6 +93,7 @@ pub const ABI_VERSION: u32 = 1;
 pub mod prelude {
     pub use crate::config::{Config, Source, Values};
     pub use crate::prices::PriceMap;
+    pub use crate::realization::{AccountBalance, AccountScope, SparseRealization, UnbookedPosting};
     pub use crate::router::{Request, Response};
     pub use crate::{clock, custom, errors, fs, plugin, router, Directive, Error, HostError, HostErrorKind, Meta, SpanInfo, Spanned, Stream};
 }

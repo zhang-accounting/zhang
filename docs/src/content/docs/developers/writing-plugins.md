@@ -205,9 +205,10 @@ What the SDK offers:
 | `fs` | `read_file`, `read_to_string`, `list_dir` |
 | `errors` | `emit_error(message)`, `emit_error_at(span, message, metas)` |
 | `prices` | `PriceMap::from_stream(&stream)`, `rate(base, quote, date)`, `convert(amount, target, date)` for [exchange rates](#exchange-rates) |
+| `realization` | `SparseRealization` for [selected account quantities and costs](#selected-account-balances) |
 | `router` | `Request`, `Response`, `query(bql)`, `ledger_info()` |
 
-On a native target the SDK still compiles: `plugin!` exports nothing and host functions answer `unavailable`, so `cargo test` runs your plugin logic without Zhang, with a `Config::from_map(...)` standing in for the host's config. Three complete plugins, two processors (`guard`, and `lots`, which shows the booked view) and a router, live in [`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples); Zhang's own tests build and run them.
+On a native target the SDK still compiles: `plugin!` exports nothing and host functions answer `unavailable`, so `cargo test` runs your plugin logic without Zhang, with a `Config::from_map(...)` standing in for the host's config. Four complete plugins live in [`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples): three processors (`guard`, `lots`, which shows the booked view, and `balances`, which records running quantities and costs) and a router. Zhang's own tests build and run them.
 
 ## Determinism
 
@@ -260,6 +261,31 @@ It gives the same rates as Zhang's query engine uses for `convert`, `value` and 
 **Precision:** rates from `price` directives are exact. An inverse that terminates is exact too (`1 / 8 = 0.125`); one that does not is rounded half-even to 28 significant digits, as beancount's decimal context and Zhang's query engine do (`1 / 7 = 0.1428571428571428571428571429`). `convert` rounds a product to 28 significant digits only when it has more.
 
 **Implicit prices:** `PriceMap::from_stream_with_implicit` also takes the prices written on postings, `@` per unit and `@@` in total, like beancount's `implicit_prices` plugin. Zhang itself does not use them, so the rates they add differ from what Zhang shows; it is an opt-in for plugins ported from beancount. A posting without units, which only a plugin running `stage: "raw"` sees, is skipped: it carries no price yet.
+
+## Selected account balances
+
+A plugin that needs balances for a few accounts can build a `SparseRealization` from its booked stream. The host does not precompute it, and the helper keeps only the requested account totals:
+
+```rust
+use zhang_plugin_sdk::realization::{AccountScope, SparseRealization};
+
+let balances = SparseRealization::from_stream(
+    &stream,
+    ["Assets:Broker", "Income:Gains"],
+    AccountScope::Subtree,
+)?;
+let broker = balances.get("Assets:Broker").unwrap();
+let shares = broker.units.get("AAPL").cloned().unwrap_or_default();
+let usd_cost = broker.cost.get("USD").cloned().unwrap_or_default();
+```
+
+- `Exact` counts only the named account's postings; `Subtree` also includes its descendants. `Assets:Bank:Cash` belongs to `Assets:Bank`, but `Assets:Banking` does not. Overlapping targets have independent totals, and duplicate targets count once.
+- `units` and `cost` are ordered maps by commodity. Units are the booked quantities; cost is units times each lot's resolved per-unit cost, or the units themselves when there is no cost. For example, buying 10 AAPL at 100 USD and 10 at 110 USD, then selling 15, leaves `5 AAPL` and `550 USD` at cost. Every split leg counts once, and interpolated postings count too. Posting prices (`@` / `@@`) and `Posting.written` do not affect the sums.
+- Arithmetic is exact. Zero totals are removed; a missing commodity means zero. A requested account with no postings still has an empty balance, while `get` returns `None` for an unrequested account. `accounts()` lists only the requested accounts, in name order.
+- For a running balance, start with `SparseRealization::new(accounts, scope)` and call `apply(&entry.data)` in stream order. Non-transactions, including balance assertions, do nothing. Pads count only when their transactions are present: ordinary plugins run before the built-in pad stage and do not see padding it has yet to generate.
+- The helper never books or infers. A matching posting without units, or with a cost missing its number/date or still marked as total, returns `UnbookedPosting` with its account and current posting index. **None of that transaction updates any balance.** A validator can report it with `errors::emit_error_at` and continue. Unbooked postings outside the requested accounts are ignored. A raw-stage plugin should not use this helper to infer balances.
+
+The `balances` example processor records these running totals in transaction metadata and reports unbooked input as plugin errors. This helper computes cost totals, not market value; use `PriceMap` to convert an amount at a date's exchange rate.
 
 ## Reporting errors
 
