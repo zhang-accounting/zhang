@@ -22,7 +22,8 @@ export interface paths {
     /**
      * Get Account Info
      * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
-     * account with its sub-accounts, which its page shows.
+     * account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
+     * name a 400.
      *
      * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
      */
@@ -32,6 +33,7 @@ export interface paths {
     /**
      * Get Account Balance Data
      * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+     * An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
      *
      * Built-in query `accounts.balance_history`.
      */
@@ -42,7 +44,8 @@ export interface paths {
   '/api/accounts/{account_name}/documents': {
     /**
      * Get Account Documents
-     * @description The document directives of the account and its sub-accounts, in ledger order.
+     * @description The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
+     * 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
      *
      * Built-in query `accounts.documents`.
      */
@@ -57,11 +60,12 @@ export interface paths {
      * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
      * assertion on the account, with the balance it was checked against.
      *
-     * With `page` and `size` (from 1; `size` 100 by default), one page of the rows, and the number of rows of all
-     * the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to return at
-     * once is a 400 that asks for pages.
+     * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
+     * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+     * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
+     * name a 400, as for `GET /api/accounts/{a}`.
      *
-     * Built-in queries `accounts.journal` (`accounts.journal_rows` and `accounts.journal_page` for a page) and
+     * Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
      * `accounts.balance_assertions`.
      */
     get: operations['get_account_journals'];
@@ -462,7 +466,8 @@ export interface operations {
   /**
    * Get Account Info
    * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
-   * account with its sub-accounts, which its page shows.
+   * account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
+   * name a 400.
    *
    * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
    */
@@ -523,6 +528,7 @@ export interface operations {
   /**
    * Get Account Balance Data
    * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
+   * An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
    *
    * Built-in query `accounts.balance_history`.
    */
@@ -616,7 +622,8 @@ export interface operations {
   };
   /**
    * Get Account Documents
-   * @description The document directives of the account and its sub-accounts, in ledger order.
+   * @description The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
+   * 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
    *
    * Built-in query `accounts.documents`.
    */
@@ -671,24 +678,25 @@ export interface operations {
    * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
    * assertion on the account, with the balance it was checked against.
    *
-   * With `page` and `size` (from 1; `size` 100 by default), one page of the rows, and the number of rows of all
-   * the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to return at
-   * once is a 400 that asks for pages.
+   * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
+   * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+   * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
+   * name a 400, as for `GET /api/accounts/{a}`.
    *
-   * Built-in queries `accounts.journal` (`accounts.journal_rows` and `accounts.journal_page` for a page) and
+   * Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
    * `accounts.balance_assertions`.
    */
   get_account_journals: {
     parameters: {
       query: {
         /**
-         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1. Without
-         * either, the whole journal.
+         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
+         * most 1000. Without either, the whole journal.
          */
         page: number | null;
         /**
-         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1. Without
-         * either, the whole journal.
+         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
+         * most 1000. Without either, the whole journal.
          */
         size: number | null;
       };
