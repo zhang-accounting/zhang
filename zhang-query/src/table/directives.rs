@@ -5,7 +5,7 @@
 //! ([`ledger_order`]). `#documents` adds, after its directives, the documents that
 //! transactions and postings name in their metadata.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Component, Path, PathBuf};
 
 use bigdecimal::BigDecimal;
@@ -13,8 +13,9 @@ use chrono::{Datelike, NaiveDate};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{resolve_local_datetime, Account, Directive, Meta, Posting, Spanned, Transaction};
+use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{BalanceAssertionDomain, Store};
+use zhang_core::store::{BalanceAssertionDomain, DocumentType, Store};
 
 use super::postings::time_value;
 use super::{directive_meta, ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
@@ -403,28 +404,72 @@ impl<'a> DocumentRow<'a> {
 /// The document directives in ledger order, then the `document` metadata values of the
 /// transactions the store keeps (those of `#transactions`), in ledger order: a transaction's own
 /// first, then those of its postings in order. A repeated key gives one row per value.
+///
+/// The path of a document directive of a beancount ledger is the one zhang resolved it to while
+/// loading the ledger (relative to the file of the directive, as beancount reads it, or relative to
+/// the ledger's root where only that names a file): the store keeps it with the directive's account
+/// and date, in the order it read the directives, which is the order of the rows of one account and
+/// day too.
 fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    let row = |directive, source, filename: &'a str, transaction_id, seq| {
+    let row = |directive, source, filename: &'a str, path: &'a Path, transaction_id, seq| {
         Record::Document(DocumentRow {
             directive,
             source,
             filename,
-            path: ledger_file(ledger, Path::new(filename)),
+            path,
             transaction_id,
             seq,
         })
     };
+    let mut resolved: HashMap<(&str, NaiveDate), VecDeque<&'a str>> = HashMap::new();
+    if is_beancount_endpoint(&ledger.entry.1) {
+        for document in &store.documents {
+            if let DocumentType::Account(account) = &document.document_type {
+                resolved
+                    .entry((account.name(), document.datetime.date_naive()))
+                    .or_default()
+                    .push_back(document.path.as_str());
+            }
+        }
+    }
     let cache = LedgerCache::of(ledger, store);
     let entries = cache.entries(ledger, store);
-    let mut rows = entries
+    let mut directives = entries
         .rows
         .iter()
         .filter_map(|entry| {
             let directive = &ledger.directives[entry.directive as usize];
             match &directive.data {
-                Directive::Document(document) => Some(row(directive, DocumentSource::Directive(document), document.filename.as_str(), None, entry.seq)),
+                Directive::Document(document) => Some((entry, directive, document)),
                 _ => None,
             }
+        })
+        .collect::<Vec<_>>();
+    // the store keeps the directives of a day in the order it read them: by time, then as written
+    let mut by_day = directives.clone();
+    by_day.sort_by_key(|(entry, _, _)| entry.directive);
+    let mut paths: HashMap<u32, &'a Path> = HashMap::new();
+    for (entry, directive, document) in by_day {
+        let date = date_of(&directive.data).unwrap_or_default();
+        let path = resolved
+            .get_mut(&(document.account.name(), date))
+            .and_then(VecDeque::pop_front)
+            .map(Path::new)
+            .unwrap_or_else(|| ledger_file(ledger, Path::new(document.filename.as_str())));
+        paths.insert(entry.seq, path);
+    }
+    let mut rows = directives
+        .drain(..)
+        .map(|(entry, directive, document)| {
+            let path = paths[&entry.seq];
+            row(
+                directive,
+                DocumentSource::Directive(document),
+                document.filename.as_str(),
+                path,
+                None,
+                entry.seq,
+            )
         })
         .collect::<Vec<_>>();
     for entry in cache.documented(ledger, store).iter().map(|seq| &entries.rows[*seq as usize]) {
@@ -440,7 +485,8 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
         );
         for (source, meta) in holders {
             for filename in meta.get_all("document") {
-                rows.push(row(directive, source, filename.as_str(), entry.txn, entry.seq));
+                let path = ledger_file(ledger, Path::new(filename.as_str()));
+                rows.push(row(directive, source, filename.as_str(), path, entry.txn, entry.seq));
             }
         }
     }
@@ -552,7 +598,9 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "path",
         DataType::Str,
-        "Path of the document as written, relative to the ledger's directory: the path the web UI downloads it with. A zhang extension.",
+        "Path of the document within the ledger, the path the web UI downloads it with: as written, relative to the ledger's \
+         directory; for a document directive of a beancount ledger, as zhang resolved it on load, relative to its file or to the \
+         ledger's root. A zhang extension.",
         |_, record| document(record).map_or(Value::Null, |it| Value::Str(it.path.to_string_lossy().into_owned())),
     ),
     ColumnDef::record(

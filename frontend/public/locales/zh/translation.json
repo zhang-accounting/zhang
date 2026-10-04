@@ -49,6 +49,7 @@
     "PluginError": "插件 {{meta.plugin}}：{{meta.message}}"
   },
   "ERROR_BOX_WHY": "为什么出错?",
+  "ERROR_BOX_LOCATION": "{{file}} · 第 {{start}}–{{end}} 字节",
   "LEDGER_IS_HEALTHY": "账本健康，没有错误",
   "accounts": {
     "hide_closed_accounts": "隐藏已关闭账户"

@@ -1,0 +1,25 @@
+option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Cash
+1970-01-01 open Income:Gains
+1970-01-01 open Equity:Open
+
+2024-01-01 * "Gift" "units without cost"
+  Assets:Broker 5 AAPL
+  Equity:Open
+
+2024-01-02 * "Buy" "units at cost"
+  Assets:Broker 5 AAPL {100 USD}
+  Assets:Cash -500 USD
+
+2024-01-03 * "Sell" "across costless and cost lots"
+  Assets:Broker -8 AAPL {} @ 120 USD
+  Assets:Cash 960 USD
+  Income:Gains
+
+2024-01-04 * "Sell" "plain units, no cost spec"
+  Assets:Broker -1 AAPL
+  Assets:Cash 120 USD
+  Income:Gains

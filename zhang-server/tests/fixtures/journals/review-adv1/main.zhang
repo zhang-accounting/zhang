@@ -1,0 +1,126 @@
+option "title" "adv1"
+option "operating_currency" "CNY"
+option "timezone" "America/New_York"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Sub
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Çé
+1970-01-01 open Equity:Open
+1970-01-01 open Equity:Other
+1970-01-01 open Expenses:Food
+1970-01-01 open Expenses:Straße
+1970-01-01 open Income:Gains
+1970-01-01 open Income:Salary
+
+2024-03-01 * "星巴克" "咖啡 Latte"
+  Assets:Cash -30 CNY
+  Expenses:Food
+
+2024-03-01 * "Straße Café" "ß test"
+  Assets:Cash -1 CNY
+  Expenses:Straße
+
+2024-03-01 * "İstanbul DIŞ" "turkish dotted capital"
+  Assets:Cash -2 CNY
+  Expenses:Food
+
+2024-03-01 * "Regex .* (paren \\ back" "meta chars"
+  Assets:Cash -3 CNY
+  Expenses:Food
+
+2024-03-02 * "Tagged" "with tags" #trip #Food ^link-1
+  repeated: "one"
+  repeated: "two"
+  other: "x"
+  Assets:Cash -4 CNY
+    pmeta: "p1"
+    pmeta: "p2"
+  Expenses:Food
+
+2024-03-02 * "Auto" "automatic posting"
+  Assets:Cash -5 CNY
+  Expenses:Food
+
+2024-03-03 * "Broker" "buy lot 1"
+  Assets:Broker 10 AAPL {100 USD}
+  Assets:Cash -1000 USD
+
+2024-03-04 * "Broker" "buy lot 2 total"
+  Assets:Broker 10 AAPL {{1200 USD}}
+  Assets:Cash -1200 USD
+
+2024-03-04 * "Broker" "buy lot 3 same cost as lot 1"
+  Assets:Broker 5 AAPL {100 USD}
+  Assets:Cash -500 USD
+
+2024-03-05 * "Broker" "sell across mixed lots"
+  Assets:Broker -15 AAPL {} @ 130 USD
+  Assets:Cash 1950 USD
+  Income:Gains
+
+2024-03-06 * "Broker" "sell rest"
+  Assets:Broker -10 AAPL {} @ 130 USD
+  Assets:Cash 1300 USD
+  Income:Gains
+
+2024-03-07 balance Assets:Bank 100 CNY with pad Equity:Open
+2024-03-07 balance Assets:Bank:Sub 50 CNY with pad Equity:Other
+2024-03-07 balance Assets:Cash -45 CNY
+2024-03-07 * "Same day" "after the balances"
+  Assets:Bank -1 CNY
+  Expenses:Food
+2024-03-07 balance Assets:Bank 150 CNY
+
+2024-03-08 balance Assets:Bank 149.995 ~ 0.01 CNY
+2024-03-08 balance Assets:Bank 149 ~ 0.5 CNY
+
+2024-03-10 01:30:00 * "DST gap" "02:30 does not exist"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-10 02:30:00 * "DST gap" "in the gap"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-10 03:15:00 * "DST gap" "after the gap"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-11 10:00:00 * "Timed" "ten"
+  Assets:Cash -1 CNY
+  Expenses:Food
+2024-03-11 10:00:00 balance Assets:Cash -51 CNY
+2024-03-11 09:00:00 * "Timed" "nine, written after"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-12 * "Unbalanced" "oops"
+  Assets:Cash -1 CNY
+  Expenses:Food 2 CNY
+
+2024-03-13 document Assets:Cash "docs/x.pdf"
+2024-03-13 * "Docs" "documents"
+  document: "docs/b.pdf"
+  document: "docs/a.pdf"
+  Assets:Cash -1 CNY
+    document: "docs/p.pdf"
+  Expenses:Food
+
+2024-03-14 * "Equity:Open" "payee looks like account"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-14 * "" "empty payee"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-14 * "no narration"
+  Assets:Cash -1 CNY
+  Expenses:Food
+
+2024-03-15 balance Assets:Bank 149 CNY with pad Assets:Bank

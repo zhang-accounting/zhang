@@ -119,8 +119,8 @@ pub struct DocumentEntity {
 
 #[derive(Serialize, Schematic)]
 pub struct MetaEntity {
-    key: String,
-    value: String,
+    pub key: String,
+    pub value: String,
 }
 impl From<MetaDomain> for MetaEntity {
     fn from(value: MetaDomain) -> Self {

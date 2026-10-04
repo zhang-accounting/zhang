@@ -12,6 +12,7 @@ import AccountDocumentLine from '@/components/documentLines/AccountDocumentLine'
 import { documentExtension, documentUrl } from '@/components/documentLines/document-utils';
 import { DocumentUploadDialog } from '@/components/documentLines/DocumentUploadDialog';
 import { ImageLightBox } from '@/components/ImageLightBox';
+import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { EmptyState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
@@ -155,6 +156,7 @@ export default function Documents() {
         actions={
           <>
             <LayoutToggle value={layout} onChange={setLayout} />
+            <OpenInExplore name="journals.documents" />
             <DocumentUploadDialog onUploaded={retry} />
           </>
         }

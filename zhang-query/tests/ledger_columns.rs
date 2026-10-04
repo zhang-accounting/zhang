@@ -1,6 +1,7 @@
-//! The columns zhang adds to `postings`, `#transactions` and `#entries` for the app's read
-//! endpoints (`time`, `timestamp`, `seq`, `id`, `posting_index`, `account_balance`, `balanced`,
-//! `errors`), the public valuation API, and the per-ledger cache behind every query. These are
+//! The columns zhang adds to `postings`, `#transactions`, `#entries`, `#balances` and `#documents`
+//! for the app's read endpoints (`time`, `timestamp`, `seq`, `id`, `posting_index`,
+//! `account_balance`, `balanced`, `errors`, `automatic`), the public valuation API, and the
+//! per-ledger cache behind every query. These are
 //! zhang extensions, so the expected values are worked out by hand in the comments.
 
 mod common;
@@ -210,6 +211,82 @@ fn seq_is_the_position_in_the_processing_order() {
     assert_eq!(table(&ledger, "SELECT DISTINCT id, seq"), entries);
     // the period modifiers' own transactions are no entries
     expect(&ledger, "SELECT DISTINCT flag, seq FROM OPEN ON 2024-01-08 WHERE flag = 'S'", "S | NULL");
+}
+
+/// `automatic` is whether a posting was written without an amount: the bank leg of the lunch and
+/// the padding account's leg of the padding transaction, which takes the -436.50 that brings the
+/// bank from -336.50 (-12.50 - 9 - 5 - 1050 + 740) to 100; never a posting of the period modifiers.
+#[test]
+fn automatic_postings_are_those_written_without_an_amount() {
+    let ledger = load_text(LEDGER);
+    expect(
+        &ledger,
+        "SELECT narration, posting_index, account, number, automatic WHERE automatic",
+        "lunch | 1 | Assets:Bank | -12.50 | TRUE
+         pad Assets:Bank to Equity:Opening | 1 | Equity:Opening | -436.50 | TRUE",
+    );
+    // every row of a written posting that booking splits across lots is as written
+    expect(
+        &ledger,
+        "SELECT posting_index, number, automatic WHERE narration = 'sell'",
+        "0 | -5 | FALSE
+         0 | -2 | FALSE
+         1 | 740 | FALSE",
+    );
+    expect(&ledger, "SELECT count(*) FROM OPEN ON 2024-01-08 WHERE flag = 'S' AND automatic", "");
+}
+
+/// A balance assertion of `#balances` has the `id`, `seq`, `time` and `timestamp` of its
+/// `#entries` row, so the two tables join on them. The `balance ... with pad` is checked after its
+/// padding (seq 11), so it is 12.
+#[test]
+fn balance_assertions_have_the_id_and_seq_of_their_entry() {
+    let ledger = load_text(LEDGER);
+    expect(
+        &ledger,
+        "SELECT seq, account, time, timestamp, passed FROM #balances ORDER BY seq DESC",
+        "13 | Assets:Bank | 00:00:00 | 1704902400 | FALSE
+         12 | Assets:Bank | 00:00:00 | 1704816000 | TRUE",
+    );
+    assert_eq!(
+        table(&ledger, "SELECT id, seq FROM #balances"),
+        table(&ledger, "SELECT id, seq FROM #entries WHERE type = 'balance'")
+    );
+    let fava = fava_demo_ledger();
+    assert_eq!(
+        table(&fava, "SELECT id, seq, time FROM #balances"),
+        table(&fava, "SELECT id, seq, time FROM #entries WHERE type = 'balance'")
+    );
+}
+
+/// A document of `#documents` has the `seq`, `time` and `timestamp` of the `document` directive or
+/// of the transaction that names it: a transaction's documents share them.
+#[test]
+fn documents_have_the_seq_and_time_of_what_declares_them() {
+    let ledger = load_text(
+        r#"
+option "timezone" "Asia/Shanghai"
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+2024-01-01 document Assets:Bank "statement.pdf"
+2024-01-02 09:15:00 * "Shop" "receipts"
+  document: "a.pdf"
+  Expenses:Food 1 USD
+    document: "b.pdf"
+  Assets:Bank
+"#,
+    );
+    expect(
+        &ledger,
+        "SELECT seq, time, timestamp, source, path FROM #documents ORDER BY seq DESC",
+        "3 | 09:15:00 | 1704158100 | transaction | a.pdf
+         3 | 09:15:00 | 1704158100 | posting | b.pdf
+         2 | 00:00:00 | 1704038400 | directive | statement.pdf",
+    );
+    assert_eq!(
+        table(&ledger, "SELECT DISTINCT seq, time FROM #documents WHERE transaction_id IS NOT NULL"),
+        table(&ledger, "SELECT seq, time FROM #transactions")
+    );
 }
 
 /// The id of a transaction in `#transactions` is the `id` of its postings and of its entry.

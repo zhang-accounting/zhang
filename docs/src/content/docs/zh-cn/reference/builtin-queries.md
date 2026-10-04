@@ -277,7 +277,132 @@ LIMIT 10
 
 ### 流水
 
-暂无查询。
+流水页面（`GET /api/journals`）、新建交易表单建议的收款人和账户（`GET /api/for-new-transaction`）、文档页面（`GET /api/documents`）以及错误列表（`GET /api/errors`）。
+
+#### `journals.page`
+
+流水的一页，最新的在前：符合关键词、标签和链接的交易（包括补齐交易）与余额断言；参数为 NULL 时不使用对应的筛选条件。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `keyword` | `str` | 搜索文本；`NULL` 表示不搜索。交易的收款人、描述、标签、链接或账户包含它（不区分大小写）时匹配；余额断言的账户或 `Balance Check` 字样包含它时匹配。它是普通文本，不是正则表达式。 |
+| `tags` | `set` | 交易须带有其中任一标签；`NULL` 表示任意。余额断言没有标签 |
+| `links` | `set` | 交易须带有其中任一链接；`NULL` 表示任意 |
+| `size` | `int` | 每页的行数，1 到 1000 |
+| `offset` | `int` | 该页之前的行数：`(page - 1) × size` |
+
+```sql
+SELECT seq, type, id, date, time, flag, payee, narration, tags, links, metas
+FROM #entries
+WHERE (type = 'transaction'
+       AND (:tags IS NULL OR intersects(tags, :tags))
+       AND (:links IS NULL OR intersects(links, :links))
+       AND (:keyword IS NULL OR icontains(payee, :keyword) OR icontains(narration, :keyword)
+            OR any_icontains(tags, :keyword) OR any_icontains(links, :keyword) OR any_icontains(accounts, :keyword)))
+   OR (type = 'balance' AND :tags IS NULL AND :links IS NULL
+       AND (:keyword IS NULL OR icontains('Balance Check', :keyword) OR any_icontains(accounts, :keyword)))
+ORDER BY seq DESC
+LIMIT :size OFFSET :offset
+```
+
+- 页数按 `LIMIT` 和 `OFFSET` 之前的总行数计算。`GET /api/journals` 和 `GET /api/errors` 的页大小 `size` 为 1 到 1000，默认 100；其他大小返回 HTTP 400，消息为 `size must be between 1 and 1000`；超过最后一页的页码返回空页。
+- 行按[处理顺序](/zh-cn/reference/query-language/#处理顺序)排列，最新的在前：先按日期和书写的时刻；同一时刻内，余额条目（余额断言和所有标记为 `P` 的交易）在其他交易之前，各自按文件中的顺序；`balance ... with pad` 排在同一时刻的其他余额条目（包括它的补齐交易）之后，即张记账检查它的位置。因此余额断言紧挨在它的余额所包含的分录之上。在夏令时跳过某个时刻的那一天，写在跳过区间内的条目位置不变，但显示的是它存储的时刻，即向后推迟跳过区间的长度：纽约 2024-03-10 的 `02:30` 显示为 `03:30`。
+- 标记为 `P` 的交易是补齐交易，页面显示为 `BalancePad` 条目。`balance` 行是 `BalanceCheck` 条目，由 `journals.balance_checks` 补全。
+
+#### `journals.postings`
+
+一些交易按书写的分录，按账本顺序排列：数量、数量是否由推算得出、所记入批次的单位成本，以及分录所在账户在该币种下记账前后的余额。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `ids` | `set` | 交易的 id，即 `journals.page` 一页中的交易 |
+
+```sql
+SELECT id, posting_index, account, automatic, balanced,
+       first(currency) AS currency,
+       sum(number) AS number,
+       count(*) AS lots, count(cost_number) AS lots_at_cost,
+       min(cost_number) AS cost_number, max(cost_number) AS max_cost_number,
+       min(cost_currency) AS cost_currency, max(cost_currency) AS max_cost_currency,
+       number(last(only(currency, account_balance))) - sum(number) AS balance_before,
+       number(last(only(currency, account_balance))) AS balance_after,
+       first(metas) AS metas
+WHERE id IN :ids
+GROUP BY id, posting_index, account, automatic, balanced
+```
+
+- [批次记账](/zh-cn/reference/query-language/#批次记账)拆成多行的分录重新合为一行，数量相加。它的成本是所记入批次的单位成本，因此 10 个单位的 `{{1000 USD}}` 成本为 `100 USD`。减仓记入成本不同的多个批次时没有成本：此时 `cost_number` 与 `max_cost_number`（或两个币种）不同，或 `lots_at_cost` 小于 `lots`。
+- 书写时没有金额的分录（`automatic`）在流水中没有数量，只有推算出的数量。
+- `balance_before` 和 `balance_after` 是分录所在账户在该币种下记账前后的余额：[`account_balance`](/zh-cn/reference/query-language/#账户余额) 不受 `WHERE` 影响。
+
+#### `journals.balance_checks`
+
+一些余额断言：断言金额、账户的真实余额、两者之差，以及断言是否成立。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `ids` | `set` | 断言的 id，即 `journals.page` 一页中的断言 |
+
+```sql
+SELECT id, account, amount, tolerance, actual, passed,
+       amount - actual AS difference,
+       actual + (amount - actual) AS asserted
+FROM #balances
+WHERE id IN :ids
+```
+
+`asserted` 是断言金额，按余额的小数位数书写。
+
+#### `journals.payees`
+
+账本中交易的所有收款人，去重并排序，不含补齐交易的收款人。
+
+```sql
+SELECT DISTINCT payee
+FROM #transactions
+WHERE payee IS NOT NULL AND payee != '' AND flag != 'P'
+ORDER BY payee
+```
+
+#### `journals.accounts`
+
+未关闭的账户，按名称排序。
+
+```sql
+SELECT account
+FROM #accounts
+WHERE open IS NOT NULL AND close IS NULL
+ORDER BY account
+```
+
+#### `journals.documents`
+
+账本中的所有文档，最新的在前：`document` 指令，以及交易和分录在元数据中写下的文档。
+
+```sql
+SELECT date, time, path, account, transaction_id
+FROM #documents
+ORDER BY seq DESC
+```
+
+`path` 是下载文档所用的路径，相对于账本目录。分录写下的文档属于该分录的账户。
+
+#### `journals.errors`
+
+账本错误的一页，先按文件、再按在文件中的位置排列。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `size` | `int` | 每页的错误数，1 到 1000 |
+| `offset` | `int` | 该页之前的错误数：`(page - 1) × size` |
+
+```sql
+SELECT id, kind, file, span_start, span_end, source, metas
+FROM #errors
+LIMIT :size OFFSET :offset
+```
+
+错误列表以文件和指令在其中的字节偏移表示错误所在的位置。
 
 ### 预算与商品
 

@@ -1,0 +1,97 @@
+option "title" "probe"
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+
+include "sub/more.zhang"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity JPY
+1970-01-01 commodity AAPL
+
+1970-01-01 open Assets:Bank
+1970-01-01 open Assets:Bank:Checking
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Assets:Wallet
+1970-01-01 open Assets:Broker
+1970-01-01 open Assets:Travel
+1970-01-01 open Assets:Old
+1970-01-01 open Equity:Open
+1970-01-01 open Income:Salary
+1970-01-01 open Income:Gains
+1970-01-01 open Expenses:Food
+
+2024-01-01 * "Employer" "salary"
+  Assets:Bank:Checking 1000 CNY
+  Income:Salary
+
+2024-01-01 * "Self" "parent account posting"
+  Assets:Bank 50 CNY
+  Equity:Open
+
+2024-01-02 * "Self" "fund old"
+  Assets:Old 30 CNY
+  Equity:Open
+
+2024-01-05 * "Shop A" "first of the day" #food
+  Assets:Bank:Checking -10 CNY
+  Expenses:Food
+
+2024-01-05 * "Shop B" "second of the day" #food ^receipt-b
+  Assets:Bank:Checking -20 CNY
+  Expenses:Food
+
+2024-01-05 23:30:00 * "Night" "late snack"
+  Assets:Bank:Checking -5 CNY
+  Expenses:Food
+
+2024-01-06 * "FX" "buy usd"
+  Assets:Wallet 100 USD @ 7 CNY
+  Assets:Bank:Checking -700 CNY
+
+2024-01-07 * "Broker" "buy aapl"
+  Assets:Broker 10 AAPL {10 USD}
+  Assets:Wallet -100 USD
+
+2024-01-08 * "Broker" "sell aapl"
+  Assets:Broker -4 AAPL {10 USD} @ 12 USD
+  Assets:Wallet 48 USD
+  Income:Gains -8 USD
+
+2024-01-09 * "Trip" "jpy"
+  Assets:Travel 2000 JPY @@ 100 CNY
+  Assets:Bank:Checking -100 CNY
+
+2024-01-09 price USD 7.1 CNY
+2024-01-09 price AAPL 12 USD
+2024-01-09 price CNY 20 JPY
+
+2024-01-10 balance Assets:Bank:Checking 200 CNY
+
+2024-01-11 balance Assets:Bank 50.004 ~ 0.01 CNY
+
+2024-01-12 balance Assets:Bank:Savings 500 CNY with pad Equity:Open
+
+2024-01-13 close Assets:Old
+
+2024-01-14 * "Ghost" "unknown account"
+  Assets:Ghost 7 CNY
+  Equity:Open
+
+2024-01-15 * "Bad" "unbalanced"
+  Assets:Wallet 1 USD
+  Expenses:Food 2 USD
+
+2024-01-16 * "Doc" "receipt"
+  document: "receipts/a.pdf"
+  Assets:Bank:Checking -1 CNY
+    document: "receipts/b.pdf"
+    note: "posting note"
+  Expenses:Food
+
+2024-01-16 document Assets:Bank:Checking "statements/jan.pdf"
+
+2024-01-18 * "Split" "two postings same account"
+  Assets:Bank:Checking -3 CNY
+  Assets:Bank:Checking -4 CNY
+  Expenses:Food

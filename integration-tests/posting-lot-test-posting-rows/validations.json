@@ -18,7 +18,7 @@
       ["$.data.records[2].postings[0].inferred_unit.number", "10"],
       ["$.data.records[1].postings.length()", 2],
       ["$.data.records[1].postings[0].unit.number", "10"],
-      ["$.data.records[1].postings[0].cost.number", "105"],
+      ["$.data.records[1].postings[0].cost.number", "10.5"],
       ["$.data.records[1].postings[0].inferred_unit.number", "10"],
       ["$.data.records[0].postings.length()", 2],
       ["$.data.records[0].postings[0].unit.number", "-15"],
