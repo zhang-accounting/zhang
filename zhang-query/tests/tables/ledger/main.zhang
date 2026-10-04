@@ -1,6 +1,6 @@
 ; An extra ledger for the #table oracle cases: directives the fava demo ledger has
 ; none of (notes, documents, close, custom, query, a failing balance assertion, a
-; tolerance, links, '!' flags, metadata). Both beancount and zhang load it.
+; tolerance, links, '!' flags, posting flags, metadata). Both beancount and zhang load it.
 option "operating_currency" "USD"
 
 2020-01-01 commodity USD
@@ -24,8 +24,8 @@ option "operating_currency" "USD"
   Assets:Bank        -12.50 USD
 
 2020-01-03 * "Market"
-  Expenses:Food        7.50 USD
-  Assets:Bank         -7.50 USD
+  ! Expenses:Food        7.50 USD
+  & Assets:Bank         -7.50 USD
 
 2020-01-04 note Assets:Bank "called the bank" #t1 ^ln
 2020-01-05 document Assets:Bank "statements/2020-01.pdf" #scan ^stmt-1 ^stmt-2
