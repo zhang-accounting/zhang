@@ -480,9 +480,12 @@ async fn update_checker(broadcast: Arc<Broadcaster>) -> ServerResult<()> {
     })
     .await
     .expect("cannot spawn update checker task");
-    if let Ok(release) = latest_release {
-        if bump_is_greater(env!("ZHANG_BUILD_VERSION"), &release.version).unwrap_or(false) {
-            broadcast.broadcast(BroadcastEvent::NewVersionFound { version: release.version }).await;
+    let latest_version = latest_release
+        .ok()
+        .and_then(|releases| releases.latest().map(|release| release.version().to_owned()));
+    if let Some(version) = latest_version {
+        if bump_is_greater(env!("ZHANG_BUILD_VERSION"), &version).unwrap_or(false) {
+            broadcast.broadcast(BroadcastEvent::NewVersionFound { version }).await;
         }
     }
     Ok(())
