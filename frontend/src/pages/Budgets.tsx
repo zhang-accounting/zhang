@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { groupBy, sortBy } from 'lodash-es';
-import { PiggyBank, RotateCw, TriangleAlert } from 'lucide-react';
+import { PiggyBank, RotateCw } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
@@ -10,7 +10,7 @@ import Amount from '@/components/Amount';
 import BudgetCategory from '@/components/budget/BudgetCategory';
 import { budgetUsage, monthFromSearchParams, monthSearchParams, sumByCommodity, usageProgressClass } from '@/components/budget/budget-utils';
 import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
-import { EmptyState, PageHeader, PageShell } from '@/components/layout';
+import { EmptyState, LoadFailedState, PageHeader, PageShell } from '@/components/layout';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { KeyFigure, KeyFigures } from '@/components/layout/KeyFigures';
 import { Button } from '@/components/ui/button';
@@ -112,16 +112,7 @@ export default function Budgets() {
       </PageHeader>
 
       {error ? (
-        <EmptyState
-          icon={TriangleAlert}
-          title={t('page_state.load_failed')}
-          description={error.message}
-          action={
-            <Button variant="outline" className="h-10 md:h-8" onClick={retry}>
-              {t('page_state.retry')}
-            </Button>
-          }
-        />
+        <LoadFailedState description={error.message} onRetry={retry} />
       ) : firstLoad ? (
         <BudgetsSkeleton />
       ) : visibleBudgets.length === 0 ? (

@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { groupBy, sortBy } from 'lodash-es';
-import { ExternalLink, FileStack, FileText, ImageIcon, LayoutGrid, List, TriangleAlert } from 'lucide-react';
+import { ExternalLink, FileStack, FileText, ImageIcon, LayoutGrid, List } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -13,7 +13,7 @@ import { documentExtension, documentUrl } from '@/components/documentLines/docum
 import { DocumentUploadDialog } from '@/components/documentLines/DocumentUploadDialog';
 import { ImageLightBox } from '@/components/ImageLightBox';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
-import { EmptyState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
+import { EmptyState, LoadFailedState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -164,16 +164,7 @@ export default function Documents() {
       <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
 
       {error ? (
-        <EmptyState
-          icon={TriangleAlert}
-          title={t('page_state.load_failed')}
-          description={error.message}
-          action={
-            <Button variant="outline" className="h-10 md:h-8" onClick={retry}>
-              {t('page_state.retry')}
-            </Button>
-          }
-        />
+        <LoadFailedState description={error.message} onRetry={retry} />
       ) : firstLoad && layout === 'Grid' ? (
         <div className={GRID_CLASS}>
           {Array.from({ length: 8 }, (_, index) => (
