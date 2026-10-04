@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
-use log::debug;
+use log::{debug, warn};
+use minijinja::{context, Environment};
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 
 use crate::data_type::{document_path_in_file, is_beancount_endpoint, DataType};
@@ -112,6 +113,39 @@ where
     }
 }
 
+/// the file a new `directive` is appended to: the one the `directive_output_path` option renders for its date, in the
+/// ledger's directory, or the main file for a directive without a date. The template gets `type` (the kind of
+/// directive), `year`, `month`, `month_str` and `day`, `day_str` (zero-padded) and `ext`, the extension of the main
+/// file (`zhang` without one)
+pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangResult<PathBuf> {
+    let (entry, main_file_endpoint) = &ledger.entry;
+    let Some(datetime) = directive.datetime() else {
+        return Ok(entry.join(main_file_endpoint));
+    };
+    let date = datetime.date();
+    let mut env = Environment::new();
+    env.add_template("directive_output_path", &ledger.options.directive_output_path).map_err(|e| {
+        warn!("{}", e);
+        ZhangError::InvalidOptionValue
+    })?;
+    let template = env.get_template("directive_output_path").map_err(|e| {
+        warn!("{}", e);
+        ZhangError::InvalidOptionValue
+    })?;
+    let path = template
+        .render(context! {
+            type => directive.directive_type().to_string(),
+            year => date.year(),
+            month => date.month(),
+            month_str => date.format("%m").to_string(),
+            day => date.day(),
+            day_str => date.format("%d").to_string(),
+            ext => Path::new(main_file_endpoint).extension().and_then(|it| it.to_str()).unwrap_or("zhang"),
+        })
+        .map_err(|_| ZhangError::InvalidOptionValue)?;
+    Ok(entry.join(path))
+}
+
 /// `directive` as it is written into `file`, a file of `ledger` named by its path within it. In a beancount ledger, the
 /// path of a `document`, within the ledger, is written relative to the directory of that file, as beancount reads it
 pub fn written_into(ledger: &Ledger, directive: Directive, file: &Path) -> Directive {
@@ -162,18 +196,16 @@ impl LocalFileSystemDataSource {
         }
     }
 
-    /// append `directive` to `file`, or to the file of its month, which the main file then includes unless the ledger
-    /// or this append (`included`) has it already. Without `included`, no include
+    /// append `directive` to `file`, or to the file `directive_output_path` gives it ([`directive_output_file`]), which
+    /// the main file then includes unless the ledger or this append (`included`) has it already. Without `included`, no
+    /// include
     fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, included: Option<&mut Vec<PathBuf>>) -> ZhangResult<()> {
-        let (entry, main_file_endpoint) = &ledger.entry;
+        let (entry, _) = &ledger.entry;
 
-        let endpoint = file.unwrap_or_else(|| {
-            if let Some(datetime) = directive.datetime() {
-                entry.join(PathBuf::from(format!("data/{}/{}.zhang", datetime.year(), datetime.month())))
-            } else {
-                entry.join(main_file_endpoint)
-            }
-        });
+        let endpoint = match file {
+            Some(file) => file,
+            None => directive_output_file(ledger, &directive)?,
+        };
 
         LocalFileSystemDataSource::create_folder_if_not_exist(&endpoint)?;
 
@@ -368,7 +400,7 @@ mod test {
         ledger.data_source.append(&ledger, directives).unwrap();
 
         let main = std::fs::read_to_string(dir.path().join("main.zhang")).unwrap();
-        assert_eq!(main.matches("include \"data/2024/1.zhang\"").count(), 1, "{main}");
+        assert_eq!(main.matches("include \"data/2024/01.zhang\"").count(), 1, "{main}");
         let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
         let store = reloaded.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);

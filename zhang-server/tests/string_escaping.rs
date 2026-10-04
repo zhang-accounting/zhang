@@ -58,7 +58,7 @@ async fn created_transaction_strings_survive_a_reload() {
     std::fs::write(dir.0.join("main.zhang"), MAIN).unwrap();
     // appending reads the month's data file first, so it has to exist (a separate quirk)
     std::fs::create_dir_all(dir.0.join("data/2024")).unwrap();
-    std::fs::write(dir.0.join("data/2024/5.zhang"), "").unwrap();
+    std::fs::write(dir.0.join("data/2024/05.zhang"), "").unwrap();
 
     let ledger = SharedLedger(Arc::new(RwLock::new(load(&dir.0).await)));
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);

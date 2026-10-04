@@ -6528,7 +6528,6 @@ dependencies = [
  "jsonpath-rust",
  "log",
  "mime",
- "minijinja",
  "opendal",
  "opendal-http-transport-reqwest",
  "openssl",

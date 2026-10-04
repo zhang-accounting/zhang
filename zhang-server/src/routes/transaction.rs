@@ -558,11 +558,11 @@ mod string_round_trip_test {
         let dir = dir.canonicalize().unwrap();
         std::fs::write(
             dir.join("main.zhang"),
-            "option \"operating_currency\" \"CNY\"\ninclude \"data/2024/1.zhang\"\n\
+            "option \"operating_currency\" \"CNY\"\ninclude \"data/2024/01.zhang\"\n\
              1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n",
         )
         .unwrap();
-        let data_file = dir.join("data/2024/1.zhang");
+        let data_file = dir.join("data/2024/01.zhang");
         std::fs::write(&data_file, "").unwrap();
         (dir, data_file)
     }
@@ -757,9 +757,9 @@ mod string_round_trip_test {
         let dir = std::env::temp_dir().join(format!("zhang-beancount-names-{}", Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("data/2024")).unwrap();
         let dir = dir.canonicalize().unwrap();
-        let main = "include \"data/2024/1.bean\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
+        let main = "include \"data/2024/01.bean\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
         std::fs::write(dir.join("main.bean"), main).unwrap();
-        let data_file = dir.join("data/2024/1.bean");
+        let data_file = dir.join("data/2024/01.bean");
         std::fs::write(&data_file, "").unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
@@ -803,13 +803,13 @@ mod string_round_trip_test {
         let dir = dir.canonicalize().unwrap();
         std::fs::write(
             dir.join("main.bean"),
-            "include \"data/2024/1.zhang\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n\
+            "include \"data/2024/01.bean\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n\
              1970-01-01 open Expenses:Food\n1970-01-01 open Assets:银行\n\
              2023-06-01 * \"Shop\" \"trip\" #旅行\n  Receipt: \"1\"\n  Assets:Cash -1 CNY\n    Lot: \"7\"\n  Expenses:Food 1 CNY\n",
         )
         .unwrap();
-        // the local file system data source appends to existing `.zhang` files only
-        std::fs::write(dir.join("data/2024/1.zhang"), "").unwrap();
+        // the local file system data source appends to existing `.bean` files only
+        std::fs::write(dir.join("data/2024/01.bean"), "").unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
             Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
@@ -871,7 +871,7 @@ mod string_round_trip_test {
             let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
             assert_eq!(response.status(), status, "{case}");
         }
-        let written = std::fs::read_to_string(dir.join("data/2024/1.zhang")).unwrap();
+        let written = std::fs::read_to_string(dir.join("data/2024/01.bean")).unwrap();
         assert!(
             written.contains("Assets:银行") && written.contains("#旅行") && written.contains("Receipt: \"2\""),
             "{written}"
