@@ -9,6 +9,7 @@ import { basicInfoFetcher, onlineAtom, updatableVersionAtom } from '@/states/bas
 import { commoditiesFetcher } from '@/states/commodity';
 import { errorsFetcher } from '@/states/errors';
 import { journalFetcher } from '@/states/journals';
+import { optionsFetcher } from '@/states/options';
 import { reloadFailureDetail } from './reload-failure';
 
 /**
@@ -27,6 +28,7 @@ export function useServerEvents() {
   const refreshBasicInfo = useSetAtom(basicInfoFetcher);
   const refreshCommodities = useSetAtom(commoditiesFetcher);
   const refreshJournal = useSetAtom(journalFetcher);
+  const refreshOptions = useSetAtom(optionsFetcher);
 
   useEffect(() => {
     // `i18n.t` (not a captured `t`) so toasts follow later language switches.
@@ -47,6 +49,7 @@ export function useServerEvents() {
           refreshBasicInfo();
           refreshCommodities();
           refreshJournal();
+          refreshOptions();
           break;
         case 'ReloadFailed':
           // the server keeps serving the ledger loaded before; `/api/info` carries the failure for the notice in the shell

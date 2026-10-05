@@ -230,7 +230,7 @@ SDK 提供的内容：
 2024-07-01 custom "large-expense" "threshold" "150 CNY"
 ```
 
-日期为 2024-03-05 的条目看到的是 2024-01-01 的阈值；日期为 2024-08-01 的条目看到的是 2024-07-01 的阈值。值保持为字符串：`100 CNY` 会作为 `"100"` 和 `"CNY"` 两个值传入，SDK 的 `Values::amount` 两种形式都能读取。
+日期为 2024-03-05 的条目看到的是 2024-01-01 的阈值；日期为 2024-08-01 的条目看到的是 2024-07-01 的阈值。值保持为字符串：`100 CNY` 会作为 `"100"` 和 `"CNY"` 两个值传入，SDK 的 `Values::amount` 两种形式都能读取。`Values::account`（与 `Account::from_str` 一样）只接受账本能读回的账户名，例如 `Assets:Bank`：`Assets`、`Assets:` 和 `Assets:My Bank` 都会报错，因此插件不会向 Zhang 读不了的账户写入分录。
 
 `Config::resolve(key, date, entry_meta)` 按以下顺序查找设置，第一个包含该键的来源胜出：
 

@@ -62,7 +62,7 @@ pub(crate) fn fold(txn: &Transaction, ledger: &mut Ledger, span: &SpanInfo, dire
             &id,
             posting_idx,
             posting.flag.clone(),
-            posting.account.name(),
+            &posting.account,
             unit,
             cost,
             inferred_amount,
