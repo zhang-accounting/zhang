@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveTime};
+use zhang_ast::account::is_under;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned, Transaction};
@@ -13,6 +14,7 @@ use super::{AssertionOutcome, ProcessStage, StageContext};
 use crate::booking::written_groups;
 use crate::data_type::Dialect;
 use crate::ledger::Ledger;
+use crate::utils::read_time;
 use crate::ZhangResult;
 
 /// validates every balance assertion, `balance` and `balance ... with pad`, against the account's
@@ -112,15 +114,6 @@ struct IgnoredTimes<'a> {
 /// day before that time changed of it
 type TimedBalance<'a> = (usize, &'a Account, &'a str, NaiveTime, BigDecimal);
 
-/// a time as earlier versions of zhang read the `time` of a beancount directive: `H:M:S`, spaces around it trimmed
-fn read_time(text: &str) -> Option<NaiveTime> {
-    let parts = text.trim().split(':').map(|it| it.parse::<u32>().ok()).collect::<Option<Vec<_>>>()?;
-    match parts[..] {
-        [hour, minute, second] => NaiveTime::from_hms_opt(hour, minute, second),
-        _ => None,
-    }
-}
-
 impl<'a> IgnoredTimes<'a> {
     /// the timed balances among `directives` of a ledger in the format `dialect`: none in a zhang ledger, whose files
     /// are read as zhang text whatever their extension
@@ -163,9 +156,7 @@ impl<'a> IgnoredTimes<'a> {
                 continue;
             }
             for (group, units) in written_groups(&txn.postings).into_iter().zip(units) {
-                let name = group.legs[0].account.name();
-                let under = name == account.name() || name.strip_prefix(account.name()).is_some_and(|rest| rest.starts_with(':'));
-                if under && units.commodity == *commodity {
+                if is_under(group.legs[0].account.name(), account.name()) && units.commodity == *commodity {
                     *changed += &units.number;
                 }
             }

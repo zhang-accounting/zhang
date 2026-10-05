@@ -71,6 +71,70 @@ macro_rules! assertion_columns {
     };
 }
 
+// A built-in query and its variant for one account subtree, budget or commodity share their BQL through these macros.
+
+/// `accounts.list`, and with a filter `accounts.subtree`.
+macro_rules! account_rows {
+    ($($filter:literal)?) => { concat!("SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
+FROM #accounts
+", $($filter, "\n",)? "ORDER BY account") };
+}
+
+/// `accounts.balances`, and with a filter `accounts.subtree_balances`.
+macro_rules! account_balances {
+    ($($filter:literal)?) => { concat!("SELECT account, currency, sum(number) AS units,
+       convert(sum(position), :operating_currency, today()) AS value,
+       min(date) AS first_date
+", $($filter, "\n",)? "GROUP BY account, currency
+ORDER BY account, currency") };
+}
+
+/// `accounts.journal`, and with a `LIMIT` `accounts.journal_page`.
+macro_rules! account_journal {
+    ($($limit:literal)?) => { concat!("SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
+       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
+       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
+WHERE under(account, :account)
+GROUP BY seq, posting_index", $("\n", $limit)?) };
+}
+
+/// `budgets.month` without its order, and with a filter `budgets.budget_month`.
+macro_rules! budgets_as_of_month {
+    ($($filter:literal)?) => { concat!("SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
+              last(date) AS last_month, \
+              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
+              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
+              last(available) AS available, last(closed) AS closed \
+              FROM #budgets \
+              WHERE ", $($filter, " AND ",)? "date <= :month GROUP BY name") };
+}
+
+/// The postings of the accounts that hold commodities, those of Assets and Liabilities.
+macro_rules! held {
+    () => {
+        "under(account, 'Assets') OR under(account, 'Liabilities')"
+    };
+}
+
+/// `commodities.totals` without its order, and with a filter `commodities.total`.
+macro_rules! commodity_totals {
+    ($($filter:expr),+) => { concat!("SELECT currency, sum(number) AS total WHERE ", $($filter,)+ " GROUP BY currency HAVING sum(number) != 0") };
+}
+
+/// `commodities.latest_prices` without its order, and for one commodity `commodities.latest_price`.
+macro_rules! latest_prices {
+    ($rate_of:literal, $pairs:literal) => {
+        concat!(
+            "SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency, \
+              last(date) AS date, last(time) AS time, getprice(",
+            $rate_of,
+            ", :currency, today()) AS rate FROM #prices WHERE ",
+            $pairs,
+            " AND currency != currency(amount) AND date <= today() GROUP BY 1"
+        )
+    };
+}
+
 /// Every built-in query, grouped by the endpoints that run it.
 pub static BUILTINS: &[BuiltinQuery] = &[
     // ---- general ----
@@ -105,64 +169,41 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         name: "accounts.list",
         description: "Every account with an open or close directive, with its open and close dates, its alias and its status at a \
                       date and time, by name. The account list asks for now.",
-        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
-FROM #accounts
-ORDER BY account",
+        bql: account_rows!(),
         params: &[("date", DataType::Date), ("time", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.balances",
         description: "The balance of every account of its own postings per currency: the units, their value in the operating currency \
                       at today's prices, and the date of the first posting.",
-        bql: "SELECT account, currency, sum(number) AS units,
-       convert(sum(position), :operating_currency, today()) AS value,
-       min(date) AS first_date
-GROUP BY account, currency
-ORDER BY account, currency",
+        bql: account_balances!(),
         params: &[("operating_currency", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.subtree",
         description: "An account and those of its sub-accounts that have an open or close directive, with their open and close dates, \
                       their aliases and their statuses at a date and time, by name. The account page asks for now.",
-        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
-FROM #accounts
-WHERE under(account, :account)
-ORDER BY account",
+        bql: account_rows!("WHERE under(account, :account)"),
         params: &[("account", DataType::Str), ("date", DataType::Date), ("time", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.subtree_balances",
         description: "The balance of an account and of each of its sub-accounts of their own postings per currency: the units, their \
                       value in the operating currency at today's prices, and the date of the first posting.",
-        bql: "SELECT account, currency, sum(number) AS units,
-       convert(sum(position), :operating_currency, today()) AS value,
-       min(date) AS first_date
-WHERE under(account, :account)
-GROUP BY account, currency
-ORDER BY account, currency",
+        bql: account_balances!("WHERE under(account, :account)"),
         params: &[("account", DataType::Str), ("operating_currency", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.journal",
         description: "The postings of an account and its sub-accounts in ledger order, a row per posting, the lots it is booked \
                       against added up, each with the running balance of the account and its sub-accounts right after it.",
-        bql: "SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
-       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
-       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
-WHERE under(account, :account)
-GROUP BY seq, posting_index",
+        bql: account_journal!(),
         params: &[("account", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.journal_page",
         description: "Some rows of accounts.journal: from an offset, at most a limit of them.",
-        bql: "SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
-       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
-       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
-WHERE under(account, :account)
-GROUP BY seq, posting_index
-LIMIT :limit OFFSET :offset",
+        bql: account_journal!("LIMIT :limit OFFSET :offset"),
         params: &[("account", DataType::Str), ("limit", DataType::Int), ("offset", DataType::Int)],
     },
     BuiltinQuery {
@@ -284,15 +325,7 @@ WHERE source = 'directive' AND under(account, :account)",
     BuiltinQuery {
         name: "budgets.month",
         description: "Every budget as of a month (its first day): its last month in #budgets up to that month, carried over to the month when it is later.",
-        bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
-              last(date) AS last_month, \
-              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
-              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
-              last(available) AS available, last(closed) AS closed \
-              FROM #budgets \
-              WHERE date <= :month \
-              GROUP BY name \
-              ORDER BY name",
+        bql: concat!(budgets_as_of_month!(), " ORDER BY name"),
         params: &[("month", DataType::Date)],
     },
     BuiltinQuery {
@@ -306,14 +339,7 @@ WHERE source = 'directive' AND under(account, :account)",
     BuiltinQuery {
         name: "budgets.budget_month",
         description: "One budget as of a month (its first day), as in budgets.month.",
-        bql: "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
-              last(date) AS last_month, \
-              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
-              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
-              last(available) AS available, last(closed) AS closed \
-              FROM #budgets \
-              WHERE name = :name AND date <= :month \
-              GROUP BY name",
+        bql: budgets_as_of_month!("name = :name"),
         params: &[("name", DataType::Str), ("month", DataType::Date)],
     },
     BuiltinQuery {
@@ -337,43 +363,34 @@ WHERE source = 'directive' AND under(account, :account)",
     BuiltinQuery {
         name: "commodities.totals",
         description: "How many units of each commodity the Assets and Liabilities accounts hold, for the commodities they hold.",
-        bql: "SELECT currency, sum(number) AS total \
-              WHERE under(account, 'Assets') OR under(account, 'Liabilities') \
-              GROUP BY currency \
-              HAVING sum(number) != 0 \
-              ORDER BY currency",
+        bql: concat!(commodity_totals!(held!()), " ORDER BY currency"),
         params: &[],
     },
     BuiltinQuery {
         name: "commodities.total",
         description: "How many units of a commodity the Assets and Liabilities accounts hold; no row if they hold none.",
-        bql: "SELECT currency, sum(number) AS total \
-              WHERE currency = :commodity AND (under(account, 'Assets') OR under(account, 'Liabilities')) \
-              GROUP BY currency \
-              HAVING sum(number) != 0",
+        bql: commodity_totals!("currency = :commodity AND (", held!(), ")"),
         params: &[("commodity", DataType::Str)],
     },
     BuiltinQuery {
         name: "commodities.latest_prices",
         description: "The latest price of each commodity in a currency as of today, with its date and time; the rate is the one the valuations use (the latest quote of the pair on or before today, in either direction, inverted when it is quoted the other way round).",
-        bql: "SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency, \
-              last(date) AS date, last(time) AS time, \
-              getprice(last(CASE WHEN currency = :currency THEN currency(amount) ELSE currency END), :currency, today()) AS rate \
-              FROM #prices \
-              WHERE (currency = :currency OR currency(amount) = :currency) AND currency != currency(amount) AND date <= today() \
-              GROUP BY 1 \
-              ORDER BY 1",
+        bql: concat!(
+            latest_prices!(
+                "last(CASE WHEN currency = :currency THEN currency(amount) ELSE currency END)",
+                "(currency = :currency OR currency(amount) = :currency)"
+            ),
+            " ORDER BY 1"
+        ),
         params: &[("currency", DataType::Str)],
     },
     BuiltinQuery {
         name: "commodities.latest_price",
         description: "The latest price of a commodity in a currency as of today, with its date and time; the rate is the one the valuations use (the latest quote of the pair on or before today, in either direction, inverted when it is quoted the other way round).",
-        bql: "SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency, \
-              last(date) AS date, last(time) AS time, getprice(:commodity, :currency, today()) AS rate \
-              FROM #prices \
-              WHERE ((currency = :commodity AND currency(amount) = :currency) OR (currency = :currency AND currency(amount) = :commodity)) \
-              AND currency != currency(amount) AND date <= today() \
-              GROUP BY 1",
+        bql: latest_prices!(
+            ":commodity",
+            "((currency = :commodity AND currency(amount) = :currency) OR (currency = :currency AND currency(amount) = :commodity))"
+        ),
         params: &[("commodity", DataType::Str), ("currency", DataType::Str)],
     },
     BuiltinQuery {
