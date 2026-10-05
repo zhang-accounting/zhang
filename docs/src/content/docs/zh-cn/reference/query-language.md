@@ -740,7 +740,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `id` | `str` | 指令的唯一 ID。交易的 ID 就是交易本身的 ID，与其分录的 `id` 列相同；余额断言的 ID 是张记账存储其检查结果时使用的 ID。 |
 | `type` | `str` | 指令的种类，小写：`transaction`、`open`、`close`、`balance`、`price`、`note`、`document`、`event`、`commodity`、`custom`、`query` 或 `pad`，以及张记账的 `budget`、`budget-add`、`budget-transfer` 和 `budget-close`。`balance ... with pad` 算作 `balance`。 |
 | `filename` | `str` | 指令所在的账本文件。 |
-| `date`、`year`、`month`、`day` | `date`、`int` | 指令的日期及其各部分。 |
+| `date`、`year`、`month`、`day` | `date`、`int` | 指令的日期及其各部分。交易的各列（这几列以及 `flag`、`payee`、`narration`、`description`、`tags`、`links`、`time` 和 `timestamp`）与它的分录相同：取自张记账存储的交易。在账本时区跳过的那一天，交易存储在跳过时段之后的第一个时刻，所以它的日期是下一天：`Pacific/Apia` 的 `2011-12-30` 是 `2011-12-31`。 |
 | `flag`、`payee`、`narration`、`description` | `str` | 对交易而言与 `postings` 中的同名列相同；其他指令为 `NULL`。 |
 | `tags`、`links` | `set` | 交易、note 或 document 的标签和链接；其他指令为 `NULL`。 |
 | `meta` | `str` | 指令的元数据。 |
@@ -753,7 +753,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 
 | 列 | 类型 | 说明 |
 |----|------|------|
-| `date` | `date` | 交易日期。 |
+| `date` | `date` | 交易日期，与 `postings` 和 [`#entries`](#entries) 中的相同：张记账存储它的日期。 |
 | `flag` | `str` | `*`、`!`，补齐交易为 `P`。 |
 | `payee` | `str` | 收款方，或 `NULL`。 |
 | `narration` | `str` | 描述，没有时为 `''`。 |
