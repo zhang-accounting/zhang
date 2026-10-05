@@ -1,3 +1,5 @@
+import { RAW_EDIT_URI, rawEditLink } from '../lib/raw-edit-link.ts';
+
 /**
  * The failure of the last reload, as `/api/info` (`reload_failure`) and the SSE `ReloadFailed` event carry it: the server
  * keeps serving the ledger loaded before it until a reload succeeds (#492).
@@ -19,11 +21,10 @@ export function reloadFailureDetail(failure: ReloadFailure): string {
 }
 
 /**
- * Where to fix it: the raw editor opened on the failing file when the failure names one the editor lists (a path relative to
- * the ledger root), otherwise the editor itself.
+ * Where to fix it: the raw editor opened on the failing file, by the deep link the error list opens a file with, or the editor
+ * itself when the failure names no file. The editor decides whether it can open the file: one it does not list, such as an
+ * absolute path outside the ledger, opens its first file, as from the error list.
  */
 export function reloadFailureEditorHref(failure: ReloadFailure): string {
-  const file = failure.file?.trim();
-  if (file && !file.startsWith('/')) return `/edit?file=${encodeURIComponent(file)}`;
-  return '/edit';
+  return rawEditLink(failure.file) ?? RAW_EDIT_URI;
 }
