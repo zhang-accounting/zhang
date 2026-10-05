@@ -274,41 +274,97 @@ pub fn posting_amount(i: &str) -> IResult<&str, Amount> {
     Ok((i, Amount::new(number, currency)))
 }
 
-/// The `{ ... }` cost block of a posting.
-pub enum CostComponent {
+/// A component of the `{ ... }` cost spec of a posting.
+enum CostComponent {
+    /// `150 USD`: the cost number, per unit or in total
+    Amount(Amount),
+    /// `100 # 5 USD`, a compound cost: the per-unit part and the total part, in one commodity
+    Compound(Amount, BigDecimal),
     Date(Date),
     Label(String),
+    /// `*`, beancount's merge-cost marker
+    Merge,
 }
 
-/// A `,`-separated component of a cost spec: an acquisition date or a lot label.
-fn cost_component(i: &str) -> IResult<&str, CostComponent> {
-    alt((
-        map(parse_date, CostComponent::Date),
-        map(quote_string, |label| CostComponent::Label(label.to_plain_string())),
-    ))(i)
+/// `cost_amount = number_expr space* ("#" space* number_expr space*)? commodity_name`: the cost
+/// number with its commodity, or beancount's compound cost `P # T USD` of a per-unit part and a
+/// total part.
+fn cost_amount(i: &str) -> IResult<&str, CostComponent> {
+    let (i, number) = number_expr(i)?;
+    let (i, _) = space0(i)?;
+    let (i, total) = opt(delimited(pair(char('#'), space0), number_expr, space0))(i)?;
+    let (i, currency) = commodity_name(i)?;
+    let amount = Amount::new(number, currency);
+    Ok((
+        i,
+        match total {
+            Some(total) => CostComponent::Compound(amount, total),
+            None => CostComponent::Amount(amount),
+        },
+    ))
 }
 
-/// `posting_cost = "{" posting_amount? ("," cost_component)* "}" | "{{" ... "}}"`: the cost spec of a
-/// posting, such as `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot booking
-/// finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of the lot.
-pub fn posting_cost(i: &str) -> IResult<&str, PostingCost> {
+/// `cost_component = date | cost_amount | string | "*"`: one `,`-separated component of a cost
+/// spec, read with `date` as the date grammar of the format. A date comes first: its digits would
+/// otherwise read as an arithmetic expression.
+fn cost_component(date: fn(&str) -> IResult<&str, Date>) -> impl FnMut(&str) -> IResult<&str, CostComponent> {
+    move |i| {
+        alt((
+            map(date, CostComponent::Date),
+            cost_amount,
+            map(quote_string, |label| CostComponent::Label(label.to_plain_string())),
+            map(char('*'), |_| CostComponent::Merge),
+        ))(i)
+    }
+}
+
+/// `posting_cost = "{" cost_component? ("," cost_component)* "}" | "{{" ... "}}"`: the cost spec
+/// of a posting, read with `date` as the date grammar of the format. Its components come in any
+/// order, as in beancount: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot
+/// booking finds, `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of the
+/// lot, `{2024-01-15}` or `{"lot"}` alone (also written `{, "lot"}`), the compound cost
+/// `{100 # 5 USD}` of a per-unit and a total part, and `{*}`, beancount's merge-cost marker.
+///
+/// A later date or label replaces an earlier one, as it always did. A second cost number
+/// (`{100 USD, 200 USD}`) does not read: beancount reports it and keeps the first, and silently
+/// taking either would change what the lot costs. Nor does a compound cost in total braces
+/// (`{{100 # 5 USD}}`), which beancount reads with an error, dropping the per-unit part.
+pub fn posting_cost_with_date(i: &str, date: fn(&str) -> IResult<&str, Date>) -> IResult<&str, PostingCost> {
     // `{{ }}` is a total cost, `{ }` is a per-unit cost.
     let (i, total) = alt((value(true, tag("{{")), value(false, char('{'))))(i)?;
     let (i, _) = space0(i)?;
-    let (i, base) = opt(posting_amount)(i)?;
-    let (i, components) = many0(preceded(tuple((space0, char(','), space0)), cost_component))(i)?;
+    let (i, first) = opt(cost_component(date))(i)?;
+    let (i, rest) = many0(preceded(tuple((space0, char(','), space0)), cost_component(date)))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = if total { value((), tag("}}"))(i)? } else { value((), char('}'))(i)? };
 
-    let mut date = None;
-    let mut label = None;
-    for component in components {
+    let mut cost = PostingCost {
+        total,
+        ..PostingCost::default()
+    };
+    let unread = || nom::Err::Error(nom::error::Error::new(i, nom::error::ErrorKind::Verify));
+    for component in first.into_iter().chain(rest) {
         match component {
-            CostComponent::Date(d) => date = Some(d),
-            CostComponent::Label(l) => label = Some(l),
+            CostComponent::Amount(_) | CostComponent::Compound(..) if cost.base.is_some() => return Err(unread()),
+            CostComponent::Amount(amount) => cost.base = Some(amount),
+            CostComponent::Compound(per_unit, total) => {
+                cost.base = Some(per_unit);
+                cost.compound_total = Some(total);
+            }
+            CostComponent::Date(d) => cost.date = Some(d),
+            CostComponent::Label(l) => cost.label = Some(l),
+            CostComponent::Merge => cost.merge = true,
         }
     }
-    Ok((i, PostingCost { base, date, label, total }))
+    if total && cost.compound_total.is_some() {
+        return Err(unread());
+    }
+    Ok((i, cost))
+}
+
+/// The cost spec of a posting in a zhang file ([`posting_cost_with_date`] with zhang's dates).
+pub fn posting_cost(i: &str) -> IResult<&str, PostingCost> {
+    posting_cost_with_date(i, parse_date)
 }
 
 /// `posting_price = "@@" ... | "@" ...`
@@ -977,9 +1033,10 @@ fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> IResult<&'a str, O>, text
 }
 
 /// `text` read whole as the cost spec of a posting ([`posting_cost`]): `{150 USD}`, `{{1500 USD}}`,
-/// `{}` or `{150 USD, 2024-01-15, "lot"}`. `None` when it is not one, such as `150 USD` without the
-/// braces or a cost followed by anything else: a caller that takes a cost as text (the server's
-/// transaction edit) writes exactly what the ledger reads back, or nothing.
+/// `{}`, `{150 USD, 2024-01-15, "lot"}` or any other form it reads. `None` when it is not one,
+/// such as `150 USD` without the braces or a cost followed by anything else: a caller that takes
+/// a cost as text (the server's transaction edit) writes exactly what the ledger reads back, or
+/// nothing.
 pub fn read_posting_cost(text: &str) -> Option<PostingCost> {
     match posting_cost(text) {
         Ok(("", cost)) => Some(cost),
@@ -1754,6 +1811,113 @@ mod test {
                 );
                 assert_eq!(None, posting.price);
             }
+            /// #497: the components of a cost spec come in any order, and each may stand alone, as in
+            /// beancount: a date, a label (with or without the leading comma zhang took before), the
+            /// compound cost `P # T CUR` and the merge-cost marker `*`
+            #[test]
+            fn should_read_every_cost_spec_form() {
+                let usd = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "USD");
+                let date = Date::Date(NaiveDate::from_ymd_opt(2024, 1, 10).unwrap());
+                let cases = [
+                    (
+                        "{2024-01-10}",
+                        PostingCost {
+                            date: Some(date.clone()),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{\"b\"}",
+                        PostingCost {
+                            label: Some("b".to_owned()),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{, \"b\"}",
+                        PostingCost {
+                            label: Some("b".to_owned()),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{{\"b\"}}",
+                        PostingCost {
+                            label: Some("b".to_owned()),
+                            total: true,
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{100 # 5 USD}",
+                        PostingCost {
+                            base: Some(usd("100")),
+                            compound_total: Some(BigDecimal::from(5)),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{100#5.25 USD, 2024-01-10, \"a\"}",
+                        PostingCost {
+                            base: Some(usd("100")),
+                            compound_total: Some(BigDecimal::from_str("5.25").unwrap()),
+                            date: Some(date.clone()),
+                            label: Some("a".to_owned()),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{*}",
+                        PostingCost {
+                            merge: true,
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{ * , \"b\" }",
+                        PostingCost {
+                            label: Some("b".to_owned()),
+                            merge: true,
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{\"a\", 2024-01-10, 100 USD}",
+                        PostingCost {
+                            base: Some(usd("100")),
+                            date: Some(date.clone()),
+                            label: Some("a".to_owned()),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "{2024-01-10, 100 USD}",
+                        PostingCost {
+                            base: Some(usd("100")),
+                            date: Some(date.clone()),
+                            ..Default::default()
+                        },
+                    ),
+                ];
+                for (spec, expected) in cases {
+                    let mut trx = get_first_posting(&format!("2024-02-01 \"sell\"\n  Assets:Broker -1 HOOL {spec}\n  Assets:Cash 120 USD\n"));
+                    let posting = trx.postings.remove(0);
+                    assert_eq!(posting.units, Some(Amount::new(BigDecimal::from(-1), "HOOL")), "{spec}");
+                    assert_eq!(posting.cost, Some(expected), "{spec}");
+                    assert_eq!(posting.price, None, "{spec}");
+                }
+            }
+
+            /// a compound cost is not a total cost: `{{100 # 5 USD}}` does not read (beancount reads it with an
+            /// error and drops the per-unit part), nor does a second cost number
+            #[test]
+            fn should_reject_a_compound_total_cost_and_a_second_cost_number() {
+                for cost in ["{{100 # 5 USD}}", "{100 USD, 101 USD}"] {
+                    let text = format!("2024-02-01 \"buy\"\n  Assets:Broker 10 HOOL {cost}\n  Assets:Cash -1005 USD\n");
+                    assert!(parse(&text, None).is_err(), "{cost}");
+                }
+            }
+
             #[test]
             fn should_return_unit_and_single_price() {
                 let mut trx = get_first_posting(indoc! {r#"
@@ -2578,6 +2742,7 @@ mod test {
                 date: date.map(|it| Date::Date(NaiveDate::from_str(it).unwrap())),
                 label: label.map(str::to_owned),
                 total,
+                ..PostingCost::default()
             };
             assert_eq!(read_posting_cost("{150 USD}"), Some(cost(Some("150"), None, None, false)));
             assert_eq!(read_posting_cost("{ 150 USD }"), Some(cost(Some("150"), None, None, false)));
@@ -2610,6 +2775,55 @@ mod test {
             assert_eq!(read_posting_price("@@ 60 USD"), Some(SingleTotalPrice::Total(usd("60"))));
             for invalid in ["", "6 USD", "@ 6", "@ 6 USD x", " @ 6 USD", "@@", "{6 USD}"] {
                 assert_eq!(read_posting_price(invalid), None, "{invalid:?}");
+            }
+        }
+
+        /// #497: every cost spec form beancount reads is read whole as text too: a date or a label
+        /// alone, a compound cost and the merge-cost marker. A compound cost with a missing part or in
+        /// total braces, and a second cost number, are not costs
+        #[test]
+        fn cost_spec_forms_as_text() {
+            let usd = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "USD");
+            let date = Date::Date(NaiveDate::from_str("2024-01-15").unwrap());
+            assert_eq!(
+                read_posting_cost("{2024-01-15}"),
+                Some(PostingCost {
+                    date: Some(date),
+                    ..PostingCost::default()
+                })
+            );
+            assert_eq!(
+                read_posting_cost("{\"lot\"}"),
+                Some(PostingCost {
+                    label: Some("lot".to_owned()),
+                    ..PostingCost::default()
+                })
+            );
+            assert_eq!(
+                read_posting_cost("{100 # 5 USD}"),
+                Some(PostingCost {
+                    base: Some(usd("100")),
+                    compound_total: Some(BigDecimal::from(5)),
+                    ..PostingCost::default()
+                })
+            );
+            assert_eq!(
+                read_posting_cost("{*}"),
+                Some(PostingCost {
+                    merge: true,
+                    ..PostingCost::default()
+                })
+            );
+            for invalid in [
+                "{{100 # 5 USD}}",
+                "{100 #}",
+                "{# 5 USD}",
+                "{100 # USD}",
+                "{100 USD, 200 USD}",
+                "{100 # 5 USD, 100 USD}",
+                "{\"lot\", 100 USD, 2024-01-15, 101 USD}",
+            ] {
+                assert_eq!(read_posting_cost(invalid), None, "{invalid:?}");
             }
         }
 

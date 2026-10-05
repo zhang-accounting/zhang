@@ -276,6 +276,7 @@ fn a_booked_split_exports_in_beancount_syntax_as_written_and_parses_back() {
             date: Some(Date::Date(chrono::NaiveDate::from_str(date).unwrap())),
             label: None,
             total: false,
+            ..PostingCost::default()
         }),
         written: Some(WrittenPosting {
             index: 0,

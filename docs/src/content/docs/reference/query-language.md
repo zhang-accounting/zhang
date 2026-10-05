@@ -602,6 +602,7 @@ The `position`, `cost_*` and `weight` columns of a posting held at cost depend o
 - **Augmentations.** Any other posting at cost opens a lot, or adds to an identical one. A cost without a date, such as `10 AAPL {100 USD}`, is dated by its transaction, so `cost_date` is never `NULL` for a posting held at cost. An augmentation written `{}` joins the first lot the account holds at cost, and its row carries that lot's cost.
 - **Leftovers.** If no open lot covers all of a reduction, Zhang reports a [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot) error and books the remainder as an augmentation. A cost without a number, such as `{}`, cannot open a lot, so that remainder has no cost.
 - **Total costs.** The `cost_number` of a lot bought with a total cost, such as `3 AAPL {{1000 USD}}`, is the total divided by the units, to 28 significant digits as in beanquery.
+- **Compound costs.** The `cost_number` of a lot bought with a compound cost, such as `10 AAPL {100 # 5 USD}`, is the per-unit part plus the total part divided by the units, `100 + 5 / 10 = 100.5`, as in Beancount.
 
 The booking methods are described in [Lots and Cost Basis](/guides/lots-and-cost-basis/#choose-a-booking-method).
 

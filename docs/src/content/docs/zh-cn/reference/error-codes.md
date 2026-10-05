@@ -418,6 +418,31 @@ option "operating_currency" "EUR"
 
 **修正方法**：用成本和取得日期指明要减的批次，例如 `-5 AAPL {100 USD, 2024-01-02}`；一次减完所有匹配的批次；或者让账户使用 `FIFO` 或 `LIFO` 记账方法。
 
+## CostMergingNotSupported
+
+*暂不支持成本合并，该记账行按不带 `*` 的成本记账*
+
+记账行的成本带有 `*`，即 Beancount 的成本合并标记，例如 `-5 AAPL {*}`。在 Beancount 中它表示在减仓之前先把账户的批次按平均成本合并，Beancount 自己也报告为尚未支持。张记账对该记账行报告一次，并按没有 `*` 的成本记账：`{*}` 像 `{}` 一样按账户的[记账方法](/zh-cn/reference/directives/account/#记账方法)选择批次，`{*, "lot-a"}` 像 `{"lot-a"}`。写回文件时保留 `*`。
+
+```zhang
+2024-01-01 commodity USD
+2024-01-01 commodity AAPL
+2024-01-01 open Assets:Broker
+2024-01-01 open Assets:Cash
+2024-01-01 open Income:Gains
+
+2024-01-02 * "buy"
+  Assets:Broker 10 AAPL {185 USD}
+  Assets:Cash -1850 USD
+
+2024-02-01 * "sell"
+  Assets:Broker -5 AAPL {*}
+  Assets:Cash 1000 USD
+  Income:Gains
+```
+
+账本仍会加载，交易也会记账。**修正方法**：写出要扣减批次的成本，或者写 `{}` 交给记账方法选择。平均成本需要 `AVERAGE` 记账方法，它同样尚未实现，见 [`UnsupportedBookingMethod`](#unsupportedbookingmethod)。
+
 ## PluginError
 
 *插件 `<plugin>`：`<message>`*

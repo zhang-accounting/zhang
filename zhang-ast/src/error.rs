@@ -46,6 +46,9 @@ pub enum ErrorKind {
 
     UnsupportedBookingMethod,
     AmbiguousLotMatch,
+    /// a cost spec with beancount's merge-cost marker `*` (`{*}`): cost merging is not supported, and the posting
+    /// books as if its spec had no marker, as in beancount
+    CostMergingNotSupported,
 
     /// a WASM plugin reported a problem through the `zhang_emit_error` host function
     PluginError,

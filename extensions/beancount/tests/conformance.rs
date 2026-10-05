@@ -5,13 +5,20 @@
 //! 1. `official_bean_example_ledger_parses_fully` — beancount's own generated
 //!    example ledger (`bean-example`, ~2000 directives; the same file backs the
 //!    `fava-demo-ledger` integration fixture) must parse end to end.
-//! 2. `supported_language_constructs_parse` — every construct of the beancount
-//!    language surface must parse.
+//! 2. `supported_language_constructs_parse` — every construct listed there
+//!    must parse.
 //!
-//! The whole beancount language surface is supported — including balance
-//! tolerance `~`, the `txn` keyword, cost lot labels, total cost `{{ }}`,
-//! `pushmeta`/`popmeta` and the `query` directive (see `beancount_compat.rs`
-//! for the behavioural checks).
+//! The list is the part of the beancount language zhang is known to read,
+//! not all of it — including balance tolerance `~`, the `txn` keyword, cost
+//! specs (a cost, a date and a label, each alone or together in any order,
+//! total cost `{{ }}`, the compound cost `{P # T CUR}` and the merge-cost
+//! marker `{*}`, which booking reports as unsupported), `pushmeta`/`popmeta`
+//! and the `query` directive (see `beancount_compat.rs` for the behavioural
+//! checks). Known gaps: a compound cost with a missing part (`{# 5 USD}`,
+//! `{100 # USD}`) or in total braces (`{{100 # 5 USD}}`, which beancount
+//! reads with an error) does not parse, and only the `FIFO`, `LIFO` and
+//! `STRICT` booking methods are implemented: an account using another one is
+//! reported and books with the default method.
 
 use std::path::PathBuf;
 
@@ -66,6 +73,18 @@ fn supported_language_constructs_parse() {
         ("balance tolerance", "2014-01-01 balance Assets:Cash 10 ~ 0.01 USD\n"),
         ("cost lot label", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {100 USD, \"lot1\"}\n  Equity:X\n"),
         ("total cost", "2014-01-01 * \"x\"\n  Assets:Cash 1 HOOL {{100 USD}}\n  Equity:X\n"),
+        ("cost with only a date", "2014-01-01 * \"x\"\n  Assets:Cash -1 HOOL {2014-01-01}\n  Equity:X\n"),
+        ("cost with only a label", "2014-01-01 * \"x\"\n  Assets:Cash -1 HOOL {\"lot1\"}\n  Equity:X\n"),
+        ("compound cost", "2014-01-01 * \"x\"\n  Assets:Cash 10 HOOL {100 # 5 USD}\n  Equity:X\n"),
+        ("merge cost", "2014-01-01 * \"x\"\n  Assets:Cash -1 HOOL {*}\n  Equity:X\n"),
+        (
+            "cost components in any order",
+            "2014-01-01 * \"x\"\n  Assets:Cash -1 HOOL {\"lot1\", 2014-01-01, 100 USD}\n  Equity:X\n",
+        ),
+        (
+            "amount metadata value",
+            "2014-01-01 * \"x\"\n  limit: 10.00 USD\n  Assets:Cash 1 USD\n  Equity:X\n",
+        ),
         ("pushmeta / popmeta", "pushmeta project: \"X\"\n2014-01-01 open Assets:Cash\npopmeta project:\n"),
         ("query", "2014-01-01 query \"name\" \"SELECT account\"\n"),
         ("query with metadata", "2014-01-01 query \"name\" \"SELECT account\"\n  owner: \"alice\"\n"),
