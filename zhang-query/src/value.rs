@@ -342,10 +342,7 @@ impl Interval {
         let date = if self.months == 0 {
             date
         } else {
-            let index = (date.year() as i64)
-                .checked_mul(12)?
-                .checked_add(date.month0() as i64)?
-                .checked_add(self.months)?;
+            let index = month_index(date).checked_add(self.months)?;
             let year = i32::try_from(index.div_euclid(12)).ok()?;
             let month = index.rem_euclid(12) as u32 + 1;
             let day = date.day().min(days_in_month(year, month)?);
@@ -384,13 +381,20 @@ pub(crate) fn calendar_value(date: Option<NaiveDate>) -> Value {
     date.filter(|date| in_calendar(*date)).map_or(Value::Null, Value::Date)
 }
 
-/// A date of Python's calendar (years 1 to 9999), as `datetime.date` builds it; `None` when
+/// A date of Python's calendar ([`in_calendar`]), as `datetime.date` builds it; `None` when
 /// there is no such day.
 pub(crate) fn python_date(year: i64, month: i64, day: i64) -> Option<NaiveDate> {
-    if !(1..=9999).contains(&year) {
-        return None;
-    }
-    NaiveDate::from_ymd_opt(year as i32, u32::try_from(month).ok()?, u32::try_from(day).ok()?)
+    NaiveDate::from_ymd_opt(i32::try_from(year).ok()?, u32::try_from(month).ok()?, u32::try_from(day).ok()?).filter(|it| in_calendar(*it))
+}
+
+/// The first day of the month of `date`.
+pub(crate) fn first_of_month(date: NaiveDate) -> NaiveDate {
+    date.with_day(1).expect("every month has a first day")
+}
+
+/// The month index `year * 12 + month0` of a date, which counts months across years.
+pub(crate) fn month_index(date: NaiveDate) -> i64 {
+    i64::from(date.year()) * 12 + i64::from(date.month0())
 }
 
 /// The date a text names, or `None`: the one text-to-date rule of the engine. `date(text)`, a
