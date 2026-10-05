@@ -108,7 +108,7 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         name: "account_budgets",
         params: &[Exact(Str), Exact(Date)],
         returns: ReturnType::Exact(Set),
-        description: "The budgets an account counts in at a date: those the budget metadata of its latest open on or before the date names, so an account closed and opened again with other budgets counts in those from its reopening on; empty before its first open. A zhang extension.",
+        description: "The budgets a posting of an account at the start of a date counts in, as a posting of that date without a time sees them: those the budget metadata of its latest open at or before then names, so an account closed and opened again with other budgets counts in those from its reopening on; empty before its first open. A zhang extension.",
         eval: ledger::account_budgets,
     },
     ScalarFunction {

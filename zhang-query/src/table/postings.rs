@@ -223,6 +223,7 @@ impl<'a> Dataset<'a> {
             store,
             cache,
             store_meta: OnceCell::new(),
+            budgets: OnceCell::new(),
         }
     }
 
@@ -806,6 +807,17 @@ pub static COLUMNS: &[ColumnDef] = &[
                       (beancount's automatic postings); FALSE when its amount is written. A zhang extension.",
         get: Get::Posting(|data, row| Value::Bool(automatic(data, row))),
         reads: Reads::POSTING,
+        borrow: Borrow::No,
+    },
+    ColumnDef {
+        name: "budgets",
+        ty: DataType::Set,
+        description: "The budgets the posting counts toward, as the budget pages count it: those the budget metadata of its \
+                      account's open in effect at its date and time names, defined before it and not closed by then, into \
+                      whose commodity a price converts it. The postings of a budget in a month add up to its activity in \
+                      #budgets. A zhang extension.",
+        get: Get::Posting(|data, row| Value::Set(super::budgets::posting_budgets(data, row))),
+        reads: Reads::COST,
         borrow: Borrow::No,
     },
 ];

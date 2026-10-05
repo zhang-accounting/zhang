@@ -758,10 +758,8 @@ option "operating_currency" "CNY"
                 .collect::<Vec<_>>()
         };
         assert!(narrations(&json_answer(&ledger, detail("Food", 4)).await).is_empty());
-        assert_eq!(
-            narrations(&json_answer(&ledger, detail("Food", 1)).await),
-            vec!["Lunch abroad in USD", "Lunch in CNY"]
-        );
+        // the lunch in USD, which no price converts, does not count, so it is not listed either
+        assert_eq!(narrations(&json_answer(&ledger, detail("Food", 1)).await), vec!["Lunch in CNY"]);
         // a budget-close at a time closes the budget at that time
         let info = json_answer(
             &ledger,
@@ -1086,19 +1084,15 @@ option "operating_currency" "CNY"
     fn postings_params(info: &Json, month: NaiveDate) -> HashMap<String, Option<BuiltinParamValue>> {
         let field = |key: &str| info.get(key).cloned().unwrap_or_else(|| panic!("the budget info has no {}: {}", key, info));
         let params = json!({
-            "accounts": field("related_accounts"),
             "month": month.to_string(),
             "name": field("name"),
-            "close": field("close"),
-            "close_time": field("close_time"),
         });
         serde_json::from_value(params).unwrap()
     }
 
-    /// `budgets.postings` takes the budget's close (#684), so the budget info carries it: the
-    /// budget page's "Open query" on its activity is written out (not a 400 for a missing
+    /// The budget page's "Open query" on its activity is written out (not a 400 for a missing
     /// parameter) and runs to the postings the page lists, for an open budget and for budgets
-    /// closed on a day and at a time.
+    /// closed on a day and at a time; the budget info still carries the close (#684).
     #[tokio::test(flavor = "multi_thread")]
     async fn the_budget_pages_open_query_lists_the_postings_the_page_lists() {
         let open = ledger_of(BUDGETS).await;
@@ -1106,8 +1100,8 @@ option "operating_currency" "CNY"
         let cases = [
             // open: the dinner of March
             (&open, "food", (2025, 3), json!(null), json!(null), 1),
-            // closed on 2024-03-01: the two lunches of January
-            (&closed, "Food", (2024, 1), json!("2024-03-01"), json!(null), 2),
+            // closed on 2024-03-01: the lunch of January in CNY (no price converts the one in USD)
+            (&closed, "Food", (2024, 1), json!("2024-03-01"), json!(null), 1),
             // closed at 12:00 on 2024-04-10: the cinema before the close, not the one after
             (&closed, "Fun", (2024, 4), json!("2024-04-10"), json!("12:00:00"), 1),
         ];
@@ -1317,6 +1311,88 @@ option "operating_currency" "CNY"
         assert_eq!(reference.figures("b", month(7)).map(|it| it.available.to_string()), Some("-5".to_owned()));
         assert_eq!(reference.month_postings("a", month(3)).len(), 0);
         assert_eq!(reference.month_postings("b", month(3)).len(), 1);
+    }
+
+    /// The budget page lists exactly the postings of a budget's activity, so the list adds up to
+    /// the month's activity: not the market before the budget's definition, nor the dollars no
+    /// price converts, and the lunch of 09:00 in `a`, the budget of the `open` in effect then,
+    /// although the account names `b` from its reopening at 10:00 that day.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_posting_list_of_a_month_adds_up_to_its_activity() {
+        let ledger = ledger_at(
+            r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Lunch
+  budget: a
+2024-01-01 budget a CNY
+2024-01-01 budget b CNY
+2024-01-10 "Market" "before the budget"
+  Expenses:Food 10 CNY
+  Assets:Bank
+2024-01-15 budget food CNY
+2024-01-20 "Market" "after the budget"
+  Expenses:Food 7 CNY
+  Assets:Bank
+2024-01-21 "Abroad" "no price converts it"
+  Expenses:Food 3 USD
+  Assets:Bank
+2024-01-05 09:00:00 "Cafe" "lunch before the reopen"
+  Expenses:Lunch 10 CNY
+  Assets:Bank
+2024-01-05 09:30:00 close Expenses:Lunch
+2024-01-05 10:00:00 open Expenses:Lunch
+  budget: b
+2024-01-05 11:00:00 "Cafe" "lunch after the reopen"
+  Expenses:Lunch 20 CNY
+  Assets:Bank
+"#,
+            "2024-01-31T04:00:00Z",
+        )
+        .await;
+        for (name, listed, activity) in [
+            ("a", vec!["lunch before the reopen"], "10"),
+            ("b", vec!["lunch after the reopen"], "20"),
+            ("food", vec!["after the budget"], "7"),
+        ] {
+            let detail = new_json(
+                &ledger,
+                Probe::BudgetInterval {
+                    name: name.to_owned(),
+                    year: 2024,
+                    month: 1,
+                },
+            )
+            .await;
+            assert_eq!(narrations(&detail), listed, "{}", name);
+            let sum = detail
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|it| it["type"] == "Posting")
+                .map(|it| BigDecimal::from_str(it["inferred_unit"]["number"].as_str().unwrap()).unwrap())
+                .sum::<BigDecimal>();
+            let info = new_json(
+                &ledger,
+                Probe::BudgetInfo {
+                    name: name.to_owned(),
+                    month: Some((2024, 1)),
+                },
+            )
+            .await;
+            assert_eq!(figures(&info).1, activity, "{}", name);
+            assert_eq!(zhang_query::decimal::to_plain_string(&sum.normalized()), activity, "{}", name);
+        }
+        // the independent computation agrees
+        let reference = Reference::of(&*ledger.read().await).unwrap();
+        let january = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+        for (name, count) in [("a", 1), ("b", 1), ("food", 1)] {
+            assert_eq!(reference.month_postings(name, january).len(), count, "{}", name);
+        }
     }
 
     /// A repeated identical `budget: a` names `a` once: its 10 CNY are spent once, leaving 90 of

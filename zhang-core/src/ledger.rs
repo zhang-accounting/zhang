@@ -74,10 +74,6 @@ pub struct Ledger {
     /// the amounts of budgets in another commodity, checked for a price after the store fold
     pub(crate) foreign_budget_amounts: Vec<ForeignAmount>,
 
-    /// the budgets of each account during the store fold: those every `budget` entry of its
-    /// latest `open` names, as the query engine counts its postings in them
-    pub(crate) open_budgets: HashMap<String, BTreeSet<String>>,
-
     /// the (account, budget) pairs whose undefined budget the store fold already reported
     pub(crate) reported_undefined_budgets: HashSet<(String, String)>,
 
@@ -237,6 +233,19 @@ impl Ledger {
         self.lifecycle.status(account, at)
     }
 
+    /// The budgets a posting of `account` at the wall-clock time `at` in the ledger's timezone counts in, by the one rule
+    /// of budget membership ([`AccountLifecycle::budgets`]): those the `budget` metadata of the account's latest `open`
+    /// at or before `at` names. `None` before its first `open`. Whether the posting then counts toward one of them also
+    /// depends on the budget: it must be defined before the posting and not closed by then.
+    pub fn account_budgets(&self, account: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
+        self.lifecycle.budgets(account, at)
+    }
+
+    /// The accounts of every budget: those an `open` names it in with its `budget` metadata, at any time.
+    pub fn budget_accounts(&self) -> HashMap<String, BTreeSet<String>> {
+        self.lifecycle.budget_accounts()
+    }
+
     /// The error a directive dated `at`, at the wall-clock time of the ledger's timezone, would raise by using `account`
     /// the way `usage` tells, by the rule every directive is checked with ([`AccountLifecycle`]): what books needs an
     /// active account, what only records one that was opened. `None` when it may.
@@ -259,7 +268,6 @@ impl Ledger {
             validation: None,
             defined_budgets: None,
             foreign_budget_amounts: vec![],
-            open_budgets: HashMap::new(),
             reported_undefined_budgets: HashSet::new(),
             reported_closed_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
@@ -323,6 +331,8 @@ impl Ledger {
         let (processed, assertions, validation) = self.run_stages(full_stream)?;
         self.validation = Some(validation);
         let (metas, mut dated) = Ledger::partition_processed_directives(processed);
+        // the store fold checks the budgets of postings with it
+        self.lifecycle = AccountLifecycle::of(&dated);
         self.handle_other_directives(&mut dated, assertions)?;
         let validation = self.validation.take().expect("validation results are consumed during materialization");
         let stage_error_count = validation.errors.len();
@@ -334,7 +344,6 @@ impl Ledger {
         // Stage errors precede materialization errors. Delay insertion until transaction IDs have
         // been bound, then move them before the fold's errors without disturbing either group.
         operations.write().errors[stage_error_start..].rotate_right(stage_error_count);
-        self.lifecycle = AccountLifecycle::of(&dated);
         for account in operations.write().accounts.values_mut() {
             if let Some(status) = self.lifecycle.final_status(&account.name) {
                 account.status = status;
@@ -594,7 +603,6 @@ impl Ledger {
         // every price is known now
         crate::process::budget::report_unconverted_amounts(self)?;
         self.defined_budgets = None;
-        self.open_budgets = HashMap::new();
         Ok(())
     }
 
@@ -2830,10 +2838,7 @@ mod test {
             assert_eq!(ledger.store.read().unwrap().transactions.len(), 5);
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(180));
             assert_eq!(balance(&ledger, "Expenses:Abroad"), BigDecimal::from(20));
-            assert!(
-                ledger.foreign_budget_amounts.is_empty() && ledger.open_budgets.is_empty(),
-                "validation state is dropped after loading"
-            );
+            assert!(ledger.foreign_budget_amounts.is_empty(), "validation state is dropped after loading");
         }
 
         /// an amount a price converts at its date is no error, whether the price is on the same day, later in the

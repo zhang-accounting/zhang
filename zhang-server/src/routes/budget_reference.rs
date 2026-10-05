@@ -7,8 +7,9 @@
 //! - activity adds up the postings of the budget's accounts, negated on Income, Liabilities and
 //!   Equity accounts, each converted to the budget's commodity at its date; `budget-add` and
 //!   `budget-transfer` amounts likewise. A posting is the activity of the budgets the account's
-//!   `open` in effect at its date names with `budget:`, each once: an account closed and
-//!   opened again with other budgets counts in those from its reopening on;
+//!   `open` in effect at its date and time (the latest one before it in ledger order) names with
+//!   `budget:`, each once: an account closed and opened again with other budgets counts in those
+//!   from its reopening on. A budget's posting list holds exactly the postings of its activity;
 //! - a conversion uses the latest `price` on or before the date (the last of a day wins): the
 //!   pair itself, else its inverse, else through the cost currency of a posting held at cost;
 //!   an amount no price converts is left out;
@@ -62,10 +63,9 @@ pub(crate) struct Reference {
 /// A posting of a budget's account, as the reference sees it.
 pub(crate) struct ReferencePosting {
     pub date: NaiveDate,
-    /// the date of its transaction, as written, with its time if any
-    pub written: Date,
-    /// the budgets of the account's `open` in effect at the posting's date
-    pub budgets: BTreeSet<String>,
+    /// the budgets it counts in: those of the account's `open` in effect at the posting, defined
+    /// by then and not closed, into whose commodity a price converts it
+    pub counted: BTreeSet<String>,
     pub account: String,
     pub narration: Option<String>,
     pub units: Amount,
@@ -250,15 +250,7 @@ impl Reference {
                         let account = posting.account.name().to_owned();
                         let balance = balances.entry((account.clone(), units.commodity.clone())).or_insert_with(BigDecimal::zero);
                         *balance += &units.number;
-                        postings.entry(account.clone()).or_default().push(ReferencePosting {
-                            date,
-                            written: transaction.date.clone(),
-                            budgets: names.clone(),
-                            account,
-                            narration: transaction.narration.as_ref().map(|it| it.as_str().to_owned()).filter(|it| !it.is_empty()),
-                            units: units.clone(),
-                            after: balance.clone(),
-                        });
+                        let after = balance.clone();
                         // the defined budgets the posting counts in: none after its close
                         let names = names
                             .iter()
@@ -269,13 +261,23 @@ impl Reference {
                             posting.account.account_type,
                             AccountType::Income | AccountType::Liabilities | AccountType::Equity
                         );
+                        let mut counted = BTreeSet::new();
                         for name in names {
                             let budget = budgets.get_mut(name).expect("defined");
                             if let Some(value) = prices.convert(&units.number, &units.commodity, cost_currency, &budget.commodity, date) {
                                 let value = if negated { -value } else { value };
                                 *budget.activity.entry(first_of_month(date)).or_insert_with(BigDecimal::zero) += value;
+                                counted.insert(name.clone());
                             }
                         }
+                        postings.entry(account.clone()).or_default().push(ReferencePosting {
+                            date,
+                            counted,
+                            account,
+                            narration: transaction.narration.as_ref().map(|it| it.as_str().to_owned()).filter(|it| !it.is_empty()),
+                            units: units.clone(),
+                            after,
+                        });
                     }
                 }
                 _ => {}
@@ -284,15 +286,14 @@ impl Reference {
         Ok(Reference { budgets, postings })
     }
 
-    /// The postings of a budget in the month of `month`: those of the accounts whose `open` in
-    /// effect at their date names it, but none after the budget's close.
+    /// The postings of a budget in the month of `month`: those that count in it, which add up to
+    /// its activity.
     pub(crate) fn month_postings(&self, name: &str, month: NaiveDate) -> Vec<&ReferencePosting> {
         let month = first_of_month(month);
-        let close = self.budgets.get(name).and_then(|budget| budget.close.as_ref());
         self.postings
             .values()
             .flatten()
-            .filter(|posting| first_of_month(posting.date) == month && posting.budgets.contains(name) && !after_close(close, &posting.written))
+            .filter(|posting| first_of_month(posting.date) == month && posting.counted.contains(name))
             .collect()
     }
 

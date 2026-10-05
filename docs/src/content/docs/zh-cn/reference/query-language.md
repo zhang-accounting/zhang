@@ -645,6 +645,7 @@ WHERE account ~ '^Expenses'
 | `balanced` | `bool` | 张记账发现交易不平衡（`UnbalancedTransaction` 错误）时为 `FALSE`，否则为 `TRUE`。张记账扩展。 |
 | `errors` | `set` | 张记账为该交易记录的错误种类，名称与 [`#errors`](#错误表) 的 `kind` 列相同，例如 `UnbalancedTransaction` 或 `AccountDoesNotExist`。没有错误时为空集合。张记账扩展。 |
 | `automatic` | `bool` | 分录书写时没有金额、由张记账推算出数量来平衡交易时为 `TRUE`（beancount 称这样的分录为自动分录）；写了金额时为 `FALSE`。补齐交易中补齐来源账户的分录也是自动分录。张记账扩展。 |
+| `budgets` | `set` | 该分录计入的预算，与预算页面的计算方式相同（见[预算表](#预算表)）：分录的日期和时间当时生效的账户 `open` 中 `budget` 元数据所指、在该分录之前已定义且当时未关闭、并且有价格能把该分录换算为其货币的预算。一个预算某个月的分录之和就是它在 `#budgets` 中的 `activity`。张记账扩展。 |
 
 ### 累计余额
 
@@ -850,7 +851,7 @@ ORDER BY account
 - 所有金额都以预算的商品计。`activity` 把预算关联账户的分录相加，每笔分录都按其日期折算为预算的商品，与 [`convert(position, currency, date)`](#估值函数) 用账本中的价格折算的结果相同：`activity` 就是对这些分录求 `sum(convert(position, 'CNY', date))` 的结果。以其他商品计的 `budget-add` 或 `budget-transfer` 金额，按指令的日期以同样方式折算。没有价格可以折算的分录或金额不计入，而不会被当作另一种商品的数字加进去，张记账会把它报告为 [`BudgetCommodityMismatch`](/zh-cn/reference/error-codes/#budgetcommoditymismatch)。
 - 预算从其 `budget` 指令起才存在。针对尚不存在的预算的 `budget-add`、`budget-transfer` 或 `budget-close` 不起作用，预算的 `budget` 指令之前的分录也不算它的支出；张记账会把两者都报告为错误。同名的第二条 `budget` 指令是重复定义，会被忽略。
 - 由于 `assigned` 包含顺延的金额，把多个月的 `assigned` 相加会把同一笔钱算多次。要统计一段时间内一共安排了多少预算，请对 `added` 求和。
-- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。每一条元数据都算数，所以 `open` 中同时有 `budget: food` 和 `budget: fun` 的账户同属两个预算。一笔分录计入其日期当时生效的账户 `open` 所指的预算：账户关闭后以其他预算重新开启，从重新开启起计入新的预算，之前的分录仍属原来的预算。可以用 [`account_budgets(account, date)`](#账户与商品指令) 查看。
+- 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。每一条元数据都算数，所以 `open` 中同时有 `budget: food` 和 `budget: fun` 的账户同属两个预算。一笔分录计入其日期和时间当时生效的账户 `open` 所指的预算：账户关闭后以其他预算重新开启，从重新开启起计入新的预算（即使是同一天稍后的时间），之前的分录仍属原来的预算。分录的 [`budgets`](#postings-表) 列给出它计入哪些预算。
 - 已关闭的预算在关闭之后不再计入支出：只有日期的 `budget-close` 让预算在当天全天仍然有效，带时间的则在该时间关闭预算。之后的分录不计入，张记账会把它们报告为 [`BudgetClosed`](/zh-cn/reference/error-codes/#budgetclosed)。它的 `budget-add` 和 `budget-transfer` 指令仍然计入，所以可以把剩下的金额转到另一个预算。
 - `meta(key)` 读取 `budget` 指令的元数据。
 - 各行先按预算名称、再按月份排列。`SELECT *` 是 `SELECT name, date, assigned, activity, available` 的简写。
@@ -1153,7 +1154,7 @@ WHERE file = 'data/2024.zhang'
 | `commodity_meta(str, str) -> str` | 货币 `commodity` 指令的某个元数据值，例如 `commodity_meta(currency, 'name')`。 |
 | `commodity_meta(str) -> metas` | 货币 `commodity` 指令的全部元数据：没有元数据时为空列表，没有 `commodity` 指令时为 `NULL`。 |
 | `currency_meta(str, str) -> str`、`currency_meta(str) -> metas` | 与 `commodity_meta` 相同。 |
-| `account_budgets(str, date) -> set` | 账户在某个日期所属的预算：该日期或之前最近一条 `open` 的 `budget` 元数据所指的预算，所以账户关闭后以其他预算重新开启，从重新开启起属于新的预算。在第一条 `open` 之前为空集合。张记账扩展。 |
+| `account_budgets(str, date) -> set` | 账户在某个日期开始时的分录所计入的预算，即该日期一条不带时间的分录所见的预算：当时或之前最近一条 `open` 的 `budget` 元数据所指的预算，所以账户关闭后以其他预算重新开启，从重新开启起属于新的预算。在第一条 `open` 之前为空集合。分录的 `budgets` 列还会检查预算本身。张记账扩展。 |
 | `account_status(str, date) -> str`、`account_status(str, date, str) -> str` | 账户在该日期开始时、或在第三个参数给出的时刻（与 `time` 列一样写作 `HH:MM:SS` 或 `HH:MM`）是 `'open'` 还是 `'closed'`。这就是张记账检查每条指令时使用的规则：账户从 `open` 起开立，在 `close` 生效后关闭；只有日期的 `close` 在当天结束时生效，带时间的 `close` 在该时刻生效；`close` 之后的 `open` 会重新开立账户。既没有生效的 `open` 也没有生效的 `close` 时为 `NULL`。参见[账户何时可用](/zh-cn/reference/directives/account/#账户何时可用)。张记账扩展。 |
 
 元数据不会继承：即使 `Assets:Bank` 有 `institution`，`open_meta('Assets:Bank:Checking', 'institution')` 仍为 `NULL`。beanquery 的单参数形式返回字典，其中还有 `filename` 和 `lineno`；张记账只返回指令自身的元数据。
