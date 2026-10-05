@@ -283,6 +283,48 @@ fn arithmetic_and_literals() {
     assert!(err.message.contains("not supported for (int, str)"), "{}", err);
 }
 
+/// One text-to-date rule: a string compared with a date reads exactly the texts `date(text)`
+/// reads, as the same day, and a bare date literal is a day of the same calendar.
+#[test]
+fn a_string_compared_with_a_date_is_read_as_date_reads_it() {
+    let texts = [
+        "2024-01-05",
+        "2024-1-5",
+        "2024-01- 5",
+        " 2024-01-05",
+        "+2024-01-05",
+        "2024-01-05 ",
+        "24-01-05",
+        "0024-01-05",
+        "2024-02-30",
+        "20240105",
+    ];
+    for text in texts {
+        let by_function = query(&format!("SELECT date('{}') LIMIT 1", text))[0][0].clone();
+        let source = format!("SELECT count(*) WHERE date = '{}'", text);
+        match Query::compile(&source) {
+            Ok(_) if by_function == "NULL" => panic!("{:?}: date() reads no date, but the comparison compiles", text),
+            Ok(_) => {
+                let expected = one(&format!("SELECT count(*) WHERE date = date('{}')", text));
+                assert_eq!(one(&source), expected, "{:?}", text);
+            }
+            Err(err) => {
+                assert_eq!(
+                    by_function, "NULL",
+                    "{:?}: date() reads {}, but the comparison fails: {}",
+                    text, by_function, err
+                );
+                assert!(err.message.contains("not a valid date"), "{:?}: {}", text, err);
+            }
+        }
+    }
+    assert_eq!(one("SELECT count(*) WHERE date = '2024-1-5'"), "2");
+    assert_eq!(one("SELECT count(*) WHERE date IN ('2024-1-5', '2024-01-10')"), "4");
+    // a bare literal in the year 0 is no date, as date() reads it
+    let err = error("SELECT count(*) WHERE date > 0000-01-01");
+    assert!(err.message.contains("invalid date literal"), "{}", err);
+}
+
 #[test]
 fn null_sorts_first_ascending_and_last_descending() {
     let ascending = column("SELECT DISTINCT payee ORDER BY payee");

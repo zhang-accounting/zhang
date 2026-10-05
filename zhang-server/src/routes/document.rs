@@ -14,7 +14,7 @@ use crate::error::ServerError;
 use crate::response::{DocumentEntity, InfoForNewDocument, ResponseWrapper};
 use crate::routes::Base64Path;
 use crate::state::SharedLedger;
-use crate::util::{cache_document, cached_document, document_cache_key, DOCUMENT_CACHE};
+use crate::util::{cache_document, cached_document, document_cache, document_cache_key};
 use crate::{journals, ApiResult, ServerResult};
 
 /// The document at a path within the ledger, given as its base64, as the documents are listed: the file at that path,
@@ -111,12 +111,18 @@ async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<V
         match cached_document(&key).await {
             Ok(Some(content)) => return Ok(Some(content)),
             Ok(None) => {}
-            Err(error) => warn!("the copy of the document {path:?} in {DOCUMENT_CACHE} cannot be read, reading it from the source: {error}"),
+            Err(error) => warn!(
+                "the copy of the document {path:?} in {} cannot be read, reading it from the source: {error}",
+                document_cache().display()
+            ),
         }
         info!("loading the document {:?} from the source...", path);
         if let Some(content) = ledger.data_source.async_get_existing(path.clone()).await? {
             if let Err(error) = cache_document(&key, &content).await {
-                warn!("the document {path:?} is served but not kept in {DOCUMENT_CACHE}, which cannot be written to: {error}");
+                warn!(
+                    "the document {path:?} is served but not kept in {}, which cannot be written to: {error}",
+                    document_cache().display()
+                );
             }
             return Ok(Some(content));
         }

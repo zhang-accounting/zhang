@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
@@ -22,9 +22,6 @@ pub enum Date {
 }
 
 impl Date {
-    pub fn now(timezone: &Tz) -> Date {
-        Date::Datetime(Utc::now().with_timezone(timezone).naive_local())
-    }
     /// The instant this wall-clock date means in `timezone`. A date-only value means local
     /// midnight. Times that daylight saving makes ambiguous or skips are resolved by
     /// [`resolve_local_datetime`] instead of panicking.

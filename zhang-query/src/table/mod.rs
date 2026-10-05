@@ -43,7 +43,7 @@ mod prices;
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
 
@@ -51,7 +51,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use zhang_ast::{Commodity, Directive, Meta, Spanned};
 use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
+use zhang_core::store::{Store, TransactionDomain};
 
 pub(crate) use self::cache::LedgerCache;
 pub use self::postings::COLUMNS;
@@ -287,6 +287,8 @@ pub(crate) enum Record<'a> {
     Entry {
         directive: &'a Spanned<Directive>,
         info: &'a cache::EntryInfo,
+        /// for a transaction, what zhang stored of it, which its columns read
+        txn: Option<&'a TransactionDomain>,
     },
     /// a balance assertion (`balance`, or `balance ... with pad`) and, when the projection
     /// reads it, what zhang's check of it found
@@ -303,6 +305,9 @@ pub(crate) enum Record<'a> {
         name: &'a str,
         open: Option<&'a Spanned<Directive>>,
         close: Option<&'a Spanned<Directive>>,
+        /// the booking method the account books with, as booking resolves its `open`s; `None`
+        /// when it books with the ledger's default
+        booking: Option<zhang_core::inventory::BookingMethod>,
     },
     /// one month of a budget
     Budget(budgets::BudgetMonth<'a>),
@@ -445,7 +450,6 @@ pub(crate) struct Dataset<'a> {
     store: &'a Store,
     /// what every query of the ledger shares (see [`LedgerCache`])
     cache: &'a LedgerCache,
-    store_meta: OnceCell<HashMap<&'a str, Vec<(&'a str, &'a str)>>>,
     /// the budgets of the ledger, folded once for the `budgets` column
     budgets: OnceCell<budgets::Budgets<'a>>,
 }
@@ -472,7 +476,6 @@ impl<'a> Dataset<'a> {
             ledger,
             store,
             cache,
-            store_meta: OnceCell::new(),
             budgets: OnceCell::new(),
         })
     }

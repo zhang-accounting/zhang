@@ -1,8 +1,8 @@
 //! The `postings` table: one row per posting, with the columns of its transaction.
 //!
 //! Rows are read from the booked directives of the ledger (units, lots, price annotations,
-//! transaction metadata) and from its in-memory [`Store`] (the transaction they belong to, the
-//! posting metadata, and the rows of a transaction whose directive cannot be matched).
+//! transaction metadata) and from its in-memory [`Store`] (the transaction they belong to and the
+//! posting metadata). The store records the directive of every transaction it keeps.
 //!
 //! Which entries produce rows follows beancount: transactions and padding transactions
 //! (flag `P`) do; balance assertions, which book nothing, do not.
@@ -17,12 +17,11 @@
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use zhang_ast::amount::Amount;
-use zhang_ast::{booked_group_units, written_groups, Directive, Meta, Posting, PostingCost, SingleTotalPrice, Transaction, WrittenGroup};
-use zhang_core::domains::schemas::MetaType;
+use zhang_ast::{booked_group_units, Directive, Meta, Posting, PostingCost, SingleTotalPrice, WrittenGroup};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
 
@@ -186,10 +185,10 @@ impl<'a> Dataset<'a> {
                         entries.push(Entry {
                             txn: MaybeOwned::Borrowed(txn),
                             date: cached_entry.date,
-                            meta: cached_entry.parsed.and_then(|idx| match &ledger.directives[idx as usize].data {
+                            meta: match &ledger.directives[cached_entry.parsed as usize].data {
                                 Directive::Transaction(parsed) => Some(&parsed.meta),
                                 _ => None,
-                            }),
+                            },
                             seq: cached_entry.entry,
                             errors: cached_entry.entry.and_then(|seq| table.rows[seq as usize].errors.as_ref()),
                         });
@@ -222,7 +221,6 @@ impl<'a> Dataset<'a> {
             ledger,
             store,
             cache,
-            store_meta: OnceCell::new(),
             budgets: OnceCell::new(),
         }
     }
@@ -248,82 +246,25 @@ impl<'a> Dataset<'a> {
 
     /// Transaction metadata `key` of the row, as a string.
     pub fn entry_meta(&self, row: &Row<'_>, key: &str) -> Option<String> {
-        let entry = self.entry(row);
-        if let Some(meta) = entry.meta {
-            return meta.get_one(key).map(|value| value.as_str().to_owned());
-        }
-        self.stored_entry_metas(row)
-            .iter()
-            .find(|(k, _)| *k == key)
-            .map(|(_, value)| (*value).to_owned())
+        self.entry(row).meta?.get_one(key).map(|value| value.as_str().to_owned())
     }
 
     /// Every value of transaction metadata `key` of the row, in written order.
     pub fn entry_meta_values(&self, row: &Row<'_>, key: &str) -> Vec<String> {
-        match self.entry(row).meta {
-            Some(meta) => meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect(),
-            None => self
-                .stored_entry_metas(row)
-                .iter()
-                .filter(|(k, _)| *k == key)
-                .map(|(_, value)| (*value).to_owned())
-                .collect(),
-        }
+        self.entry(row)
+            .meta
+            .map(|meta| meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect())
+            .unwrap_or_default()
     }
 
     /// The transaction metadata of the row as `(key, value)` pairs: the `entry_metas` column.
     pub fn entry_metas(&self, row: &Row<'_>) -> Vec<(String, String)> {
-        match self.entry(row).meta {
-            Some(meta) => super::meta_pairs(Some(meta)),
-            None => {
-                let mut pairs = self
-                    .stored_entry_metas(row)
-                    .iter()
-                    .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-                    .collect::<Vec<_>>();
-                pairs.sort_by(|a, b| a.0.cmp(&b.0));
-                pairs
-            }
-        }
+        super::meta_pairs(self.entry(row).meta)
     }
-
-    /// The transaction metadata the store keeps for the row's transaction (one value per
-    /// key), for a transaction whose directive could not be matched.
-    fn stored_entry_metas(&self, row: &Row<'_>) -> &[(&'a str, &'a str)] {
-        let entry = self.entry(row);
-        let index = self.store_meta.get_or_init(|| {
-            let mut index: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
-            for meta in &self.store.metas {
-                if meta.meta_type == MetaType::TransactionMeta.as_ref() {
-                    index
-                        .entry(meta.type_identifier.as_str())
-                        .or_default()
-                        .push((meta.key.as_str(), meta.value.as_str()));
-                }
-            }
-            index
-        });
-        index.get(entry.txn.id.to_string().as_str()).map_or(&[], Vec::as_slice)
-    }
-}
-
-/// The written groups ([`written_groups`]) of the directive `parsed` when it is the one the
-/// stored transaction `txn` was processed from: one group per stored posting, on its account,
-/// every leg booked. `None` for another transaction a stage emitted at the same position: a copy
-/// the ledger could not book (its postings keep no units, so it was never stored), or one on
-/// other accounts; such a directive is no source of rows for `txn`.
-pub(super) fn stored_groups<'a>(parsed: &'a Transaction, txn: &TransactionDomain) -> Option<Vec<WrittenGroup<'a>>> {
-    let groups = written_groups(&parsed.postings);
-    let matches = groups.len() == txn.postings.len()
-        && groups
-            .iter()
-            .zip(&txn.postings)
-            .all(|(group, stored)| group.legs[0].account == stored.account && group.legs.iter().all(|leg| leg.units.is_some()));
-    matches.then_some(groups)
 }
 
 /// The rows of a stored transaction, the entry `entry` of the table, from the booked postings of
-/// its directive, grouped by the posting they were written as (`groups`, see [`stored_groups`]):
+/// its directive, grouped by the posting they were written as (`groups`, [`zhang_ast::written_groups`]):
 /// one row per booked leg, as beanquery lists a sale across several lots, with the lot the leg
 /// names and its per-unit price. The rows of a posting as written share its index, which is the
 /// store's row.
@@ -332,7 +273,7 @@ pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &
     for (posting_index, group) in groups.iter().enumerate() {
         let legs = group.legs;
         for leg in legs {
-            // every leg of a matched directive is booked ([`stored_groups`]), so it has units
+            // every leg of a stored transaction is booked, so it has units
             let Some(units) = &leg.units else { continue };
             let cost = leg.cost.as_ref().and_then(lot_cost);
             let price = leg.price.as_ref().and_then(|price| per_unit_price(leg, price, legs));
@@ -346,33 +287,6 @@ pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &
         }
     }
     rows
-}
-
-/// The rows of the stored transaction `txn` whose directive could not be matched: one per stored
-/// posting, with the cost number the store keeps, dated by the transaction, and no price.
-pub(super) fn stored_rows(entry: usize, txn: &TransactionDomain, accounts: &mut Accounts) -> Vec<CachedRow> {
-    let date = txn.datetime.date_naive();
-    txn.postings
-        .iter()
-        .enumerate()
-        .map(|(posting_index, posting)| CachedRow {
-            entry: entry as u32,
-            posting_index: posting_index as u32,
-            account: accounts.index(posting.account.name()),
-            units: posting.inferred_amount.clone(),
-            lot: posting.cost.as_ref().map(|cost| {
-                Box::new(Lot {
-                    cost: Some(Cost {
-                        number: cost.number.clone(),
-                        currency: cost.commodity.clone(),
-                        date: Some(date),
-                        label: None,
-                    }),
-                    price: None,
-                })
-            }),
-        })
-        .collect()
 }
 
 /// The units of the posting `leg` was written as, which a total price (`@@`) or a total cost
@@ -466,12 +380,55 @@ fn weight(row: &Row<'_>) -> Amount {
     }
 }
 
+// The columns of a stored transaction, read the same way by `postings`, `#entries` and `#transactions`: from what
+// zhang stored, at the date and time it books the transaction at.
+
+/// The `date` of a stored transaction: its date in the ledger's timezone, as zhang books it.
+pub(super) fn txn_date(txn: &TransactionDomain) -> NaiveDate {
+    txn.datetime.date_naive()
+}
+
+/// The `flag` of a stored transaction: `*` when it was written without one.
+pub(super) fn txn_flag(txn: &TransactionDomain) -> Value {
+    Value::Str(txn.flag.to_string())
+}
+
+/// The `payee` of a stored transaction.
+pub(super) fn txn_payee(txn: &TransactionDomain) -> Option<&str> {
+    txn.payee.as_deref()
+}
+
+/// The `narration` of a stored transaction: '' when absent, as in beancount.
+pub(super) fn txn_narration(txn: &TransactionDomain) -> &str {
+    txn.narration.as_deref().unwrap_or_default()
+}
+
+/// The `description` of a stored transaction: its payee and narration joined with ' | ', whichever are present.
+pub(super) fn txn_description(txn: &TransactionDomain) -> Value {
+    let parts = [txn.payee.as_deref(), txn.narration.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|it| !it.is_empty())
+        .collect::<Vec<_>>();
+    Value::Str(parts.join(" | "))
+}
+
+/// The `time` of a stored transaction: its time of day in the ledger's timezone, as zhang books it.
+pub(super) fn txn_time(txn: &TransactionDomain) -> Value {
+    time_value(txn.datetime.time())
+}
+
+/// The `timestamp` of a stored transaction: the Unix time zhang books it at.
+pub(super) fn txn_timestamp(txn: &TransactionDomain) -> Value {
+    Value::Int(txn.datetime.timestamp())
+}
+
 fn payee<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
-    data.entry(row).txn.payee.as_deref()
+    txn_payee(&data.entry(row).txn)
 }
 
 fn narration<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
-    Some(data.entry(row).txn.narration.as_deref().unwrap_or_default())
+    Some(txn_narration(&data.entry(row).txn))
 }
 
 fn account<'r>(_: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
@@ -543,7 +500,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "flag",
         ty: DataType::Str,
         description: "Flag of the transaction: '*', '!', or 'P' for padding.",
-        get: Get::Posting(|data, row| Value::Str(data.entry(row).txn.flag.to_string())),
+        get: Get::Posting(|data, row| txn_flag(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -567,15 +524,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "description",
         ty: DataType::Str,
         description: "Payee and narration joined with ' | ' (whichever are present).",
-        get: Get::Posting(|data, row| {
-            let txn = &data.entry(row).txn;
-            let parts = [txn.payee.as_deref(), txn.narration.as_deref()]
-                .into_iter()
-                .flatten()
-                .filter(|it| !it.is_empty())
-                .collect::<Vec<_>>();
-            Value::Str(parts.join(" | "))
-        }),
+        get: Get::Posting(|data, row| txn_description(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -741,7 +690,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         ty: DataType::Str,
         description: "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. \
                       A zhang extension.",
-        get: Get::Posting(|data, row| time_value(data.entry(row).txn.datetime.time())),
+        get: Get::Posting(|data, row| txn_time(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -749,7 +698,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "timestamp",
         ty: DataType::Int,
         description: "Unix time, in seconds, of the transaction's date and time. A zhang extension.",
-        get: Get::Posting(|data, row| Value::Int(data.entry(row).txn.datetime.timestamp())),
+        get: Get::Posting(|data, row| txn_timestamp(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },

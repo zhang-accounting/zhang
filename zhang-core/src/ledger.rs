@@ -24,6 +24,7 @@ use crate::domains::schemas::AccountStatus;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
+use crate::inventory::BookingMethod;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{
     builtin_stages, run_pipeline, AccountLifecycle, AccountUse, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage,
@@ -423,6 +424,20 @@ impl Ledger {
         booker.into_lots()
     }
 
+    /// the booking method every account books with at the end of the stream, as booking resolves the
+    /// `booking_method` metadata of its `open`s: the last value of the latest `open` that has one. An account
+    /// missing from the map books with the `default_booking_method` option, also when its value is not a booking
+    /// method or one booking does not implement (an error of the `open`)
+    pub fn booking_methods(&self) -> HashMap<String, BookingMethod> {
+        let mut booker = Booker::new(self.options.default_booking_method);
+        for directive in &self.directives {
+            if let Directive::Open(open) = &directive.data {
+                let _reported_by_validation = booker.apply_open(open);
+            }
+        }
+        booker.into_methods()
+    }
+
     pub fn operations(&self) -> Operations {
         let timezone = self.options.timezone;
         Operations {
@@ -556,9 +571,10 @@ impl Ledger {
         self.defined_budgets = Some(HashMap::new());
         // the `balance ... with pad` directives of the balance entries being folded: their checks are kept after
         // the last one, where the balance-check stage checked them, so they follow their padding in the journal
-        let mut pads: Vec<(BalancePad, SpanInfo)> = vec![];
+        let mut pads: Vec<(BalancePad, SpanInfo, usize)> = vec![];
         let mut pads_at = None;
-        for directive in directives.iter_mut() {
+        // the index of a directive here is its index in `Ledger::directives`, which the store records
+        for (index, directive) in directives.iter_mut().enumerate() {
             if !pads.is_empty() && !(Ledger::is_balance_entry(&directive.data) && directive.datetime() == pads_at) {
                 self.insert_pad_assertions(&mut pads, &mut assertions)?;
             }
@@ -570,18 +586,26 @@ impl Ledger {
                 // the account lifecycle reads it from the processed stream: `Ledger::account_status`
                 Directive::Close(_) => {}
                 Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
-                Directive::Transaction(trx) => trx.handler(self, &directive.span)?,
+                Directive::Transaction(trx) => crate::process::transaction::fold(trx, self, &directive.span, index)?,
                 // the pad stage materialized it into its padding transactions
                 Directive::Pad(_) => {}
                 // the pad stage materialized its padding into a transaction; its check is kept for the journal
                 Directive::BalancePad(pad) => {
-                    pads.push((pad.clone(), directive.span.clone()));
+                    pads.push((pad.clone(), directive.span.clone(), index));
                     pads_at = directive.datetime();
                 }
                 // books nothing: the check is kept for the journal
                 Directive::BalanceCheck(check) => {
                     if let Some(outcome) = assertions.take(&directive.span) {
-                        self.insert_balance_assertion(&check.date, &check.account, &check.amount, check.tolerance.clone(), &directive.span, outcome)?;
+                        self.insert_balance_assertion(
+                            &check.date,
+                            &check.account,
+                            &check.amount,
+                            check.tolerance.clone(),
+                            &directive.span,
+                            index,
+                            outcome,
+                        )?;
                     }
                 }
                 Directive::Note(_) => {}
@@ -606,19 +630,21 @@ impl Ledger {
         Ok(())
     }
 
-    /// keep the checks of the `balance ... with pad` directives in `pads` in the store
-    fn insert_pad_assertions(&mut self, pads: &mut Vec<(BalancePad, SpanInfo)>, assertions: &mut AssertionOutcomes) -> ZhangResult<()> {
-        for (pad, span) in pads.drain(..) {
+    /// keep the checks of the `balance ... with pad` directives in `pads` (with their index in the stream) in the store
+    fn insert_pad_assertions(&mut self, pads: &mut Vec<(BalancePad, SpanInfo, usize)>, assertions: &mut AssertionOutcomes) -> ZhangResult<()> {
+        for (pad, span, index) in pads.drain(..) {
             if let Some(outcome) = assertions.take(&span) {
-                self.insert_balance_assertion(&pad.date, &pad.account, &pad.amount, None, &span, outcome)?;
+                self.insert_balance_assertion(&pad.date, &pad.account, &pad.amount, None, &span, index, outcome)?;
             }
         }
         Ok(())
     }
 
-    /// keep a checked balance assertion in the store, in its place among the transactions
+    /// keep a checked balance assertion in the store, in its place among the transactions; `directive` is the index of
+    /// its directive in the stream being folded
+    #[allow(clippy::too_many_arguments)]
     fn insert_balance_assertion(
-        &mut self, date: &Date, account: &Account, amount: &Amount, tolerance: Option<BigDecimal>, span: &SpanInfo, outcome: AssertionOutcome,
+        &mut self, date: &Date, account: &Account, amount: &Amount, tolerance: Option<BigDecimal>, span: &SpanInfo, directive: usize, outcome: AssertionOutcome,
     ) -> ZhangResult<()> {
         let sequence = self.trx_counter.fetch_add(1, Ordering::Relaxed);
         let mut operations = self.operations();
@@ -627,6 +653,7 @@ impl Ledger {
         operations.insert_balance_assertion(BalanceAssertionDomain {
             id,
             sequence,
+            directive,
             datetime: date.to_timezone_datetime(&self.options.timezone),
             account: account.clone(),
             amount: amount.clone(),

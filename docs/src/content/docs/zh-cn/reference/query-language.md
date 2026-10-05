@@ -452,8 +452,8 @@ SELECT flag, count(*) FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01 CLEAR WHERE fl
 
 - 字符串可以用单引号或双引号。与标准 SQL 不同，`"USD"` 是字符串而不是列名。
 - 字符串在下一个同类引号处结束，没有转义序列。如果字符串中需要包含引号，请用另一种引号把它括起来：`"Joe's Diner"` 或 `'say "hi"'`。
-- 日期写作 `YYYY-MM-DD`，**不加**引号。`2024-13-01` 这样无效的日期会报错。
-- 带引号的字符串与日期比较时会被当作日期读取，所以 `date >= '2024-01-01'` 也可以使用。此时如果字符串不是有效的 `YYYY-MM-DD` 日期，会报错。
+- 日期写作 `YYYY-MM-DD`，**不加**引号。`2024-13-01` 这样无效的日期，或年份不在 1 到 9999 之间的日期，会报错。
+- 带引号的字符串与日期比较时（`=`、`<`、`IN` 等比较）会被当作日期读取，所以 `date >= '2024-01-01'` 也可以使用。字符串的读法与 [`date(str)`](#日期函数) 完全相同：四位数的年份，再加一位或两位数的月和日，前后不能有其他字符，所以 `'2024-1-5'` 就是 2024-01-05。`date()` 读作 `NULL` 的字符串，例如 `' 2024-01-05'`、`'+2024-01-05'` 或 `'24-01-05'`，在比较中会报错。这种比较是 zhang 的扩展：beanquery 0.2.0 不允许把字符串与日期比较。
 - 整数是 64 位的，更大的整数字面量会成为 `decimal`。不支持 `1e3` 这样的指数写法。
 - `TRUE`、`FALSE` 和 `NULL` 是关键字，不区分大小写。
 
@@ -741,7 +741,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `id` | `str` | 指令的唯一 ID。交易的 ID 就是交易本身的 ID，与其分录的 `id` 列相同；余额断言的 ID 是张记账存储其检查结果时使用的 ID。 |
 | `type` | `str` | 指令的种类，小写：`transaction`、`open`、`close`、`balance`、`price`、`note`、`document`、`event`、`commodity`、`custom`、`query` 或 `pad`，以及张记账的 `budget`、`budget-add`、`budget-transfer` 和 `budget-close`。`balance ... with pad` 算作 `balance`。 |
 | `filename` | `str` | 指令所在的账本文件。 |
-| `date`、`year`、`month`、`day` | `date`、`int` | 指令的日期及其各部分。 |
+| `date`、`year`、`month`、`day` | `date`、`int` | 指令的日期及其各部分。交易的各列（这几列以及 `flag`、`payee`、`narration`、`description`、`tags`、`links`、`time` 和 `timestamp`）与它的分录相同：取自张记账存储的交易。在账本时区跳过的那一天，交易存储在跳过时段之后的第一个时刻，所以它的日期是下一天：`Pacific/Apia` 的 `2011-12-30` 是 `2011-12-31`。 |
 | `flag`、`payee`、`narration`、`description` | `str` | 对交易而言与 `postings` 中的同名列相同；其他指令为 `NULL`。 |
 | `tags`、`links` | `set` | 交易、note 或 document 的标签和链接；其他指令为 `NULL`。 |
 | `meta` | `str` | 指令的元数据。 |
@@ -754,7 +754,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 
 | 列 | 类型 | 说明 |
 |----|------|------|
-| `date` | `date` | 交易日期。 |
+| `date` | `date` | 交易日期，与 `postings` 和 [`#entries`](#entries) 中的相同：张记账存储它的日期。 |
 | `flag` | `str` | `*`、`!`，补齐交易为 `P`。 |
 | `payee` | `str` | 收款方，或 `NULL`。 |
 | `narration` | `str` | 描述，没有时为 `''`。 |
@@ -823,7 +823,7 @@ ORDER BY date DESC
 | `open`、`open.date` | `date` | `open` 指令的日期，没有时为 `NULL`。单独使用 `open` 时读作这个日期。 |
 | `open.account` | `str` | `open` 指令的账户。 |
 | `open.currencies` | `set` | 账户限定的货币；不限定时为 `NULL`。 |
-| `open.booking` | `str` | 记账方法，取自 `booking_method` 元数据，或 `NULL`。 |
+| `open.booking` | `str` | zhang 为该账户记账时使用的记账方法：带有 `booking_method` 元数据的最近一条 `open` 中的最后一个值。账户使用账本默认方法时为 `NULL`，值不是 zhang 实现的记账方法时也为 `NULL`。 |
 | `open.meta` | `str` | `open` 指令的元数据。 |
 | `close`、`close.date` | `date` | `close` 指令的日期，账户未关闭时为 `NULL`。单独使用 `close` 时读作这个日期。 |
 | `close.account`、`close.meta` | `str` | `close` 指令的账户和元数据。 |

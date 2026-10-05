@@ -110,7 +110,6 @@ async fn server(dir: &Path) -> Router {
             passkey_rp_id: None,
             passkey_origin: None,
             session_secret: None,
-            is_local_fs: false,
         },
         Arc::new(RwLock::new(ledger)),
         Broadcaster::create(),

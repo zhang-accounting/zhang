@@ -608,6 +608,63 @@ option "operating_currency" "CNY"
     );
 }
 
+/// A transaction dated on a day its timezone skipped (Pacific/Apia went from 2011-12-29 to
+/// 2011-12-31): zhang stores it at the first instant after the gap, a date other than the one
+/// written. It is still the entry of its directive, in `#entries` and `#transactions` (the
+/// journal), with the id and `seq` of its postings. Matching it to its directive by date dropped
+/// it from both.
+#[test]
+fn a_transaction_on_a_skipped_day_is_the_entry_of_its_directive() {
+    let ledger = common::load_text(
+        r#"
+option "timezone" "Pacific/Apia"
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+2011-12-30 * "skipped day"
+  Expenses:Food 10 USD
+  Assets:Bank
+"#,
+    );
+    let stored = run(&ledger, "SELECT DISTINCT id, seq FROM #postings");
+    assert_eq!(stored.len(), 1, "one stored transaction: {:?}", stored);
+    assert_ne!(stored[0][1], "NULL", "its postings have its seq");
+    assert_eq!(run(&ledger, "SELECT id, seq FROM #transactions"), stored);
+    assert_eq!(run(&ledger, "SELECT id, seq FROM #entries WHERE type = 'transaction'"), stored);
+}
+
+/// A transaction has the same columns in `#entries`, `#transactions` and the postings: what zhang stored, with the date
+/// and time it books the transaction at. On a day its timezone skipped (Pacific/Apia went from 2011-12-29 to
+/// 2011-12-31), that is the first instant after the gap, 2011-12-31 00:00:00, in every table. `#entries` and
+/// `#transactions` read the date written.
+#[test]
+fn a_transaction_has_the_columns_zhang_stored_in_every_table() {
+    let ledger = common::load_text(
+        r#"
+option "timezone" "Pacific/Apia"
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+2011-12-30 ! "Shop" "skipped day" #food ^receipt-1
+  Expenses:Food 10 USD
+  Assets:Bank
+"#,
+    );
+    let columns = "id, date, flag, payee, narration, tags, links, time, timestamp";
+    let postings = run(&ledger, &format!("SELECT DISTINCT {} FROM #postings", columns));
+    assert_eq!(
+        postings.iter().map(|row| row[1..].to_vec()).collect::<Vec<_>>(),
+        rows(&[&["2011-12-31", "!", "Shop", "skipped day", "food", "receipt-1", "00:00:00", "1325239200"]])
+    );
+    assert_eq!(run(&ledger, &format!("SELECT {} FROM #transactions", columns)), postings);
+    assert_eq!(run(&ledger, &format!("SELECT {} FROM #entries WHERE type = 'transaction'", columns)), postings);
+    let parts = "date, year, month, day, description";
+    assert_eq!(
+        run(&ledger, &format!("SELECT {} FROM #entries WHERE type = 'transaction'", parts)),
+        run(&ledger, &format!("SELECT DISTINCT {} FROM #postings", parts))
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // #documents: directives, then transaction and posting metadata
 

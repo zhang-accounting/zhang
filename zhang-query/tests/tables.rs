@@ -553,6 +553,64 @@ fn accounts_expose_open_and_close_as_structures() {
     assert_eq!(types, [DataType::Date, DataType::Date, DataType::Set, DataType::Str]);
 }
 
+/// `open.booking` is the method booking books the account with: the last `booking_method` value
+/// of the latest `open` that has one, and NULL when the account books with the default, also
+/// for a value that is not a method zhang books with.
+#[test]
+fn open_booking_is_the_method_booking_uses() {
+    let ledger = common::load_text(
+        r#"
+option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Twice
+  booking_method: "FIFO"
+  booking_method: "LIFO"
+1970-01-01 open Assets:Invalid
+  booking_method: "XYZ"
+1970-01-01 open Assets:Unsupported
+  booking_method: "AVERAGE"
+1970-01-01 open Assets:Reopened
+  booking_method: "FIFO"
+1970-01-01 open Assets:Plain
+
+2024-01-01 * "buy"
+  Assets:Twice   1 AAPL {100 USD}
+  Assets:Cash
+2024-01-02 * "buy"
+  Assets:Twice   1 AAPL {120 USD}
+  Assets:Cash
+2024-01-03 * "sell"
+  Assets:Twice  -1 AAPL {}
+  Assets:Cash   120 USD
+2024-02-01 close Assets:Reopened
+2024-03-01 open Assets:Reopened
+  booking_method: "LIFO"
+"#,
+    );
+    let run = |sql: &str| {
+        let result = Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
+        result
+            .rows
+            .iter()
+            .map(|row| row.iter().map(Value::to_string).collect())
+            .collect::<Vec<Vec<String>>>()
+    };
+    assert_eq!(
+        run("SELECT account, open.booking FROM #accounts WHERE account != 'Assets:Cash' ORDER BY account"),
+        rows(&[
+            &["Assets:Invalid", "NULL"],
+            &["Assets:Plain", "NULL"],
+            &["Assets:Reopened", "LIFO"],
+            &["Assets:Twice", "LIFO"],
+            &["Assets:Unsupported", "NULL"],
+        ])
+    );
+    // and the sale of Assets:Twice booked the newest lot, as LIFO does
+    assert_eq!(run("SELECT cost_number WHERE account = 'Assets:Twice' AND number < 0"), rows(&[&["120"]]));
+}
+
 #[test]
 fn attribute_errors_point_at_the_attribute() {
     let attribute_error = |sql: &str| match Query::compile(sql) {

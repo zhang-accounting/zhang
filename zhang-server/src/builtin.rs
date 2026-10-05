@@ -31,7 +31,7 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDateTime;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryResult, Value};
 
@@ -453,7 +453,7 @@ pub async fn run_with_total(ledger: &LedgerState, name: &'static str, params: Pa
 /// The parameters of `builtin` from JSON values: every declared parameter must be given, and
 /// no other. `null` is NULL for any type; otherwise a `bool` takes a boolean, an `int` an
 /// integer, a `decimal` a number or a string such as `"12.50"`, a `str` a string, a `date` a
-/// string `YYYY-MM-DD`, and a `set` a list of strings.
+/// string `YYYY-MM-DD` read as BQL's `date(text)` reads it, and a `set` a list of strings.
 pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<BuiltinParamValue>>) -> ServerResult<Params> {
     let mut params = Params::new();
     for (name, ty) in builtin.params {
@@ -484,7 +484,8 @@ fn json_value(ty: DataType, value: Option<BuiltinParamValue>) -> Result<Value, &
         (DataType::Decimal, Number(it)) => decimal(&it.to_string()),
         (DataType::Decimal, Text(it)) => decimal(&it),
         (DataType::Str, Text(it)) => Some(Value::Str(it)),
-        (DataType::Date, Text(it)) => NaiveDate::parse_from_str(&it, "%Y-%m-%d").ok().map(Value::Date),
+        // the engine's one text-to-date rule, as `date(text)` reads it
+        (DataType::Date, Text(it)) => zhang_query::value::parse_date(&it).map(Value::Date),
         (DataType::Set, List(items)) => Some(Value::Set(items.into_iter().collect())),
         _ => None,
     };
@@ -511,6 +512,8 @@ mod test {
     use std::collections::{BTreeSet, HashMap};
     use std::path::PathBuf;
 
+    use zhang_ast::Flag;
+    use zhang_core::constants::BALANCE_CHECK_PAYEE;
     use zhang_query::{DataType, ParamRef, Query, Value};
 
     use super::{compiled, json_params, json_value, text, BuiltinQuery, BUILTINS};
@@ -550,6 +553,21 @@ mod test {
             // the registry compiles the same query
             assert_eq!(compiled(builtin.name).unwrap().source(), builtin.bql);
         }
+    }
+
+    /// A query cannot read a Rust constant, so the built-in queries write two of the ledger's as literals: the payee a
+    /// balance assertion is listed under in the journals, and the flag of padding transactions. Each literal is the
+    /// constant, and nothing else names that payee or compares the flag with another
+    #[test]
+    fn the_literals_builtins_copy_are_the_ledger_constants() {
+        let payee = format!("'{}'", BALANCE_CHECK_PAYEE);
+        let not_padding = format!("flag != '{}'", Flag::BalancePad);
+        let named = |text: &str| BUILTINS.iter().filter(|it| it.bql.contains(text)).map(|it| it.name).collect::<BTreeSet<_>>();
+        assert_eq!(named(&payee), BTreeSet::from(["journals.page"]));
+        assert_eq!(named("Balance Check"), named(&payee));
+        assert_eq!(named(&not_padding), BTreeSet::from(["journals.payees", "report.transaction_count"]));
+        assert_eq!(named("flag != '"), named(&not_padding));
+        assert_eq!(named("flag = '"), BTreeSet::new());
     }
 
     #[test]
@@ -654,6 +672,21 @@ mod test {
         assert_eq!(json_value(DataType::Set, Some(Text("a".into()))).unwrap_err(), "a list of strings or null");
         assert!(json_value(DataType::Decimal, Some(Text("twelve".into()))).is_err());
         assert!(json_value(DataType::Str, Some(Int(1))).is_err());
+    }
+
+    /// A `date` parameter given as text binds exactly the texts BQL's `date(text)` reads (beanquery's
+    /// `strptime(text, '%Y-%m-%d')`), as the same day; no other reading of text as a date.
+    #[test]
+    fn a_date_parameter_reads_text_as_bql_date_reads_it() {
+        let bind = |text: &str| json_value(DataType::Date, Some(BuiltinParamValue::Text(text.to_owned()))).ok();
+        let day = Some(Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 2, 9).unwrap()));
+        for text in ["2024-02-09", "2024-2-9", "2024-02- 9"] {
+            assert_eq!(bind(text), day, "{:?}", text);
+            assert_eq!(zhang_query::value::parse_date(text).map(Value::Date), day, "{:?}", text);
+        }
+        for text in [" 2024-02-09", "+2024-02-09", "24-02-09", "2024-02-09 ", "0000-02-09", "2024-02-30"] {
+            assert_eq!(bind(text), None, "{:?}", text);
+        }
     }
 
     #[test]

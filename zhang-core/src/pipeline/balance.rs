@@ -274,7 +274,7 @@ mod test {
     use indoc::indoc;
     use zhang_ast::amount::Amount;
     use zhang_ast::error::ErrorKind;
-    use zhang_ast::{Account, Directive};
+    use zhang_ast::{Account, AccountType, Directive};
 
     use super::{exceeds_tolerance, AccountCommodities, UnitBalances};
     use crate::data_type::text::ZhangDataType;
@@ -437,7 +437,13 @@ mod test {
         assert_eq!(balances.balance(&account("Assets:A:Sub"), "CNY"), BigDecimal::from(110));
         assert_eq!(balances.balance(&account("Assets:A:Sub:Deep"), "CNY"), BigDecimal::from(100));
         assert_eq!(balances.balance(&account("Assets:A"), "USD"), BigDecimal::from(5));
-        assert_eq!(balances.balance(&account("Assets"), "CNY"), BigDecimal::from(1111));
+        // the root alone is no account name a ledger reads, so it is built as it is, not parsed
+        let assets = Account {
+            account_type: AccountType::Assets,
+            content: "Assets".to_owned(),
+            components: vec![],
+        };
+        assert_eq!(balances.balance(&assets, "CNY"), BigDecimal::from(1111));
         assert_eq!(balances.balance(&account("Assets:Missing"), "CNY"), BigDecimal::from(0));
         assert_eq!(
             balances.distance(&account("Assets:A"), &Amount::new(BigDecimal::from(150), "CNY")),
