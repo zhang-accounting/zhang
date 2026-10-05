@@ -2379,6 +2379,10 @@ export interface operations {
                   [key: string]: string;
                 };
               };
+              /**
+               * Format: date-time
+               * @description the first second of the range, in the ledger's timezone, as the graph and the rank echo it
+               */
               from: string;
               income: {
                 calculated: {
@@ -2400,6 +2404,10 @@ export interface operations {
                   [key: string]: string;
                 };
               };
+              /**
+               * Format: date-time
+               * @description the last second of the range, in the ledger's timezone
+               */
               to: string;
               transaction_number: number;
             };

@@ -443,8 +443,30 @@ fn summary_of_the_hand_ledger() {
     assert_eq!(Fig::of(&summary.expense), fig("4080", &[("1890", "CNY"), ("300", "USD"), ("8", "HOUR")]));
     // nine transactions in April, without the pad of April 15
     assert_eq!(summary.transaction_number, 9);
-    assert_eq!(summary.from.to_rfc3339(), "2025-03-31T16:00:00+00:00");
-    assert_eq!(summary.to.to_rfc3339(), "2025-04-30T15:59:59+00:00");
+    assert_eq!(summary.from.to_string(), "2025-04-01 00:00:00");
+    assert_eq!(summary.to.to_string(), "2025-04-30 23:59:59");
+}
+
+/// The summary, the graph and the rank of one range echo it alike, as the ledger's dates from their first to their
+/// last second: the summary echoed the UTC instants of those seconds instead, `2025-03-31T16:00:00Z` to
+/// `2025-04-30T15:59:59Z` for April in Shanghai
+#[test]
+fn every_report_echoes_its_range_as_the_ledgers_dates() {
+    let ledger = hand_ledger();
+    let summary = report::summary(&ledger, &APRIL).unwrap();
+    let graph = report::graph(&ledger, &APRIL, &StatisticInterval::Day).unwrap();
+    let rank = report::rank(&ledger, AccountType::Expenses, &APRIL).unwrap();
+    let echo = |from: chrono::NaiveDateTime, to: chrono::NaiveDateTime| (from.to_string(), to.to_string());
+    let april = ("2025-04-01 00:00:00".to_owned(), "2025-04-30 23:59:59".to_owned());
+    assert_eq!(echo(summary.from, summary.to), april);
+    assert_eq!(echo(graph.from, graph.to), april);
+    assert_eq!(echo(rank.from, rank.to), april);
+    // and in JSON, as the API answers
+    let json = |value: serde_json::Value| (value["from"].clone(), value["to"].clone());
+    let summary = json(serde_json::to_value(&summary).unwrap());
+    assert_eq!(summary, (serde_json::json!("2025-04-01T00:00:00"), serde_json::json!("2025-04-30T23:59:59")));
+    assert_eq!(json(serde_json::to_value(&graph).unwrap()), summary);
+    assert_eq!(json(serde_json::to_value(&rank).unwrap()), summary);
 }
 
 /// A range given as instants is read as the dates of those instants in the ledger's timezone.
