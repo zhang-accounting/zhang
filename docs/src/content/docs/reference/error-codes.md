@@ -64,8 +64,8 @@ cost with an implicit gain books `0 CNY`), so the journal still shows the postin
 posting instead.
 
 The inferred amount is exact: amounts, costs, prices and their products are never rounded. Only a cost that Zhang
-has to divide, such as a total cost `{{1000 USD}}` spread over 3 units (333.333… USD each), leaves more than 20
-decimals; such an amount is rounded, with the commodity's `rounding`, at the larger of the commodity's `precision` and
+has to divide, such as a total cost `{{1000 USD}}` spread over 3 units (333.3333333333333333333333333 USD each, to 28
+significant digits as in Beancount), leaves the remainder of a division in the amount; such an amount is rounded, with the commodity's `rounding`, at the larger of the commodity's `precision` and
 the most decimals written in the transaction in that commodity. Selling all 3 units then gives back exactly
 `1000 USD`.
 

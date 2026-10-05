@@ -465,6 +465,49 @@ fn total_cost_lots_rebook_without_division_dust() {
     assert_eq!(postings(&completed.directives)[4][1], "Income:I 100 CNY <- #1 ?");
 }
 
+/// Lots carry the per-unit cost of a total cost divided in the 28-digit decimal context, the cost a
+/// query shows (`{{100 CNY}}` over 3 units is `33.33333333333333333333333333`). For a large cost
+/// that rounding falls within the decimals of an exact sum (`{{100000000 CNY}}` over 3 units is
+/// `33333333.33333333333333333333`): a sale of the lot with `{}` still interpolates at the
+/// transaction's scale, without the division's dust, as it did when lots kept 100 digits.
+#[test]
+fn a_large_total_cost_lot_sells_without_division_dust() {
+    let (once, again) = book_twice(indoc! {r#"
+        1970-01-01 open Assets:A
+        1970-01-01 open Income:I
+
+        2024-05-16 * "a small total cost"
+          Assets:A 3 USD {{ 100 CNY }}
+          Income:I
+
+        2024-05-17 * "a large total cost"
+          Assets:A 3 EUR {{ 100000000 CNY }}
+          Income:I
+
+        2024-05-18 * "sell the small lot"
+          Assets:A -3 USD {}
+          Income:I
+
+        2024-05-19 * "sell the large lot"
+          Assets:A -3 EUR {}
+          Income:I
+    "#});
+    let shown = postings(&once.directives);
+    assert_eq!(
+        shown[0][0],
+        "Assets:A 3 USD {33.33333333333333333333333333 CNY, 2024-05-16} <- #0 3 USD {{100 CNY}}"
+    );
+    assert_eq!(
+        shown[1][0],
+        "Assets:A 3 EUR {33333333.33333333333333333333 CNY, 2024-05-17} <- #0 3 EUR {{100000000 CNY}}"
+    );
+    assert_eq!(shown[2][1], "Income:I 100 CNY <- #1 ?");
+    assert_eq!(shown[3][1], "Income:I 100000000 CNY <- #1 ?", "the sale weighs its lot's total, dust dropped");
+    assert!(once.reports.iter().all(Vec::is_empty), "{:?}", once.reports);
+    assert!(once.residuals.iter().all(|it| it == &["0 CNY"]), "{:?}", once.residuals);
+    assert_same_booking(&again, &once, "large total cost lots");
+}
+
 /// Labelled and unlabelled lots of the same cost and date: a split across them books each leg
 /// against its own lot again, under FIFO and LIFO.
 #[test]

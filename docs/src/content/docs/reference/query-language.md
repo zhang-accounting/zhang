@@ -601,8 +601,8 @@ The `position`, `cost_*` and `weight` columns of a posting held at cost depend o
 - **Choosing among matching lots.** Matching lots are used oldest first (FIFO), or newest first (LIFO) if the account's `booking_method` is `LIFO`. Under `STRICT`, a reduction matching several lots must take all of them in full; otherwise Zhang reports an [`AmbiguousLotMatch`](/reference/error-codes/#ambiguouslotmatch) error and books oldest first. A reduction that spans several lots is split into one row per lot, each with the units taken from that lot and the lot's cost.
 - **Augmentations.** Any other posting at cost opens a lot, or adds to an identical one. A cost without a date, such as `10 AAPL {100 USD}`, is dated by its transaction, so `cost_date` is never `NULL` for a posting held at cost. An augmentation written `{}` joins the first lot the account holds at cost, and its row carries that lot's cost.
 - **Leftovers.** If no open lot covers all of a reduction, Zhang reports a [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot) error and books the remainder as an augmentation. A cost without a number, such as `{}`, cannot open a lot, so that remainder has no cost.
-- **Total costs.** The `cost_number` of a lot bought with a total cost, such as `3 AAPL {{1000 USD}}`, is the total divided by the units, to 28 significant digits as in beanquery.
-- **Compound costs.** The `cost_number` of a lot bought with a compound cost, such as `10 AAPL {100 # 5 USD}`, is the per-unit part plus the total part divided by the units, `100 + 5 / 10 = 100.5`, as in Beancount.
+- **Total costs.** The `cost_number` of a lot bought with a total cost, such as `3 AAPL {{1000 USD}}`, is the total divided by the units, to 28 significant digits as in Beancount: `333.3333333333333333333333333`. That is the cost Zhang keeps for the lot, so a sale written with the cost a query shows, `-1 AAPL {333.3333333333333333333333333 USD}`, reduces that lot.
+- **Compound costs.** The `cost_number` of a lot bought with a compound cost, such as `10 AAPL {100 # 5 USD}`, is the per-unit part plus the total part divided by the units, `100 + 5 / 10 = 100.5`, to 28 significant digits as in Beancount.
 
 The booking methods are described in [Lots and Cost Basis](/guides/lots-and-cost-basis/#choose-a-booking-method).
 
@@ -631,7 +631,7 @@ The booking methods are described in [Lots and Cost Basis](/guides/lots-and-cost
 | `cost_date` | `date` | Date of the cost lot, or `NULL` if the posting is not held at cost. A lot without an explicit date is dated by the transaction that opened it. |
 | `cost_label` | `str` | Label of the cost lot. It is `''` (an empty string) if the posting is not held at cost, and `NULL` if the lot has no label. |
 | `price` | `amount` | Price per unit written with `@`, or `NULL` if there is none. A total price written with `@@` is divided by the number of units. |
-| `weight` | `amount` | Amount that the posting contributes to balancing its transaction: units times the per-unit cost if the posting is held at cost, otherwise units times the price if it has one, otherwise the units. |
+| `weight` | `amount` | Amount that the posting contributes to balancing its transaction: units times the per-unit cost if the posting is held at cost, otherwise units times the price if it has one, otherwise the units. A product that needs more than 28 significant digits is rounded to 28, as in Beancount: 7 units at a per-unit cost of 17 / 7 weigh `17.00000000000000000000000000`. |
 | `other_accounts` | `set` | Accounts of the other postings in the same transaction. |
 | `meta` | `str` | Metadata of the posting as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` if it has none. The transaction's own metadata is read with `entry_meta()`. |
 | `metas` | `metas` | Metadata of the posting as a list of `(key, value)` pairs, sorted by key, with every value of a repeated key in the order written. See [Structured metadata](#structured-metadata). Zhang extension. |
@@ -1078,7 +1078,7 @@ An aggregate function turns the values of all postings in a group into a single 
 |-----------|-------------|
 | `units(position) -> amount` | The units of the position, without the cost. |
 | `units(inventory) -> inventory` | The units of every position, without costs. Lots of the same currency merge into one position. |
-| `cost(position) -> amount` | Total cost of the position (units times per-unit cost), in the cost currency. A position not held at cost returns its units. |
+| `cost(position) -> amount` | Total cost of the position (units times per-unit cost, rounded to 28 significant digits when it needs more, as in Beancount), in the cost currency. A position not held at cost returns its units. |
 | `cost(inventory) -> inventory` | `cost` applied to every position, then summed per currency. |
 | `convert(amount, str) -> amount` | The amount converted into the currency given as the second argument, at the latest price. |
 | `convert(amount, str, date) -> amount` | Like the above, at the latest price on or before the date. |

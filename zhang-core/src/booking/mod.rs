@@ -16,14 +16,16 @@
 //! 2. every other posting weighs as written: its units, its price-converted units (`@`, `@@`) or
 //!    `units × cost` (a cost with a number: every lot it books against has that cost);
 //! 3. the single implicit posting gets the negated sum of those weights, which must be in a single
-//!    commodity, like beancount's interpolation. A sum with at most [`EXACT_DECIMALS`] decimals
-//!    is used exactly as computed, so written amounts and their products are never rounded. A
-//!    longer one carries the dust of a division (a `{{T}}` lot cost is `T / units` at 100 digits):
-//!    it is rounded at the transaction's scale of the commodity, the larger of the commodity's
-//!    precision and the most decimals written in the transaction in that commodity, both when
-//!    telling whether it is zero and for the implicit posting's units. When the weights already
-//!    balance in a single commodity, the implicit posting books zero of it, so the journal shows
-//!    the posting the user wrote (beancount drops a zero auto-posting instead);
+//!    commodity, like beancount's interpolation. A sum of exact weights with at most
+//!    [`EXACT_DECIMALS`] decimals is used exactly as computed, so written amounts and their
+//!    products are never rounded. A longer one, or one with a weight at a divided cost (a `{{T}}`
+//!    lot cost is `T / units` in the 28-digit decimal context of `zhang_shared::decimal`),
+//!    carries the dust of a division: it is rounded at the transaction's scale of the commodity,
+//!    the larger of the commodity's precision and the most decimals written in the transaction in
+//!    that commodity, both when telling whether it is zero and for the implicit posting's units.
+//!    When the weights already balance in a single commodity, the implicit posting books zero of
+//!    it, so the journal shows the posting the user wrote (beancount drops a zero auto-posting
+//!    instead);
 //! 4. the sum of all weights, per commodity, is the residual the final validation stage checks against each
 //!    commodity's precision.
 //!
@@ -58,7 +60,7 @@
 //!   method.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::{Add, AddAssign, Div, Mul, Neg};
+use std::ops::{Add, AddAssign, Neg};
 
 use bigdecimal::{BigDecimal, RoundingMode, Signed, Zero};
 use chrono::NaiveDate;
@@ -67,6 +69,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 pub(crate) use zhang_ast::{group_units, written_groups};
 use zhang_ast::{Currency, Date, Open, Posting, PostingCost, Rounding, SingleTotalPrice, Transaction, WrittenPosting};
+use zhang_shared::decimal::{div, mul_in_context, DIVISION_PRECISION};
 
 use crate::constants::DEFAULT_ROUNDING;
 use crate::inventory::{normalise_cost, BookingMethod, TransactionInference, TxnPosting};
@@ -75,8 +78,10 @@ use crate::utils::hashmap::HashMapOfExt;
 
 /// the most decimals a sum of weights has when it comes from written numbers alone. Units, costs
 /// and prices are exact decimals, and so are their products and sums, far below 20 decimals in
-/// practice. Only a division adds more: a `{{T}}` lot cost is `T / units`, computed at 100 digits,
-/// so a sum with more decimals carries division dust and is rounded at the transaction's scale
+/// practice. Only a division adds more: a `{{T}}` lot cost is `T / units`, rounded to 28
+/// significant digits, so a sum with more decimals carries division dust and is rounded at the
+/// transaction's scale. So is a sum with a weight at such a cost ([`Weights::rounded`]): a large
+/// cost leaves its dust within these decimals
 const EXACT_DECIMALS: i64 = 20;
 
 /// the account meta key holding the account's booking method
@@ -348,7 +353,7 @@ impl Booker {
         let snapshot = self.snapshot(&postings);
         let result = (|| {
             let mut missing = None;
-            let mut residual = BTreeMap::new();
+            let mut residual = Weights::default();
             for (index, posting) in postings.iter().enumerate() {
                 let Some(units) = posting.units() else { continue };
                 if weighs_by_lots(posting.posting) && !self.is_reduction(posting.posting.account.name(), &units) {
@@ -361,7 +366,7 @@ impl Booker {
                 let booking = self
                     .book_posting(posting, &units, true)
                     .map_err(|errors| (ErrorKind::TransactionCannotInferTradeAmount, errors))?;
-                add_weight(&mut residual, booking.weight);
+                residual.add(booking.weight);
             }
             let Some(index) = missing else { return Ok(None) };
             if postings.iter().any(|posting| posting.posting.units.is_none()) {
@@ -369,16 +374,18 @@ impl Booker {
             }
             let written = written_scales(&postings);
             let mut unbalanced = residual
+                .sums
                 .iter()
-                .filter(|(commodity, number)| !round(number, self.scale(commodity, &written)).is_zero());
+                .filter(|(commodity, number)| !residual.round(commodity, number, self.scale(commodity, &written)).is_zero());
             let (commodity, weight) = match (unbalanced.next(), unbalanced.next()) {
                 (Some(weight), None) => weight,
-                (None, _) if residual.len() == 1 => residual.iter().next().expect("one weight commodity"),
+                (None, _) if residual.sums.len() == 1 => residual.sums.iter().next().expect("one weight commodity"),
                 (Some(_), Some(_)) => return Err((ErrorKind::TransactionExplicitPostingHaveMultipleCommodity, vec![])),
                 _ => return Err((ErrorKind::TransactionCannotInferTradeAmount, vec![])),
             };
             let units = postings[index].posting.units.as_ref().expect("explicit units");
-            let rate = weight.neg().div(&units.number);
+            // the cost per unit, divided like any other in the 28-digit decimal context
+            let rate = div(&weight.neg(), &units.number).expect("the units of a missing cost are not zero");
             if rate.is_negative() {
                 return Err((ErrorKind::TransactionCannotInferTradeAmount, vec![]));
             }
@@ -420,7 +427,7 @@ impl Booker {
     /// On failure, the booking problems of that dry run come with the error
     fn interpolate(&mut self, postings: &[TxnPosting<'_>]) -> Result<Interpolated, BookingFailure> {
         let explicit = postings.iter().filter(|it| it.posting.units.is_some()).collect_vec();
-        let mut residual = BTreeMap::new();
+        let mut residual = Weights::default();
         let mut errors = vec![];
         if explicit.iter().any(|it| weighs_by_lots(it.posting)) {
             let snapshot = self.snapshot(postings);
@@ -439,7 +446,7 @@ impl Booker {
                         break;
                     }
                 };
-                add_weight(&mut residual, booking.weight);
+                residual.add(booking.weight);
                 errors.extend(booking.errors);
             }
             self.restore(snapshot);
@@ -448,19 +455,20 @@ impl Booker {
             }
         } else {
             for posting in &explicit {
-                add_weight(&mut residual, posting.trade_amount());
+                residual.add(posting.trade_amount());
             }
         }
 
         let written = written_scales(postings);
-        let weight_currencies = residual.len();
+        let weight_currencies = residual.sums.len();
         let mut unbalanced = residual
+            .sums
             .iter()
-            .filter(|(commodity, number)| !round(number, self.scale(commodity, &written)).is_zero());
+            .filter(|(commodity, number)| !residual.round(commodity, number, self.scale(commodity, &written)).is_zero());
         match (unbalanced.next(), unbalanced.next()) {
             (Some((commodity, number)), None) => {
                 let weight = Amount::new(number.neg(), commodity.clone());
-                let units = Amount::new(round(&weight.number, self.scale(commodity, &written)), commodity.clone());
+                let units = Amount::new(residual.round(commodity, &weight.number, self.scale(commodity, &written)), commodity.clone());
                 Ok(Interpolated { units, weight })
             }
             (Some(_), Some(_)) => Err((ErrorKind::TransactionExplicitPostingHaveMultipleCommodity, errors)),
@@ -468,7 +476,7 @@ impl Booker {
             // gain: the implicit posting books zero of that commodity, so the journal keeps the
             // posting the user wrote (beancount drops a zero auto-posting instead)
             (None, _) if weight_currencies == 1 => {
-                let (commodity, number) = residual.into_iter().next().expect("one weight commodity");
+                let (commodity, number) = residual.sums.into_iter().next().expect("one weight commodity");
                 Ok(Interpolated {
                     units: Amount::new(BigDecimal::zero(), commodity.clone()),
                     weight: Amount::new(number.neg(), commodity),
@@ -835,11 +843,12 @@ pub(crate) fn weighs_by_lots(posting: &Posting) -> bool {
     posting.units.is_some() && posting.cost.as_ref().is_some_and(|cost| cost.base.is_none())
 }
 
-/// the weight of `units` booked against `lot`: `units × lot cost` in the cost's commodity, or the
-/// units themselves for a lot held without cost
+/// the weight of `units` booked against `lot`: `units × lot cost` in the cost's commodity, in the
+/// 28-digit decimal context like beancount's weights, or the units themselves for a lot held
+/// without cost
 fn lot_weight(lot: &CommodityLotRecord, units: BigDecimal) -> Amount {
     match &lot.cost {
-        Some(cost) => Amount::new(units.mul(&cost.number), cost.commodity.clone()),
+        Some(cost) => Amount::new(mul_in_context(&units, &cost.number), cost.commodity.clone()),
         None => Amount::new(units, lot.commodity.clone()),
     }
 }
@@ -929,7 +938,8 @@ pub(crate) fn is_booked(txn: &Transaction) -> bool {
 /// the most decimals written in the transaction per commodity: of the units, and of the cost and
 /// price numbers, per-unit or total, of every posting. `@ 7.12345 CNY` counts 5 for CNY and
 /// `{{1000 USD}}` 0 for USD. A booked leg counts what its posting was written as: the lot cost it
-/// carries may be a long division (`{{100 CNY}}` over 3 units), which is not a written scale
+/// carries may be a long division (`{{100 CNY}}` over 3 units, 28 significant digits), which is
+/// not a written scale
 fn written_scales<'a>(postings: &[TxnPosting<'a>]) -> HashMap<&'a str, i64> {
     let mut scales: HashMap<&str, i64> = HashMap::new();
     for posting in postings {
@@ -955,16 +965,17 @@ fn written_scales<'a>(postings: &[TxnPosting<'a>]) -> HashMap<&'a str, i64> {
     scales
 }
 
-/// `number` without its division dust. With at most [`EXACT_DECIMALS`] decimals it is exact and
-/// kept as is. With more, it is rounded at `scale` with its rounding, like the balance check rounds
-/// a residual, or kept as is without a scale (an undefined commodity not written in the
-/// transaction). A trimmed number drops its trailing zeros (`1000.00` is `1000`)
-fn round(number: &BigDecimal, scale: Option<(i64, RoundingMode)>) -> BigDecimal {
-    if number.fractional_digit_count() <= EXACT_DECIMALS {
+/// `number` without its division dust. A sum of exact weights (not `rounded`) with at most
+/// [`EXACT_DECIMALS`] decimals is exact and kept as is. Any other is rounded at `scale` with its
+/// rounding, like the balance check rounds a residual, or kept as is without a scale (an undefined
+/// commodity not written in the transaction). A trimmed number drops its trailing zeros (`1000.00`
+/// is `1000`)
+fn round(number: &BigDecimal, scale: Option<(i64, RoundingMode)>, rounded: bool) -> BigDecimal {
+    if !rounded && number.fractional_digit_count() <= EXACT_DECIMALS {
         return number.clone();
     }
     let normalized = without_trailing_zeros(number);
-    if normalized.fractional_digit_count() <= EXACT_DECIMALS {
+    if !rounded && normalized.fractional_digit_count() <= EXACT_DECIMALS {
         // an exact number written with more digits than it needs
         return normalized;
     }
@@ -988,6 +999,34 @@ fn without_trailing_zeros(number: &BigDecimal) -> BigDecimal {
 fn add_weight(sum: &mut BTreeMap<Currency, BigDecimal>, weight: impl IntoIterator<Item = Amount>) {
     for amount in weight {
         sum.entry(amount.commodity).or_insert_with(BigDecimal::zero).add_assign(amount.number);
+    }
+}
+
+/// the weights of the explicit postings of a transaction, summed per commodity, which the implicit
+/// posting or a missing cost balances
+#[derive(Default)]
+struct Weights {
+    sums: BTreeMap<Currency, BigDecimal>,
+    /// the commodities with a weight at the full precision of the decimal context
+    /// ([`DIVISION_PRECISION`] significant digits): units at a cost divided from a total or
+    /// inferred from the other postings. The last digits of such a weight are the rounding of the
+    /// division, not written decimals, and with a large cost they fall within [`EXACT_DECIMALS`]
+    rounded: HashSet<Currency>,
+}
+
+impl Weights {
+    fn add(&mut self, weight: impl IntoIterator<Item = Amount>) {
+        for amount in weight {
+            if amount.number.digits() >= DIVISION_PRECISION {
+                self.rounded.insert(amount.commodity.clone());
+            }
+            self.sums.entry(amount.commodity).or_insert_with(BigDecimal::zero).add_assign(amount.number);
+        }
+    }
+
+    /// `number`, a sum of the weights in `commodity`, without its division dust ([`round`])
+    fn round(&self, commodity: &str, number: &BigDecimal, scale: Option<(i64, RoundingMode)>) -> BigDecimal {
+        round(number, scale, self.rounded.contains(commodity))
     }
 }
 

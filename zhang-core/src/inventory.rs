@@ -4,7 +4,6 @@
 //! written trade amounts (weights), resolve costs and lot metas. It lived in the
 //! `zhang-ast` syntax crate but belongs here in the domain layer.
 
-use std::ops::{Div, Mul};
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Signed, Zero};
@@ -15,6 +14,7 @@ use strum::Display;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Posting, PostingCost, SingleTotalPrice, Transaction};
+use zhang_shared::decimal::{mul, mul_in_context, per_unit};
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy, Display)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
@@ -69,7 +69,6 @@ pub struct LotMeta {
     pub txn_date: NaiveDate,
 
     pub cost: Option<PostingCost>,
-    pub price: Option<Amount>,
 }
 
 /// A borrowed view pairing a [`Transaction`] with one of its [`Posting`]s; hosts
@@ -126,15 +125,15 @@ impl TxnPosting<'_> {
                     } else {
                         // `units × P`, plus the total part of a compound cost signed by the units
                         // (`units × (P + T / |units|)`, the lot cost beancount gives it)
-                        let mut weight = (&unit.number).mul(&cost.number);
+                        let mut weight = mul_in_context(&unit.number, &cost.number);
                         if let Some(total) = compound_total {
-                            weight += total.mul(&unit.number.signum());
+                            weight += mul(total, &unit.number.signum());
                         }
                         Amount::new(weight, cost.commodity.clone())
                     }
                 }
                 (None, Some(price)) => match price {
-                    SingleTotalPrice::Single(single_price) => Amount::new((&unit.number).mul(&single_price.number), single_price.commodity.clone()),
+                    SingleTotalPrice::Single(single_price) => Amount::new(mul_in_context(&unit.number, &single_price.number), single_price.commodity.clone()),
                     SingleTotalPrice::Total(total_price) => {
                         if unit.number.is_zero() {
                             Amount::zero(total_price.commodity.clone())
@@ -156,18 +155,12 @@ impl TxnPosting<'_> {
                 txn_date: self.txn.date.naive_date(),
 
                 cost: self.posting.cost.clone().map(|cost| normalise_cost(cost, &unit.number)),
-                price: self.posting.price.clone().map(|price| match price {
-                    SingleTotalPrice::Single(amount) => amount,
-
-                    SingleTotalPrice::Total(amount) => per_unit_price(&amount, &unit.number),
-                }),
             }
         } else {
             LotMeta {
                 txn_date: self.txn.date.naive_date(),
 
                 cost: None,
-                price: None,
             }
         }
     }
@@ -178,8 +171,10 @@ impl TxnPosting<'_> {
 }
 
 /// `cost` as lots keep it: a total cost (`{{T}}`) becomes the per-unit cost of `units`, and a
-/// compound cost (`{P # T}`) the per-unit cost `P + T / |units|`, as beancount computes it. The
-/// merge-cost marker (`{*}`) plays no part in what a lot is: booking reports it apart
+/// compound cost (`{P # T}`) the per-unit cost `(P × |units| + T) / |units|`, as beancount computes
+/// them: divided in its 28-digit decimal context ([`per_unit`]), so the cost a lot keeps is the cost
+/// a query shows and a sale can name. The merge-cost marker (`{*}`) plays no part in what a lot is:
+/// booking reports it apart
 pub(crate) fn normalise_cost(mut cost: PostingCost, units: &BigDecimal) -> PostingCost {
     if cost.total {
         // normalise total cost to per-unit for lot bookkeeping
@@ -188,32 +183,23 @@ pub(crate) fn normalise_cost(mut cost: PostingCost, units: &BigDecimal) -> Posti
     }
     if let Some(total) = cost.compound_total.take() {
         // zero units book nothing: the per-unit part stands, as the total part has no per-unit share
-        if !units.is_zero() {
-            cost.base = cost.base.map(|base| Amount::new(base.number + total.div(units.abs()), base.commodity));
-        }
+        cost.base = cost.base.map(|base| match per_unit(&(mul(&base.number, &units.abs()) + total), units) {
+            Some(number) => Amount::new(number, base.commodity),
+            None => base,
+        });
     }
     cost.merge = false;
     cost
 }
 
-/// the per-unit cost of a total cost spread over `units`: `|T| / |units|`, so a sale written
-/// `-3 USD {{99 CNY}}` books against the lot bought at `33 CNY`, as in beancount, and a lot never
-/// carries a negative cost. Zero units have no per-unit cost: they book nothing, so the written
-/// total is kept instead of dividing by zero
+/// the per-unit cost of a total cost spread over `units`: `|T| / |units|` ([`per_unit`]), so a
+/// sale written `-3 USD {{99 CNY}}` books against the lot bought at `33 CNY`, as in beancount, and
+/// a lot never carries a negative cost. Zero units have no per-unit cost: they book nothing, so the
+/// written total is kept instead of dividing by zero
 fn per_unit_cost(total: Amount, units: &BigDecimal) -> Amount {
-    if units.is_zero() {
-        total
-    } else {
-        Amount::new(total.number.abs().div(units.abs()), total.commodity)
-    }
-}
-
-/// the per-unit price of a total price spread over `units`; zero for zero units, like beancount
-fn per_unit_price(total: &Amount, units: &BigDecimal) -> Amount {
-    if units.is_zero() {
-        Amount::zero(total.commodity.clone())
-    } else {
-        Amount::new((&total.number).div(units), total.commodity.clone())
+    match per_unit(&total.number.abs(), units) {
+        Some(number) => Amount::new(number, total.commodity),
+        None => total,
     }
 }
 

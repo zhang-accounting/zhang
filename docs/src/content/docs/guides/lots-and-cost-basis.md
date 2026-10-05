@@ -134,9 +134,9 @@ It still books the sale like `FIFO`, so the numbers stay usable. Say which lot y
 
 ## Rounding
 
-Zhang computes with exact decimals and keeps every digit you write. Amounts, costs and prices, and their products and sums, are never rounded.
+Zhang computes with exact decimals and keeps every digit you write. Amounts, costs and prices, and their sums, are never rounded. Neither are their products, unless one needs more than 28 significant digits, which Beancount rounds too.
 
-Only a division can produce more digits, such as the per-unit cost of a total cost: `{{1000 USD}}` for 3 units is 333.333… USD per unit. When Zhang fills in a missing amount whose exact value has more than 20 decimals, it rounds that amount at the larger of the commodity's precision and the most decimals the transaction writes in that commodity, with the commodity's rounding:
+Only a division can produce more digits, such as the per-unit cost of a total cost. Zhang divides as Beancount does, to 28 significant digits: `{{1000 USD}}` for 3 units is 333.3333333333333333333333333 USD per unit, the cost the lot keeps and queries show. When Zhang fills in a missing amount whose exact value has more than 20 decimals, or that comes from such a divided cost, it rounds that amount at the larger of the commodity's precision and the most decimals the transaction writes in that commodity, with the commodity's rounding:
 
 ```zhang
 2024-05-16 * "Buy 3 AAPL for 1000 USD in total"

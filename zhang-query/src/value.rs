@@ -109,11 +109,12 @@ impl Position {
         Position { units, cost }
     }
 
-    /// The total cost of the position (`units × cost.number` in the cost currency), or the
-    /// units themselves when the position is not held at cost.
+    /// The total cost of the position (`units × cost.number` in the cost currency, in the decimal
+    /// context like beanquery's, as a cost may be a 28-digit quotient), or the units themselves when
+    /// the position is not held at cost.
     pub fn at_cost(&self) -> Amount {
         match &self.cost {
-            Some(cost) => Amount::new(crate::decimal::mul(&self.units.number, &cost.number), cost.currency.clone()),
+            Some(cost) => Amount::new(crate::decimal::mul_in_context(&self.units.number, &cost.number), cost.currency.clone()),
             None => self.units.clone(),
         }
     }

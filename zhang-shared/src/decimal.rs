@@ -1,20 +1,24 @@
-//! Decimal arithmetic shared by query evaluation and plugin valuation.
+//! Decimal arithmetic shared by booking, query evaluation and plugin valuation.
 //!
 //! # Rounding policy
 //!
-//! - Ledger arithmetic is exact: sums, differences and products of ledger numbers
-//!   (`units × cost`, weights, `*` in queries) never round. beancount computes these in
-//!   Python's decimal context (28 significant digits), which is exact for every product of
-//!   ledger numbers that fits in 28 digits, so the results agree.
-//! - Division has to round: [`div`] follows Python's default context (28 significant
-//!   digits, round-half-even), so `1/3` is `0.3333333333333333333333333333`.
-//! - Valuation at market rates uses [`mul_in_context`], which rounds like beancount's decimal
-//!   context, because inverted rates carry 28 significant digits and beanquery rounds those
-//!   products.
+//! zhang computes like beancount, in Python's default decimal context (28 significant digits,
+//! round-half-even), so the numbers zhang derives are those beancount derives:
+//! - Sums and differences are exact, and so is [`mul`], the product a query's `*` computes.
+//! - Division has to round: [`div`] rounds to 28 significant digits, so `1/3` is
+//!   `0.3333333333333333333333333333`. The per-unit share of a total ([`per_unit`]: the per-unit
+//!   cost of a total cost, the per-unit price of a total price) is such a quotient. Booking keeps
+//!   a lot at exactly that cost, so the cost a query shows is the cost a sale can name.
+//! - Weights (units × a per-unit cost or price), the cost of a position and valuations at market
+//!   rates use [`mul_in_context`]. It is exact whenever the product fits in 28 digits, which every
+//!   product of written numbers does in practice, and otherwise rounds like beancount: a per-unit
+//!   cost or an inverted rate carries 28 significant digits, so `7 × 17/7` weighs
+//!   `17.00000000000000000000000000`, as in beancount, not `17.000000000000000000000000003`.
 //!
-//! `BigDecimal`'s own `*` normalises when an operand is one (`-1000.00 × 1` becomes
-//! `-1000`), so all products go through [`mul`] or [`mul_in_context`], which keep the scale
-//! `lhs.scale + rhs.scale`.
+//! `BigDecimal`'s own `*` normalises when an operand is one (`-1000.00 × 1` becomes `-1000`),
+//! and its own `/` divides at 100 digits, so ledger numbers are multiplied and divided through
+//! this module: [`mul`] and [`mul_in_context`] keep the scale `lhs.scale + rhs.scale`, and [`div`]
+//! keeps the ideal scale of an exact quotient.
 
 use std::num::NonZeroU64;
 
@@ -47,6 +51,13 @@ pub fn div(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
     } else {
         Some(normalized)
     }
+}
+
+/// The per-unit share of `total` spread over `units`: `total / |units|` in the division context
+/// ([`div`]), the way beancount turns a total cost (`{{T}}`) or a total price (`@@ T`) into a
+/// per-unit one. `None` for zero units, which have no per-unit share.
+pub fn per_unit(total: &BigDecimal, units: &BigDecimal) -> Option<BigDecimal> {
+    div(total, &units.abs())
 }
 
 /// Multiply exactly. The product keeps the scale `lhs.scale + rhs.scale`
@@ -87,6 +98,16 @@ mod tests {
         assert_eq!(div(&d("10.00"), &d("2")).unwrap().to_string(), "5.00");
         assert_eq!(div(&d("2"), &d("3")).unwrap().to_string(), "0.6666666666666666666666666667");
         assert_eq!(div(&d("1"), &d("0")), None);
+    }
+
+    #[test]
+    fn a_per_unit_share_divides_over_the_absolute_units() {
+        assert_eq!(per_unit(&d("100"), &d("3")).unwrap().to_string(), "33.33333333333333333333333333");
+        assert_eq!(per_unit(&d("100"), &d("-3")).unwrap().to_string(), "33.33333333333333333333333333");
+        assert_eq!(per_unit(&d("1000.00"), &d("10")).unwrap().to_string(), "100.00");
+        assert_eq!(per_unit(&d("30"), &d("-3")).unwrap().to_string(), "10");
+        assert_eq!(per_unit(&d("17"), &d("7")).unwrap().to_string(), "2.428571428571428571428571429");
+        assert_eq!(per_unit(&d("100"), &d("0")), None);
     }
 
     #[test]
