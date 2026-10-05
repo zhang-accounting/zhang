@@ -23,17 +23,19 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::RwLock;
 
+use axum::response::{IntoResponse, Response};
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
-    is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_posting_cost, read_posting_price,
+    is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
+    read_posting_price,
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
 use crate::error::ServerError;
-use crate::ServerResult;
+use crate::response::InvalidKind;
 
 /// The rules for the names written to a ledger, which depend on its format.
 pub enum Rules<'a> {
@@ -116,42 +118,85 @@ impl Names {
 
 const BARE_WORD: &str = "it cannot be empty or contain a space, tab, line break, `\"`, `:`, `(`, `)` or `,`";
 
-fn invalid(what: &str, value: &str, rule: &str) -> ServerError {
-    ServerError::InvalidInput(format!("invalid {what} {value:?}: {rule}"))
+/// A request value that cannot be written: why, for a client to tell in its own words ([`InvalidKind`] and the value), and
+/// the message a request answers with in a 400.
+#[derive(Debug)]
+pub struct Invalid {
+    pub kind: InvalidKind,
+    pub value: String,
+    pub message: String,
+}
+
+impl From<Invalid> for ServerError {
+    fn from(invalid: Invalid) -> Self {
+        ServerError::InvalidInput(invalid.message)
+    }
+}
+
+impl std::fmt::Display for Invalid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// a request answers an invalid value with a 400, as [`ServerError::InvalidInput`]
+impl IntoResponse for Invalid {
+    fn into_response(self) -> Response {
+        ServerError::from(self).into_response()
+    }
+}
+
+/// A value read from a request, or why it cannot be written.
+pub type Checked<T> = Result<T, Invalid>;
+
+fn invalid(kind: InvalidKind, value: &str, rule: &str) -> Invalid {
+    let what = match kind {
+        InvalidKind::InvalidAccount | InvalidKind::BeancountAccount => "account",
+        InvalidKind::InvalidCommodity | InvalidKind::BeancountCommodity => "commodity",
+        InvalidKind::InvalidAmount => "amount",
+        InvalidKind::InvalidCost => "cost",
+        InvalidKind::InvalidPrice => "price",
+        InvalidKind::BeancountMetaKey => "metadata key",
+        InvalidKind::InvalidTag | InvalidKind::BeancountTag => "tag",
+        InvalidKind::InvalidLink | InvalidKind::BeancountLink => "link",
+        InvalidKind::InvalidFlag => "flag",
+    };
+    Invalid {
+        kind,
+        value: value.to_owned(),
+        message: format!("invalid {what} {value:?}: {rule}"),
+    }
 }
 
 /// Parse an account name the ledger reads back unchanged.
-pub fn account(name: &str, rules: &Rules) -> ServerResult<Account> {
+pub fn account(name: &str, rules: &Rules) -> Checked<Account> {
+    const RULE: &str = "it is `Assets`, `Liabilities`, `Equity`, `Income` or `Expenses` followed by `:`-separated components, and a component cannot be empty or contain a space, tab, line break, `\"`, `:`, `(`, `)` or `,`";
     if !is_valid_account_name(name) {
-        return Err(invalid(
-            "account",
-            name,
-            "it is `Assets`, `Liabilities`, `Equity`, `Income` or `Expenses` followed by `:`-separated components, and a component cannot be empty or contain a space, tab, line break, `\"`, `:`, `(`, `)` or `,`",
-        ));
+        return Err(invalid(InvalidKind::InvalidAccount, name, RULE));
     }
     if !is_valid_beancount_account(name) && rules.beancount_checks(|names| &names.accounts, name) {
         return Err(invalid(
-            "account",
+            InvalidKind::BeancountAccount,
             name,
             "beancount account components contain only letters, digits, `-` and non-ASCII characters, start with an uppercase letter `A`-`Z`, a digit or a non-ASCII character, and the first component must start with an uppercase letter or a digit",
         ));
     }
-    Ok(Account::from_str(name)?)
+    Account::from_str(name).map_err(|_| invalid(InvalidKind::InvalidAccount, name, RULE))
 }
 
 /// Check that the commodity of `amount` reads back unchanged.
-pub fn amount(amount: &Amount, rules: &Rules) -> ServerResult<()> {
+pub fn amount(amount: &Amount, rules: &Rules) -> Checked<()> {
     let commodity = &amount.commodity;
     if !is_valid_commodity_name(commodity) {
         return Err(invalid(
-            "commodity",
+            InvalidKind::InvalidCommodity,
             commodity,
             "it starts with an ASCII letter and contains only ASCII letters, digits, `.`, `_`, `-` and `'`",
         ));
     }
     if !is_valid_beancount_commodity(commodity) && rules.beancount_checks(|names| &names.commodities, commodity) {
         return Err(invalid(
-            "commodity",
+            InvalidKind::BeancountCommodity,
             commodity,
             "beancount commodities start with an uppercase letter `A`-`Z`, end with an uppercase letter or a digit, and contain only `A`-`Z`, digits, `'`, `.`, `_` and `-`",
         ));
@@ -159,13 +204,33 @@ pub fn amount(amount: &Amount, rules: &Rules) -> ServerResult<()> {
     Ok(())
 }
 
+/// Read the units of a posting given as text in the ledger's own syntax ([`read_posting_amount`]): a number, which may
+/// be an expression such as `(10 + 2) / 4` and may group its digits with `,` or `_`, then the commodity, as in
+/// `-1,000.50 CNY`. A number alone ([`read_number`]) is in `operating_currency`. Its commodity is checked like any.
+/// Spaces around it are ignored. Anything else, such as units followed by a cost or a price, which have fields of
+/// their own, is a 400.
+pub fn units(text: &str, rules: &Rules, operating_currency: &str) -> Checked<Amount> {
+    let text = text.trim();
+    let units = read_posting_amount(text)
+        .or_else(|| read_number(text).map(|number| Amount::new(number, operating_currency)))
+        .ok_or_else(|| {
+            invalid(
+                InvalidKind::InvalidAmount,
+                text,
+                "it is a number followed by a commodity, as in `-1,000.50 CNY`, or a number alone in the operating currency; the cost and the price of a posting have fields of their own",
+            )
+        })?;
+    amount(&units, rules)?;
+    Ok(units)
+}
+
 /// Parse the cost of a posting given as text in the ledger's own syntax, which the ledger parser reads
 /// (`read_posting_cost`): `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}`, with
 /// its commodity checked like a unit's. Spaces around it are ignored. Anything else is a 400.
-pub fn cost(text: &str, rules: &Rules) -> ServerResult<PostingCost> {
+pub fn cost(text: &str, rules: &Rules) -> Checked<PostingCost> {
     let cost = read_posting_cost(text.trim()).ok_or_else(|| {
         invalid(
-            "cost",
+            InvalidKind::InvalidCost,
             text,
             "it is written as in the ledger: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot there is, or `{150 USD, 2024-01-15, \"lot\"}` with the acquisition date and the label of the lot",
         )
@@ -179,29 +244,38 @@ pub fn cost(text: &str, rules: &Rules) -> ServerResult<PostingCost> {
 /// Parse the price of a posting given as text in the ledger's own syntax (`read_posting_price`):
 /// `@ 6 USD` per unit or `@@ 60 USD` in total, with its commodity checked like a unit's. Spaces
 /// around it are ignored. Anything else is a 400.
-pub fn price(text: &str, rules: &Rules) -> ServerResult<SingleTotalPrice> {
-    let price =
-        read_posting_price(text.trim()).ok_or_else(|| invalid("price", text, "it is written as in the ledger: `@ 6 USD` per unit or `@@ 60 USD` in total"))?;
+pub fn price(text: &str, rules: &Rules) -> Checked<SingleTotalPrice> {
+    let price = read_posting_price(text.trim()).ok_or_else(|| {
+        invalid(
+            InvalidKind::InvalidPrice,
+            text,
+            "it is written as in the ledger: `@ 6 USD` per unit or `@@ 60 USD` in total",
+        )
+    })?;
     let (SingleTotalPrice::Single(per_unit) | SingleTotalPrice::Total(per_unit)) = &price;
     amount(per_unit, rules)?;
     Ok(price)
 }
 
-pub fn tag(name: &str, rules: &Rules) -> ServerResult<()> {
-    tag_or_link("tag", name, rules.beancount_checks(|names| &names.tags, name))
+pub fn tag(name: &str, rules: &Rules) -> Checked<()> {
+    let beancount_checks = rules.beancount_checks(|names| &names.tags, name);
+    tag_or_link([InvalidKind::InvalidTag, InvalidKind::BeancountTag], "tag", name, beancount_checks)
 }
 
-pub fn link(name: &str, rules: &Rules) -> ServerResult<()> {
-    tag_or_link("link", name, rules.beancount_checks(|names| &names.links, name))
+pub fn link(name: &str, rules: &Rules) -> Checked<()> {
+    let beancount_checks = rules.beancount_checks(|names| &names.links, name);
+    tag_or_link([InvalidKind::InvalidLink, InvalidKind::BeancountLink], "link", name, beancount_checks)
 }
 
-fn tag_or_link(what: &str, name: &str, beancount_checks: bool) -> ServerResult<()> {
+/// check a tag or a link, `what`; `kinds` are those of a name that would not read back, and of one beancount rejects
+fn tag_or_link(kinds: [InvalidKind; 2], what: &str, name: &str, beancount_checks: bool) -> Checked<()> {
+    let [unreadable, beancount] = kinds;
     if !is_valid_tag_or_link(name) {
-        return Err(invalid(what, name, BARE_WORD));
+        return Err(invalid(unreadable, name, BARE_WORD));
     }
     if beancount_checks && !is_valid_beancount_tag_or_link(name) {
         return Err(invalid(
-            what,
+            beancount,
             name,
             &format!("beancount {what}s contain only ASCII letters, digits, `-`, `_`, `/` and `.`"),
         ));
@@ -212,10 +286,10 @@ fn tag_or_link(what: &str, name: &str, beancount_checks: bool) -> ServerResult<(
 /// Check a metadata key. In a zhang ledger every key reads back, quoted when it is
 /// not a bare word. Beancount has no quoted keys, so in a beancount ledger a new
 /// key must be one beancount accepts as it is.
-pub fn meta_key(key: &str, rules: &Rules) -> ServerResult<()> {
+pub fn meta_key(key: &str, rules: &Rules) -> Checked<()> {
     if !is_valid_beancount_meta_key(key) && rules.beancount_checks(|names| &names.meta_keys, key) {
         return Err(invalid(
-            "metadata key",
+            InvalidKind::BeancountMetaKey,
             key,
             "beancount metadata keys start with a lowercase letter `a`-`z`, are at least two characters long and contain only ASCII letters, digits, `-` and `_`",
         ));
@@ -223,12 +297,16 @@ pub fn meta_key(key: &str, rules: &Rules) -> ServerResult<()> {
     Ok(())
 }
 
-pub fn flag(flag: &str) -> ServerResult<()> {
+pub fn flag(flag: &str) -> Checked<()> {
     // every flag zhang reads (`*`, `!`, `#`, `&`, `?`, `%`, `A`-`Z`) is a beancount flag too
     if is_valid_transaction_flag(flag) {
         Ok(())
     } else {
-        Err(invalid("flag", flag, "it is `*`, `!`, `#`, `&`, `?`, `%` or an uppercase ASCII letter"))
+        Err(invalid(
+            InvalidKind::InvalidFlag,
+            flag,
+            "it is `*`, `!`, `#`, `&`, `?`, `%` or an uppercase ASCII letter",
+        ))
     }
 }
 

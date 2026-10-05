@@ -46,14 +46,15 @@ pub(super) fn open_meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Val
     meta_result(meta, args.get(1), "open_meta")
 }
 
-/// `account_budgets(account, date)`: the budgets the account counts in at the date (a zhang
-/// extension): those of its latest `open` on or before the date.
+/// `account_budgets(account, date)`: the budgets a posting of the account at the start of the date
+/// counts in (a zhang extension), as a posting of that date without a time sees them: those of its
+/// latest `open` at or before then, by the ledger's one rule of budget membership.
 pub(super) fn account_budgets(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
     let account = name_arg(args, "account_budgets")?;
     let Value::Date(date) = args[1] else {
         return Err("account_budgets() expects a date".to_owned());
     };
-    Ok(Value::Set(ctx.account_budgets(account, date).unwrap_or_default()))
+    Ok(Value::Set(ctx.account_budgets(account, date.and_time(NaiveTime::MIN)).unwrap_or_default()))
 }
 
 /// `account_status(account, date)` and `account_status(account, date, time)`: whether the account is `'open'` or

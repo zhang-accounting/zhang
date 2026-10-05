@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { amountTextParts, formatAmountText } from './amount-text';
 import { loadable_unwrap } from '../states';
 import { commoditiesAtom } from '../states/commodity';
+import { defaultCommodityPrecisionAtom } from '../states/options';
 
 interface Props {
   amount: string | number | BigNumber;
@@ -51,11 +52,12 @@ function formatCompactNumber(value: BigNumber.Value, locale?: string) {
 export default function Amount({ amount, currency, negative, mask, compact, tone, signed, plain, exact, className }: Props) {
   const { i18n } = useTranslation();
   const commodity = useAtomValue(useMemo(() => selectAtom(commoditiesAtom, (val) => loadable_unwrap(val, undefined, (val) => val[currency])), [currency]));
+  const defaultPrecision = useAtomValue(defaultCommodityPrecisionAtom);
 
   const flag = negative || false ? -1 : 1;
   const parsedValue = BigNumber.isBigNumber(amount) ? amount : new BigNumber(amount);
   const value = parsedValue.multipliedBy(flag);
-  const options = { exact, plain, signed };
+  const options = { exact, plain, signed, defaultPrecision };
   const { sign, prefix, number: fullValue, suffix, currency: currencyName } = amountTextParts(value, currency, commodity, options);
   const useCompact = compact && value.abs().gte(COMPACT_THRESHOLD);
   const displayedValue = useCompact ? formatCompactNumber(value.abs(), i18n.language) : fullValue;

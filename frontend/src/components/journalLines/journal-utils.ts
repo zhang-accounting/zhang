@@ -45,7 +45,7 @@ export function rewriteWarning(data: Pick<JournalTransactionItem, 'edit_drops_te
   return data.edit_drops_text === true ? 'edit_confirm_rewrite' : null;
 }
 
-/** The journal page size the Journals page asks for. */
+/** The journal page size the Journals page and an account's journal ask for (the server's default page size). */
 export const JOURNAL_PAGE_SIZE = 100;
 
 /**

@@ -13,6 +13,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::constants::*;
+use crate::domains::schemas::CommodityDomain;
 use crate::domains::Operations;
 use crate::features::Features;
 use crate::inventory::BookingMethod;
@@ -198,10 +199,22 @@ impl InMemoryOptions {
     /// calls this, so the definition the last option leaves is the same whatever their order; a dated `commodity`
     /// directive for it, processed after every option, replaces it
     fn define_operating_currency(&self, operation: &mut Operations) -> ZhangResult<()> {
-        if !self.operating_currency_read {
+        let Some(commodity) = self.operating_currency_commodity() else {
             return Ok(());
-        }
-        operation.insert_commodity(&self.operating_currency, self.operating_currency_precision(), None, None, self.default_rounding)
+        };
+        operation.insert_commodity(&commodity.name, commodity.precision, commodity.prefix, commodity.suffix, commodity.rounding)
+    }
+
+    /// the commodity the options define, the operating currency, as the options read so far define it before any
+    /// `commodity` directive; none before an `operating_currency` option was read
+    pub fn operating_currency_commodity(&self) -> Option<CommodityDomain> {
+        self.operating_currency_read.then(|| CommodityDomain {
+            name: self.operating_currency.clone(),
+            precision: self.operating_currency_precision(),
+            prefix: None,
+            suffix: None,
+            rounding: self.default_rounding,
+        })
     }
 }
 

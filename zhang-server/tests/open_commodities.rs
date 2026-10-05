@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::{json, Value};
@@ -17,6 +17,7 @@ use zhang_core::ledger::Ledger;
 use zhang_server::request::{JournalRequest, QueryRequest};
 use zhang_server::routes::common::get_errors;
 use zhang_server::routes::query::run_query;
+use zhang_server::routes::Query;
 use zhang_server::state::SharedLedger;
 
 /// The ledger of #496, the same in both formats.

@@ -530,11 +530,11 @@ async fn bad_pages_are_bad_requests_and_a_page_past_the_end_is_empty() {
     assert_eq!(body["data"]["total_page"], 3);
 
     for size in [0, 1001] {
-        let (status, body) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(1), Some(size), None, None))).await).await;
+        let (status, body) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(1), Some(size), None, None))).await).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["message"], "size must be between 1 and 1000");
     }
-    let (status, _) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(1), Some(1000), None, None))).await).await;
+    let (status, _) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(1), Some(1000), None, None))).await).await;
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -885,7 +885,7 @@ async fn the_document_of_a_split_sale_is_listed_once() {
 async fn errors_are_listed_by_file_then_position_one_page_at_a_time() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
     let ledger = scratch.ledger().await;
-    let (status, body) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(1), Some(10), None, None))).await).await;
+    let (status, body) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(1), Some(10), None, None))).await).await;
     assert_eq!(status, StatusCode::OK);
     let data = &body["data"];
     assert_eq!(data["total_count"], 2);
@@ -902,7 +902,7 @@ async fn errors_are_listed_by_file_then_position_one_page_at_a_time() {
     assert_eq!(records[1]["span"]["start"], 0);
     assert!(records[1]["metas"]["txn_id"].is_string());
 
-    let (_, body) = respond(get_errors(State(ledger.clone()), axum::extract::Query(request(Some(2), Some(1), None, None))).await).await;
+    let (_, body) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(2), Some(1), None, None))).await).await;
     assert_eq!(body["data"]["total_page"], 2);
     assert_eq!(body["data"]["records"][0]["error_type"], "UnbalancedTransaction");
 }

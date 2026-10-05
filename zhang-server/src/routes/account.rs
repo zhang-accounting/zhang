@@ -121,8 +121,8 @@ pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(St
 /// to and the running balance of the account with its sub-accounts in its currency, and a row per balance
 /// assertion on the account, with the balance it was checked against.
 ///
-/// With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
-/// of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+/// With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
+/// size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
 /// return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
 /// name a 400, as for `GET /api/accounts/{a}`.
 ///

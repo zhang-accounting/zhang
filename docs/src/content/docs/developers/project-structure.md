@@ -90,7 +90,7 @@ The documentation is built and deployed only on pushes to `main` and `develop`, 
 
 - **Syntax**: the Zhang parser and exporter in `zhang-core/src/data_type/text/`, the beancount ones in `extensions/beancount/`.
 - **A new check or error**: a variant of `ErrorKind` in `zhang-ast/src/error.rs`, reported from a pipeline stage or a `process` handler in `zhang-core`. Add its message to `ERROR` in `frontend/public/locales/*/translation.json` and a section to [Error Codes](/reference/error-codes/).
-- **An API endpoint**: a handler in `zhang-server/src/routes/`, registered in `zhang-server/src/lib.rs`. Then regenerate the typed client with `pnpm api` in `frontend`, which reads `http://localhost:8000/openapi.json` from a running server.
+- **An API endpoint**: a handler in `zhang-server/src/routes/`, registered in `zhang-server/src/lib.rs`. Then regenerate the typed client with `pnpm api` in `frontend`, which reads `http://localhost:8000/openapi.json` from a running server. Answer an error with a `ServerError` (`zhang-server/src/error.rs`): every API error has one JSON body, `{"message": "..."}`, which the web UI shows, the rejections of the extractors included.
 - **The query language**: `zhang-query`, and the [query language reference](/reference/query-language/).
 - **A page of the web UI**: `frontend/src/pages/`, the routes in `frontend/src/router.tsx`, the navigation in `frontend/src/layout/nav-links.ts`, and the texts in `frontend/public/locales/en/` and `frontend/public/locales/zh/`.
 - **A plugin**: [Writing Plugins](/developers/writing-plugins/) and the examples in `zhang-plugin-sdk/examples/`.

@@ -8,7 +8,7 @@ use gotcha::api;
 use itertools::Itertools;
 use zhang_ast::amount::Amount;
 use zhang_core::ledger::Ledger;
-use zhang_query::{Params, Value};
+use zhang_query::Params;
 
 use crate::builtin::execute;
 use crate::cells::{first_row, rows, Row};
@@ -129,21 +129,19 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
 }
 
 /// What happened to a budget in a month, newest first: what its `budget-add` and
-/// `budget-transfer` directives put in, and the postings of its accounts that count toward it
-/// (none after its close), with their times in the ledger's timezone.
+/// `budget-transfer` directives put in, and the postings that count toward it (they add up to the
+/// month's activity: none before its definition, after its close or in a commodity no price
+/// converts), with their times in the ledger's timezone.
 #[api(group = "budget")]
 pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>) -> ApiResult<Vec<BudgetIntervalEventEntity>> {
     let BudgetIntervalDetailRequest { budget_name, year, month } = paths.0;
     let month = BudgetListRequest::month_of(year, month)?;
     let detail = with_ledger(&ledger, move |ledger| {
+        // an unknown budget is a 404
         let budget = execute(ledger, "budgets.budget", &Params::new().bind("name", budget_name.as_str()), false)?;
-        let Some(budget) = first_row("budgets.budget", &budget) else {
+        if first_row("budgets.budget", &budget).is_none() {
             return Ok(None);
-        };
-        let accounts = budget.set("accounts")?.unwrap_or_default();
-        // a closed budget lists no posting after its close
-        let (close, close_time) = (budget.get("close")?.clone(), budget.get("close_time")?.clone());
-
+        }
         let params = Params::new().bind("name", budget_name.as_str()).bind("month", month);
         let events = execute(ledger, "budgets.events", &params, false)?;
         let events = rows("budgets.events", &events)
@@ -159,12 +157,7 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
                 }))
             })
             .collect::<ServerResult<Vec<_>>>()?;
-        let params = Params::new()
-            .bind("accounts", Value::Set(accounts))
-            .bind("month", month)
-            .bind("name", budget_name.as_str())
-            .bind("close", close)
-            .bind("close_time", close_time);
+        // the postings that count toward the budget, so they add up to the month's activity
         let postings = execute(ledger, "budgets.postings", &params, false)?;
         let postings = rows("budgets.postings", &postings)
             .map(|row| {

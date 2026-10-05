@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
@@ -71,17 +70,9 @@ pub struct JournalRequest {
     pub tags: Option<HashSet<String>>,
     pub links: Option<HashSet<String>>,
 }
-impl JournalRequest {
-    pub fn page(&self) -> u32 {
-        max(self.page.unwrap_or(1), 1)
-    }
-    pub fn limit(&self) -> u32 {
-        self.size.unwrap_or(100)
-    }
-}
 
-/// The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
-/// most 1000. Without either, the whole journal.
+/// The page of an account's journal to return: `size` rows of page `page`, by the rule of every paged endpoint
+/// ([`crate::journals::window`]). Without either, the whole journal.
 #[derive(Debug, Default, Schematic, Deserialize)]
 pub struct AccountJournalRequest {
     pub page: Option<u32>,
@@ -89,32 +80,15 @@ pub struct AccountJournalRequest {
 }
 
 impl AccountJournalRequest {
-    /// The default `size` of a page, as in `GET /api/journals`.
-    pub const DEFAULT_SIZE: u32 = 100;
-    /// The largest `size` of a page, as in `GET /api/journals`.
-    pub const MAX_SIZE: u32 = crate::journals::MAX_PAGE_SIZE;
-
-    /// The window of rows the request asks for; `None` for the whole journal. A page or a size of 0,
-    /// and a size above [`Self::MAX_SIZE`], are a 400.
+    /// The window of rows the request asks for; `None` for the whole journal. A page of 0, and a size of 0 or above
+    /// [`crate::journals::MAX_PAGE_SIZE`], are a 400, as on every paged endpoint.
     pub fn window(&self) -> Result<Option<crate::account_queries::JournalWindow>, crate::error::ServerError> {
         if self.page.is_none() && self.size.is_none() {
             return Ok(None);
         }
-        let page = self.page.unwrap_or(1);
-        let size = self.size.unwrap_or(Self::DEFAULT_SIZE);
-        if page == 0 || size == 0 {
-            return Err(crate::error::ServerError::InvalidInput(format!(
-                "page and size count from 1, got page {page} and size {size}"
-            )));
-        }
-        if size > Self::MAX_SIZE {
-            return Err(crate::error::ServerError::InvalidInput(format!(
-                "a page has at most {} rows, got size {size}",
-                Self::MAX_SIZE
-            )));
-        }
+        let (_, size, offset) = crate::journals::window(self.page, self.size)?;
         Ok(Some(crate::account_queries::JournalWindow {
-            offset: u64::from(page - 1) * u64::from(size),
+            offset: offset.unsigned_abs(),
             size: u64::from(size),
         }))
     }
@@ -172,7 +146,8 @@ impl Schematic for FlagRequest {
 #[derive(Schematic, Deserialize)]
 pub struct CreateTransactionPostingRequest {
     pub account: String,
-    pub unit: Option<Amount>,
+    /// the units of the posting, `null` for the one posting whose units booking infers
+    pub unit: Option<UnitRequest>,
     /// metadata of the posting, checked like the transaction's `metas`
     pub metas: Option<Vec<MetaRequest>>,
     /// the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
@@ -188,6 +163,21 @@ pub struct CreateTransactionPostingRequest {
     /// comment of the posting it edits, `null` removes it
     #[serde(default, deserialize_with = "given")]
     pub comment: Option<Option<String>>,
+}
+
+/// The units of a posting: an amount, or its text as the ledger writes it, read with the ledger's own grammar, such as
+/// `-1,000.50 CNY` or `(10 + 2) / 4 USD`. A text with a number alone is in the ledger's operating currency.
+#[derive(Schematic, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum UnitRequest {
+    Amount(Amount),
+    Text(String),
+}
+
+impl From<Amount> for UnitRequest {
+    fn from(amount: Amount) -> Self {
+        UnitRequest::Amount(amount)
+    }
 }
 
 /// A field that may be left out of a request, be `null`, or carry a value, told apart: `None` when left out (with

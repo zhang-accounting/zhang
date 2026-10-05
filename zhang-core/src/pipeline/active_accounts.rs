@@ -1,7 +1,7 @@
 //! The account lifecycle ([`AccountLifecycle`]), the one rule of when an account is active, and the pipeline stage that
 //! reports the references to inactive accounts with it (beancount's `validate_active_accounts`).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use chrono::NaiveDateTime;
 use itertools::Itertools;
@@ -15,8 +15,8 @@ use crate::ZhangResult;
 /// An `open` or a `close` of an account, as [`AccountLifecycle`] keeps it.
 #[derive(Debug, Clone)]
 enum Change {
-    /// an `open`, at its date and time
-    Open(NaiveDateTime),
+    /// an `open`, at its date and time, and the budgets its `budget` metadata names, each once
+    Open { at: NaiveDateTime, budgets: BTreeSet<String> },
     /// a `close`, at its date and time, and its date as written, which tells when it takes effect
     Close { at: NaiveDateTime, date: Date },
 }
@@ -25,7 +25,7 @@ impl Change {
     /// the date and time of the directive, midnight for a date alone: where it is in the stream
     fn at(&self) -> NaiveDateTime {
         match self {
-            Change::Open(at) | Change::Close { at, .. } => *at,
+            Change::Open { at, .. } | Change::Close { at, .. } => *at,
         }
     }
 }
@@ -35,6 +35,8 @@ impl Change {
 struct Folded<'a> {
     /// whether an `open` opened it
     opened: bool,
+    /// the budgets of its latest `open`
+    budgets: Option<&'a BTreeSet<String>>,
     /// the date of the `close` that closed it since its latest `open`: the first one, as a later one closes nothing
     close: Option<&'a Date>,
 }
@@ -90,7 +92,10 @@ impl AccountLifecycle {
     pub fn apply(&mut self, directive: &Directive) {
         let Some(at) = directive.datetime() else { return };
         let (account, change) = match directive {
-            Directive::Open(open) => (&open.account, Change::Open(at)),
+            Directive::Open(open) => {
+                let budgets = open.meta.get_all("budget").into_iter().map(|budget| budget.as_str().to_owned()).collect();
+                (&open.account, Change::Open { at, budgets })
+            }
             Directive::Close(close) => (&close.account, Change::Close { at, date: close.date.clone() }),
             _ => return,
         };
@@ -102,7 +107,13 @@ impl AccountLifecycle {
         let mut folded = Folded::default();
         for change in self.changes.get(account).into_iter().flatten().take_while(|it| it.at() <= at) {
             match change {
-                Change::Open(_) => folded = Folded { opened: true, close: None },
+                Change::Open { budgets, .. } => {
+                    folded = Folded {
+                        opened: true,
+                        budgets: Some(budgets),
+                        close: None,
+                    }
+                }
                 Change::Close { date, .. } => {
                     folded.close.get_or_insert(date);
                 }
@@ -115,6 +126,32 @@ impl AccountLifecycle {
     /// close takes effect, `Close` after that, and `None` when neither an `open` nor a `close` of it is in effect.
     pub fn status(&self, account: &str, at: NaiveDateTime) -> Option<AccountStatus> {
         self.fold(account, at).status(at)
+    }
+
+    /// The budgets a posting of `account` at the wall-clock time `at` counts in: those the `budget` metadata of the
+    /// account's latest `open` at or before `at` names, each once. An account closed and opened again with other budgets
+    /// counts in those from the time of its reopening on. `None` before its first `open`.
+    ///
+    /// The one rule of which budgets an account's posting belongs to: the store fold reports the budget errors with it,
+    /// and the query engine counts the activity and lists the postings of a budget with it
+    /// ([`Ledger::account_budgets`](crate::ledger::Ledger::account_budgets)).
+    pub fn budgets(&self, account: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
+        self.fold(account, at).budgets
+    }
+
+    /// The accounts of every budget: those an `open` names it in, at any time.
+    pub fn budget_accounts(&self) -> HashMap<String, BTreeSet<String>> {
+        let mut accounts: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for (account, changes) in &self.changes {
+            for change in changes {
+                if let Change::Open { budgets, .. } = change {
+                    for budget in budgets {
+                        accounts.entry(budget.clone()).or_default().insert(account.clone());
+                    }
+                }
+            }
+        }
+        accounts
     }
 
     /// The status of `account` once every `open` and `close` of it is in effect, whatever their dates: `Close` when its

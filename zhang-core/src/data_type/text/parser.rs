@@ -1046,6 +1046,25 @@ pub fn read_posting_cost(text: &str) -> Option<PostingCost> {
     }
 }
 
+/// `text` read whole as the units of a posting ([`posting_amount`]): a number, which may be an expression such as
+/// `(10 + 2) / 4` and may group its digits with `,` or `_`, then the commodity, as in `-1,000.50 CNY`. `None` when it
+/// is not one, such as a number without a commodity or units followed by a cost or a price.
+pub fn read_posting_amount(text: &str) -> Option<Amount> {
+    match posting_amount(text) {
+        Ok(("", amount)) => Some(amount),
+        _ => None,
+    }
+}
+
+/// `text` read whole as a number ([`number_expr`]): `-1,000.50`, or an expression such as `(10 + 2) / 4`. `None` when
+/// it is not one.
+pub fn read_number(text: &str) -> Option<BigDecimal> {
+    match number_expr(text) {
+        Ok(("", number)) => Some(number),
+        _ => None,
+    }
+}
+
 /// `text` read whole as the price annotation of a posting ([`posting_price`]): `@ 6 USD` per unit or
 /// `@@ 60 USD` in total. `None` when it is not one, such as `6 USD` without the `@`.
 pub fn read_posting_price(text: &str) -> Option<SingleTotalPrice> {

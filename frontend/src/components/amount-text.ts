@@ -11,6 +11,15 @@ export interface CommodityFormat {
 /** zhang's built-in `default_commodity_precision`: the precision of a commodity the ledger does not declare. */
 export const DEFAULT_COMMODITY_PRECISION = 2;
 
+/**
+ * The precision a `default_commodity_precision` option gives (its value from `/api/options`): a whole number of decimals,
+ * else the built-in default, as while the options load.
+ */
+export function defaultPrecisionOption(value: string | undefined): number {
+  const precision = value !== undefined && /^\d{1,9}$/.test(value) ? Number(value) : undefined;
+  return precision ?? DEFAULT_COMMODITY_PRECISION;
+}
+
 export interface AmountTextOptions {
   /** The precision of a commodity the ledger does not declare: the ledger's `default_commodity_precision`. */
   defaultPrecision?: number;

@@ -117,7 +117,9 @@ impl GotchaApp for ServerApp {
             .get("/api/for-new-transaction", get_info_for_new_transactions)
             .get("/api/journals", get_journals)
             .post("/api/transactions", create_new_transaction)
+            .post("/api/transactions/preview", preview_new_transaction)
             .put("/api/transactions/:transaction_id", update_single_transaction)
+            .post("/api/transactions/:transaction_id/preview", preview_transaction_update)
             .post("/api/transactions/:transaction_id/documents", upload_transaction_document)
             .get("/api/accounts", get_account_list)
             .get("/api/accounts/:account_name", get_account_info)
@@ -149,6 +151,8 @@ impl GotchaApp for ServerApp {
             .get("/api/query/saved", routes::query::get_saved_queries)
             .get("/api/query/builtins", routes::query::get_builtin_queries)
             .post("/api/query/builtins/:name/text", routes::query::get_builtin_query_text)
+            // every error has the one JSON body, the rejections of the extractors too
+            .layer(axum::middleware::from_fn(error::json_rejections))
             .layer(CorsLayer::permissive().expose_headers(cors_expose_headers()))
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
