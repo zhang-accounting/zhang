@@ -287,8 +287,8 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "budgets.budget",
-        description: "One budget: its display name, category, commodity, and the accounts whose postings are its activity.",
-        bql: "SELECT name, alias, category, currency, accounts \
+        description: "One budget: its display name, category, commodity, the accounts whose postings are its activity, and the date and time of its close.",
+        bql: "SELECT name, alias, category, currency, accounts, close, close_time \
               FROM #budget_definitions \
               WHERE name = :name",
         params: &[("name", DataType::Str)],
@@ -317,12 +317,19 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "budgets.postings",
-        description: "The postings of a budget in a month (its first day), newest first, with each account's balance after them.",
+        description: "The postings of a budget in a month (its first day), newest first, with each account's balance after them; none after the budget's close (its date, and its time if any).",
         bql: "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units, \
               only(currency, account_balance) AS balance \
               WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date) \
+              AND (:close IS NULL OR date < :close OR (date = :close AND (:close_time IS NULL OR time <= :close_time))) \
               ORDER BY timestamp DESC",
-        params: &[("accounts", DataType::Set), ("month", DataType::Date), ("name", DataType::Str)],
+        params: &[
+            ("accounts", DataType::Set),
+            ("month", DataType::Date),
+            ("name", DataType::Str),
+            ("close", DataType::Date),
+            ("close_time", DataType::Str),
+        ],
     },
     BuiltinQuery {
         name: "commodities.totals",

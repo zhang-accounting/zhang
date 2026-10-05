@@ -92,6 +92,10 @@ pub(crate) fn message(kind: &ErrorKind) -> &'static str {
         ErrorKind::CloseNonZeroAccount => "Trying to close an account with non zero balance",
         ErrorKind::BudgetDoesNotExist => "Budget does not exist",
         ErrorKind::DefineDuplicatedBudget => "Trying to define duplicated budget name",
+        ErrorKind::BudgetCommodityMismatch => {
+            "No price converts {{meta.commodity}} to {{meta.budget_commodity}}, the commodity of budget {{meta.budget_name}}: the amount does not count toward it"
+        }
+        ErrorKind::BudgetClosed => "Budget {{meta.budget_name}} is closed: postings to {{meta.account_name}} after its close do not count toward it",
         ErrorKind::MultipleOperatingCurrencyDetect => "Ledger contains multiple operating currency options, which is not recommended in zhang",
         ErrorKind::ParseInvalidMeta => "Directive has an invalid meta value",
         ErrorKind::UnsupportedBookingMethod => "Booking method is not supported yet, the account uses the default booking method",
@@ -315,6 +319,8 @@ mod tests {
             ErrorKind::CloseNonZeroAccount,
             ErrorKind::BudgetDoesNotExist,
             ErrorKind::DefineDuplicatedBudget,
+            ErrorKind::BudgetCommodityMismatch,
+            ErrorKind::BudgetClosed,
             ErrorKind::MultipleOperatingCurrencyDetect,
             ErrorKind::ParseInvalidMeta,
             ErrorKind::UnsupportedBookingMethod,

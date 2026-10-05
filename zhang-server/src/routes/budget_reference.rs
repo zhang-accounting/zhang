@@ -13,7 +13,9 @@
 //!   pair itself, else its inverse, else through the cost currency of a posting held at cost;
 //!   an amount no price converts is left out;
 //! - each month starts with what was available at the end of the previous one, and a budget is
-//!   closed from the month of its first `budget-close`.
+//!   closed from the month of its first `budget-close`. It takes no activity after it: a
+//!   posting dated after the day of a `budget-close` without a time, or after the time of one
+//!   with a time, is not its own (#499).
 //!
 //! The one posting of a transaction written without units balances the others: its units are
 //! the negated sum of their weights (units, times the cost or the price when there is one),
@@ -24,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Months, NaiveDate};
 use zhang_ast::amount::Amount;
-use zhang_ast::{AccountType, Directive, SingleTotalPrice, Transaction};
+use zhang_ast::{AccountType, Date, Directive, SingleTotalPrice, Transaction};
 use zhang_core::ledger::Ledger;
 
 /// A budget's figures in a month.
@@ -42,6 +44,8 @@ struct ReferenceBudget {
     first: NaiveDate,
     /// the first day of the month of the first `budget-close`
     closed_from: Option<NaiveDate>,
+    /// the date of the first `budget-close`, as written
+    close: Option<Date>,
     /// by first day of the month
     added: BTreeMap<NaiveDate, BigDecimal>,
     activity: BTreeMap<NaiveDate, BigDecimal>,
@@ -58,6 +62,8 @@ pub(crate) struct Reference {
 /// A posting of a budget's account, as the reference sees it.
 pub(crate) struct ReferencePosting {
     pub date: NaiveDate,
+    /// the date of its transaction, as written, with its time if any
+    pub written: Date,
     /// the budgets of the account's `open` in effect at the posting's date
     pub budgets: BTreeSet<String>,
     pub account: String,
@@ -69,6 +75,20 @@ pub(crate) struct ReferencePosting {
 
 fn first_of_month(date: NaiveDate) -> NaiveDate {
     date.with_day(1).expect("every month has a first day")
+}
+
+/// Whether a transaction dated `date` comes after the `budget-close` dated `close`: after its
+/// day without a time, after its time with one.
+fn after_close(close: Option<&Date>, date: &Date) -> bool {
+    let wall_clock = |date: &Date| match date {
+        Date::Date(day) => day.and_hms_opt(0, 0, 0).expect("midnight exists"),
+        Date::DateHour(datetime) | Date::Datetime(datetime) => *datetime,
+    };
+    match close {
+        None => false,
+        Some(Date::Date(day)) => date.naive_date() > *day,
+        Some(close) => wall_clock(date) > wall_clock(close),
+    }
 }
 
 /// The prices of the ledger: per (commodity, currency), the rate of each date, the last of a
@@ -195,6 +215,7 @@ impl Reference {
                         commodity: budget.commodity.clone(),
                         first: first_of_month(budget.date.naive_date()),
                         closed_from: None,
+                        close: None,
                         added: BTreeMap::new(),
                         activity: BTreeMap::new(),
                     });
@@ -209,7 +230,10 @@ impl Reference {
                 }
                 Directive::BudgetClose(it) => {
                     if let Some(budget) = budgets.get_mut(&it.name) {
-                        budget.closed_from.get_or_insert(first_of_month(it.date.naive_date()));
+                        if budget.close.is_none() {
+                            budget.closed_from = Some(first_of_month(it.date.naive_date()));
+                            budget.close = Some(it.date.clone());
+                        }
                     }
                 }
                 Directive::Transaction(transaction) => {
@@ -228,13 +252,18 @@ impl Reference {
                         *balance += &units.number;
                         postings.entry(account.clone()).or_default().push(ReferencePosting {
                             date,
+                            written: transaction.date.clone(),
                             budgets: names.clone(),
                             account,
                             narration: transaction.narration.as_ref().map(|it| it.as_str().to_owned()).filter(|it| !it.is_empty()),
                             units: units.clone(),
                             after: balance.clone(),
                         });
-                        let names = names.iter().filter(|name| budgets.contains_key(*name)).collect::<Vec<_>>();
+                        // the defined budgets the posting counts in: none after its close
+                        let names = names
+                            .iter()
+                            .filter(|name| budgets.get(*name).is_some_and(|budget| !after_close(budget.close.as_ref(), &transaction.date)))
+                            .collect::<Vec<_>>();
                         let cost_currency = posting.cost.as_ref().and_then(|cost| cost.base.as_ref()).map(|cost| cost.commodity.as_str());
                         let negated = matches!(
                             posting.account.account_type,
@@ -256,13 +285,14 @@ impl Reference {
     }
 
     /// The postings of a budget in the month of `month`: those of the accounts whose `open` in
-    /// effect at their date names it.
+    /// effect at their date names it, but none after the budget's close.
     pub(crate) fn month_postings(&self, name: &str, month: NaiveDate) -> Vec<&ReferencePosting> {
         let month = first_of_month(month);
+        let close = self.budgets.get(name).and_then(|budget| budget.close.as_ref());
         self.postings
             .values()
             .flatten()
-            .filter(|posting| first_of_month(posting.date) == month && posting.budgets.contains(name))
+            .filter(|posting| first_of_month(posting.date) == month && posting.budgets.contains(name) && !after_close(close, &posting.written))
             .collect()
     }
 

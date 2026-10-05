@@ -1397,6 +1397,8 @@ export interface operations {
                   | 'CloseNonZeroAccount'
                   | 'BudgetDoesNotExist'
                   | 'DefineDuplicatedBudget'
+                  | 'BudgetCommodityMismatch'
+                  | 'BudgetClosed'
                   | 'MultipleOperatingCurrencyDetect'
                   | 'ParseInvalidMeta'
                   | 'UnsupportedBookingMethod'

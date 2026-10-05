@@ -34,6 +34,8 @@
     "TransactionExplicitPostingHaveMultipleCommodity": "交易的显式记录使用了多种货币",
     "NoEnoughCommodityLot": "没有足够的货币批次用于记账",
     "BudgetDoesNotExist": "预算不存在",
+    "BudgetCommodityMismatch": "没有价格可以把 {{meta.commodity}} 换算为预算 {{meta.budget_name}} 的货币 {{meta.budget_commodity}}：这笔金额不计入预算",
+    "BudgetClosed": "预算 {{meta.budget_name}} 已关闭：{{meta.account_name}} 在关闭之后的记账行不计入它",
     "ParseInvalidMeta": "指令中存在无效的 meta 值",
     "UnsupportedBookingMethod": "暂不支持该预订方法，账户改用默认的预订方法",
     "AmbiguousLotMatch": "STRICT 预订方法下，减仓匹配到多个批次，无法确定减哪一个",

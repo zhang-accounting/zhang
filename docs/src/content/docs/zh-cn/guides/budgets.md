@@ -69,7 +69,7 @@ sidebar:
 
 - 关联账户的每条记账行都会计入该预算在交易所在月份的已支出。退款，即负数的记账行，会减少已支出。
 - 记账行只从 `budget` 指令的日期起计入。预算存在之前关联账户上的记账行会被跳过，并按账户各报告一次 [`BudgetDoesNotExist`](/zh-cn/reference/error-codes/#budgetdoesnotexist)。
-- 其他货币的记账行会用账本中的价格，按其日期换算为预算的货币。没有价格可以换算的记账行不计入。
+- 其他货币的记账行会用账本中的价格，按其日期换算为预算的货币。没有价格可以换算的记账行不计入，绝不会被当作另一种货币的数字相加，并报告为 [`BudgetCommodityMismatch`](/zh-cn/reference/error-codes/#budgetcommoditymismatch)：添加 `price` 即可计入。其他货币的 `budget-add` 或 `budget-transfer` 也是如此。
 - 记账行计入其日期当时账户 `open` 所指的预算。如果关闭一个账户后用其他 `budget` 元数据重新开启，之后的记账行计入新的预算，之前的记账行仍属原来的预算。
 
 ## 关闭预算
@@ -78,7 +78,13 @@ sidebar:
 2024-12-31 budget-close Fun
 ```
 
-`budget-close` 从其日期所在的月份起关闭预算：预算页面在这个月及之后的月份把它显示为**已关闭**。第二条 `budget-close` 不会再改变什么。指定了它的账户仍会把支出计入它，所以也要删除这些账户的 `budget` 元数据。
+`budget-close` 关闭预算：预算页面从其日期所在的月份起把它显示为**已关闭**，之前的月份显示为未关闭。第二条 `budget-close` 不会再改变什么。
+
+已关闭的预算不再计入支出。预算在 `budget-close` 当天全天仍然有效；带时间时（`2024-12-31 18:00:00 budget-close Fun`）有效到该时间。之后记到其账户的记账行不计入它，张记账会把每个账户的第一笔报告为 [`BudgetClosed`](/zh-cn/reference/error-codes/#budgetclosed)：请删除这些账户的 `budget` 元数据，或者把它们关联到另一个预算。关闭之后 `budget-add` 和 `budget-transfer` 仍然计入，所以可以把剩下的金额转到另一个预算：
+
+```zhang
+2025-01-02 budget-transfer Fun Food 200 CNY
+```
 
 ## 在网页界面中跟踪预算
 

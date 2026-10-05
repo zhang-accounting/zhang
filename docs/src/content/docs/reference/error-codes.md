@@ -379,6 +379,53 @@ A `budget` directive names a budget that already exists. The second definition i
 
 **Fix:** remove the second `budget` directive, or give it another name.
 
+## BudgetCommodityMismatch
+
+*No price converts {{meta.commodity}} to {{meta.budget_commodity}}, the commodity of budget {{meta.budget_name}}: the amount does not count toward it*
+
+An amount of a [budget](/reference/directives/budget/) is in another commodity than the budget's, and no `price` on or
+before its date converts it:
+
+- the amount of a `budget-add` or `budget-transfer`;
+- a posting to an account linked to the budget with its `budget` metadata. The error has the `account_name` meta.
+
+Zhang converts such an amount to the budget's commodity at its date, with the prices of the ledger, as
+`convert(position, currency, date)` does in a query. Without a price, the amount is left out of the budget: it is
+never added as a number of another commodity. The error has the `budget_name`, `commodity` and `budget_commodity`
+metas, and the transaction is still booked.
+
+```zhang
+2024-01-01 budget Food CNY
+2024-01-02 budget-add Food 50 USD
+```
+
+**Fix:** add a `price` of the commodity in the budget's commodity, dated on or before the amount, such as
+`2024-01-01 price USD 7.10 CNY`, or write the amount in the budget's commodity.
+
+## BudgetClosed
+
+*Budget {{meta.budget_name}} is closed: postings to {{meta.account_name}} after its close do not count toward it*
+
+A posting to an account linked to a [budget](/reference/directives/budget/) comes after the budget's `budget-close`.
+A closed budget takes no activity: a `budget-close` with only a date leaves the budget open through that whole day,
+and one with a time closes it at that time.
+
+```zhang
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 budget Food CNY
+2024-03-01 budget-close Food
+
+2024-04-05 * "Cafe" "lunch"
+  Expenses:Food 30 CNY
+  Assets:Cash
+```
+
+The posting does not count toward the budget, and the transaction is still booked. It is reported once per account
+and budget, on the first such transaction, with the `account_name` and `budget_name` metas. **Fix:** remove the
+`budget` metadata from the account's `open`, or close and reopen the account without it, if the account should no
+longer belong to the budget; or move the `budget-close` later.
+
 ## MultipleOperatingCurrencyDetect
 
 *Ledger contains multiple operating currency options, which is not recommended in zhang*

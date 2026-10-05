@@ -16,6 +16,7 @@ use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_core::domains::schemas::PriceDomain;
 use zhang_core::ledger::Ledger;
+use zhang_shared::prices::Conversion;
 
 use crate::decimal::mul_in_context as mul;
 use crate::table::LedgerCache;
@@ -76,16 +77,12 @@ impl PriceMap {
 /// beancount `convert.convert_amount`: `units` converted with a direct market rate, else with
 /// the implied rate through `via` (skipped when `via` is the target), else unchanged.
 pub(crate) fn convert_units(units: &Amount, target: &str, via: Option<&str>, prices: &PriceMap, date: Option<NaiveDate>) -> Amount {
-    if let Some(rate) = prices.rate(&units.commodity, target, date) {
-        return Amount::new(mul(&units.number, &rate), target);
+    match prices.0.conversion(&units.commodity, target, via, date) {
+        Some(Conversion::Rate(rate)) => Amount::new(mul(&units.number, &rate), target),
+        // two roundings, like beancount's `number * rate1 * rate2`
+        Some(Conversion::Via(rate1, rate2)) => Amount::new(mul(&mul(&units.number, &rate1), &rate2), target),
+        None => units.clone(),
     }
-    if let Some(via) = via.filter(|via| *via != target) {
-        if let (Some(rate1), Some(rate2)) = (prices.rate(&units.commodity, via, date), prices.rate(via, target, date)) {
-            // two roundings, like beancount's `number * rate1 * rate2`
-            return Amount::new(mul(&mul(&units.number, &rate1), &rate2), target);
-        }
-    }
-    units.clone()
 }
 
 impl Position {

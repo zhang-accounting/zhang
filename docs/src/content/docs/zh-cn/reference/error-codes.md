@@ -313,6 +313,43 @@ Beancount 账本中的一条 `document` 指向的文件不存在：相对于 `do
 
 **修正方法**：删除第二条 `budget` 指令，或者给它另起一个名字。
 
+## BudgetCommodityMismatch
+
+*没有价格可以把 {{meta.commodity}} 换算为预算 {{meta.budget_name}} 的货币 {{meta.budget_commodity}}：这笔金额不计入预算*
+
+[预算](/zh-cn/reference/directives/budget/)的某笔金额使用的商品与预算的商品不同，并且在其日期或之前没有 `price` 可以换算它：
+
+- `budget-add` 或 `budget-transfer` 的金额；
+- 记到通过 `budget` 元数据关联到该预算的账户的记账行。这个错误带有 `account_name` 元数据。
+
+张记账会用账本中的价格，按金额的日期把它换算为预算的商品，与查询中的 `convert(position, currency, date)` 相同。没有价格时，这笔金额不计入预算，绝不会被当作另一种商品的数字加进去。这个错误带有 `budget_name`、`commodity` 和 `budget_commodity` 元数据，交易仍会记账。
+
+```zhang
+2024-01-01 budget Food CNY
+2024-01-02 budget-add Food 50 USD
+```
+
+**修正方法**：添加该商品以预算商品计的 `price`，日期在这笔金额之日或之前，例如 `2024-01-01 price USD 7.10 CNY`；或者用预算的商品写这笔金额。
+
+## BudgetClosed
+
+*预算 {{meta.budget_name}} 已关闭：{{meta.account_name}} 在关闭之后的记账行不计入它*
+
+记到关联了某个[预算](/zh-cn/reference/directives/budget/)的账户的记账行，在该预算的 `budget-close` 之后。已关闭的预算不再计入支出：只有日期的 `budget-close` 让预算在当天全天仍然有效，带时间的则在该时间关闭预算。
+
+```zhang
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 budget Food CNY
+2024-03-01 budget-close Food
+
+2024-04-05 * "Cafe" "lunch"
+  Expenses:Food 30 CNY
+  Assets:Cash
+```
+
+该记账行不计入预算，交易仍会记账。每个账户和预算只在第一笔这样的交易上报告一次，带有 `account_name` 和 `budget_name` 元数据。**修正方法**：如果该账户不应再属于这个预算，从账户的 `open` 中删除 `budget` 元数据，或者关闭账户后不带它重新开启；或者把 `budget-close` 移到更晚的日期。
+
 ## MultipleOperatingCurrencyDetect
 
 *账本中存在多项 operating currency 的配置，这是 zhang 中不推荐的用法*

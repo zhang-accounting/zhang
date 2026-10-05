@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
@@ -25,6 +25,7 @@ use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{
     builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage, StageContext,
 };
+use crate::process::budget::{DefinedBudget, ForeignAmount};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
 use crate::store::{BalanceAssertionDomain, CommodityLotRecord, Store};
 use crate::utils::id::FromSpan;
@@ -57,12 +58,23 @@ pub struct Ledger {
     /// Final stage results consumed while materializing the store.
     validation: Option<FinalValidation>,
 
-    /// Names defined so far, solely for budget validation during the store fold. The query engine
-    /// computes budget figures from directives and booked postings; no budget totals are stored.
-    pub(crate) defined_budgets: Option<HashSet<String>>,
+    /// The budgets defined so far, solely for budget validation during the store fold. The query
+    /// engine computes budget figures from directives and booked postings; no budget totals are
+    /// stored.
+    pub(crate) defined_budgets: Option<HashMap<String, DefinedBudget>>,
+
+    /// the amounts of budgets in another commodity, checked for a price after the store fold
+    pub(crate) foreign_budget_amounts: Vec<ForeignAmount>,
+
+    /// the budgets of each account during the store fold: those every `budget` entry of its
+    /// latest `open` names, as the query engine counts its postings in them
+    pub(crate) open_budgets: HashMap<String, BTreeSet<String>>,
 
     /// the (account, budget) pairs whose undefined budget the store fold already reported
     pub(crate) reported_undefined_budgets: HashSet<(String, String)>,
+
+    /// the (account, budget) pairs whose closed budget the store fold already reported
+    pub(crate) reported_closed_budgets: HashSet<(String, String)>,
 
     /// the clock of this load, read at most once, on first use; a reload starts a new reading of the same [`Clock`]
     pub(crate) clock: LoadClock,
@@ -201,7 +213,10 @@ impl Ledger {
             trx_counter: AtomicI32::new(1),
             validation: None,
             defined_budgets: None,
+            foreign_budget_amounts: vec![],
+            open_budgets: HashMap::new(),
             reported_undefined_budgets: HashSet::new(),
+            reported_closed_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
             derived: Derived::default(),
             stale: false,
@@ -448,7 +463,7 @@ impl Ledger {
     /// fold the pipeline's output into the store; `assertions` are what the balance-check stage found
     /// for the `balance` directives
     fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>], mut assertions: AssertionOutcomes) -> Result<(), ZhangError> {
-        self.defined_budgets = Some(HashSet::new());
+        self.defined_budgets = Some(HashMap::new());
         // the `balance ... with pad` directives of the balance entries being folded: their checks are kept after
         // the last one, where the balance-check stage checked them, so they follow their padding in the journal
         let mut pads: Vec<(BalancePad, SpanInfo)> = vec![];
@@ -494,7 +509,10 @@ impl Ledger {
             }
         }
         self.insert_pad_assertions(&mut pads, &mut assertions)?;
+        // every price is known now
+        crate::process::budget::report_unconverted_amounts(self)?;
         self.defined_budgets = None;
+        self.open_budgets = HashMap::new();
         Ok(())
     }
 
@@ -2562,6 +2580,155 @@ mod test {
             assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
             assert_eq!(ledger.store.read().unwrap().transactions.len(), 2);
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
+        }
+
+        fn metas(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+            pairs.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
+        }
+
+        fn closed_budget(span: &str, account: &str, budget: &str) -> (ErrorKind, String, BTreeMap<String, String>) {
+            (
+                ErrorKind::BudgetClosed,
+                span.to_owned(),
+                metas(&[("account_name", account), ("budget_name", budget)]),
+            )
+        }
+
+        fn unconverted(span: &str, commodity: &str, budget: &str, account: Option<&str>) -> (ErrorKind, String, BTreeMap<String, String>) {
+            let mut metas = metas(&[("budget_name", budget), ("commodity", commodity), ("budget_commodity", "CNY")]);
+            if let Some(account) = account {
+                metas.insert("account_name".to_owned(), account.to_owned());
+            }
+            (ErrorKind::BudgetCommodityMismatch, span.to_owned(), metas)
+        }
+
+        /// #499: the amounts of a budget in another commodity that no price converts are reported, as
+        /// the query engine leaves them out of the budget, and so are the postings after its close
+        #[test]
+        fn should_report_amounts_no_price_converts_and_postings_after_the_close() {
+            let ledger = load(indoc! {r#"
+                1970-01-01 commodity USD
+                2023-01-01 budget Food CNY
+                2023-01-01 budget-add Food 1000 CNY
+                2023-01-02 budget-add Food 50 USD
+                2023-01-10 "Shop" "lunch in CNY"
+                  Assets:Cash -100 CNY
+                  Expenses:Food 100 CNY
+                2023-01-11 "Shop" "lunch in USD"
+                  Assets:Cash -20 USD
+                  Expenses:Food 20 USD
+                2023-03-01 budget-close Food
+                2023-03-01 "Shop" "lunch on the close day"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+                2023-04-05 "Shop" "lunch after the close"
+                  Assets:Cash -30 CNY
+                  Expenses:Food 30 CNY
+                2023-04-06 "Shop" "dinner after the close"
+                  Assets:Cash -40 CNY
+                  Expenses:Food 40 CNY
+            "#});
+
+            let mut errors = errors(&ledger);
+            errors.sort_by(|a, b| a.1.cmp(&b.1));
+            assert_eq!(
+                errors,
+                vec![
+                    unconverted("2023-01-02 budget-add Food 50 USD", "USD", "Food", None),
+                    unconverted(r#"2023-01-11 "Shop" "lunch in USD""#, "USD", "Food", Some("Expenses:Food")),
+                    // once per account and budget
+                    closed_budget(r#"2023-04-05 "Shop" "lunch after the close""#, "Expenses:Food", "Food"),
+                ]
+            );
+            // reported, and still booked: 100 CNY, 20 USD, 10, 30 and 40 CNY
+            assert_eq!(ledger.store.read().unwrap().transactions.len(), 5);
+            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(200));
+            assert!(
+                ledger.foreign_budget_amounts.is_empty() && ledger.open_budgets.is_empty(),
+                "validation state is dropped after loading"
+            );
+        }
+
+        /// an amount a price converts at its date is no error, whether the price is on the same day, later in the
+        /// file, inverse, or through the cost currency of a posting held at cost
+        #[test]
+        fn should_not_report_amounts_a_price_converts() {
+            let ledger = load(indoc! {r#"
+                1970-01-01 commodity USD
+                1970-01-01 commodity EUR
+                1970-01-01 commodity GOLD
+                2023-01-01 open Assets:Bank
+                2023-01-01 open Expenses:Gold GOLD
+                  budget: "Food"
+                2023-01-01 budget Food CNY
+                2023-01-02 budget-add Food 50 USD
+                2023-01-02 price USD 7.1 CNY
+                2023-01-03 price CNY 0.13 EUR
+                2023-01-03 budget-transfer Food Food 10 EUR
+                2023-01-04 price GOLD 450 USD
+                2023-01-05 "Shop" "gold"
+                  Assets:Bank -400 USD
+                  Expenses:Gold 1 GOLD {400 USD}
+                2023-01-06 budget-add Food 10 EUR
+                2022-12-31 budget-add Food 5 EUR
+            "#});
+
+            // the budget-add of 2022-12-31 names a budget not defined yet
+            assert_eq!(
+                errors(&ledger).into_iter().map(|it| (it.0, it.1)).collect_vec(),
+                vec![(ErrorKind::BudgetDoesNotExist, "2022-12-31 budget-add Food 5 EUR".to_owned())]
+            );
+        }
+
+        /// a budget-close with a time closes the budget at that time; one without lasts through its day
+        #[test]
+        fn should_close_a_budget_at_the_time_of_its_close() {
+            let ledger = load(indoc! {r#"
+                2023-01-01 budget Food CNY
+                2023-03-01 12:00:00 budget-close Food
+                2023-03-01 10:00:00 "Shop" "before the close"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+                2023-03-01 12:00:00 "Shop" "at the close"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+                2023-03-01 13:00:00 "Shop" "after the close"
+                  Assets:Cash -10 CNY
+                  Expenses:Food 10 CNY
+            "#});
+
+            assert_eq!(
+                errors(&ledger),
+                vec![closed_budget(r#"2023-03-01 13:00:00 "Shop" "after the close""#, "Expenses:Food", "Food")]
+            );
+        }
+
+        /// a posting counts in the budgets every `budget` entry of its account's latest `open` names, as the query
+        /// engine counts it: an account opened again without a budget is no longer the closed budget's
+        #[test]
+        fn should_follow_the_budgets_of_the_latest_open() {
+            let ledger = load(indoc! {r#"
+                2023-01-01 open Expenses:Shared CNY
+                  budget: "Food"
+                  budget: "Fun"
+                2023-01-01 budget Food CNY
+                2023-01-01 budget Fun CNY
+                2023-02-01 budget-close Fun
+                2023-03-01 "Shop" "shared"
+                  Assets:Cash -10 CNY
+                  Expenses:Shared 10 CNY
+                2023-03-02 "Shop" "refund"
+                  Assets:Cash 10 CNY
+                  Expenses:Shared -10 CNY
+                2023-03-31 close Expenses:Shared
+                2023-04-01 open Expenses:Shared CNY
+                  budget: "Food"
+                2023-04-02 "Shop" "shared again"
+                  Assets:Cash -10 CNY
+                  Expenses:Shared 10 CNY
+            "#});
+
+            assert_eq!(errors(&ledger), vec![closed_budget(r#"2023-03-01 "Shop" "shared""#, "Expenses:Shared", "Fun")]);
         }
     }
 }

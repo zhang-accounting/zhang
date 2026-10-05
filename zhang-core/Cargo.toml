@@ -15,6 +15,7 @@ openapi = ["dep:gotcha_core", "zhang-ast/openapi"]
 
 [dependencies]
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
+zhang-shared = { version = "0.1", path = "../zhang-shared" }
 gotcha_core = { workspace = true, optional = true }
 thiserror = { workspace = true }
 log = { workspace = true }

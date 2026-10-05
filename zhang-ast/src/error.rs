@@ -33,6 +33,12 @@ pub enum ErrorKind {
 
     BudgetDoesNotExist,
     DefineDuplicatedBudget,
+    /// an amount of a `budget-add` or `budget-transfer`, or a posting to an account of a budget, in another
+    /// commodity than the budget's, that no price on or before its date converts: it does not count toward the budget
+    BudgetCommodityMismatch,
+    /// a notice: a posting to an account of a budget after the budget's `budget-close`. It does not count toward the
+    /// budget. Reported once per account and budget
+    BudgetClosed,
 
     MultipleOperatingCurrencyDetect,
 

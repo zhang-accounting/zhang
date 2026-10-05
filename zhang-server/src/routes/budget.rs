@@ -127,8 +127,8 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
 }
 
 /// What happened to a budget in a month, newest first: what its `budget-add` and
-/// `budget-transfer` directives put in, and the postings of its accounts, with their times in
-/// the ledger's timezone.
+/// `budget-transfer` directives put in, and the postings of its accounts that count toward it
+/// (none after its close), with their times in the ledger's timezone.
 #[api(group = "budget")]
 pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path<BudgetIntervalDetailRequest>) -> ApiResult<Vec<BudgetIntervalEventEntity>> {
     let BudgetIntervalDetailRequest { budget_name, year, month } = paths.0;
@@ -139,6 +139,8 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
             return Ok(None);
         };
         let accounts = budget.set("accounts")?.unwrap_or_default();
+        // a closed budget lists no posting after its close
+        let (close, close_time) = (budget.get("close")?.clone(), budget.get("close_time")?.clone());
 
         let params = Params::new().bind("name", budget_name.as_str()).bind("month", month);
         let events = execute(ledger, "budgets.events", &params, false)?;
@@ -158,7 +160,9 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
         let params = Params::new()
             .bind("accounts", Value::Set(accounts))
             .bind("month", month)
-            .bind("name", budget_name.as_str());
+            .bind("name", budget_name.as_str())
+            .bind("close", close)
+            .bind("close_time", close_time);
         let postings = execute(ledger, "budgets.postings", &params, false)?;
         let postings = rows("budgets.postings", &postings)
             .map(|row| {

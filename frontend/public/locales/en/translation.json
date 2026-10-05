@@ -44,6 +44,8 @@
     "TransactionExplicitPostingHaveMultipleCommodity": "Explicit postings of the transaction use multiple commodities",
     "NoEnoughCommodityLot": "Not enough commodity lots to book this posting",
     "BudgetDoesNotExist": "Budget does not exist",
+    "BudgetCommodityMismatch": "No price converts {{meta.commodity}} to {{meta.budget_commodity}}, the commodity of budget {{meta.budget_name}}: the amount does not count toward it",
+    "BudgetClosed": "Budget {{meta.budget_name}} is closed: postings to {{meta.account_name}} after its close do not count toward it",
     "ParseInvalidMeta": "Directive has an invalid meta value",
     "UnsupportedBookingMethod": "Booking method is not supported yet, the account uses the default booking method",
     "AmbiguousLotMatch": "Reduction matches several lots, which is ambiguous under the STRICT booking method",
