@@ -318,17 +318,17 @@ option "operating_currency" "CNY"
             &["13", "transaction", "00:00:00", "dinner", "Assets:Cash, Expenses:Food"],
         ])
     );
-    // beancount's order of the rows
+    // the rows come in that order
     assert_eq!(
         run(&ledger, "SELECT seq, type FROM #entries WHERE date >= 2024-01-05"),
         rows(&[
-            &["8", "balance"],
             &["6", "transaction"],
             &["7", "document"],
+            &["8", "balance"],
             &["9", "balance"],
-            &["12", "balance"],
-            &["11", "balance"],
             &["10", "transaction"],
+            &["11", "balance"],
+            &["12", "balance"],
             &["13", "transaction"],
         ])
     );

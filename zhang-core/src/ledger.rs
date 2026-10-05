@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use itertools::Itertools;
@@ -38,6 +38,54 @@ use crate::{ZhangError, ZhangResult};
 
 /// stages with the slot ([`PluginStage`]) they run in, relative to the booking stage
 type SlottedStages = Vec<(PluginStage, Box<dyn ProcessStage>)>;
+
+/// The kind of a directive, in the order beancount sorts the directives of a day ([`Ledger::sort_directives_datetime`])
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum Kind {
+    Open,
+    Commodity,
+    /// a balance assertion, or a transaction flagged `P` that is no padding of a `pad`
+    BalanceEntry,
+    Other,
+    Document,
+    Close,
+}
+
+/// Where a dated directive sorts in the stream ([`Ledger::sort_keys`]): by its date, then within its day by its time
+/// and then its kind in a zhang ledger, by its kind and then its time in a beancount ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct SortKey {
+    date: NaiveDate,
+    /// the kind in a beancount ledger, which orders a day by kind first; `Kind::Open` in a zhang ledger
+    first: Kind,
+    /// the time of day, after every time when it is the end of the day
+    time: (bool, NaiveTime),
+    /// the kind in a zhang ledger, which orders a day by time first; `Kind::Open` in a beancount ledger
+    then: Kind,
+}
+
+impl SortKey {
+    fn new(dialect: Dialect, date: NaiveDate, time: (bool, NaiveTime), kind: Kind) -> SortKey {
+        match dialect {
+            Dialect::Zhang => SortKey {
+                date,
+                first: Kind::Open,
+                time,
+                then: kind,
+            },
+            Dialect::Beancount => SortKey {
+                date,
+                first: kind,
+                time,
+                then: Kind::Open,
+            },
+        }
+    }
+
+    fn kind(&self) -> Kind {
+        self.first.max(self.then)
+    }
+}
 
 pub struct Ledger {
     pub entry: (PathBuf, String),
@@ -81,6 +129,10 @@ pub struct Ledger {
     /// the (account, budget) pairs whose closed budget the store fold already reported
     pub(crate) reported_closed_budgets: HashSet<(String, String)>,
 
+    /// during the store fold, the date and time of the first `commodity` directive of each commodity: an `open` may
+    /// name a commodity defined at its own date and time, which sorts after it ([`Ledger::sort_directives_datetime`])
+    pub(crate) commodity_dates: HashMap<String, NaiveDateTime>,
+
     /// the clock of this load, read at most once, on first use; a reload starts a new reading of the same [`Clock`]
     pub(crate) clock: LoadClock,
 
@@ -122,14 +174,14 @@ struct SplitDirectives {
 }
 
 impl SplitDirectives {
-    fn new(directives: Vec<Spanned<Directive>>) -> Self {
+    fn new(directives: Vec<Spanned<Directive>>, dialect: Dialect) -> Self {
         // split directive into two groups.
         // first is meta which is no date
         // second is dated directives
         let (meta_directives, dated_directive): (Vec<Spanned<Directive>>, Vec<Spanned<Directive>>) =
             directives.into_iter().partition(|it| it.datetime().is_none());
 
-        let dated_directives = Ledger::sort_directives_datetime(dated_directive);
+        let dated_directives = Ledger::sort_directives_datetime(dated_directive, dialect);
 
         // find all options which are not defined by users
         let options_key: HashSet<Cow<str>> = meta_directives
@@ -271,6 +323,7 @@ impl Ledger {
             foreign_budget_amounts: vec![],
             reported_undefined_budgets: HashSet::new(),
             reported_closed_budgets: HashSet::new(),
+            commodity_dates: HashMap::new(),
             clock: LoadClock::new(context.clock),
             lifecycle: AccountLifecycle::default(),
             derived: Derived::default(),
@@ -278,7 +331,7 @@ impl Ledger {
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
         };
-        let split = SplitDirectives::new(context.directives);
+        let split = SplitDirectives::new(context.directives, context.dialect);
         (ledger, split)
     }
 
@@ -460,15 +513,20 @@ impl Ledger {
 }
 
 impl Ledger {
-    /// sort the stream by the key `(datetime, rank)` of [`Ledger::sort_keys`], stable — directives with an
+    /// sort the stream in the order of `dialect` by the key of [`Ledger::sort_keys`], stable — directives with an
     /// equal key keep their source order. The key of a directive depends on the stream only through the
     /// `pad` directives in it, and sorting changes no key, so sorting is idempotent and well-defined for any
-    /// input.
+    /// input. This is the order zhang checks and books the ledger in, and the order it lists its entries in.
     ///
-    /// - undated directives (option, plugin, include, comment) come first
-    /// - within one datetime: `open` and `commodity` (rank 0, together so that an
-    ///   `open` naming a same-day commodity keeps its source order), then balance
-    ///   entries (rank 1), then everything else (rank 2)
+    /// - undated directives (option, plugin, include, comment) come first, then the dated ones by date
+    /// - within a day, a zhang ledger orders its directives by their time, then by kind; a beancount ledger, as
+    ///   beancount does, by kind, then by their time (a zhang extension of beancount files, which carry it as `time`
+    ///   metadata). A directive written without a time is at midnight, but for a `close` with only a date: it takes
+    ///   effect at the end of its day ([`Date::close_precedes`]), so it comes after everything else of that day
+    /// - the kinds, in order: `open`, `commodity`, the balance entries, every other directive, `document`, `close`.
+    ///   That is beancount's order of a day (an `open` first, balance assertions before the other directives,
+    ///   `document` and `close` last), with a `commodity` before the balance assertions, as it defines what the
+    ///   directives after it use
     /// - balance entries are balance pad/check directives *and* transactions
     ///   flagged `P` — the padding transactions balance pads materialize into. The
     ///   pad stage inserting one right after its directive can therefore rely on it
@@ -480,47 +538,58 @@ impl Ledger {
     ///   its day when that is later than its own. The padding transaction of a `pad`,
     ///   which carries the span of its `pad`, is no balance entry either: it sorts with
     ///   its `pad`, and stays right after it, where the pad stage puts it
-    pub(crate) fn sort_directives_datetime(directives: Vec<Spanned<Directive>>) -> Vec<Spanned<Directive>> {
-        let keys = Ledger::sort_keys(&directives);
+    pub(crate) fn sort_directives_datetime(directives: Vec<Spanned<Directive>>, dialect: Dialect) -> Vec<Spanned<Directive>> {
+        let keys = Ledger::sort_keys(&directives, dialect);
         let mut keyed = keys.into_iter().zip(directives).collect::<Vec<_>>();
         // `sort_by_key` is stable; `None` (undated) sorts before any datetime
         keyed.sort_by_key(|(key, _)| *key);
         keyed.into_iter().map(|(_, directive)| directive).collect()
     }
 
-    /// the key `(datetime, rank)` [`Ledger::sort_directives_datetime`] sorts each directive of `directives` by
-    pub(crate) fn sort_keys(directives: &[Spanned<Directive>]) -> Vec<(Option<NaiveDateTime>, u8)> {
+    /// the key [`Ledger::sort_directives_datetime`] sorts each directive of `directives` by, in the order of `dialect`;
+    /// `None` for an undated directive
+    pub(crate) fn sort_keys(directives: &[Spanned<Directive>], dialect: Dialect) -> Vec<Option<SortKey>> {
         // the places of the `pad` directives, which their padding transactions share
         let pads = directives
             .iter()
             .filter(|it| matches!(it.data, Directive::Pad(_)))
             .map(|it| (&it.span.filename, it.span.start, it.span.end))
             .collect::<HashSet<_>>();
-        let rank = |directive: &Spanned<Directive>| match &directive.data {
-            Directive::Open(_) | Directive::Commodity(_) => 0,
-            Directive::Transaction(_) if pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end)) => 2,
-            data if Ledger::is_balance_entry(data) => 1,
-            _ => 2,
+        let padding = |directive: &Spanned<Directive>| pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end));
+        let kind = |directive: &Spanned<Directive>| match &directive.data {
+            Directive::Open(_) => Kind::Open,
+            Directive::Commodity(_) => Kind::Commodity,
+            Directive::Transaction(_) if padding(directive) => Kind::Other,
+            data if Ledger::is_balance_entry(data) => Kind::BalanceEntry,
+            Directive::Document(_) => Kind::Document,
+            Directive::Close(_) => Kind::Close,
+            _ => Kind::Other,
         };
-        let mut keys = directives.iter().map(|it| (it.datetime(), rank(it))).collect::<Vec<_>>();
+        let mut keys = directives
+            .iter()
+            .map(|directive| {
+                let datetime = directive.datetime()?;
+                // a `close` with only a date takes effect at the end of its day
+                let end_of_day = matches!(&directive.data, Directive::Close(close) if matches!(close.date, Date::Date(_)));
+                Some(SortKey::new(dialect, datetime.date(), (end_of_day, datetime.time()), kind(directive)))
+            })
+            .collect::<Vec<_>>();
         if pads.is_empty() {
             return keys;
         }
         // the time of the last balance entry of each day: the `pad`s of that day sort after it
-        let mut last_balance_entries: HashMap<NaiveDate, NaiveDateTime> = HashMap::new();
-        for (datetime, rank) in &keys {
-            if let (Some(datetime), 1) = (datetime, rank) {
-                let last = last_balance_entries.entry(datetime.date()).or_insert(*datetime);
-                *last = (*last).max(*datetime);
+        let mut last_balance_entries: HashMap<NaiveDate, (bool, NaiveTime)> = HashMap::new();
+        for key in keys.iter().flatten() {
+            if key.kind() == Kind::BalanceEntry {
+                let last = last_balance_entries.entry(key.date).or_insert(key.time);
+                *last = (*last).max(key.time);
             }
         }
         for (key, directive) in keys.iter_mut().zip(directives) {
-            let Some(datetime) = key.0 else { continue };
-            if key.1 == 2
-                && (matches!(directive.data, Directive::Pad(_)) || pads.contains(&(&directive.span.filename, directive.span.start, directive.span.end)))
-            {
-                if let Some(last) = last_balance_entries.get(&datetime.date()) {
-                    key.0 = Some(datetime.max(*last));
+            let Some(key) = key else { continue };
+            if matches!(directive.data, Directive::Pad(_)) || (matches!(directive.data, Directive::Transaction(_)) && padding(directive)) {
+                if let Some(last) = last_balance_entries.get(&key.date) {
+                    key.time = key.time.max(*last);
                 }
             }
         }
@@ -569,6 +638,12 @@ impl Ledger {
     /// for the `balance` directives
     fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>], mut assertions: AssertionOutcomes) -> Result<(), ZhangError> {
         self.defined_budgets = Some(HashMap::new());
+        for directive in directives.iter() {
+            if let (Directive::Commodity(commodity), Some(at)) = (&directive.data, directive.datetime()) {
+                let first = self.commodity_dates.entry(commodity.currency.clone()).or_insert(at);
+                *first = (*first).min(at);
+            }
+        }
         // the `balance ... with pad` directives of the balance entries being folded: their checks are kept after
         // the last one, where the balance-check stage checked them, so they follow their padding in the journal
         let mut pads: Vec<(BalancePad, SpanInfo, usize)> = vec![];
@@ -627,6 +702,7 @@ impl Ledger {
         // every price is known now
         crate::process::budget::report_unconverted_amounts(self)?;
         self.defined_budgets = None;
+        self.commodity_dates = HashMap::new();
         Ok(())
     }
 
@@ -726,7 +802,7 @@ impl Ledger {
     /// Run the pipeline, retaining final validation for materialization; the inputs stages recorded
     /// join [`Ledger::extra_inputs`]. Errors are inserted after binding transaction IDs in the fold.
     fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, AssertionOutcomes, FinalValidation)> {
-        let directives = Ledger::sort_directives_datetime(directives);
+        let directives = Ledger::sort_directives_datetime(directives, self.dialect);
         let stages = self.build_stages();
         let options = self.operations().options()?;
         let commodities = self.operations().read().commodities.values().cloned().collect_vec();
@@ -1332,7 +1408,7 @@ mod test {
                     fake_span_info(),
                 ),
             ];
-            let sorted = Ledger::sort_directives_datetime(original);
+            let sorted = Ledger::sort_directives_datetime(original, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 vec![
                     Spanned::new(
@@ -1360,7 +1436,7 @@ mod test {
                 1970-01-01 open Assets:Hello
                 option "description" "Description"
             "#});
-            let sorted = Ledger::sort_directives_datetime(original);
+            let sorted = Ledger::sort_directives_datetime(original, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 vec!["option description", "open Assets:Hello"],
                 sorted.iter().map(|it| label(&it.data)).collect_vec()
@@ -1369,7 +1445,7 @@ mod test {
                     option "description" "Description"
                     1970-01-01 open Assets:Hello
                 "#});
-            let sorted = Ledger::sort_directives_datetime(original);
+            let sorted = Ledger::sort_directives_datetime(original, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                     option "description" "Description"
@@ -1386,7 +1462,7 @@ mod test {
                     1970-02-01 open Assets:Hello
                 "#});
 
-            let sorted = Ledger::sort_directives_datetime(original);
+            let sorted = Ledger::sort_directives_datetime(original, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                     1970-01-01 open Assets:Hello
@@ -1401,7 +1477,7 @@ mod test {
                     1970-02-01 open Assets:Hello
                     1970-01-01 open Assets:Hello
                 "#});
-            let sorted = Ledger::sort_directives_datetime(original);
+            let sorted = Ledger::sort_directives_datetime(original, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                     1970-01-01 open Assets:Hello
@@ -1423,7 +1499,7 @@ mod test {
                     1970-01-01 open Assets:Hello
                 "#});
 
-            let sorted = Ledger::sort_directives_datetime(original);
+            let sorted = Ledger::sort_directives_datetime(original, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 test_parse_zhang(indoc! {r#"
                     option "1" "1"
@@ -1446,10 +1522,13 @@ mod test {
                     1970-01-01 open Assets:Hello
                     1970-01-01 close Assets:Hello
                 "#}),
-                Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                Ledger::sort_directives_datetime(
+                    test_parse_zhang(indoc! {r#"
                     1970-01-01 open Assets:Hello
                     1970-01-01 close Assets:Hello
-                "#}))
+                "#}),
+                    crate::data_type::Dialect::Zhang
+                )
             );
         }
 
@@ -1463,10 +1542,13 @@ mod test {
                 .into_iter()
                 .map(|it| it.data)
                 .collect_vec(),
-                Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                Ledger::sort_directives_datetime(
+                    test_parse_zhang(indoc! {r#"
                     1970-01-01 document Assets:Hello ""
                     1970-01-01 balance Assets:Hello 2 CNY
-                "#}))
+                "#}),
+                    crate::data_type::Dialect::Zhang
+                )
                 .into_iter()
                 .map(|it| it.data)
                 .collect_vec()
@@ -1479,10 +1561,13 @@ mod test {
                     1970-01-01 balance Assets:Hello 2 CNY
                     1970-01-01 balance Assets:Hello2 2 CNY
                 "#}),
-                Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+                Ledger::sort_directives_datetime(
+                    test_parse_zhang(indoc! {r#"
                     1970-01-01 balance Assets:Hello 2 CNY
                     1970-01-01 balance Assets:Hello2 2 CNY
-                "#}))
+                "#}),
+                    crate::data_type::Dialect::Zhang
+                )
             );
         }
 
@@ -1502,18 +1587,27 @@ mod test {
                   Equity:Open
             "#});
             let expected = stream.iter().map(|it| it.data.clone()).collect_vec();
-            assert_eq!(expected, Ledger::sort_directives_datetime(stream).into_iter().map(|it| it.data).collect_vec());
+            assert_eq!(
+                expected,
+                Ledger::sort_directives_datetime(stream, crate::data_type::Dialect::Zhang)
+                    .into_iter()
+                    .map(|it| it.data)
+                    .collect_vec()
+            );
         }
 
         #[test]
         fn should_sort_a_c_flagged_transaction_like_any_other() {
             // a balance check materializes into nothing; a transaction flagged `C` (beancount's
             // conversions) is an ordinary transaction, after the balance entries of its day
-            let sorted = Ledger::sort_directives_datetime(test_parse_zhang(indoc! {r#"
+            let sorted = Ledger::sort_directives_datetime(
+                test_parse_zhang(indoc! {r#"
                 1970-01-02 C "Conversion" ""
                   Assets:Hello 0 CNY
                 1970-01-02 balance Assets:Hello 2 CNY
-            "#}));
+            "#}),
+                crate::data_type::Dialect::Zhang,
+            );
             assert_eq!(
                 sorted.iter().map(|it| label(&it.data)).collect_vec(),
                 vec!["check Assets:Hello 2", "txn Conversion"]
@@ -1578,7 +1672,7 @@ mod test {
             let original = test_parse_zhang(MIXED);
             assert!(original.len() > 20);
 
-            let sorted = Ledger::sort_directives_datetime(original);
+            let sorted = Ledger::sort_directives_datetime(original, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 sorted.iter().map(|it| label(&it.data)).collect_vec(),
                 vec![
@@ -1586,21 +1680,22 @@ mod test {
                     "option o1",
                     "plugin p1",
                     "option o2",
-                    // per datetime: open/commodity, then balance entries, then the rest — each in source order
+                    // per datetime: open, commodity, then balance entries, then the rest, document and close last —
+                    // each in source order; a close with only a date at the end of its day
                     "open Assets:B",
                     "Commodity",
-                    "close Assets:B",
                     "Price",
                     "txn t0",
+                    "close Assets:B",
                     "open Assets:A",
                     "check Assets:A 1",
                     "pad Assets:A 2",
                     "txn pad",
                     "txn t2",
-                    "close Assets:A",
                     "open Assets:C",
                     "check Assets:C 0",
                     "txn t3",
+                    "close Assets:A",
                     "open Assets:D",
                     "check Assets:A 3",
                     // a `C` transaction is no balance entry
@@ -1609,6 +1704,56 @@ mod test {
                     "txn conversion",
                     "Document",
                     "Event",
+                ]
+            );
+        }
+
+        #[test]
+        fn should_sort_a_day_of_a_beancount_ledger_by_kind_then_time() {
+            let original = test_parse_zhang(indoc! {r#"
+                2023-01-02 close Assets:A
+                2023-01-02 18:00 * "evening" ""
+                  Assets:A -1 CNY
+                  Equity:Open
+                2023-01-02 document Assets:A "x"
+                2023-01-02 09:00 * "morning" ""
+                  Assets:A 1 CNY
+                  Equity:Open
+                2023-01-02 balance Assets:A 0 CNY
+                2023-01-02 commodity CNY
+                2023-01-02 10:00 open Assets:B
+            "#});
+            let labels = |dialect| {
+                Ledger::sort_directives_datetime(original.clone(), dialect)
+                    .iter()
+                    .map(|it| label(&it.data))
+                    .collect_vec()
+            };
+            // as beancount orders a day: open, balance, the rest, document, close; a commodity before the balances;
+            // the rest by their time
+            assert_eq!(
+                labels(crate::data_type::Dialect::Beancount),
+                vec![
+                    "open Assets:B",
+                    "Commodity",
+                    "check Assets:A 0",
+                    "txn morning",
+                    "txn evening",
+                    "Document",
+                    "close Assets:A"
+                ]
+            );
+            // a zhang ledger orders the day by time first; the close with only a date is at the end of the day
+            assert_eq!(
+                labels(crate::data_type::Dialect::Zhang),
+                vec![
+                    "Commodity",
+                    "check Assets:A 0",
+                    "Document",
+                    "txn morning",
+                    "open Assets:B",
+                    "txn evening",
+                    "close Assets:A"
                 ]
             );
         }
@@ -1643,7 +1788,7 @@ mod test {
                     .data,
                 pad,
             ));
-            let sorted = Ledger::sort_directives_datetime(stream);
+            let sorted = Ledger::sort_directives_datetime(stream, crate::data_type::Dialect::Zhang);
             assert_eq!(
                 sorted.iter().map(|it| label(&it.data)).collect_vec(),
                 vec![
@@ -1663,7 +1808,7 @@ mod test {
                     "Pad",
                 ]
             );
-            assert_eq!(Ledger::sort_directives_datetime(sorted.clone()), sorted);
+            assert_eq!(Ledger::sort_directives_datetime(sorted.clone(), crate::data_type::Dialect::Zhang), sorted);
         }
 
         #[test]
@@ -1674,8 +1819,8 @@ mod test {
             assert_ne!(len % 7, 0);
             let shuffled = (0..len).map(|i| original[(i * 7) % len].clone()).collect_vec();
 
-            let once = Ledger::sort_directives_datetime(shuffled);
-            let twice = Ledger::sort_directives_datetime(once.clone());
+            let once = Ledger::sort_directives_datetime(shuffled, crate::data_type::Dialect::Zhang);
+            let twice = Ledger::sort_directives_datetime(once.clone(), crate::data_type::Dialect::Zhang);
             assert_eq!(once, twice);
         }
     }
@@ -2106,7 +2251,10 @@ mod test {
             // four checks and the `balance ... with pad`
             assert_eq!(ledger.store.read().unwrap().balance_assertions.len(), 5);
             // re-sorting the final stream changes nothing
-            assert_eq!(ledger.directives.clone(), Ledger::sort_directives_datetime(ledger.directives.clone()));
+            assert_eq!(
+                ledger.directives.clone(),
+                Ledger::sort_directives_datetime(ledger.directives.clone(), crate::data_type::Dialect::Zhang)
+            );
         }
     }
     mod active_accounts {
@@ -2182,9 +2330,13 @@ mod test {
                   Expenses:Old 1 CNY
             "#});
 
+            // the close is checked where it takes effect, at the end of its day, when the account holds 2 CNY
             assert_eq!(
                 errors(&ledger),
-                vec![error(ErrorKind::AccountClosed, r#"2023-01-06 * "the day after the close""#, "Expenses:Old")]
+                vec![
+                    error(ErrorKind::AccountClosed, r#"2023-01-06 * "the day after the close""#, "Expenses:Old"),
+                    (ErrorKind::CloseNonZeroAccount, "2023-01-05 close Expenses:Old".to_owned(), None),
+                ]
             );
         }
 
@@ -2206,7 +2358,8 @@ mod test {
                 2024-01-05 18:00:00 balance Expenses:Old 2 CNY with pad Assets:Cash
             "#});
 
-            // what books after the close is reported; a note, a document and a plain balance only record
+            // what books after the close is reported; a note, a document and a plain balance only record. The close is
+            // checked after the transaction of its own time, which it still allows, so it finds 1 CNY
             assert_eq!(
                 errors(&ledger),
                 vec![
@@ -2216,6 +2369,7 @@ mod test {
                         "2024-01-05 18:00:00 balance Expenses:Old 2 CNY with pad Assets:Cash",
                         "Expenses:Old"
                     ),
+                    (ErrorKind::CloseNonZeroAccount, "2024-01-05 10:00:00 close Expenses:Old".to_owned(), None),
                 ]
             );
         }
@@ -2276,7 +2430,8 @@ mod test {
                 2024-01-06 12:00:00 balance Assets:Old 7 CNY with pad Equity:Open
             "#});
 
-            // the day after, what books is reported; the plain balance and the document only record, as in beancount
+            // the day after, what books is reported; the plain balance and the document only record, as in beancount. The
+            // closes are checked at the end of their day, after its pads and transactions, which leave money in both
             assert_eq!(
                 errors(&ledger),
                 vec![
@@ -2286,6 +2441,8 @@ mod test {
                         "2024-01-06 12:00:00 balance Assets:Old 7 CNY with pad Equity:Open",
                         "Assets:Old"
                     ),
+                    (ErrorKind::CloseNonZeroAccount, "2024-01-05 close Assets:Old".to_owned(), None),
+                    (ErrorKind::CloseNonZeroAccount, "2024-01-05 close Equity:Old".to_owned(), None),
                 ]
             );
         }

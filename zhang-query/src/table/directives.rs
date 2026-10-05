@@ -1,9 +1,9 @@
 //! The tables with one row per directive of a kind, as in beanquery: `#balances`, `#notes`,
 //! `#events`, `#documents` and `#commodities`, plus the helpers the directive tables share.
 //!
-//! Rows come in ledger order: by date, then as beancount orders the directives of a day
-//! ([`ledger_order`]). `#documents` adds, after its directives, the documents that
-//! transactions and postings name in their metadata.
+//! Rows come in ledger order, the order zhang processed the ledger in ([`ledger_order`]).
+//! `#documents` adds, after its directives, the documents that transactions and postings name in
+//! their metadata.
 
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -28,23 +28,11 @@ pub(super) fn date_of(directive: &Directive) -> Option<NaiveDate> {
     directive.datetime().map(|datetime| datetime.date())
 }
 
-/// Where beancount sorts a directive among the directives of its day: `open` first, then
-/// balance assertions, the other kinds, `document` and `close` last.
-pub(super) fn day_rank(directive: &Directive) -> i8 {
-    match directive {
-        Directive::Open(_) => -2,
-        Directive::BalanceCheck(_) | Directive::BalancePad(_) => -1,
-        Directive::Document(_) => 1,
-        Directive::Close(_) => 2,
-        _ => 0,
-    }
-}
-
-/// The dated directives of the ledger in beancount's order: by date, then by [`day_rank`],
-/// then in ledger order (zhang's order of the day, which follows the source for directives
-/// without a time). These are the rows of `#entries`, in the order the cache of the ledger keeps
-/// them ([`super::cache::Entries`]), so every directive is there except the transactions that
-/// are no entries: those zhang rejected.
+/// The dated directives of the ledger in the order zhang processed them, which the `seq` column
+/// numbers: by date, then as the ledger's format orders a day (in a zhang ledger by time, in a
+/// beancount ledger as beancount does). These are the rows of `#entries`, in the order the cache
+/// of the ledger keeps them ([`super::cache::Entries`]), so every directive is there except the
+/// transactions that are no entries: those zhang rejected.
 pub(super) fn ledger_order<'a>(ledger: &'a Ledger, store: &Store) -> impl Iterator<Item = &'a Spanned<Directive>> {
     let entries = LedgerCache::of(ledger, store).entries(ledger, store);
     entries.rows.iter().map(|entry| &ledger.directives[entry.directive as usize])
@@ -257,8 +245,8 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         DataType::Int,
         "Position of the assertion in the order zhang processes the ledger, as seq in #entries: where zhang checks it, so \
          it comes right after the postings its actual balance includes. A zhang extension.",
-        |data, record| match record {
-            Record::Balance { seq, .. } => Value::Int(data.entry_order(*seq).into()),
+        |_, record| match record {
+            Record::Balance { seq, .. } => Value::Int((*seq).into()),
             _ => Value::Null,
         },
     ),
@@ -614,7 +602,7 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
         "seq",
         DataType::Int,
         "seq of the document directive, or of the transaction that names the document, as in #entries. A zhang extension.",
-        |data, record| document(record).map_or(Value::Null, |it| Value::Int(data.entry_order(it.seq).into())),
+        |_, record| document(record).map_or(Value::Null, |it| Value::Int(it.seq.into())),
     ),
     ColumnDef::record(
         "time",

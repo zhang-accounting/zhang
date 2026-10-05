@@ -73,7 +73,9 @@ An assertion with a tolerance passes for any balance from 964.49 to 964.51:
 ### When it is checked
 
 Zhang orders the directives by date and time. Within one date and time, `open` and `commodity` come first, then
-balance assertions and padding transactions, then everything else in file order. So:
+balance assertions and padding transactions, then everything else in file order, with `document` and `close` last. The
+journal lists them in that order, the order Zhang checks them in
+([processing order](/reference/query-language/#processing-order)). So:
 
 - An assertion without a time is checked at the start of its day, before the transactions of that day. To check the
   balance after them, date the assertion on the next day or give it a time.

@@ -272,7 +272,7 @@ pub fn run_pipeline(stages: &[Box<dyn ProcessStage>], mut directives: Vec<Spanne
     for stage in stages {
         debug!("running pipeline stage: {}", stage.name());
         directives = stage.process(directives, ctx)?;
-        directives = Ledger::sort_directives_datetime(directives);
+        directives = Ledger::sort_directives_datetime(directives, ctx.dialect());
     }
     Ok(directives)
 }
@@ -289,7 +289,7 @@ pub(crate) mod test {
     use super::{run_pipeline, ActiveAccountsStage, AssertionOutcome, BalanceCheckStage, PadStage, ProcessStage, StageContext};
     use crate::clock::{Clock, LoadClock};
     use crate::data_type::text::ZhangDataType;
-    use crate::data_type::DataType;
+    use crate::data_type::{DataType, Dialect};
     use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
     use crate::ZhangResult;
@@ -312,7 +312,7 @@ pub(crate) mod test {
     pub(crate) fn run_builtin_stages_with_assertions(content: &str) -> (Vec<Directive>, Vec<ErrorKind>, Vec<AssertionOutcome>) {
         let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
         let mut ctx = StageContext::new(&[]);
-        let out = run_pipeline(&balance_stages(), Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
+        let out = run_pipeline(&balance_stages(), Ledger::sort_directives_datetime(directives, Dialect::Zhang), &mut ctx).unwrap();
         let (errors, mut assertions) = ctx.into_results();
         let outcomes = out
             .iter()

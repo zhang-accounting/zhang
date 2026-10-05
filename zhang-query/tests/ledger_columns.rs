@@ -158,21 +158,20 @@ option "timezone" "America/Sao_Paulo"
     assert_eq!(table(&ledger, "SELECT time, timestamp FROM #documents"), expected);
 }
 
-/// `seq` is the position of an entry in the order zhang processes the ledger: the two
-/// commodities and four opens of 1970 are 0 to 5 (both kinds first in their day, in the order of
-/// the file), the transactions 6 to 10, then the padding transaction of the pad 11 and the pad's
-/// assertion 12, which zhang checks after its padding, and the failing check 13. `#entries` keeps
-/// beancount's order of a day (opens first, a balance before the transactions of its day), so
-/// `ORDER BY seq` is what lists it in zhang's order. The correcting transaction zhang stored for a
-/// balance check in the past is no entry.
+/// `seq` is the position of an entry in the order zhang processes the ledger: the four opens and
+/// two commodities of 1970 are 0 to 5 (opens first in their day, as beancount orders a day), the
+/// transactions 6 to 10, then the padding transaction of the pad 11 and the pad's assertion 12,
+/// which zhang checks after its padding, and the failing check 13. `#entries` lists its rows in
+/// that order. The correcting transaction zhang stored for a balance check in the past is no
+/// entry.
 #[test]
 fn seq_is_the_position_in_the_processing_order() {
     let ledger = load_text(LEDGER);
     expect(
         &ledger,
         "SELECT seq, type, date FROM #entries WHERE seq >= 4 ORDER BY seq",
-        "4 | open | 1970-01-01
-         5 | open | 1970-01-01
+        "4 | commodity | 1970-01-01
+         5 | commodity | 1970-01-01
          6 | transaction | 2024-01-05
          7 | transaction | 2024-01-06
          8 | transaction | 2024-01-07
@@ -182,12 +181,12 @@ fn seq_is_the_position_in_the_processing_order() {
          12 | balance | 2024-01-10
          13 | balance | 2024-01-11",
     );
-    // the rows of the table keep beancount's order: the assertion comes before the padding of its day
+    // the rows of the table come in that order: the assertion after the padding it is checked after
     expect(
         &ledger,
         "SELECT seq, type FROM #entries WHERE date = 2024-01-10",
-        "12 | balance
-         11 | transaction",
+        "11 | transaction
+         12 | balance",
     );
     expect(
         &ledger,
