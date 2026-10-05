@@ -26,7 +26,7 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::JournalRequest;
+use zhang_server::request::{JournalRequest, NewTransactionInfoRequest};
 use zhang_server::routes::account::get_account_documents;
 use zhang_server::routes::common::get_errors;
 use zhang_server::routes::document::{download_document, get_documents};
@@ -587,7 +587,7 @@ async fn tags_and_links_keep_their_written_order_through_a_save() {
 async fn the_new_transaction_form_suggests_sorted_payees_without_pads_and_open_accounts() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
     let ledger = scratch.ledger().await;
-    let (status, body) = respond(get_info_for_new_transactions(State(ledger.clone())).await).await;
+    let (status, body) = respond(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body["data"],
@@ -666,9 +666,54 @@ async fn the_new_transaction_form_offers_the_accounts_open_today() {
         ),
     )]);
     let ledger = scratch.ledger().await;
-    let (status, body) = respond(get_info_for_new_transactions(State(ledger.clone())).await).await;
+    let (status, body) = respond(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"]["account_name"], json!(["Assets:Again", "Assets:Today"]));
+}
+
+/// The form asks for the accounts open at the transaction's date and time, which it submits as an instant read in the
+/// ledger's timezone: an account closed with only a date is offered through its close day, one closed with a time
+/// until that time, and an account is offered from its open on.
+#[tokio::test]
+async fn the_new_transaction_form_offers_the_accounts_open_at_the_date_of_the_transaction() {
+    let scratch = Scratch::new(&[(
+        "main.zhang",
+        r#"option "timezone" "Asia/Shanghai"
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Day
+2024-01-05 close Assets:Day
+1970-01-01 open Assets:Timed
+2024-01-05 10:00:00 close Assets:Timed
+2024-01-05 open Assets:New
+"#,
+    )]);
+    let ledger = scratch.ledger().await;
+    let accounts = |at: &str| {
+        let ledger = ledger.clone();
+        let request = NewTransactionInfoRequest {
+            datetime: Some(at.parse().unwrap()),
+        };
+        async move {
+            let (status, body) = respond(get_info_for_new_transactions(State(ledger), UrlQuery(request)).await).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            body["data"]["account_name"].clone()
+        }
+    };
+    // 2024-01-04 23:00 in Shanghai
+    assert_eq!(accounts("2024-01-04T15:00:00Z").await, json!(["Assets:Cash", "Assets:Day", "Assets:Timed"]));
+    // 2024-01-05 09:30 and 10:00 in Shanghai: before and at the time of the timed close
+    assert_eq!(
+        accounts("2024-01-05T01:30:00Z").await,
+        json!(["Assets:Cash", "Assets:Day", "Assets:New", "Assets:Timed"])
+    );
+    assert_eq!(
+        accounts("2024-01-05T02:00:00Z").await,
+        json!(["Assets:Cash", "Assets:Day", "Assets:New", "Assets:Timed"])
+    );
+    // 2024-01-05 15:00 in Shanghai: after the timed close, still on the close day
+    assert_eq!(accounts("2024-01-05T07:00:00Z").await, json!(["Assets:Cash", "Assets:Day", "Assets:New"]));
+    // 2024-01-06 00:30 in Shanghai, while it is still 2024-01-05 in UTC: the day after the close
+    assert_eq!(accounts("2024-01-05T16:30:00Z").await, json!(["Assets:Cash", "Assets:New"]));
 }
 
 #[tokio::test]

@@ -1,6 +1,5 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
-import { useAtomValue } from 'jotai';
 import { CalendarIcon, Plus, TableProperties, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,7 +10,7 @@ import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { useDateFormat, useDateLocale } from '@/components/layout/use-date-format';
 import { useListState } from '@/hooks/use-list-state';
 import { cn } from '@/lib/utils';
-import { accountSelectItemsAtom } from '../states/account';
+import { accountOptions } from '@/utils/account-options';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Button } from './ui/button';
 import { Calendar } from './ui/calendar';
@@ -153,13 +152,18 @@ export default function TransactionEditForm(props: Props) {
   // or a comment, which must stay in view when editing; ids of the expanded postings.
   const [openPostingMetas, setOpenPostingMetas] = useState<ReadonlySet<number>>(() => new Set(postings.filter(hasDetails).map((it) => it.id)));
 
-  const accountItems = useAtomValue(accountSelectItemsAtom);
   const { value: options } = useAsync(async () => {
     const options = (await retrieveOptions({})).data.data;
     return { operatingCurrency: optionValue(options, 'operating_currency'), timezone: optionValue(options, 'timezone') };
   }, []);
   const operatingCurrency = options?.operatingCurrency;
-  const { value: payees } = useAsync(async () => (await retrieveNewTransactionInfo({})).data.data.payee, []);
+  // the payees, and the accounts open at the transaction's date and time, by the rule the ledger checks it with
+  const at = date?.toISOString() ?? null;
+  const { value: info } = useAsync(async () => (await retrieveNewTransactionInfo({ datetime: at })).data.data, [at]);
+  const payees = info?.payee;
+  // an account a posting already uses stays in the list, so an edited transaction still shows a closed account
+  const usedAccounts = useMemo(() => postings.map((it) => it.account), [postings]);
+  const accountItems = useMemo(() => accountOptions(info?.account_name ?? [], usedAccounts), [info, usedAccounts]);
   const { value: fileFormat } = useAsync(async () => ledgerFormat((await retrieveFiles({})).data.data), []);
 
   const parsed = useMemo(() => postings.map((it) => parseAmount(it.amount, operatingCurrency)), [postings, operatingCurrency]);

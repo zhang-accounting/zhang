@@ -209,8 +209,9 @@ export interface paths {
   '/api/for-new-transaction': {
     /**
      * Get Info For New Transactions
-     * @description The payees and the open accounts the new-transaction form suggests: the built-in queries
-     * `journals.payees` and `journals.accounts`.
+     * @description The payees and the accounts the new-transaction form suggests: the built-in queries `journals.payees` and
+     * `journals.accounts`. The accounts are those open at `datetime`, the transaction's date and time as the form submits
+     * it, by the rule the ledger checks the transaction with; those open now without it.
      */
     get: operations['get_info_for_new_transactions'];
   };
@@ -1528,10 +1529,20 @@ export interface operations {
   };
   /**
    * Get Info For New Transactions
-   * @description The payees and the open accounts the new-transaction form suggests: the built-in queries
-   * `journals.payees` and `journals.accounts`.
+   * @description The payees and the accounts the new-transaction form suggests: the built-in queries `journals.payees` and
+   * `journals.accounts`. The accounts are those open at `datetime`, the transaction's date and time as the form submits
+   * it, by the rule the ledger checks the transaction with; those open now without it.
    */
   get_info_for_new_transactions: {
+    parameters: {
+      query: {
+        /**
+         * @description What the new-transaction form asks: the accounts open at `datetime`, the transaction's date and time as the form
+         * submits it, read in the ledger's timezone; now when it is left out.
+         */
+        datetime: string | null;
+      };
+    };
     responses: {
       /** @description default return */
       200: {

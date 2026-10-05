@@ -289,7 +289,7 @@ async fn the_journal_and_the_new_transaction_suggestions_hold_on_every_ledger() 
             assert_eq!(records, window, "{} page={} size={}", name, page, size);
         }
 
-        let info = json(get_info_for_new_transactions(State(ledger.clone())).await).await;
+        let info = json(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
         for field in ["payee", "account_name"] {
             let values = info["data"][field]
                 .as_array()
