@@ -564,6 +564,143 @@ fn the_documented_examples_run() {
     );
 }
 
+/// The ledger of #499: a budget in CNY with an amount assigned and spent in USD, without a price,
+/// and closed on 2024-03-01, with spending after the close.
+const BUDGET_499: &str = r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+2024-01-01 open Assets:Cash
+2024-01-01 open Expenses:Food
+  budget: "Food"
+
+2024-01-01 budget Food CNY
+2024-01-01 budget-add Food 1000 CNY
+2024-01-02 budget-add Food 50 USD
+
+2024-01-10 * "Lunch in CNY"
+  Expenses:Food 100 CNY
+  Assets:Cash
+
+2024-01-11 * "Lunch abroad in USD"
+  Expenses:Food 20 USD
+  Assets:Cash
+
+2024-03-01 budget-close Food
+
+2024-04-05 * "Lunch after the budget is closed"
+  Expenses:Food 30 CNY
+  Assets:Cash
+"#;
+
+/// #499: an amount in another commodity than the budget's is never added as a number: without a
+/// price it is left out and reported. The budget is open before its close, and takes no
+/// activity after it: the lunch of April is left out and reported.
+#[test]
+fn a_budget_leaves_out_unconverted_amounts_and_spending_after_its_close() {
+    let ledger = common::load_text(BUDGET_499);
+    assert_eq!(
+        run(&ledger, "SELECT date, assigned, added, activity, available, closed FROM #budgets"),
+        rows(&[
+            &["2024-01-01", "1000 CNY", "1000 CNY", "100 CNY", "900 CNY", "FALSE"],
+            &["2024-02-01", "900 CNY", "0 CNY", "0 CNY", "900 CNY", "FALSE"],
+            &["2024-03-01", "900 CNY", "0 CNY", "0 CNY", "900 CNY", "TRUE"],
+            &["2024-04-01", "900 CNY", "0 CNY", "0 CNY", "900 CNY", "TRUE"],
+        ])
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT date, kind, account, meta('budget_name'), meta('commodity'), meta('budget_commodity') FROM #errors"
+        ),
+        rows(&[
+            &["2024-01-02", "BudgetCommodityMismatch", "NULL", "Food", "USD", "CNY"],
+            &["2024-01-11", "BudgetCommodityMismatch", "Expenses:Food", "Food", "USD", "CNY"],
+            &["2024-04-05", "BudgetClosed", "Expenses:Food", "Food", "NULL", "NULL"],
+        ])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT message FROM #errors"),
+        rows(&[
+            &["No price converts USD to CNY, the commodity of budget Food: the amount does not count toward it"],
+            &["No price converts USD to CNY, the commodity of budget Food: the amount does not count toward it"],
+            &["Budget Food is closed: postings to Expenses:Food after its close do not count toward it"],
+        ])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT name, close, close_time FROM #budget_definitions"),
+        rows(&[&["Food", "2024-03-01", "NULL"]])
+    );
+
+    // with a price, the amounts in USD are converted at their date and nothing is reported but
+    // the spending after the close
+    let ledger = common::load_text(&format!("{}\n2024-01-01 price USD 7 CNY\n", BUDGET_499));
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT date, assigned, added, activity, available, closed FROM #budgets WHERE date <= 2024-01-01"
+        ),
+        rows(&[&["2024-01-01", "1350 CNY", "1350 CNY", "240 CNY", "1110 CNY", "FALSE"]])
+    );
+    assert_eq!(run(&ledger, "SELECT kind, date FROM #errors"), rows(&[&["BudgetClosed", "2024-04-05"]]));
+}
+
+/// A budget-close without a time leaves the budget open through its whole day; one with a time
+/// closes it at that time.
+#[test]
+fn a_budget_takes_activity_until_its_close() {
+    let ledger = common::load_text(
+        r#"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Fun
+  budget: fun
+2024-01-01 budget food CNY
+2024-01-01 budget fun CNY
+2024-03-01 budget-close food
+2024-03-01 12:00:00 budget-close fun
+2024-03-01 * "Market" "on the close day"
+  Expenses:Food 10 CNY
+  Assets:Bank
+2024-03-02 * "Market" "the day after"
+  Expenses:Food 20 CNY
+  Assets:Bank
+2024-03-01 11:59:59 * "Cinema" "before the close"
+  Expenses:Fun 1 CNY
+  Assets:Bank
+2024-03-01 12:00:00 * "Cinema" "at the close"
+  Expenses:Fun 2 CNY
+  Assets:Bank
+2024-03-01 12:00:01 * "Cinema" "after the close"
+  Expenses:Fun 4 CNY
+  Assets:Bank
+"#,
+    );
+    assert_eq!(
+        run(&ledger, "SELECT name, activity FROM #budgets WHERE date = 2024-03-01"),
+        rows(&[&["food", "10 CNY"], &["fun", "3 CNY"]])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT name, close, close_time FROM #budget_definitions"),
+        rows(&[&["food", "2024-03-01", "NULL"], &["fun", "2024-03-01", "12:00:00"]])
+    );
+    assert_eq!(
+        run(&ledger, "SELECT kind, source FROM #errors"),
+        rows(&[
+            &[
+                "BudgetClosed",
+                "2024-03-02 * \"Market\" \"the day after\"\n  Expenses:Food 20 CNY\n  Assets:Bank"
+            ],
+            &[
+                "BudgetClosed",
+                "2024-03-01 12:00:01 * \"Cinema\" \"after the close\"\n  Expenses:Fun 4 CNY\n  Assets:Bank"
+            ],
+        ])
+    );
+}
+
 /// A budget's months run through its own last entry or the ledger's last month with a
 /// transaction, whichever is later; other directives do not extend them.
 #[test]

@@ -328,10 +328,3 @@ impl Operations {
         Ok(())
     }
 }
-
-impl Operations {
-    pub fn get_account_budget(&self, account_name: impl AsRef<str>) -> ZhangResult<Vec<String>> {
-        let metas = self.metas(MetaType::AccountMeta, account_name)?;
-        Ok(metas.into_iter().filter(|meta| meta.key.eq("budget")).map(|meta| meta.value).collect_vec())
-    }
-}

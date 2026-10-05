@@ -69,7 +69,7 @@ In April, `Food` starts with the 80 CNY left from March, plus the 2,000 CNY assi
 
 - Every posting to a linked account adds to the activity of the budget in the month of its transaction. A refund, a negative posting, takes activity away.
 - A posting counts only from the date of the `budget` directive on. A posting to a linked account before the budget exists is skipped, and reported once per account as [`BudgetDoesNotExist`](/reference/error-codes/#budgetdoesnotexist).
-- A posting in another commodity is converted to the budget's commodity at its date, with the prices of your ledger. A posting that no price converts is left out.
+- A posting in another commodity is converted to the budget's commodity at its date, with the prices of your ledger. A posting that no price converts is left out, never added as a number of another commodity, and reported as [`BudgetCommodityMismatch`](/reference/error-codes/#budgetcommoditymismatch): add a `price` to count it. The same holds for a `budget-add` or `budget-transfer` in another commodity.
 - A posting counts toward the budgets of its account's `open` at the posting's date. If you close an account and open it again with other `budget` metadata, its later postings count toward the new budgets, and its earlier ones stay where they were.
 
 ## Close a budget
@@ -78,7 +78,13 @@ In April, `Food` starts with the 80 CNY left from March, plus the 2,000 CNY assi
 2024-12-31 budget-close Fun
 ```
 
-`budget-close` closes the budget from the month of its date: the **Budget** page shows it as **Closed** in that month and the months after. A second `budget-close` changes nothing. Accounts that name it still add their spending to it, so remove their `budget` metadata too.
+`budget-close` closes the budget: the **Budget** page shows it as **Closed** from the month of its date on, and open in the months before. A second `budget-close` changes nothing.
+
+A closed budget takes no more spending. The budget stays open through the whole day of its `budget-close`, or until its time if it has one (`2024-12-31 18:00:00 budget-close Fun`). Postings to its accounts after that do not count toward it, and Zhang reports the first one of each account as [`BudgetClosed`](/reference/error-codes/#budgetclosed): remove the `budget` metadata from those accounts, or link them to another budget. `budget-add` and `budget-transfer` still count after the close, so you can move what is left to another budget:
+
+```zhang
+2025-01-02 budget-transfer Fun Food 200 CNY
+```
 
 ## Follow your budgets in the web UI
 

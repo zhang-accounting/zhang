@@ -27,8 +27,9 @@
 //!   the posting's date as `convert(position, commodity, date)` does, with the prices of the
 //!   ledger. An amount of a `budget-add` or `budget-transfer` in another commodity is
 //!   converted the same way at the directive's date. A posting or amount that no price
-//!   converts is left out rather than added as a number of another commodity. Postings to an
-//!   Income, Liabilities or Equity account count negated, as zhang counts them.
+//!   converts is left out rather than added as a number of another commodity; zhang reports
+//!   it as `BudgetCommodityMismatch`. Postings to an Income, Liabilities or Equity account
+//!   count negated, as zhang counts them.
 //! - **`added`, for sums over months.** Because `assigned` includes the carry-over, adding it
 //!   up over months counts the same money several times. `added` is only what the month's
 //!   `budget-add` and `budget-transfer` directives put in (a transfer out counts as negative),
@@ -67,13 +68,17 @@
 //!   `budget` directive.
 //! - **Closing.** `closed` is whether the budget was closed (`budget-close`) in or before the
 //!   month, so `WHERE NOT closed` lists the budgets that were open at the time. A closed
-//!   budget keeps its rows, as the UI keeps showing it.
+//!   budget keeps its rows, as the UI keeps showing it, but takes no activity after its close:
+//!   a budget is open through the whole day of a `budget-close` written with a date only, and
+//!   until the time of one written with a time ([`Date::close_precedes`]). zhang reports the
+//!   postings it leaves out as `BudgetClosed`. Its `budget-add` and `budget-transfer`
+//!   directives still count, so what is left can be moved to another budget.
 //!
 //! Rows are ordered by name, then month. `SELECT *` gives the budget page's figures: `name`,
 //! `date`, `assigned`, `activity` and `available`.
 //!
 //! `#budget_definitions` has one row per budget, as its directives define it: its commodity,
-//! display name, category, accounts and the date of its first `budget-close`. It has no months
+//! display name, category, accounts and the date and time of its first `budget-close`. It has no months
 //! and reads no transaction, so what a budget is can be asked whatever dates the ledger holds.
 //!
 //! `#budget_events` lists what the budget directives did, in ledger order: a `budget-add` is
@@ -110,9 +115,9 @@ pub(super) static BUDGETS: Table = Table {
 
 pub(super) static BUDGET_DEFINITIONS: Table = Table {
     name: "budget_definitions",
-    description: "One row per budget, as its directives define it: its commodity, display name, category, the accounts of its activity and the date it is closed; ordered by name. It has no months, so it reads no transaction.",
+    description: "One row per budget, as its directives define it: its commodity, display name, category, the accounts of its activity and the date and time it is closed; ordered by name. It has no months, so it reads no transaction.",
     columns: DEFINITION_COLUMNS,
-    wildcard: &["name", "date", "currency", "alias", "category", "accounts", "close"],
+    wildcard: &["name", "date", "currency", "alias", "category", "accounts", "close", "close_time"],
     rows: Rows::Records(definition_rows),
 };
 
@@ -139,7 +144,7 @@ struct Budget<'a> {
     /// the month of the definition, the first of the budget's series
     first: NaiveDate,
     /// the date of the budget's first `budget-close`, which closes it
-    closed_on: Option<NaiveDate>,
+    close: Option<&'a Date>,
     /// the latest directive with an effect on the budget, and its date
     latest: (NaiveDate, &'a Spanned<Directive>),
 }
@@ -226,7 +231,7 @@ fn budgets(ledger: &Ledger) -> Budgets<'_> {
                     defined_at: idx,
                     defined: date,
                     first: first_of_month(date),
-                    closed_on: None,
+                    close: None,
                     latest: (date, directive),
                 });
             }
@@ -255,7 +260,7 @@ fn budgets(ledger: &Ledger) -> Budgets<'_> {
                     let date = close.date.naive_date();
                     budget.saw(directive, date);
                     // a budget closes with its first budget-close
-                    budget.closed_on.get_or_insert(date);
+                    budget.close.get_or_insert(&close.date);
                     events.push(event(&close.name, directive, EventKind::Close, None, &close.date));
                 }
             }
@@ -288,9 +293,9 @@ fn in_commodity<'u>(units: &'u Amount, cost: Option<&Cost>, commodity: &str, pri
 }
 
 /// The activity of every budget per month (`(budget, first day of the month)`): the booked
-/// postings of its accounts folded after its definition, converted to its commodity at their
-/// date, counted negated on an Income, Liabilities or Equity account, as zhang counts them.
-/// Only the cached rows of the budgets' accounts are read.
+/// postings of its accounts folded after its definition and not after its close, converted to
+/// its commodity at their date, counted negated on an Income, Liabilities or Equity account, as
+/// zhang counts them. Only the cached rows of the budgets' accounts are read.
 fn activity<'a>(
     ledger: &'a Ledger, store: &'a Store, budgets: &HashMap<&'a str, Budget<'a>>, accounts: &HashMap<String, BTreeSet<String>>, prices: &PriceMap,
 ) -> HashMap<(&'a str, NaiveDate), BigDecimal> {
@@ -330,6 +335,10 @@ fn activity<'a>(
                 }
                 // the account counts in the budgets of its `open` in effect at the posting's date
                 if !lookups.budgets_at(account, entry.date).is_some_and(|budgets| budgets.contains(budget.name)) {
+                    continue;
+                }
+                // a closed budget takes no activity after its close (#499)
+                if budget.close.is_some_and(|close| close.close_precedes(entry.date.and_time(entry.time))) {
                     continue;
                 }
                 let cost = row.lot.as_ref().and_then(|lot| lot.cost.as_ref());
@@ -512,7 +521,7 @@ fn rows<'a>(
                 assigned,
                 added,
                 activity,
-                closed: budget.closed_on.is_some_and(|close| first_of_month(close) <= month),
+                closed: budget.close.is_some_and(|close| first_of_month(close.naive_date()) <= month),
             }));
             let Some(following) = month.checked_add_months(Months::new(1)) else {
                 break;
@@ -644,7 +653,7 @@ static COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "activity",
         DataType::Amount,
-        "Amount the budget's accounts spent in the month: their booked postings, each converted to the budget's commodity at its date; postings no price converts are left out.",
+        "Amount the budget's accounts spent in the month: their booked postings, each converted to the budget's commodity at its date; postings no price converts, and those after the budget's close, are left out.",
         |_, record| budget_month(record).map_or(Value::Null, |it| it.amount(&it.activity)),
     ),
     ColumnDef::record(
@@ -679,7 +688,7 @@ pub(crate) struct BudgetDefinition<'a> {
     /// the date of the `budget` directive
     date: NaiveDate,
     /// the date of the first `budget-close`
-    close: Option<NaiveDate>,
+    close: Option<&'a Date>,
     /// the accounts of the budget's activity; only collected when the `accounts` column is
     /// projected
     accounts: BTreeSet<String>,
@@ -700,7 +709,7 @@ fn definition_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Project
                 commodity: budget.commodity,
                 meta: budget.meta,
                 date: budget.defined,
-                close: budget.closed_on,
+                close: budget.close,
                 accounts: accounts.remove(budget.name).unwrap_or_default(),
             })
         })
@@ -753,7 +762,21 @@ static DEFINITION_COLUMNS: &[ColumnDef] = &[
         "close",
         DataType::Date,
         "Date of the budget's first budget-close, which closes it, or NULL while it is open.",
-        |_, record| budget_definition(record).and_then(|it| it.close).map_or(Value::Null, Value::Date),
+        |_, record| budget_definition(record).and_then(|it| it.close).map_or(Value::Null, |close| Value::Date(close.naive_date())),
+    ),
+    ColumnDef::record(
+        "close_time",
+        DataType::Str,
+        "Time of day of the budget's first budget-close, as HH:MM:SS, until which the budget takes activity on its close day; NULL for a budget-close without a time, which leaves the budget open through its whole close day, or while it is open.",
+        |_, record| {
+            budget_definition(record)
+                .and_then(|it| it.close)
+                .and_then(|close| match close {
+                    Date::Date(_) => None,
+                    Date::DateHour(datetime) | Date::Datetime(datetime) => Some(datetime.time().format("%H:%M:%S").to_string()),
+                })
+                .map_or(Value::Null, Value::Str)
+        },
     ),
 ];
 

@@ -28,10 +28,11 @@ impl DirectiveProcess for Transaction {
         let mut operations = ledger.operations();
 
         let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
+        let datetime = self.date.to_timezone_datetime(&ledger.options.timezone);
         operations.insert_transaction(
             &id,
             sequence,
-            self.date.to_timezone_datetime(&ledger.options.timezone),
+            datetime,
             self.flag.clone().unwrap_or(Flag::Okay),
             self.payee.as_ref().map(|it| it.as_str()),
             self.narration.as_ref().map(|it| it.as_str()),
@@ -52,6 +53,9 @@ impl DirectiveProcess for Transaction {
                 Some(written) => (written.units.clone(), written.cost.clone()),
                 None => (posting.units.clone(), posting.cost.clone()),
             };
+            // the cost currency of the booked lot, through which a budget may convert the units
+            let via = posting.cost.as_ref().and_then(|cost| cost.base.as_ref()).map(|cost| cost.commodity.clone());
+            let units = inferred_amount.clone();
             operations.insert_transaction_posting(
                 &id,
                 posting_idx,
@@ -64,17 +68,27 @@ impl DirectiveProcess for Transaction {
             )?;
 
             // budget related: like `budget-add`, activity on a budget the stream has not defined
-            // (yet) is skipped. It is reported once per (account, budget), on the first
-            // transaction that loses activity, instead of once per posting
-            let budgets_name = operations.get_account_budget(posting.account.name())?;
+            // (yet) is skipped, and so is activity after the budget's close. Each is reported
+            // once per (account, budget), on the first transaction that loses activity, instead
+            // of once per posting
+            let budgets_name = ledger.open_budgets.get(posting.account.name()).cloned().unwrap_or_default();
             for budget in budgets_name {
-                if !super::budget::is_defined(ledger, &budget) {
-                    let account_name = posting.account.name().to_owned();
+                let account_name = posting.account.name().to_owned();
+                let Some(defined) = super::budget::defined(ledger, &budget) else {
                     if ledger.reported_undefined_budgets.insert((account_name.clone(), budget.clone())) {
                         let metas = HashMap::of2("account_name", account_name, "budget_name", budget);
                         operations.new_error(ErrorKind::BudgetDoesNotExist, span, metas)?;
                     }
+                    continue;
+                };
+                if defined.close.as_ref().is_some_and(|close| close.close_precedes(datetime.naive_local())) {
+                    if ledger.reported_closed_budgets.insert((account_name.clone(), budget.clone())) {
+                        let metas = HashMap::of2("account_name", account_name, "budget_name", budget);
+                        operations.new_error(ErrorKind::BudgetClosed, span, metas)?;
+                    }
+                    continue;
                 }
+                super::budget::keep_foreign_amount(ledger, &budget, &units, via.as_deref(), datetime.date_naive(), span, Some(&account_name));
             }
         }
         // extract documents from meta. A `document` of a posting is a document of its

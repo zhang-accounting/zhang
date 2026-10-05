@@ -1,0 +1,26 @@
+; the ledger of #499: amounts in another commodity than the budget's without a price, and spending after the
+; budget-close. The same ledger as main.zhang
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+2024-01-01 open Assets:Cash
+2024-01-01 open Expenses:Food
+  budget: "Food"
+
+2024-01-01 custom "budget" "Food" "CNY"
+2024-01-01 custom "budget-add" "Food" 1000 CNY
+2024-01-02 custom "budget-add" "Food" 50 USD
+
+2024-01-10 * "Lunch in CNY"
+  Expenses:Food 100 CNY
+  Assets:Cash
+
+2024-01-11 * "Lunch abroad in USD"
+  Expenses:Food 20 USD
+  Assets:Cash
+
+2024-03-01 custom "budget-close" "Food"
+
+2024-04-05 * "Lunch after the budget is closed"
+  Expenses:Food 30 CNY
+  Assets:Cash

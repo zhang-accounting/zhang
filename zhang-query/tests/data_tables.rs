@@ -1081,16 +1081,16 @@ fn budgets_run_through_the_current_month() {
 
 /// `#budget_definitions` has one row per budget, in name order, with what its directives define:
 /// the commodity, the alias and category metadata, the accounts whose `open` names it, and
-/// the date of its budget-close.
+/// the date and time of its budget-close.
 #[test]
 fn budget_definitions_are_the_budgets_without_months() {
     let ledger = common::load_text(BUDGETS);
     assert_eq!(
         run(&ledger, "SELECT * FROM #budget_definitions"),
         rows(&[
-            &["food", "2024-02-01", "CNY", "Food", "NULL", "Expenses:Food, Income:Cashback", "NULL"],
-            &["invest", "2024-02-01", "CNY", "NULL", "NULL", "Assets:Savings", "NULL"],
-            &["travel", "2024-02-01", "CNY", "NULL", "NULL", "Expenses:Travel", "2024-03-31"],
+            &["food", "2024-02-01", "CNY", "Food", "NULL", "Expenses:Food, Income:Cashback", "NULL", "NULL"],
+            &["invest", "2024-02-01", "CNY", "NULL", "NULL", "Assets:Savings", "NULL", "NULL"],
+            &["travel", "2024-02-01", "CNY", "NULL", "NULL", "Expenses:Travel", "2024-03-31", "NULL"],
         ])
     );
     // the metadata functions read the budget directive

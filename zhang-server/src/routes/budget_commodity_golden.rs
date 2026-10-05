@@ -688,6 +688,93 @@ option "timezone" "Asia/Shanghai"
         assert_eq!(response.err().map(|err| err.into_response().status().as_u16()), Some(400));
     }
 
+    /// The ledger of #499, with a budget-close at a time on another budget.
+    const CLOSED_499: &str = r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+2024-01-01 open Assets:Cash
+2024-01-01 open Expenses:Food
+  budget: "Food"
+2024-01-01 open Expenses:Fun
+  budget: "Fun"
+
+2024-01-01 budget Food CNY
+2024-01-01 budget-add Food 1000 CNY
+2024-01-02 budget-add Food 50 USD
+2024-01-01 budget Fun CNY
+
+2024-01-10 * "Lunch in CNY"
+  Expenses:Food 100 CNY
+  Assets:Cash
+
+2024-01-11 * "Lunch abroad in USD"
+  Expenses:Food 20 USD
+  Assets:Cash
+
+2024-03-01 budget-close Food
+
+2024-04-05 * "Lunch after the budget is closed"
+  Expenses:Food 30 CNY
+  Assets:Cash
+
+2024-04-10 12:00:00 budget-close Fun
+2024-04-10 11:00:00 * "Cinema before the close"
+  Expenses:Fun 5 CNY
+  Assets:Cash
+2024-04-10 13:00:00 * "Cinema after the close"
+  Expenses:Fun 7 CNY
+  Assets:Cash
+"#;
+
+    /// #499: the budget API never adds an amount in another commodity as a number, shows a budget
+    /// open before its close, and counts and lists no posting after the close.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_closed_budget_takes_no_activity_after_its_close() {
+        let ledger = ledger_of(CLOSED_499).await;
+        let months = [
+            (1, of("1000", "100", "900", false)),
+            (2, of("900", "0", "900", false)),
+            (3, of("900", "0", "900", true)),
+            // the lunch of April is after the close
+            (4, of("900", "0", "900", true)),
+        ];
+        for (month, expected) in months {
+            let list = json_answer(&ledger, Probe::BudgetList { month: Some((2024, month)) }).await;
+            let food = list.as_array().unwrap().iter().find(|it| it["name"] == "Food").unwrap();
+            assert_eq!(food["assigned_amount"]["commodity"], "CNY");
+            assert_eq!(figures(food), expected, "month {}", month);
+        }
+        let detail = |name: &str, month: u32| Probe::BudgetInterval {
+            name: name.to_owned(),
+            year: 2024,
+            month,
+        };
+        let narrations = |json: &Json| {
+            json.as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|it| it["narration"].as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        };
+        assert!(narrations(&json_answer(&ledger, detail("Food", 4)).await).is_empty());
+        assert_eq!(
+            narrations(&json_answer(&ledger, detail("Food", 1)).await),
+            vec!["Lunch abroad in USD", "Lunch in CNY"]
+        );
+        // a budget-close at a time closes the budget at that time
+        let info = json_answer(
+            &ledger,
+            Probe::BudgetInfo {
+                name: "Fun".to_owned(),
+                month: Some((2024, 4)),
+            },
+        )
+        .await;
+        assert_eq!(figures(&info), of("0", "5", "-5", true));
+        assert_eq!(narrations(&json_answer(&ledger, detail("Fun", 4)).await), vec!["Cinema before the close"]);
+    }
+
     /// 15 AAPL bought at 100 and 120 USD, 4 sold from the first lot; a loan in Liabilities. The
     /// latest USD price of AAPL is the 125 USD quoted at 10:00 on 2024-03-01.
     const COMMODITIES: &str = r#"

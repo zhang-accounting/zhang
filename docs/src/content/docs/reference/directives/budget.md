@@ -24,7 +24,7 @@ YYYY-MM-DD budget-close <Name>
 | `budget` | Creates the budget `<Name>`, counted in `<Commodity>`. |
 | `budget-add` | Assigns an amount to the budget in the month of its date. A negative amount takes money away. |
 | `budget-transfer` | Moves an assigned amount from one budget to another in the month of its date. |
-| `budget-close` | Closes the budget from the month of its date. |
+| `budget-close` | Closes the budget at the end of its date, or at its time if it has one. |
 
 A budget name is a single word without spaces, quotes, colons, parentheses or commas, such as `Food` or
 `Daily-Groceries`. Each directive takes a date, optionally with a time of day, and metadata lines below.
@@ -92,10 +92,16 @@ Some details:
 - A budget exists from the date of its `budget` directive. A posting to a linked account before that date is not
   counted, and is reported once as [`BudgetDoesNotExist`](/reference/error-codes/#budgetdoesnotexist).
 - The amounts of `budget-add` and `budget-transfer`, and the postings, are converted to the budget's commodity at
-  their date, with the prices of the ledger. An amount that no price converts is left out.
-- `budget-close` closes the budget from the month of its date: the budget page shows it as closed in that month and
-  the months after, and the budget card of the home page leaves it out from then on. A later `budget-close` changes
-  nothing. Later directives and postings still count toward it.
+  their date, with the prices of the ledger, the latest on or before that date. An amount is never added as a number
+  of another commodity: one that no price converts is left out, and reported as
+  [`BudgetCommodityMismatch`](/reference/error-codes/#budgetcommoditymismatch).
+- `budget-close` closes the budget. A `budget-close` with only a date leaves the budget open through that whole day,
+  and one with a time, such as `2024-03-01 18:00:00 budget-close Food`, closes it at that time. A closed budget takes
+  no activity: postings to its accounts after the close do not count toward it, and the first one of each account
+  is reported as [`BudgetClosed`](/reference/error-codes/#budgetclosed). Its `budget-add` and `budget-transfer`
+  directives still count, so you can move what is left to another budget with a `budget-transfer` after the close.
+- The budget page shows a budget as closed from the month of its `budget-close` on, and open in the months before;
+  the budget card of the home page leaves it out from that month. A later `budget-close` changes nothing.
 - The budget page of the web UI shows the assigned, activity and available amounts of each budget for a month, and
   the events of a budget in a month. In queries, `#budgets` and `#budget_events` hold the same figures; see
   [Zhang-specific tables](/reference/query-language/#zhang-specific-tables).
@@ -106,6 +112,8 @@ Some details:
 |---|---|
 | [`DefineDuplicatedBudget`](/reference/error-codes/#defineduplicatedbudget) | A `budget` directive names a budget that already exists. The second directive is ignored. |
 | [`BudgetDoesNotExist`](/reference/error-codes/#budgetdoesnotexist) | A `budget-add`, `budget-transfer` or `budget-close` names a budget that is not defined at its date; the directive is ignored. Or a posting's account is linked to a budget that is not defined at the posting's date; this is reported once per account and budget, and the transaction is still booked. |
+| [`BudgetCommodityMismatch`](/reference/error-codes/#budgetcommoditymismatch) | The amount of a `budget-add` or `budget-transfer`, or a posting to a linked account, is in another commodity than the budget's and no price on or before its date converts it. The amount does not count toward the budget, and the transaction is still booked. |
+| [`BudgetClosed`](/reference/error-codes/#budgetclosed) | A posting to a linked account comes after the budget's `budget-close`. It does not count toward the budget; this is reported once per account and budget, and the transaction is still booked. |
 
 ## Beancount compatibility
 

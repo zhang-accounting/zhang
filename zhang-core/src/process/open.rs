@@ -24,6 +24,9 @@ impl DirectiveProcess for Open {
         )?;
 
         operations.insert_meta(MetaType::AccountMeta, self.account.name(), self.meta.clone())?;
+        // a later `open` replaces the budgets of an earlier one; every `budget` entry counts
+        let budgets = self.meta.get_all("budget").into_iter().map(|budget| budget.as_str().to_owned()).collect();
+        ledger.open_budgets.insert(self.account.name().to_owned(), budgets);
         Ok(())
     }
 }

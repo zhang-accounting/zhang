@@ -584,14 +584,14 @@ ORDER BY name
 
 #### `budgets.budget`
 
-One budget: its display name, category, commodity, and the accounts whose postings are its activity, from `#budget_definitions`, which has no months. No row if there is no such budget.
+One budget: its display name, category, commodity, the accounts whose postings are its activity, and the date and time of its close, from `#budget_definitions`, which has no months. No row if there is no such budget.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `name` | `str` | the budget |
 
 ```sql
-SELECT name, alias, category, currency, accounts
+SELECT name, alias, category, currency, accounts, close, close_time
 FROM #budget_definitions
 WHERE name = :name
 ```
@@ -634,18 +634,21 @@ ORDER BY timestamp DESC
 
 #### `budgets.postings`
 
-The postings of a budget in a month, newest first, each with its account's balance in the posting's currency after it: those of its accounts that count in it at their date, by [`account_budgets`](/reference/query-language/#account-and-commodity-directives), so a posting of an account closed and opened again with another budget is listed in the budget it counts in. The budget's page lists them together with the events of `budgets.events`, newest first.
+The postings of a budget in a month, newest first, each with its account's balance in the posting's currency after it: those of its accounts that count in it at their date, by [`account_budgets`](/reference/query-language/#account-and-commodity-directives), so a posting of an account closed and opened again with another budget is listed in the budget it counts in. A closed budget takes no activity after its close, so the postings after it are not listed: those dated after the close day, and, when the `budget-close` has a time, those later on that day. The budget's page lists them together with the events of `budgets.events`, newest first.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `accounts` | `set` | the budget's accounts, the `accounts` of `budgets.budget` |
 | `month` | `date` | the first day of the month |
 | `name` | `str` | the budget |
+| `close` | `date` | the date of the budget's close, the `close` of `budgets.budget`, or `NULL` |
+| `close_time` | `str` | the time of the budget's close, the `close_time` of `budgets.budget`, or `NULL` |
 
 ```sql
 SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
        only(currency, account_balance) AS balance
 WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
+  AND (:close IS NULL OR date < :close OR (date = :close AND (:close_time IS NULL OR time <= :close_time)))
 ORDER BY timestamp DESC
 ```
 

@@ -88,6 +88,27 @@ impl PriceMap {
         let history = self.rates.get(quote).and_then(|quotes| quotes.get(base))?;
         latest(history, date, true).and_then(invert)
     }
+
+    /// The rates that convert `from` to `to` on `date` (the latest ones without a date), as beancount's
+    /// `convert_amount` picks them: the market rate of the pair, or of its inverse, else, for units held at a
+    /// cost in `via`, the two rates from `from` to `via` and from `via` to `to` (skipped when `via` is `to`).
+    /// `None` when no price converts it.
+    pub fn conversion(&self, from: &str, to: &str, via: Option<&str>, date: Option<NaiveDate>) -> Option<Conversion> {
+        if let Some(rate) = self.rate(from, to, date) {
+            return Some(Conversion::Rate(rate));
+        }
+        let via = via.filter(|via| *via != to)?;
+        Some(Conversion::Via(self.rate(from, via, date)?, self.rate(via, to, date)?))
+    }
+}
+
+/// How [`PriceMap::conversion`] converts units.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Conversion {
+    /// with the market rate of the pair
+    Rate(BigDecimal),
+    /// through the cost currency, with two rates
+    Via(BigDecimal, BigDecimal),
 }
 
 /// the latest rate on or before `date`, skipping zero rates if `skip_zero`
@@ -137,5 +158,21 @@ mod tests {
         // an inexact inverse keeps Python's 28 significant digits
         let inexact = PriceMap::from_points(vec![(date("2024-01-01"), "CNY", "USD", d("0.14"))]);
         assert_eq!(inexact.rate("USD", "CNY", None).unwrap().to_string(), "7.142857142857142857142857143");
+    }
+
+    /// A conversion takes the pair's rate, else goes through the cost currency, and needs a price on or before
+    /// the date.
+    #[test]
+    fn a_conversion_takes_the_pair_else_the_cost_currency() {
+        let prices = PriceMap::from_points(vec![(date("2024-01-10"), "USD", "CNY", d("7")), (date("2024-01-10"), "AAPL", "USD", d("200"))]);
+        let on = Some(date("2024-01-10"));
+        assert_eq!(prices.conversion("CNY", "CNY", None, on), Some(Conversion::Rate(d("1"))));
+        assert_eq!(prices.conversion("USD", "CNY", None, on), Some(Conversion::Rate(d("7"))));
+        assert_eq!(prices.conversion("AAPL", "CNY", Some("USD"), on), Some(Conversion::Via(d("200"), d("7"))));
+        assert_eq!(prices.conversion("AAPL", "CNY", None, on), None);
+        assert_eq!(prices.conversion("AAPL", "USD", Some("USD"), on), Some(Conversion::Rate(d("200"))));
+        // no price yet
+        assert_eq!(prices.conversion("USD", "CNY", None, Some(date("2024-01-09"))), None);
+        assert_eq!(prices.conversion("EUR", "CNY", Some("CNY"), on), None);
     }
 }

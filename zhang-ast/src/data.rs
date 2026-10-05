@@ -45,6 +45,14 @@ impl Date {
             Date::Datetime(datetime) => datetime.date(),
         }
     }
+    /// Whether the wall-clock time `at` comes after a close dated `self`, such as a `budget-close`: a
+    /// close with only a date lasts through its whole day, and one with a time ends at that time.
+    pub fn close_precedes(&self, at: NaiveDateTime) -> bool {
+        match self {
+            Date::Date(date) => at.date() > *date,
+            Date::DateHour(datetime) | Date::Datetime(datetime) => at > *datetime,
+        }
+    }
     pub fn as_budget_interval(&self) -> u32 {
         let date = self.naive_date();
         let year = date.year();

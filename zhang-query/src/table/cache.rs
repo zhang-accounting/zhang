@@ -31,7 +31,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use uuid::Uuid;
 use zhang_ast::{Directive, SpanInfo, Transaction, WrittenGroup};
 use zhang_core::ledger::Ledger;
@@ -471,6 +471,8 @@ pub(crate) struct CachedEntry {
     pub id: Uuid,
     /// its date in the ledger's timezone
     pub date: NaiveDate,
+    /// its time of day in the ledger's timezone
+    pub time: NaiveTime,
     /// the parsed directive (its index in [`Ledger::directives`]) when its postings match the
     /// stored ones: its metadata, costs and prices are read from it
     pub parsed: Option<u32>,
@@ -551,6 +553,7 @@ impl Postings {
             cached.push(CachedEntry {
                 id: txn.id,
                 date: txn.datetime.date_naive(),
+                time: txn.datetime.time(),
                 parsed: directive.map(|idx| idx as u32),
                 entry: directive.and_then(|idx| entries.of_directive(idx)).map(|it| it.seq),
             });

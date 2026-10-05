@@ -21,7 +21,7 @@ YYYY-MM-DD budget-close <Name>
 | `budget` | 创建预算 `<Name>`，以 `<Commodity>` 计。 |
 | `budget-add` | 在其日期所在的月份给预算分配一笔金额。负数金额表示收回资金。 |
 | `budget-transfer` | 在其日期所在的月份，把已分配的金额从一个预算转到另一个预算。 |
-| `budget-close` | 从其日期所在的月份起关闭预算。 |
+| `budget-close` | 在其日期当天结束时关闭预算；带时间时在该时间关闭。 |
 
 预算名称是一个不含空格、引号、冒号、括号或逗号的单词，例如 `Food` 或 `Daily-Groceries`。每条指令都需要日期，可以附带一天中的时刻，下方可以写元数据行。
 
@@ -81,8 +81,9 @@ YYYY-MM-DD open <Account>
 一些细节：
 
 - 预算从其 `budget` 指令的日期起存在。在这个日期之前记到关联账户的记账行不计入预算，并报告一次 [`BudgetDoesNotExist`](/zh-cn/reference/error-codes/#budgetdoesnotexist)。
-- `budget-add` 和 `budget-transfer` 的金额以及记账行，会用账本中的价格按各自的日期换算为预算的商品。没有价格可以换算的金额不计入。
-- `budget-close` 从其日期所在的月份起关闭预算：预算页面在这个月及之后的月份把它显示为已关闭，总览页面的预算卡片从那时起不再显示它。之后的 `budget-close` 不会再改变什么。之后的指令和记账行仍然计入它。
+- `budget-add` 和 `budget-transfer` 的金额以及记账行，会用账本中在各自日期或之前最新的价格，按各自的日期换算为预算的商品。金额绝不会被当作另一种商品的数字相加：没有价格可以换算的金额不计入，并报告为 [`BudgetCommodityMismatch`](/zh-cn/reference/error-codes/#budgetcommoditymismatch)。
+- `budget-close` 关闭预算。只有日期的 `budget-close` 让预算在当天全天仍然有效，带时间的（例如 `2024-03-01 18:00:00 budget-close Food`）在该时间关闭预算。已关闭的预算不再计入支出：关闭之后记到其关联账户的记账行不计入它，每个账户的第一笔会报告为 [`BudgetClosed`](/zh-cn/reference/error-codes/#budgetclosed)。它的 `budget-add` 和 `budget-transfer` 指令仍然计入，所以关闭之后可以用 `budget-transfer` 把剩下的金额转到另一个预算。
+- 预算页面从 `budget-close` 所在的月份起把预算显示为已关闭，之前的月份显示为未关闭；总览页面的预算卡片从那个月起不再显示它。之后的 `budget-close` 不会再改变什么。
 - 网页界面的预算页面显示每个预算在某个月的已分配、已支出和可用金额，以及某个预算在某个月的事件。在查询中，`#budgets` 和 `#budget_events` 包含同样的数据；见[张记账特有的表](/zh-cn/reference/query-language/#张记账特有的表)。
 
 ## 错误
@@ -91,6 +92,8 @@ YYYY-MM-DD open <Account>
 |---|---|
 | [`DefineDuplicatedBudget`](/zh-cn/reference/error-codes/#defineduplicatedbudget) | `budget` 指令指定的预算已经存在。第二条指令会被忽略。 |
 | [`BudgetDoesNotExist`](/zh-cn/reference/error-codes/#budgetdoesnotexist) | `budget-add`、`budget-transfer` 或 `budget-close` 指定的预算在其日期未定义；这条指令会被忽略。或者记账行的账户关联到在记账行日期未定义的预算；这种情况对每个账户和预算报告一次，交易仍会记账。 |
+| [`BudgetCommodityMismatch`](/zh-cn/reference/error-codes/#budgetcommoditymismatch) | `budget-add` 或 `budget-transfer` 的金额，或者记到关联账户的记账行，使用的商品与预算不同，并且在其日期或之前没有价格可以换算它。这笔金额不计入预算，交易仍会记账。 |
+| [`BudgetClosed`](/zh-cn/reference/error-codes/#budgetclosed) | 记到关联账户的记账行在预算的 `budget-close` 之后。它不计入预算；这种情况对每个账户和预算报告一次，交易仍会记账。 |
 
 ## Beancount 兼容性
 
