@@ -123,6 +123,12 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
         accepted: Accepted::InFixture,
     },
     Deviation {
+        case: Some("date_text_compared_with_a_date"),
+        reason: "a string compared with a date is read as date(text) reads it (a zhang extension; beanquery 0.2.0 \
+                 rejects the comparison); the fixture was generated from the query with each string wrapped in date()",
+        accepted: Accepted::InFixture,
+    },
+    Deviation {
         case: None,
         reason: "x IN (a) with a one-element list works in zhang; beanquery parses (a) as a parenthesised scalar and \
                  crashes at runtime, so there is no oracle result",

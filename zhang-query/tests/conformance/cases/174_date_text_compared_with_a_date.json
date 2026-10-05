@@ -1,0 +1,18 @@
+{
+  "name": "date_text_compared_with_a_date",
+  "query": "SELECT date, position WHERE account = 'Expenses:Home:Rent' AND (date = '2016-1-6' OR date = '2016-02- 3' OR (date >= '2016-3-6' AND date < '2016-4-5')) ORDER BY date",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": true,
+  "expect": "rows",
+  "columns": [
+    {"name": "date", "type": "date"},
+    {"name": "position", "type": "position"}
+  ],
+  "rows": [
+    ["2016-01-06", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}],
+    ["2016-02-03", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}],
+    ["2016-03-06", {"units": {"number": "2400.00", "currency": "USD"}, "cost": null}]
+  ],
+  "notes": "DELIBERATE DEVIATION FROM THE ORACLE: zhang reads a string compared with a date as a date, by the rule of date(text) (beanquery 0.2.0 rejects the comparison). The expected rows were generated from the same query with each string wrapped in date()."
+}

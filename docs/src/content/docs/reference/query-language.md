@@ -452,8 +452,8 @@ The accounts that the clauses post to do not need to be opened in your ledger. T
 
 - Strings can use single or double quotes. Unlike standard SQL, `"USD"` is a string, not a column name.
 - A string ends at the next quote of the same kind, and there are no escape sequences. To put a quote character inside a string, wrap the string in the other kind of quote: `"Joe's Diner"` or `'say "hi"'`.
-- Dates are written **without** quotes, in `YYYY-MM-DD` form. An invalid date such as `2024-13-01` is an error.
-- A quoted string compared with a date is read as a date, so `date >= '2024-01-01'` also works. A string that is not a valid `YYYY-MM-DD` date is then an error.
+- Dates are written **without** quotes, in `YYYY-MM-DD` form. An invalid date such as `2024-13-01`, or one outside the years 1 to 9999, is an error.
+- A quoted string compared with a date (with `=`, `<`, `IN` and the other comparisons) is read as a date, so `date >= '2024-01-01'` also works. The string is read exactly as [`date(str)`](#date-functions) reads it: a four-digit year, then a month and a day of one or two digits, and nothing else around them, so `'2024-1-5'` is 2024-01-05. A string that `date()` reads as `NULL`, such as `' 2024-01-05'`, `'+2024-01-05'` or `'24-01-05'`, is then an error. This comparison is a zhang extension: beanquery 0.2.0 rejects a string compared with a date.
 - Integers are 64-bit. A larger integer literal becomes a `decimal`. Exponent notation such as `1e3` is not supported.
 - `TRUE`, `FALSE` and `NULL` are keywords and are case-insensitive.
 

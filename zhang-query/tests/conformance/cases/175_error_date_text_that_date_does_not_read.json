@@ -1,0 +1,12 @@
+{
+  "name": "error_date_text_that_date_does_not_read",
+  "query": "SELECT date WHERE account = 'Expenses:Home:Rent' AND date = ' 2016-01-06'",
+  "phase": 4,
+  "kind": "engine",
+  "ordered": false,
+  "expect": "error",
+  "error_class": "compile",
+  "columns": [],
+  "rows": [],
+  "notes": "date(' 2016-01-06') is NULL (strptime takes no leading space), so the string is no date and the comparison is an error, in zhang as in beanquery."
+}
