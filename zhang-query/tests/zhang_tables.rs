@@ -645,6 +645,100 @@ fn a_budget_leaves_out_unconverted_amounts_and_spending_after_its_close() {
     assert_eq!(run(&ledger, "SELECT kind, date FROM #errors"), rows(&[&["BudgetClosed", "2024-04-05"]]));
 }
 
+/// One rule of budget membership: a posting belongs to the budgets of its account's `open` in
+/// effect at its date and time, from the budget's definition until its close, when a price
+/// converts it. The activity, the postings' `budgets` column (the budget page's posting list) and
+/// the errors all follow it, so the postings of a budget's month add up to its activity.
+const ONE_MEMBERSHIP_RULE: &str = r#"
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+1970-01-01 open Expenses:Lunch
+  budget: A
+2024-01-01 budget A CNY
+2024-01-01 budget B CNY
+2024-01-10 * "Market" "before the budget"
+  Expenses:Food 10 CNY
+  Assets:Bank
+2024-01-15 budget food CNY
+2024-01-15 budget-add food 100 CNY
+2024-01-20 * "Market" "after the budget"
+  Expenses:Food 7 CNY
+  Assets:Bank
+2024-01-21 * "Abroad" "no price converts it"
+  Expenses:Food 3 USD
+  Assets:Bank
+2024-01-05 09:00:00 * "Cafe" "lunch before the reopen"
+  Expenses:Lunch 10 CNY
+  Assets:Bank
+2024-01-05 09:30:00 close Expenses:Lunch
+2024-01-05 10:00:00 open Expenses:Lunch
+  budget: B
+2024-01-05 11:00:00 * "Cafe" "lunch after the reopen"
+  Expenses:Lunch 20 CNY
+  Assets:Bank
+"#;
+
+#[test]
+fn a_posting_counts_toward_a_budget_by_one_rule() {
+    let ledger = common::load_text(ONE_MEMBERSHIP_RULE);
+    // the lunch at 09:00 counts in A, the budget of the open in effect then, not in B, which
+    // the account names from 10:00 on; the market before the budget's definition and the
+    // dollars no price converts are not food's
+    assert_eq!(
+        run(&ledger, "SELECT name, activity FROM #budgets WHERE date = 2024-01-01"),
+        rows(&[&["A", "10 CNY"], &["B", "20 CNY"], &["food", "7 CNY"]])
+    );
+    // the posting list of each budget is the postings of its activity, and adds up to it
+    for (name, narrations, activity) in [
+        ("A", vec!["lunch before the reopen"], "10"),
+        ("B", vec!["lunch after the reopen"], "20"),
+        ("food", vec!["after the budget"], "7"),
+    ] {
+        let listed = run(
+            &ledger,
+            &format!(
+                "SELECT narration WHERE yearmonth(date) = 2024-01-01 AND '{}' IN budgets ORDER BY date, time",
+                name
+            ),
+        );
+        assert_eq!(listed, narrations.iter().map(|it| vec![(*it).to_owned()]).collect::<Vec<_>>(), "{}", name);
+        let sum = run(
+            &ledger,
+            &format!("SELECT sum(number) WHERE yearmonth(date) = 2024-01-01 AND '{}' IN budgets", name),
+        );
+        assert_eq!(sum, rows(&[&[activity]]), "{}", name);
+    }
+    assert_eq!(
+        run(&ledger, "SELECT narration, budgets WHERE account ~ 'Expenses' ORDER BY date, time"),
+        rows(&[
+            &["lunch before the reopen", "A"],
+            &["lunch after the reopen", "B"],
+            &["before the budget", ""],
+            &["after the budget", "food"],
+            &["no price converts it", ""],
+        ])
+    );
+    // account_budgets() reads the same rule, at the start of the day
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT DISTINCT account_budgets('Expenses:Lunch', 2024-01-05) FROM #budget_definitions"
+        ),
+        rows(&[&["A"]])
+    );
+    // and the store fold reports what the rule leaves out, and nothing for the lunches
+    assert_eq!(
+        run(&ledger, "SELECT kind, date, account FROM #errors WHERE kind ~ '^Budget'"),
+        rows(&[
+            &["BudgetDoesNotExist", "2024-01-10", "Expenses:Food"],
+            &["BudgetCommodityMismatch", "2024-01-21", "Expenses:Food"],
+        ])
+    );
+}
+
 /// A budget-close without a time leaves the budget open through its whole day; one with a time
 /// closes it at that time.
 #[test]

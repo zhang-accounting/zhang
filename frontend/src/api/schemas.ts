@@ -3,6 +3,11 @@
  * Do not make direct changes to the file.
  */
 
+/** OneOf type helpers */
+type Without<T, U> = { [P in Exclude<keyof T, keyof U>]?: never };
+type XOR<T, U> = T | U extends object ? (Without<T, U> & U) | (Without<U, T> & T) : T | U;
+type OneOf<T extends any[]> = T extends [infer Only] ? Only : T extends [infer A, infer B, ...infer Rest] ? OneOf<[XOR<A, B>, ...Rest]> : never;
+
 export interface paths {
   '/api/accounts': {
     /**
@@ -60,8 +65,8 @@ export interface paths {
      * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
      * assertion on the account, with the balance it was checked against.
      *
-     * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
-     * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+     * With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
+     * size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
      * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
      * name a 400, as for `GET /api/accounts/{a}`.
      *
@@ -191,8 +196,8 @@ export interface paths {
     /**
      * Get Errors
      * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-     * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
-     * page past the last one is empty.
+     * query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
+     * default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
      */
     get: operations['get_errors'];
   };
@@ -234,8 +239,8 @@ export interface paths {
      * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
      * of a page from `journals.postings` and `journals.balance_checks`.
      *
-     * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
-     * empty.
+     * Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
+     * paged endpoint; another page or size is a bad request, and a page past the last one is empty.
      */
     get: operations['get_journals'];
   };
@@ -356,6 +361,16 @@ export interface paths {
     /** Create New Transaction */
     post: operations['create_new_transaction'];
   };
+  '/api/transactions/preview': {
+    /**
+     * Preview New Transaction
+     * @description What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
+     * would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
+     * unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
+     * before it, each posting weighed by its cost or price, at each commodity's precision.
+     */
+    post: operations['preview_new_transaction'];
+  };
   '/api/transactions/{transaction_id}': {
     /** Update Single Transaction */
     put: operations['update_single_transaction'];
@@ -363,6 +378,14 @@ export interface paths {
   '/api/transactions/{transaction_id}/documents': {
     /** Upload Transaction Document */
     post: operations['upload_transaction_document'];
+  };
+  '/api/transactions/{transaction_id}/preview': {
+    /**
+     * Preview Transaction Update
+     * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
+     * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+     */
+    post: operations['preview_transaction_update'];
   };
 }
 
@@ -710,8 +733,8 @@ export interface operations {
    * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
    * assertion on the account, with the balance it was checked against.
    *
-   * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
-   * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+   * With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
+   * size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
    * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
    * name a 400, as for `GET /api/accounts/{a}`.
    *
@@ -720,17 +743,9 @@ export interface operations {
    */
   get_account_journals: {
     parameters: {
-      query: {
-        /**
-         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
-         * most 1000. Without either, the whole journal.
-         */
-        page: number | null;
-        /**
-         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
-         * most 1000. Without either, the whole journal.
-         */
-        size: number | null;
+      query?: {
+        page?: number | null;
+        size?: number | null;
       };
       path: {
         account_name: string;
@@ -1421,8 +1436,8 @@ export interface operations {
   /**
    * Get Errors
    * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-   * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
-   * page past the last one is empty.
+   * query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
+   * default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
    */
   get_errors: {
     parameters: {
@@ -1591,12 +1606,8 @@ export interface operations {
    */
   get_info_for_new_transactions: {
     parameters: {
-      query: {
-        /**
-         * @description What the new-transaction form asks: the accounts open at `datetime`, the transaction's date and time as the form
-         * submits it, read in the ledger's timezone; now when it is left out.
-         */
-        datetime: string | null;
+      query?: {
+        datetime?: string | null;
       };
     };
     responses: {
@@ -1651,17 +1662,17 @@ export interface operations {
    * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
    * of a page from `journals.postings` and `journals.balance_checks`.
    *
-   * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
-   * empty.
+   * Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
+   * paged endpoint; another page or size is a bad request, and a page past the last one is empty.
    */
   get_journals: {
     parameters: {
-      query: {
-        keyword: string | null;
-        links: string[] | null;
-        page: number | null;
-        size: number | null;
-        tags: string[] | null;
+      query?: {
+        page?: number | null;
+        size?: number | null;
+        keyword?: string | null;
+        tags?: string[] | null;
+        links?: string[] | null;
       };
     };
     responses: {
@@ -2493,11 +2504,18 @@ export interface operations {
              * a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
-            unit?: {
-              commodity: string;
-              /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-              number: string;
-            } | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
           }[];
           tags: string[];
         };
@@ -2509,6 +2527,170 @@ export interface operations {
         content: {
           'application/json': {
             data: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Preview New Transaction
+   * @description What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
+   * would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
+   * unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
+   * before it, each posting weighed by its cost or price, at each commodity's precision.
+   */
+  preview_new_transaction: {
+    requestBody: {
+      content: {
+        'application/json': {
+          datetime: string;
+          flag?: string | null;
+          links: string[];
+          metas: {
+            key: string;
+            value: string;
+          }[];
+          narration?: string | null;
+          payee: string;
+          postings: {
+            account: string;
+            /**
+             * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
+             * comment of the posting it edits, `null` removes it
+             */
+            comment?: string | null;
+            /**
+             * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
+             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             */
+            cost?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
+            /**
+             * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
+             * a field left out keeps the price of the posting it edits, `null` removes it
+             */
+            price?: string | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
+          }[];
+          tags: string[];
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the errors the ledger would report against the transaction once written, as `GET /api/errors` lists them, such
+               * as `UnbalancedTransaction` or `AccountClosed`
+               */
+              errors: {
+                /** @enum {string} */
+                error_type:
+                  | 'UnbalancedTransaction'
+                  | 'TransactionCannotInferTradeAmount'
+                  | 'TransactionHasMultipleImplicitPosting'
+                  | 'TransactionExplicitPostingHaveMultipleCommodity'
+                  | 'AccountBalanceCheckError'
+                  | 'UnusedPad'
+                  | 'PadWithCost'
+                  | 'BalanceTimeIgnored'
+                  | 'DocumentPathRelativeToRoot'
+                  | 'DocumentNotFound'
+                  | 'IncludeNotFound'
+                  | 'AccountDoesNotExist'
+                  | 'AccountClosed'
+                  | 'CommodityDoesNotDefine'
+                  | 'CommodityNotAllowed'
+                  | 'NoEnoughCommodityLot'
+                  | 'CloseNonZeroAccount'
+                  | 'BudgetDoesNotExist'
+                  | 'DefineDuplicatedBudget'
+                  | 'BudgetCommodityMismatch'
+                  | 'BudgetClosed'
+                  | 'MultipleOperatingCurrencyDetect'
+                  | 'ParseInvalidMeta'
+                  | 'UnsupportedBookingMethod'
+                  | 'AmbiguousLotMatch'
+                  | 'CostMergingNotSupported'
+                  | 'PluginError';
+                metas: {
+                  [key: string]: string;
+                };
+              }[];
+              /**
+               * @description the fields the create or update refuses with a 400, each with its message, in the order they are checked: the
+               * first is what the create or update answers. Nothing else is checked while there is one
+               */
+              field_errors: {
+                /** @enum {string} */
+                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                /**
+                 * @description why it cannot be written, for a client to tell in its own words with `value`
+                 * @enum {string}
+                 */
+                kind:
+                  | 'invalid_account'
+                  | 'beancount_account'
+                  | 'invalid_commodity'
+                  | 'beancount_commodity'
+                  | 'invalid_amount'
+                  | 'invalid_cost'
+                  | 'invalid_price'
+                  | 'beancount_meta_key'
+                  | 'invalid_tag'
+                  | 'beancount_tag'
+                  | 'invalid_link'
+                  | 'beancount_link'
+                  | 'invalid_flag';
+                /** @description what the create or update answers for it with a 400 */
+                message: string;
+                /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
+                posting: number | null;
+                /**
+                 * @description the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
+                 * tag, the link or the flag
+                 */
+                value: string;
+              }[];
+              /**
+               * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
+               * field is invalid
+               */
+              text: string | null;
+              /**
+               * @description what the transaction is unbalanced by once booked, each posting weighed by its cost or price, rounded at each
+               * commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
+               * (see `errors`) or a field is invalid
+               */
+              unbalanced:
+                | {
+                    commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                    number: string;
+                  }[]
+                | null;
+            };
           };
         };
       };
@@ -2558,11 +2740,18 @@ export interface operations {
              * a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
-            unit?: {
-              commodity: string;
-              /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-              number: string;
-            } | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
           }[];
           tags: string[];
         };
@@ -2598,6 +2787,173 @@ export interface operations {
         content: {
           'application/json': {
             data: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Preview Transaction Update
+   * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
+   * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+   */
+  preview_transaction_update: {
+    parameters: {
+      path: {
+        transaction_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          datetime: string;
+          flag?: string | null;
+          links: string[];
+          metas: {
+            key: string;
+            value: string;
+          }[];
+          narration?: string | null;
+          payee: string;
+          postings: {
+            account: string;
+            /**
+             * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
+             * comment of the posting it edits, `null` removes it
+             */
+            comment?: string | null;
+            /**
+             * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
+             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             */
+            cost?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
+            /**
+             * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
+             * a field left out keeps the price of the posting it edits, `null` removes it
+             */
+            price?: string | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
+          }[];
+          tags: string[];
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the errors the ledger would report against the transaction once written, as `GET /api/errors` lists them, such
+               * as `UnbalancedTransaction` or `AccountClosed`
+               */
+              errors: {
+                /** @enum {string} */
+                error_type:
+                  | 'UnbalancedTransaction'
+                  | 'TransactionCannotInferTradeAmount'
+                  | 'TransactionHasMultipleImplicitPosting'
+                  | 'TransactionExplicitPostingHaveMultipleCommodity'
+                  | 'AccountBalanceCheckError'
+                  | 'UnusedPad'
+                  | 'PadWithCost'
+                  | 'BalanceTimeIgnored'
+                  | 'DocumentPathRelativeToRoot'
+                  | 'DocumentNotFound'
+                  | 'IncludeNotFound'
+                  | 'AccountDoesNotExist'
+                  | 'AccountClosed'
+                  | 'CommodityDoesNotDefine'
+                  | 'CommodityNotAllowed'
+                  | 'NoEnoughCommodityLot'
+                  | 'CloseNonZeroAccount'
+                  | 'BudgetDoesNotExist'
+                  | 'DefineDuplicatedBudget'
+                  | 'BudgetCommodityMismatch'
+                  | 'BudgetClosed'
+                  | 'MultipleOperatingCurrencyDetect'
+                  | 'ParseInvalidMeta'
+                  | 'UnsupportedBookingMethod'
+                  | 'AmbiguousLotMatch'
+                  | 'CostMergingNotSupported'
+                  | 'PluginError';
+                metas: {
+                  [key: string]: string;
+                };
+              }[];
+              /**
+               * @description the fields the create or update refuses with a 400, each with its message, in the order they are checked: the
+               * first is what the create or update answers. Nothing else is checked while there is one
+               */
+              field_errors: {
+                /** @enum {string} */
+                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                /**
+                 * @description why it cannot be written, for a client to tell in its own words with `value`
+                 * @enum {string}
+                 */
+                kind:
+                  | 'invalid_account'
+                  | 'beancount_account'
+                  | 'invalid_commodity'
+                  | 'beancount_commodity'
+                  | 'invalid_amount'
+                  | 'invalid_cost'
+                  | 'invalid_price'
+                  | 'beancount_meta_key'
+                  | 'invalid_tag'
+                  | 'beancount_tag'
+                  | 'invalid_link'
+                  | 'beancount_link'
+                  | 'invalid_flag';
+                /** @description what the create or update answers for it with a 400 */
+                message: string;
+                /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
+                posting: number | null;
+                /**
+                 * @description the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
+                 * tag, the link or the flag
+                 */
+                value: string;
+              }[];
+              /**
+               * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
+               * field is invalid
+               */
+              text: string | null;
+              /**
+               * @description what the transaction is unbalanced by once booked, each posting weighed by its cost or price, rounded at each
+               * commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
+               * (see `errors`) or a field is invalid
+               */
+              unbalanced:
+                | {
+                    commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                    number: string;
+                  }[]
+                | null;
+            };
           };
         };
       };

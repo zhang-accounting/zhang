@@ -31,4 +31,9 @@ export default tseslint.config(
     files: ['src/components/ui/**', 'src/api/schemas.ts'],
     rules: { 'max-len': 'off' },
   },
+  {
+    // openapi-typescript writes the `OneOf` helper of the generated schema with `any`
+    files: ['src/api/schemas.ts'],
+    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+  },
 )

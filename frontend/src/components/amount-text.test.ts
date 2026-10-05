@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import BigNumber from 'bignumber.js';
-import { amountTextParts, formatAmountText } from './amount-text.ts';
+import { amountTextParts, DEFAULT_COMMODITY_PRECISION, defaultPrecisionOption, formatAmountText } from './amount-text.ts';
 
 const cny = { precision: 2, prefix: '¥', suffix: null };
 const usd = { precision: 2, prefix: null, suffix: null };
@@ -43,4 +43,17 @@ test('the parts are those Amount shows', () => {
   assert.deepEqual(amountTextParts('-1234.5', 'CNY', cny), { sign: '-', prefix: '¥', number: '1,234.50', suffix: '', currency: undefined });
   assert.deepEqual(amountTextParts('7', 'USD', usd, { signed: true }), { sign: '+', prefix: '', number: '7.00', suffix: '', currency: 'USD' });
   assert.deepEqual(amountTextParts('7', 'USD', usd, { plain: true }), { sign: '', prefix: '', number: '7.00', suffix: '', currency: undefined });
+});
+
+test("a commodity the ledger does not declare takes the ledger's default_commodity_precision", () => {
+  // `/api/options` lists the option, set or not: `2` by default
+  assert.equal(defaultPrecisionOption('4'), 4);
+  assert.equal(defaultPrecisionOption('0'), 0);
+  assert.equal(defaultPrecisionOption('2'), 2);
+  assert.equal(formatAmountText('1234.5678', 'XYZ', undefined, { defaultPrecision: defaultPrecisionOption('4') }), '1,234.5678 XYZ');
+  // while the options load, or for a value that is not a whole number of decimals: the built-in default
+  assert.equal(DEFAULT_COMMODITY_PRECISION, 2);
+  for (const value of [undefined, '', '-1', '2.5', 'two', '9999999999']) {
+    assert.equal(defaultPrecisionOption(value), DEFAULT_COMMODITY_PRECISION, String(value));
+  }
 });

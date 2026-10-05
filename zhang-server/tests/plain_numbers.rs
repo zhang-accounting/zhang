@@ -149,7 +149,7 @@ async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
     };
     let budgets = json(get_budget_list(State(ledger.clone()), axum::extract::Query(budgets)).await).await;
     responses.push(("/api/budgets", budgets));
-    let errors = json(get_errors(State(ledger.clone()), axum::extract::Query(journal_request())).await).await;
+    let errors = json(get_errors(State(ledger.clone()), Query(journal_request())).await).await;
     responses.push(("/api/errors", errors));
 
     let mut found = vec![];

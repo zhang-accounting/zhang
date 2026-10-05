@@ -151,7 +151,6 @@ impl Opts {
                     passkey_rp_id: env_value("ZHANG_PASSKEY_RP_ID"),
                     passkey_origin: env_value("ZHANG_PASSKEY_ORIGIN"),
                     session_secret: env_value("ZHANG_SESSION_SECRET"),
-                    is_local_fs: file_system == FileSystem::Fs,
                     no_report: opts.no_report,
                     data_source: Arc::new(data_source),
                 })
@@ -370,7 +369,6 @@ mod test {
                             passkey_rp_id: None,
                             passkey_origin: None,
                             session_secret: None,
-                            is_local_fs: true,
                             no_report: false,
                             data_source: data_source.clone(),
                         },
@@ -483,7 +481,6 @@ mod test {
                 passkey_rp_id: None,
                 passkey_origin: None,
                 session_secret: Some("session-secret".to_string()),
-                is_local_fs: true,
                 no_report: true,
                 data_source,
             },

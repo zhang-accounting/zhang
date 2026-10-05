@@ -133,9 +133,9 @@ impl FunctionContext for Env<'_, '_> {
         self.data?.commodity_directive(currency)
     }
 
-    fn account_budgets(&self, account: &str, date: NaiveDate) -> Option<BTreeSet<String>> {
+    fn account_budgets(&self, account: &str, at: NaiveDateTime) -> Option<BTreeSet<String>> {
         self.impure.set(self.impure.get() || self.data.is_none());
-        self.data?.budgets_at(account, date).cloned()
+        self.data?.account_budgets(account, at).cloned()
     }
 
     fn account_status(&self, account: &str, at: NaiveDateTime) -> Option<AccountStatus> {

@@ -172,7 +172,6 @@ async fn app_and_ledger(dir: &Path, settings: &Settings) -> (ServerApp, Arc<RwLo
             passkey_rp_id: settings.rp_id.map(str::to_owned),
             passkey_origin: settings.origin.map(str::to_owned),
             session_secret: settings.session_secret.map(str::to_owned),
-            is_local_fs: false,
         },
         ledger.clone(),
         Broadcaster::create(),

@@ -8,6 +8,7 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
+use zhang_ast::amount::Amount;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::data_source::loaded_file;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
@@ -18,9 +19,14 @@ use zhang_core::ZhangError;
 
 use super::Query;
 use crate::error::ServerError;
-use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, JournalRequest, MetaRequest, NewTransactionInfoRequest};
-use crate::response::{InfoForNewTransaction, JournalItemEntity, Pageable, ResponseWrapper};
+use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest, NewTransactionInfoRequest, UnitRequest};
+use crate::response::{
+    InfoForNewTransaction, JournalItemEntity, Nullable, Pageable, ResponseWrapper, TransactionField, TransactionFieldErrorEntity, TransactionPreviewEntity,
+    TransactionPreviewErrorEntity,
+};
+use crate::routes::query::with_ledger;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
+use crate::validate::{Checked, Invalid};
 use crate::{journals, validate, ApiResult, ServerResult};
 
 /// The payees and the accounts the new-transaction form suggests: the built-in queries `journals.payees` and
@@ -36,70 +42,155 @@ pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>, params: 
 /// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
 /// of a page from `journals.postings` and `journals.balance_checks`.
 ///
-/// A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
-/// empty.
+/// Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
+/// paged endpoint; another page or size is a bad request, and a page past the last one is empty.
 #[api(group = "transaction")]
 pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     ResponseWrapper::json(journals::journal(&ledger, params.0).await?)
+}
+
+/// A field of a create or update request that cannot be written as given, with what the request answers for it.
+pub(crate) struct FieldError {
+    /// the posting it is a field of, counting from 0; `None` for a field of the transaction
+    pub posting: Option<usize>,
+    pub field: TransactionField,
+    pub invalid: Invalid,
+}
+
+impl FieldError {
+    /// the order the fields were checked in, one at a time: posting by posting, each one's units, cost, price, account
+    /// and metadata, then the transaction's metadata, tags, links and flag. The first is what a create or update answers
+    fn order(&self) -> (usize, TransactionField) {
+        (self.posting.unwrap_or(usize::MAX), self.field)
+    }
+}
+
+/// The errors of the fields of a request, collected: every field is checked, so a preview names each one that fails.
+#[derive(Default)]
+struct Fields {
+    errors: Vec<FieldError>,
+}
+
+impl Fields {
+    /// `result`, the value read from the field `field` of the posting `posting` (or of the transaction), or `None`
+    /// when it failed, keeping its error
+    fn check<T>(&mut self, posting: Option<usize>, field: TransactionField, result: Checked<T>) -> Option<T> {
+        result.map_err(|invalid| self.errors.push(FieldError { posting, field, invalid })).ok()
+    }
+}
+
+/// The units of a request posting: an amount, or its text read with the ledger's grammar ([`validate::units`]). A text
+/// of spaces alone is no units, like `null`.
+fn units_of(unit: &UnitRequest, rules: &validate::Rules, ledger: &Ledger) -> Checked<Option<Amount>> {
+    match unit {
+        UnitRequest::Amount(amount) => validate::amount(amount, rules).map(|_| Some(amount.clone())),
+        UnitRequest::Text(text) if text.trim().is_empty() => Ok(None),
+        UnitRequest::Text(text) => validate::units(text, rules, &ledger.options.operating_currency).map(Some),
+    }
 }
 
 /// Build the transaction a create or update request describes, rejecting with a
 /// 400 any account, commodity, tag, link or flag that would be written unquoted and
 /// not read back, and in a beancount ledger any new name beancount itself rejects.
 /// `original` is the transaction an update replaces, as it was read from the ledger.
-fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> ServerResult<Directive> {
+///
+/// Every field is checked: the error is that of each field that fails, in the order of [`FieldError::order`].
+fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> Result<Transaction, Vec<FieldError>> {
     let rules = validate::Rules::of(ledger);
+    let mut fields = Fields::default();
+    // the units first: an edited posting is matched to the one it edits by them
+    let units = payload
+        .postings
+        .iter()
+        .enumerate()
+        .map(|(index, posting)| {
+            let unit = posting.unit.as_ref()?;
+            fields.check(Some(index), TransactionField::Unit, units_of(unit, &rules, ledger)).flatten()
+        })
+        .collect_vec();
     // the postings of the original as written (#638): the ledger holds them booked, with the units it
     // interpolated, a reduction split into one leg per lot and every cost resolved to its lot. An edit
     // takes from them, and writes back, what was written
     let written = original.map(|it| it.written_postings());
-    let original_postings = payload
+    let requested = payload
         .postings
         .iter()
-        .map(|posting| written.as_deref().and_then(|written| original_posting(written, &payload.postings, posting)))
+        .zip(&units)
+        .map(|(posting, units)| (posting.account.as_str(), units.as_ref()))
+        .collect_vec();
+    let original_postings = requested
+        .iter()
+        .map(|posting| written.as_deref().and_then(|written| original_posting(written, &requested, *posting)))
         .collect_vec();
     let mut postings = vec![];
-    for (posting, original_posting) in payload.postings.into_iter().zip(original_postings) {
+    for (index, ((posting, units), original_posting)) in payload.postings.into_iter().zip(units).zip(original_postings).enumerate() {
+        let at = Some(index);
         let original_meta = original_posting.map(|it| &it.meta);
-        if let Some(unit) = &posting.unit {
-            validate::amount(unit, &rules)?;
-        }
         // a cost, price or comment left out of the request is the matched posting's (#473), so a client
         // that does not know the fields never drops them; `null` removes one, and a value replaces it
-        let cost = given(posting.cost, original_posting.and_then(|it| it.cost.clone()), |text| {
-            validate::cost(text, &rules)
-        })?;
-        let price = given(posting.price, original_posting.and_then(|it| it.price.clone()), |text| {
-            validate::price(text, &rules)
-        })?;
-        let comment = given(posting.comment, original_posting.and_then(|it| it.comment.clone()), |text| Ok(text.to_owned()))?;
-        postings.push(Posting {
-            // a request carries no posting flag: the posting it edits keeps its own, such as `!`. The
-            // exporter leaves out one the ledger's format would not read back, such as a `*` a plugin
-            // set in a zhang ledger, where the line would read back as a comment
-            flag: original_posting.and_then(|it| it.flag.clone()),
-            account: validate::account(&posting.account, &rules)?,
-            units: posting.unit,
-            cost,
-            price,
-            comment,
-            meta: metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta)?,
-            written: None,
-        });
+        let cost = fields.check(
+            at,
+            TransactionField::Cost,
+            given(posting.cost, original_posting.and_then(|it| it.cost.clone()), |text| {
+                validate::cost(text, &rules)
+            }),
+        );
+        let price = fields.check(
+            at,
+            TransactionField::Price,
+            given(posting.price, original_posting.and_then(|it| it.price.clone()), |text| {
+                validate::price(text, &rules)
+            }),
+        );
+        let comment = given(posting.comment, original_posting.and_then(|it| it.comment.clone()), |text| {
+            Checked::Ok(text.to_owned())
+        })
+        .ok()
+        .flatten();
+        let account = fields.check(at, TransactionField::Account, validate::account(&posting.account, &rules));
+        let meta = fields.check(
+            at,
+            TransactionField::Metas,
+            metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta),
+        );
+        if let (Some(cost), Some(price), Some(account), Some(meta)) = (cost, price, account, meta) {
+            postings.push(Posting {
+                // a request carries no posting flag: the posting it edits keeps its own, such as `!`. The
+                // exporter leaves out one the ledger's format would not read back, such as a `*` a plugin
+                // set in a zhang ledger, where the line would read back as a comment
+                flag: original_posting.and_then(|it| it.flag.clone()),
+                account,
+                units,
+                cost,
+                price,
+                comment,
+                meta,
+                written: None,
+            });
+        }
     }
 
-    let metas = metas_from_request(payload.metas, &rules, original.map(|it| &it.meta))?;
+    let metas = fields.check(
+        None,
+        TransactionField::Metas,
+        metas_from_request(payload.metas, &rules, original.map(|it| &it.meta)),
+    );
     for tag in &payload.tags {
-        validate::tag(tag, &rules)?;
+        fields.check(None, TransactionField::Tags, validate::tag(tag, &rules));
     }
     for link in &payload.links {
-        validate::link(link, &rules)?;
+        fields.check(None, TransactionField::Links, validate::link(link, &rules));
     }
     let flag = payload.flag.map(Flag::from).unwrap_or(Flag::Okay);
-    validate::flag(&flag.to_string())?;
+    fields.check(None, TransactionField::Flag, validate::flag(&flag.to_string()));
+    let (Some(metas), true) = (metas, fields.errors.is_empty()) else {
+        let mut errors = fields.errors;
+        errors.sort_by_key(FieldError::order);
+        return Err(errors);
+    };
 
     let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
-    Ok(Directive::Transaction(Transaction {
+    Ok(Transaction {
         date: Date::Datetime(time),
         flag: Some(flag),
         payee: Some(ZhangString::quote(payload.payee)),
@@ -108,7 +199,15 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
         links: IndexSet::from_iter(payload.links),
         postings,
         meta: metas,
-    }))
+    })
+}
+
+/// The transaction a create or update request describes ([`transaction_from_request`]), or the error of the first field
+/// that fails, which the request answers with.
+fn requested_transaction(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> ServerResult<Directive> {
+    transaction_from_request(payload, ledger, original)
+        .map(Directive::Transaction)
+        .map_err(|errors| errors.into_iter().next().expect("a failed request has an error").invalid.into())
 }
 
 /// The metadata of a request, every key checked by [`validate::meta_key`].
@@ -121,7 +220,7 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
 /// A value is only written unquoted when the parser reads it back as the same bare value:
 /// `original` comes after the plugins, and a plugin can make an unquoted value of any
 /// text, such as `from plugin`.
-fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> ServerResult<Meta> {
+fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> Checked<Meta> {
     let mut meta = Meta::default();
     let mut occurrences: HashMap<(String, String), usize> = HashMap::new();
     for MetaRequest { key, value } in metas {
@@ -143,7 +242,7 @@ fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original
 /// The value of a field of an update request that may be left out, `null` or given (see
 /// [`CreateTransactionPostingRequest::cost`]): left out, it is `original`, the value of the posting
 /// the request edits; `null` is none; a text given is what `parse` reads of it, or its error.
-fn given<T>(field: Option<Option<String>>, original: Option<T>, parse: impl FnOnce(&str) -> ServerResult<T>) -> ServerResult<Option<T>> {
+fn given<T, E>(field: Option<Option<String>>, original: Option<T>, parse: impl FnOnce(&str) -> Result<T, E>) -> Result<Option<T>, E> {
     match field {
         None => Ok(original),
         Some(None) => Ok(None),
@@ -152,20 +251,19 @@ fn given<T>(field: Option<Option<String>>, original: Option<T>, parse: impl FnOn
 }
 
 /// The posting of `original`, the postings of a transaction as written, that the request posting
-/// `posting`, one of `requested`, edits: the only posting to its account, or else the only one to
-/// its account with its units, where `posting` is likewise the only one of `requested` (a split or
+/// `posting`, one of `requested`, edits, each given by its account and units: the only posting to its account, or else
+/// the only one to its account with its units, where `posting` is likewise the only one of `requested` (a split or
 /// repeated posting matches nothing). `None` when there is no such single pair, so that every value
 /// of the request posting counts as new.
-fn original_posting<'a>(
-    original: &'a [Posting], requested: &[CreateTransactionPostingRequest], posting: &CreateTransactionPostingRequest,
-) -> Option<&'a Posting> {
-    let same_account = original.iter().filter(|it| it.account.name() == posting.account).collect_vec();
-    let requested_same_account = requested.iter().filter(|it| it.account == posting.account).count();
+fn original_posting<'a>(original: &'a [Posting], requested: &[(&str, Option<&Amount>)], posting: (&str, Option<&Amount>)) -> Option<&'a Posting> {
+    let (account, units) = posting;
+    let same_account = original.iter().filter(|it| it.account.name() == account).collect_vec();
+    let requested_same_account = requested.iter().filter(|(it, _)| *it == account).count();
     if let ([candidate], 1) = (same_account.as_slice(), requested_same_account) {
         return Some(candidate);
     }
-    let same_units = same_account.into_iter().filter(|it| it.units == posting.unit).collect_vec();
-    let requested_same_units = requested.iter().filter(|it| it.account == posting.account && it.unit == posting.unit).count();
+    let same_units = same_account.into_iter().filter(|it| it.units.as_ref() == units).collect_vec();
+    let requested_same_units = requested.iter().filter(|it| **it == posting).count();
     match (same_units.as_slice(), requested_same_units) {
         ([candidate], 1) => Some(candidate),
         _ => None,
@@ -190,11 +288,78 @@ pub async fn create_new_transaction(
 ) -> ApiResult<String> {
     let mut ledger = ledger.for_writing().await?;
 
-    let trx = transaction_from_request(payload, &ledger, None)?;
+    let trx = requested_transaction(payload, &ledger, None)?;
 
     let appended = ledger.data_source.async_append(&ledger, vec![trx]).await;
     wrote(&mut ledger, &reload_sender, appended.map_err(ServerError::from))?;
     ResponseWrapper::json("Ok".to_string())
+}
+
+/// What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
+/// would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
+/// unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
+/// before it, each posting weighed by its cost or price, at each commodity's precision.
+#[api(group = "transaction")]
+pub async fn preview_new_transaction(ledger: State<SharedLedger>, Json(payload): Json<CreateTransactionRequest>) -> ApiResult<TransactionPreviewEntity> {
+    ResponseWrapper::json(with_ledger(&ledger.0, move |ledger| preview(ledger, payload, None)).await?)
+}
+
+/// What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
+/// `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+#[api(group = "transaction")]
+pub async fn preview_transaction_update(
+    ledger: State<SharedLedger>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
+) -> ApiResult<TransactionPreviewEntity> {
+    let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
+        return ResponseWrapper::bad_request();
+    };
+    ResponseWrapper::json(
+        with_ledger(&ledger.0, move |ledger| {
+            let span = ledger.operations().transaction_span(&transaction_id)?;
+            let span = span.ok_or(ServerError::NoSuchTransaction(transaction_id))?;
+            // the update refuses a transaction in no file of the ledger
+            editable_file(ledger, &span)?;
+            preview(ledger, payload, Some(&span))
+        })
+        .await?,
+    )
+}
+
+/// The preview of a create, or of the update of the transaction at `edits`.
+fn preview(ledger: &Ledger, payload: CreateTransactionRequest, edits: Option<&TransactionInfoDomain>) -> ServerResult<TransactionPreviewEntity> {
+    let original = edits.and_then(|span| original_transaction(ledger, span));
+    let transaction = match transaction_from_request(payload, ledger, original) {
+        Ok(transaction) => transaction,
+        Err(errors) => {
+            return Ok(TransactionPreviewEntity {
+                text: Nullable(None),
+                field_errors: errors
+                    .into_iter()
+                    .map(|error| TransactionFieldErrorEntity {
+                        posting: Nullable(error.posting),
+                        field: error.field,
+                        kind: error.invalid.kind,
+                        value: error.invalid.value,
+                        message: error.invalid.message,
+                    })
+                    .collect(),
+                unbalanced: Nullable(None),
+                errors: vec![],
+            })
+        }
+    };
+    let text = ledger.data_source.export(Directive::Transaction(transaction.clone()))?;
+    let check = ledger.check_transaction(transaction, edits.map(|it| &it.span))?;
+    Ok(TransactionPreviewEntity {
+        text: Nullable(Some(String::from_utf8_lossy(&text).into_owned())),
+        field_errors: vec![],
+        unbalanced: Nullable(check.unbalanced),
+        errors: check
+            .errors
+            .into_iter()
+            .map(|(error_type, metas)| TransactionPreviewErrorEntity { error_type, metas })
+            .collect(),
+    })
 }
 
 // TODO: handle multipart/form-data
@@ -308,7 +473,7 @@ pub async fn update_single_transaction(
     };
     let source_file_path = editable_file(&ledger, &span_info)?;
 
-    let trx = transaction_from_request(payload, &ledger, original_transaction(&ledger, &span_info))?;
+    let trx = requested_transaction(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
     let trx_content = String::from_utf8_lossy(&txn_content);
 
@@ -377,7 +542,7 @@ mod string_round_trip_test {
             postings: vec![
                 CreateTransactionPostingRequest {
                     account: "Assets:Cash".to_owned(),
-                    unit: Some(Amount::new(BigDecimal::from_str("-5").unwrap(), "CNY")),
+                    unit: Some(Amount::new(BigDecimal::from_str("-5").unwrap(), "CNY").into()),
                     metas: None,
                     cost: None,
                     price: None,
@@ -385,7 +550,7 @@ mod string_round_trip_test {
                 },
                 CreateTransactionPostingRequest {
                     account: "Expenses:Food".to_owned(),
-                    unit: Some(Amount::new(BigDecimal::from_str("5").unwrap(), "CNY")),
+                    unit: Some(Amount::new(BigDecimal::from_str("5").unwrap(), "CNY").into()),
                     metas: None,
                     cost: None,
                     price: None,
@@ -637,7 +802,7 @@ mod string_round_trip_test {
             ("account \"Assets\"", Box::new(|it| it.postings[0].account = "Assets".to_owned())),
             (
                 "commodity \"US D\"",
-                Box::new(|it| it.postings[0].unit = Some(Amount::new(BigDecimal::from(1), "US D"))),
+                Box::new(|it| it.postings[0].unit = Some(Amount::new(BigDecimal::from(1), "US D").into())),
             ),
             ("flag \"a\"", Box::new(|it| it.flag = Some(FlagRequest::Custom('a')))),
         ];
@@ -713,7 +878,7 @@ mod string_round_trip_test {
             (
                 "commodity",
                 "usd",
-                Box::new(|it| it.postings[0].unit = Some(Amount::new(BigDecimal::from(1), "usd"))),
+                Box::new(|it| it.postings[0].unit = Some(Amount::new(BigDecimal::from(1), "usd").into())),
             ),
         ]
     }
@@ -1310,7 +1475,7 @@ mod string_round_trip_test {
             .iter()
             .map(|(account, number, metas)| CreateTransactionPostingRequest {
                 account: account.to_string(),
-                unit: Some(Amount::new(BigDecimal::from(*number), "CNY")),
+                unit: Some(Amount::new(BigDecimal::from(*number), "CNY").into()),
                 metas: Some(metas.iter().map(|(key, value)| meta(key, value)).collect()),
                 cost: None,
                 price: None,
@@ -1807,7 +1972,7 @@ mod string_round_trip_test {
     fn posting(account: &str, unit: Option<&str>) -> CreateTransactionPostingRequest {
         CreateTransactionPostingRequest {
             account: account.to_owned(),
-            unit: unit.map(amount),
+            unit: unit.map(|unit| amount(unit).into()),
             metas: None,
             cost: None,
             price: None,

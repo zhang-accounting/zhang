@@ -468,7 +468,7 @@ ORDER BY seq DESC
 LIMIT :size OFFSET :offset
 ```
 
-- The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. `GET /api/journals` and `GET /api/errors` take a page `size` from 1 to 1000, 100 by default, and answer another size with HTTP 400 and the message `size must be between 1 and 1000`; a page past the last one is empty.
+- The page counts all its rows before `LIMIT` and `OFFSET` for its number of pages. Every paged endpoint (`GET /api/journals`, `GET /api/errors` and `GET /api/accounts/{account}/journals`) reads `page` and `size` by one rule. Pages count from 1, the first by default, and a page `size` is 1 to 1000, 100 by default. A page of 0 is answered with HTTP 400 and the message `page must be at least 1`, and another size with HTTP 400 and the message `size must be between 1 and 1000`. A query string that cannot be read, such as `page=x`, is HTTP 400 with the same JSON `message` body. A page past the last one is empty.
 - Rows come newest first, in the [processing order](/reference/query-language/#processing-order): by date and the time written, then at one time the balance entries (balance assertions and every transaction flagged `P`) before the other transactions, in the order of your files, with a `balance ... with pad` after the other balance entries of its time, its padding among them, where Zhang checks it. A balance assertion therefore stands right above the postings its balance includes. On a day daylight saving skips a time, an entry written in the gap keeps its place but shows the time it is stored at, moved forward by the length of the gap: `02:30` in New York on 2024-03-10 shows as `03:30`.
 - A transaction with the flag `P` is a padding transaction, which the page shows as a `BalancePad` item. A `balance` row is a `BalanceCheck` item, built from `journals.balance_checks`.
 
@@ -648,21 +648,17 @@ ORDER BY timestamp DESC
 
 #### `budgets.postings`
 
-The postings of a budget in a month, newest first, each with its account's balance in the posting's currency after it: those of its accounts that count in it at their date, by [`account_budgets`](/reference/query-language/#account-and-commodity-directives), so a posting of an account closed and opened again with another budget is listed in the budget it counts in. A closed budget takes no activity after its close, so the postings after it are not listed: those dated after the close day, and, when the `budget-close` has a time, those later on that day. The budget's page lists them together with the events of `budgets.events`, newest first.
+The postings that count toward a budget in a month, newest first, each with its account's balance in the posting's currency after it. They are the postings whose [`budgets`](/reference/query-language/#the-postings-table) column names the budget, so they add up to the month's activity: a posting of an account that counts in the budget at its date and time (an account closed and opened again with another budget counts in that one from its reopening on), from the budget's definition until its close, into whose commodity a price converts it. The postings before the budget's `budget` directive, after its close (after the close day, or after the time of a `budget-close` with a time) or that no price converts are not listed. The budget's page lists them together with the events of `budgets.events`, newest first.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
-| `accounts` | `set` | the budget's accounts, the `accounts` of `budgets.budget` |
-| `month` | `date` | the first day of the month |
 | `name` | `str` | the budget |
-| `close` | `date` | the date of the budget's close, the `close` of `budgets.budget`, or `NULL` |
-| `close_time` | `str` | the time of the budget's close, the `close_time` of `budgets.budget`, or `NULL` |
+| `month` | `date` | the first day of the month |
 
 ```sql
 SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
        only(currency, account_balance) AS balance
-WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
-  AND (:close IS NULL OR date < :close OR (date = :close AND (:close_time IS NULL OR time <= :close_time)))
+WHERE yearmonth(date) = :month AND :name IN budgets
 ORDER BY timestamp DESC
 ```
 

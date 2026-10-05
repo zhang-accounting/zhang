@@ -318,19 +318,12 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "budgets.postings",
-        description: "The postings of a budget in a month (its first day), newest first, with each account's balance after them; none after the budget's close (its date, and its time if any).",
+        description: "The postings that count toward a budget in a month (its first day), newest first, with each account's balance after them: they add up to the month's activity.",
         bql: "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units, \
               only(currency, account_balance) AS balance \
-              WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date) \
-              AND (:close IS NULL OR date < :close OR (date = :close AND (:close_time IS NULL OR time <= :close_time))) \
+              WHERE yearmonth(date) = :month AND :name IN budgets \
               ORDER BY timestamp DESC",
-        params: &[
-            ("accounts", DataType::Set),
-            ("month", DataType::Date),
-            ("name", DataType::Str),
-            ("close", DataType::Date),
-            ("close_time", DataType::Str),
-        ],
+        params: &[("name", DataType::Str), ("month", DataType::Date)],
     },
     BuiltinQuery {
         name: "commodities.totals",

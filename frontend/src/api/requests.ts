@@ -61,6 +61,12 @@ export const reloadLedger = openAPIFetcher.path('/api/reload').method('post').cr
 
 export const updateTransaction = openAPIFetcher.path('/api/transactions/{transaction_id}').method('put').create();
 
+/** What creating the transaction would write, without writing it: its text, the fields refused, and the ledger's verdict. */
+export const previewNewTransaction = openAPIFetcher.path('/api/transactions/preview').method('post').create();
+
+/** What updating the transaction would write, without writing it, as `previewNewTransaction` tells it for a new one. */
+export const previewTransactionUpdate = openAPIFetcher.path('/api/transactions/{transaction_id}/preview').method('post').create();
+
 export const createAccountBalance = openAPIFetcher.path('/api/accounts/{account_name}/balances').method('post').create();
 
 export const executeQuery = openAPIFetcher.path('/api/query').method('post').create();
