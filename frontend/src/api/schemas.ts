@@ -394,6 +394,7 @@ export interface operations {
               amount: {
                 calculated: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 detail: {
@@ -427,6 +428,7 @@ export interface operations {
               account_name: string;
               amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               /** @enum {string} */
@@ -436,6 +438,7 @@ export interface operations {
               account_name: string;
               amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               pad: string;
@@ -460,6 +463,7 @@ export interface operations {
                 /** @description the amount it asserted */
                 amount: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 /** Format: date */
@@ -501,6 +505,7 @@ export interface operations {
               amount: {
                 calculated: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 detail: {
@@ -511,6 +516,7 @@ export interface operations {
               amount_with_sub_accounts: {
                 calculated: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 detail: {
@@ -561,6 +567,7 @@ export interface operations {
                 [key: string]: {
                   balance: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
                   /** Format: date */
@@ -586,6 +593,7 @@ export interface operations {
           | {
               amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               /** @enum {string} */
@@ -594,6 +602,7 @@ export interface operations {
           | {
               amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               pad: string;
@@ -617,6 +626,7 @@ export interface operations {
                 /** @description the amount it asserted */
                 amount: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 /** Format: date */
@@ -747,11 +757,13 @@ export interface operations {
                */
               account_after: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               /** @description for the row of a balance assertion: the asserted amount; null for a posting */
               asserted?: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               } | null;
               /**
@@ -760,6 +772,7 @@ export interface operations {
                */
               checked_balance?: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               } | null;
               /** Format: date-time */
@@ -767,6 +780,7 @@ export interface operations {
               /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
               inferred_unit: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               narration?: string | null;
@@ -1109,15 +1123,18 @@ export interface operations {
             data: {
               activity_amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               alias?: string | null;
               assigned_amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               available_amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               category?: string | null;
@@ -1153,15 +1170,18 @@ export interface operations {
             data: {
               activity_amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               alias?: string | null;
               assigned_amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               available_amount: {
                 commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
               category?: string | null;
@@ -1207,6 +1227,7 @@ export interface operations {
               | {
                   amount: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
                   /** @enum {string} */
@@ -1227,11 +1248,13 @@ export interface operations {
                    */
                   account_after: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
                   /** @description for the row of a balance assertion: the asserted amount; null for a posting */
                   asserted?: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   } | null;
                   /**
@@ -1240,6 +1263,7 @@ export interface operations {
                    */
                   checked_balance?: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   } | null;
                   /** Format: date-time */
@@ -1247,6 +1271,7 @@ export interface operations {
                   /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                   inferred_unit: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
                   narration?: string | null;
@@ -1331,6 +1356,7 @@ export interface operations {
                 amount: string;
                 cost?: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 } | null;
                 /**
@@ -1340,12 +1366,14 @@ export interface operations {
                 label?: string | null;
                 price?: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 } | null;
               }[];
               prices: {
                 amount: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 /** Format: date-time */
@@ -1669,18 +1697,22 @@ export interface operations {
                       account: string;
                       account_after: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       account_before: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       cost?: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       } | null;
                       inferred_unit: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       /** @description metadata of the posting, sorted by key */
@@ -1690,6 +1722,7 @@ export interface operations {
                       }[];
                       unit?: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       } | null;
                       /**
@@ -1730,18 +1763,22 @@ export interface operations {
                       account: string;
                       account_after: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       account_before: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       cost?: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       } | null;
                       inferred_unit: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       /** @description metadata of the posting, sorted by key */
@@ -1751,6 +1788,7 @@ export interface operations {
                       }[];
                       unit?: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       } | null;
                       /**
@@ -1784,18 +1822,22 @@ export interface operations {
                       account: string;
                       account_after: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       account_before: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       cost?: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       } | null;
                       inferred_unit: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
                       /** @description metadata of the posting, sorted by key */
@@ -1805,6 +1847,7 @@ export interface operations {
                       }[];
                       unit?: {
                         commodity: string;
+                        /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       } | null;
                       /**
@@ -2217,6 +2260,7 @@ export interface operations {
                 [key: string]: {
                   calculated: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
                   detail: {
@@ -2229,6 +2273,7 @@ export interface operations {
                   [key: string]: {
                     calculated: {
                       commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                       number: string;
                     };
                     detail: {
@@ -2271,6 +2316,7 @@ export interface operations {
               balance: {
                 calculated: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 detail: {
@@ -2280,6 +2326,7 @@ export interface operations {
               expense: {
                 calculated: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 detail: {
@@ -2290,6 +2337,7 @@ export interface operations {
               income: {
                 calculated: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 detail: {
@@ -2299,6 +2347,7 @@ export interface operations {
               liability: {
                 calculated: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 detail: {
@@ -2341,6 +2390,7 @@ export interface operations {
                 amount: {
                   calculated: {
                     commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
                   detail: {
@@ -2364,11 +2414,13 @@ export interface operations {
                  */
                 account_after: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 /** @description for the row of a balance assertion: the asserted amount; null for a posting */
                 asserted?: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 } | null;
                 /**
@@ -2377,6 +2429,7 @@ export interface operations {
                  */
                 checked_balance?: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 } | null;
                 /** Format: date-time */
@@ -2384,6 +2437,7 @@ export interface operations {
                 /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                 inferred_unit: {
                   commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
                 narration?: string | null;
@@ -2441,6 +2495,7 @@ export interface operations {
             price?: string | null;
             unit?: {
               commodity: string;
+              /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
               number: string;
             } | null;
           }[];
@@ -2505,6 +2560,7 @@ export interface operations {
             price?: string | null;
             unit?: {
               commodity: string;
+              /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
               number: string;
             } | null;
           }[];
