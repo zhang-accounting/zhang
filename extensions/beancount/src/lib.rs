@@ -4,12 +4,12 @@ use itertools::{Either, Itertools};
 use zhang_ast::*;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::DataType;
-use zhang_core::utils::plain_decimal;
 use zhang_core::utils::string_::QuoteStyle;
+use zhang_core::utils::{plain_decimal, read_time};
 use zhang_core::{ZhangError, ZhangResult};
 
-use crate::directives::{BeancountDirective, BeancountOnlyDirective};
-use crate::parser::{parse, parse_time};
+use crate::directives::BeancountOnlyDirective;
+use crate::parser::parse;
 
 #[allow(clippy::upper_case_acronyms)]
 #[allow(clippy::type_complexity)]
@@ -35,10 +35,10 @@ impl DataType for Beancount {
         let mut meta_stack: Vec<(String, ZhangString)> = vec![];
 
         for directives in directives {
-            let Spanned { span, mut data } = directives;
-            self.extract_time_from_meta(&mut data);
+            let Spanned { span, data } = directives;
             match data {
                 Either::Left(mut zhang_directive) => {
+                    lift_time_from_meta(&mut zhang_directive);
                     // apply pushed metadata (pushmeta) without overriding explicit keys
                     if let Some(meta) = zhang_directive.meta_mut() {
                         for (key, value) in &meta_stack {
@@ -85,7 +85,7 @@ impl DataType for Beancount {
         // the shared zhang exporter writes these directives in beancount syntax; quoted
         // strings use only the escapes beancount decodes, see `QuoteStyle::Beancount`
         const STYLE: QuoteStyle = QuoteStyle::Beancount;
-        let Spanned { data, .. } = convert_datetime_to_date(directive);
+        let data = time_into_meta(directive.data);
         match data {
             Directive::BalancePad(pad) => {
                 let balance_date = pad.date.naive_date();
@@ -158,72 +158,46 @@ impl DataType for Beancount {
     }
 }
 
-macro_rules! convert_to_datetime {
-    ($directive: expr) => {
-        if let Date::Datetime(datetime) = $directive.date {
-            let (date, time) = (datetime.date(), datetime.time());
-            $directive.date = Date::Date(date);
-            $directive
-                .meta
-                .insert("time".to_string(), ZhangString::QuoteString(time.format("%H:%M:%S").to_string()));
-            $directive
-        } else {
-            $directive
-        }
-    };
+/// `directive` with a date beancount reads: a date and time becomes the date alone plus `time` metadata. Budgets keep
+/// their date as it is
+fn time_into_meta(mut directive: Directive) -> Directive {
+    if matches!(
+        directive,
+        Directive::Budget(_) | Directive::BudgetAdd(_) | Directive::BudgetTransfer(_) | Directive::BudgetClose(_)
+    ) {
+        return directive;
+    }
+    let Some(date) = directive.date_mut() else { return directive };
+    let Date::Datetime(datetime) = *date else { return directive };
+    *date = Date::Date(datetime.date());
+    if let Some(meta) = directive.meta_mut() {
+        meta.insert("time".to_string(), ZhangString::QuoteString(datetime.time().format("%H:%M:%S").to_string()));
+    }
+    directive
 }
 
-fn convert_datetime_to_date(directive: Spanned<Directive>) -> Spanned<Directive> {
-    let Spanned { data, span } = directive;
-    let data = match data {
-        Directive::Open(mut directive) => Directive::Open(convert_to_datetime!(directive)),
-        Directive::Close(mut directive) => Directive::Close(convert_to_datetime!(directive)),
-        Directive::Commodity(mut directive) => Directive::Commodity(convert_to_datetime!(directive)),
-        Directive::Transaction(mut directive) => Directive::Transaction(convert_to_datetime!(directive)),
-        Directive::BalanceCheck(mut directive) => Directive::BalanceCheck(convert_to_datetime!(directive)),
-        Directive::BalancePad(mut directive) => Directive::BalancePad(convert_to_datetime!(directive)),
-        Directive::Pad(mut directive) => Directive::Pad(convert_to_datetime!(directive)),
-        Directive::Note(mut directive) => Directive::Note(convert_to_datetime!(directive)),
-        Directive::Document(mut directive) => Directive::Document(convert_to_datetime!(directive)),
-        Directive::Price(mut directive) => Directive::Price(convert_to_datetime!(directive)),
-        Directive::Event(mut directive) => Directive::Event(convert_to_datetime!(directive)),
-        Directive::Custom(mut directive) => Directive::Custom(convert_to_datetime!(directive)),
-        Directive::Query(mut directive) => Directive::Query(convert_to_datetime!(directive)),
-        _ => data,
-    };
-    Spanned::new(data, span)
-}
-
-macro_rules! extract_time {
-    ($directive: tt) => {{
-        let time = $directive.meta.pop_one("time").and_then(|it| parse_time(it.as_str()).ok());
-        if let Some(time) = time {
-            $directive.date = Date::Datetime($directive.date.naive_date().and_time(time));
-        }
-    }};
-}
-
-impl Beancount {
-    /// the `time` metadata of a directive as its time, which orders the directives of a day. Not for a `balance`, a
-    /// `pad` or a `close`, whose `time` stays plain metadata: beancount knows no times, checks a `balance` at the start
-    /// of its date, before the transactions of that day, orders the `pad`s of a day by their line, and keeps an account
-    /// active through the whole day of its `close`
-    fn extract_time_from_meta(&self, directive: &mut BeancountDirective) {
-        match directive {
-            Either::Left(zhang_directive) => match zhang_directive {
-                Directive::Open(directive) => extract_time!(directive),
-                Directive::Commodity(directive) => extract_time!(directive),
-                Directive::Transaction(directive) => extract_time!(directive),
-                Directive::Note(directive) => extract_time!(directive),
-                Directive::Document(directive) => extract_time!(directive),
-                Directive::Price(directive) => extract_time!(directive),
-                Directive::Event(directive) => extract_time!(directive),
-                Directive::Custom(directive) => extract_time!(directive),
-                Directive::Query(directive) => extract_time!(directive),
-                _ => {}
-            },
-            Either::Right(_) => {}
-        }
+/// the `time` metadata of a directive as its time, which orders the directives of a day. Not for a `balance`, a `pad`
+/// or a `close`, whose `time` stays plain metadata: beancount knows no times, checks a `balance` at the start of its
+/// date, before the transactions of that day, orders the `pad`s of a day by their line, and keeps an account active
+/// through the whole day of its `close`. Nor for a budget
+fn lift_time_from_meta(directive: &mut Directive) {
+    if !matches!(
+        directive,
+        Directive::Open(_)
+            | Directive::Commodity(_)
+            | Directive::Transaction(_)
+            | Directive::Note(_)
+            | Directive::Document(_)
+            | Directive::Price(_)
+            | Directive::Event(_)
+            | Directive::Custom(_)
+            | Directive::Query(_)
+    ) {
+        return;
+    }
+    let time = directive.meta_mut().and_then(|meta| meta.pop_one("time")).and_then(|it| read_time(it.as_str()));
+    if let (Some(time), Some(date)) = (time, directive.date_mut()) {
+        *date = Date::Datetime(date.naive_date().and_time(time));
     }
 }
 

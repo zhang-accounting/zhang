@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use chrono::{NaiveDate, NaiveTime};
+use chrono::NaiveDate;
 use itertools::Either;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
@@ -33,6 +33,7 @@ use zhang_core::data_type::text::parser::{
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
 use zhang_core::data_type::text::parser::{meta_key, spaced_tag_or_link};
+use zhang_core::utils::read_time;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 
@@ -704,7 +705,7 @@ fn lift_trailing_time(transaction: &mut Transaction, posting_times: &[PostingTim
         return;
     }
     let posting = &mut transaction.postings[*posting_index];
-    if posting.meta.get_one("time").is_some_and(|time| parse_time(time.as_str()).is_ok()) {
+    if posting.meta.get_one("time").is_some_and(|time| read_time(time.as_str()).is_some()) {
         if let Some(time) = posting.meta.pop_one("time") {
             transaction.meta.insert("time".to_owned(), time);
         }
@@ -735,22 +736,6 @@ fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
 /// Parse a full beancount text file into a list of spanned directives.
 pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Spanned<BeancountDirective>>, ParseError> {
     parse_items(input_str, file.into(), content_item, error_at)
-}
-
-/// Parse a `HH:MM:SS` time string, used to lift the `time:` metadata key onto a
-/// directive's date.
-pub fn parse_time(input_str: &str) -> Result<NaiveTime, ParseError> {
-    let invalid = || ParseError {
-        message: format!("invalid time: {}", input_str),
-    };
-    let parts: Vec<&str> = input_str.trim().split(':').collect();
-    if parts.len() != 3 {
-        return Err(invalid());
-    }
-    let hour = parts[0].parse::<u32>().map_err(|_| invalid())?;
-    let minute = parts[1].parse::<u32>().map_err(|_| invalid())?;
-    let second = parts[2].parse::<u32>().map_err(|_| invalid())?;
-    NaiveTime::from_hms_opt(hour, minute, second).ok_or_else(invalid)
 }
 
 #[cfg(test)]
