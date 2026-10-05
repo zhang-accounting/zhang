@@ -6,12 +6,12 @@
 //! their own they read as the directive's date, and like their fields they are NULL when the
 //! account has no such directive.
 
-use indexmap::IndexMap;
 use zhang_ast::{Close, Directive, Open, Spanned};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
-use super::directives::{date_of, ledger_order, set_value, str_value};
+use super::cache::LedgerCache;
+use super::directives::{date_of, set_value, str_value};
 use super::{render_meta, ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -25,31 +25,16 @@ pub(super) static ACCOUNTS: Table = Table {
     rows: Rows::Records(rows),
 };
 
-type OpenClose<'a> = (Option<&'a Spanned<Directive>>, Option<&'a Spanned<Directive>>);
-
 fn rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    // account -> (first open, first close)
-    let mut accounts: IndexMap<&str, OpenClose<'_>> = IndexMap::new();
-    for directive in ledger_order(ledger, store) {
-        match &directive.data {
-            Directive::Open(open) => {
-                let (first, _) = accounts.entry(open.account.name()).or_default();
-                first.get_or_insert(directive);
-            }
-            Directive::Close(close) => {
-                let (_, first) = accounts.entry(close.account.name()).or_default();
-                first.get_or_insert(directive);
-            }
-            _ => {}
-        }
-    }
     let booking = ledger.booking_methods();
-    accounts
-        .into_iter()
-        .map(|(name, (open, close))| Record::Account {
+    let directive = |idx: Option<usize>| idx.map(|idx| &ledger.directives[idx]);
+    LedgerCache::of(ledger, store)
+        .lookups(ledger, store)
+        .accounts()
+        .map(|(name, open, close)| Record::Account {
             name,
-            open,
-            close,
+            open: directive(open),
+            close: directive(close),
             booking: booking.get(name).copied(),
         })
         .collect()
