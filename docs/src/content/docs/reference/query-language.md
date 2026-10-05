@@ -803,7 +803,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 
 Each of these tables also has a `meta` column. For a document named in metadata, `meta` and `meta(key)` read the metadata of the transaction or posting that names it.
 
-*Zhang extension.* Besides its `document` directives, `#documents` lists every document a transaction names in its metadata, as the documents page of the web UI does: after the directives, one row per value of a `document` metadata key of a transaction, then of each of its postings, in ledger order. A repeated key gives one row per value. The documents of rejected transactions are not listed.
+*Zhang extension.* Besides its `document` directives, `#documents` lists every document a transaction names in its metadata, as the documents page of the web UI does: after the directives, one row per value of a `document` metadata key of a transaction, then of each of its postings, in ledger order. A repeated key gives one row per value. A posting that booking splits across several lots names its documents once, as written. The documents of rejected transactions are not listed.
 
 ```sql
 SELECT date, account, path, transaction_id

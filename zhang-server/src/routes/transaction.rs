@@ -483,6 +483,17 @@ mod string_round_trip_test {
         (transaction, note)
     }
 
+    /// The paths of the documents the transaction `id` names, as `#documents` lists them.
+    fn transaction_documents(ledger: &Ledger, id: &str) -> Vec<String> {
+        let params = zhang_query::Params::new().bind("id", id);
+        zhang_query::execute_with_params(ledger, "SELECT path FROM #documents WHERE transaction_id = :id", &params)
+            .unwrap()
+            .rows
+            .iter()
+            .map(|row| row[0].as_str().unwrap().to_owned())
+            .collect()
+    }
+
     /// The written transaction parses back and exports to exactly the written text.
     fn assert_written_text_round_trips(file: &FsPath) -> String {
         let written = std::fs::read_to_string(file).unwrap();
@@ -1060,16 +1071,11 @@ mod string_round_trip_test {
                 assert_eq!(transaction.narration.as_deref(), Some(narration), "{main}");
                 assert_eq!(transaction.postings.len(), 2, "{main}");
                 assert!(transaction.postings.iter().all(|posting| posting.metas.is_empty()), "{main}");
-                let documents = store
-                    .documents
-                    .iter()
-                    .filter(|it| it.document_type.as_trx() == Some(transaction.id.to_string()))
-                    .map(|it| it.path.clone())
-                    .collect::<Vec<_>>();
-                assert_eq!(documents, vec!["attachments/a.pdf"], "{main} {strings}");
                 let metas = store.metas.iter().filter(|it| it.type_identifier == transaction.id.to_string()).count();
                 assert_eq!(metas, 1, "the document is transaction metadata");
+                let id = transaction.id.to_string();
                 drop(store);
+                assert_eq!(transaction_documents(&reloaded, &id), vec!["attachments/a.pdf"], "{main} {strings}");
                 std::fs::remove_dir_all(dir).ok();
             }
         }
@@ -1411,13 +1417,9 @@ mod string_round_trip_test {
             let transaction = store.transactions.values().next().unwrap();
             assert_eq!(transaction.narration.as_deref(), Some("coffee"), "{main}");
             assert_eq!(transaction.postings.len(), 2, "{main}");
-            let documents = store
-                .documents
-                .iter()
-                .filter(|it| it.document_type.as_trx() == Some(transaction.id.to_string()))
-                .count();
-            assert_eq!(documents, 1, "{main}");
+            let id = transaction.id.to_string();
             drop(store);
+            assert_eq!(transaction_documents(&reloaded, &id).len(), 1, "{main}");
             std::fs::remove_dir_all(dir).ok();
         }
     }

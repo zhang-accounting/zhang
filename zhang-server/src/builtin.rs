@@ -178,7 +178,7 @@ ORDER BY date, currency",
         name: "accounts.documents",
         description: "The document directives of an account and its sub-accounts, in ledger order, with the path of each file relative to \
                       the ledger's directory.",
-        bql: "SELECT date, time, account, path
+        bql: "SELECT date, time, account, path, transaction_id
 FROM #documents
 WHERE source = 'directive' AND under(account, :account)",
         params: &[("account", DataType::Str)],

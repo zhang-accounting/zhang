@@ -16,6 +16,7 @@ export type LedgerError = OpReturnType<operations['get_errors']>['data']['record
 export type Document = OpReturnType<operations['get_documents']>['data'][number];
 
 export type BudgetListItem = OpReturnType<operations['get_budget_list']>['data'][number];
+export type BudgetInfo = OpReturnType<operations['get_budget_info']>['data'];
 export enum AccountType {
   Income = 'Income',
   Expenses = 'Expenses',

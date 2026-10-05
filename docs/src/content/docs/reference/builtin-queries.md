@@ -424,10 +424,12 @@ The documents of an account page: the `document` directives of the account and i
 | `account` | `str` | the account of the page |
 
 ```sql
-SELECT date, time, account, path
+SELECT date, time, account, path, transaction_id
 FROM #documents
 WHERE source = 'directive' AND under(account, :account)
 ```
+
+`transaction_id` is `NULL` for a `document` directive; it gives the rows the columns of [`journals.documents`](/reference/builtin-queries/#journalsdocuments), so both lists show a document the same way.
 
 ### Journals
 

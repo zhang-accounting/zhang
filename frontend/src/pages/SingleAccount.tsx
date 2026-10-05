@@ -18,6 +18,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { ACCOUNTS_LINK } from '@/layout/nav-links';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
 import { balanceCheckRows } from '../utils/balance-check';
+import { canPreview } from '../utils/documents';
 import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryGraph';
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
@@ -339,7 +340,9 @@ function AccountDocuments({ accountName, subAccounts }: { accountName: string; s
         <AccountDocumentUpload id={accountName} type="account" onUploaded={() => setReloadKey((key) => key + 1)} />
         {documents.loading && !documents.value
           ? Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="aspect-square rounded-lg" />)
-          : (documents.value ?? []).map((document, idx) => <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} filename={document.path} />)}
+          : (documents.value ?? []).map((document, idx) => (
+              <DocumentPreview onClick={(path) => setLightboxSrc(path)} key={idx} filename={document.path} previewable={canPreview(document)} />
+            ))}
       </div>
     </Section>
   );

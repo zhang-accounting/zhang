@@ -1,23 +1,24 @@
 import { FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { isDocumentAnImage } from '../../utils/documents';
 import { documentUrl } from '../documentLines/document-utils';
 
 interface Props {
   filename: string;
+  /** whether the document is an image the browser shows: a thumbnail opening the lightbox, instead of a file card */
+  previewable: boolean;
   onClick: (path: string) => void;
   className?: string;
 }
 
 /** Square document tile: image thumbnail (opens the lightbox) or a file card that opens the document in a new tab. */
-export default function DocumentPreview({ filename, onClick, className }: Props) {
+export default function DocumentPreview({ filename, previewable, onClick, className }: Props) {
   const name = filename.split('/').pop() ?? filename;
   const tileClass = cn(
     'group relative flex aspect-square overflow-hidden rounded-lg border bg-muted/30 outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
     className,
   );
 
-  if (isDocumentAnImage(filename)) {
+  if (previewable) {
     return (
       <button type="button" className={tileClass} onClick={() => onClick(filename)} title={name}>
         <img className="size-full object-cover transition-transform group-hover:scale-[1.02]" alt={name} src={documentUrl(filename)} loading="lazy" />

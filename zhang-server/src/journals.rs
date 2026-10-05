@@ -7,7 +7,6 @@
 //! response run under one read lock of the ledger, so they see the same ledger.
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -438,19 +437,7 @@ pub async fn info_for_new_transaction(ledger: &SharedLedger) -> ServerResult<Inf
 pub async fn documents(ledger: &SharedLedger) -> ServerResult<Vec<DocumentEntity>> {
     with_ledger(&ledger.0, |ledger| {
         let result = execute(ledger, DOCUMENTS, &Params::new(), false)?;
-        cells::rows(DOCUMENTS, &result)
-            .map(|row| {
-                let path = row.str("path")?.unwrap_or_default();
-                Ok(DocumentEntity {
-                    datetime: row.datetime("date", "time")?.unwrap_or_default(),
-                    filename: Path::new(&path).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default(),
-                    extension: mime_guess::from_path(&path).first().map(|it| it.to_string()),
-                    account: row.str("account")?,
-                    trx_id: row.str("transaction_id")?,
-                    path,
-                })
-            })
-            .collect()
+        cells::rows(DOCUMENTS, &result).map(|row| DocumentEntity::of(&row)).collect()
     })
     .await
 }
