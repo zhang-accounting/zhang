@@ -43,7 +43,6 @@ use std::cell::Cell;
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
 use nom::bytes::complete::{tag, tag_no_case, take_while, take_while1};
 use nom::error::{ErrorKind, ParseError};
 use nom::{Err as NomErr, IResult};
@@ -1156,9 +1155,9 @@ impl<'s> Parser<'s> {
                 && candidate[5..7].chars().all(|c| c.is_ascii_digit())
                 && candidate[8..10].chars().all(|c| c.is_ascii_digit());
             if shape_ok && !tail.starts_with(is_ident_char) {
-                return match NaiveDate::parse_from_str(candidate, "%Y-%m-%d") {
-                    Ok(date) => Ok((tail, Expr::new(ExprKind::Literal(Literal::Date(date)), Span::new(start, start + 10)))),
-                    Err(_) => failure(i, format!("invalid date literal {}", candidate)),
+                return match crate::value::parse_date(candidate) {
+                    Some(date) => Ok((tail, Expr::new(ExprKind::Literal(Literal::Date(date)), Span::new(start, start + 10)))),
+                    None => failure(i, format!("invalid date literal {}", candidate)),
                 };
             }
         }
@@ -1200,6 +1199,8 @@ impl<'s> Parser<'s> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDate;
+
     use super::*;
 
     fn parse_ok(src: &str) -> Select {

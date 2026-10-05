@@ -85,7 +85,7 @@ Send the text to [`POST /api/query`](/reference/query-language/#run-a-query) to 
 
 | Type | JSON value |
 |------|------------|
-| `date` | a string `YYYY-MM-DD` |
+| `date` | a string `YYYY-MM-DD`, read as [`date(str)`](/reference/query-language/#date-functions) reads it |
 | `str` | a string |
 | `set` | a list of strings |
 | `int` | an integer |

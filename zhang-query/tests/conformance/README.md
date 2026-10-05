@@ -5,8 +5,8 @@ BQL-compatible query engine (issue #434, Phases 1 to 3, and issue #479, Phase 4)
 were produced by the official Python **beanquery**, not by zhang, so they are
 the reference the engine is cross-validated against.
 
-- `cases/NNN_<name>.json`: one fixture per query (173 cases: 001–060 for
-  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–173 for Phase 4).
+- `cases/NNN_<name>.json`: one fixture per query (175 cases: 001–060 for
+  Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–175 for Phase 4).
 - `generate.py`: the generator. It holds the case list and writes the fixtures.
 - Oracle versions used: **beancount 3.2.3, beanquery 0.2.0** (Python 3.9).
 
@@ -622,6 +622,12 @@ DISTINCT` over one account, as case 001 does.
   places, which `str()` shows, since the harness compares numbers without
   their scale (172, 173). The equivalence tests cannot catch a compiler that
   merges them, since both of their paths share the compiler.
+- **A string compared with a date** is read by the rule of `date(text)`, a
+  zhang extension (beanquery rejects the comparison): `'2016-1-6'` and
+  `'2016-02- 3'` are dates (174, its rows generated from the same query with
+  each string wrapped in `date()`), and a string `date()` reads as NULL, such
+  as `' 2016-01-06'`, makes the comparison a compile error, as in beanquery
+  (175).
 
 Accepted deviations (see `ACCEPTED_DEVIATIONS` in the harness), decided by the
 lead on #479:
@@ -635,6 +641,8 @@ lead on #479:
   on a boundary other than the origin into the previous bin
   (`date_bin('1 month', 2000-02-01, 2000-01-01)` is `2000-01-01`) (158, 159).
   Case 157 avoids boundaries, so it matches beanquery as it is.
+- A string compared with a date is read as `date(text)` reads it (174); the
+  fixture holds the rows of the query with `date()` written out.
 
 ## Not covered
 
@@ -666,7 +674,7 @@ These are deliberately out of scope or not exercisable on this ledger:
 
 ## Cases
 
-173 cases:
+175 cases:
 
 - Phase 1 (001–060), 60 cases: 47 `engine` with rows, 6 `ledger-dependent`, and 7 errors (`engine`).
 - Phase 2 (061–100), 40 cases: 13 `engine` and 15 `ledger-dependent` with rows, 3 `engine` and 2
@@ -676,9 +684,9 @@ These are deliberately out of scope or not exercisable on this ledger:
   `ledger-dependent` csv cases, and 13 errors (`engine`). By feature: `HAVING` 9 (6 with rows, 3
   errors), `PIVOT BY` 12 (6 with rows, 6 errors), `FROM #table` 21 (17 with rows, 4 errors), and
   3 csv cases (1 pivot, 2 tables). 12 cases set `strict_names`.
-- Phase 4 (146–173), 28 cases: 24 `engine` with rows and 4 errors (`engine`). By area: `date` 8,
-  `interval` 8, `directives` 5, `select` 1, `aggregate` 2, `error` 4. 3 of them are accepted deviations
-  (154, 158, 159).
+- Phase 4 (146–175), 30 cases: 25 `engine` with rows and 5 errors (`engine`). By area: `date` 9,
+  `interval` 8, `directives` 5, `select` 1, `aggregate` 2, `error` 5. 4 of them are accepted deviations
+  (154, 158, 159, 174).
 
 | # | Case | Phase | Area | Kind | Ordered | Expect |
 |---|---|---|---|---|---|---|
@@ -855,3 +863,5 @@ These are deliberately out of scope or not exercisable on this ledger:
 | 171 | `offset_is_a_name` | 4 | select | engine | yes | 2 rows |
 | 172 | `aggregate_written_twice` | 4 | aggregate | engine | yes | 4 rows |
 | 173 | `aggregate_literal_scale` | 4 | aggregate | engine | no | 1 rows |
+| 174 | `date_text_compared_with_a_date` | 4 | date | engine | yes | 3 rows |
+| 175 | `error_date_text_that_date_does_not_read` | 4 | error | engine | no | error |

@@ -17,7 +17,7 @@
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 use crate::functions::FunctionContext;
-use crate::value::{calendar_value, in_calendar, Interval, Value};
+use crate::value::{calendar_value, in_calendar, parse_date, python_date, Interval, Value};
 
 pub(super) fn month(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
     Ok(Value::Int(date_of(&args[0], "month")?.month() as i64))
@@ -69,14 +69,6 @@ fn date_of(value: &Value, function: &str) -> Result<NaiveDate, String> {
     value.as_date().ok_or_else(|| format!("{}() expects a date", function))
 }
 
-/// A date of Python's calendar (years 1 to 9999), as `datetime.date` builds it.
-fn python_date(year: i64, month: i64, day: i64) -> Option<NaiveDate> {
-    if !(1..=9999).contains(&year) {
-        return None;
-    }
-    NaiveDate::from_ymd_opt(year as i32, u32::try_from(month).ok()?, u32::try_from(day).ok()?)
-}
-
 /// beanquery `date(year, month, day)`: NULL when there is no such day (or the year is outside
 /// 1 to 9999, Python's calendar).
 pub(super) fn date_from_ymd(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
@@ -84,38 +76,10 @@ pub(super) fn date_from_ymd(args: &[Value], _ctx: &dyn FunctionContext) -> Resul
     Ok(python_date(year?, month?, day?).map_or(Value::Null, Value::Date))
 }
 
-/// beanquery `date(text)`: Python's `strptime(text, '%Y-%m-%d')`, NULL when it does not
-/// parse: a four-digit year, a month of one or two digits and a day of one or two digits
-/// (or a space and one digit), nothing else around them.
+/// beanquery `date(text)`: the date the text names by the one text-to-date rule,
+/// [`parse_date`], NULL when it names none.
 pub(super) fn date_from_str(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(parse_python_date(str_arg(&args[0], "date")?).map_or(Value::Null, Value::Date))
-}
-
-fn parse_python_date(text: &str) -> Option<NaiveDate> {
-    let mut parts = text.splitn(3, '-');
-    let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
-    let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
-    if year.len() != 4 || !digits(year) {
-        return None;
-    }
-    // %m: 1[0-2] | 0[1-9] | [1-9]
-    if !(1..=2).contains(&month.len()) || !digits(month) || month == "0" || month == "00" {
-        return None;
-    }
-    // %d: 3[01] | [12]\d | 0[1-9] | [1-9] | ' '[1-9]
-    let day = match day.strip_prefix(' ') {
-        Some(rest) if rest.len() == 1 => rest,
-        Some(_) => return None,
-        None => day,
-    };
-    if !(1..=2).contains(&day.len()) || !digits(day) || day == "0" || day == "00" {
-        return None;
-    }
-    let (month, day) = (month.parse::<i64>().ok()?, day.parse::<i64>().ok()?);
-    if month > 12 || day > 31 {
-        return None;
-    }
-    python_date(year.parse().ok()?, month, day)
+    Ok(parse_date(str_arg(&args[0], "date")?).map_or(Value::Null, Value::Date))
 }
 
 /// beanquery `date_add(date, days)`; NULL when the result is outside the calendar.

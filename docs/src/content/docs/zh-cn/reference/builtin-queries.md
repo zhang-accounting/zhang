@@ -85,7 +85,7 @@ curl -X POST http://localhost:8000/api/query/builtins/postings.between/text \
 
 | 类型 | JSON 值 |
 |------|---------|
-| `date` | 字符串 `YYYY-MM-DD` |
+| `date` | 字符串 `YYYY-MM-DD`，读法与 [`date(str)`](/zh-cn/reference/query-language/#日期函数) 相同 |
 | `str` | 字符串 |
 | `set` | 字符串列表 |
 | `int` | 整数 |
