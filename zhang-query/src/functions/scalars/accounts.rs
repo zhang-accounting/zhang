@@ -47,13 +47,7 @@ pub(super) fn account_sortkey(args: &[Value], _ctx: &dyn FunctionContext) -> Res
     Ok(Value::Str(format!("{}-{}", index, account)))
 }
 
-/// Whether `account` is `ancestor` or one of its sub-accounts: `ancestor` followed by `:`.
-pub(crate) fn is_under(account: &str, ancestor: &str) -> bool {
-    match account.strip_prefix(ancestor) {
-        Some(rest) => rest.is_empty() || rest.starts_with(':'),
-        None => false,
-    }
-}
+pub(crate) use zhang_ast::account::is_under;
 
 /// `under(account, ancestor)`, a zhang extension: whether the account is the ancestor or
 /// below it (`under('Assets:Bank:Cash', 'Assets:Bank')`), never a sibling with a longer name

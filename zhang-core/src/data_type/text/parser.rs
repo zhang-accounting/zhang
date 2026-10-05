@@ -658,14 +658,14 @@ pub fn metas_block(i: &str) -> IResult<&str, Meta> {
 }
 
 // ---------------------------------------------------------------------------
-// directive bodies (everything after `date keyword`)
+// directive bodies (everything after `date keyword`); the `pub` ones are beancount's too, which reads them as they are
 // ---------------------------------------------------------------------------
 
 pub fn comma_separator(i: &str) -> IResult<&str, ()> {
     value((), tuple((space0, char(','), space0)))(i)
 }
 
-fn open_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn open_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
     let (i, commodities) = opt(preceded(space1, separated_list1(comma_separator, commodity_name)))(i)?;
@@ -680,7 +680,7 @@ fn open_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn close_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn close_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
     Ok((
@@ -693,7 +693,7 @@ fn close_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn note_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn note_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
@@ -712,7 +712,9 @@ fn note_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
+/// `space+ account space+ number (space+ "~" space* number)? space+ commodity`, the account, amount and tolerance of a
+/// `balance` in both formats
+pub fn balance_assertion(i: &str) -> IResult<&str, (Account, Amount, Option<BigDecimal>)> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
@@ -720,9 +722,13 @@ fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, tolerance) = opt(preceded(tuple((space1, char('~'), space0)), number_expr))(i)?;
     let (i, _) = space1(i)?;
     let (i, commodity) = commodity_name(i)?;
+    Ok((i, (account, Amount::new(amount, commodity), tolerance)))
+}
+
+fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
+    let (i, (account, amount, tolerance)) = balance_assertion(i)?;
     let (i, pad) = opt(preceded(tuple((space1, tag("with"), space1, tag("pad"), space1)), account_name))(i)?;
 
-    let amount = Amount::new(amount, commodity);
     let directive = match pad {
         // a `~ tolerance` on a `with pad` balance is meaningless (pad makes it exact); drop it
         Some(pad) => Directive::BalancePad(BalancePad {
@@ -744,7 +750,7 @@ fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
 }
 
 /// `pad = date "pad" account account`, as in beancount
-fn pad_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn pad_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
@@ -760,7 +766,7 @@ fn pad_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn document_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn document_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
@@ -779,7 +785,7 @@ fn document_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn price_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn price_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, currency) = commodity_name(i)?;
     let (i, _) = space1(i)?;
@@ -797,7 +803,7 @@ fn price_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn event_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn event_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, event_type) = string(i)?;
     let (i, _) = space1(i)?;
@@ -815,7 +821,7 @@ fn event_body(date: Date, i: &str) -> IResult<&str, Directive> {
 
 /// `query = date "query" space+ string space+ quote_string`; the query text is
 /// kept verbatim and not validated here.
-fn query_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn query_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, name) = string(i)?;
     let (i, _) = space1(i)?;
@@ -831,7 +837,7 @@ fn query_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-fn commodity_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn commodity_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, currency) = commodity_name(i)?;
     Ok((
@@ -848,7 +854,7 @@ pub fn string_or_account(i: &str) -> IResult<&str, StringOrAccount> {
     alt((map(account_name, StringOrAccount::Account), map(string, StringOrAccount::String)))(i)
 }
 
-fn custom_body(date: Date, i: &str) -> IResult<&str, Directive> {
+pub fn custom_body(date: Date, i: &str) -> IResult<&str, Directive> {
     let (i, _) = space1(i)?;
     let (i, custom_type) = string(i)?;
     let (i, values) = many1(preceded(space1, string_or_account))(i)?;
@@ -954,7 +960,7 @@ fn dated_directive(original: &str) -> IResult<&str, Directive> {
 }
 
 /// `plugin = "plugin" space+ string (space+ string)*`
-fn plugin_directive(i: &str) -> IResult<&str, Directive> {
+pub fn plugin_directive(i: &str) -> IResult<&str, Directive> {
     let (i, _) = tag("plugin")(i)?;
     let (i, _) = space1(i)?;
     let (i, module) = string(i)?;
@@ -970,7 +976,7 @@ fn plugin_directive(i: &str) -> IResult<&str, Directive> {
 }
 
 /// `option = "option" space+ string space+ string`
-fn option_directive(i: &str) -> IResult<&str, Directive> {
+pub fn option_directive(i: &str) -> IResult<&str, Directive> {
     let (i, _) = tag("option")(i)?;
     let (i, _) = space1(i)?;
     let (i, key) = string(i)?;
@@ -980,7 +986,7 @@ fn option_directive(i: &str) -> IResult<&str, Directive> {
 }
 
 /// `include = "include" space+ quote_string`
-fn include_directive(i: &str) -> IResult<&str, Directive> {
+pub fn include_directive(i: &str) -> IResult<&str, Directive> {
     let (i, _) = tag("include")(i)?;
     let (i, _) = space1(i)?;
     let (i, file) = quote_string(i)?;
