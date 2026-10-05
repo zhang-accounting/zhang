@@ -32,7 +32,7 @@ use crate::pipeline::{
 };
 use crate::process::budget::{DefinedBudget, ForeignAmount};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
-use crate::store::{BalanceAssertionDomain, CommodityLotRecord, Store};
+use crate::store::{BalanceAssertionDomain, Store};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -451,30 +451,6 @@ impl Ledger {
         .await?;
         *self = reload_ledger;
         Ok(())
-    }
-
-    /// the lots every account holds at the end of `day`: those of the transactions dated on it or before, booked as
-    /// the load books them. A transaction dated after it, such as a sale planned ahead, is left out.
-    ///
-    /// The directives hold the booked postings, and booking a booked transaction again changes nothing, so this
-    /// replay gives exactly the lots the final validation stage (pass 2) built from the same transactions
-    pub fn lots_at_end_of(&self, day: NaiveDate) -> HashMap<String, Vec<CommodityLotRecord>> {
-        let mut booker = Booker::new(self.options.default_booking_method);
-        for commodity in self.operations().read().commodities.values() {
-            booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
-        }
-        for directive in &self.directives {
-            match &directive.data {
-                Directive::Open(open) => {
-                    booker.apply_open(open);
-                }
-                Directive::Transaction(transaction) if transaction.date.naive_date() <= day => {
-                    booker.book(&mut transaction.clone());
-                }
-                _ => {}
-            }
-        }
-        booker.into_lots()
     }
 
     /// the booking method every account books with at the end of the stream, as booking resolves the

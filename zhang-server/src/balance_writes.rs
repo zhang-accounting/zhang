@@ -41,8 +41,11 @@ use zhang_core::ledger::Ledger;
 use zhang_core::pipeline::{serving_pads, AccountUse};
 use zhang_core::utils::plain_decimal;
 use zhang_core::utils::string_::StringExt;
+use zhang_query::{Params, Query, QueryResult};
 
+use crate::cells::first_row;
 use crate::error::ServerError;
+use crate::routes::query::{execute_options, max_result_values};
 use crate::ServerResult;
 
 /// one balance of a request: the account's balance in a commodity, padded from `pad` when there is one
@@ -164,10 +167,9 @@ pub(crate) fn balance_directives(ledger: &Ledger, rows: Vec<BalanceRow>, now: Da
         Dialect::Zhang => now.naive_datetime(),
     };
     refuse_accounts_not_open(ledger, &rows, checked_at, now.naive_datetime())?;
-    let held = held_at_end_of(ledger, now.naive_date());
-    refuse_pads_that_cannot_pass(ledger, &rows, &held, now.naive_date())?;
+    refuse_pads_that_cannot_pass(ledger, &rows, now.naive_date())?;
     if ledger.dialect == Dialect::Beancount {
-        return beancount_balances(ledger, rows, now, &held);
+        return beancount_balances(ledger, rows, now);
     }
     let append = rows
         .into_iter()
@@ -232,9 +234,8 @@ fn refuse_accounts_not_open(ledger: &Ledger, rows: &[BalanceRow], checked_at: Na
 }
 
 /// a pad row that can only be reported once written: from the account itself or a sub-account, or of a commodity
-/// held at cost at the end of `today`, which the padding is booked with, as what is `held`
-fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Held, today: NaiveDate) -> ServerResult<()> {
-    let mut lots = None;
+/// held at cost at the end of `today`, which the padding is booked with
+fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], today: NaiveDate) -> ServerResult<()> {
     for row in rows {
         let Some(source) = &row.pad else { continue };
         let account = row.account.name();
@@ -246,17 +247,11 @@ fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Hel
             )));
         }
         let commodity = &row.amount.commodity;
-        let difference = &row.amount.number - held.subtree_in(account, commodity);
+        let difference = &row.amount.number - held_units(ledger, account, commodity, today)?;
         if difference.is_zero() {
             continue;
         }
-        let at_cost = lots
-            .get_or_insert_with(|| ledger.lots_at_end_of(today))
-            .iter()
-            .filter(|(name, _)| is_under(name, account))
-            .flat_map(|(_, lots)| lots)
-            .any(|lot| &lot.commodity == commodity && lot.cost.is_some() && !lot.amount.is_zero());
-        if at_cost {
+        if !held(LOTS_AT_COST, ledger, account, commodity, today)?.rows.is_empty() {
             return Err(refused(format!(
                 "{account} holds {commodity} at cost: padding it to {} would book {} {commodity} without a cost. \
                  Record them with their cost instead, as a purchase or a sale",
@@ -269,7 +264,7 @@ fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Hel
 }
 
 /// what `rows` write to a beancount ledger `now`; see the module docs
-fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &Held) -> ServerResult<BalanceWrites> {
+fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date) -> ServerResult<BalanceWrites> {
     let today = now.naive_date();
     let tomorrow = today.succ_opt().unwrap_or(today);
     for (index, row) in rows.iter().enumerate() {
@@ -328,7 +323,7 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
 
     // what an account and its sub-accounts hold in a commodity at the balances: what they hold at the end of today,
     // and what the paddings of its sub-accounts in this request bring their balances to
-    let expected = |name: &str, commodity: &str| {
+    let expected = |name: &str, commodity: &str| -> ServerResult<BigDecimal> {
         let padding = rows
             .iter()
             .filter(|row| row.pad.is_some() && row.amount.commodity == commodity && below(&row.account, name))
@@ -338,15 +333,16 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
                     other.pad.is_some() && other.amount.commodity == commodity && below(&other.account, name) && below(&row.account, other.account.name())
                 })
             })
-            .map(|row| &row.amount.number - held.subtree_in(row.account.name(), commodity))
-            .fold(BigDecimal::zero(), |sum, it| sum + it);
-        held.subtree_in(name, commodity) + padding
+            .try_fold(BigDecimal::zero(), |sum, row| {
+                ServerResult::Ok(sum + (&row.amount.number - held_units(ledger, row.account.name(), commodity, today)?))
+            })?;
+        Ok(held_units(ledger, name, commodity, today)? + padding)
     };
 
     let mut append = vec![];
     for row in &rows {
         let Some(source) = &row.pad else { continue };
-        let difference = &row.amount.number - expected(row.account.name(), &row.amount.commodity);
+        let difference = &row.amount.number - expected(row.account.name(), &row.amount.commodity)?;
         if !difference.is_zero() {
             append.push(padding(
                 now.clone(),
@@ -418,30 +414,30 @@ fn below(account: &Account, parent: &str) -> bool {
     is_under(account.name(), parent) && account.name() != parent
 }
 
-/// the units every account holds at the end of a day: the sum of the postings dated on it or before
-struct Held(BTreeMap<String, BTreeMap<String, BigDecimal>>);
+/// The units the account `:account` and its sub-accounts hold of `:commodity` at the end of `:day`: those of the booked
+/// postings dated on it or before.
+const HELD_UNITS: &str = "SELECT sum(number) AS units WHERE under(account, :account) AND currency = :commodity AND date <= :day";
 
-fn held_at_end_of(ledger: &Ledger, day: NaiveDate) -> Held {
-    let store = ledger.store.read().expect("poison lock detect");
-    let mut held: BTreeMap<String, BTreeMap<String, BigDecimal>> = BTreeMap::new();
-    for posting in store.postings.iter().filter(|it| it.trx_datetime.date_naive() <= day) {
-        let units = held
-            .entry(posting.account.name().to_owned())
-            .or_default()
-            .entry(posting.inferred_amount.commodity.clone())
-            .or_insert_with(BigDecimal::zero);
-        *units += &posting.inferred_amount.number;
-    }
-    Held(held)
+/// The lots of `:commodity` the account `:account` and its sub-accounts hold at cost at the end of `:day`: those of the
+/// booked postings dated on it or before with a cost, and units left.
+const LOTS_AT_COST: &str = "SELECT account WHERE under(account, :account) AND currency = :commodity AND date <= :day \
+                            AND cost_number IS NOT NULL \
+                            GROUP BY account, cost_date, cost_number, cost_currency, cost_label HAVING sum(number) != 0";
+
+/// The result of `query`, [`HELD_UNITS`] or [`LOTS_AT_COST`], for the account named `account` and its sub-accounts, in
+/// `commodity`, at the end of `day`.
+fn held(query: &str, ledger: &Ledger, account: &str, commodity: &str, day: NaiveDate) -> ServerResult<QueryResult> {
+    let params = Params::new().bind("account", account).bind("commodity", commodity).bind("day", day);
+    let query = Query::compile_with_params(query, &params.types())?;
+    Ok(query.execute_with_options(ledger, &params, &execute_options(max_result_values()))?)
 }
 
-impl Held {
-    /// the units the account named `name` and its sub-accounts hold in `commodity`
-    fn subtree_in(&self, name: &str, commodity: &str) -> BigDecimal {
-        self.0
-            .iter()
-            .filter(|(account, _)| is_under(account, name))
-            .filter_map(|(_, units)| units.get(commodity))
-            .fold(BigDecimal::zero(), |sum, it| sum + it)
-    }
+/// The units the account named `account` and its sub-accounts hold of `commodity` at the end of `day`.
+fn held_units(ledger: &Ledger, account: &str, commodity: &str, day: NaiveDate) -> ServerResult<BigDecimal> {
+    let result = held(HELD_UNITS, ledger, account, commodity, day)?;
+    Ok(first_row(HELD_UNITS, &result)
+        .map(|row| row.decimal("units"))
+        .transpose()?
+        .flatten()
+        .unwrap_or_default())
 }
