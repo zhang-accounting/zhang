@@ -324,12 +324,12 @@ impl<'a> Record<'a> {
     /// record table (an account reads the metadata of its `open`, else of its `close`).
     fn metadata(&self) -> Option<&'a Meta> {
         match self {
-            Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => directive_meta(&directive.data),
-            Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive_meta(&directive.data)),
+            Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => directive.data.meta(),
+            Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive.data.meta()),
             Record::Document(document) => Some(document.metadata()),
             Record::Budget(month) => month.metadata(),
             Record::BudgetDefinition(budget) => Some(budget.meta),
-            Record::BudgetEvent(event) => directive_meta(&event.directive.data),
+            Record::BudgetEvent(event) => event.directive.data.meta(),
             // an error's details are not directive metadata (see `meta`)
             Record::Error(_) => None,
         }
@@ -397,31 +397,6 @@ pub(crate) fn ledger_file<'a>(ledger: &Ledger, path: &'a Path) -> Cow<'a, Path> 
         Some(within) => Cow::Owned(within),
         None => Cow::Borrowed(path),
     }
-}
-
-/// The metadata of a directive.
-pub(crate) fn directive_meta(directive: &Directive) -> Option<&Meta> {
-    Some(match directive {
-        Directive::Open(it) => &it.meta,
-        Directive::Close(it) => &it.meta,
-        Directive::Commodity(it) => &it.meta,
-        Directive::Transaction(it) => &it.meta,
-        Directive::BalancePad(it) => &it.meta,
-        Directive::BalanceCheck(it) => &it.meta,
-        Directive::Pad(it) => &it.meta,
-        Directive::Note(it) => &it.meta,
-        Directive::Document(it) => &it.meta,
-        Directive::Price(it) => &it.meta,
-        Directive::Event(it) => &it.meta,
-        Directive::Custom(it) => &it.meta,
-        Directive::Query(it) => &it.meta,
-        Directive::Plugin(it) => &it.meta,
-        Directive::Budget(it) => &it.meta,
-        Directive::BudgetAdd(it) => &it.meta,
-        Directive::BudgetTransfer(it) => &it.meta,
-        Directive::BudgetClose(it) => &it.meta,
-        Directive::Option(_) | Directive::Include(_) | Directive::Comment(_) => return None,
-    })
 }
 
 /// A row of any table, as the executor reads it.
