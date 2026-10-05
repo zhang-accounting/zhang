@@ -55,8 +55,8 @@ pub async fn with_ledger<T: Send + 'static>(ledger: &SharedLedger, f: impl FnOnc
 struct Summary {
     open: Option<NaiveDate>,
     close: Option<NaiveDate>,
-    /// its status today, by the account lifecycle: `open`, `closed`, or none when neither an `open` nor a `close` of it
-    /// is in effect
+    /// its status now by the ledger's clock, by the account lifecycle: `open`, `closed`, or none when neither an `open`
+    /// nor a `close` of it is in effect
     status: Option<String>,
     alias: Option<String>,
     first_posting: Option<NaiveDate>,
@@ -160,7 +160,7 @@ fn status(summary: &Summary) -> AccountStatus {
 /// name.
 pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
     let operating_currency = ledger.options.operating_currency.as_str();
-    let accounts = run(ledger, LIST, &Params::new())?;
+    let accounts = run(ledger, LIST, &builtin::bind_instant(Params::new(), builtin::ledger_now(ledger)))?;
     let balances = run(ledger, BALANCES, &Params::new().bind("operating_currency", operating_currency))?;
     Ok(summaries((LIST, &accounts), (BALANCES, &balances))?
         .into_iter()
@@ -187,7 +187,8 @@ fn has_page(ledger: &Ledger, account: &str) -> ServerResult<bool> {
         }
         Ok(false)
     };
-    if named(SUBTREE, &run(ledger, SUBTREE, &Params::new().bind("account", account))?)? {
+    let subtree = builtin::bind_instant(Params::new().bind("account", account), builtin::ledger_now(ledger));
+    if named(SUBTREE, &run(ledger, SUBTREE, &subtree)?)? {
         return Ok(true);
     }
     // an account without a directive is one with postings
@@ -214,7 +215,11 @@ fn require_page(ledger: &Ledger, account: &str) -> ServerResult<()> {
 pub fn account_info(ledger: &Ledger, account: &str) -> ServerResult<Option<AccountInfoEntity>> {
     crate::validate::account(account, &crate::validate::Rules::Zhang)?;
     let operating_currency = ledger.options.operating_currency.as_str();
-    let accounts = run(ledger, SUBTREE, &Params::new().bind("account", account))?;
+    let accounts = run(
+        ledger,
+        SUBTREE,
+        &builtin::bind_instant(Params::new().bind("account", account), builtin::ledger_now(ledger)),
+    )?;
     let balances = run(
         ledger,
         SUBTREE_BALANCES,

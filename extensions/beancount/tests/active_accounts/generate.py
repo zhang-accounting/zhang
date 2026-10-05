@@ -34,16 +34,7 @@ ORACLE = os.path.join(HERE, "oracle.json")
 INACTIVE = re.compile(r"^Invalid reference to (?:inactive|unknown) account '([^']+)'$")
 
 # the ledgers zhang deliberately checks differently, and why
-ACCEPTED_DEVIATIONS = {
-    "after_close": (
-        "zhang reports a balance and a document after the close of their account: beancount accepts both, and a note, "
-        "after the close"
-    ),
-    "close_time": (
-        "zhang reads the time metadata of a close as its time, and closes the account at that time: beancount knows no "
-        "times, and closes it at the end of its day"
-    ),
-}
+ACCEPTED_DEVIATIONS = {}
 
 
 def case(path):

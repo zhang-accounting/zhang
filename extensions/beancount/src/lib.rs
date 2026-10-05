@@ -204,14 +204,14 @@ macro_rules! extract_time {
 }
 
 impl Beancount {
-    /// the `time` metadata of a directive as its time, which orders the directives of a day. Not for a `balance` or a
-    /// `pad`, whose `time` stays plain metadata: beancount knows no times, and checks a `balance` at the start of its
-    /// date, before the transactions of that day, and orders the `pad`s of a day by their line
+    /// the `time` metadata of a directive as its time, which orders the directives of a day. Not for a `balance`, a
+    /// `pad` or a `close`, whose `time` stays plain metadata: beancount knows no times, checks a `balance` at the start
+    /// of its date, before the transactions of that day, orders the `pad`s of a day by their line, and keeps an account
+    /// active through the whole day of its `close`
     fn extract_time_from_meta(&self, directive: &mut BeancountDirective) {
         match directive {
             Either::Left(zhang_directive) => match zhang_directive {
                 Directive::Open(directive) => extract_time!(directive),
-                Directive::Close(directive) => extract_time!(directive),
                 Directive::Commodity(directive) => extract_time!(directive),
                 Directive::Transaction(directive) => extract_time!(directive),
                 Directive::Note(directive) => extract_time!(directive),

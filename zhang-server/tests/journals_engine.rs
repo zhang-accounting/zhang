@@ -642,8 +642,8 @@ async fn a_document_has_its_extension_and_mime_type_on_both_lists() {
     assert_eq!(all, of_account);
 }
 
-/// The form offers the accounts open today, by the rule the ledger checks the transaction with: an account closed today
-/// with only a date, and one opened again after its close, but not one closed before today or opened later.
+/// The form offers the accounts open now, by the rule the ledger checks the transaction with: an account closed today
+/// with only a date, and one opened again after its close, but not one closed before now or opened later.
 #[tokio::test]
 async fn the_new_transaction_form_offers_the_accounts_open_today() {
     let today = chrono::Utc::now().date_naive();
@@ -660,6 +660,8 @@ async fn the_new_transaction_form_offers_the_accounts_open_today() {
 {tomorrow} open Assets:Later
 1970-01-01 open Assets:Today
 {today} close Assets:Today
+1970-01-01 open Assets:Midnight
+{today} 00:00:00 close Assets:Midnight
 "#
         ),
     )]);

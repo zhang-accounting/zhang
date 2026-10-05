@@ -293,10 +293,15 @@ GROUP BY currency
 
 #### `accounts.list`
 
-每个有 `open` 或 `close` 指令的账户，及其开户和销户日期、别名，以及由 [`account_status`](/zh-cn/reference/query-language/#账户与商品指令) 得出的今天的状态，按名称排序。它和 `accounts.balances` 一起组成账户列表：有分录但没有 `open` 指令的账户也会列出，显示为开立。状态为 `'closed'` 的账户在列表中显示为已关闭。
+每个有 `open` 或 `close` 指令的账户，及其开户和销户日期、别名，以及由 [`account_status`](/zh-cn/reference/query-language/#账户与商品指令) 得出的、在某个日期和时间的状态，按名称排序。它和 `accounts.balances` 一起组成账户列表，账户列表按账本时钟查询当前时刻：有分录但没有 `open` 指令的账户也会列出，显示为开立。状态为 `'closed'` 的账户在列表中显示为已关闭。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `date` | `date` | 日期，按账本时区：账户列表用今天 |
+| `time` | `str` | 一天中的时间，`HH:MM:SS`：账户列表用当前时间 |
 
 ```sql
-SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
+SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
 ORDER BY account
 ```
@@ -324,9 +329,11 @@ ORDER BY account, currency
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `account` | `str` | 页面的账户 |
+| `date` | `date` | 日期，按账本时区：今天 |
+| `time` | `str` | 一天中的时间，`HH:MM:SS`：当前时间 |
 
 ```sql
-SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
+SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
 WHERE under(account, :account)
 ORDER BY account
@@ -522,12 +529,17 @@ ORDER BY payee
 
 #### `journals.accounts`
 
-由 [`account_status`](/zh-cn/reference/query-language/#账户与商品指令) 得出的今天处于开立状态的账户，按名称排序：今天以只有日期的 `close` 关闭的账户仍然开立，关闭后重新开立的账户也是开立的。
+由 [`account_status`](/zh-cn/reference/query-language/#账户与商品指令) 得出的、在某个日期和时间处于开立状态的账户，按名称排序：即在该时刻写下的交易可以记入的账户。当天以只有日期的 `close` 关闭的账户仍然开立，关闭后重新开立的账户也是开立的。新建交易表单和余额工具按账本时钟查询当前时刻。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `date` | `date` | 日期，按账本时区 |
+| `time` | `str` | 一天中的时间，`HH:MM:SS` |
 
 ```sql
 SELECT account
 FROM #accounts
-WHERE account_status(account, today()) = 'open'
+WHERE account_status(account, :date, :time) = 'open'
 ORDER BY account
 ```
 

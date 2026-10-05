@@ -365,7 +365,8 @@ mod test {
         "#});
         assert_eq!(
             errors,
-            vec![ErrorKind::AccountDoesNotExist, ErrorKind::AccountClosed, ErrorKind::AccountDoesNotExist]
+            // a balance after the close only records, as in beancount
+            vec![ErrorKind::AccountDoesNotExist, ErrorKind::AccountDoesNotExist]
         );
     }
 

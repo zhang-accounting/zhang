@@ -1,7 +1,12 @@
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
 2024-01-01 open Assets:Old
+2024-01-01 open Equity:Open
 2024-01-05 close Assets:Old
 
 2024-01-06 balance Assets:Old 0 CNY
 2024-01-06 document Assets:Old "after_close.bean"
+2024-01-06 note Assets:Old "a final statement"
+2024-01-06 * "a posting after the close"
+  Assets:Old 1 CNY
+  Equity:Open -1 CNY

@@ -124,7 +124,8 @@ YYYY-MM-DD [HH:MM[:SS]] pad <Account> <PadAccount>
 
 在两种文件中，以下请求都会被拒绝，因为写入后只会被报告为错误：
 
-- 已关闭或未开立的账户的余额断言，或从这样的账户补齐；
+- 从未开立的账户的余额断言。已关闭账户的余额断言会写入：它只做记录，可以出现在关闭之后；
+- 当前未开立的账户的补齐，或从这样的账户补齐；
 - 从该账户本身或其子账户补齐：补齐只是在断言的合计内部转移数量，永远不会改变合计；
 - 补齐该账户或其子账户在当天按成本持有的商品，这会记入不带成本的数量。请改为以带成本的买入或卖出记录它们。
 
@@ -139,7 +140,7 @@ YYYY-MM-DD [HH:MM[:SS]] pad <Account> <PadAccount>
 | [`PadWithCost`](/zh-cn/reference/error-codes/#padwithcost) | 补齐了该账户或其子账户按成本持有的商品。错误指向断言。 |
 | [`BalanceTimeIgnored`](/zh-cn/reference/error-codes/#balancetimeignored) | 提示：在 Beancount 文件中，断言的时刻被忽略，而这改变了它所检查的金额。 |
 | [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) | 账户或补齐账户在该日期未开立。检查和补齐仍会进行。 |
-| [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | 账户或补齐账户在该时刻已经关闭。 |
+| [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | `pad` 或 `balance … with pad` 使用的账户或补齐账户在该时刻已经关闭。普通的 `balance` 可以出现在关闭之后。 |
 | [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine) | 补齐交易使用了未定义的商品。错误指向这条 `balance … with pad`。 |
 | [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed) | 断言的商品，或补齐记入的商品，不在账户的 `open` 所列出的商品之内。 |
 

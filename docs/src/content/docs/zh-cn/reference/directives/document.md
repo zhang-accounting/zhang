@@ -82,8 +82,7 @@ YYYY-MM-DD * "<Payee>" "<Narration>"
 
 | 错误 | 触发条件 |
 |---|---|
-| [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) | `document` 指令的账户在其日期未开立。文档仍会被列出。 |
-| [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | 账户已经关闭。文档仍会被列出。 |
+| [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) | `document` 指令的账户在其日期之前未开立。文档仍会被列出。与 Beancount 一样，`document` 可以出现在账户关闭之后。 |
 | [`DocumentPathRelativeToRoot`](/zh-cn/reference/error-codes/#documentpathrelativetoroot) | 提示：在本地磁盘上的 Beancount 文件中，路径只有相对于账本根目录才能找到文件。文档仍会被列出，并且可以打开。 |
 | [`DocumentNotFound`](/zh-cn/reference/error-codes/#documentnotfound) | 在本地磁盘上的 Beancount 文件中，相对于指令所在文件和相对于账本根目录都找不到文件。 |
 

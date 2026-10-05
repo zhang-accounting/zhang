@@ -31,7 +31,7 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryResult, Value};
 
@@ -94,12 +94,12 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     // an account's page is its subtree: `under(account, :account)`
     BuiltinQuery {
         name: "accounts.list",
-        description: "Every account with an open or close directive, with its open and close dates, its alias and its status today, \
-                      by name.",
-        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
+        description: "Every account with an open or close directive, with its open and close dates, its alias and its status at a \
+                      date and time, by name. The account list asks for now.",
+        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
 ORDER BY account",
-        params: &[],
+        params: &[("date", DataType::Date), ("time", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.balances",
@@ -115,12 +115,12 @@ ORDER BY account, currency",
     BuiltinQuery {
         name: "accounts.subtree",
         description: "An account and those of its sub-accounts that have an open or close directive, with their open and close dates, \
-                      their aliases and their statuses today, by name.",
-        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
+                      their aliases and their statuses at a date and time, by name. The account page asks for now.",
+        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
 WHERE under(account, :account)
 ORDER BY account",
-        params: &[("account", DataType::Str)],
+        params: &[("account", DataType::Str), ("date", DataType::Date), ("time", DataType::Str)],
     },
     BuiltinQuery {
         name: "accounts.subtree_balances",
@@ -247,12 +247,12 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "journals.accounts",
-        description: "The accounts open today, sorted by name.",
+        description: "The accounts open at a date and time, sorted by name: those a transaction written then may post to.",
         bql: "SELECT account \
               FROM #accounts \
-              WHERE account_status(account, today()) = 'open' \
+              WHERE account_status(account, :date, :time) = 'open' \
               ORDER BY account",
-        params: &[],
+        params: &[("date", DataType::Date), ("time", DataType::Str)],
     },
     BuiltinQuery {
         name: "journals.documents",
@@ -431,6 +431,19 @@ pub fn execute(ledger: &Ledger, name: &str, params: &Params, count_total: bool) 
         ..execute_options(max_result_values())
     };
     Ok(compiled(name)?.execute_with_options(ledger, params, &options)?)
+}
+
+/// Now by the ledger's clock, as a wall-clock date and time of its timezone.
+pub(crate) fn ledger_now(ledger: &Ledger) -> NaiveDateTime {
+    ledger.now().with_timezone(&ledger.options.timezone).naive_local()
+}
+
+/// `params` with `:date` and `:time` bound to `at`, a wall-clock date and time of the ledger, for the built-in queries
+/// that ask what accounts are open then.
+pub(crate) fn bind_instant(params: Params, at: NaiveDateTime) -> Params {
+    params
+        .bind("date", Value::Date(at.date()))
+        .bind("time", Value::Str(at.time().format("%H:%M:%S").to_string()))
 }
 
 /// Run the built-in query `name` on the ledger, off the async workers and under its read lock,

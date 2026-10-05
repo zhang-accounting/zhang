@@ -18,12 +18,12 @@
 //! A `pad` the ledger has, written by hand, would still pad a balance written after it in a commodity it never
 //! served, and absorb later transactions in it: such a balance is refused, with the `pad` to close first.
 //!
-//! In both ledgers, these are refused: a balance of an account that is not open when it is checked, or padded from an
-//! account that is not open now, by the rule the ledger checks its directives with (an account is active through the
-//! day of a `close` with only a date, and until the time of one with a time); a pad from the account itself or one of
-//! its sub-accounts, which moves units within the total it asserts and never changes it; and a pad of a commodity the
-//! account or a sub-account holds at cost, which would book units without a cost. What is refused is a 400 with the
-//! reason, and nothing is written.
+//! In both ledgers, these are refused, by the rule the ledger checks its directives with: a balance of an account that
+//! is not opened by the time it is checked (a balance may follow the close), and a pad to or from an account that is
+//! not open now (an account is active through the day of a `close` with only a date, and until the time of one with a
+//! time); a pad from the account itself or one of its sub-accounts, which moves units within the total it asserts and
+//! never changes it; and a pad of a commodity the account or a sub-account holds at cost, which would book units
+//! without a cost. What is refused is a 400 with the reason, and nothing is written.
 
 use std::collections::BTreeMap;
 
@@ -32,12 +32,12 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use gotcha::Schematic;
 use serde::Serialize;
 use zhang_ast::amount::Amount;
+use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Flag, Posting, SpanInfo, Spanned, Transaction, ZhangString};
 use zhang_core::data_source::loaded_file;
 use zhang_core::data_type::Dialect;
-use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
-use zhang_core::pipeline::serving_pads;
+use zhang_core::pipeline::{serving_pads, AccountUse};
 use zhang_core::utils::plain_decimal;
 use zhang_core::utils::string_::StringExt;
 
@@ -202,25 +202,28 @@ fn refused(message: String) -> ServerError {
     ServerError::InvalidInput(message)
 }
 
-/// a balance of an account that is not open when it is `checked_at`, or padded to or from an account that is not open
-/// when the padding is booked, at `padded_at`, would only be reported once written: the account lifecycle of the ledger
-/// tells, by the rule its directives are checked with
+/// a row that would only be reported once written, by the rule the ledger checks its directives with: a balance of an
+/// account not opened by the time it is `checked_at` (a balance may follow the close, as it only records), or a padding,
+/// booked at `padded_at`, to or from an account that is not open then
 fn refuse_accounts_not_open(ledger: &Ledger, rows: &[BalanceRow], checked_at: NaiveDateTime, padded_at: NaiveDateTime) -> ServerResult<()> {
     for row in rows {
-        let padding = row
-            .pad
-            .iter()
-            .flat_map(|pad| [(&row.account, "a balance of", padded_at), (pad, "a pad from", padded_at)]);
-        for (account, what, at) in std::iter::once((&row.account, "a balance of", checked_at)).chain(padding) {
+        let padding = row.pad.iter().flat_map(|pad| {
+            [
+                (&row.account, "a balance of", padded_at, AccountUse::Books),
+                (pad, "a pad from", padded_at, AccountUse::Books),
+            ]
+        });
+        let references = std::iter::once((&row.account, "a balance of", checked_at, AccountUse::Records)).chain(padding);
+        for (account, what, at, usage) in references {
             let name = account.name();
-            match ledger.account_status(name, at) {
-                Some(AccountStatus::Open) => {}
-                Some(AccountStatus::Close) => {
+            match ledger.account_reference_error(account, at, usage) {
+                None => {}
+                Some(ErrorKind::AccountClosed) => {
                     return Err(refused(format!(
                         "{name} is closed: {what} {name} cannot be written. Reopen it, or pick an open account"
                     )))
                 }
-                None => return Err(refused(format!("{name} is not open: {what} {name} cannot be written. Open it first"))),
+                Some(_) => return Err(refused(format!("{name} is not open: {what} {name} cannot be written. Open it first"))),
             }
         }
     }

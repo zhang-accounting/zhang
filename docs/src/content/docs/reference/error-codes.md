@@ -287,10 +287,10 @@ dated on or before the first use.
 
 *Try to operate a closed account*
 
-A directive uses an account after its `close` took effect: a transaction, `pad`, `balance` or `document` dated after
-the day of a `close` with only a date, or later than the time of a `close` with a time, or a second `close`. As in
-Beancount, an account stays usable through the whole day of a `close` with only a date, and a `note` may follow the
-`close` without an error. See [When an account is active](/reference/directives/account/#when-an-account-is-active).
+A directive books on an account after its `close` took effect: a posting, a `pad` or a `balance … with pad` dated
+after the day of a `close` with only a date, or later than the time of a `close` with a time in a zhang file. A second
+`close` reports it too. As in Beancount, an account stays usable through the whole day of a `close` with only a date,
+and a plain `balance`, a `document` and a `note`, which only record, may follow the `close` without an error. See [When an account is active](/reference/directives/account/#when-an-account-is-active).
 
 ```zhang
 2024-01-01 open Assets:Old-Card

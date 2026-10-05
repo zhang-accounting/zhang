@@ -176,7 +176,9 @@ The balance form on an account page and the batch balance tool write into the fi
 
 In both kinds of files, these are refused, as they could only be reported once written:
 
-- a balance of an account that is closed or not open, or padded from one;
+- a balance of an account that was never opened. A balance of a closed account is written: it only records, and
+  may follow the close;
+- a pad of an account that is not open now, or from one;
 - a pad from the account itself or one of its sub-accounts: the padding would move units within the total the
   balance asserts, which it never changes;
 - a pad of a commodity the account or one of its sub-accounts holds at cost on that day, which would book units
@@ -196,7 +198,7 @@ editor's is refused until you fix them there.
 | [`PadWithCost`](/reference/error-codes/#padwithcost) | A pad pads a commodity the account or a sub-account holds at cost. The error points at the assertion. |
 | [`BalanceTimeIgnored`](/reference/error-codes/#balancetimeignored) | A notice: in a Beancount file, the time of an assertion is ignored, and that changes what it checks. |
 | [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist) | The account, or the pad account, is not open at that date. The check and the padding still happen. |
-| [`AccountClosed`](/reference/error-codes/#accountclosed) | The account, or the pad account, is already closed at that point. |
+| [`AccountClosed`](/reference/error-codes/#accountclosed) | A `pad` or `balance … with pad` uses an account, padded or padded from, that is already closed at that point. A plain `balance` may follow the close. |
 | [`CommodityDoesNotDefine`](/reference/error-codes/#commoditydoesnotdefine) | A padding transaction uses a commodity that is not defined. The error points at the `balance … with pad`. |
 | [`CommodityNotAllowed`](/reference/error-codes/#commoditynotallowed) | The asserted commodity, or the one a padding books, is not listed by the `open` of the account. |
 

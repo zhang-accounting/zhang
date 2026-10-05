@@ -828,8 +828,7 @@ mod test {
             vec![
                 ErrorKind::AccountDoesNotExist,
                 ErrorKind::AccountClosed,
-                // the check reports the closed account of its own
-                ErrorKind::AccountClosed,
+                // the check after the close only records, as in beancount: it reports nothing of its own
             ]
         );
     }

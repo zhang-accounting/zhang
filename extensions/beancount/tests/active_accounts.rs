@@ -1,8 +1,9 @@
 //! When an account is active, checked against Python beancount: for every ledger in `active_accounts/`, zhang reports
 //! `AccountDoesNotExist` or `AccountClosed` on the same lines, for the same accounts, as beancount 3.2.3 reports
 //! `Invalid reference to inactive account` or `Invalid reference to unknown account` (`active_accounts/oracle.json`,
-//! written by `active_accounts/generate.py`). Both keep an account active through the day of its `close`. A ledger the
-//! oracle marks with an `accepted_deviation` is checked against zhang's own rule instead.
+//! written by `active_accounts/generate.py`). Both keep an account active through the day of its `close`, whatever the
+//! `time` metadata of the `close`, and both accept a `balance`, a `document` and a `note` after it. A ledger the oracle
+//! marks with an `accepted_deviation` would be checked against zhang's own rule instead; none is.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -77,7 +78,7 @@ fn kinds(case: &str) -> Vec<ErrorKind> {
     store.errors.iter().map(|error| error.error_type.clone()).collect()
 }
 
-const DEVIATIONS: &[&str] = &["after_close", "close_time"];
+const DEVIATIONS: &[&str] = &[];
 
 #[test]
 fn zhang_reports_where_beancount_does_on_every_ledger_without_an_accepted_deviation() {
@@ -108,18 +109,20 @@ fn an_account_is_active_through_the_day_of_its_close() {
 }
 
 #[test]
-fn a_balance_and_a_document_after_the_close_are_reported() {
+fn a_balance_and_a_document_may_follow_the_close() {
+    // they only record, as beancount's `ALLOW_AFTER_CLOSE` has it; what books after the close is reported
     let expected = &oracle_cases()["after_close"];
-    assert!(expected["accepted_deviation"].as_str().unwrap().contains("balance and a document"));
-    assert_eq!(beancount(expected), vec![]);
-    assert_eq!(zhang("after_close"), vec![(6, "Assets:Old".to_owned()), (7, "Assets:Old".to_owned())]);
-    assert_eq!(kinds("after_close"), vec![ErrorKind::AccountClosed, ErrorKind::AccountClosed]);
+    assert!(expected["accepted_deviation"].is_null());
+    assert_eq!(beancount(expected), vec![(10, "Assets:Old".to_owned())]);
+    assert_eq!(zhang("after_close"), vec![(10, "Assets:Old".to_owned())]);
+    assert_eq!(kinds("after_close"), vec![ErrorKind::AccountClosed]);
 }
 
 #[test]
-fn a_close_with_a_time_closes_the_account_at_that_time() {
+fn the_time_of_a_close_is_plain_metadata() {
+    // beancount knows no times: the account stays active through the whole day of its `close`
     let expected = &oracle_cases()["close_time"];
-    assert!(expected["accepted_deviation"].as_str().unwrap().contains("time metadata of a close"));
+    assert!(expected["accepted_deviation"].is_null());
     assert_eq!(beancount(expected), vec![]);
-    assert_eq!(zhang("close_time"), vec![(8, "Assets:A".to_owned())]);
+    assert_eq!(zhang("close_time"), vec![]);
 }

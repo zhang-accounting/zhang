@@ -86,14 +86,19 @@ One rule decides whether an account is active, for every directive that uses it 
 - An account is active from its `open`. Within a date and time, `open` comes before every other directive, so a
   transaction on the day of the `open` is fine.
 - It stays active through its `close`. A `close` with only a date closes the account at the end of that day (24:00),
-  so everything dated that day may still use it. A `close` with a time closes it at that time: a directive at that
-  time may still use it, and one later that day may not.
+  so everything dated that day may still use it. In a zhang file, a `close` with a time closes it at that time: a
+  directive at that time may still use it, and one later that day may not. In a Beancount file, the `time` metadata
+  of a `close` is plain metadata, as in Beancount: the account stays active through the whole day.
 - An `open` after a `close` opens the account again.
-- A transaction, a [balance assertion or pad](/reference/directives/balance/) or a
-  [`document`](/reference/directives/document/) that uses an account that was never opened, or that is opened only
-  later, reports [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist). One that uses it after its close
-  reports [`AccountClosed`](/reference/error-codes/#accountclosed). Each is reported once per account and directive,
-  and the directive still counts: the transaction is booked and the document is listed.
+- A directive that uses an account that was never opened, or that is opened only later, reports
+  [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist).
+- What books on the account after its close reports [`AccountClosed`](/reference/error-codes/#accountclosed): a
+  posting, a [`pad`, or a `balance … with pad`](/reference/directives/balance/).
+- What only records may follow the close, as in Beancount: a plain `balance`, such as one asserting that the closed
+  account is empty, a [`document`](/reference/directives/document/), such as a final statement, and a
+  [`note`](/reference/directives/note-and-event/).
+- Each error is reported once per account and directive, and the directive still counts: the transaction is booked
+  and the document is listed.
 - Opening an account does not open its parent. `Assets:Bank:Checking` can be used without opening `Assets:Bank`, but a
   [balance assertion](/reference/directives/balance/) on `Assets:Bank` needs `Assets:Bank` to be open.
 
@@ -106,9 +111,11 @@ One rule decides whether an account is active, for every directive that uses it 
 2024-04-01 * "Too late"              ; AccountClosed
   Assets:Wallet -3 CNY
   Expenses:Coffee
+2024-04-02 balance Assets:Wallet -6 CNY  ; fine: a balance only records
 ```
 
-The account list shows an account as closed once its close takes effect, and as open again after a later `open`.
+The account list shows an account as closed from the moment its close takes effect, by the ledger's clock, and as open
+again after a later `open`.
 
 ### Commodities
 
@@ -133,7 +140,8 @@ As in Beancount, a list restricts the account to the commodities in it: a postin
 - Closing an account that was never opened reports `AccountDoesNotExist`, and closing a closed account reports
   `AccountClosed`. The first `close` stands.
 - A closed account keeps its balances and history. The account list marks it as closed and can hide it.
-- A [`note`](/reference/directives/note-and-event/) may follow the `close` without an error.
+- A plain `balance`, a [`document`](/reference/directives/document/) and a
+  [`note`](/reference/directives/note-and-event/) may follow the `close` without an error.
 
 ## Errors
 
@@ -145,7 +153,7 @@ As in Beancount, a list restricts the account to the commodities in it: a postin
 | [`UnsupportedBookingMethod`](/reference/error-codes/#unsupportedbookingmethod) | `booking_method` is `AVERAGE`, `AVERAGE_ONLY` or `NONE`. |
 | [`CloseNonZeroAccount`](/reference/error-codes/#closenonzeroaccount) | The account holds something when it is closed. |
 | [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist) | A directive uses an account that is not open yet, or closes one that was never opened. |
-| [`AccountClosed`](/reference/error-codes/#accountclosed) | A directive uses an account after its close, or a closed account is closed again. |
+| [`AccountClosed`](/reference/error-codes/#accountclosed) | A posting, a `pad` or a `balance … with pad` uses an account after its close, or a closed account is closed again. |
 
 ## Beancount compatibility
 
@@ -163,10 +171,9 @@ As in Beancount, a list restricts the account to the commodities in it: a postin
 - Beancount's default booking method is `STRICT`; Zhang's is `FIFO`.
 - `CloseNonZeroAccount` is Zhang's own check: Beancount closes such an account without an error.
 - Both keep an account active through the day of a `close`: Beancount sorts a `close` after everything else of its
-  day. Beancount knows no times, so it reads the `time` metadata of a `close` in a Beancount file as plain metadata;
-  Zhang reads it as the time of the `close`, which closes the account at that time.
-- Beancount accepts a `balance` and a `document` after the `close`; Zhang reports `AccountClosed` for them. Both accept
-  a `note`.
+  day. Beancount knows no times, and in a Beancount file Zhang keeps the `time` metadata of a `close` as plain
+  metadata too.
+- Both accept a `balance`, a `document` and a `note` after the `close`, and report a posting or a `pad`.
 
 ## Related
 

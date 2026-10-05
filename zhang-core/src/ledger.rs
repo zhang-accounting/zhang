@@ -26,7 +26,8 @@ use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{
-    builtin_stages, run_pipeline, AccountLifecycle, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage, StageContext,
+    builtin_stages, run_pipeline, AccountLifecycle, AccountUse, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage,
+    StageContext,
 };
 use crate::process::budget::{DefinedBudget, ForeignAmount};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
@@ -234,6 +235,13 @@ impl Ledger {
     /// `None` when neither an `open` nor a `close` of it is in effect.
     pub fn account_status(&self, account: &str, at: NaiveDateTime) -> Option<AccountStatus> {
         self.lifecycle.status(account, at)
+    }
+
+    /// The error a directive dated `at`, at the wall-clock time of the ledger's timezone, would raise by using `account`
+    /// the way `usage` tells, by the rule every directive is checked with ([`AccountLifecycle`]): what books needs an
+    /// active account, what only records one that was opened. `None` when it may.
+    pub fn account_reference_error(&self, account: &Account, at: NaiveDateTime, usage: AccountUse) -> Option<ErrorKind> {
+        self.lifecycle.reference_error(account, at, usage)
     }
 
     fn init(context: LedgerProcessContext) -> (Self, SplitDirectives) {
@@ -1801,12 +1809,11 @@ mod test {
                 errors,
                 vec![
                     (ErrorKind::AccountClosed, Some("Assets:Closed".to_owned())),
-                    (ErrorKind::AccountClosed, Some("Assets:Closed".to_owned())),
                     (ErrorKind::AccountDoesNotExist, Some("Assets:Missing".to_owned())),
                     (ErrorKind::AccountDoesNotExist, Some("Equity:Missing".to_owned())),
                 ]
             );
-            // one `AccountClosed` each for the pad and the check, on their own spans
+            // one `AccountClosed` for the pad, on its own span; the plain check after the close only records
             let store = ledger.store.read().unwrap();
             let closed_spans = store
                 .errors
@@ -1814,13 +1821,7 @@ mod test {
                 .filter(|it| it.error_type == ErrorKind::AccountClosed)
                 .map(|it| it.span.as_ref().unwrap().content.clone())
                 .collect_vec();
-            assert_eq!(
-                closed_spans,
-                vec![
-                    "2023-01-02 balance Assets:Closed 5 CNY with pad Equity:Open",
-                    "2023-01-04 balance Assets:Closed 5 CNY"
-                ]
-            );
+            assert_eq!(closed_spans, vec!["2023-01-02 balance Assets:Closed 5 CNY with pad Equity:Open"]);
         }
 
         #[test]
@@ -2167,18 +2168,19 @@ mod test {
                 2024-01-05 15:00:00 note Expenses:Old "a note may follow the close"
                 2024-01-05 16:00:00 document Expenses:Old "receipt.pdf"
                 2024-01-05 17:00:00 balance Expenses:Old 2 CNY
+                2024-01-05 18:00:00 balance Expenses:Old 2 CNY with pad Assets:Cash
             "#});
 
+            // what books after the close is reported; a note, a document and a plain balance only record
             assert_eq!(
                 errors(&ledger),
                 vec![
                     error(ErrorKind::AccountClosed, r#"2024-01-05 15:00:00 * "later on the close day""#, "Expenses:Old"),
                     error(
                         ErrorKind::AccountClosed,
-                        r#"2024-01-05 16:00:00 document Expenses:Old "receipt.pdf""#,
+                        "2024-01-05 18:00:00 balance Expenses:Old 2 CNY with pad Assets:Cash",
                         "Expenses:Old"
                     ),
-                    error(ErrorKind::AccountClosed, "2024-01-05 17:00:00 balance Expenses:Old 2 CNY", "Expenses:Old"),
                 ]
             );
         }
@@ -2236,14 +2238,19 @@ mod test {
                 2024-01-06 * "the day after the close"
                   Assets:Cash -1 CNY
                   Assets:Old 1 CNY
+                2024-01-06 12:00:00 balance Assets:Old 7 CNY with pad Equity:Open
             "#});
 
+            // the day after, what books is reported; the plain balance and the document only record, as in beancount
             assert_eq!(
                 errors(&ledger),
                 vec![
-                    error(ErrorKind::AccountClosed, "2024-01-06 balance Assets:Old 6 CNY", "Assets:Old"),
-                    error(ErrorKind::AccountClosed, r#"2024-01-06 document Assets:Old "late.pdf""#, "Assets:Old"),
                     error(ErrorKind::AccountClosed, r#"2024-01-06 * "the day after the close""#, "Assets:Old"),
+                    error(
+                        ErrorKind::AccountClosed,
+                        "2024-01-06 12:00:00 balance Assets:Old 7 CNY with pad Equity:Open",
+                        "Assets:Old"
+                    ),
                 ]
             );
         }
@@ -2317,7 +2324,6 @@ mod test {
                     error(ErrorKind::AccountDoesNotExist, pad_a, "Equity:Missing"),
                     error(ErrorKind::AccountDoesNotExist, pad_gone, "Assets:Gone"),
                     error(ErrorKind::AccountDoesNotExist, "2023-01-03 balance Assets:Missing 0 CNY", "Assets:Missing"),
-                    error(ErrorKind::AccountClosed, "2023-01-04 balance Assets:Closed 0 CNY", "Assets:Closed"),
                 ]
             );
             // the padding transactions are still booked, and the checks kept for the journal, those of the

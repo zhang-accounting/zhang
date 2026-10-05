@@ -417,13 +417,18 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
 // ------------------------------------------------------------------------------------------------
 // the new-transaction form
 
-/// `GET /api/for-new-transaction`: the payees and the open accounts.
+/// `GET /api/for-new-transaction`: the payees and the accounts open now, by the ledger's clock.
 pub async fn info_for_new_transaction(ledger: &SharedLedger) -> ServerResult<InfoForNewTransaction> {
     with_ledger(&ledger.0, |ledger| {
         let first_column = |result: QueryResult| result.rows.iter().filter_map(|row| row[0].as_str().map(str::to_owned)).collect_vec();
         Ok(InfoForNewTransaction {
             payee: first_column(execute(ledger, PAYEES, &Params::new(), false)?),
-            account_name: first_column(execute(ledger, OPEN_ACCOUNTS, &Params::new(), false)?),
+            account_name: first_column(execute(
+                ledger,
+                OPEN_ACCOUNTS,
+                &crate::builtin::bind_instant(Params::new(), crate::builtin::ledger_now(ledger)),
+                false,
+            )?),
         })
     })
     .await

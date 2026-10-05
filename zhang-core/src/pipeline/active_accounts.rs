@@ -49,6 +49,17 @@ impl Folded<'_> {
     }
 }
 
+/// How a directive uses an account, which decides whether it may follow the account's close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountUse {
+    /// It books on the account, moving what it holds: a posting, a `pad`, a `balance ... with pad`. The account must be
+    /// active.
+    Books,
+    /// It only records something about the account: a `balance` without a pad, a `document`, a `note`. As in beancount,
+    /// it may follow the close; the account must have been opened.
+    Records,
+}
+
 /// When each account is active, from its `open` and `close` directives: the one rule every directive that references an
 /// account is checked with ([`ActiveAccountsStage`]), and that the host reads with
 /// [`Ledger::account_status`](crate::ledger::Ledger::account_status).
@@ -112,14 +123,15 @@ impl AccountLifecycle {
         self.status(account, NaiveDateTime::MAX)
     }
 
-    /// The error a directive dated `at` raises by referencing `account`, `None` when the account is active then:
-    /// [`AccountDoesNotExist`](ErrorKind::AccountDoesNotExist) when no `open` opened it by then,
-    /// [`AccountClosed`](ErrorKind::AccountClosed) when it is closed.
-    pub fn inactive_error(&self, account: &Account, at: NaiveDateTime) -> Option<ErrorKind> {
+    /// The error a directive dated `at` raises by using `account` the way `usage` tells, `None` when it may:
+    /// [`AccountDoesNotExist`](ErrorKind::AccountDoesNotExist) when no `open` opened the account by then, and, for a
+    /// directive that books, [`AccountClosed`](ErrorKind::AccountClosed) when the account is closed. A directive that
+    /// only records something may follow the close.
+    pub fn reference_error(&self, account: &Account, at: NaiveDateTime, usage: AccountUse) -> Option<ErrorKind> {
         let folded = self.fold(account.name(), at);
-        match folded.status(at) {
+        match (folded.status(at), usage) {
             _ if !folded.opened => Some(ErrorKind::AccountDoesNotExist),
-            Some(AccountStatus::Close) => Some(ErrorKind::AccountClosed),
+            (Some(AccountStatus::Close), AccountUse::Books) => Some(ErrorKind::AccountClosed),
             _ => None,
         }
     }
@@ -138,18 +150,20 @@ impl AccountLifecycle {
     }
 }
 
-/// reports every reference to an account that is not active at the date and time of the directive making it, by the
-/// rule of [`AccountLifecycle`]. Report-only: the stream is returned unchanged, so such a transaction is still booked,
-/// and such a document still listed.
+/// reports every reference to an account that a directive may not make at its date and time, by the rule of
+/// [`AccountLifecycle`]. Report-only: the stream is returned unchanged, so such a transaction is still booked, and such a
+/// document still listed.
 ///
 /// - a reference to an account with no `open` before it, never opened or opened only later, reports
 ///   `AccountDoesNotExist`
-/// - a reference after the account's close took effect reports `AccountClosed`: after the day of a `close` with only a
-///   date, after the time of one with a time
+/// - a directive that books ([`AccountUse::Books`]), a transaction, a `pad` or a `balance ... with pad`, reports
+///   `AccountClosed` after the account's close took effect: after the day of a `close` with only a date, after the time
+///   of one with a time
+/// - a directive that only records ([`AccountUse::Records`]), a `balance` without a pad, a `document` or a `note`, may
+///   follow the close, as in beancount
 /// - a transaction reports each account its postings name once, in the order they first appear in it
 /// - a `pad` or `balance ... with pad` reports the account padded and the account it is padded from, every missing one
-///   first; a `balance` and a `document` report their account
-/// - a `note` reports `AccountDoesNotExist` only: like beancount, it may follow a `close`
+///   first
 /// - a `close` of an account never opened reports `AccountDoesNotExist`, and of a closed one `AccountClosed`
 ///
 /// Each error is reported on the directive's span with an `account_name` meta.
@@ -180,18 +194,13 @@ impl ProcessStage for ActiveAccountsStage {
                     .iter()
                     .map(|posting| &posting.account)
                     .unique_by(|account| account.name())
-                    .filter_map(|account| lifecycle.inactive_error(account, at).map(|kind| (kind, account)))
+                    .filter_map(|account| lifecycle.reference_error(account, at, AccountUse::Books).map(|kind| (kind, account)))
                     .collect(),
-                Directive::Note(note) => lifecycle
-                    .inactive_error(&note.account, at)
-                    .filter(|kind| *kind == ErrorKind::AccountDoesNotExist)
-                    .map(|kind| (kind, &note.account))
-                    .into_iter()
-                    .collect(),
-                Directive::Document(document) => inactive_errors(&lifecycle, &[&document.account], at),
-                Directive::BalanceCheck(check) => inactive_errors(&lifecycle, &[&check.account], at),
-                Directive::Pad(pad) => inactive_errors(&lifecycle, &[&pad.account, &pad.pad], at),
-                Directive::BalancePad(pad) => inactive_errors(&lifecycle, &[&pad.account, &pad.pad], at),
+                Directive::Note(note) => reference_errors(&lifecycle, &[&note.account], at, AccountUse::Records),
+                Directive::Document(document) => reference_errors(&lifecycle, &[&document.account], at, AccountUse::Records),
+                Directive::BalanceCheck(check) => reference_errors(&lifecycle, &[&check.account], at, AccountUse::Records),
+                Directive::Pad(pad) => reference_errors(&lifecycle, &[&pad.account, &pad.pad], at, AccountUse::Books),
+                Directive::BalancePad(pad) => reference_errors(&lifecycle, &[&pad.account, &pad.pad], at, AccountUse::Books),
                 _ => vec![],
             };
             lifecycle.apply(&directive.data);
@@ -207,11 +216,12 @@ impl ProcessStage for ActiveAccountsStage {
     }
 }
 
-/// the errors of a directive dated `at` that references `accounts`: every missing account, then every closed one
-fn inactive_errors<'a>(lifecycle: &AccountLifecycle, accounts: &[&'a Account], at: NaiveDateTime) -> Vec<(ErrorKind, &'a Account)> {
+/// the errors of a directive dated `at` that uses `accounts` the way `usage` tells: every missing account, then every
+/// closed one
+fn reference_errors<'a>(lifecycle: &AccountLifecycle, accounts: &[&'a Account], at: NaiveDateTime, usage: AccountUse) -> Vec<(ErrorKind, &'a Account)> {
     accounts
         .iter()
-        .filter_map(|account| lifecycle.inactive_error(account, at).map(|kind| (kind, *account)))
+        .filter_map(|account| lifecycle.reference_error(account, at, usage).map(|kind| (kind, *account)))
         .sorted_by_key(|(kind, _)| *kind != ErrorKind::AccountDoesNotExist)
         .collect()
 }
@@ -223,7 +233,7 @@ mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::Account;
 
-    use super::AccountLifecycle;
+    use super::{AccountLifecycle, AccountUse};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::domains::schemas::AccountStatus;
@@ -256,7 +266,7 @@ mod test {
         // a close of an account never opened closes it, but it never was active
         assert_eq!(lifecycle.final_status("Assets:NeverOpened"), Some(AccountStatus::Close));
         assert_eq!(
-            lifecycle.inactive_error(&account("Assets:NeverOpened"), at(5, "00:00:00")),
+            lifecycle.reference_error(&account("Assets:NeverOpened"), at(5, "00:00:00"), AccountUse::Books),
             Some(ErrorKind::AccountDoesNotExist)
         );
         assert_eq!(lifecycle.final_status("Assets:A"), Some(AccountStatus::Close));
@@ -265,18 +275,27 @@ mod test {
 
         // active through the whole day of the close
         let closed = account("Assets:A");
-        assert_eq!(lifecycle.inactive_error(&closed, at(2, "00:00:00")), None);
-        assert_eq!(lifecycle.inactive_error(&closed, at(2, "23:59:59")), None);
-        assert_eq!(lifecycle.inactive_error(&closed, at(3, "00:00:00")), Some(ErrorKind::AccountClosed));
+        assert_eq!(lifecycle.reference_error(&closed, at(2, "00:00:00"), AccountUse::Books), None);
+        assert_eq!(lifecycle.reference_error(&closed, at(2, "23:59:59"), AccountUse::Books), None);
         assert_eq!(
-            lifecycle.inactive_error(&account("Assets:Missing"), at(1, "00:00:00")),
+            lifecycle.reference_error(&closed, at(3, "00:00:00"), AccountUse::Books),
+            Some(ErrorKind::AccountClosed)
+        );
+        assert_eq!(
+            lifecycle.reference_error(&account("Assets:Missing"), at(1, "00:00:00"), AccountUse::Books),
+            Some(ErrorKind::AccountDoesNotExist)
+        );
+        // a directive that only records may follow the close, but not use an account never opened
+        assert_eq!(lifecycle.reference_error(&closed, at(3, "00:00:00"), AccountUse::Records), None);
+        assert_eq!(
+            lifecycle.reference_error(&account("Assets:NeverOpened"), at(5, "00:00:00"), AccountUse::Records),
             Some(ErrorKind::AccountDoesNotExist)
         );
         // closed for the day between its close and its reopening, open again after it
         let reopened = account("Assets:Reopened");
         assert_eq!(lifecycle.status("Assets:Reopened", at(2, "12:00:00")), Some(AccountStatus::Open));
-        assert_eq!(lifecycle.inactive_error(&reopened, at(3, "00:00:00")), None);
-        assert_eq!(lifecycle.inactive_error(&reopened, at(4, "00:00:00")), None);
+        assert_eq!(lifecycle.reference_error(&reopened, at(3, "00:00:00"), AccountUse::Books), None);
+        assert_eq!(lifecycle.reference_error(&reopened, at(4, "00:00:00"), AccountUse::Books), None);
     }
 
     #[test]
@@ -308,7 +327,7 @@ mod test {
         "#});
         // the second close closes nothing: the account stays closed from the end of the first close day
         assert_eq!(
-            lifecycle.inactive_error(&account("Assets:A"), at(3, "00:00:00")),
+            lifecycle.reference_error(&account("Assets:A"), at(3, "00:00:00"), AccountUse::Books),
             Some(ErrorKind::AccountClosed)
         );
         assert_eq!(lifecycle.close_error(&account("Assets:A"), at(5, "00:00:00")), Some(ErrorKind::AccountClosed));
@@ -349,7 +368,8 @@ mod test {
             1970-01-06 balance Equity:Open 0 CNY
         "#});
         assert_eq!(errors, vec![ErrorKind::UnusedPad]);
-        // the day after: all but the note report it
+        // the day after: what books reports it, the pad and the `balance ... with pad`; the document, the note and the
+        // balance only record, and may follow the close
         let errors = directives(indoc! {r#"
             1970-01-01 open Assets:A
             1970-01-01 open Equity:Open
@@ -361,16 +381,7 @@ mod test {
             1970-01-06 13:00:00 balance Assets:A 0 CNY with pad Equity:Open
             1970-01-07 balance Equity:Open 0 CNY
         "#});
-        assert_eq!(
-            errors,
-            vec![
-                ErrorKind::AccountClosed,
-                ErrorKind::AccountClosed,
-                ErrorKind::AccountClosed,
-                ErrorKind::AccountClosed,
-                ErrorKind::UnusedPad
-            ]
-        );
+        assert_eq!(errors, vec![ErrorKind::AccountClosed, ErrorKind::AccountClosed, ErrorKind::UnusedPad]);
     }
 
     #[test]

@@ -1063,12 +1063,6 @@ option "timezone" "UTC"
         refused(
             &scratch,
             &before,
-            check(&scratch, "Assets:Old", amount(10, "CNY")).await,
-            &["Assets:Old is closed"],
-        );
-        refused(
-            &scratch,
-            &before,
             pad(&scratch, "Assets:A", amount(10, "CNY"), "Equity:Gone").await,
             &["Equity:Gone is closed", "a pad from Equity:Gone"],
         );
@@ -1078,20 +1072,26 @@ option "timezone" "UTC"
             pad(&scratch, "Assets:A", amount(10, "CNY"), "Equity:Never").await,
             &["Equity:Never is not open", "Open it first"],
         );
+        // a plain balance only records: it may follow the close, as in beancount
+        let (status, body) = check(&scratch, "Assets:Old", amount(0, "CNY")).await;
+        assert!(status.is_success(), "{status} {body}");
     }
 
-    /// whether an account is open is the account lifecycle's, the rule the written balance is checked with
+    /// whether an account may take a balance is the account lifecycle's, the rule the written balance is checked with: a
+    /// balance only records, and may follow the close; a padding books, and needs the account open when it is booked
     #[tokio::test]
     async fn a_balance_is_refused_by_the_rule_it_is_checked_with() {
         let ledger = format!(
-            "{OPENS}1970-01-01 open Assets:Today\n{} close Assets:Today\n1970-01-01 open Assets:Again\n{} close Assets:Again\n{} open Assets:Again\n",
+            "{OPENS}1970-01-01 open Assets:Today\n{} close Assets:Today\n1970-01-01 open Assets:Again\n{} close Assets:Again\n{} open Assets:Again\n\
+             1970-01-01 open Assets:Gone\n{} close Assets:Gone\n",
             today(),
             days_ago(10),
-            days_ago(5)
+            days_ago(5),
+            days_ago(3)
         );
 
-        // a zhang ledger checks a balance dated now: an account closed today with only a date is open through today, and
-        // one opened again after its close is open
+        // a zhang ledger writes now: an account closed today with only a date is open through today, and one opened
+        // again after its close is open
         let scratch = Scratch::new(&ledger);
         let (status, body) = check(&scratch, "Assets:Today", amount(0, "CNY")).await;
         assert!(status.is_success(), "{status} {body}");
@@ -1099,6 +1099,16 @@ option "timezone" "UTC"
         assert!(status.is_success(), "{status} {body}");
         let (status, body) = pad(&scratch, "Assets:A", amount(10, "CNY"), "Assets:Today").await;
         assert!(status.is_success(), "{status} {body}");
+        // closed three days ago: a balance may follow the close, a padding may not
+        let (status, body) = check(&scratch, "Assets:Gone", amount(0, "CNY")).await;
+        assert!(status.is_success(), "{status} {body}");
+        let before = written(&scratch);
+        refused(
+            &scratch,
+            &before,
+            pad(&scratch, "Assets:Gone", amount(10, "CNY"), "Equity:Open").await,
+            &["Assets:Gone is closed", "a balance of Assets:Gone"],
+        );
         let (errors, paddings, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(
@@ -1107,20 +1117,22 @@ option "timezone" "UTC"
         );
         assert!(passed.iter().all(|it| *it), "{passed:?}");
 
-        // a beancount ledger checks it at the start of tomorrow, after the account closed today
+        // a beancount ledger books the padding now, while the account closed today is open, and checks the balance at
+        // the start of tomorrow, after its close, which a balance may follow
         let scratch = Scratch::beancount(&ledger);
+        let (status, body) = pad(&scratch, "Assets:A", amount(10, "CNY"), "Assets:Today").await;
+        assert!(status.is_success(), "{status} {body}");
+        let (status, body) = check(&scratch, "Assets:Today", Amount::new(BigDecimal::from(-10), "CNY")).await;
+        assert!(status.is_success(), "{status} {body}");
+        let (status, body) = pad(&scratch, "Assets:Again", amount(10, "CNY"), "Equity:Open").await;
+        assert!(status.is_success(), "{status} {body}");
         let before = written(&scratch);
         refused(
             &scratch,
             &before,
-            check(&scratch, "Assets:Today", amount(0, "CNY")).await,
-            &["Assets:Today is closed", "a balance of Assets:Today"],
+            pad(&scratch, "Assets:Gone", amount(10, "CNY"), "Equity:Open").await,
+            &["Assets:Gone is closed", "a balance of Assets:Gone"],
         );
-        // its padding is booked now, while it is open
-        let (status, body) = pad(&scratch, "Assets:A", amount(10, "CNY"), "Assets:Today").await;
-        assert!(status.is_success(), "{status} {body}");
-        let (status, body) = pad(&scratch, "Assets:Again", amount(10, "CNY"), "Equity:Open").await;
-        assert!(status.is_success(), "{status} {body}");
         let (errors, _, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
         assert!(passed.iter().all(|it| *it), "{passed:?}");

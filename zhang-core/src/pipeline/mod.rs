@@ -35,7 +35,7 @@ mod validate;
 
 use std::collections::{HashMap, VecDeque};
 
-pub use active_accounts::{AccountLifecycle, ActiveAccountsStage};
+pub use active_accounts::{AccountLifecycle, AccountUse, ActiveAccountsStage};
 pub use balance_check::BalanceCheckStage;
 pub use booking::BookingStage;
 use chrono::DateTime;
