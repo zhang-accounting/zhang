@@ -1782,3 +1782,45 @@ fn final_validation_errors_precede_undefined_budget_activity() {
     assert_eq!(store.errors[1].metas["account_name"], "Expenses:Food");
     assert!(store.errors.iter().all(|it| it.span.as_ref() == Some(&txn.span)));
 }
+
+/// The numbers of the booking errors' metas are written in plain notation, like the queries and the exporter write
+/// them: a sale of 0.0000001 USD reports `-0.0000001`, not `BigDecimal`'s `-1E-7`, and the lots it matched read
+/// `0.0000001 USD {…}`, not `1E-7 USD {…}`.
+#[test]
+fn booking_error_metas_write_tiny_numbers_in_plain_notation() {
+    let ledger = load(indoc! {r#"
+        1970-01-01 open Assets:S
+          booking_method: "STRICT"
+        2024-05-16 * "buy"
+          Assets:S 0.0000001 USD { 10 CNY }
+          Income:I
+        2024-05-17 * "buy more"
+          Assets:S 0.0000002 USD { 10 CNY }
+          Income:I
+        2024-05-18 * "sell"
+          Assets:S -0.0000001 USD { 10 CNY }
+          Income:I
+        2024-05-19 * "sell what no lot holds"
+          Assets:A -0.0000001 USD { 10 CNY }
+          Income:I
+    "#});
+    assert_eq!(
+        error_details(&ledger),
+        vec![
+            (
+                ErrorKind::AmbiguousLotMatch,
+                r#"2024-05-18 * "sell""#.to_owned(),
+                metas([
+                    ("account_name", "Assets:S"),
+                    ("matched_lots", "0.0000001 USD {10 CNY, 2024-05-16}, 0.0000002 USD {10 CNY, 2024-05-17}"),
+                    ("transaction_amount", "-0.0000001"),
+                ])
+            ),
+            (
+                ErrorKind::NoEnoughCommodityLot,
+                r#"2024-05-19 * "sell what no lot holds""#.to_owned(),
+                metas([("transaction_amount", "-0.0000001")])
+            ),
+        ]
+    );
+}

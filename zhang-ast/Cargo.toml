@@ -15,6 +15,7 @@ itertools = { workspace = true }
 strum = { workspace = true }
 indexmap = { workspace = true }
 bigdecimal = { workspace = true }
+zhang-shared = { version = "0.1", path = "../zhang-shared" }
 chrono-tz = { workspace = true }
 gotcha_core = { workspace = true, optional = true }
 

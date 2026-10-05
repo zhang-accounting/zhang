@@ -9,7 +9,9 @@ When Zhang loads a ledger, it reports the problems it finds as errors. The ledge
 web UI lists them, with the directive that caused each one, and so do `GET /api/errors` and the
 [`#errors`](/reference/query-language/#errors) query table. They come by file, then by position in the file, and the
 errors page shows where each one is as its file and the byte offsets of the directive. Each error has a code, listed
-below with the message the errors page shows for it.
+below with the message the errors page shows for it. An error may carry metas, such as the `transaction_amount` of a
+posting; a number in a meta is written in plain notation, with all its digits and decimal places (`-0.0000001`, never
+`-1E-7`), as in the rest of the API.
 
 Some problems stop the ledger from loading instead; they have no code. See
 [When the ledger does not load](#when-the-ledger-does-not-load).

@@ -5,9 +5,9 @@ use bigdecimal::BigDecimal;
 pub use zhang_shared::decimal::{div, mul, mul_in_context, per_unit, DIVISION_PRECISION};
 
 /// Render a decimal without exponent notation, preserving its scale (`-12.50` stays `-12.50`), as
-/// zhang-core's [`zhang_core::utils::plain_decimal`] writes it.
+/// every number zhang writes as text ([`zhang_shared::decimal::plain_decimal`]).
 pub fn to_plain_string(value: &BigDecimal) -> String {
-    zhang_core::utils::plain_decimal(value)
+    zhang_shared::decimal::plain_decimal(value)
 }
 
 #[cfg(test)]

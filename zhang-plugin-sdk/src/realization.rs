@@ -52,9 +52,11 @@ pub enum AccountScope {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct AccountBalance {
     /// Booked quantities, by their own commodity (for example, `5 AAPL`).
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_ordered_map")]
     pub units: BTreeMap<String, BigDecimal>,
     /// Booked cost amounts, by cost commodity; uncosted units keep their own commodity
     /// (for example, `550 USD` for the five shares, alongside `20 EUR` in cash).
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_ordered_map")]
     pub cost: BTreeMap<String, BigDecimal>,
 }
 

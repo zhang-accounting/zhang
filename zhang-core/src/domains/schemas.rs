@@ -44,6 +44,7 @@ pub enum AccountStatus {
 pub struct PriceDomain {
     pub datetime: NaiveDateTime,
     pub commodity: Currency,
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize")]
     pub amount: BigDecimal,
     pub target_commodity: Currency,
 }

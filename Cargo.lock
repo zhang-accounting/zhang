@@ -6763,6 +6763,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "zhang-shared",
 ]
 
 [[package]]
@@ -6918,6 +6919,7 @@ dependencies = [
  "zhang-ast",
  "zhang-core",
  "zhang-query",
+ "zhang-shared",
 ]
 
 [[package]]
@@ -6926,6 +6928,7 @@ version = "0.1.0"
 dependencies = [
  "bigdecimal",
  "chrono",
+ "serde",
 ]
 
 [[package]]
