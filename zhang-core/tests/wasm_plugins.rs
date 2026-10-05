@@ -554,6 +554,58 @@ fn router_reads_the_ledger_through_host_functions_only_while_routing() {
 }
 
 #[test]
+fn concurrent_router_calls_use_their_own_query_hosts() {
+    struct PerRequestHost {
+        marker: usize,
+        barrier: Arc<std::sync::Barrier>,
+    }
+    impl RouterHost for PerRequestHost {
+        fn query(&self, _bql: &str) -> Result<serde_json::Value, QueryFailure> {
+            // Calls overlap inside the host, so shared callbacks must not hold a
+            // cache/context lock while running a query, nor overwrite another host.
+            self.barrier.wait();
+            Ok(json!({"marker": self.marker}))
+        }
+    }
+    let (_dir, ledger) = router_ledger(&["router_query.wat"]);
+    let barrier = Arc::new(std::sync::Barrier::new(4));
+    std::thread::scope(|scope| {
+        for marker in 0..4 {
+            let ledger = &ledger;
+            let barrier = barrier.clone();
+            scope.spawn(move || {
+                let router = ledger.plugins.router("router-query").unwrap();
+                let host = Arc::new(PerRequestHost { marker, barrier });
+                let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+                let response = router.execute_as_router(&request, ledger, host).unwrap();
+                let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+                assert_eq!(body[0], json!({"Ok": {"marker": marker}}));
+            });
+        }
+    });
+    assert_eq!(errors(&ledger), vec![], "router errors cannot leak into the ledger");
+}
+
+#[test]
+fn reloading_a_changed_module_replaces_its_compiled_code() {
+    let (dir, mut ledger) = router_ledger(&["router.wat"]);
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+    assert_eq!(call(&ledger, "router-echo", &request).unwrap().headers()["x-echo"], "router");
+    let old_plugin = ledger.plugins.router("router-echo").unwrap().clone();
+    let module = dir.path().join("router.wat");
+    let original = std::fs::read_to_string(&module).unwrap();
+    // The replacement has equal length, preserving this WAT fixture's offsets.
+    let changed = original.replace(r#"\"x-echo\":\"router\""#, r#"\"x-echo\":\"newone\""#);
+    assert_ne!(original, changed);
+    std::fs::write(module, changed).unwrap();
+    ledger.reload().unwrap();
+    assert_eq!(call(&ledger, "router-echo", &request).unwrap().headers()["x-echo"], "newone");
+    // An existing snapshot owns its original bytes and remains independently usable.
+    let old_response = old_plugin.execute_as_router(&request, &ledger, Arc::new(FakeHost)).unwrap();
+    assert_eq!(old_response.headers()["x-echo"], "router");
+}
+
+#[test]
 fn forged_query_input_returns_invalid_input() {
     // the router forges its block header so the kernel reports a ~2 GiB length; an unfixed host
     // slices that much memory in `zhang_query` and dies with SIGBUS. The fix must answer the plugin

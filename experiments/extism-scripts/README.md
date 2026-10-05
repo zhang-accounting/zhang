@@ -3,7 +3,10 @@
 This experiment builds one reusable Python interpreter plugin and one reusable Lua
 interpreter plugin. User business scripts remain source files. The Rust harness
 uses Zhang's pinned Extism 1.30.0 and real Zhang host functions; it does not embed a
-native Python or Lua interpreter in Zhang. All changes live in this directory.
+native Python or Lua interpreter in Zhang. The interpreter experiment lives in
+this directory. The same branch also adds compiled-module reuse to Zhang's existing
+plugin runtime in `zhang-core/src/plugin/runtime.rs`, keeping independent instances
+and host contexts for every execution.
 
 ## Reproduce
 
@@ -73,6 +76,20 @@ sizes. These are smoke-test timings, not a comparative performance benchmark.
 cargo run --locked --manifest-path experiments/extism-scripts/Cargo.toml --features lua-exceptions --bin performance
 ```
 
+To compare per-request compilation with the production compilation cache, without
+repeating the large JSON tests:
+
+```sh
+cargo run --locked --manifest-path experiments/extism-scripts/Cargo.toml --features lua-exceptions --bin performance -- --router-only
+```
+
+This alternates 20 measured requests per case after two warm-up requests, over the
+same 10,000-transaction ledger and interpreter artifact. The per-request compilation
+baseline uses the benchmark-only query binding; the cached case uses the actual
+`execute_as_router` path. Both create a new WASM instance each time. Results are
+written to `artifacts/compile-cache.json`; implementation and recorded results are
+in [COMPILE_CACHE.md](COMPILE_CACHE.md).
+
 The separate performance executable writes `artifacts/performance.json`; recorded
 results and interpretation are in [PERFORMANCE.md](PERFORMANCE.md). It checks
 every script result, uses two warm-up calls for repeated script measurements, and
@@ -92,7 +109,8 @@ actual serialized Zhang directives for 1, 1,000 and 10,000 transactions through 
 identity script. It does not perform financial calculations in either language.
 
 The report test uses the real current `execute_as_router` path, which creates a new
-plugin for each request, and runs BQL against a 10,000-transaction ledger. A separate
+instance for each request, and runs BQL against a 10,000-transaction ledger. It now
+reuses the compiled module. A separate
 reused-instance test uses a benchmark-only query host binding over a fixed ledger;
 it demonstrates latency potential, not an implemented production instance pool.
 The same query adapter and BQL engine are timed directly in Rust. HTTP/networking,

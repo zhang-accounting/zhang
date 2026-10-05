@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono_tz::Tz;
 #[cfg(feature = "plugin_runtime")]
 use extism::convert::Json as WasmJson;
 #[cfg(feature = "plugin_runtime")]
-use extism::{Manifest, Plugin as WasmPlugin, Wasm};
+use extism::{Manifest, Wasm};
 use log::{info, warn};
 use sha256::digest;
 use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
@@ -17,7 +18,8 @@ use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
-use crate::plugin::router::unavailable_host_functions;
+use crate::plugin::router::RouterCall;
+use crate::plugin::runtime::{PluginInstance, PluginRuntime};
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -44,16 +46,17 @@ impl PluginStore {
             .join(format!("{}.wasm", plugin_hash));
         let module_bytes = std::fs::read(&plugin_cache_file)?;
 
-        let wasm = Wasm::data(module_bytes.clone());
+        let runtime = Arc::new(PluginRuntime::new(module_bytes));
         let timeout = declaration.capabilities.timeout;
-        let manifest = Manifest::new([wasm]).with_timeout(timeout);
+        let manifest = Manifest::new(Vec::<Wasm>::new()).with_timeout(timeout);
 
         // a plugin importing a host function cannot be instantiated without it, so the router host
         // functions are linked too, answering that they are unavailable. Registering, the file
         // functions deny every path
         let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
-        let functions = host.functions().into_iter().chain(unavailable_host_functions());
-        let mut plugin = WasmPlugin::new(manifest, functions, true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        let mut plugin = runtime
+            .instantiate(manifest, host.clone(), RouterCall::default())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>("name", ())
             .map_err(|e| call_error(&plugin_name, "name", timeout, e))?
@@ -76,7 +79,7 @@ impl PluginStore {
         let registered_plugin = RegisteredPlugin {
             name,
             version,
-            module_bytes,
+            runtime,
             declaration,
             span: span.clone(),
             occurrence,
@@ -153,8 +156,8 @@ fn call_error(plugin: &str, export: &str, timeout: Duration, error: extism::Erro
 pub struct RegisteredPlugin {
     pub name: String,
     pub version: String,
-    /// the wasm module, kept in memory so executions don't re-read the cache file
-    module_bytes: Vec<u8>,
+    /// Shared module bytes and compilation cache; execution instances remain independent.
+    pub(super) runtime: Arc<PluginRuntime>,
     /// the capabilities and config declared by the plugin's directive
     declaration: PluginDeclaration,
     /// the span of the plugin's directive, where the errors it reports go unless they carry a span
@@ -171,11 +174,10 @@ impl RegisteredPlugin {
         &self.declaration.capabilities
     }
 
-    /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts and timeout
+    /// Instance settings; the runtime attaches its module bytes on a compilation cache miss.
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
         let config = self.declaration.config_with(options, self.declaration.host_config(self.occurrence));
-        let wasm = Wasm::data(self.module_bytes.clone());
-        Manifest::new([wasm])
+        Manifest::new(Vec::<Wasm>::new())
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
             .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
@@ -197,10 +199,11 @@ impl RegisteredPlugin {
 
     /// a new instance of the plugin, with the host functions of `host` linked in, and the router host
     /// functions answering that they are unavailable
-    pub fn load_as_plugin(&self, options: &[OptionDomain], host: &PluginHost) -> ZhangResult<WasmPlugin> {
+    pub fn load_as_plugin(&self, options: &[OptionDomain], host: &PluginHost) -> ZhangResult<PluginInstance> {
         info!("loading plugin {} {}", self.name, self.version);
-        let functions = host.functions().into_iter().chain(unavailable_host_functions());
-        let plugin = WasmPlugin::new(self.manifest(options), functions, true)
+        let plugin = self
+            .runtime
+            .instantiate(self.manifest(options), host.clone(), RouterCall::default())
             .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)
@@ -251,6 +254,7 @@ mod test {
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
     use crate::plugin::files::FileAccess;
+    use crate::plugin::runtime::PluginRuntime;
     use crate::plugin::store::{call_error, known_plugin_types, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
 
@@ -272,7 +276,7 @@ mod test {
         RegisteredPlugin {
             name: "slow".to_owned(),
             version: "0.1.0".to_owned(),
-            module_bytes: vec![],
+            runtime: Arc::new(PluginRuntime::new(vec![])),
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence,
@@ -333,7 +337,7 @@ mod test {
         let plugin = RegisteredPlugin {
             name: "fx-rate".to_owned(),
             version: "0.1.0".to_owned(),
-            module_bytes: vec![],
+            runtime: Arc::new(PluginRuntime::new(vec![])),
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,
@@ -377,7 +381,7 @@ mod test {
         let plugin = RegisteredPlugin {
             name: "offline".to_owned(),
             version: "0.1.0".to_owned(),
-            module_bytes: vec![],
+            runtime: Arc::new(PluginRuntime::new(vec![])),
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,

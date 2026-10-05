@@ -45,6 +45,7 @@ use crate::clock::LoadClock;
 use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
+use crate::plugin::runtime::InstanceBindings;
 
 /// name of the host function a plugin reports a problem with
 pub const EMIT_ERROR: &str = "zhang_emit_error";
@@ -209,6 +210,7 @@ struct HostState {
 }
 
 /// the host side of one plugin instance: the host functions to link into it and what they collected
+#[derive(Clone)]
 pub struct PluginHost {
     state: Arc<Mutex<HostState>>,
     clock: Arc<Mutex<ClockState>>,
@@ -259,6 +261,24 @@ impl PluginHost {
         ];
         functions.extend(self.file_functions());
         functions
+    }
+
+    /// Shared compiled callbacks; their state is resolved from the executing instance.
+    pub(super) fn functions_for_instances(bindings: &InstanceBindings) -> Vec<Function> {
+        vec![
+            bindings.function(EMIT_ERROR, [PTR], [], |context, plugin, inputs, outputs| {
+                emit_error(plugin, inputs, outputs, UserData::Rust(context.host.state.clone()))
+            }),
+            bindings.function(NOW, [], [PTR], |context, plugin, inputs, outputs| {
+                zhang_now(plugin, inputs, outputs, UserData::Rust(context.host.clock.clone()))
+            }),
+            bindings.function(READ_FILE, [PTR], [PTR], |context, plugin, inputs, outputs| {
+                read_file(plugin, inputs, outputs, UserData::Rust(context.host.files.clone()))
+            }),
+            bindings.function(LIST_DIR, [PTR], [PTR], |context, plugin, inputs, outputs| {
+                list_dir(plugin, inputs, outputs, UserData::Rust(context.host.files.clone()))
+            }),
+        ]
     }
 
     /// take the errors the plugin reported so far

@@ -13,7 +13,7 @@ use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::plugin::host::PluginHost;
-use zhang_core::plugin::http::PluginRequest;
+use zhang_core::plugin::http::{PluginRequest, PluginResponse};
 use zhang_core::plugin::router::{unavailable_host_functions, QueryFailure, RouterHost};
 use zhang_query::{Params, Query};
 
@@ -32,7 +32,7 @@ fn builder(bytes: &[u8]) -> PluginBuilder<'static> {
 
 // A benchmark-only query binding for the pooled scenario. Production routing creates
 // a fresh RouterCall each time; this fixed ledger binding is not a proposed pool design.
-fn query_builder(bytes: &[u8], ledger: Arc<Ledger>) -> PluginBuilder<'static> {
+fn query_builder(bytes: &[u8], ledger: Arc<Ledger>, router_source: Option<&str>) -> PluginBuilder<'static> {
     let functions = unavailable_host_functions().into_iter().filter(|function| function.name() != "zhang_query");
     let host = PluginHost::new("performance", Default::default(), LoadClock::new(clock()), chrono_tz::Asia::Tokyo);
     let query = Function::new(
@@ -49,7 +49,11 @@ fn query_builder(bytes: &[u8], ledger: Arc<Ledger>) -> PluginBuilder<'static> {
         },
     )
     .with_namespace(EXTISM_USER_MODULE);
-    PluginBuilder::new(Manifest::new([Wasm::data(bytes.to_vec())]).with_timeout(Duration::from_secs(30)))
+    let mut manifest = Manifest::new([Wasm::data(bytes.to_vec())]).with_timeout(Duration::from_secs(30));
+    if let Some(source) = router_source {
+        manifest = manifest.with_config([("script_source", source)].into_iter());
+    }
+    PluginBuilder::new(manifest)
         .with_functions(host.functions().into_iter().chain(functions).chain([query]))
         .with_wasi(true)
 }
@@ -160,6 +164,9 @@ impl RouterHost for QueryHost {
 
 fn main() -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if std::env::args().any(|arg| arg == "--router-only") {
+        return compare_router_compilation(root);
+    }
     let count = 100_000u64;
     let expected_sum = json!({"sum": count * (count + 1) / 2});
     let payloads = [(1, batch(1)?), (1000, batch(1000)?), (10000, batch(10000)?)];
@@ -257,7 +264,7 @@ fn main() -> Result<()> {
             Ok(())
         })?;
         eprintln!("{language}: reused instance with benchmark-only BQL host binding");
-        let mut pooled = query_builder(&bytes, report_ledger.clone()).build()?;
+        let mut pooled = query_builder(&bytes, report_ledger.clone(), None).build()?;
         let query_source = source(
             language,
             &format!("def run(request):\n    return zhang.query({BQL:?})\n"),
@@ -278,6 +285,66 @@ fn main() -> Result<()> {
             "reused_bql_10k_transactions_benchmark_binding": pooled_report});
         results["runtimes"].as_array_mut().unwrap().push(result);
         std::fs::write(root.join("artifacts/performance.json"), serde_json::to_string_pretty(&results)?)?;
+    }
+    println!("{}", serde_json::to_string_pretty(&results)?);
+    Ok(())
+}
+
+/// Compare fresh compilation with the implemented production cache, alternating
+/// the cases over the same ledger, interpreter bytes, script and query adapter.
+fn compare_router_compilation(root: &Path) -> Result<()> {
+    let mut results = vec![];
+    for language in ["python", "lua"] {
+        eprintln!("{language}: comparing per-request compilation with the production cache");
+        let runtime = root.join("artifacts").join(format!("{language}-runtime.wasm"));
+        let bytes = std::fs::read(&runtime)?;
+        let script = source(language,
+            &format!("import json\ndef router(request):\n    return {{'status': 200, 'headers': {{'content-type': 'application/json'}}, 'body': json.dumps(zhang.query({BQL:?}))}}\n"),
+            &format!("return {{router = function(request) return {{status = 200, headers = {{['content-type'] = 'application/json'}}, body = json.encode(zhang.query({BQL:?}))}} end}}"));
+        let ledger = ledger(10000, Some((&runtime, &script)))?;
+        let host = Arc::new(QueryHost(ledger.clone()));
+        let router = ledger.plugins.router(&format!("{language}-script-runtime")).unwrap();
+        let request = PluginRequest::new("GET", "/", Vec::<(String, String)>::new(), Vec::<(String, String)>::new(), vec![]);
+        let native = measure(20, || {
+            let result = host.query(BQL).map_err(|error| anyhow::anyhow!(error.message))?;
+            ensure!(result["rows"] == json!([["Expenses:Food", "123400.00"]]));
+            Ok(())
+        })?;
+        let mut fresh = vec![];
+        let mut cached = vec![];
+        for iteration in 0..22 {
+            // Alternate order too, so one case does not always inherit warmer CPU/data.
+            for use_cache in if iteration % 2 == 0 { [false, true] } else { [true, false] } {
+                let started = Instant::now();
+                let response = if use_cache {
+                    router.execute_as_router(&request, &ledger, host.clone())?
+                } else {
+                    // This benchmark-only binding models the old Plugin::new lifecycle.
+                    // Production host isolation is separately checked by the real tests.
+                    let mut plugin = query_builder(&bytes, ledger.clone(), Some(&script)).build()?;
+                    let input = serde_json::to_vec(&request)?;
+                    let output: Vec<u8> = plugin.call("router", input)?;
+                    PluginResponse::from_json(&output)
+                        .and_then(PluginResponse::into_http)
+                        .map_err(anyhow::Error::msg)?
+                };
+                let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+                ensure!(response.status() == 200);
+                ensure!(serde_json::from_slice::<Value>(response.body())?["rows"] == json!([["Expenses:Food", "123400.00"]]));
+                if iteration >= 2 {
+                    if use_cache {
+                        cached.push(elapsed);
+                    } else {
+                        fresh.push(elapsed);
+                    }
+                }
+            }
+        }
+        let result = json!({"language": language, "transactions": 10000, "native_bql": native,
+            "compile_per_request_benchmark_binding": stats(fresh), "production_compilation_cache": stats(cached)});
+        eprintln!("{result}");
+        results.push(result);
+        std::fs::write(root.join("artifacts/compile-cache.json"), serde_json::to_string_pretty(&results)?)?;
     }
     println!("{}", serde_json::to_string_pretty(&results)?);
     Ok(())

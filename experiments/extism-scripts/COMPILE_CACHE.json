@@ -1,0 +1,52 @@
+[
+  {
+    "compile_per_request_benchmark_binding": {
+      "max_ms": 652.639042,
+      "min_ms": 468.250375,
+      "p50_ms": 582.548708,
+      "p95_ms": 645.562708,
+      "samples": 20
+    },
+    "language": "python",
+    "native_bql": {
+      "max_ms": 20.131166999999998,
+      "min_ms": 2.1363329999999996,
+      "p50_ms": 3.0557499999999997,
+      "p95_ms": 12.549,
+      "samples": 20
+    },
+    "production_compilation_cache": {
+      "max_ms": 36.977999999999994,
+      "min_ms": 7.4234160000000005,
+      "p50_ms": 10.277,
+      "p95_ms": 28.874917,
+      "samples": 20
+    },
+    "transactions": 10000
+  },
+  {
+    "compile_per_request_benchmark_binding": {
+      "max_ms": 74.855084,
+      "min_ms": 9.906958000000001,
+      "p50_ms": 35.720333,
+      "p95_ms": 71.205292,
+      "samples": 20
+    },
+    "language": "lua",
+    "native_bql": {
+      "max_ms": 50.068708,
+      "min_ms": 2.3308750000000003,
+      "p50_ms": 5.850375,
+      "p95_ms": 37.290917,
+      "samples": 20
+    },
+    "production_compilation_cache": {
+      "max_ms": 79.574959,
+      "min_ms": 4.277292,
+      "p50_ms": 8.888167000000001,
+      "p95_ms": 66.120834,
+      "samples": 20
+    },
+    "transactions": 10000
+  }
+]
