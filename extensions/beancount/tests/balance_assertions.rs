@@ -137,6 +137,17 @@ fn oracle(case: &Value) -> Outcome {
 
 fn zhang(case: &str) -> Outcome {
     let ledger = load(case);
+    // the lots the query engine lists (`commodities.lots`), those with units left, by account and commodity
+    let lots = zhang_query::execute(
+        &ledger,
+        "SELECT account, currency, sum(number) \
+         GROUP BY account, currency, cost_number, cost_currency, cost_date, cost_label HAVING sum(number) != 0",
+    )
+    .unwrap();
+    let mut lots_held = BTreeMap::<String, BTreeMap<String, BigDecimal>>::new();
+    for lot in &lots.rows {
+        *lots_held.entry(lot[0].to_string()).or_default().entry(lot[1].to_string()).or_default() += lot[2].as_decimal().unwrap();
+    }
     let store = ledger.store.read().unwrap();
 
     // the sums of the postings, which is what the balances shown are
@@ -147,10 +158,7 @@ fn zhang(case: &str) -> Outcome {
         *units += &posting.inferred_amount.number;
     }
     for (account, held) in balances.iter_mut() {
-        let mut booked = BTreeMap::<String, BigDecimal>::new();
-        for lot in store.commodity_lots.get(account).into_iter().flatten() {
-            *booked.entry(lot.commodity.clone()).or_default() += &lot.amount;
-        }
+        let booked = lots_held.get(account).cloned().unwrap_or_default();
         let shown = booked
             .into_iter()
             .map(|(currency, units)| (currency, units.normalized()))

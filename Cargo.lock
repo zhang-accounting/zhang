@@ -376,6 +376,7 @@ dependencies = [
  "tempfile",
  "zhang-ast",
  "zhang-core",
+ "zhang-query",
 ]
 
 [[package]]
@@ -6799,6 +6800,7 @@ dependencies = [
  "thiserror 2.0.21",
  "uuid",
  "zhang-ast",
+ "zhang-query",
  "zhang-shared",
 ]
 
@@ -6942,6 +6944,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "zhang-core",
+ "zhang-query",
 ]
 
 [[package]]

@@ -12,12 +12,11 @@ use super::balance::{define_commodity, stage_booker, AccountCommodities};
 use super::{ProcessStage, StageContext, StageError};
 use crate::booking::{is_booked, written_groups, BookOutcome};
 use crate::constants::TXN_ID;
-use crate::store::CommodityLotRecord;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 
 /// Books the final stream and reports booking, transaction balance and nonzero close errors
-/// once. Rejected transactions stay in the stream but contribute no postings or lots to the store.
+/// once. Rejected transactions stay in the stream but contribute no postings to the store.
 /// The store consumes these results without booking again.
 ///
 /// It also enforces the commodities an account was opened with ([`ErrorKind::CommodityNotAllowed`]),
@@ -36,7 +35,6 @@ pub struct ValidateStage;
 #[derive(Default)]
 pub(crate) struct FinalValidation {
     pub errors: Vec<StageError>,
-    pub lots: HashMap<String, Vec<CommodityLotRecord>>,
     transactions: HashMap<Uuid, VecDeque<TransactionOutcome>>,
     /// the transaction a dry run checks ([`Ledger::check_transaction`](crate::ledger::Ledger::check_transaction)),
     /// whose residual the stage keeps; none in a load
@@ -175,7 +173,6 @@ impl ProcessStage for ValidateStage {
                 _ => {}
             }
         }
-        ctx.validation.lots = booker.into_lots();
         Ok(directives)
     }
 }
@@ -259,8 +256,6 @@ mod test {
         assert!(!result.take_transaction(&rejected.span, id));
         assert_eq!(result.errors[1].metas[TXN_ID], id.to_string());
         assert!(!result.errors[0].metas.contains_key(TXN_ID));
-        assert_eq!(result.lots["Assets:A"].len(), 1);
-        assert_eq!(result.lots["Assets:A"][0].amount.to_string(), "4");
         let Directive::Transaction(sale) = &transactions[2].data else {
             unreachable!()
         };

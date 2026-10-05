@@ -6,8 +6,8 @@
 //! runs twice per load (design §2): pass 1 is the [`BookingStage`](crate::pipeline::BookingStage),
 //! before the plugins, whose errors and lots are dropped; pass 2 is the
 //! [`ValidateStage`](crate::pipeline::ValidateStage) over the final stream, which leaves booked postings as they are ([`is_booked`]), completes the ones a stage left
-//! unbooked, reports every booking error once and publishes [`Booker::into_lots`] as
-//! `Store.commodity_lots` at its end.
+//! unbooked and reports every booking error once. The lots it leaves are not kept: the booked postings
+//! are, and the query engine sums them into the lots it lists (`commodities.lots`).
 //!
 //! [`Booker::book`] books a whole transaction (E2-E4):
 //! 1. the explicit postings whose weight their lots decide, a cost without a number (`{}`), are
@@ -95,8 +95,8 @@ pub(crate) struct Booker {
     /// `open`s in stream order. An account missing here books with `default_method`, also when
     /// its value is invalid or unsupported (E1, E7)
     methods: HashMap<String, BookingMethod>,
-    /// lots per account, in creation order, the order `Store.commodity_lots` keeps. FIFO and LIFO
-    /// pick lots by acquisition date instead ([`pick`], E10)
+    /// lots per account, in creation order. FIFO and LIFO pick lots by acquisition date instead
+    /// ([`pick`], E10)
     lots: HashMap<String, Vec<CommodityLotRecord>>,
     /// precision and rounding of every defined commodity, folded in stream order like the store's
     /// commodities
@@ -653,6 +653,7 @@ impl Booker {
     }
 
     /// the lots of every account the fold booked a posting on, in lot order
+    #[cfg(test)]
     pub(crate) fn into_lots(self) -> HashMap<String, Vec<CommodityLotRecord>> {
         self.lots
     }

@@ -17,3 +17,5 @@ bigdecimal = { workspace = true }
 indoc = "2"
 serde_json = { workspace = true }
 tempfile = "3.20"
+# the tests read the lots as the query engine lists them
+zhang-query = { path = "../../zhang-query" }

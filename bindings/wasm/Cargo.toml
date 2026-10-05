@@ -21,6 +21,7 @@ console_error_panic_hook = { version = "0.1.6", optional = true }
 
 talc = { version = "5.1", default-features = false, features = ["counters"] }
 zhang-core = { path = "../../zhang-core", features = ["wasm"] }
+zhang-query = { path = "../../zhang-query" }
 beancount = { path = "../../extensions/beancount" }
 serde-wasm-bindgen = "0.6"
 
