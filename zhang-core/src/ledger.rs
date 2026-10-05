@@ -24,6 +24,7 @@ use crate::domains::schemas::AccountStatus;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
+use crate::inventory::BookingMethod;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{
     builtin_stages, run_pipeline, AccountLifecycle, AccountUse, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage,
@@ -412,6 +413,20 @@ impl Ledger {
             }
         }
         booker.into_lots()
+    }
+
+    /// the booking method every account books with at the end of the stream, as booking resolves the
+    /// `booking_method` metadata of its `open`s: the last value of the latest `open` that has one. An account
+    /// missing from the map books with the `default_booking_method` option, also when its value is not a booking
+    /// method or one booking does not implement (an error of the `open`)
+    pub fn booking_methods(&self) -> HashMap<String, BookingMethod> {
+        let mut booker = Booker::new(self.options.default_booking_method);
+        for directive in &self.directives {
+            if let Directive::Open(open) = &directive.data {
+                let _reported_by_validation = booker.apply_open(open);
+            }
+        }
+        booker.into_methods()
     }
 
     pub fn operations(&self) -> Operations {

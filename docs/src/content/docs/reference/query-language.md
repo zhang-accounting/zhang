@@ -822,7 +822,7 @@ ORDER BY date DESC
 | `open`, `open.date` | `date` | Date of the `open` directive, or `NULL` if there is none. On its own, `open` reads as this date. |
 | `open.account` | `str` | The account of the `open` directive. |
 | `open.currencies` | `set` | The currencies the account is restricted to, or `NULL` if it accepts any. |
-| `open.booking` | `str` | The booking method, from the `booking_method` metadata, or `NULL`. |
+| `open.booking` | `str` | The booking method zhang books the account with: the last `booking_method` value of the latest `open` that has one. `NULL` when the account books with the ledger's default, also when the value is not a booking method zhang implements. |
 | `open.meta` | `str` | Metadata of the `open` directive. |
 | `close`, `close.date` | `date` | Date of the `close` directive, or `NULL` while the account is open. On its own, `close` reads as this date. |
 | `close.account`, `close.meta` | `str` | The account and the metadata of the `close` directive. |

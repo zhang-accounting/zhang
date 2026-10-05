@@ -43,9 +43,15 @@ fn rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Ve
             _ => {}
         }
     }
+    let booking = ledger.booking_methods();
     accounts
         .into_iter()
-        .map(|(name, (open, close))| Record::Account { name, open, close })
+        .map(|(name, (open, close))| Record::Account {
+            name,
+            open,
+            close,
+            booking: booking.get(name).copied(),
+        })
         .collect()
 }
 
@@ -112,8 +118,13 @@ static COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "open.booking",
         DataType::Str,
-        "The booking method of the account (its booking_method metadata, e.g. 'FIFO'); NULL when it uses the ledger's default.",
-        |_, record| str_value(open(record).and_then(|(_, it)| it.meta.get_one("booking_method")).map(|it| it.as_str())),
+        "The booking method the account books with, as booking resolves its booking_method metadata (the last value of \
+         the latest open that has one, e.g. 'FIFO'); NULL when it books with the ledger's default, also when the value is \
+         not a booking method zhang implements.",
+        |_, record| match record {
+            Record::Account { booking: Some(method), .. } => Value::Str(method.to_string()),
+            _ => Value::Null,
+        },
     ),
     ColumnDef::record(
         "open.meta",

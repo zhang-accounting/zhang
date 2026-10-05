@@ -303,6 +303,9 @@ pub(crate) enum Record<'a> {
         name: &'a str,
         open: Option<&'a Spanned<Directive>>,
         close: Option<&'a Spanned<Directive>>,
+        /// the booking method the account books with, as booking resolves its `open`s; `None`
+        /// when it books with the ledger's default
+        booking: Option<zhang_core::inventory::BookingMethod>,
     },
     /// one month of a budget
     Budget(budgets::BudgetMonth<'a>),
