@@ -8,6 +8,7 @@ import { AccountListItem } from '@/api/types';
 import Amount from '@/components/Amount';
 import { sumByCommodity } from '@/components/budget/budget-utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAmountText } from '@/hooks/use-amount-text';
 import { cn } from '@/lib/utils';
 import { accountAtom } from '@/states/account';
 import { subtreeTotals } from '@/utils/subtree-totals';
@@ -37,10 +38,11 @@ function totals(accounts: AccountListItem[]) {
 }
 
 function TotalAmount({ amounts }: { amounts: ReturnType<typeof totals> }) {
+  const amountText = useAmountText();
   const first = amounts[0];
   if (!first) return <span className="shrink-0 tabular-nums">—</span>;
   return (
-    <span className="shrink-0" title={amounts.length > 1 ? amounts.map((it) => `${it.number.toFormat()} ${it.commodity}`).join('\n') : undefined}>
+    <span className="shrink-0" title={amounts.length > 1 ? amounts.map((it) => amountText(it.number, it.commodity)).join('\n') : undefined}>
       <Amount amount={first.number} currency={first.commodity} className={cn(first.number.isNegative() && 'text-negative')} />
     </span>
   );
