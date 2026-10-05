@@ -293,10 +293,15 @@ The page lists the journal by pages of 100 rows (`GET /api/accounts/{account}/jo
 
 #### `accounts.list`
 
-Every account with an `open` or `close` directive, with its open and close dates and its alias, by name. With `accounts.balances`, it makes the account list: an account with postings but no `open` directive is listed too.
+Every account with an `open` or `close` directive, with its open and close dates, its alias and its status at a date and time by [`account_status`](/reference/query-language/#account-and-commodity-directives), by name. With `accounts.balances`, it makes the account list, which asks for now by the ledger's clock: an account with postings but no `open` directive is listed too, as open. The list shows an account as closed when its status is `'closed'`.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `date` | `date` | the date, in the ledger's timezone: today for the account list |
+| `time` | `str` | the time of day, `HH:MM:SS`: now for the account list |
 
 ```sql
-SELECT account, open, close, meta('alias') AS alias
+SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
 ORDER BY account
 ```
@@ -324,9 +329,11 @@ An account and its sub-accounts that have an `open` or `close` directive. The ac
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `account` | `str` | the account of the page |
+| `date` | `date` | the date, in the ledger's timezone: today |
+| `time` | `str` | the time of day, `HH:MM:SS`: now |
 
 ```sql
-SELECT account, open, close, meta('alias') AS alias
+SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
 WHERE under(account, :account)
 ORDER BY account
@@ -522,12 +529,17 @@ ORDER BY payee
 
 #### `journals.accounts`
 
-The open accounts, sorted by name.
+The accounts open at a date and time, by [`account_status`](/reference/query-language/#account-and-commodity-directives), sorted by name: those a transaction written then may post to. An account closed that day with only a date is still open, and one opened again after its close is open. The new-transaction form and the balance tools ask for now, by the ledger's clock.
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `date` | `date` | the date, in the ledger's timezone |
+| `time` | `str` | the time of day, `HH:MM:SS` |
 
 ```sql
 SELECT account
 FROM #accounts
-WHERE open IS NOT NULL AND close IS NULL
+WHERE account_status(account, :date, :time) = 'open'
 ORDER BY account
 ```
 

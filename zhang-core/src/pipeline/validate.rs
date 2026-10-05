@@ -7,7 +7,7 @@ use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Directive, Flag, Posting, SpanInfo, Spanned};
 
-use super::balance::{define_commodity, stage_booker, AccountStates};
+use super::balance::{define_commodity, stage_booker, AccountCommodities};
 use super::{ProcessStage, StageContext, StageError};
 use crate::booking::{is_booked, written_groups, BookOutcome};
 use crate::constants::TXN_ID;
@@ -75,7 +75,7 @@ impl ProcessStage for ValidateStage {
 
     fn process(&self, mut directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut booker = stage_booker(ctx);
-        let mut accounts = AccountStates::default();
+        let mut accounts = AccountCommodities::default();
         // the span and account of the latest `balance ... with pad`: its padding transaction follows it with its span
         let mut asserted_pad: Option<(Uuid, String)> = None;
         for directive in &mut directives {
@@ -163,7 +163,7 @@ impl ProcessStage for ValidateStage {
 /// report each of the `postings` of a booked transaction, as written (the legs a reduction was split into
 /// are one), whose units are in a commodity its account does not list, but for those of the account `asserted`
 /// reported already
-fn report_disallowed_postings(ctx: &mut StageContext, accounts: &AccountStates, postings: &[Posting], asserted: Option<&str>, span: &SpanInfo) {
+fn report_disallowed_postings(ctx: &mut StageContext, accounts: &AccountCommodities, postings: &[Posting], asserted: Option<&str>, span: &SpanInfo) {
     for group in written_groups(postings) {
         let leg = &group.legs[0];
         if Some(leg.account.name()) == asserted {
@@ -176,7 +176,7 @@ fn report_disallowed_postings(ctx: &mut StageContext, accounts: &AccountStates, 
 }
 
 /// report `commodity` held, asserted or padded in `account` if its `open` lists commodities without it
-fn report_disallowed_commodity(ctx: &mut StageContext, accounts: &AccountStates, account: &Account, commodity: &str, span: &SpanInfo) {
+fn report_disallowed_commodity(ctx: &mut StageContext, accounts: &AccountCommodities, account: &Account, commodity: &str, span: &SpanInfo) {
     if let Some(kind) = accounts.commodity_error(account, commodity) {
         ctx.emit_error(
             kind,

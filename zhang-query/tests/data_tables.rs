@@ -1274,6 +1274,55 @@ fn a_reopened_account_counts_in_the_budgets_of_its_open_at_each_date() {
     );
 }
 
+/// `account_status()` is the account lifecycle the ledger checks its directives with: open through the day of a `close`
+/// with only a date, until the time of one with a time, and open again after a later `open`; `#accounts` keeps
+/// beanquery's earliest `open` and `close`.
+#[test]
+fn account_status_is_the_rule_the_ledger_checks_with() {
+    let ledger = common::load_text(
+        r#"1970-01-01 open Assets:Day
+2024-01-05 close Assets:Day
+1970-01-01 open Assets:Timed
+2024-01-05 10:00:00 close Assets:Timed
+1970-01-01 open Assets:Again
+2024-01-05 close Assets:Again
+2024-02-01 open Assets:Again
+"#,
+    );
+    let status = |at: &str| {
+        run(
+            &ledger,
+            &format!("SELECT account, account_status(account, {at}) FROM #accounts ORDER BY account"),
+        )
+        .into_iter()
+        .map(|row| row.join(" "))
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(status("2024-01-05"), ["Assets:Again open", "Assets:Day open", "Assets:Timed open"]);
+    assert_eq!(status("2024-01-05, '10:00:00'"), ["Assets:Again open", "Assets:Day open", "Assets:Timed open"]);
+    assert_eq!(status("2024-01-05, '15:00'"), ["Assets:Again open", "Assets:Day open", "Assets:Timed closed"]);
+    assert_eq!(status("2024-01-06"), ["Assets:Again closed", "Assets:Day closed", "Assets:Timed closed"]);
+    assert_eq!(status("2024-02-01"), ["Assets:Again open", "Assets:Day closed", "Assets:Timed closed"]);
+    // before the open, and an account the ledger does not have
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT account_status(account, 1969-12-31) IS NULL, account_status('Nowhere', 2024-01-01) IS NULL FROM #accounts \
+             WHERE account = 'Assets:Day'"
+        ),
+        rows(&[&["TRUE", "TRUE"]])
+    );
+    // beanquery's columns keep the earliest close
+    assert_eq!(
+        run(&ledger, "SELECT account, close FROM #accounts WHERE account = 'Assets:Again'"),
+        rows(&[&["Assets:Again", "2024-01-05"]])
+    );
+    let error = Query::compile("SELECT account_status(account, 2024-01-05, '25:00') FROM #accounts")
+        .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+        .unwrap_err();
+    assert!(error.to_string().contains("HH:MM:SS or HH:MM"), "{error}");
+}
+
 /// `#budget_definitions` reads no transaction and has no months, so a transaction dated
 /// centuries ahead by mistake, which makes an unbounded query of `#budgets` too large, leaves it
 /// as it is.

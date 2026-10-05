@@ -15,8 +15,8 @@
 //! [`BookingStage`] books every transaction before the user's plugin stages see it
 //! (pass 1 of the booking split, #423); a plugin declared `stage: "raw"` runs before it.
 //! Built-in stages ([`builtin_stages`]) run after the user's plugin stages:
-//! [`ActiveAccountsStage`], which only reports references to inactive accounts,
-//! then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
+//! [`ActiveAccountsStage`], which only reports references to inactive accounts by the one
+//! account lifecycle rule ([`AccountLifecycle`]), then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
 //! stream that share only the pure helpers in the `balance` module, then [`ValidateStage`],
 //! which books and validates the final stream and supplies its lots to the store.
 //!
@@ -35,7 +35,7 @@ mod validate;
 
 use std::collections::{HashMap, VecDeque};
 
-pub use active_accounts::ActiveAccountsStage;
+pub use active_accounts::{AccountLifecycle, AccountUse, ActiveAccountsStage};
 pub use balance_check::BalanceCheckStage;
 pub use booking::BookingStage;
 use chrono::DateTime;
@@ -246,8 +246,8 @@ pub trait ProcessStage {
 }
 
 /// the native core stages that run after all plugin stages, in execution order.
-/// [`ActiveAccountsStage`] checks the stream before the pad stage adds its `P`
-/// transactions; the pad/check stages report the accounts of their directives themselves.
+/// [`ActiveAccountsStage`] checks the accounts of every directive before the pad stage adds
+/// its `P` transactions, which therefore are not checked twice.
 /// [`ValidateStage`] runs last, booking and validating the stream the store will consume.
 /// [`BookingStage`] is not among them: it runs before the plugins
 pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {

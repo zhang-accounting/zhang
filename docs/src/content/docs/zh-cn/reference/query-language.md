@@ -1154,6 +1154,7 @@ WHERE file = 'data/2024.zhang'
 | `commodity_meta(str) -> metas` | 货币 `commodity` 指令的全部元数据：没有元数据时为空列表，没有 `commodity` 指令时为 `NULL`。 |
 | `currency_meta(str, str) -> str`、`currency_meta(str) -> metas` | 与 `commodity_meta` 相同。 |
 | `account_budgets(str, date) -> set` | 账户在某个日期所属的预算：该日期或之前最近一条 `open` 的 `budget` 元数据所指的预算，所以账户关闭后以其他预算重新开启，从重新开启起属于新的预算。在第一条 `open` 之前为空集合。张记账扩展。 |
+| `account_status(str, date) -> str`、`account_status(str, date, str) -> str` | 账户在该日期开始时、或在第三个参数给出的时刻（与 `time` 列一样写作 `HH:MM:SS` 或 `HH:MM`）是 `'open'` 还是 `'closed'`。这就是张记账检查每条指令时使用的规则：账户从 `open` 起开立，在 `close` 生效后关闭；只有日期的 `close` 在当天结束时生效，带时间的 `close` 在该时刻生效；`close` 之后的 `open` 会重新开立账户。既没有生效的 `open` 也没有生效的 `close` 时为 `NULL`。参见[账户何时可用](/zh-cn/reference/directives/account/#账户何时可用)。张记账扩展。 |
 
 元数据不会继承：即使 `Assets:Bank` 有 `institution`，`open_meta('Assets:Bank:Checking', 'institution')` 仍为 `NULL`。beanquery 的单参数形式返回字典，其中还有 `filename` 和 `lineno`；张记账只返回指令自身的元数据。
 

@@ -85,6 +85,7 @@ const NOT_FOLDABLE: &[&str] = &[
     "close_date",
     "open_meta",
     "account_budgets",
+    "account_status",
     "commodity_meta",
     "currency_meta",
 ];

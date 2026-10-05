@@ -7,12 +7,13 @@ use std::sync::OnceLock;
 use std::time::{Duration as StdDuration, Instant};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{Duration, NaiveDate};
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 use indexmap::map::Entry;
 use indexmap::IndexMap;
 use regex::Regex;
 use zhang_ast::amount::Amount;
 use zhang_ast::Commodity;
+use zhang_core::domains::schemas::AccountStatus;
 
 use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, ConstSet, LimitMode, Plan, RegexPattern, StrTest, StrTestKind, Window};
 use crate::error::{LocatedError, QueryErrorKind, Span};
@@ -135,6 +136,11 @@ impl FunctionContext for Env<'_, '_> {
     fn account_budgets(&self, account: &str, date: NaiveDate) -> Option<BTreeSet<String>> {
         self.impure.set(self.impure.get() || self.data.is_none());
         self.data?.budgets_at(account, date).cloned()
+    }
+
+    fn account_status(&self, account: &str, at: NaiveDateTime) -> Option<AccountStatus> {
+        self.impure.set(self.impure.get() || self.data.is_none());
+        self.data?.account_status(account, at)
     }
 }
 

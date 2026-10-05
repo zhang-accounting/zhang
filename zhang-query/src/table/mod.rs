@@ -47,8 +47,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::path::Path;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use zhang_ast::{Commodity, Directive, Meta, Spanned};
+use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
@@ -523,6 +524,11 @@ impl<'a> Dataset<'a> {
     /// The budgets a posting of `account` dated `date` counts in (see [`lookups::Lookups::budgets_at`]).
     pub fn budgets_at(&self, account: &str, date: NaiveDate) -> Option<&'a BTreeSet<String>> {
         self.cache.lookups(self.ledger, self.store).budgets_at(account, date)
+    }
+
+    /// The status of `account` at `at`, for `account_status()`: the ledger's account lifecycle.
+    pub fn account_status(&self, account: &str, at: NaiveDateTime) -> Option<AccountStatus> {
+        self.ledger.account_status(account, at)
     }
 
     /// The `commodity` directive of `currency`, for `commodity_meta()`.

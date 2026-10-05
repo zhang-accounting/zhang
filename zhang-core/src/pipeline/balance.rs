@@ -13,15 +13,14 @@
 //! reads the lots an account holds at cost off the legs that carry a cost. It books nothing
 //! itself, except a transaction a stage left unbooked (the padding transactions it makes, a
 //! plugin's posting without units), which it completes the way final validation will.
-//! [`ActiveAccountsStage`](crate::pipeline::ActiveAccountsStage) folds the account
-//! lifecycle ([`AccountStates`]) the same way.
+//! [`ValidateStage`](crate::pipeline::ValidateStage) folds the commodities accounts are opened
+//! with ([`AccountCommodities`]) the same way.
 
 use std::collections::{BTreeMap, HashMap};
 use std::ops::{Add, AddAssign, Sub};
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Commodity, Directive, Open, Posting, Rounding, Transaction};
@@ -235,63 +234,25 @@ pub fn exceeds_tolerance(distance: &BigDecimal, tolerance: Option<&BigDecimal>) 
     distance.abs() > *tolerance
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AccountState {
-    Open,
-    /// closed by a `close` dated on this day
-    Closed(NaiveDate),
-}
-
-/// account lifecycle folded from `open` / `close` directives, mirroring the store:
-/// `open` (re)opens an account, `close` only closes an account that exists.
-/// It also keeps the commodities each account was opened with, which restrict what it may hold
+/// the commodities each account was opened with, folded from its `open` directives, which restrict what it may hold.
+/// Whether an account is open at all is [`AccountLifecycle`](super::AccountLifecycle)'s to tell
 #[derive(Default)]
-pub struct AccountStates {
-    accounts: HashMap<String, AccountState>,
+pub struct AccountCommodities {
     /// the commodities listed by the latest `open` of each account that lists any: the only
     /// commodities it may hold. An `open` without any, a reopening included, lifts the restriction
     allowed: HashMap<String, Vec<String>>,
 }
 
-impl AccountStates {
-    /// fold an `open` / `close` directive; other directives are ignored
+impl AccountCommodities {
+    /// fold an `open` directive; other directives are ignored
     pub fn apply(&mut self, directive: &Directive) {
-        match directive {
-            Directive::Open(open) => {
-                let name = open.account.name().to_owned();
-                if open.commodities.is_empty() {
-                    self.allowed.remove(&name);
-                } else {
-                    self.allowed.insert(name.clone(), open.commodities.clone());
-                }
-                self.accounts.insert(name, AccountState::Open);
+        if let Directive::Open(open) = directive {
+            let name = open.account.name().to_owned();
+            if open.commodities.is_empty() {
+                self.allowed.remove(&name);
+            } else {
+                self.allowed.insert(name, open.commodities.clone());
             }
-            Directive::Close(close) => {
-                if let Some(state) = self.accounts.get_mut(close.account.name()) {
-                    *state = AccountState::Closed(close.date.naive_date());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    pub fn exists(&self, account: &Account) -> bool {
-        self.accounts.contains_key(account.name())
-    }
-
-    pub fn is_closed(&self, account: &Account) -> bool {
-        matches!(self.accounts.get(account.name()), Some(AccountState::Closed(_)))
-    }
-
-    /// the error a reference made on `date` to the account raises, `None` if the account is active
-    /// then: `AccountDoesNotExist` if no `open` of it was folded yet, `AccountClosed` if it was closed
-    /// on an earlier day. The account stays active through the whole day of its `close`, as in
-    /// beancount, which sorts `close` after every other entry of its day
-    pub fn inactive_error(&self, account: &Account, date: NaiveDate) -> Option<ErrorKind> {
-        match self.accounts.get(account.name()) {
-            None => Some(ErrorKind::AccountDoesNotExist),
-            Some(AccountState::Closed(closed)) if *closed < date => Some(ErrorKind::AccountClosed),
-            Some(_) => None,
         }
     }
 
@@ -302,14 +263,6 @@ impl AccountStates {
     pub fn commodity_error(&self, account: &Account, commodity: &str) -> Option<ErrorKind> {
         let allowed = self.allowed.get(account.name())?;
         (!allowed.iter().any(|it| it == commodity)).then_some(ErrorKind::CommodityNotAllowed)
-    }
-
-    /// the account errors a directive referencing `accounts` raises, in the order
-    /// the account stages report them: every missing account, then every closed one
-    pub fn errors<'a>(&self, accounts: &[&'a Account]) -> Vec<(ErrorKind, &'a Account)> {
-        let missing = accounts.iter().filter(|it| !self.exists(it)).map(|it| (ErrorKind::AccountDoesNotExist, *it));
-        let closed = accounts.iter().filter(|it| self.is_closed(it)).map(|it| (ErrorKind::AccountClosed, *it));
-        missing.chain(closed).collect()
     }
 }
 
@@ -323,7 +276,7 @@ mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Account, Directive};
 
-    use super::{exceeds_tolerance, AccountStates, UnitBalances};
+    use super::{exceeds_tolerance, AccountCommodities, UnitBalances};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::inventory::BookingMethod;
@@ -503,48 +456,9 @@ mod test {
     }
 
     #[test]
-    fn should_follow_account_lifecycle() {
-        let mut states = AccountStates::default();
-        for directive in parse(indoc! {r#"
-            1970-01-01 close Assets:NeverOpened
-            1970-01-01 open Assets:A
-            1970-01-01 open Assets:Reopened
-            1970-01-02 close Assets:A
-            1970-01-02 close Assets:Reopened
-            1970-01-03 open Assets:Reopened
-        "#})
-        {
-            states.apply(&directive);
-        }
-
-        assert!(!states.exists(&account("Assets:NeverOpened")));
-        assert!(states.is_closed(&account("Assets:A")));
-        assert!(states.exists(&account("Assets:Reopened")));
-        assert!(!states.is_closed(&account("Assets:Reopened")));
-
-        let missing = account("Assets:Missing");
-        let closed = account("Assets:A");
-        let errors = states.errors(&[&closed, &missing]);
-        assert_eq!(
-            errors.into_iter().map(|(kind, account)| (kind, account.name().to_owned())).collect::<Vec<_>>(),
-            vec![
-                (ErrorKind::AccountDoesNotExist, "Assets:Missing".to_owned()),
-                (ErrorKind::AccountClosed, "Assets:A".to_owned()),
-            ]
-        );
-
-        // active through the whole day of the close
-        let day = |day: u32| chrono::NaiveDate::from_ymd_opt(1970, 1, day).unwrap();
-        assert_eq!(states.inactive_error(&closed, day(2)), None);
-        assert_eq!(states.inactive_error(&closed, day(3)), Some(ErrorKind::AccountClosed));
-        assert_eq!(states.inactive_error(&missing, day(1)), Some(ErrorKind::AccountDoesNotExist));
-        assert_eq!(states.inactive_error(&account("Assets:Reopened"), day(4)), None);
-    }
-
-    #[test]
     fn should_restrict_an_account_to_the_commodities_of_its_latest_open() {
-        let mut states = AccountStates::default();
-        let restricted = |states: &AccountStates, name: &str, commodity: &str| states.commodity_error(&account(name), commodity).is_some();
+        let mut states = AccountCommodities::default();
+        let restricted = |states: &AccountCommodities, name: &str, commodity: &str| states.commodity_error(&account(name), commodity).is_some();
         for directive in parse(indoc! {r#"
             1970-01-01 open Assets:Bank USD, EUR
             1970-01-01 open Assets:Any

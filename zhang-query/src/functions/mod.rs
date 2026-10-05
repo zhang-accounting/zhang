@@ -44,8 +44,9 @@ pub mod scalars;
 
 use std::collections::BTreeSet;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use zhang_ast::{Close, Commodity, Open};
+use zhang_core::domains::schemas::AccountStatus;
 
 pub use self::aggregates::{AggregateFunction, AggregateKind};
 pub(crate) use self::scalars::is_under;
@@ -165,6 +166,13 @@ pub trait FunctionContext {
     /// The budgets the `budget` metadata of an account's latest `open` on or before a date names;
     /// `None` before the account's first `open`.
     fn account_budgets(&self, _account: &str, _date: NaiveDate) -> Option<BTreeSet<String>> {
+        None
+    }
+
+    /// The status of an account at a wall-clock date and time, by the ledger's account lifecycle
+    /// ([`zhang_core::ledger::Ledger::account_status`]); `None` when neither an `open` nor a `close` of it is in
+    /// effect then.
+    fn account_status(&self, _account: &str, _at: NaiveDateTime) -> Option<AccountStatus> {
         None
     }
 }

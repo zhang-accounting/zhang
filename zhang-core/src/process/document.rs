@@ -9,15 +9,10 @@ use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
 use crate::utils::hashmap::HashMapOfExt;
-use crate::{process, ZhangResult};
+use crate::ZhangResult;
 
+/// A document of an account that is not active at its date is still listed: the active-accounts stage reports it
 impl DirectiveProcess for Document {
-    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        process::check_account_existed(self.account.name(), ledger, span)?;
-        process::check_account_closed(self.account.name(), ledger, span)?;
-        Ok(true)
-    }
-
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let written = self.filename.clone().to_plain_string();
         let (path, alternate) = match ledger.dialect {

@@ -795,6 +795,61 @@ async fn accounts_without_open_are_listed_by_name() {
     );
 }
 
+/// An account's status is the account lifecycle's now, by the ledger's clock, the rule the ledger checks its directives
+/// with: an account stays open through the day of a `close` with only a date, is closed after the time of a `close` with
+/// a time, and is open again after a later `open`.
+#[tokio::test]
+async fn the_status_of_an_account_is_the_one_its_directives_are_checked_with() {
+    let today = chrono::Utc::now().date_naive();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("main.zhang"),
+        format!(
+            r#"option "timezone" "UTC"
+1970-01-01 open Assets:Again
+2000-01-01 close Assets:Again
+2001-01-01 open Assets:Again
+1970-01-01 open Assets:Gone
+2000-01-01 close Assets:Gone
+1970-01-01 open Assets:Today
+{today} close Assets:Today
+1970-01-01 open Assets:Midnight
+{today} 00:00:00 close Assets:Midnight
+"#
+        ),
+    )
+    .unwrap();
+    let ledger = load(dir.path(), "main.zhang").await;
+    let (_, list) = respond(get_account_list(State(ledger.clone())).await).await;
+    let listed = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| (it["name"].as_str().unwrap(), it["status"].as_str().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        listed,
+        vec![
+            // opened again after its close
+            ("Assets:Again", "Open"),
+            ("Assets:Gone", "Close"),
+            // closed today at 00:00, a time already past: the status is the one at this very moment
+            ("Assets:Midnight", "Close"),
+            // closed today, with only a date: open through today
+            ("Assets:Today", "Open"),
+        ]
+    );
+    for (account, status) in [
+        ("Assets:Again", "Open"),
+        ("Assets:Gone", "Close"),
+        ("Assets:Midnight", "Close"),
+        ("Assets:Today", "Open"),
+    ] {
+        let (_, page) = respond(get_account_info(State(ledger.clone()), UrlPath((account.to_owned(),))).await).await;
+        assert_eq!(page["status"], json!(status), "{account}");
+    }
+}
+
 /// Every endpoint of an account page answers a name that is no account, such as a parent without an account of its
 /// own, with a 404, as the page does, and a name that is no account name with a 400 that says why.
 #[tokio::test]

@@ -221,7 +221,7 @@ include "accounts/2024.zhang"
 
 *尝试使用一个已经关闭的账户*
 
-指令在账户的 `close` 之后使用它：日期在 `close` 当天之后的交易、在它之后的 `balance` 或 `document`，或者第二条 `close`。与 Beancount 一样，账户在 `close` 当天全天仍可使用，`close` 之后的 `note` 也不会报错。
+指令在账户的 `close` 生效之后在该账户上记账：日期在只有日期的 `close` 当天之后、或在 zhang 文件中晚于带时间的 `close` 的时刻的记账行、`pad` 或 `balance … with pad`。第二条 `close` 也会报告它。与 Beancount 一样，账户在只有日期的 `close` 当天全天仍可使用；只做记录的普通 `balance`、`document` 和 `note` 可以出现在 `close` 之后，不会报错。参见[账户何时可用](/zh-cn/reference/directives/account/#账户何时可用)。
 
 ```zhang
 2024-01-01 open Assets:Old-Card

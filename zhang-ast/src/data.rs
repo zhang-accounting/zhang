@@ -31,7 +31,8 @@ impl Date {
     pub fn to_timezone_datetime(&self, timezone: &Tz) -> DateTime<Tz> {
         resolve_local_datetime(timezone, &self.naive_datetime())
     }
-    pub(crate) fn naive_datetime(&self) -> NaiveDateTime {
+    /// The wall-clock date and time: midnight for a date alone.
+    pub fn naive_datetime(&self) -> NaiveDateTime {
         match self {
             Date::Date(date) => date.and_hms_opt(0, 0, 0).expect("cannot construct naive datetime from naive date"),
             Date::DateHour(date_hour) => *date_hour,

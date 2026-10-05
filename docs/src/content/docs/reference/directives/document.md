@@ -108,8 +108,7 @@ from that copy afterwards. Documents on the local disk are read from the disk ea
 
 | Error | When |
 |---|---|
-| [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist) | The account of a `document` directive is not open at its date. The document is still listed. |
-| [`AccountClosed`](/reference/error-codes/#accountclosed) | The account is already closed. The document is still listed. |
+| [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist) | The account of a `document` directive is not opened by its date. The document is still listed. A `document` may follow the close of its account, as in Beancount. |
 | [`DocumentPathRelativeToRoot`](/reference/error-codes/#documentpathrelativetoroot) | A notice: in a Beancount file on the local disk, the path names a file relative to the ledger root only. The document is still listed and opens. |
 | [`DocumentNotFound`](/reference/error-codes/#documentnotfound) | In a Beancount file on the local disk, the file is found neither relative to the file of the directive nor relative to the ledger root. |
 

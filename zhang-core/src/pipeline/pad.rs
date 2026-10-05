@@ -8,7 +8,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Date, Directive, Flag, Pad, Posting, SpanInfo, Spanned, Transaction, ZhangString};
 
-use super::balance::{AccountStates, UnitBalances};
+use super::balance::UnitBalances;
 use super::{ProcessStage, StageContext};
 use crate::ledger::Ledger;
 use crate::ZhangResult;
@@ -208,7 +208,6 @@ impl ProcessStage for PadStage {
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut balances = UnitBalances::for_stage(ctx);
-        let mut accounts = AccountStates::default();
         let mut pairing: PadPairing<ActivePad> = PadPairing::default();
         let mut ret = Vec::with_capacity(directives.len());
         // the padding transactions of each `pad`, by the place of the `pad` in `ret`
@@ -224,12 +223,7 @@ impl ProcessStage for PadStage {
             }
             let padding = match &directive.data {
                 Directive::Open(open) => {
-                    accounts.apply(&directive.data);
                     balances.apply_open(open);
-                    None
-                }
-                Directive::Close(_) => {
-                    accounts.apply(&directive.data);
                     None
                 }
                 Directive::Commodity(commodity) => {
@@ -241,7 +235,6 @@ impl ProcessStage for PadStage {
                     None
                 }
                 Directive::Pad(pad) => {
-                    report_account_errors(ctx, &accounts, &[&pad.account, &pad.pad], &directive.span);
                     let date = match (last_balance_entry, directive.datetime()) {
                         (Some(last), Some(at)) if last.date() == at.date() && last > at => Date::Datetime(last),
                         _ => pad.date.clone(),
@@ -271,7 +264,6 @@ impl ProcessStage for PadStage {
                     None
                 }
                 Directive::BalancePad(pad) => {
-                    report_account_errors(ctx, &accounts, &[&pad.account, &pad.pad], &directive.span);
                     if may_serve(&mut serves, &directive) {
                         serve(
                             ctx,
@@ -338,12 +330,6 @@ fn serve(
         .entry(waiting.position)
         .or_default()
         .push(Spanned::new(Directive::Transaction(txn), waiting.span.clone()));
-}
-
-fn report_account_errors(ctx: &mut StageContext, accounts: &AccountStates, references: &[&Account], span: &SpanInfo) {
-    for (kind, account) in accounts.errors(references) {
-        ctx.emit_error(kind, span.clone(), HashMap::from([("account_name".to_owned(), account.name().to_owned())]));
-    }
 }
 
 /// padding a commodity the account or a sub-account holds at cost is an error on the assertion it serves, as in
@@ -842,8 +828,7 @@ mod test {
             vec![
                 ErrorKind::AccountDoesNotExist,
                 ErrorKind::AccountClosed,
-                // the check reports the closed account of its own
-                ErrorKind::AccountClosed,
+                // the check after the close only records, as in beancount: it reports nothing of its own
             ]
         );
     }
