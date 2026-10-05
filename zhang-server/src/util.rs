@@ -3,7 +3,9 @@ use std::path::Path;
 /// Where the documents read from a remote source are kept on the local disk. Earlier versions kept them in
 /// `.cache/data`, with a missing document kept as an empty file: that folder is not read, so a file kept here is the
 /// document as read, an empty one too.
-pub const DOCUMENT_CACHE: &str = ".cache/documents";
+pub fn document_cache() -> std::path::PathBuf {
+    Path::new(zhang_core::constants::CACHE_DIR).join("documents")
+}
 
 /// The name in the cache of the document at `path` of the ledger at `root`: the hash of both, each preceded by its
 /// length, so no two of them share one.
@@ -15,7 +17,7 @@ pub fn document_cache_key(root: &std::path::Path, path: &str) -> String {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part);
     }
-    hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+    hex(&hash.finalize())
 }
 
 /// The fingerprint of a file's content, its SHA-256 in hex: `GET /api/files/{path}` serves a file with it, and a save
@@ -23,13 +25,18 @@ pub fn document_cache_key(root: &std::path::Path, path: &str) -> String {
 pub fn sha256_hex(content: &[u8]) -> String {
     use sha2::Digest;
 
-    sha2::Sha256::digest(content).iter().map(|byte| format!("{byte:02x}")).collect()
+    hex(&sha2::Sha256::digest(content))
+}
+
+/// `bytes` in lowercase hex, two digits a byte
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// The document kept in the cache under `key`: `None` when there is none. An error says the cache cannot be read,
 /// which tells nothing of whether the document is there.
 pub async fn cached_document(key: &str) -> std::io::Result<Option<Vec<u8>>> {
-    cached_document_in(Path::new(DOCUMENT_CACHE), key).await
+    cached_document_in(&document_cache(), key).await
 }
 
 /// [`cached_document`], in the cache at `folder`
@@ -45,7 +52,7 @@ async fn cached_document_in(folder: &Path, key: &str) -> std::io::Result<Option<
 /// part of it. When it cannot be kept, as in a working directory that cannot be written to, nothing is left behind,
 /// and the error says why: the document is served from the source all the same.
 pub async fn cache_document(key: &str, content: &[u8]) -> std::io::Result<()> {
-    cache_document_in(Path::new(DOCUMENT_CACHE), key, content).await
+    cache_document_in(&document_cache(), key, content).await
 }
 
 /// [`cache_document`], in the cache at `folder`

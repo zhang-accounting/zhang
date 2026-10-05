@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
 
 use chrono_tz::Tz;
@@ -39,9 +37,7 @@ impl PluginStore {
     ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
         let plugin_hash = digest(&plugin_name);
-        let plugin_cache_file = PathBuf::from_str(".cache/plugins")
-            .expect("Cannot create path")
-            .join(format!("{}.wasm", plugin_hash));
+        let plugin_cache_file = crate::constants::plugin_cache_dir().join(format!("{}.wasm", plugin_hash));
         let module_bytes = std::fs::read(&plugin_cache_file)?;
 
         let wasm = Wasm::data(module_bytes.clone());

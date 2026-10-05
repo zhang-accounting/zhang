@@ -7,14 +7,11 @@ use crate::ZhangResult;
 /// save the plugin's data into cache folder
 #[cfg(feature = "plugin_runtime")]
 pub(crate) fn save_plugin_content_into_cache_folder(plugin_hash: String, module_bytes: Vec<u8>) -> ZhangResult<()> {
-    use std::path::PathBuf;
-    use std::str::FromStr;
-
     use log::info;
 
     use crate::error::IoErrorIntoZhangError;
 
-    let plugin_cache_folder = PathBuf::from_str(".cache/plugins").expect("Cannot create path");
+    let plugin_cache_folder = crate::constants::plugin_cache_dir();
 
     // create plugin folder if not exist
     std::fs::create_dir_all(&plugin_cache_folder).with_path(plugin_cache_folder.as_path())?;
@@ -26,7 +23,7 @@ pub(crate) fn save_plugin_content_into_cache_folder(plugin_hash: String, module_
     if std::fs::read(&wasm_cache_file).is_ok_and(|cached| cached == module_bytes) {
         return Ok(());
     }
-    info!("saving the plugin into cache folder: .cache/plugins/{}.wasm", plugin_hash);
+    info!("saving the plugin into cache folder: {}", wasm_cache_file.display());
     std::fs::write(&wasm_cache_file, module_bytes).with_path(wasm_cache_file.as_path())?;
     Ok(())
 }

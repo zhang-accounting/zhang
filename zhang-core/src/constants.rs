@@ -29,6 +29,15 @@ pub const BALANCE_CHECK_PAYEE: &str = "Balance Check";
 
 pub const COMMODITY_GROUP: &str = "group";
 
+/// zhang's cache folder, relative to the working directory: serving from the ledger root puts it under the root. It
+/// holds the plugin modules ([`plugin_cache_dir`]) and the documents a server read from a remote source
+pub const CACHE_DIR: &str = ".cache";
+
+/// where plugin modules are cached, under [`CACHE_DIR`]
+pub fn plugin_cache_dir() -> std::path::PathBuf {
+    std::path::Path::new(CACHE_DIR).join("plugins")
+}
+
 /// `{{ext}}` is the main file's extension, so new directives are written in the ledger's own format
 /// (`.bean` files for a `main.bean` ledger, `.zhang` files for a `main.zhang` one).
 pub const DEFAULT_DIRECTIVE_OUTPUT_PATH: &str = r#"data/{{year}}/{{month_str}}.{{ext}}"#;
