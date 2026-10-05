@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{DataType, Dialect};
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::ZhangResult;
+use zhang_query::{Params, Query, Value};
 
 use crate::data_source::InMemoryDataSource;
 
@@ -39,6 +41,7 @@ pub struct ParseResult {
     is_pass: bool,
     msg: Option<String>,
     store: Option<JsValue>,
+    lots: Option<JsValue>,
 }
 
 #[wasm_bindgen]
@@ -53,6 +56,33 @@ impl ParseResult {
     pub fn store(&self) -> JsValue {
         self.store.clone().unwrap_or_default()
     }
+
+    /// the lots every account holds, as the query engine lists them
+    pub fn lots(&self) -> JsValue {
+        self.lots.clone().unwrap_or_default()
+    }
+}
+
+/// The lots every account holds, as the query engine lists them (`commodities.lots`): the booked postings by account,
+/// commodity and lot, those with units left, each lot in the order it was opened.
+const LOTS: &str = "SELECT account, sum(number) AS units, currency, cost_number, cost_currency, cost_date, cost_label \
+                    GROUP BY account, currency, cost_number, cost_currency, cost_date, cost_label \
+                    HAVING sum(number) != 0 \
+                    ORDER BY account, first(seq), first(posting_index)";
+
+/// the rows of [`LOTS`] on `ledger`, each by column name, without its NULL cells
+fn lots(ledger: &Ledger) -> Vec<BTreeMap<String, String>> {
+    let query = Query::compile(LOTS).expect("the lots query compiles");
+    // the query reads no `today()`: a fixed date leaves the clock unread
+    let result = query.execute_at(ledger, &Params::new(), Default::default()).expect("the lots query runs");
+    result
+        .rows
+        .iter()
+        .map(|row| {
+            let cells = result.columns.iter().zip(row).filter(|(_, value)| !matches!(value, Value::Null));
+            cells.map(|(column, value)| (column.name.clone(), value.to_string())).collect()
+        })
+        .collect()
 }
 
 #[wasm_bindgen]
@@ -82,17 +112,20 @@ fn parse_result(parsed: ZhangResult<Vec<Spanned<Directive>>>, dialect: Dialect, 
                 clock: Clock::System,
             })
             .unwrap();
+            let lots = lots(&ledger);
             let store = ledger.store.read().unwrap();
             ParseResult {
                 is_pass: true,
                 msg: None,
                 store: Some(serde_wasm_bindgen::to_value(&*store).unwrap()),
+                lots: Some(serde_wasm_bindgen::to_value(&lots).unwrap()),
             }
         }
         Err(e) => ParseResult {
             is_pass: false,
             msg: Some(e.to_string()),
             store: None,
+            lots: None,
         },
     }
 }

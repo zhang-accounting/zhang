@@ -18,7 +18,7 @@
 //! [`ActiveAccountsStage`], which only reports references to inactive accounts by the one
 //! account lifecycle rule ([`AccountLifecycle`]), then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
 //! stream that share only the pure helpers in the `balance` module, then [`ValidateStage`],
-//! which books and validates the final stream and supplies its lots to the store.
+//! which books and validates the final stream.
 //!
 //! A balance assertion never moves a balance (as in beancount): [`PadStage`] adds the
 //! padding transactions, the only directives that book anything on behalf of an

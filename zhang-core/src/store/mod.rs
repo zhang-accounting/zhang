@@ -28,9 +28,6 @@ pub struct Store {
 
     pub prices: Vec<PriceDomain>,
 
-    // by account
-    pub commodity_lots: HashMap<String, Vec<CommodityLotRecord>>,
-
     pub documents: Vec<DocumentDomain>,
 
     /// saved queries from `query` directives, in ledger order (by date, then source order)

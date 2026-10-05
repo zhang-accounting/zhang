@@ -234,6 +234,13 @@ option "operating_currency" "USD"
 #[test]
 fn real_booking_split_legs_and_implicit_units_agree_with_store_lots() {
     let ledger = load(LOTS);
+    // the lots the query engine lists (`commodities.lots`): units and per-unit cost of each lot with units left
+    let lots = zhang_query::execute(
+        &ledger,
+        "SELECT sum(number), cost_number WHERE account = 'Assets:Broker' \
+         GROUP BY currency, cost_number, cost_currency, cost_date, cost_label HAVING sum(number) != 0",
+    )
+    .unwrap();
     let store = ledger.store.read().unwrap();
     assert!(store.errors.is_empty());
     let balances = SparseRealization::from_stream(&ledger.directives, ["Assets", "Assets:Broker", "Income:Gains"], AccountScope::Subtree).unwrap();
@@ -242,12 +249,9 @@ fn real_booking_split_legs_and_implicit_units_agree_with_store_lots() {
     assert_eq!(broker.cost, amounts(&[("USD", "550")]));
     assert_eq!(balances.get("Income:Gains").unwrap().units, amounts(&[("USD", "-250")]));
     assert_eq!(balances.get("Assets").unwrap().cost, amounts(&[("USD", "250")]));
-    // An independent fold of the surviving store lots, not the booked sale legs.
-    let lot_units: BigDecimal = store.commodity_lots["Assets:Broker"].iter().map(|lot| lot.amount.clone()).sum();
-    let lot_cost: BigDecimal = store.commodity_lots["Assets:Broker"]
-        .iter()
-        .map(|lot| &lot.amount * &lot.cost.as_ref().unwrap().number)
-        .sum();
+    // An independent fold of the surviving lots, as the query engine lists them, not the booked sale legs.
+    let lot_units: BigDecimal = lots.rows.iter().map(|lot| lot[0].as_decimal().unwrap()).sum();
+    let lot_cost: BigDecimal = lots.rows.iter().map(|lot| lot[0].as_decimal().unwrap() * lot[1].as_decimal().unwrap()).sum();
     assert_eq!(broker.units["AAPL"], lot_units);
     assert_eq!(broker.cost["USD"], lot_cost);
     let sale = ledger

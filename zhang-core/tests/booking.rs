@@ -8,11 +8,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use indoc::{formatdoc, indoc};
+use zhang_core::ast::amount::Amount;
 use zhang_core::ast::error::ErrorKind;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::ZhangResult;
+use zhang_query::{DataType, ParamTypes, Params, Query};
 
 const HEADER: &str = indoc! {r#"
     1970-01-01 commodity USD
@@ -66,18 +68,36 @@ fn metas<const N: usize>(pairs: [(&str, &str); N]) -> BTreeMap<String, String> {
     pairs.into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())).collect()
 }
 
-/// lots of one account in store order, as `units {cost, acquisition date, "label"}`
+/// lots of one account as the query engine lists them (`commodities.lots`: the booked postings by commodity and lot,
+/// those with units left), in the order they were opened, as `units {cost, acquisition date, "label"}`
 fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
-    let store = ledger.store.read().unwrap();
-    let lots = store.commodity_lots.get(account).cloned().unwrap_or_default();
-    lots.iter()
+    let query = Query::compile_with_params(
+        "SELECT sum(number) AS units, currency, cost_number, cost_currency, cost_date, cost_label \
+         WHERE account = :account \
+         GROUP BY currency, cost_number, cost_currency, cost_date, cost_label \
+         HAVING sum(number) != 0 \
+         ORDER BY first(seq), first(posting_index)",
+        &ParamTypes::new().bind("account", DataType::Str),
+    )
+    .unwrap();
+    let result = query.execute(ledger, &Params::new().bind("account", account)).unwrap();
+    result
+        .rows
+        .iter()
         .map(|lot| {
-            let label = lot.label.as_ref().map(|label| format!(", \"{label}\"")).unwrap_or_default();
-            match (&lot.cost, &lot.acquisition_date) {
-                (None, None) if label.is_empty() => format!("{} {}", lot.amount, lot.commodity),
-                (None, None) => format!("{} {} {{{}}}", lot.amount, lot.commodity, label.trim_start_matches(", ")),
-                (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}{label}}}", lot.amount, lot.commodity),
-                (cost, date) => format!("{} {} {cost:?} {date:?}{label}", lot.amount, lot.commodity),
+            let (amount, commodity) = (lot[0].as_decimal().unwrap(), lot[1].as_str().unwrap());
+            let cost = lot[2].as_decimal().map(|number| Amount::new(number, lot[3].as_str().unwrap()));
+            // a posting without a lot has the empty label
+            let label = lot[5]
+                .as_str()
+                .filter(|label| !label.is_empty())
+                .map(|label| format!(", \"{label}\""))
+                .unwrap_or_default();
+            match (&cost, &lot[4].as_date()) {
+                (None, None) if label.is_empty() => format!("{amount} {commodity}"),
+                (None, None) => format!("{amount} {commodity} {{{}}}", label.trim_start_matches(", ")),
+                (Some(cost), Some(date)) => format!("{amount} {commodity} {{{cost}, {date}{label}}}"),
+                (cost, date) => format!("{amount} {commodity} {cost:?} {date:?}{label}"),
             }
         })
         .collect()
@@ -1838,4 +1858,28 @@ fn booking_error_metas_write_tiny_numbers_in_plain_notation() {
             ),
         ]
     );
+}
+
+/// A transaction booking rejects books no lot: the sale after it reduces the lot the purchase opened, 4 left of 5
+/// (moved here from `pipeline::validate`'s unit test, which read the final stage's lots).
+#[test]
+fn a_rejected_transaction_books_no_lot() {
+    let ledger = load(indoc! {r#"
+        1970-01-01 commodity STOCK
+        1970-01-01 open Equity:E
+        2024-01-01 * "buy"
+          Assets:A 5 STOCK {10 USD}
+          Equity:E
+        2024-01-02 * "reject"
+          Assets:A -6 STOCK {}
+          Equity:E 60 USD
+        2024-01-03 * "sell"
+          Assets:A -1 STOCK {}
+          Equity:E
+    "#});
+    assert_eq!(
+        errors(&ledger).into_iter().map(|(kind, _)| kind).collect::<Vec<_>>(),
+        vec![ErrorKind::NoEnoughCommodityLot, ErrorKind::TransactionCannotInferTradeAmount]
+    );
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["4 STOCK {10 USD, 2024-01-01}"]);
 }

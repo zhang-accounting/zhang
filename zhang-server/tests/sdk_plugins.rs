@@ -452,16 +452,20 @@ fn the_lots_processor_sees_booked_postings_by_default_and_written_ones_in_the_ra
 
     // the plugin reads the view only: the store books the same lots and rows, one row per written posting
     for ledger in [&booked, &raw] {
+        // the lots the query engine lists (`commodities.lots`): those with units left
+        let lots = zhang_query::execute(
+            ledger,
+            "SELECT sum(number), currency WHERE account = 'Assets:Broker' \
+             GROUP BY currency, cost_number, cost_currency, cost_date, cost_label HAVING sum(number) != 0",
+        )
+        .unwrap();
+        let lots = lots.rows.iter().map(|lot| format!("{} {}", lot[0], lot[1])).collect::<Vec<_>>();
         let store = ledger.store.read().unwrap();
         assert_eq!(store.errors.len(), 0);
         assert_eq!(store.postings.len(), 7);
         let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
         assert_eq!(gains.inferred_amount.to_string(), "-250 USD");
         assert_eq!(gains.unit, None, "the implicit posting stays implicit in its row");
-        let lots = store.commodity_lots["Assets:Broker"]
-            .iter()
-            .map(|lot| format!("{} {}", lot.amount, lot.commodity))
-            .collect::<Vec<_>>();
         assert_eq!(lots, vec!["5 AAPL"]);
     }
 }

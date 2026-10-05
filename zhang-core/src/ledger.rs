@@ -391,7 +391,6 @@ impl Ledger {
         let validation = self.validation.take().expect("validation results are consumed during materialization");
         let stage_error_count = validation.errors.len();
         let mut operations = self.operations();
-        operations.write().commodity_lots = validation.lots;
         for error in validation.errors {
             operations.new_error(error.kind, &error.span, error.metas)?;
         }
@@ -908,25 +907,40 @@ mod test {
         ledger.store.read().unwrap().errors.iter().map(|it| it.error_type.clone()).collect()
     }
 
+    /// the lots of `account` as the query engine lists them (`commodities.lots`), which a unit test cannot run: the
+    /// booked legs of the stored transactions summed by commodity and lot, those with units left, in the order they
+    /// were opened, as `units commodity cost date`
     fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
+        use bigdecimal::{BigDecimal, Zero};
         let store = ledger.store.read().unwrap();
-        store
-            .commodity_lots
-            .get(account)
-            .map(|lots| {
-                lots.iter()
-                    .map(|lot| {
-                        format!(
-                            "{} {} {:?} {:?}",
-                            lot.amount,
-                            lot.commodity,
-                            lot.cost.as_ref().map(ToString::to_string),
-                            lot.acquisition_date
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        let mut stored = store.transactions.values().collect::<Vec<_>>();
+        stored.sort_by_key(|txn| txn.sequence);
+        // commodity, cost, acquisition date and label
+        type Lot = (String, Option<String>, Option<chrono::NaiveDate>, Option<String>);
+        let mut lots: Vec<(Lot, BigDecimal)> = vec![];
+        for txn in stored {
+            let Directive::Transaction(booked) = &ledger.directives[txn.directive].data else {
+                continue;
+            };
+            for leg in booked.postings.iter().filter(|leg| leg.account.name() == account) {
+                let Some(units) = &leg.units else { continue };
+                let cost = leg.cost.as_ref().filter(|cost| cost.base.is_some());
+                let lot = (
+                    units.commodity.clone(),
+                    cost.and_then(|cost| cost.base.as_ref()).map(ToString::to_string),
+                    cost.and_then(|cost| cost.date.as_ref()).map(|date| date.naive_date()),
+                    cost.and_then(|cost| cost.label.clone()),
+                );
+                match lots.iter_mut().find(|(it, _)| *it == lot) {
+                    Some((_, held)) => *held += &units.number,
+                    None => lots.push((lot, units.number.clone())),
+                }
+            }
+        }
+        lots.into_iter()
+            .filter(|(_, units)| !units.is_zero())
+            .map(|((commodity, cost, date, _), units)| format!("{units} {commodity} {cost:?} {date:?}"))
+            .collect()
     }
 
     const LOTS: &str = indoc! {r#"
@@ -990,7 +1004,7 @@ mod test {
         );
         // the 05-18 legs still name the lots pass 1 matched: -10 of the 05-16 lot (now empty) and
         // -5 of the 05-17 one. Pass 2 books the final stream: the 05-16 leg is short by 10, which
-        // it reports once, and the lots are those of the final stream
+        // it reports once, and the lots are those of the final stream, the 05-16 one opened first
         let sell = transaction(&ledger.directives, "sell");
         let legs: Vec<String> = sell
             .postings
@@ -1007,7 +1021,7 @@ mod test {
         assert_eq!(error_kinds(&ledger), vec![ErrorKind::NoEnoughCommodityLot]);
         assert_eq!(
             lots(&ledger, "Assets:S"),
-            vec!["5 USD Some(\"11 CNY\") Some(2024-05-17)", "-10 USD Some(\"10 CNY\") Some(2024-05-16)"]
+            vec!["-10 USD Some(\"10 CNY\") Some(2024-05-16)", "5 USD Some(\"11 CNY\") Some(2024-05-17)"]
         );
         assert_eq!(rows(&ledger, "sell"), vec!["Assets:S -15 USD = -15 USD", "Income:I ? = 155 CNY"]);
     }

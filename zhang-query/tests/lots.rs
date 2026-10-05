@@ -43,6 +43,20 @@ fn holdings(ledger: &str, account: &str) -> String {
     rows[0][0].clone()
 }
 
+/// The lots of `account` as the engine lists them (`commodities.lots`: its postings by commodity and lot, those with
+/// units left), in the order they were opened, as `units commodity {cost, "label"}`.
+fn lots(ledger: &str, account: &str) -> Vec<String> {
+    let sql = format!(
+        "SELECT sum(number), currency, cost_number, cost_currency, cost_label WHERE account = '{account}' \
+         GROUP BY currency, cost_number, cost_currency, cost_date, cost_label HAVING sum(number) != 0 \
+         ORDER BY first(seq), first(posting_index)"
+    );
+    let lots = query(ledger, &sql);
+    lots.iter()
+        .map(|lot| format!("{} {} {{{} {}, {:?}}}", lot[0], lot[1], lot[2], lot[3], lot[4]))
+        .collect()
+}
+
 fn row(cells: &[&str]) -> Vec<String> {
     cells.iter().map(|it| (*it).to_owned()).collect()
 }
@@ -254,18 +268,7 @@ fn reduction_by_label_alone_reduces_that_lot_in_the_store_and_in_queries() {
     let loaded = common::load_text(&format!("{HEADER}{ledger}"));
     let store = loaded.store.read().unwrap();
     assert_eq!(store.errors.len(), 0);
-    let lots = store.commodity_lots["Assets:Broker"]
-        .iter()
-        .map(|lot| {
-            format!(
-                "{} {} {{{}, {:?}}}",
-                lot.amount,
-                lot.commodity,
-                lot.cost.as_ref().unwrap(),
-                lot.label.as_deref().unwrap()
-            )
-        })
-        .collect::<Vec<_>>();
+    let lots = lots(ledger, "Assets:Broker");
     assert_eq!(lots, vec!["10 AAPL {100 USD, \"a\"}", "9 AAPL {110 USD, \"b\"}"]);
     let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
     assert_eq!(gains.inferred_amount.to_string(), "-10 USD");
@@ -308,18 +311,7 @@ fn unlabelled_reduction_books_labelled_lots_in_the_store_and_in_queries() {
     let loaded = common::load_text(&format!("{HEADER}{ledger}"));
     let store = loaded.store.read().unwrap();
     assert_eq!(store.errors.len(), 0);
-    let lots = store.commodity_lots["Assets:Broker"]
-        .iter()
-        .map(|lot| {
-            format!(
-                "{} {} {{{}, {:?}}}",
-                lot.amount,
-                lot.commodity,
-                lot.cost.as_ref().unwrap(),
-                lot.label.as_deref().unwrap()
-            )
-        })
-        .collect::<Vec<_>>();
+    let lots = lots(ledger, "Assets:Broker");
     assert_eq!(lots, vec!["5 AAPL {110 USD, \"b\"}"]);
     let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
     // 10 × 100 + 5 × 110 = 1550 at cost, sold for 1800

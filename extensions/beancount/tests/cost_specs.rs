@@ -18,6 +18,7 @@ use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
+use zhang_query::{DataType as ColumnType, ParamTypes, Params, Query};
 
 fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cost_specs")
@@ -140,26 +141,32 @@ fn the_lots_at_the_end_are_beancounts() {
             (account.clone(), positions)
         })
         .collect();
-    let store = ledger.store.read().unwrap();
+    // the lots the query engine lists (`commodities.lots`): the booked postings by commodity and lot, those with units
+    // left, in the order they were opened
+    let query = Query::compile_with_params(
+        "SELECT sum(number), currency, cost_number, cost_currency, cost_date, cost_label WHERE account = :account \
+         GROUP BY currency, cost_number, cost_currency, cost_date, cost_label HAVING sum(number) != 0 \
+         ORDER BY first(seq), first(posting_index)",
+        &ParamTypes::new().bind("account", ColumnType::Str),
+    )
+    .unwrap();
     let lots: BTreeMap<String, Vec<(Units, Option<Cost>)>> = expected
         .keys()
         .map(|account| {
-            let lots = store
-                .commodity_lots
-                .get(account)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
+            let result = query.execute(&ledger, &Params::new().bind("account", account.as_str())).unwrap();
+            let lots = result
+                .rows
+                .iter()
                 .map(|lot| {
-                    let cost = lot.cost.map(|cost| {
+                    let cost = lot[2].as_decimal().map(|number| {
                         (
-                            cost.number,
-                            cost.commodity,
-                            lot.acquisition_date.expect("a lot at cost has a date").to_string(),
-                            lot.label,
+                            number,
+                            lot[3].to_string(),
+                            lot[4].as_date().expect("a lot at cost has a date").to_string(),
+                            lot[5].as_str().map(str::to_owned),
                         )
                     });
-                    ((lot.amount, lot.commodity), cost)
+                    ((lot[0].as_decimal().unwrap(), lot[1].to_string()), cost)
                 })
                 .collect();
             (account.clone(), lots)
