@@ -2190,33 +2190,42 @@ mod string_round_trip_test {
         }
     }
 
-    /// A cost or a price that divides by zero, such as `{1/0 USD}`, made the parser panic. It is refused with a 400 like
-    /// any that does not read back, in a new transaction and in an edit, and nothing is written.
+    /// Units, a cost or a price that divide by zero, such as `1/0 CNY` or `{1/0 USD}`, made the parser panic. They are
+    /// refused with a 400 like any that do not read back, in a new transaction and in an edit, and nothing is written.
     #[tokio::test]
-    async fn a_cost_or_price_dividing_by_zero_is_refused() {
-        let cases: &[(&str, Field, Field)] = &[
-            ("cost", Some(Some("{1/0 USD}")), None),
-            ("cost", Some(Some("{{10 / (2 - 2) USD}}")), None),
-            ("price", None, Some(Some("@ 1/0 USD"))),
-            ("price", None, Some(Some("@@ 6/0 USD"))),
+    async fn units_cost_or_price_dividing_by_zero_are_refused() {
+        // the field, and the units, the cost and the price sent
+        let cases: &[(&str, &str, Field, Field)] = &[
+            ("amount", "1/0 STK", None, None),
+            ("amount", "10 / (2 - 2)", None, None),
+            ("cost", "10 STK", Some(Some("{1/0 USD}")), None),
+            ("cost", "10 STK", Some(Some("{{10 / (2 - 2) USD}}")), None),
+            ("price", "10 STK", None, Some(Some("@ 1/0 USD"))),
+            ("price", "10 STK", None, Some(Some("@@ 6/0 USD"))),
         ];
         for main in ["main.zhang", "main.bean"] {
             let (dir, _) = stock_ledger(main, PURCHASE).await;
             let before = std::fs::read_to_string(dir.join(main)).unwrap();
-            for (what, cost, price) in cases {
-                let context = format!("{main} {cost:?} {price:?}");
-                let postings = || vec![posting_with("Assets:Stock", Some("10 STK"), *cost, *price, None), posting("Assets:Cash", None)];
+            for (what, units, cost, price) in cases {
+                let context = format!("{main} {units:?} {cost:?} {price:?}");
+                let postings = || {
+                    let stock = CreateTransactionPostingRequest {
+                        unit: Some(crate::request::UnitRequest::Text((*units).to_owned())),
+                        ..posting_with("Assets:Stock", None, *cost, *price, None)
+                    };
+                    vec![stock, posting("Assets:Cash", None)]
+                };
 
                 let (status, message, after) = try_stock_edit(&dir, main, "Buy", stock_update(10, "Buy", postings())).await;
                 assert_eq!(status, StatusCode::BAD_REQUEST, "{context}: {message}");
-                assert!(message.contains(&format!("invalid {what}")), "{context}: {message}");
+                assert!(message.starts_with(&format!("invalid {what} ")), "{context}: {message}");
                 assert_eq!(after, before, "{context}: nothing is written");
 
                 let (state, reload) = states(load_main(&dir, main).await);
                 let response = create_new_transaction(state, reload, Json(stock_update(11, "New", postings()))).await;
                 let (status, message) = status_and_message(response.into_response()).await;
                 assert_eq!(status, StatusCode::BAD_REQUEST, "{context}: {message}");
-                assert!(message.contains(&format!("invalid {what}")), "{context}: {message}");
+                assert!(message.starts_with(&format!("invalid {what} ")), "{context}: {message}");
                 assert_eq!(std::fs::read_to_string(dir.join(main)).unwrap(), before, "{context}: nothing is written");
             }
             std::fs::remove_dir_all(dir).ok();
