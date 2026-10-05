@@ -1,8 +1,7 @@
+import { useAtomValue } from 'jotai';
 import { BookOpenText, ChevronRight, ExternalLink } from 'lucide-react';
 import { ReactNode, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
-import { retrieveQuerySchema } from '@/api/requests';
 import { QueryTableColumnDoc, QueryTableDoc } from '@/api/types';
 import { useIsMobile } from '@/components/layout';
 import { SheetCloseButton } from '@/components/layout/SheetCloseButton';
@@ -12,6 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
+import { querySchemaAtom } from '@/states/query';
 import { cn } from '@/lib/utils';
 
 const QUERY_DOCS_URL = 'https://zhang-accounting.kilerd.me/reference/query-language/';
@@ -138,14 +138,11 @@ export default function QueryReference({ onInsert, className }: Props) {
   const [openTables, setOpenTables] = useState<Set<string>>(() => new Set([DEFAULT_TABLE]));
   const [collapsedWhileFiltering, setCollapsedWhileFiltering] = useState<Set<string>>(() => new Set());
 
-  const {
-    loading,
-    error,
-    value: schema,
-  } = useAsync(async () => {
-    const res = await retrieveQuerySchema({});
-    return res.data.data;
-  }, []);
+  // the schema the query editor highlights with too, fetched once
+  const schemaState = useAtomValue(querySchemaAtom);
+  const loading = schemaState.state === 'loading';
+  const error = schemaState.state === 'hasError';
+  const schema = schemaState.state === 'hasData' ? schemaState.data : undefined;
 
   const keyword = filter.trim().toLowerCase();
   const matches = (...texts: string[]) => keyword === '' || texts.some((text) => text.toLowerCase().includes(keyword));

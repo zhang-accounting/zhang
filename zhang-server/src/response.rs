@@ -1094,6 +1094,8 @@ pub struct QuerySchemaEntity {
     pub functions: Vec<QuerySchemaFunctionEntity>,
     /// every table, `postings` first
     pub tables: Vec<QuerySchemaTableEntity>,
+    /// every word the query parser reads as a keyword, lower case, for an editor to highlight
+    pub keywords: Vec<String>,
 }
 
 impl From<zhang_query::ColumnDoc> for QuerySchemaColumnEntity {
@@ -1110,6 +1112,7 @@ impl From<zhang_query::Schema> for QuerySchemaEntity {
     fn from(value: zhang_query::Schema) -> Self {
         QuerySchemaEntity {
             columns: value.columns.into_iter().map(QuerySchemaColumnEntity::from).collect(),
+            keywords: value.keywords.into_iter().map(str::to_owned).collect(),
             tables: value
                 .tables
                 .into_iter()
