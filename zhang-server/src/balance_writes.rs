@@ -66,6 +66,7 @@ pub struct ReplacedBalanceEntity {
     pub amount: Amount,
     /// the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
     /// is exact. Null for an exact one
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_option")]
     pub tolerance: Option<BigDecimal>,
 }
 
@@ -242,9 +243,10 @@ fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Hel
             .any(|lot| &lot.commodity == commodity && lot.cost.is_some() && !lot.amount.is_zero());
         if at_cost {
             return Err(refused(format!(
-                "{account} holds {commodity} at cost: padding it to {} would book {difference} {commodity} without a cost. \
+                "{account} holds {commodity} at cost: padding it to {} would book {} {commodity} without a cost. \
                  Record them with their cost instead, as a purchase or a sale",
-                row.amount
+                row.amount,
+                plain_decimal(&difference)
             )));
         }
     }

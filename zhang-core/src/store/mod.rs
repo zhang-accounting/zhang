@@ -134,6 +134,7 @@ pub struct BalanceAssertionDomain {
     /// the asserted amount
     pub amount: Amount,
     /// the explicit tolerance (`~`); `None` asserts the exact amount
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_option")]
     pub tolerance: Option<BigDecimal>,
     /// the account's balance in the asserted currency where the assertion stands: the sum of the
     /// postings of the account and all its sub-accounts before it, as in beancount
@@ -226,6 +227,7 @@ pub struct DocumentDomain {
 #[derive(Default, Clone, Debug, serde::Serialize, PartialEq)]
 pub struct CommodityLotRecord {
     pub commodity: String,
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize")]
     pub amount: BigDecimal,
 
     pub cost: Option<Amount>,

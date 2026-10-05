@@ -89,6 +89,7 @@ pub struct BalanceCheck {
     pub account: Account,
     pub amount: Amount,
     /// optional absolute tolerance for the assertion (beancount `~` syntax)
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_option")]
     pub tolerance: Option<BigDecimal>,
     pub meta: Meta,
 }
@@ -287,7 +288,11 @@ pub struct PostingCost {
     /// `10 HOOL {100 # 5 USD}` books a lot at `100.5 USD`. `None` for every other spec. A missing field
     /// reads as `None`, and `None` is not serialized: a posting without one serializes as before
     /// the field existed
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "zhang_shared::decimal::plain::serialize_option"
+    )]
     pub compound_total: Option<BigDecimal>,
     /// true when the spec carries beancount's merge-cost marker `*`, as in `{*}`. Cost merging is
     /// not supported: booking reports it and books the spec as if the marker were not there, as

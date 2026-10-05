@@ -101,6 +101,7 @@ pub struct AccountEntity {
     pub amount: CalculatedAmount,
     /// the balance a balance assertion on the account is checked against, per currency: that of the account
     /// and all its sub-accounts
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_map")]
     pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
     /// whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes
     pub has_sub_accounts: bool,
@@ -229,6 +230,7 @@ pub struct JournalBalanceCheckItemEntity {
     /// `inferred_unit` the asserted amount minus the balance
     pub(crate) postings: Vec<JournalTransactionPostingEntity>,
     /// the explicit tolerance (`~`) of the assertion; null for an exact one
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_option")]
     pub tolerance: Option<BigDecimal>,
     /// whether the balance is within the tolerance of the asserted amount
     pub passed: bool,
@@ -249,8 +251,10 @@ pub struct CommodityListItemEntity {
     pub rounding: String,
     pub group: Option<String>,
 
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize")]
     pub total_amount: BigDecimal,
     pub latest_price_date: Option<NaiveDateTime>,
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_option")]
     pub latest_price_amount: Option<BigDecimal>,
     pub latest_price_commodity: Option<String>,
 }
@@ -258,6 +262,7 @@ pub struct CommodityListItemEntity {
 #[derive(Serialize, Schematic)]
 pub struct CommodityLotEntity {
     pub account: String,
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize")]
     pub amount: BigDecimal,
 
     pub cost: Option<Amount>,
@@ -357,6 +362,7 @@ pub struct AccountInfoEntity {
     pub amount_with_sub_accounts: CalculatedAmount,
     /// the balance a balance assertion on the account is checked against, per currency: that of the account
     /// and all its sub-accounts
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_map")]
     pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
     /// whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes
     pub has_sub_accounts: bool,

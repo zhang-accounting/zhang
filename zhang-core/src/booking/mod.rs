@@ -69,7 +69,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 pub(crate) use zhang_ast::{group_units, written_groups};
 use zhang_ast::{Currency, Date, Open, Posting, PostingCost, Rounding, SingleTotalPrice, Transaction, WrittenPosting};
-use zhang_shared::decimal::{div, mul_in_context, DIVISION_PRECISION};
+use zhang_shared::decimal::{div, mul_in_context, plain_decimal, DIVISION_PRECISION};
 
 use crate::constants::DEFAULT_ROUNDING;
 use crate::inventory::{normalise_cost, BookingMethod, TransactionInference, TxnPosting};
@@ -561,7 +561,7 @@ impl Booker {
                     // Keep the existing warning when a sale opens a short lot.
                     errors.push(BookingError {
                         kind: ErrorKind::NoEnoughCommodityLot,
-                        metas: HashMap::of("transaction_amount", written_units.number.to_string()),
+                        metas: HashMap::of("transaction_amount", plain_decimal(&written_units.number)),
                     });
                 }
                 // An augmentation, or a reduction the lot covers, keeps the lot's identity.
@@ -595,7 +595,7 @@ impl Booker {
             if !errors.iter().any(|error| error.kind == ErrorKind::NoEnoughCommodityLot) {
                 errors.push(BookingError {
                     kind: ErrorKind::NoEnoughCommodityLot,
-                    metas: HashMap::of("transaction_amount", written_units.number.to_string()),
+                    metas: HashMap::of("transaction_amount", plain_decimal(&written_units.number)),
                 });
             }
             return Err(errors);
@@ -692,7 +692,7 @@ impl Booker {
                 "account_name",
                 account_name,
                 "transaction_amount",
-                units.number.to_string(),
+                plain_decimal(&units.number),
                 "matched_lots",
                 reduced.iter().map(|lot| describe_lot(lot)).join(", "),
             ),
@@ -1030,14 +1030,15 @@ impl Weights {
     }
 }
 
-/// a lot as `units {cost, acquisition date, "label"}`, for error metas; a lot without a label
-/// reads as before
+/// a lot as `units {cost, acquisition date, "label"}`, for error metas, its numbers in plain
+/// notation; a lot without a label reads as before
 fn describe_lot(lot: &CommodityLotRecord) -> String {
     let label = lot.label.as_ref().map(|label| format!(", \"{label}\"")).unwrap_or_default();
+    let units = plain_decimal(&lot.amount);
     match (&lot.cost, &lot.acquisition_date) {
-        (Some(cost), Some(date)) => format!("{} {} {{{cost}, {date}{label}}}", lot.amount, lot.commodity),
-        (Some(cost), None) => format!("{} {} {{{cost}{label}}}", lot.amount, lot.commodity),
-        (None, _) => format!("{} {}", lot.amount, lot.commodity),
+        (Some(cost), Some(date)) => format!("{units} {} {{{cost}, {date}{label}}}", lot.commodity),
+        (Some(cost), None) => format!("{units} {} {{{cost}{label}}}", lot.commodity),
+        (None, _) => format!("{units} {}", lot.commodity),
     }
 }
 

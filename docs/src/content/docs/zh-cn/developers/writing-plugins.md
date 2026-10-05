@@ -349,6 +349,8 @@ fn route(request: Request) -> Result<Response, Error> {
 {"data": {"Comment": {"content": "; a note"}}, "span": {"start": 0, "end": 8, "content": "; a note", "filename": "/ledger/main.zhang", "line": 1, "column": 1}}
 ```
 
+数字（例如金额的 `number`）是以普通记法写出的 JSON 字符串，保留全部数字和小数位（`"0.0000001"`、`"12.50"`），从不使用指数记法；插件回传时两种写法都可以。
+
 `start` 和 `end` 是指令在文件中的字节偏移，`line` 和 `column` 是指令开始的行号和列号，从 1 起算，列号按字符计；指令不是从文件读取的时，这两个字段省略。插件回传的 span（传给 `zhang_emit_error` 的）也可以省略它们。
 
 导出函数通过返回非零代码并附带 Extism 错误来表示失败；对于 processor 或 mapper，这会中止加载。

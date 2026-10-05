@@ -6,4 +6,5 @@ description = "Portable logic shared by zhang crates"
 
 [dependencies]
 bigdecimal = { workspace = true }
+serde = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["std"] }

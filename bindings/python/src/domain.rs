@@ -148,7 +148,7 @@ pub struct Amount(pub zhang_ast::amount::Amount);
 impl Amount {
     #[getter]
     pub fn number(&self) -> String {
-        self.0.number.to_string()
+        zhang_core::utils::plain_decimal(&self.0.number)
     }
     #[getter]
     pub fn currency(&self) -> String {
