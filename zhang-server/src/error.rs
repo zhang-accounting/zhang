@@ -98,7 +98,7 @@ impl IntoResponse for ServerError {
         }
         let message = match &self {
             // nothing was written: the file changed since the ledger was loaded
-            ServerError::CoreError(error @ (ZhangError::FileChanged(_) | ZhangError::ReadRefused(_))) => error.to_string(),
+            ServerError::CoreError(error @ (ZhangError::FileChanged(_) | ZhangError::ReadRefused(_) | ZhangError::InvalidUtf8 { .. })) => error.to_string(),
             other => other.to_string(),
         };
         let payload = json!({
@@ -113,6 +113,8 @@ impl IntoResponse for ServerError {
             ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::ReloadFailed(_) | ServerError::Conflict(_) => {
                 StatusCode::CONFLICT
             }
+            // a file that is not UTF-8 text, which the editor cannot show, nor a write edit
+            ServerError::CoreError(ZhangError::InvalidUtf8 { .. }) => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

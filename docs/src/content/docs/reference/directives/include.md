@@ -88,7 +88,8 @@ part of the ledger yet, Zhang creates it and appends an `include` of it to the m
 |---|---|
 | [`IncludeNotFound`](/reference/error-codes/#includenotfound) | No file is at the path, the absolute path is outside the ledger root, or no file matches the pattern. The error points at the `include`, and the rest of the ledger loads. |
 
-A file that cannot be parsed stops the ledger from loading, with an error naming the file, line and column.
+A file that cannot be parsed stops the ledger from loading, with an error naming the file, line and column. So does an
+included file that is not UTF-8 text, with an error naming the file and the line of the first byte that is not UTF-8.
 
 ## Beancount compatibility
 

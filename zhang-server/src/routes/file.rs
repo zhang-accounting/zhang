@@ -51,8 +51,9 @@ pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename):
     };
     // the fingerprint of the file as shown: a save sends it back, so a file changed since is not overwritten (#506)
     let sha256 = fingerprint(&content);
-    // without the byte order mark the file may start with, as the parsers read it (#505)
-    let content = FileText::new(String::from_utf8(content).unwrap()).text;
+    // without the byte order mark the file may start with, as the parsers read it (#505). A file that is not UTF-8
+    // text, as an image in the ledger's directory, is not shown: the answer names it
+    let content = FileText::decode(content, &filename)?.text;
 
     ResponseWrapper::json(FileDetailEntity {
         path: filename,
@@ -283,6 +284,26 @@ mod save_test {
         assert_eq!(std::fs::read_to_string(&main).unwrap(), LEDGER);
         let (status, message) = answer(create().await).await;
         assert_eq!(status, StatusCode::OK, "{message}");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// The editor is answered 415, with a message naming the file, for a file that is not UTF-8 text: an image in the
+    /// ledger's directory, or a file saved in another encoding. The handler panicked, which dropped the connection.
+    #[tokio::test]
+    async fn the_editor_is_answered_415_for_a_file_that_is_not_text() {
+        let (dir, _, state, _) = opened(LEDGER).await;
+        std::fs::create_dir_all(dir.join("attachments")).unwrap();
+        let image = dir.join("attachments/img.png");
+        std::fs::write(&image, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
+        let latin1 = dir.join("latin1.bean");
+        std::fs::write(&latin1, b"; first line\n; \xe9t\xe9\n").unwrap();
+
+        for (file, line) in [(image, 1), (latin1, 2)] {
+            let path = file.to_string_lossy().into_owned();
+            let (status, message) = answer(get_file_content(state.clone(), Base64Path(path.clone())).await).await;
+            assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{message}");
+            assert!(message.contains(&format!("the file {path} is not UTF-8 text: line {line}")), "{message}");
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

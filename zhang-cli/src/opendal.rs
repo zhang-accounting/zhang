@@ -12,7 +12,9 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, SpanInfo, Spanned};
-use zhang_core::data_source::{directive_output_file, include_for_append, written_into, DataSource, IncludePattern, LoadResult, PendingFile, SourceEntry};
+use zhang_core::data_source::{
+    directive_output_file, include_for_append, written_into, DataSource, FileText, IncludePattern, LoadResult, PendingFile, SourceEntry,
+};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -157,8 +159,9 @@ impl DataSource for OpendalDataSource {
             if utils::has_path_visited(&visited, &pending.path) {
                 continue;
             }
-            let file_content = match self.get_file_content(striped_pathbuf.clone()).await {
-                Ok(content) => content,
+            let file_content = match self.async_get(striped_pathbuf.to_string_lossy().into_owned()).await {
+                // after the byte order mark it may start with, which the parsers skip too: the spans index the same text
+                Ok(content) => FileText::decode(content, &striped_pathbuf)?.text,
                 Err(ZhangError::FileNotFound) => match pending.missing() {
                     Some(missing) => {
                         missing_includes.push(missing);
@@ -322,19 +325,19 @@ impl OpendalDataSource {
             self.append_directive(ledger, include, None, None).await?;
         }
 
-        let content = match ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await {
-            Ok(content) => String::from_utf8(content)?,
+        let mut content = match ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await {
+            Ok(content) => FileText::decode(content, striped_endpoint)?,
             // a file this append creates
-            Err(error) if error.is_file_not_found() => String::new(),
+            Err(error) if error.is_file_not_found() => FileText::new(String::new()),
             Err(error) => return Err(error),
         };
 
         let directive = written_into(ledger, directive, striped_endpoint);
-        let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
+        content.text = format!("{}\n{}\n", content.text, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
         ledger
             .data_source
-            .async_save(ledger, striped_endpoint.to_string_lossy().to_string(), appended_content.as_bytes())
+            .async_save(ledger, striped_endpoint.to_string_lossy().to_string(), &content.into_bytes())
             .await?;
         Ok(())
     }
@@ -422,12 +425,6 @@ impl OpendalDataSource {
                 msg: it.to_string(),
             })
         }
-    }
-    async fn get_file_content(&self, path: PathBuf) -> ZhangResult<String> {
-        let path = path.to_str().expect("cannot convert path to string");
-
-        let vec = self.async_get(path.to_string()).await?;
-        Ok(String::from_utf8(vec).expect("invalid utf8 content"))
     }
 }
 
@@ -867,6 +864,37 @@ mod test {
             assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
             assert_eq!(store.transactions.len(), 1, "{main}");
         }
+    }
+
+    /// A file that is not UTF-8 text, as one with a latin-1 `é` in a comment, stops the load with an error naming the
+    /// file and the line, at the start and on a reload alike: `zhang serve` panicked at the start (exit code 101), and a
+    /// reload failure named no file, its message a dump of the file's bytes.
+    #[tokio::test]
+    async fn a_file_that_is_not_utf8_is_a_load_error_naming_it() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("main.zhang"), format!("{}include \"bad.zhang\"\n", OPENS)).unwrap();
+        std::fs::write(dir.path().join("bad.zhang"), b"1970-01-01 open Assets:Bank\n; \xe9t\xe9\n").unwrap();
+        let source = local_source(dir.path(), "main.zhang").await;
+
+        let error = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone())
+            .await
+            .err()
+            .expect("the ledger does not load");
+        assert!(matches!(&error, ZhangError::InvalidUtf8 { path, line: 2 } if path == "bad.zhang"), "{}", error);
+
+        std::fs::write(dir.path().join("bad.zhang"), "1970-01-01 open Assets:Bank\n; été\n").unwrap();
+        let mut ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
+            .await
+            .expect("the file fixed loads");
+        std::fs::write(dir.path().join("bad.zhang"), b"; \xe9t\xe9\n1970-01-01 open Assets:Bank\n").unwrap();
+        let error = ledger.async_reload().await.expect_err("the reload fails");
+        let failure = zhang_server::state::ReloadFailure::from(&error);
+        assert_eq!(failure.file.as_deref(), Some("bad.zhang"));
+        assert_eq!(
+            failure.message,
+            "the file bad.zhang is not UTF-8 text: line 1 holds a byte that is not UTF-8. Save the file with the UTF-8 encoding"
+        );
+        assert!(ledger.store.read().unwrap().accounts.contains_key("Assets:Bank"), "the ledger stays as loaded");
     }
 
     #[tokio::test]
