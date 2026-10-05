@@ -163,9 +163,10 @@ pub trait FunctionContext {
         None
     }
 
-    /// The budgets the `budget` metadata of an account's latest `open` on or before a date names;
-    /// `None` before the account's first `open`.
-    fn account_budgets(&self, _account: &str, _date: NaiveDate) -> Option<BTreeSet<String>> {
+    /// The budgets a posting of an account at a wall-clock date and time counts in, by the ledger's one rule of budget
+    /// membership ([`zhang_core::ledger::Ledger::account_budgets`]): those the `budget` metadata of the account's
+    /// latest `open` at or before then names; `None` before the account's first `open`.
+    fn account_budgets(&self, _account: &str, _at: NaiveDateTime) -> Option<BTreeSet<String>> {
         None
     }
 

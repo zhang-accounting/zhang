@@ -69,11 +69,16 @@ pub(crate) fn fold(txn: &Transaction, ledger: &mut Ledger, span: &SpanInfo, dire
             posting.meta.clone(),
         )?;
 
-        // budget related: like `budget-add`, activity on a budget the stream has not defined
-        // (yet) is skipped, and so is activity after the budget's close. Each is reported
-        // once per (account, budget), on the first transaction that loses activity, instead
-        // of once per posting
-        let budgets_name = ledger.open_budgets.get(posting.account.name()).cloned().unwrap_or_default();
+        // budget related: the posting belongs to the budgets of the account's `open` in effect
+        // at its date and time as stored, the rule the query engine counts and lists it with
+        // (`Ledger::account_budgets`). Like `budget-add`, activity on a budget the stream has
+        // not defined (yet) is skipped, and so is activity after the budget's close. Each is
+        // reported once per (account, budget), on the first transaction that loses activity,
+        // instead of once per posting
+        let budgets_name = ledger
+            .account_budgets(posting.account.name(), datetime.naive_local())
+            .cloned()
+            .unwrap_or_default();
         for budget in budgets_name {
             let account_name = posting.account.name().to_owned();
             let Some(defined) = super::budget::defined(ledger, &budget) else {

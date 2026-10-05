@@ -648,21 +648,17 @@ ORDER BY timestamp DESC
 
 #### `budgets.postings`
 
-某个月中预算的分录，最新的在前，每条分录附带其账户在该分录之后、以该分录货币计的余额：即其日期当时计入该预算的预算账户分录，由 [`account_budgets`](/zh-cn/reference/query-language/#账户与商品指令) 判断，所以关闭后以其他预算重新开启的账户，其分录列在它所计入的预算中。已关闭的预算在关闭之后不再计入支出，所以不列出关闭之后的分录：日期在关闭当天之后的分录，以及 `budget-close` 带时间时、当天在该时间之后的分录。预算页面把它们和 `budgets.events` 的事件按时间合并列出，最新的在前。
+某个月中计入预算的分录，最新的在前，每条分录附带其账户在该分录之后、以该分录货币计的余额。它们是 [`budgets`](/zh-cn/reference/query-language/#postings-表) 列含有该预算的分录，所以它们的和就是该月的已支出：其日期和时间当时账户计入该预算（关闭后以其他预算重新开启的账户，从重新开启起计入新的预算）、在预算定义之后到关闭之前、并且有价格能换算为预算货币的分录。预算的 `budget` 指令之前的分录、关闭之后的分录（关闭当天之后，或带时间的 `budget-close` 在该时间之后）以及没有价格可以换算的分录都不列出。预算页面把它们和 `budgets.events` 的事件按时间合并列出，最新的在前。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
-| `accounts` | `set` | 预算的账户，即 `budgets.budget` 的 `accounts` |
-| `month` | `date` | 该月的第一天 |
 | `name` | `str` | 预算 |
-| `close` | `date` | 预算关闭的日期，即 `budgets.budget` 的 `close`，或 `NULL` |
-| `close_time` | `str` | 预算关闭的时间，即 `budgets.budget` 的 `close_time`，或 `NULL` |
+| `month` | `date` | 该月的第一天 |
 
 ```sql
 SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units,
        only(currency, account_balance) AS balance
-WHERE account IN :accounts AND yearmonth(date) = :month AND :name IN account_budgets(account, date)
-  AND (:close IS NULL OR date < :close OR (date = :close AND (:close_time IS NULL OR time <= :close_time)))
+WHERE yearmonth(date) = :month AND :name IN budgets
 ORDER BY timestamp DESC
 ```
 

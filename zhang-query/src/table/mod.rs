@@ -42,6 +42,7 @@ mod postings;
 mod prices;
 
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
@@ -449,6 +450,8 @@ pub(crate) struct Dataset<'a> {
     store: &'a Store,
     /// what every query of the ledger shares (see [`LedgerCache`])
     cache: &'a LedgerCache,
+    /// the budgets of the ledger, folded once for the `budgets` column
+    budgets: OnceCell<budgets::Budgets<'a>>,
 }
 
 impl<'a> Dataset<'a> {
@@ -473,6 +476,7 @@ impl<'a> Dataset<'a> {
             ledger,
             store,
             cache,
+            budgets: OnceCell::new(),
         })
     }
 
@@ -502,6 +506,11 @@ impl<'a> Dataset<'a> {
         self.cache.prices(self.store)
     }
 
+    /// The budgets of the ledger, folded once per query.
+    fn budgets(&self) -> &budgets::Budgets<'a> {
+        self.budgets.get_or_init(|| budgets::budgets(self.ledger))
+    }
+
     /// The `#entries` / `#transactions` rows of the ledger.
     pub(crate) fn entry_table(&self) -> &'a cache::Entries {
         self.cache.entries(self.ledger, self.store)
@@ -523,9 +532,10 @@ impl<'a> Dataset<'a> {
         self.cache.lookups(self.ledger, self.store).account(self.ledger, account)
     }
 
-    /// The budgets a posting of `account` dated `date` counts in (see [`lookups::Lookups::budgets_at`]).
-    pub fn budgets_at(&self, account: &str, date: NaiveDate) -> Option<&'a BTreeSet<String>> {
-        self.cache.lookups(self.ledger, self.store).budgets_at(account, date)
+    /// The budgets a posting of `account` at the wall-clock time `at` counts in, for `account_budgets()`: the ledger's
+    /// one rule of budget membership ([`Ledger::account_budgets`]).
+    pub fn account_budgets(&self, account: &str, at: NaiveDateTime) -> Option<&'a BTreeSet<String>> {
+        self.ledger.account_budgets(account, at)
     }
 
     /// The status of `account` at `at`, for `account_status()`: the ledger's account lifecycle.

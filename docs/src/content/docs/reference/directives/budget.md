@@ -39,8 +39,9 @@ A `budget` directive reads two metadata keys:
 ### Linking accounts
 
 An account counts toward a budget through the `budget` metadata of its `open` directive. Repeat the key to link the
-account to several budgets. A posting counts toward the budgets of the account's `open` in effect at its date, so an
-account closed and opened again with other `budget` metadata counts toward the new budgets from its reopening on.
+account to several budgets. A posting counts toward the budgets of the account's `open` in effect at its date and time,
+so an account closed and opened again with other `budget` metadata counts toward the new budgets from its reopening on,
+also when it reopens later on the same day.
 
 ```text
 YYYY-MM-DD open <Account>
