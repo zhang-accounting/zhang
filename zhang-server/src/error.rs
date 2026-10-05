@@ -47,8 +47,8 @@ pub enum ServerError {
 
     /// the files of the ledger changed, and cannot be loaded as they are now: a write that edits the ledger as loaded
     /// writes nothing until they are fixed. Answered with HTTP 409
-    #[error("the ledger cannot be loaded from its files as they are now, so nothing was written. Fix them in the file editor, then try again: {0}")]
-    UnloadableLedger(ZhangError),
+    #[error("the ledger cannot be loaded from its files as they are now, so nothing was written. Fix them in the file editor, then try again: {}", .0.message)]
+    UnloadableLedger(ReloadFailure),
 
     /// the reload a request asked for failed: the ledger served is the one loaded before it, until the files are
     /// fixed. Answered with HTTP 409, as a write the files refuse is

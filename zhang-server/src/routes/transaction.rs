@@ -286,7 +286,7 @@ fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) ->
 pub async fn create_new_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<String> {
-    let mut ledger = ledger.for_writing().await?;
+    let mut ledger = ledger.for_writing(&reload_sender).await?;
 
     let trx = requested_transaction(payload, &ledger, None)?;
 
@@ -369,7 +369,7 @@ pub async fn upload_transaction_document(
     let transaction_id = transaction_id(&path.0 .0)?;
     // the files first, then the ledger, held to write
     let files = super::uploaded_files(&mut multipart).await?;
-    let mut ledger = ledger.for_writing().await?;
+    let mut ledger = ledger.for_writing(&reload_sender).await?;
     let mut operations = ledger.operations();
     let mut documents = vec![];
 
@@ -463,7 +463,7 @@ pub async fn update_single_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<()> {
     let transaction_id = transaction_id(&path.0 .0)?;
-    let mut ledger = ledger.for_writing().await?;
+    let mut ledger = ledger.for_writing(&reload_sender).await?;
     let mut operations = ledger.operations();
 
     let span_info = operations.transaction_span(&transaction_id)?;

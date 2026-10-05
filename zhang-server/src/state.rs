@@ -52,13 +52,15 @@ impl Deref for SharedLedger {
 impl SharedLedger {
     /// The ledger, to write its files: held exclusively until the write is done, so no other write reads or saves a
     /// file in between, and a write's places in a file cannot be made stale by another. A ledger an earlier write left
-    /// [stale](Ledger::stale) is reloaded first, so the write reads the files as they are; files that cannot be
-    /// loaded are [`ServerError::UnloadableLedger`]. A writer hands what its write came to to [`wrote`]. A write that
-    /// edits no place the ledger loaded, such as the save of a whole file, needs no reload: it holds the lock itself.
-    pub async fn for_writing(&self) -> ServerResult<RwLockWriteGuard<'_, Ledger>> {
+    /// [stale](Ledger::stale) is reloaded first, so the write reads the files as they are, by the reload every reload
+    /// of the served ledger runs ([`ReloadSender::reload_in_place`]): files that cannot be loaded, or a reload that
+    /// panics, are [`ServerError::UnloadableLedger`], kept for `/api/info` and told to the readers. A writer hands what
+    /// its write came to to [`wrote`]. A write that edits no place the ledger loaded, such as the save of a whole file,
+    /// needs no reload: it holds the lock itself.
+    pub async fn for_writing(&self, reload_sender: &Arc<ReloadSender>) -> ServerResult<RwLockWriteGuard<'_, Ledger>> {
         let mut ledger = self.write().await;
         if ledger.stale {
-            ledger.async_reload().await.map_err(ServerError::UnloadableLedger)?;
+            reload_sender.reload_in_place(&mut ledger).await.map_err(ServerError::UnloadableLedger)?;
         }
         Ok(ledger)
     }

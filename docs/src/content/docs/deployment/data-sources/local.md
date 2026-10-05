@@ -65,7 +65,7 @@ The folder can be named any way: `zhang serve .`, a relative path such as `zhang
 
 ### When a reload fails
 
-If a file cannot be read at all, for example because of a syntax error, the reload fails and Zhang keeps serving the ledger as it was before the change. The web UI shows a notice with the reason at the top of every page, with a link to the file editor, and the reload button reports it too; the reason is also written to the log. Fix the file and save it again: the notice goes away once a reload succeeds. Problems in the books, such as an unbalanced transaction, do not make the reload fail: they are listed in the web UI.
+If a file cannot be read at all, for example because of a syntax error, the reload fails and Zhang keeps serving the ledger as it was before the change. The web UI shows a notice with the reason at the top of every page, with a link to the file editor, and the reload button reports it too; the reason is also written to the log. Fix the file and save it again: the notice goes away once a reload succeeds. A transaction, balance or document recorded in the web UI while the files cannot be loaded writes nothing: it reloads the files first, and the reload's failure is the answer (HTTP 409), shown the same way. Problems in the books, such as an unbalanced transaction, do not make the reload fail: they are listed in the web UI.
 
 At startup, a ledger that cannot be read makes `zhang serve` exit with code 1.
 

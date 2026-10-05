@@ -64,7 +64,7 @@ pub async fn upload_account_document(
     let account_name = path.0 .0;
     // the files first, then the ledger, held to write
     let files = super::uploaded_files(&mut multipart).await?;
-    let mut ledger_stage = ledger.for_writing().await?;
+    let mut ledger_stage = ledger.for_writing(&reload_sender).await?;
     let account = validate::account(&account_name, &Rules::of(&ledger_stage))?;
     // the time of the ledger's clock, as for every other write: the documents of one upload share it
     let now = ledger_now(&ledger_stage);
@@ -146,7 +146,7 @@ pub async fn create_account_balance(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, params: Path<(String,)>, Json(payload): Json<AccountBalanceRequest>,
 ) -> ApiResult<BalanceWriteEntity> {
     let target_account = params.0 .0;
-    let mut ledger = ledger.for_writing().await?;
+    let mut ledger = ledger.for_writing(&reload_sender).await?;
     let rules = Rules::of(&ledger);
 
     let row = balance_row(&target_account, payload, &rules)?;
@@ -169,7 +169,7 @@ fn sub_accounts_first(mut balances: Vec<BatchAccountBalanceRequest>) -> Vec<Batc
 pub async fn create_batch_account_balances(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<Vec<BatchAccountBalanceRequest>>,
 ) -> ApiResult<BalanceWriteEntity> {
-    let mut ledger = ledger.for_writing().await?;
+    let mut ledger = ledger.for_writing(&reload_sender).await?;
     let rules = Rules::of(&ledger);
     let mut rows = vec![];
     // sub-accounts before their parents, deepest first: a `balance` on a parent covers its sub-accounts, so it
