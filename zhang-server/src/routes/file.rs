@@ -36,7 +36,19 @@ fn fingerprint(file: &[u8]) -> String {
 pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename): Base64Path) -> ApiResult<FileDetailEntity> {
     let ledger = ledger.read().await;
 
-    let content = ledger.data_source.async_get(filename.to_owned()).await?;
+    let content = match ledger.data_source.async_get(filename.to_owned()).await {
+        Ok(content) => content,
+        Err(error) if error.is_file_not_found() => {
+            let (root, main) = &ledger.entry;
+            // the main file of a ledger started without one (`zhang serve` on a new folder) is the empty ledger served,
+            // which the editor writes; any other file that is not there is not shown as an empty one
+            if root.join(main) != root.join(&filename) {
+                return Err(ServerError::NoSuchFile(filename));
+            }
+            vec![]
+        }
+        Err(error) => return Err(error.into()),
+    };
     // the fingerprint of the file as shown: a save sends it back, so a file changed since is not overwritten (#506)
     let sha256 = fingerprint(&content);
     // without the byte order mark the file may start with, as the parsers read it (#505)

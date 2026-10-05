@@ -242,6 +242,24 @@ root, and opening one found at neither answers that it does not exist.
 
 **Fix:** put the file where the path names it, or correct the path, relative to the file the `document` is in.
 
+## IncludeNotFound
+
+*No file in the ledger's directory matches the include `<path>`*
+
+An [`include`](/reference/directives/include/) names no file: there is no file at its path, or no file matches its
+pattern. Zhang loads the rest of the ledger without it, and the `path` meta holds the path as the `include` writes it.
+Beancount reports it too, as `File glob "<path>" does not match any files`. Zhang reads only within the ledger root:
+the ledger's folder on the local disk, or the root of an S3, WebDAV or GitHub data source. An absolute path outside
+it names no file Zhang can read, and is reported the same way.
+
+```zhang title="main.zhang"
+; there is no accounts/2024.zhang
+include "accounts/2024.zhang"
+```
+
+**Fix:** correct the path, create the file, or remove the `include`. With a ledger on the local disk, `zhang serve`
+reloads the ledger when the missing file is created.
+
 ## AccountDoesNotExist
 
 *Account does not exist*

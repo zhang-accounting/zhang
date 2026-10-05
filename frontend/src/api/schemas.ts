@@ -1390,6 +1390,7 @@ export interface operations {
                   | 'BalanceTimeIgnored'
                   | 'DocumentPathRelativeToRoot'
                   | 'DocumentNotFound'
+                  | 'IncludeNotFound'
                   | 'AccountDoesNotExist'
                   | 'AccountClosed'
                   | 'CommodityDoesNotDefine'

@@ -84,7 +84,7 @@ where
 
     /// The content of the file at `path`, relative to the ledger root and written with `/`, or `None` when there is
     /// no file there. [`ZhangError::ReadRefused`] when the source refuses to read it, which tells nothing of whether it
-    /// is there. [`DataSource::async_get`] reads a missing file as empty on some sources, to append to it.
+    /// is there. [`DataSource::async_get`] errs on a missing file instead ([`ZhangError::is_file_not_found`]).
     async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
         match self.async_get(path.clone()).await {
             Ok(content) => Ok(Some(content)),
@@ -100,7 +100,12 @@ where
     /// having changed since the ledger was loaded: the ledger must be reloaded for places that are not stale. A
     /// writer holds the ledger exclusively from this read until it saved the file, so no other write comes between
     async fn async_get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<FileText> {
-        let content = FileText::new(String::from_utf8(self.async_get(path.clone()).await?)?);
+        let content = match self.async_get(path.clone()).await {
+            Ok(content) => FileText::new(String::from_utf8(content)?),
+            // a file removed since the ledger was loaded changed too
+            Err(error) if error.is_file_not_found() => return Err(ZhangError::FileChanged(path)),
+            Err(error) => return Err(error),
+        };
         unchanged(&path, &content.text, spans)?;
         Ok(content)
     }
@@ -113,12 +118,73 @@ where
     }
 }
 
-/// the file an `include` directive names, as it is written, for a data source to load next; `None` for any other directive
-pub fn included_file(directive: &Spanned<Directive>) -> Option<String> {
-    match &directive.data {
-        Directive::Include(include) => Some(include.file.clone().to_plain_string()),
-        _ => None,
+/// A file a data source loads next: the main file, or the file or pattern an `include` names, with a relative path
+/// resolved against the directory of the file holding the `include`. Every source queues the files of a load so, and
+/// reports an `include` naming no file alike ([`PendingFile::missing`])
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingFile {
+    /// the file, or the pattern
+    pub path: PathBuf,
+    /// the `include` naming it, with its path as written; `None` for the main file
+    include: Option<(SpanInfo, String)>,
+}
+
+impl PendingFile {
+    /// the main file of a ledger, at `path`
+    pub fn main(path: PathBuf) -> Self {
+        PendingFile { path, include: None }
     }
+
+    /// what the `include`s among `directives`, read from this file, name, in their order
+    pub fn includes(&self, directives: &[Spanned<Directive>]) -> Vec<PendingFile> {
+        directives
+            .iter()
+            .filter_map(|directive| match &directive.data {
+                Directive::Include(include) => {
+                    let written = include.file.clone().to_plain_string();
+                    let path = match written.starts_with('/') {
+                        true => PathBuf::from(&written),
+                        false => self.path.parent().unwrap_or(Path::new("")).join(&written),
+                    };
+                    Some(PendingFile {
+                        path,
+                        include: Some((directive.span.clone(), written)),
+                    })
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `file`, one of those the pattern of this one matches, named by the same `include`
+    pub fn matched(&self, file: PathBuf) -> PendingFile {
+        PendingFile {
+            path: file,
+            include: self.include.clone(),
+        }
+    }
+
+    /// The `include` naming this file, when the source has no file there, or this pattern, when it matches no file:
+    /// the load goes on without it, and reports it. `None` for the main file, which no `include` names: whether a
+    /// load can go on without it is the source's to decide
+    pub fn missing(&self) -> Option<MissingInclude> {
+        let (span, path) = self.include.clone()?;
+        let file = IncludePattern::parse(&self.path).is_none().then(|| self.path.clone());
+        Some(MissingInclude { span, path, file })
+    }
+}
+
+/// An `include` that names no file the data source has: there is no file at its path, or the source cannot read
+/// there, or its pattern matches no file. The ledger loads without it, and reports it on the `include` as
+/// [`ErrorKind::IncludeNotFound`](zhang_ast::error::ErrorKind::IncludeNotFound), as beancount does
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingInclude {
+    /// the `include` directive
+    pub span: SpanInfo,
+    /// the path as the `include` writes it
+    pub path: String,
+    /// the file looked for, its path resolved; `None` for a pattern. Its creation makes the ledger stale
+    pub file: Option<PathBuf>,
 }
 
 /// the file a new `directive` is appended to: the one the `directive_output_path` option renders for its date, in the
@@ -391,7 +457,7 @@ impl LocalFileSystemDataSource {
         let content = match ledger.data_source.get(endpoint.to_string_lossy().to_string()) {
             Ok(content) => String::from_utf8(content)?,
             // a file this append creates
-            Err(ZhangError::IoError(e)) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) if error.is_file_not_found() => String::new(),
             Err(e) => return Err(e),
         };
 
@@ -426,40 +492,50 @@ impl DataSource for LocalFileSystemDataSource {
         let main_endpoint = entry.join(endpoint);
         let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
 
-        let mut load_queue: VecDeque<PathBuf> = VecDeque::new();
-        load_queue.push_back(main_endpoint);
+        let mut load_queue: VecDeque<PendingFile> = VecDeque::new();
+        load_queue.push_back(PendingFile::main(main_endpoint));
 
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
-        while let Some(pathbuf) = load_queue.pop_front() {
-            if let Some(pattern) = IncludePattern::parse(&pathbuf) {
-                load_queue.extend(pattern.expand(&entry, Self::entries)?);
+        let mut missing_includes = vec![];
+        while let Some(pending) = load_queue.pop_front() {
+            if let Some(pattern) = IncludePattern::parse(&pending.path) {
+                let files = pattern.expand(&entry, Self::entries)?;
+                if files.is_empty() {
+                    missing_includes.extend(pending.missing());
+                }
+                load_queue.extend(files.into_iter().map(|file| pending.matched(file)));
                 continue;
             }
-            debug!("visited entry file: {:?}", pathbuf.display());
+            debug!("visited entry file: {:?}", pending.path.display());
 
-            if has_path_visited(&visited, &pathbuf) {
+            if has_path_visited(&visited, &pending.path) {
                 continue;
             }
-            let file_content = self.get(pathbuf.to_string_lossy().to_string())?;
-            let entity_directives = self
-                .data_type
-                .transform(String::from_utf8_lossy(&file_content).to_string(), Some(pathbuf.to_string_lossy().to_string()))?;
+            let file_content = match self.get(pending.path.to_string_lossy().to_string()) {
+                Ok(content) => content,
+                Err(error) if error.is_file_not_found() => match pending.missing() {
+                    Some(missing) => {
+                        missing_includes.push(missing);
+                        continue;
+                    }
+                    None => return Err(error),
+                },
+                Err(error) => return Err(error),
+            };
+            let entity_directives = self.data_type.transform(
+                String::from_utf8_lossy(&file_content).to_string(),
+                Some(pending.path.to_string_lossy().to_string()),
+            )?;
 
-            entity_directives.iter().filter_map(included_file).for_each(|buf| {
-                let fullpath = if buf.starts_with('/') {
-                    PathBuf::from(&buf)
-                } else {
-                    pathbuf.parent().map(|it| it.join(buf)).unwrap()
-                };
-                load_queue.push_back(fullpath);
-            });
+            load_queue.extend(pending.includes(&entity_directives));
             directives.extend(entity_directives);
-            visited.push(pathbuf);
+            visited.push(pending.path);
         }
         Ok(LoadResult {
             directives,
             visited_files: visited,
+            missing_includes,
         })
     }
 
@@ -489,6 +565,8 @@ pub struct SourceEntry {
 pub struct LoadResult {
     pub directives: Vec<Spanned<Directive>>,
     pub visited_files: Vec<PathBuf>,
+    /// the `include`s that name no file, which the load went on without; the ledger reports them
+    pub missing_includes: Vec<MissingInclude>,
 }
 
 #[cfg(test)]
@@ -655,12 +733,15 @@ mod include_pattern_test {
 mod test {
     use std::sync::Arc;
 
+    use zhang_ast::error::ErrorKind;
     use zhang_ast::Directive;
 
     use super::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
+    use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
+    use crate::store::Store;
 
     #[test]
     fn an_append_includes_each_new_file_once() {
@@ -732,7 +813,8 @@ mod test {
 
     /// A pattern names the files that exist, whole names only, in any part of the path (#494): `*.zhang` next to the
     /// main file, `data/*/*.zhang`, and `data/*/accounts.zhang` with a literal last part. The main file matches its
-    /// own pattern and is still read once; `01.zhang.bak` and the hidden `.#01.zhang` are left out.
+    /// own pattern and is still read once; `01.zhang.bak` and the hidden `.#01.zhang` are left out. `nothing/*.zhang`,
+    /// which matches no file, is an error on its `include`.
     #[test]
     fn an_include_pattern_names_matching_files_at_any_depth() {
         let dir = tempfile::tempdir().unwrap();
@@ -775,7 +857,50 @@ mod test {
             ]
         );
         let store = ledger.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
+        assert_eq!(
+            include_errors(&store),
+            vec![("nothing/*.zhang".to_owned(), "include \"nothing/*.zhang\"".to_owned())]
+        );
         assert_eq!(store.transactions.len(), 2);
+    }
+
+    /// the `IncludeNotFound` errors of a ledger whose `store` this is: the `path` meta and the text of the `include`;
+    /// it has no other error
+    fn include_errors(store: &Store) -> Vec<(String, String)> {
+        store
+            .errors
+            .iter()
+            .map(|it| {
+                assert_eq!(it.error_type, ErrorKind::IncludeNotFound, "{:?}", store.errors);
+                let text = it.span.as_ref().map(|span| span.content.trim().to_owned()).unwrap_or_default();
+                (it.metas["path"].clone(), text)
+            })
+            .collect()
+    }
+
+    /// An `include` naming a file that is not there is an error on it, and the rest of the ledger loads (#494): this
+    /// source failed the load on it, with an io error that did not name the file. Creating the file makes the ledger
+    /// stale
+    #[test]
+    fn an_include_naming_no_file_is_an_error_on_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), "include \"accounts.zhang\"\ninclude \"acounts/typo.zhang\"\n").unwrap();
+        std::fs::write(root.join("accounts.zhang"), "1970-01-01 open Assets:Cash\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+
+        let store = ledger.store.read().unwrap();
+        assert_eq!(
+            include_errors(&store),
+            vec![("acounts/typo.zhang".to_owned(), "include \"acounts/typo.zhang\"".to_owned())]
+        );
+        assert!(store.accounts.contains_key("Assets:Cash"));
+        assert_eq!(ledger.visited_files, vec![root.join("main.zhang"), root.join("accounts.zhang")]);
+        assert_eq!(
+            ledger.extra_inputs.iter().cloned().collect::<Vec<_>>(),
+            vec![ExtraInput::File("acounts/typo.zhang".into())]
+        );
     }
 }

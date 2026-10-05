@@ -31,6 +31,16 @@ pub(crate) fn save_plugin_content_into_cache_folder(plugin_hash: String, module_
     Ok(())
 }
 
+/// the error of reading the module `module`: a module that is not there stops the load naming it, before anything is
+/// cached (#487)
+#[cfg(feature = "plugin_runtime")]
+fn module_error(module: &str, error: crate::ZhangError) -> crate::ZhangError {
+    match error.is_file_not_found() {
+        true => crate::ZhangError::CustomError(format!("plugin module not found: {module}")),
+        false => error,
+    }
+}
+
 /// mainly for fetch the plugin data from remote and save it into local cache folder
 #[async_trait::async_trait]
 impl DirectivePreProcess for Plugin {
@@ -42,7 +52,7 @@ impl DirectivePreProcess for Plugin {
 
                 let plugin_name = self.module.as_str().to_string();
                 let plugin_hash = digest(&plugin_name);
-                let module_bytes = ledger.data_source.get(plugin_name)?;
+                let module_bytes = ledger.data_source.get(plugin_name.clone()).map_err(|error| module_error(&plugin_name, error))?;
 
                 save_plugin_content_into_cache_folder(plugin_hash, module_bytes)?;
             }
@@ -58,7 +68,11 @@ impl DirectivePreProcess for Plugin {
 
                 let plugin_name = self.module.as_str().to_string();
                 let plugin_hash = digest(&plugin_name);
-                let module_bytes = ledger.data_source.async_get(plugin_name).await?;
+                let module_bytes = ledger
+                    .data_source
+                    .async_get(plugin_name.clone())
+                    .await
+                    .map_err(|error| module_error(&plugin_name, error))?;
 
                 save_plugin_content_into_cache_folder(plugin_hash, module_bytes)?;
             }

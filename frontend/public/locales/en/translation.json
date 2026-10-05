@@ -33,6 +33,7 @@
     "BalanceTimeIgnored": "Balance checked at the start of its date: its time is ignored, as beancount ignores it",
     "DocumentPathRelativeToRoot": "Beancount resolves this path relative to {{meta.file}}; write it as {{meta.written_as}}",
     "DocumentNotFound": "Document file {{meta.path}} does not exist",
+    "IncludeNotFound": "No file in the ledger's directory matches the include {{meta.path}}",
     "AccountClosed": "Try to operate a closed account",
     "CommodityDoesNotDefine": "Try to use a undefined commodity",
     "CommodityNotAllowed": "Commodity {{meta.commodity}} is not allowed in {{meta.account_name}}: its open lists other commodities",

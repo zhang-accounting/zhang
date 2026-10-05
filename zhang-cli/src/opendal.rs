@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::Duration;
 
 use async_recursion::async_recursion;
@@ -13,7 +12,7 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, SpanInfo, Spanned};
-use zhang_core::data_source::{directive_output_file, include_for_append, included_file, written_into, DataSource, IncludePattern, LoadResult, SourceEntry};
+use zhang_core::data_source::{directive_output_file, include_for_append, written_into, DataSource, IncludePattern, LoadResult, PendingFile, SourceEntry};
 use zhang_core::data_type::text::parser::parse as zhang_parse;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
@@ -45,7 +44,10 @@ impl DataSource for OpendalDataSource {
         let file = &path;
         self.blocking(None, |operator| async move { operator.read(file).await })
             .map(|data| data.to_vec())
-            .map_err(|e| ZhangError::CustomError(format!("fail to get file content [{}] : {}", path, e)))
+            .map_err(|e| match e {
+                BlockingError::Opendal(e) if e.kind() == ErrorKind::NotFound => ZhangError::FileNotFound,
+                e => ZhangError::CustomError(format!("fail to get file content [{}] : {}", path, e)),
+            })
     }
 
     fn local_root(&self, _entry: &Path) -> Option<PathBuf> {
@@ -115,72 +117,79 @@ impl DataSource for OpendalDataSource {
         let entry = PathBuf::from(entry);
         let main_endpoint = entry.join(endpoint);
 
-        let mut load_queue: VecDeque<PathBuf> = VecDeque::new();
-        load_queue.push_back(main_endpoint);
+        let mut load_queue: VecDeque<PendingFile> = VecDeque::new();
+        load_queue.push_back(PendingFile::main(main_endpoint));
 
         let mut visited: Vec<PathBuf> = Vec::new();
         let mut directives = vec![];
-        while let Some(pathbuf) = load_queue.pop_front() {
+        let mut missing_includes = vec![];
+        while let Some(pending) = load_queue.pop_front() {
             // the `Fs` service is jailed to the ledger's directory and a remote service holds nothing outside its root:
-            // an `include` of an absolute path outside is a load error naming it, not a panic that aborts the start or
-            // kills the reload task (#492)
-            let striped_pathbuf = &pathbuf
-                .strip_prefix(&entry)
-                .map_err(|_| {
-                    ZhangError::CustomError(format!(
-                        "cannot include {}: it is outside the ledger's directory {}",
-                        pathbuf.display(),
-                        entry.display()
-                    ))
-                })?
-                .to_path_buf();
-            if let Some(pattern) = IncludePattern::parse(striped_pathbuf) {
+            // an `include` of an absolute path outside names no file this source has, and is reported as missing,
+            // never a panic that aborts the start or kills the reload task (#492)
+            let Ok(striped_pathbuf) = pending.path.strip_prefix(&entry).map(Path::to_path_buf) else {
+                match pending.missing() {
+                    Some(missing) => missing_includes.push(missing),
+                    None => {
+                        return Err(ZhangError::CustomError(format!(
+                            "cannot include {}: it is outside the ledger's directory {}",
+                            pending.path.display(),
+                            entry.display()
+                        )))
+                    }
+                }
+                continue;
+            };
+            if let Some(pattern) = IncludePattern::parse(&striped_pathbuf) {
                 // listed through the blocking helper, as plugins list during a load; a directory that is not there
                 // holds nothing
                 let files = pattern.expand(Path::new(""), |dir| match self.list(dir.to_string_lossy().into_owned(), usize::MAX) {
                     Err(ZhangError::FileNotFound) => Ok(vec![]),
                     listed => listed,
                 })?;
-                load_queue.extend(files.into_iter().map(|file| entry.join(file)));
+                if files.is_empty() {
+                    missing_includes.extend(pending.missing());
+                }
+                load_queue.extend(files.into_iter().map(|file| pending.matched(entry.join(file))));
                 continue;
             }
             debug!("visited entry file: {:?}", striped_pathbuf.display());
-            if utils::has_path_visited(&visited, &pathbuf) {
+            if utils::has_path_visited(&visited, &pending.path) {
                 continue;
             }
-            let file_content = self.get_file_content(striped_pathbuf.clone()).await?;
+            let file_content = match self.get_file_content(striped_pathbuf.clone()).await {
+                Ok(content) => content,
+                Err(ZhangError::FileNotFound) => match pending.missing() {
+                    Some(missing) => {
+                        missing_includes.push(missing);
+                        continue;
+                    }
+                    // a main file that is not there yet is an empty ledger, which the web UI writes the first entries
+                    // of (`zhang serve` on a new folder)
+                    None => String::new(),
+                },
+                Err(error) => return Err(error),
+            };
             let entity_directives = self.parse(&file_content, striped_pathbuf.clone())?;
 
-            entity_directives.iter().filter_map(included_file).for_each(|buf| {
-                let fullpath = if buf.starts_with('/') {
-                    PathBuf::from_str(&buf).unwrap()
-                } else {
-                    pathbuf.parent().map(|it| it.join(buf)).unwrap()
-                };
-                load_queue.push_back(fullpath);
-            });
+            load_queue.extend(pending.includes(&entity_directives));
             directives.extend(entity_directives);
-            visited.push(pathbuf);
+            visited.push(pending.path);
         }
-        let res = LoadResult {
+        Ok(LoadResult {
             directives,
             visited_files: visited,
-        };
-        Ok(res)
+            missing_includes,
+        })
     }
 
+    /// [`ZhangError::FileNotFound`] for a file that is not there, never an empty file: a missing `include` or plugin
+    /// module read as empty was loaded as such, and the module cached empty (#487, #494)
     async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        let path_for_read = path.to_owned();
-        let result = self.operator.read(&path_for_read).await;
-        match result {
+        match self.operator.read(&path).await {
             Ok(data) => Ok(data.to_vec()),
-            Err(err) => {
-                if err.kind() == ErrorKind::NotFound {
-                    Ok(Vec::new())
-                } else {
-                    Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err)))
-                }
-            }
+            Err(err) if err.kind() == ErrorKind::NotFound => Err(ZhangError::FileNotFound),
+            Err(err) => Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err))),
         }
     }
 
@@ -313,8 +322,12 @@ impl OpendalDataSource {
             self.append_directive(ledger, include, None, None).await?;
         }
 
-        let content_buf = ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await?;
-        let content = String::from_utf8(content_buf)?;
+        let content = match ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await {
+            Ok(content) => String::from_utf8(content)?,
+            // a file this append creates
+            Err(error) if error.is_file_not_found() => String::new(),
+            Err(error) => return Err(error),
+        };
 
         let directive = written_into(ledger, directive, striped_endpoint);
         let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
@@ -430,6 +443,7 @@ mod test {
     use zhang_core::data_source::{DataSource, SourceEntry};
     use zhang_core::data_type::text::parser::parse as zhang_parse;
     use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::inputs::ExtraInput;
     use zhang_core::ledger::Ledger;
     use zhang_core::ZhangError;
 
@@ -474,7 +488,7 @@ mod test {
     /// A pattern names the files that exist, whole names only, in any part of the path (#494): `*.zhang` at the root
     /// and `data/*/accounts.zhang`, with a literal last part, stopped the load before, and `*.zhang` took
     /// `01.zhang.bak`, whose entries were loaded twice. The main file matches its own pattern and is still read once;
-    /// the hidden `.#01.zhang` is left out.
+    /// the hidden `.#01.zhang` is left out. `nothing/*.zhang`, which matches no file, is an error on its `include`.
     #[tokio::test]
     async fn an_include_pattern_names_matching_files_at_any_depth() {
         let transaction = |day: &str| format!("2024-01-{day} * \"shop\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n");
@@ -510,8 +524,8 @@ mod test {
                 "main.zhang"
             ]
         );
+        assert_eq!(errors_of(&ledger), vec![include_not_found("nothing/*.zhang")]);
         let store = ledger.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 2);
     }
 
@@ -530,44 +544,184 @@ mod test {
         Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await)
     }
 
-    /// An `include` of an absolute path outside the ledger's directory, which the `Fs` service can never read, is a
-    /// load error naming the path, not a panic that aborts `zhang serve` or kills its reload task (#492). Once the
-    /// include is gone, the ledger loads again.
+    /// the errors of `ledger`, by the text of their directive: the kind, the metas as `key=value` in order, and the text
+    fn errors_of(ledger: &Ledger) -> Vec<(zhang_ast::error::ErrorKind, Vec<String>, String)> {
+        let store = ledger.store.read().unwrap();
+        let mut errors: Vec<_> = store
+            .errors
+            .iter()
+            .map(|it| {
+                let mut metas: Vec<String> = it.metas.iter().map(|(key, value)| format!("{}={}", key, value)).collect();
+                metas.sort();
+                let text = it.span.as_ref().map(|span| span.content.trim().to_owned()).unwrap_or_default();
+                (it.error_type.clone(), metas, text)
+            })
+            .collect();
+        errors.sort_by(|a, b| a.2.cmp(&b.2));
+        errors
+    }
+
+    /// an `IncludeNotFound` error on the `include` of `path`
+    fn include_not_found(path: &str) -> (zhang_ast::error::ErrorKind, Vec<String>, String) {
+        (
+            zhang_ast::error::ErrorKind::IncludeNotFound,
+            vec![format!("path={}", path)],
+            format!("include \"{}\"", path),
+        )
+    }
+
+    /// An `include` naming a file that is not there is an error on that `include`, with the path as it is written, and
+    /// the rest of the ledger loads (#494): the file was read as an empty one, without an error, and listed in the file
+    /// editor. A relative path is looked for next to the file holding the `include`. A pattern that matches no file is
+    /// reported the same way, as beancount reports both. Creating a missing file makes the ledger stale
     #[tokio::test]
-    async fn an_include_outside_the_ledger_is_a_load_error() {
+    async fn an_include_naming_no_file_is_an_error_on_it() {
+        let ledger = load_remote(&[
+            (
+                "main.zhang",
+                "include \"accounts.zhang\"\ninclude \"acounts/typo.zhang\"\ninclude \"nothing/*.zhang\"\ninclude \"data/2024.zhang\"\n",
+            ),
+            ("accounts.zhang", OPENS),
+            (
+                "data/2024.zhang",
+                "include \"sibling.zhang\"\n2024-01-01 * \"shop\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n",
+            ),
+        ])
+        .await;
+
+        assert_eq!(
+            errors_of(&ledger),
+            vec![
+                include_not_found("acounts/typo.zhang"),
+                include_not_found("nothing/*.zhang"),
+                include_not_found("sibling.zhang")
+            ]
+        );
+        let files: Vec<_> = {
+            let store = ledger.store.read().unwrap();
+            store.errors.iter().map(|it| it.span.as_ref().and_then(|span| span.filename.clone())).collect()
+        };
+        assert_eq!(
+            files,
+            vec![Some("main.zhang".into()), Some("main.zhang".into()), Some("data/2024.zhang".into())],
+            "each error is on its `include`"
+        );
+        let visited: Vec<_> = ledger.visited_files.iter().map(|it| it.strip_prefix("/ledger").unwrap().to_owned()).collect();
+        assert_eq!(
+            visited,
+            vec![Path::new("main.zhang"), Path::new("accounts.zhang"), Path::new("data/2024.zhang")]
+        );
+        assert_eq!(ledger.store.read().unwrap().transactions.len(), 1, "the files that are there load");
+        assert_eq!(
+            ledger.extra_inputs.iter().cloned().collect::<Vec<_>>(),
+            vec![ExtraInput::File("acounts/typo.zhang".into()), ExtraInput::File("data/sibling.zhang".into())]
+        );
+    }
+
+    /// A ledger whose main file is not there yet is empty, without an error, as `zhang serve` starts on a new folder
+    /// (the main file is no `include`). The first entry recorded in the web UI writes it
+    #[tokio::test]
+    async fn a_missing_main_file_is_an_empty_ledger() {
+        let empty = load_remote(&[]).await;
+        assert!(errors_of(&empty).is_empty(), "{:?}", errors_of(&empty));
+        assert_eq!(empty.visited_files, vec![Path::new("/ledger/main.zhang")]);
+
+        let dir = tempdir().unwrap();
+        let ledger = append_coffee(dir.path(), "main.zhang").await;
+
+        let main = std::fs::read_to_string(dir.path().join("main.zhang")).expect("the main file is written");
+        assert_eq!(main.trim(), "include \"data/2024/01.zhang\"");
+        assert!(std::fs::read_to_string(dir.path().join("data/2024/01.zhang")).unwrap().contains("Coffee"));
+        assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+    }
+
+    /// An `include` of an absolute path outside the ledger's directory, which the `Fs` service can never read, names no
+    /// file of the ledger: it is an error on the `include`, as for a file that is not there, and the rest of the ledger
+    /// loads (#494). It was a panic that aborted `zhang serve` or killed its reload task (#492), then a load error
+    #[tokio::test]
+    async fn an_include_outside_the_ledger_is_an_error_on_it() {
         let dir = tempdir().unwrap();
         let outside = tempdir().unwrap();
-        let outside_file = outside.path().join("x.zhang");
+        let outside_file = outside.path().join("x.zhang").display().to_string();
         std::fs::write(&outside_file, "1970-01-01 open Assets:Outside CNY\n").unwrap();
-        std::fs::write(dir.path().join("main.zhang"), format!("{OPENS}include \"{}\"\n", outside_file.display())).unwrap();
+        std::fs::write(dir.path().join("main.zhang"), format!("{OPENS}include \"{}\"\n", outside_file)).unwrap();
         let source = local_source(dir.path(), "main.zhang").await;
 
-        let loaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).await;
-        let Err(error) = loaded else { panic!("an include outside the ledger loaded") };
-        let message = error.to_string();
-        assert!(message.contains(&format!("cannot include {}", outside_file.display())), "{}", message);
-        assert!(message.contains("outside the ledger's directory"), "{}", message);
+        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
+            .await
+            .expect("the rest of the ledger loads");
 
-        std::fs::write(dir.path().join("main.zhang"), OPENS).unwrap();
-        let reloaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).await;
-        assert!(reloaded.is_ok(), "loads again once the include is gone");
+        assert_eq!(errors_of(&ledger), vec![include_not_found(&outside_file)]);
+        let store = ledger.store.read().unwrap();
+        assert!(store.accounts.contains_key("Assets:Cash"));
+        assert!(!store.accounts.contains_key("Assets:Outside"));
+        assert!(ledger.extra_inputs.is_empty(), "a file outside the ledger's directory is not watched");
     }
 
     /// the same on a remote source, whose root holds every file it can read
     #[tokio::test]
-    async fn an_include_outside_a_remote_ledger_is_a_load_error() {
-        let operator = Operator::new(Memory::default()).unwrap();
-        operator.write("main.zhang", b"include \"/elsewhere/x.zhang\"\n".to_vec()).await.unwrap();
-        let source = OpendalDataSource {
-            operator,
-            data_type: Box::new(ZhangDataType {}),
-            is_beancount: false,
-            local_root: None,
-        };
+    async fn an_include_outside_a_remote_ledger_is_an_error_on_it() {
+        let ledger = load_remote(&[("main.zhang", "include \"/elsewhere/x.zhang\"\n")]).await;
 
-        let loaded = Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.zhang".to_owned(), Arc::new(source)).await;
-        let Err(error) = loaded else { panic!("an include outside the ledger loaded") };
-        assert!(error.to_string().contains("cannot include /elsewhere/x.zhang"), "{}", error);
+        assert_eq!(errors_of(&ledger), vec![include_not_found("/elsewhere/x.zhang")]);
+    }
+
+    /// A `plugin` whose module is not there stops the load, naming it, and caches nothing (#487): the module was read as
+    /// an empty one, cached as a 0-byte `.cache/plugins/<hash>.wasm`, and the load failed on it with a wasm error. On
+    /// the local disk, an absolute path is looked for within the ledger's directory, as every path the source reads:
+    /// a module given so is not found
+    #[tokio::test]
+    async fn a_missing_plugin_module_stops_the_load_and_caches_nothing() {
+        let dir = tempdir().unwrap();
+        let unique = dir.path().file_name().unwrap().to_string_lossy().into_owned();
+        std::fs::create_dir(dir.path().join("plugins")).unwrap();
+        std::fs::write(dir.path().join("plugins/there.wasm"), b"(module)").unwrap();
+        let absolute = dir.path().join("plugins/there.wasm").display().to_string();
+        let source = local_source(dir.path(), "main.zhang").await;
+
+        for module in [format!("plugins/missing-{}.wasm", unique), absolute] {
+            std::fs::write(
+                dir.path().join("main.zhang"),
+                format!("option \"features.plugin\" \"true\"\nplugin \"{}\"\n{}", module, OPENS),
+            )
+            .unwrap();
+
+            let loaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).await;
+
+            let Err(error) = loaded else { panic!("{} loaded", module) };
+            assert!(error.to_string().contains(&format!("plugin module not found: {}", module)), "{}", error);
+            let cached = Path::new(".cache/plugins").join(format!("{}.wasm", zhang_server::util::sha256_hex(module.as_bytes())));
+            assert!(!cached.exists(), "{} is cached as {}", module, cached.display());
+        }
+    }
+
+    /// The file editor is answered 404 for a file that is not there, which it was shown as an empty file (#494). The
+    /// main file of a ledger started without one is the empty ledger served, shown empty to be written
+    #[tokio::test]
+    async fn the_editor_is_answered_404_for_a_missing_file() {
+        use axum::extract::State;
+        use axum::response::IntoResponse;
+        use zhang_server::routes::file::get_file_content;
+        use zhang_server::routes::Base64Path;
+        use zhang_server::state::SharedLedger;
+
+        let dir = tempdir().unwrap();
+        let source = local_source(dir.path(), "main.zhang").await;
+        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
+            .await
+            .expect("an empty ledger");
+        let state = State(SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+
+        for (path, status, content) in [("accounts.zhang", 404, None), ("main.zhang", 200, Some(""))] {
+            let response = get_file_content(state.clone(), Base64Path(path.to_owned())).await.into_response();
+            assert_eq!(response.status().as_u16(), status, "{}", path);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            match content {
+                Some(content) => assert_eq!(body["data"]["content"], content, "{}", path),
+                None => assert!(body["message"].as_str().unwrap_or_default().contains(path), "{}", body),
+            }
+        }
     }
 
     #[tokio::test]

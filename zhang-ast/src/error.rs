@@ -24,6 +24,10 @@ pub enum ErrorKind {
     DocumentPathRelativeToRoot,
     /// a `document` of a beancount ledger whose file does not exist, as beancount reports it
     DocumentNotFound,
+    /// an `include` that names no file the ledger's data source has: the file does not exist, its absolute path is
+    /// outside the ledger's directory, or its pattern matches none, as beancount reports it. The ledger loads without
+    /// it. Meta `path`: the path as the `include` writes it
+    IncludeNotFound,
     AccountDoesNotExist,
     AccountClosed,
 

@@ -58,6 +58,18 @@ pub enum ZhangError {
     ReadRefused(String),
 }
 
+impl ZhangError {
+    /// whether the error says that there is no file at the path read: [`ZhangError::FileNotFound`], as a data source
+    /// answers a read of a missing file, or an io error of kind `NotFound`
+    pub fn is_file_not_found(&self) -> bool {
+        match self {
+            ZhangError::FileNotFound => true,
+            ZhangError::IoError(e) | ZhangError::FileError { e, .. } => e.kind() == std::io::ErrorKind::NotFound,
+            _ => false,
+        }
+    }
+}
+
 pub trait IoErrorIntoZhangError<T> {
     fn with_path(self, path: &Path) -> Result<T, ZhangError>;
 }
