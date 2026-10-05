@@ -267,6 +267,81 @@ pub struct InfoForNewTransaction {
     pub account_name: Vec<String>,
 }
 
+/// What `POST /api/transactions` or `PUT /api/transactions/{transaction_id}` would write for a request, found without
+/// writing it: `POST /api/transactions/preview` and `POST /api/transactions/{transaction_id}/preview`.
+#[derive(Serialize, Schematic)]
+pub struct TransactionPreviewEntity {
+    /// the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
+    /// field is invalid
+    pub text: Nullable<String>,
+    /// the fields the create or update refuses with a 400, each with its message, in the order they are checked: the
+    /// first is what the create or update answers. Nothing else is checked while there is one
+    pub field_errors: Vec<TransactionFieldErrorEntity>,
+    /// what the transaction is unbalanced by once booked, each posting weighed by its cost or price, rounded at each
+    /// commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
+    /// (see `errors`) or a field is invalid
+    pub unbalanced: Nullable<Vec<Amount>>,
+    /// the errors the ledger would report against the transaction once written, as `GET /api/errors` lists them, such
+    /// as `UnbalancedTransaction` or `AccountClosed`
+    pub errors: Vec<TransactionPreviewErrorEntity>,
+}
+
+/// A field of a transaction request that cannot be written as given.
+#[derive(Serialize, Schematic)]
+pub struct TransactionFieldErrorEntity {
+    /// the posting it is a field of, counting from 0; `null` for a field of the transaction
+    pub posting: Nullable<usize>,
+    pub field: TransactionField,
+    /// why it cannot be written, for a client to tell in its own words with `value`
+    pub kind: InvalidKind,
+    /// the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
+    /// tag, the link or the flag
+    pub value: String,
+    /// what the create or update answers for it with a 400
+    pub message: String,
+}
+
+/// Why a value of a request cannot be written: a name the ledger would not read back (`invalid_…`), or in a beancount
+/// ledger a new name beancount rejects (`beancount_…`), or an amount, cost or price the ledger grammar does not read.
+#[derive(Serialize, Schematic, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InvalidKind {
+    InvalidAccount,
+    BeancountAccount,
+    InvalidCommodity,
+    BeancountCommodity,
+    InvalidAmount,
+    InvalidCost,
+    InvalidPrice,
+    BeancountMetaKey,
+    InvalidTag,
+    BeancountTag,
+    InvalidLink,
+    BeancountLink,
+    InvalidFlag,
+}
+
+/// A field of a transaction request, in the order they are checked: those of each posting, then the transaction's.
+#[derive(Serialize, Schematic, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionField {
+    Unit,
+    Cost,
+    Price,
+    Account,
+    Metas,
+    Tags,
+    Links,
+    Flag,
+}
+
+/// An error the ledger would report against a transaction once written.
+#[derive(Serialize, Schematic)]
+pub struct TransactionPreviewErrorEntity {
+    pub error_type: ErrorKind,
+    pub metas: HashMap<String, String>,
+}
+
 /// The accounts a document written now may name.
 #[derive(Serialize, Schematic)]
 pub struct InfoForNewDocument {

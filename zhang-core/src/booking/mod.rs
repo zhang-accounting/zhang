@@ -218,13 +218,27 @@ impl Booker {
         if residual.keys().any(|currency| !self.precisions.contains_key(currency)) {
             return Some(ErrorKind::CommodityDoesNotDefine);
         }
-        for (currency, amount) in residual {
-            let (precision, rounding) = self.precisions[currency];
-            if !amount.with_scale_round(precision, rounding).is_zero() {
-                return Some(ErrorKind::UnbalancedTransaction);
-            }
+        if !self.unbalanced(residual).is_empty() {
+            return Some(ErrorKind::UnbalancedTransaction);
         }
         None
+    }
+
+    /// What a transaction whose weights sum to `residual` is unbalanced by, by the rule
+    /// [`Booker::check_transaction_balance`] checks: the residual of each commodity rounded at the commodity's
+    /// precision and rounding as defined at this point in the stream, where that is not zero, in commodity order. The
+    /// residual of an undefined commodity is taken as it is.
+    pub(crate) fn unbalanced(&self, residual: &BTreeMap<Currency, BigDecimal>) -> Vec<Amount> {
+        residual
+            .iter()
+            .filter_map(|(currency, amount)| {
+                let rounded = match self.precisions.get(currency) {
+                    Some((precision, rounding)) => amount.with_scale_round(*precision, *rounding),
+                    None => amount.clone(),
+                };
+                (!rounded.is_zero()).then(|| Amount::new(rounded, currency.clone()))
+            })
+            .collect()
     }
 
     /// fold an `open`: its `booking_method` meta, if any, becomes the account's booking method.

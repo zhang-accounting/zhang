@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 
 use log::{trace, warn};
 use uuid::Uuid;
+use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Directive, Flag, Posting, SpanInfo, Spanned};
 
@@ -37,6 +38,17 @@ pub(crate) struct FinalValidation {
     pub errors: Vec<StageError>,
     pub lots: HashMap<String, Vec<CommodityLotRecord>>,
     transactions: HashMap<Uuid, VecDeque<TransactionOutcome>>,
+    /// the transaction a dry run checks ([`Ledger::check_transaction`](crate::ledger::Ledger::check_transaction)),
+    /// whose residual the stage keeps; none in a load
+    pub watched: Option<Watched>,
+}
+
+/// the transaction a dry run checks, by its span, and once booked what it is unbalanced by
+pub(crate) struct Watched {
+    pub span: SpanInfo,
+    /// [`Booker::unbalanced`](crate::booking::Booker::unbalanced) of its residual; `None` until it is booked, and
+    /// when booking rejects it
+    pub unbalanced: Option<Vec<Amount>>,
 }
 
 struct TransactionOutcome {
@@ -65,6 +77,13 @@ impl FinalValidation {
             self.errors[index].metas.insert(TXN_ID.to_owned(), id.to_string());
         }
         outcome.accepted
+    }
+
+    /// keep `unbalanced`, what the booked transaction at `span` is unbalanced by, when it is the one watched
+    fn watch(&mut self, span: &SpanInfo, unbalanced: impl FnOnce() -> Vec<Amount>) {
+        if let Some(watched) = self.watched.as_mut().filter(|it| it.span == *span) {
+            watched.unbalanced = Some(unbalanced());
+        }
     }
 }
 
@@ -124,6 +143,7 @@ impl ProcessStage for ValidateStage {
                         }
                         BookOutcome::Booked(booked) => {
                             let balance_error = booker.check_transaction_balance(&booked.residual);
+                            ctx.validation.watch(span, || booker.unbalanced(&booked.residual));
                             if balance_error == Some(ErrorKind::CommodityDoesNotDefine) {
                                 error_indices.push(ctx.errors.len());
                                 ctx.emit_error(ErrorKind::CommodityDoesNotDefine, span.clone(), HashMap::new());

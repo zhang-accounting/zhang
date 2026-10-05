@@ -172,7 +172,8 @@ impl Schematic for FlagRequest {
 #[derive(Schematic, Deserialize)]
 pub struct CreateTransactionPostingRequest {
     pub account: String,
-    pub unit: Option<Amount>,
+    /// the units of the posting, `null` for the one posting whose units booking infers
+    pub unit: Option<UnitRequest>,
     /// metadata of the posting, checked like the transaction's `metas`
     pub metas: Option<Vec<MetaRequest>>,
     /// the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
@@ -188,6 +189,21 @@ pub struct CreateTransactionPostingRequest {
     /// comment of the posting it edits, `null` removes it
     #[serde(default, deserialize_with = "given")]
     pub comment: Option<Option<String>>,
+}
+
+/// The units of a posting: an amount, or its text as the ledger writes it, read with the ledger's own grammar, such as
+/// `-1,000.50 CNY` or `(10 + 2) / 4 USD`. A text with a number alone is in the ledger's operating currency.
+#[derive(Schematic, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum UnitRequest {
+    Amount(Amount),
+    Text(String),
+}
+
+impl From<Amount> for UnitRequest {
+    fn from(amount: Amount) -> Self {
+        UnitRequest::Amount(amount)
+    }
 }
 
 /// A field that may be left out of a request, be `null`, or carry a value, told apart: `None` when left out (with
