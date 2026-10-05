@@ -7,6 +7,7 @@ use chrono::{DateTime, NaiveTime, TimeDelta, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use notify::{Event, EventKind};
+use zhang_core::data_source::path_in_ledger;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::utils::has_path_visited;
 
@@ -45,15 +46,17 @@ pub fn should_reload(event: &Event, roots: &[PathBuf], visited_files: &[PathBuf]
     event.paths.iter().any(|path| {
         let is_visited_file_modified = event.kind.is_modify() && has_path_visited(visited_files, path);
         is_visited_file_modified
-            || relative_to_root(path, roots).is_some_and(|relative| extra_inputs.iter().any(|input| is_changed_by(input, &event.kind, relative)))
+            || relative_to_root(path, roots).is_some_and(|relative| extra_inputs.iter().any(|input| is_changed_by(input, &event.kind, &relative)))
     })
 }
 
-/// `path` relative to the ledger root; `None` outside the root and in zhang's own cache and state
-fn relative_to_root<'a>(path: &'a Path, roots: &[PathBuf]) -> Option<&'a Path> {
+/// `path`, a path on the disk an event names, relative to the ledger root; `None` outside the root and in zhang's own
+/// cache and state. A relative `path` is relative to no root
+fn relative_to_root(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
     roots
         .iter()
-        .find_map(|root| path.strip_prefix(root).ok())
+        .filter(|_| path.is_absolute())
+        .find_map(|root| path_in_ledger(root, path))
         .filter(|relative| !relative.starts_with(CACHE_DIR) && !relative.starts_with(STATE_DIR))
 }
 

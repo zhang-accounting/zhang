@@ -249,8 +249,9 @@ root, and opening one found at neither answers that it does not exist.
 An [`include`](/reference/directives/include/) names no file: there is no file at its path, or no file matches its
 pattern. Zhang loads the rest of the ledger without it, and the `path` meta holds the path as the `include` writes it.
 Beancount reports it too, as `File glob "<path>" does not match any files`. Zhang reads only within the ledger root:
-the ledger's folder on the local disk, or the root of an S3, WebDAV or GitHub data source. An absolute path outside
-it names no file Zhang can read, and is reported the same way.
+the ledger's folder on the local disk, or the root of an S3, WebDAV or GitHub data source. A path outside it, an
+absolute path elsewhere or a relative one climbing out with `..`, names no file Zhang can read, and is reported the
+same way.
 
 ```zhang title="main.zhang"
 ; there is no accounts/2024.zhang

@@ -1172,15 +1172,13 @@ fn d2_documents_list_directives_then_transaction_and_posting_metadata() {
         ])
     );
 
-    // filename keeps beancount's resolution, relative to the declaring file (the ledger root
-    // is canonicalized when the ledger is loaded)
-    let root = fixture_dir("documents").canonicalize().unwrap();
-    let absolute = |relative: &str| root.join(relative).to_string_lossy().into_owned();
+    // filename keeps beancount's resolution, relative to the declaring file, which the ledger
+    // names by its path within it, as `zhang serve` does
     assert_eq!(
         query(documents(), "SELECT filename, path FROM #documents WHERE source = 'directive'"),
         vec![
-            vec![absolute("sub/docs/contract.pdf"), "docs/contract.pdf".to_owned()],
-            vec![absolute("statements/2024-01.pdf"), "statements/2024-01.pdf".to_owned()],
+            vec!["sub/docs/contract.pdf".to_owned(), "docs/contract.pdf".to_owned()],
+            vec!["statements/2024-01.pdf".to_owned(), "statements/2024-01.pdf".to_owned()],
         ]
     );
 }
@@ -1191,8 +1189,8 @@ fn d2_documents_list_directives_then_transaction_and_posting_metadata() {
 /// zhang's root-relative convention is for the lead to rule.)
 #[test]
 fn d2_document_metadata_rows_resolve_filename_like_directives() {
-    let root = fixture_dir("documents").canonicalize().unwrap();
-    let absolute = |relative: &str| root.join(relative).to_string_lossy().into_owned();
+    // by the path within the ledger, main.zhang being at its root
+    let within = |relative: &str| relative.to_owned();
     let receipts = transaction_id(documents(), "Receipts");
     assert_eq!(
         query_with(
@@ -1201,10 +1199,10 @@ fn d2_document_metadata_rows_resolve_filename_like_directives() {
             &Params::new().bind("id", receipts.as_str())
         ),
         vec![
-            vec![absolute("attachments/receipt-1.pdf")],
-            vec![absolute("attachments/receipt-2.pdf")],
-            vec![absolute("attachments/item-1.jpg")],
-            vec![absolute("attachments/item-2.jpg")],
+            vec![within("attachments/receipt-1.pdf")],
+            vec![within("attachments/receipt-2.pdf")],
+            vec![within("attachments/item-1.jpg")],
+            vec![within("attachments/item-2.jpg")],
         ]
     );
 }

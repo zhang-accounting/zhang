@@ -5,6 +5,7 @@
 //! ([`ledger_order`]). `#documents` adds, after its directives, the documents that
 //! transactions and postings name in their metadata.
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Component, Path, PathBuf};
 
@@ -382,7 +383,7 @@ pub(crate) struct DocumentRow<'a> {
     /// the path as written in the ledger
     filename: &'a str,
     /// the path relative to the ledger's directory
-    path: &'a Path,
+    path: Cow<'a, Path>,
     /// the id of the transaction the store keeps, for a document named in metadata
     transaction_id: Option<Uuid>,
     /// the position in `#entries` of the document directive, or of the transaction
@@ -412,7 +413,7 @@ impl<'a> DocumentRow<'a> {
 /// and date, in the order it read the directives, which is the order of the rows of one account and
 /// day too.
 fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    let row = |directive, source, filename: &'a str, path: &'a Path, transaction_id, seq| {
+    let row = |directive, source, filename: &'a str, path: Cow<'a, Path>, transaction_id, seq| {
         Record::Document(DocumentRow {
             directive,
             source,
@@ -448,20 +449,20 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
     // the store keeps the directives of a day in the order it read them: by time, then as written
     let mut by_day = directives.clone();
     by_day.sort_by_key(|(entry, _, _)| entry.directive);
-    let mut paths: HashMap<u32, &'a Path> = HashMap::new();
+    let mut paths: HashMap<u32, Cow<'a, Path>> = HashMap::new();
     for (entry, directive, document) in by_day {
         let date = date_of(&directive.data).unwrap_or_default();
         let path = resolved
             .get_mut(&(document.account.name(), date))
             .and_then(VecDeque::pop_front)
-            .map(Path::new)
+            .map(|path| Cow::Borrowed(Path::new(path)))
             .unwrap_or_else(|| ledger_file(ledger, Path::new(document.filename.as_str())));
         paths.insert(entry.seq, path);
     }
     let mut rows = directives
         .drain(..)
         .map(|(entry, directive, document)| {
-            let path = paths[&entry.seq];
+            let path = paths.remove(&entry.seq).expect("every document directive has its path");
             row(
                 directive,
                 DocumentSource::Directive(document),

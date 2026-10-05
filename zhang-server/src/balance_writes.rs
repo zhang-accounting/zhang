@@ -296,15 +296,7 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
             .iter()
             .find(|it| matches!(&it.data, Directive::Pad(it) if it == &pad))
             .and_then(|it| it.span.filename.as_ref())
-            .map(|it| {
-                // the file within the ledger's directory, which a local ledger names by its full path
-                let root = ledger.entry.0.canonicalize().unwrap_or_else(|_| ledger.entry.0.clone());
-                it.strip_prefix(&root)
-                    .or_else(|_| it.strip_prefix(&ledger.entry.0))
-                    .unwrap_or(it)
-                    .display()
-                    .to_string()
-            })
+            .map(|it| ledger.path_in_ledger(it).unwrap_or_else(|| it.clone()).display().to_string())
             .unwrap_or_else(|| ledger.entry.1.clone());
         return Err(refused(format!(
             "beancount pads every commodity of an account: the pad of {account} on {pad_date} from {source}, in {file}, \

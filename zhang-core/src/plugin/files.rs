@@ -44,8 +44,8 @@ use cap_std::fs::{Dir, OpenOptions};
 use log::warn;
 use serde::Serialize;
 
-use crate::data_source::{DataSource, SourceEntry};
-use crate::inputs::{normalize_relative, ExtraInput};
+use crate::data_source::{normalize_relative, DataSource, SourceEntry};
+use crate::inputs::ExtraInput;
 use crate::ZhangError;
 
 /// the largest file a plugin can read, 16 MiB

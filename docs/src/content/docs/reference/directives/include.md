@@ -40,7 +40,10 @@ name matches `*.zhang`, and the matching files of every directory under `data`.
 - Every included file is read in the format of the main file, whatever its own extension: a ledger whose main file is
   `main.zhang` reads every file as zhang text, one whose main file is `main.bean` reads every file as Beancount text.
 - An absolute path is read within the ledger root, which is all the server reads: on the local disk, a path inside
-  the ledger's folder is read, and a path outside it names no file.
+  the ledger's folder is read, and a path outside it names no file. A relative path that climbs out of the ledger
+  root with `..`, such as `include "../shared/accounts.zhang"` in the main file, names no file either.
+- A file has one name however a path spells it: `accounts.zhang`, `./accounts.zhang` and `data/../accounts.zhang` in
+  the main file are the same file, read once.
 - A file that does not exist is an [`IncludeNotFound`](/reference/error-codes/#includenotfound) error on the
   `include`, and the rest of the ledger loads without it. It is not listed in the file list of the web UI.
 
@@ -86,7 +89,7 @@ part of the ledger yet, Zhang creates it and appends an `include` of it to the m
 
 | Error | When |
 |---|---|
-| [`IncludeNotFound`](/reference/error-codes/#includenotfound) | No file is at the path, the absolute path is outside the ledger root, or no file matches the pattern. The error points at the `include`, and the rest of the ledger loads. |
+| [`IncludeNotFound`](/reference/error-codes/#includenotfound) | No file is at the path, the path is outside the ledger root (an absolute path elsewhere, or a relative one climbing out with `..`), or no file matches the pattern. The error points at the `include`, and the rest of the ledger loads. |
 
 A file that cannot be parsed stops the ledger from loading, with an error naming the file, line and column. So does an
 included file that is not UTF-8 text, with an error naming the file and the line of the first byte that is not UTF-8.

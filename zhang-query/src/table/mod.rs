@@ -41,6 +41,7 @@ mod lookups;
 mod postings;
 mod prices;
 
+use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
@@ -383,16 +384,13 @@ pub(crate) fn render_pairs<'p>(pairs: impl Iterator<Item = (&'p str, &'p str)>) 
     Value::Str(text)
 }
 
-/// The file `path` of the ledger, relative to the ledger's directory as the UI's file list
-/// names it (also trying the directory of the entry file, for a ledger whose directory was
-/// not given in canonical form), or the full path if it is outside.
-pub(crate) fn ledger_file<'a>(ledger: &'a Ledger, path: &'a Path) -> &'a Path {
-    [Some(ledger.entry.0.as_path()), ledger.visited_files.first().and_then(|it| it.parent())]
-        .into_iter()
-        .flatten()
-        .find_map(|root| path.strip_prefix(root).ok())
-        .filter(|it| !it.as_os_str().is_empty())
-        .unwrap_or(path)
+/// The file `path` of the ledger by its path within the ledger, as the UI's file list names it
+/// ([`Ledger::path_in_ledger`]), or the path as it is if it is outside.
+pub(crate) fn ledger_file<'a>(ledger: &Ledger, path: &'a Path) -> Cow<'a, Path> {
+    match ledger.path_in_ledger(path).filter(|it| !it.as_os_str().is_empty()) {
+        Some(within) => Cow::Owned(within),
+        None => Cow::Borrowed(path),
+    }
 }
 
 /// The metadata of a directive.
