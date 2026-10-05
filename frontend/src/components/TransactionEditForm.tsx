@@ -21,9 +21,12 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import {
   directiveText,
   DOCUMENT_KEY,
+  emptyDraft,
   ledgerFormat,
   parseAmount,
   PostingDraft,
+  PostingFieldErrors,
+  postingFieldErrors,
   toPostingDrafts,
   toPostingRequest,
   toRequestMetas,
@@ -54,6 +57,13 @@ const AMOUNT_ERROR: Record<'cost_price' | 'no_commodity' | 'invalid', string> = 
   no_commodity: 'ledger.txn.amount_no_commodity',
   invalid: 'ledger.txn.amount_invalid',
 };
+
+/** The cost, price and comment fields of a posting's details; each is written as in a ledger file. */
+type DetailField = 'cost' | 'price' | 'comment';
+const DETAIL_FIELDS: DetailField[] = ['cost', 'price', 'comment'];
+
+/** Whether a posting row has any detail besides its metadata: a cost, a price or a comment. */
+const hasDetails = (posting: PostingDraft) => DETAIL_FIELDS.some((field) => posting[field].trim() !== '');
 
 /** `yyyy-MM-dd HH:mm:ss` in the ledger timezone (the server converts the submitted instant to it before writing). */
 function formatLedgerDateTime(date: Date, timeZone?: string) {
@@ -139,8 +149,9 @@ export default function TransactionEditForm(props: Props) {
   const [narration, setNarration] = useState(props.data?.narration ?? '');
   const [postings, postingsHandler] = useListState<PostingDraft>(toPostingDrafts(props.data?.postings));
   const [metas, metaHandler] = useListState<MetaEntry>((props.data?.metas ?? []).filter((meta) => meta.key !== DOCUMENT_KEY));
-  // Posting metadata editors are collapsed by default; ids of the expanded postings.
-  const [openPostingMetas, setOpenPostingMetas] = useState<ReadonlySet<number>>(() => new Set());
+  // Posting details (cost, price, comment, metadata) are collapsed by default, except for a posting that has a cost, a price
+  // or a comment, which must stay in view when editing; ids of the expanded postings.
+  const [openPostingMetas, setOpenPostingMetas] = useState<ReadonlySet<number>>(() => new Set(postings.filter(hasDetails).map((it) => it.id)));
 
   const accountItems = useAtomValue(accountSelectItemsAtom);
   const { value: options } = useAsync(async () => {
@@ -152,10 +163,12 @@ export default function TransactionEditForm(props: Props) {
   const { value: fileFormat } = useAsync(async () => ledgerFormat((await retrieveFiles({})).data.data), []);
 
   const parsed = useMemo(() => postings.map((it) => parseAmount(it.amount, operatingCurrency)), [postings, operatingCurrency]);
+  const fieldErrors = useMemo<PostingFieldErrors[]>(() => postings.map(postingFieldErrors), [postings]);
   const emptyAmounts = parsed.filter((it) => it.status === 'empty').length;
   const invalidAmount = parsed.some((it) => it.status !== 'empty' && it.status !== 'ok');
+  const invalidField = fieldErrors.some((it) => it.cost || it.price);
   const missingAccount = postings.some((it) => !it.account);
-  const isValid = !!date && !missingAccount && emptyAmounts <= 1 && !invalidAmount;
+  const isValid = !!date && !missingAccount && emptyAmounts <= 1 && !invalidAmount && !invalidField;
 
   // Sum per commodity when every amount is explicit, to warn about unbalanced input before the server rejects it.
   const imbalance = useMemo(() => {
@@ -200,10 +213,10 @@ export default function TransactionEditForm(props: Props) {
 
   const addPosting = () => {
     const id = Math.max(-1, ...postings.map((it) => it.id)) + 1;
-    postingsHandler.append({ id, account: undefined, amount: '', metas: [], documents: [] });
+    postingsHandler.append(emptyDraft(id));
   };
 
-  /** Expands / collapses a posting's metadata editor; expanding an empty one starts with a blank row to fill in. */
+  /** Expands / collapses a posting's details; expanding one without metadata starts with a blank metadata row to fill in. */
   const togglePostingMetas = (idx: number) => {
     const posting = postings[idx];
     const open = openPostingMetas.has(posting.id);
@@ -287,7 +300,8 @@ export default function TransactionEditForm(props: Props) {
             const errorId = `${payeeListId}-posting-${posting.id}-error`;
             const metasId = `${payeeListId}-posting-${posting.id}-metas`;
             const metasOpen = openPostingMetas.has(posting.id);
-            const metaCount = toRequestMetas(posting.metas).length;
+            const metaCount = toRequestMetas(posting.metas).length + DETAIL_FIELDS.filter((field) => posting[field].trim() !== '').length;
+            const errors = fieldErrors[idx];
             return (
               <div key={posting.id} className={cn(POSTING_CARD, POSTING_ROW)}>
                 <GroupCombobox
@@ -352,8 +366,40 @@ export default function TransactionEditForm(props: Props) {
                     aria-label={t('ledger.txn.posting_metas', { index: idx + 1 })}
                     className="col-span-3 flex flex-col gap-2 border-t pt-2 md:col-span-4 md:mb-1 md:ml-3 md:border-t-0 md:border-l md:pt-0 md:pl-3"
                   >
+                    <span className="text-xs font-medium text-muted-foreground">{t('ledger.txn.posting_metas_title')}</span>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      {DETAIL_FIELDS.map((field) => {
+                        const fieldId = `${payeeListId}-posting-${posting.id}-${field}`;
+                        const error = field === 'comment' ? undefined : errors[field];
+                        return (
+                          <Field key={field}>
+                            <FieldLabel htmlFor={fieldId} className="text-xs">
+                              {t(`ledger.txn.${field}`)}
+                            </FieldLabel>
+                            <Input
+                              id={fieldId}
+                              className={cn(CONTROL, field !== 'comment' && 'tabular-nums')}
+                              aria-label={t(`ledger.txn.posting_${field}`, { index: idx + 1 })}
+                              autoCapitalize={field === 'comment' ? 'sentences' : 'characters'}
+                              autoComplete="off"
+                              spellCheck={field === 'comment'}
+                              placeholder={t(`ledger.txn.${field}_placeholder`)}
+                              aria-invalid={error ? true : undefined}
+                              aria-describedby={error ? `${fieldId}-error` : undefined}
+                              value={posting[field]}
+                              onChange={(e) => postingsHandler.setItemProp(idx, field, e.target.value)}
+                            />
+                            {error && (
+                              <p id={`${fieldId}-error`} className="text-xs text-destructive">
+                                {t(`ledger.txn.${error}`)}
+                              </p>
+                            )}
+                          </Field>
+                        );
+                      })}
+                    </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-muted-foreground">{t('ledger.txn.posting_metas_title')}</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('ledger.txn.metas')}</span>
                       <Button
                         variant="ghost"
                         size="sm"

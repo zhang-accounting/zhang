@@ -11,10 +11,21 @@ export interface PostingDraft {
   id: number;
   account: string | undefined;
   amount: string;
+  /** The cost as the ledger writes it, e.g. `{150 USD}`, `{{1500 USD}}` or `{}`; empty for none. */
+  cost: string;
+  /** The price as the ledger writes it, e.g. `@ 6 USD` or `@@ 60 USD`; empty for none. */
+  price: string;
+  /** The comment at the end of the posting line, without the `;`; empty for none. */
+  comment: string;
   /** Editable metadata rows. */
   metas: MetaEntry[];
   /** The posting's `document` entries: not shown in the editor, sent back unchanged. */
   documents: MetaEntry[];
+}
+
+/** An empty posting row. */
+export function emptyDraft(id: number): PostingDraft {
+  return { id, account: undefined, amount: '', cost: '', price: '', comment: '', metas: [], documents: [] };
 }
 
 /** Request body of "create transaction"; "update transaction" takes the same body. */
@@ -28,12 +39,32 @@ export type TransactionFormValue = Omit<TransactionRequest, 'narration' | 'posti
 
 export type AmountState = { status: 'empty' } | { status: 'ok'; number: string; commodity: string } | { status: 'cost_price' | 'no_commodity' | 'invalid' };
 
+/** The shape errors of a posting's cost and price fields; the server reads them with the ledger grammar and answers 400 otherwise. */
+export interface PostingFieldErrors {
+  cost?: 'cost_invalid';
+  price?: 'price_invalid';
+}
+
+/**
+ * A first check of the cost and price fields, for feedback while typing: a cost is wrapped in `{…}` or `{{…}}`, a price starts
+ * with `@` or `@@` and names an amount. The server is the authority: it reads both with the ledger's own grammar.
+ */
+export function postingFieldErrors(draft: Pick<PostingDraft, 'cost' | 'price'>): PostingFieldErrors {
+  const errors: PostingFieldErrors = {};
+  const cost = draft.cost.trim();
+  if (cost !== '' && !/^(\{\{[^{}]*\}\}|\{[^{}]*\})$/.test(cost)) errors.cost = 'cost_invalid';
+  const price = draft.price.trim();
+  if (price !== '' && !/^@@?\s*\S+\s+\S+$/.test(price)) errors.price = 'price_invalid';
+  return errors;
+}
+
 /** `<number> <COMMODITY>` (the ledger's `commodity_name` grammar); the commodity may be left out when there is a fallback. */
 const AMOUNT_PATTERN = /^(-?\d+(?:\.\d+)?)(?:\s*([A-Za-z][A-Za-z0-9._'-]*))?$/;
 
 /**
  * `"-21.5 CNY"` → `{ number: '-21.5', commodity: 'CNY' }`; a bare number falls back to the operating currency. Anything else
- * (cost `{…}`, price `@ …`, expressions, extra tokens) is rejected: the API only stores `{ number, commodity }` per posting.
+ * (expressions, extra tokens) is rejected: the API stores `{ number, commodity }` as the unit. A cost `{…}` or a price `@ …`
+ * typed here is rejected too (`cost_price`): they have their own fields.
  */
 export function parseAmount(raw: string, fallbackCommodity?: string): AmountState {
   const text = raw.trim();
@@ -96,28 +127,41 @@ export function toRequestMetas(metas: MetaEntry[]): MetaEntry[] {
   return metas.filter((meta) => meta.key.trim() !== '').map((meta) => ({ key: meta.key.trim(), value: meta.value }));
 }
 
-/** Form rows of an existing transaction (or two empty rows for a new one), keeping each posting's metadata. */
+/**
+ * Form rows of an existing transaction (or two empty rows for a new one), keeping each posting's metadata and its cost, price
+ * and comment as the journal shows them written (`written`, in the ledger's own syntax).
+ */
 export function toPostingDrafts(postings: JournalTransactionItem['postings'] | undefined): PostingDraft[] {
-  if (!postings) {
-    return [
-      { id: 0, account: undefined, amount: '', metas: [], documents: [] },
-      { id: 1, account: undefined, amount: '', metas: [], documents: [] },
-    ];
-  }
+  if (!postings) return [emptyDraft(0), emptyDraft(1)];
   return postings.map((posting, idx) => ({
     id: idx,
     account: posting.account ?? undefined,
     amount: `${posting.unit?.number ?? ''} ${posting.unit?.commodity ?? ''}`.trim(),
+    cost: posting.written?.cost ?? '',
+    price: posting.written?.price ?? '',
+    comment: posting.written?.comment ?? '',
     metas: posting.metas.filter((meta) => meta.key !== DOCUMENT_KEY).map((meta) => ({ key: meta.key, value: meta.value })),
     documents: posting.metas.filter((meta) => meta.key === DOCUMENT_KEY),
   }));
 }
 
-/** The request posting of a form row; `amount` is the row's parsed amount (anything but `ok` leaves the unit to the server). */
+/** A cost, price or comment field as sent: its text, or `null` for an empty one, which removes it from the posting. */
+function fieldText(text: string): string | null {
+  const trimmed = text.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * The request posting of a form row; `amount` is the row's parsed amount (anything but `ok` leaves the unit to the server). The
+ * cost, price and comment are always sent, `null` when empty: the form shows the posting's own, so an empty field means none.
+ */
 export function toPostingRequest(draft: PostingDraft, amount: AmountState): PostingRequest {
   return {
     account: draft.account ?? '',
     unit: amount.status === 'ok' ? { number: amount.number, commodity: amount.commodity } : null,
+    cost: fieldText(draft.cost),
+    price: fieldText(draft.price),
+    comment: fieldText(draft.comment),
     metas: [...toRequestMetas(draft.metas), ...draft.documents],
   };
 }
@@ -161,7 +205,9 @@ export function directiveText(value: TransactionFormValue, options: DirectiveTex
   const postingLines = value.postings.flatMap((posting, idx) => {
     const amount = options.amounts[idx];
     const unit = amount?.status === 'ok' ? `${amount.number} ${amount.commodity}` : !amount || amount.status === 'empty' ? '' : options.invalidAmount;
-    const line = `  ${posting.account || options.accountPlaceholder} ${unit}`.trimEnd();
+    // the posting line as the exporter lays it out: account, units, cost, price, then the comment after `;`
+    const parts = [posting.account || options.accountPlaceholder, unit, posting.cost ?? '', posting.price ?? '', posting.comment ? `; ${posting.comment}` : ''];
+    const line = `  ${parts.filter((part) => part !== '').join(' ')}`;
     return [line, ...[...posting.metas].sort(byKey).map(metaLine('    '))];
   });
   return [header, ...metaLines, ...postingLines].join('\n');

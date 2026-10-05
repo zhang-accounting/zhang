@@ -36,17 +36,13 @@ export function hasDocuments(data: JournalTransactionItem) {
 }
 
 /**
- * Why the transaction form cannot safely rewrite this transaction, or `null` when it can.
- *
- * The update API rebuilds every posting from `{ account, unit, metas }` only, so cost (`{…}`) and price (`@ …`) annotations would be
- * silently dropped. The journal payload exposes `cost`, but not prices: a balanced transaction can only mix commodities through
- * a cost or a price, so postings in more than one commodity are treated as "has cost / price" too. Posting comments and posting
- * flags are not in the payload at all (see `TransactionEditModal`, which asks for confirmation instead).
+ * The warning to confirm before an edit rewrites `data` from the form, or `null` when nothing is lost. The server says
+ * (`edit_drops_text`) whether the transaction's text has lines the exporter does not write back, such as a comment line between
+ * its postings or a comment on its header line; posting comments, flags, costs, prices and metadata all round-trip, so a
+ * transaction without such lines is rewritten without asking.
  */
-export function transactionEditBlocker(data: JournalTransactionItem): 'cost_or_price' | null {
-  if (data.postings.some((posting) => posting.cost)) return 'cost_or_price';
-  const commodities = new Set(data.postings.map((posting) => posting.unit?.commodity ?? posting.inferred_unit.commodity));
-  return commodities.size > 1 ? 'cost_or_price' : null;
+export function rewriteWarning(data: Pick<JournalTransactionItem, 'edit_drops_text'>): 'edit_confirm_rewrite' | null {
+  return data.edit_drops_text === true ? 'edit_confirm_rewrite' : null;
 }
 
 /** The journal page size the Journals page asks for. */
