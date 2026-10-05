@@ -11,7 +11,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::{data_source, ZhangError};
 
 use crate::error::ServerError;
-use crate::response::{DocumentEntity, ResponseWrapper};
+use crate::response::{DocumentEntity, InfoForNewDocument, ResponseWrapper};
 use crate::routes::Base64Path;
 use crate::state::SharedLedger;
 use crate::util::{cache_document, cached_document, document_cache_key, DOCUMENT_CACHE};
@@ -122,6 +122,13 @@ async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<V
         }
     }
     Ok(None)
+}
+
+/// The accounts the document upload may name: every account opened by now, closed ones included, as a document only
+/// records and may follow the close; not one opened later or never.
+#[api(group = "document")]
+pub async fn get_info_for_new_document(ledger: State<SharedLedger>) -> ApiResult<InfoForNewDocument> {
+    ResponseWrapper::json(journals::info_for_new_document(&ledger).await?)
 }
 
 /// Every document of the ledger, newest first: the built-in query `journals.documents`.

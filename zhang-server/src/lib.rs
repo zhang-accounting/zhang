@@ -128,6 +128,7 @@ impl GotchaApp for ServerApp {
             .post("/api/accounts/:account_name/balances", create_account_balance)
             .post("/api/accounts/batch-balances", create_batch_account_balances)
             .get("/api/documents", get_documents)
+            .get("/api/for-new-document", get_info_for_new_document)
             // the file path is standard base64, which can contain `/`, see `Base64Path`; an empty one is a 400
             .get("/api/documents/", download_document)
             .get("/api/documents/*file_path", download_document)

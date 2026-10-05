@@ -10,26 +10,27 @@ use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Directive, Flag, SpanInfo, Transaction};
+use zhang_ast::{Account, Directive, Flag, SpanInfo, Transaction};
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::text::parser::transaction_has_unexported_text;
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
+use zhang_core::pipeline::AccountUse;
 use zhang_core::utils::string_::QuoteStyle;
 use zhang_query::{Params, QueryResult, Value};
 
-use crate::builtin::execute;
+use crate::builtin::{bind_instant, execute, ledger_now};
 use crate::cells::{self, Row};
 use crate::error::ServerError;
 use crate::request::JournalRequest;
 use crate::response::{
-    DocumentEntity, ErrorEntity, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
+    DocumentEntity, ErrorEntity, InfoForNewDocument, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
     JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity, Pageable, SpanInfoEntity, WrittenPostingEntity,
 };
 use crate::routes::query::with_ledger;
@@ -42,6 +43,8 @@ pub const JOURNAL_POSTINGS: &str = "journals.postings";
 pub const JOURNAL_BALANCE_CHECKS: &str = "journals.balance_checks";
 pub const PAYEES: &str = "journals.payees";
 pub const OPEN_ACCOUNTS: &str = "journals.accounts";
+/// the accounts with an `open` or `close` directive
+const ACCOUNTS: &str = "accounts.list";
 pub const DOCUMENTS: &str = "journals.documents";
 pub const ERRORS: &str = "journals.errors";
 
@@ -417,18 +420,18 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
 // ------------------------------------------------------------------------------------------------
 // the new-transaction form
 
-/// `GET /api/for-new-transaction`: the payees and the accounts open now, by the ledger's clock.
-pub async fn info_for_new_transaction(ledger: &SharedLedger) -> ServerResult<InfoForNewTransaction> {
-    with_ledger(&ledger.0, |ledger| {
+/// `GET /api/for-new-transaction`: the payees, and the accounts open at `at`, an instant read in the ledger's timezone,
+/// or now.
+pub async fn info_for_new_transaction(ledger: &SharedLedger, at: Option<DateTime<Utc>>) -> ServerResult<InfoForNewTransaction> {
+    with_ledger(&ledger.0, move |ledger| {
         let first_column = |result: QueryResult| result.rows.iter().filter_map(|row| row[0].as_str().map(str::to_owned)).collect_vec();
+        let at = match at {
+            Some(at) => at.with_timezone(&ledger.options.timezone).naive_local(),
+            None => ledger_now(ledger),
+        };
         Ok(InfoForNewTransaction {
             payee: first_column(execute(ledger, PAYEES, &Params::new(), false)?),
-            account_name: first_column(execute(
-                ledger,
-                OPEN_ACCOUNTS,
-                &crate::builtin::bind_instant(Params::new(), crate::builtin::ledger_now(ledger)),
-                false,
-            )?),
+            account_name: first_column(execute(ledger, OPEN_ACCOUNTS, &bind_instant(Params::new(), at), false)?),
         })
     })
     .await
@@ -436,6 +439,25 @@ pub async fn info_for_new_transaction(ledger: &SharedLedger) -> ServerResult<Inf
 
 // ------------------------------------------------------------------------------------------------
 // documents
+
+/// `GET /api/for-new-document`: the accounts a document written now may name, by the rule the ledger checks a `document`
+/// with ([`AccountUse::Records`]): every account opened by now, closed ones included, but not one opened later or never.
+/// The candidates are those of `accounts.list`, the accounts with an `open` or `close` directive.
+pub async fn info_for_new_document(ledger: &SharedLedger) -> ServerResult<InfoForNewDocument> {
+    with_ledger(&ledger.0, |ledger| {
+        let now = ledger_now(ledger);
+        let accounts = execute(ledger, ACCOUNTS, &bind_instant(Params::new(), now), false)?;
+        let account_name = accounts
+            .rows
+            .iter()
+            .filter_map(|row| row[0].as_str())
+            .filter(|name| Account::from_str(name).is_ok_and(|account| ledger.account_reference_error(&account, now, AccountUse::Records).is_none()))
+            .map(str::to_owned)
+            .collect();
+        Ok(InfoForNewDocument { account_name })
+    })
+    .await
+}
 
 /// `GET /api/documents`: every document, newest first.
 pub async fn documents(ledger: &SharedLedger) -> ServerResult<Vec<DocumentEntity>> {

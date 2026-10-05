@@ -115,7 +115,10 @@ One rule decides whether an account is active, for every directive that uses it 
 ```
 
 The account list shows an account as closed from the moment its close takes effect, by the ledger's clock, and as open
-again after a later `open`.
+again after a later `open`. By the same rule, the new-transaction form offers the accounts open at the date and time of
+its transaction, and the balance tools offer the accounts open now. An account an edited transaction already uses stays
+in its list. The document upload offers every account opened by now, closed ones included, as a document may follow
+the close.
 
 ### Commodities
 

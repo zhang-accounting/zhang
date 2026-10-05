@@ -267,6 +267,13 @@ pub struct InfoForNewTransaction {
     pub account_name: Vec<String>,
 }
 
+/// The accounts a document written now may name.
+#[derive(Serialize, Schematic)]
+pub struct InfoForNewDocument {
+    /// every account opened by now, closed ones included, by name: a document only records, and may follow the close
+    pub account_name: Vec<String>,
+}
+
 #[derive(Serialize, Schematic)]
 pub struct CommodityListItemEntity {
     pub name: String,

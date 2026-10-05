@@ -56,6 +56,13 @@ pub struct StatisticGraphRequest {
     pub interval: StatisticInterval,
 }
 
+/// What the new-transaction form asks: the accounts open at `datetime`, the transaction's date and time as the form
+/// submits it, read in the ledger's timezone; now when it is left out.
+#[derive(Schematic, Deserialize, Debug, Default)]
+pub struct NewTransactionInfoRequest {
+    pub datetime: Option<DateTime<Utc>>,
+}
+
 #[derive(Schematic, Deserialize, Debug)]
 pub struct JournalRequest {
     pub page: Option<u32>,

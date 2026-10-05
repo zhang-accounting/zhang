@@ -529,7 +529,7 @@ ORDER BY payee
 
 #### `journals.accounts`
 
-The accounts open at a date and time, by [`account_status`](/reference/query-language/#account-and-commodity-directives), sorted by name: those a transaction written then may post to. An account closed that day with only a date is still open, and one opened again after its close is open. The new-transaction form and the balance tools ask for now, by the ledger's clock.
+The accounts open at a date and time, by [`account_status`](/reference/query-language/#account-and-commodity-directives), sorted by name: those a transaction written then may post to. An account closed that day with only a date is still open, and one opened again after its close is open. The new-transaction form asks for the date and time of its transaction, and the balance tools for now, by the ledger's clock.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
