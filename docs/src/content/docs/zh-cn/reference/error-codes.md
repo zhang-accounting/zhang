@@ -188,6 +188,19 @@ Beancount 账本中的一条 `document` 指向的文件不存在：相对于 `do
 
 **修正方法**：把文件放到路径所指的位置，或者改正相对于 `document` 所在文件的路径。
 
+## IncludeNotFound
+
+*账本目录中没有与 include `<path>` 匹配的文件*
+
+一条 [`include`](/zh-cn/reference/directives/include/) 没有指向任何文件：它的路径上没有文件，或者没有文件匹配它的模式。张记账会在没有它的情况下加载账本的其余部分，`path` 元数据是 `include` 中写的路径。Beancount 也会报告它，报告为 `File glob "<path>" does not match any files`。张记账只在账本根目录内读取：本地磁盘上的账本文件夹，或者 S3、WebDAV、GitHub 数据源的根目录。指向它之外的绝对路径找不到张记账能读取的文件，也会这样报告。
+
+```zhang title="main.zhang"
+; 没有 accounts/2024.zhang
+include "accounts/2024.zhang"
+```
+
+**修正方法**：改正路径、创建这个文件，或者删除这条 `include`。账本在本地磁盘上时，缺失的文件被创建后，`zhang serve` 会重新加载账本。
+
 ## AccountDoesNotExist
 
 *对应账户不存在*

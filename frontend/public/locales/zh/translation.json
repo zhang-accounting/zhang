@@ -23,6 +23,7 @@
     "BalanceTimeIgnored": "余额断言在其日期开始时检查：与 beancount 一样忽略它的时间",
     "DocumentPathRelativeToRoot": "beancount 相对于 {{meta.file}} 解析这个路径；请写成 {{meta.written_as}}",
     "DocumentNotFound": "文档文件 {{meta.path}} 不存在",
+    "IncludeNotFound": "账本目录中没有与 include {{meta.path}} 匹配的文件",
     "AccountClosed": "尝试使用一个已经关闭的账户",
     "CommodityDoesNotDefine": "尝试使用一个未定义的货币",
     "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推导金额的行",

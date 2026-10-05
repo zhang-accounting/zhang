@@ -12,6 +12,7 @@ impl DataSource for InMemoryDataSource {
         Ok(LoadResult {
             directives: directive,
             visited_files: vec![],
+            missing_includes: vec![],
         })
     }
 }

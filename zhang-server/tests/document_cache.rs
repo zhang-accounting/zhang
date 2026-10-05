@@ -29,6 +29,7 @@ impl DataSource for Remote {
         Ok(LoadResult {
             directives: ZhangDataType {}.transform(main.to_owned(), Some(endpoint.clone()))?,
             visited_files: vec![PathBuf::from(entry).join(endpoint)],
+            missing_includes: vec![],
         })
     }
 

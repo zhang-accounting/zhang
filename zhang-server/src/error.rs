@@ -66,6 +66,10 @@ pub enum ServerError {
     #[error("{0}")]
     NoSuchDocument(String),
 
+    /// a file of the ledger a request names is not there. Answered with HTTP 404
+    #[error("there is no file {0} in the ledger's directory")]
+    NoSuchFile(String),
+
     /// a document a request names is outside the ledger's directory, which is all that is served. Answered with
     /// HTTP 403
     #[error("{0}")]
@@ -103,7 +107,7 @@ impl IntoResponse for ServerError {
         });
 
         let status = match self {
-            ServerError::NotFound | ServerError::NoSuchTransaction(_) | ServerError::NoSuchDocument(_) => StatusCode::NOT_FOUND,
+            ServerError::NotFound | ServerError::NoSuchTransaction(_) | ServerError::NoSuchDocument(_) | ServerError::NoSuchFile(_) => StatusCode::NOT_FOUND,
             ServerError::OutsideLedger(_) | ServerError::CoreError(ZhangError::ReadRefused(_)) => StatusCode::FORBIDDEN,
             ServerError::BadRequest | ServerError::InvalidInput(_) | ServerError::PluginTransaction(_) => StatusCode::BAD_REQUEST,
             ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::ReloadFailed(_) | ServerError::Conflict(_) => {

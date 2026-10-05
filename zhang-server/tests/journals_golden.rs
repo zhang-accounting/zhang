@@ -161,6 +161,7 @@ impl DataSource for GlobSource {
         Ok(LoadResult {
             directives,
             visited_files: visited,
+            missing_includes: vec![],
         })
     }
 }
