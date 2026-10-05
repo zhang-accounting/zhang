@@ -5,6 +5,7 @@ import { JournalTransactionItem } from '@/api/types';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
 import { journalFetcher } from '@/states/journals';
+import { canPreviewPath } from '../../utils/documents';
 import { calculate } from '../../utils/trx-calculator';
 import AccountDocumentUpload from '../AccountDocumentUpload';
 import Amount from '../Amount';
@@ -112,7 +113,7 @@ export default function TransactionPreview({ data }: Props) {
         <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {documents.map((meta, idx) => (
-            <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} filename={meta.value} />
+            <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} filename={meta.value} previewable={canPreviewPath(meta.value)} />
           ))}
           <AccountDocumentUpload id={data.id} type="transaction" onUploaded={() => refreshJournals()} />
         </div>

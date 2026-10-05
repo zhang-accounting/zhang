@@ -14,6 +14,7 @@ use zhang_ast::{AccountType, Currency};
 use zhang_core::domains::schemas::{AccountStatus, QueryDomain};
 use zhang_core::plugin::PluginType;
 
+use crate::cells::Row;
 use crate::error::ServerError;
 use crate::state::ReloadFailure;
 use crate::ServerResult;
@@ -134,14 +135,38 @@ pub struct AccountJournalEntity {
     pub passed: Option<bool>,
 }
 
+/// A document, as `GET /api/documents` and an account's documents list it.
 #[derive(Serialize, Schematic)]
 pub struct DocumentEntity {
     pub datetime: NaiveDateTime,
     pub filename: String,
     pub path: String,
+    /// the extension of the document's file name, lower case and without the dot, e.g. `pdf`; null for a file name
+    /// without one
     pub extension: Option<String>,
+    /// the MIME type of the document, guessed from the extension of its file name, e.g. `application/pdf`; null when
+    /// the extension says nothing
+    pub mime_type: Option<String>,
     pub account: Option<String>,
     pub trx_id: Option<String>,
+}
+
+impl DocumentEntity {
+    /// The document of a row of a built-in query on `#documents` with the columns `date`, `time`, `path`, `account` and
+    /// `transaction_id`.
+    pub(crate) fn of(row: &Row<'_>) -> ServerResult<DocumentEntity> {
+        let path = row.str("path")?.unwrap_or_default();
+        let file = std::path::Path::new(&path);
+        Ok(DocumentEntity {
+            datetime: row.datetime("date", "time")?.unwrap_or_default(),
+            filename: file.file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default(),
+            extension: file.extension().map(|it| it.to_string_lossy().to_lowercase()),
+            mime_type: mime_guess::from_path(file).first().map(|it| it.essence_str().to_owned()),
+            account: row.str("account")?,
+            trx_id: row.str("transaction_id")?,
+            path,
+        })
+    }
 }
 
 #[derive(Serialize, Schematic)]

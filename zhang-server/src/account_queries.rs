@@ -8,7 +8,6 @@
 //! does. Balances are valued in the operating currency at today's prices with `convert`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
@@ -446,17 +445,5 @@ pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<A
 pub fn account_documents(ledger: &Ledger, account: &str) -> ServerResult<Vec<DocumentEntity>> {
     require_page(ledger, account)?;
     let result = run(ledger, DOCUMENTS, &Params::new().bind("account", account))?;
-    cells::rows(DOCUMENTS, &result)
-        .map(|row| {
-            let path = row.str("path")?.unwrap_or_default();
-            Ok(DocumentEntity {
-                datetime: row.datetime("date", "time")?.unwrap_or_default(),
-                filename: Path::new(&path).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default(),
-                path,
-                extension: None,
-                account: row.str("account")?,
-                trx_id: None,
-            })
-        })
-        .collect()
+    cells::rows(DOCUMENTS, &result).map(|row| DocumentEntity::of(&row)).collect()
 }

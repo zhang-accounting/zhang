@@ -9,7 +9,7 @@ import { useAsyncRetry } from 'react-use';
 import { retrieveDocuments } from '@/api/requests';
 import { Document } from '@/api/types';
 import AccountDocumentLine from '@/components/documentLines/AccountDocumentLine';
-import { documentExtension, documentUrl } from '@/components/documentLines/document-utils';
+import { documentUrl } from '@/components/documentLines/document-utils';
 import { DocumentUploadDialog } from '@/components/documentLines/DocumentUploadDialog';
 import { ImageLightBox } from '@/components/ImageLightBox';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
@@ -23,7 +23,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { DOCUMENTS_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import { breadcrumbAtom, titleAtom } from '@/states/basic';
-import { isDocumentAnImage } from '@/utils/documents';
+import { canPreview, documentType } from '@/utils/documents';
 
 const GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6';
 
@@ -99,7 +99,7 @@ export default function Documents() {
   );
 
   const open = (document: Document) => {
-    if (isDocumentAnImage(document.path)) setLightboxSrc(document.path);
+    if (canPreview(document)) setLightboxSrc(document.path);
     else window.open(documentUrl(document.path), '_blank', 'noopener');
   };
 
@@ -109,7 +109,7 @@ export default function Documents() {
       header: t('documents.file'),
       cell: (document) => (
         <div className="flex min-w-0 items-center gap-2">
-          {isDocumentAnImage(document.path) ? (
+          {canPreview(document) ? (
             <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
           ) : (
             <FileText className="size-4 shrink-0 text-muted-foreground" />
@@ -119,7 +119,7 @@ export default function Documents() {
       ),
     },
     { key: 'linked', header: t('documents.linked_to'), cell: (document) => <LinkedTo document={document} /> },
-    { key: 'type', header: t('documents.type'), className: 'w-20 text-muted-foreground', cell: (document) => documentExtension(document) || '—' },
+    { key: 'type', header: t('documents.type'), className: 'w-20 text-muted-foreground', cell: (document) => documentType(document) || '—' },
     {
       key: 'date',
       header: t('documents.date'),
@@ -202,7 +202,7 @@ export default function Documents() {
           renderCard={(document) => (
             <div className="flex items-center gap-3">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                {isDocumentAnImage(document.path) ? <ImageIcon className="size-4" /> : <FileText className="size-4" />}
+                {canPreview(document) ? <ImageIcon className="size-4" /> : <FileText className="size-4" />}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{document.filename}</div>

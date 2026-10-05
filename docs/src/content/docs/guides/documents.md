@@ -58,7 +58,7 @@ A file name must be a plain name, without a directory, of at most 255 bytes. The
 
 ## View documents
 
-- The **Documents** page lists every document, newest first, as a grid or a list. The grid shows a document's account, or its transaction when it has no account; the list shows both. A document written on a posting has the posting's account and its transaction. The documents of one transaction come in the order they are written. Images can be previewed; other files open in a new tab.
+- The **Documents** page lists every document, newest first, as a grid or a list. The grid shows a document's account, or its transaction when it has no account; the list shows both. A document written on a posting has the posting's account and its transaction. The documents of one transaction come in the order they are written. The list's **Type** column shows a document's file extension, such as `PDF`. Images in a format browsers display (PNG, JPEG, GIF, WebP, AVIF and BMP) can be previewed; other files open in a new tab.
 - An account's **Documents** tab lists the `document` directives of that account and of its sub-accounts. A document named in a transaction's `document:` metadata shows on the **Documents** page and in the transaction's preview, not on an account's page.
 - A transaction's preview on the Journals page shows its documents, and the journal marks the transactions that have some.
 
