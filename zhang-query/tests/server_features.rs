@@ -1209,20 +1209,22 @@ fn d2_document_metadata_rows_resolve_filename_like_directives() {
     );
 }
 
-/// `path` and `transaction_id` are exactly what the store knows of every document, the data
-/// behind `GET /api/documents` and the download endpoint.
+/// The `path` of a document directive is the path the store resolved it to on load, the data
+/// behind `GET /api/documents` and the download endpoint; the `transaction_id` of a document
+/// named in metadata is the id of a stored transaction. The store keeps no other document.
 #[test]
 fn d2_documents_paths_are_the_store_document_paths() {
-    let mut table = query(documents(), "SELECT path, transaction_id FROM #documents");
-    table.sort();
+    let mut directives = query(documents(), "SELECT path FROM #documents WHERE source = 'directive'");
+    directives.sort();
+    let named = query(documents(), "SELECT transaction_id FROM #documents WHERE source != 'directive'");
+    assert!(!named.is_empty());
     let store = documents().store.read().unwrap();
-    let mut known = store
-        .documents
-        .iter()
-        .map(|document| vec![normalize(&document.path), document.document_type.as_trx().unwrap_or_else(|| "NULL".to_owned())])
-        .collect::<Vec<_>>();
+    let mut known = store.documents.iter().map(|document| vec![normalize(&document.path)]).collect::<Vec<_>>();
     known.sort();
-    assert_eq!(table, known);
+    assert_eq!(directives, known);
+    for row in named {
+        assert!(store.transactions.keys().any(|id| id.to_string() == row[0]), "{row:?}");
+    }
 }
 
 #[test]

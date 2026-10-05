@@ -389,9 +389,9 @@ impl Stored {
             documents: store
                 .documents
                 .iter()
-                .filter_map(|document| match &document.document_type {
-                    DocumentType::Account(account) => Some((account.name().to_owned(), document.path.clone())),
-                    DocumentType::Trx(_) => None,
+                .map(|document| {
+                    let DocumentType::Account(account) = &document.document_type;
+                    (account.name().to_owned(), document.path.clone())
                 })
                 .collect(),
         }

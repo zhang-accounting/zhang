@@ -803,7 +803,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 
 这些表都还有一列 `meta`。对于元数据中的文档，`meta` 和 `meta(key)` 读取引用它的交易或分录的元数据。
 
-*张记账扩展。*除了 `document` 指令，`#documents` 还与网页界面的文档页面一样，列出交易在元数据中引用的每个文档：在指令之后，按账本顺序，交易的 `document` 元数据键的每个值一行，然后是其各分录的。重复的键每个值各一行。被拒绝的交易的文档不会列出。
+*张记账扩展。*除了 `document` 指令，`#documents` 还与网页界面的文档页面一样，列出交易在元数据中引用的每个文档：在指令之后，按账本顺序，交易的 `document` 元数据键的每个值一行，然后是其各分录的。重复的键每个值各一行。记账时按批次拆成多笔的分录，其文档按书写时的分录只列一次。被拒绝的交易的文档不会列出。
 
 ```sql
 SELECT date, account, path, transaction_id

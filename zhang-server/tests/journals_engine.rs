@@ -682,6 +682,52 @@ async fn a_beancount_document_is_listed_with_the_path_the_download_opens() {
     assert_eq!(String::from_utf8_lossy(&content).trim(), "the statement of January 2024");
 }
 
+/// A sale that booking splits across two lots names the document of its posting once: the documents page lists the
+/// posting as written, not each booked leg (which share its metadata).
+#[tokio::test]
+async fn the_document_of_a_split_sale_is_listed_once() {
+    let ledger_text = r#"option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Broker
+  booking_method: "FIFO"
+1970-01-01 open Income:Gains
+
+2024-01-01 * "Broker" "buy"
+  Assets:Broker 10 AAPL {100 USD}
+  Assets:Cash -1000 USD
+
+2024-01-02 * "Broker" "buy"
+  Assets:Broker 10 AAPL {120 USD}
+  Assets:Cash -1200 USD
+
+2024-01-03 * "Broker" "sell"
+  Assets:Broker -15 AAPL {} @ 150 USD
+    document: "slips/sale.pdf"
+  Assets:Cash 2250 USD
+  Income:Gains
+"#;
+    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
+    let ledger = scratch.ledger().await;
+    {
+        let guard = ledger.read().await;
+        assert!(guard.store.read().unwrap().errors.is_empty(), "{:?}", guard.store.read().unwrap().errors);
+        // the sale is booked against both lots
+        let legs = zhang_query::execute(&guard, "SELECT count(*) FROM postings WHERE narration = 'sell' AND account = 'Assets:Broker'").unwrap();
+        assert_eq!(legs.rows, vec![vec![zhang_query::Value::Int(2)]]);
+    }
+    let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
+    assert_eq!(status, StatusCode::OK);
+    let paths = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| (it["path"].clone(), it["account"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(paths, vec![(json!("slips/sale.pdf"), json!("Assets:Broker"))]);
+}
+
 #[tokio::test]
 async fn errors_are_listed_by_file_then_position_one_page_at_a_time() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);

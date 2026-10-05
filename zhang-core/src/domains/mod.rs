@@ -141,10 +141,7 @@ impl Operations {
         Ok(())
     }
 
-    /// insert document
-    /// datetime means:
-    ///  - for transaction document: transaction datetime
-    ///  - for account document: document linking datetime
+    /// insert the document of a `document` directive, at the directive's datetime
     pub(crate) fn insert_document(
         &mut self, datetime: DateTime<Tz>, filename: Option<&str>, path: String, alternate: Option<String>, document_type: DocumentType,
     ) -> ZhangResult<()> {

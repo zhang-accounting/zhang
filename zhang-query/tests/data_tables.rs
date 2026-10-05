@@ -812,6 +812,54 @@ fn documents_without_metadata_are_the_directives() {
     );
 }
 
+/// A posting that booking splits across two lots names its documents once, as written: booking copies the
+/// posting's metadata onto each leg, and `#documents` lists the posting, not the legs. A posting's document is one
+/// of its transaction too.
+#[test]
+fn the_documents_of_a_split_posting_are_listed_once() {
+    let ledger = common::load_text(
+        r#"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Broker
+  booking_method: "FIFO"
+1970-01-01 open Income:Gains
+2024-01-01 * "Broker" "buy"
+  Assets:Broker 10 AAPL {100 USD}
+  Assets:Cash -1000 USD
+2024-01-02 * "Broker" "buy"
+  Assets:Broker 10 AAPL {120 USD}
+  Assets:Cash -1200 USD
+2024-01-03 * "Broker" "sell"
+  document: "slips/order.pdf"
+  Assets:Broker -15 AAPL {} @ 150 USD
+    document: "slips/sale.pdf"
+    document: "slips/lots.pdf"
+  Assets:Cash 2250 USD
+  Income:Gains
+"#,
+    );
+    assert!(ledger.store.read().unwrap().errors.is_empty(), "{:?}", ledger.store.read().unwrap().errors);
+    // the sale is booked against both lots
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT cost_number FROM postings WHERE narration = 'sell' AND account = 'Assets:Broker'"
+        ),
+        rows(&[&["100"], &["120"]])
+    );
+    let sale = run(&ledger, "SELECT DISTINCT id FROM postings WHERE narration = 'sell'")[0][0].clone();
+    assert_eq!(
+        run(&ledger, "SELECT account, source, path, transaction_id FROM #documents"),
+        rows(&[
+            &["NULL", "transaction", "slips/order.pdf", &sale],
+            &["Assets:Broker", "posting", "slips/sale.pdf", &sale],
+            &["Assets:Broker", "posting", "slips/lots.pdf", &sale],
+        ])
+    );
+}
+
 /// In a beancount ledger, the path of a `document` is relative to its file, as beancount reads it, unless zhang
 /// found the file relative to the ledger's directory, where earlier versions wrote it: the path zhang keeps the
 /// document with, which the web UI downloads it with.

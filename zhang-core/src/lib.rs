@@ -195,12 +195,6 @@ mod test {
             assert_eq!(stored, postings);
 
             // the transaction's own metadata is unchanged
-            let mut documents = store
-                .documents
-                .iter()
-                .filter(|it| it.document_type.as_trx() == Some(txn.id.to_string()))
-                .map(|it| it.path.clone())
-                .collect::<Vec<_>>();
             drop(store);
             let mut metas = operations
                 .metas(MetaType::TransactionMeta, txn.id.to_string())?
@@ -209,10 +203,6 @@ mod test {
                 .collect::<Vec<_>>();
             metas.sort();
             assert_eq!(metas, vec!["document=receipts/transaction.pdf", "memo=m"]);
-
-            // a posting's document is a document of its transaction too
-            documents.sort();
-            assert_eq!(documents, vec!["receipts/posting.pdf", "receipts/transaction.pdf"]);
 
             // Budget ownership remains account metadata; figures are computed by zhang-query.
             let budgets = operations.metas(MetaType::AccountMeta, "Expenses:Food")?;
