@@ -109,7 +109,7 @@ use super::{ledger_file, ColumnDef, Dataset, Generation, LedgerCache, Limits, Re
 use crate::error::{LocatedError, QueryErrorKind};
 use crate::prices::PriceMap;
 use crate::projector::Projection;
-use crate::value::{Cost, DataType, Position, Value};
+use crate::value::{first_of_month, month_index, Cost, DataType, Position, Value};
 
 pub(super) static BUDGETS: Table = Table {
     name: "budgets",
@@ -489,10 +489,6 @@ impl<'a> BudgetMonth<'a> {
     }
 }
 
-fn first_of_month(date: NaiveDate) -> NaiveDate {
-    date.with_day(1).expect("every month has a first day")
-}
-
 /// The month series of one budget.
 struct Series<'s, 'a> {
     budget: &'s Budget<'a>,
@@ -514,8 +510,7 @@ enum EndBy<'a> {
 
 impl Series<'_, '_> {
     fn months(&self) -> u64 {
-        let index = |month: NaiveDate| i64::from(month.year()) * 12 + i64::from(month.month0());
-        u64::try_from(index(self.end) - index(self.budget.first) + 1).unwrap_or(0)
+        u64::try_from(month_index(self.end) - month_index(self.budget.first) + 1).unwrap_or(0)
     }
 }
 
