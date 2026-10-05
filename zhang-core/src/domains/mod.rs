@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use bigdecimal::{BigDecimal, Zero};
+use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
 use itertools::Itertools;
@@ -10,7 +10,7 @@ use log::debug;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Currency, Flag, Meta, PostingCost, Rounding, SpanInfo};
+use zhang_ast::{Account, Flag, Meta, PostingCost, Rounding, SpanInfo};
 
 use crate::domains::schemas::{
     AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
@@ -79,31 +79,6 @@ impl Operations {
         );
 
         Ok(())
-    }
-
-    /// check a booked transaction's residual (the sum of its weights per commodity), returning the
-    /// problem to report:
-    /// - [`ErrorKind::CommodityDoesNotDefine`] if a weight commodity is not defined. It goes first:
-    ///   the residual of an undefined commodity has no precision to round with;
-    /// - else [`ErrorKind::UnbalancedTransaction`] if the residual of a commodity does not round to
-    ///   zero under the commodity's precision and rounding.
-    ///
-    /// Commodities are checked in commodity order, so the result is deterministic (#441)
-    pub(crate) fn check_transaction_balance(&self, residual: &BTreeMap<Currency, BigDecimal>) -> ZhangResult<Option<ErrorKind>> {
-        let mut commodities = Vec::with_capacity(residual.len());
-        for currency in residual.keys() {
-            let Some(commodity) = self.commodity(currency)? else {
-                return Ok(Some(ErrorKind::CommodityDoesNotDefine));
-            };
-            commodities.push(commodity);
-        }
-        for (commodity, amount) in commodities.iter().zip(residual.values()) {
-            let rounded = amount.with_scale_round(commodity.precision as i64, commodity.rounding.to_mode());
-            if !rounded.is_zero() {
-                return Ok(Some(ErrorKind::UnbalancedTransaction));
-            }
-        }
-        Ok(None)
     }
 
     /// insert transaction postings

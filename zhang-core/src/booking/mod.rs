@@ -4,8 +4,8 @@
 //! booking methods) and every transaction, in stream order, and keeps the lots of every account
 //! itself. It never reads or writes the [`Store`](crate::store::Store) and needs no timezone. It
 //! runs twice per load (design §2): pass 1 is the [`BookingStage`](crate::pipeline::BookingStage),
-//! before the plugins, whose errors and lots are dropped; pass 2 is the store fold over the final
-//! stream, which leaves booked postings as they are ([`is_booked`]), completes the ones a stage left
+//! before the plugins, whose errors and lots are dropped; pass 2 is the
+//! [`ValidateStage`](crate::pipeline::ValidateStage) over the final stream, which leaves booked postings as they are ([`is_booked`]), completes the ones a stage left
 //! unbooked, reports every booking error once and publishes [`Booker::into_lots`] as
 //! `Store.commodity_lots` at its end.
 //!
@@ -24,7 +24,7 @@
 //!    telling whether it is zero and for the implicit posting's units. When the weights already
 //!    balance in a single commodity, the implicit posting books zero of it, so the journal shows
 //!    the posting the user wrote (beancount drops a zero auto-posting instead);
-//! 4. the sum of all weights, per commodity, is the residual the store fold checks against each
+//! 4. the sum of all weights, per commodity, is the residual the final validation stage checks against each
 //!    commodity's precision.
 //!
 //! Booking rewrites the postings in place, beancount-style (design §3, §4): the implicit posting
@@ -82,7 +82,7 @@ const EXACT_DECIMALS: i64 = 20;
 /// the account meta key holding the account's booking method
 const BOOKING_METHOD_META: &str = "booking_method";
 
-/// booking state of the store fold: booking methods and lots, per account
+/// Booking state of a pipeline stage: booking methods and lots, per account
 pub(crate) struct Booker {
     /// the `default_booking_method` option
     default_method: BookingMethod,
@@ -204,6 +204,21 @@ impl Booker {
     /// fold a commodity definition: its precision and rounding, as the store keeps them
     pub(crate) fn define_commodity(&mut self, currency: &str, precision: i32, rounding: Rounding) {
         self.precisions.insert(currency.to_owned(), (i64::from(precision), rounding.to_mode()));
+    }
+
+    /// Validate the residual with the commodity definitions available at this point in the stream.
+    /// Undefined commodities take precedence over imbalance, even when their residual is zero.
+    pub(crate) fn check_transaction_balance(&self, residual: &BTreeMap<Currency, BigDecimal>) -> Option<ErrorKind> {
+        if residual.keys().any(|currency| !self.precisions.contains_key(currency)) {
+            return Some(ErrorKind::CommodityDoesNotDefine);
+        }
+        for (currency, amount) in residual {
+            let (precision, rounding) = self.precisions[currency];
+            if !amount.with_scale_round(precision, rounding).is_zero() {
+                return Some(ErrorKind::UnbalancedTransaction);
+            }
+        }
+        None
     }
 
     /// fold an `open`: its `booking_method` meta, if any, becomes the account's booking method.

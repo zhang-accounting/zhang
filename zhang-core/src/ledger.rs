@@ -22,7 +22,9 @@ use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
-use crate::pipeline::{builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, BookingStage, PluginStage, ProcessStage, StageContext};
+use crate::pipeline::{
+    builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage, StageContext,
+};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
 use crate::store::{BalanceAssertionDomain, CommodityLotRecord, Store};
 use crate::utils::id::FromSpan;
@@ -52,8 +54,8 @@ pub struct Ledger {
 
     pub(crate) trx_counter: AtomicI32,
 
-    /// booking state of the store fold; only present while the fold runs
-    pub(crate) booker: Option<Booker>,
+    /// Final stage results consumed while materializing the store.
+    validation: Option<FinalValidation>,
 
     /// Names defined so far, solely for budget validation during the store fold. The query engine
     /// computes budget figures from directives and booked postings; no budget totals are stored.
@@ -197,7 +199,7 @@ impl Ledger {
             data_source: context.data_source,
             store: Default::default(),
             trx_counter: AtomicI32::new(1),
-            booker: None,
+            validation: None,
             defined_budgets: None,
             reported_undefined_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
@@ -235,9 +237,21 @@ impl Ledger {
 
         // the pipeline always runs (built-in stages at least); `directives`/`metas`
         // reflect its output, so the store and the directive list agree
-        let (processed, assertions) = self.run_stages(full_stream)?;
+        let stage_error_start = self.operations().read().errors.len();
+        let (processed, assertions, validation) = self.run_stages(full_stream)?;
+        self.validation = Some(validation);
         let (metas, mut dated) = Ledger::partition_processed_directives(processed);
         self.handle_other_directives(&mut dated, assertions)?;
+        let validation = self.validation.take().expect("validation results are consumed during materialization");
+        let stage_error_count = validation.errors.len();
+        let mut operations = self.operations();
+        operations.write().commodity_lots = validation.lots;
+        for error in validation.errors {
+            operations.new_error(error.kind, &error.span, error.metas)?;
+        }
+        // Stage errors precede materialization errors. Delay insertion until transaction IDs have
+        // been bound, then move them before the fold's errors without disturbing either group.
+        operations.write().errors[stage_error_start..].rotate_right(stage_error_count);
         self.metas = metas;
         self.directives = dated;
 
@@ -284,7 +298,7 @@ impl Ledger {
     /// the load books them. A transaction dated after it, such as a sale planned ahead, is left out.
     ///
     /// The directives hold the booked postings, and booking a booked transaction again changes nothing, so this
-    /// replay gives exactly the lots the store fold (pass 2) built from the same transactions
+    /// replay gives exactly the lots the final validation stage (pass 2) built from the same transactions
     pub fn lots_at_end_of(&self, day: NaiveDate) -> HashMap<String, Vec<CommodityLotRecord>> {
         let mut booker = Booker::new(self.options.default_booking_method);
         for commodity in self.operations().read().commodities.values() {
@@ -434,14 +448,6 @@ impl Ledger {
     /// fold the pipeline's output into the store; `assertions` are what the balance-check stage found
     /// for the `balance` directives
     fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>], mut assertions: AssertionOutcomes) -> Result<(), ZhangError> {
-        // `open`s and transactions feed the booker as they are folded; the lots it ends with become
-        // the store's lots. Nothing in the fold reads the store's lots
-        let mut booker = Booker::new(self.options.default_booking_method);
-        // the commodities the options defined; `commodity` directives define the rest as folded
-        for commodity in self.operations().read().commodities.values() {
-            booker.define_commodity(&commodity.name, commodity.precision, commodity.rounding);
-        }
-        self.booker = Some(booker);
         self.defined_budgets = Some(HashSet::new());
         // the `balance ... with pad` directives of the balance entries being folded: their checks are kept after
         // the last one, where the balance-check stage checked them, so they follow their padding in the journal
@@ -488,8 +494,6 @@ impl Ledger {
             }
         }
         self.insert_pad_assertions(&mut pads, &mut assertions)?;
-        let booker = self.booker.take().expect("the booker is set at the start of the fold");
-        self.operations().write().commodity_lots = booker.into_lots();
         self.defined_budgets = None;
         Ok(())
     }
@@ -525,9 +529,12 @@ impl Ledger {
         })
     }
 
-    /// the booker of the running store fold
-    pub(crate) fn booker_mut(&mut self) -> &mut Booker {
-        self.booker.as_mut().expect("the booker only exists while the store fold runs")
+    /// Consume final validation for the transaction the store is about to materialize.
+    pub(crate) fn take_validated_transaction(&mut self, span: &SpanInfo, id: Uuid) -> bool {
+        self.validation
+            .as_mut()
+            .expect("validation results exist while materializing the store")
+            .take_transaction(span, id)
     }
 
     /// split a stage-processed stream back into (`metas`, `directives`) by datedness.
@@ -544,8 +551,8 @@ impl Ledger {
     /// `features.plugins` on) and on the stream as plugins of ABI v1 see it ([`AbiV1View`]), then,
     /// when a plugin ran after booking, [`BookingStage`] once more, so that the pad and
     /// balance-check stages see what the plugins added or changed booked against the real lots,
-    /// exactly as the store fold will (booking a booked transaction again changes nothing), then
-    /// the built-in stages. A load without such plugins books exactly twice: the stage and the fold
+    /// exactly as the final validation stage will (booking a booked transaction again changes nothing), then
+    /// the built-in stages. A load without such plugins books exactly twice: booking and final validation
     fn build_stages(&self) -> Vec<Box<dyn ProcessStage>> {
         #[cfg(feature = "plugin_runtime")]
         let plugin_stages = |stage: PluginStage| -> Vec<Box<dyn ProcessStage>> {
@@ -581,11 +588,9 @@ impl Ledger {
             .collect()
     }
 
-    /// run the pipeline over the full directive stream; stage-reported errors are
-    /// materialized into the store before the fold, and the inputs stages recorded
-    /// join [`Ledger::extra_inputs`]. Returns the stream with what the balance-check
-    /// stage found for its assertions
-    fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, AssertionOutcomes)> {
+    /// Run the pipeline, retaining final validation for materialization; the inputs stages recorded
+    /// join [`Ledger::extra_inputs`]. Errors are inserted after binding transaction IDs in the fold.
+    fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, AssertionOutcomes, FinalValidation)> {
         let directives = Ledger::sort_directives_datetime(directives);
         let stages = self.build_stages();
         let options = self.operations().options()?;
@@ -596,12 +601,8 @@ impl Ledger {
         let directives = run_pipeline(&stages, directives, &mut ctx)?;
 
         self.extra_inputs.extend(ctx.inputs().iter().cloned());
-        let mut operations = self.operations();
-        let (errors, assertions) = ctx.into_results();
-        for error in errors {
-            operations.new_error(error.kind, &error.span, error.metas)?;
-        }
-        Ok((directives, assertions))
+        let (assertions, validation) = ctx.into_materialize_results();
+        Ok((directives, assertions, validation))
     }
 }
 
@@ -622,6 +623,7 @@ mod test {
     use crate::data_type::DataType;
     use crate::ledger::Ledger;
     use crate::pipeline::{PluginStage, ProcessStage, StageContext};
+    use crate::utils::id::FromSpan;
     use crate::ZhangResult;
 
     thread_local! {
@@ -853,6 +855,64 @@ mod test {
         assert_eq!(error_kinds(&ledger), vec![ErrorKind::NoEnoughCommodityLot]);
     }
 
+    #[test]
+    fn final_validation_binds_duplicate_span_errors_to_the_ids_materialization_allocates() {
+        let log = Rc::new(RefCell::new(vec![]));
+        let ledger = load_with_stages(
+            indoc! {r#"
+                option "operating_currency" "USD"
+                1970-01-01 open Assets:A
+                1970-01-01 open Equity:E
+                2024-01-01 balance Assets:A 0 USD
+                2024-01-02 * "template"
+                  Assets:A 2 USD
+                  Equity:E -1 USD
+            "#},
+            vec![(
+                PluginStage::Booked,
+                stage("share an assertion span", &log, |mut directives| {
+                    let span = directives.iter().find(|it| matches!(it.data, Directive::BalanceCheck(_))).unwrap().span.clone();
+                    let mut txn = directives.pop().unwrap();
+                    txn.span = span;
+                    let mut rejected = txn.clone();
+                    let Directive::Transaction(rejected_txn) = &mut rejected.data else {
+                        unreachable!()
+                    };
+                    for posting in &mut rejected_txn.postings {
+                        posting.units = None;
+                        posting.written = None;
+                    }
+                    directives.extend([txn.clone(), rejected.clone(), txn, rejected]);
+                    directives
+                }),
+            )],
+        );
+        let store = ledger.store.read().unwrap();
+        let base = store.balance_assertions[0].id;
+        let first = uuid::Uuid::derived(&base, 1);
+        let second = uuid::Uuid::derived(&base, 2);
+        let after = uuid::Uuid::derived(&base, 3);
+        assert_eq!(store.transactions.len(), 2);
+        assert!(store.transactions.contains_key(&first));
+        assert!(store.transactions.contains_key(&second));
+        assert_eq!(store.postings.len(), 4);
+        assert_eq!(
+            store
+                .errors
+                .iter()
+                .map(|error| (error.error_type.clone(), error.metas[crate::constants::TXN_ID].clone()))
+                .collect::<Vec<_>>(),
+            [
+                (ErrorKind::UnbalancedTransaction, first.to_string()),
+                (ErrorKind::TransactionHasMultipleImplicitPosting, second.to_string()),
+                (ErrorKind::UnbalancedTransaction, second.to_string()),
+                (ErrorKind::TransactionHasMultipleImplicitPosting, after.to_string()),
+            ]
+        );
+        assert_eq!(ledger.directives.iter().filter(|it| matches!(it.data, Directive::Transaction(_))).count(), 4);
+        assert!(ledger.validation.is_none(), "temporary validation results are dropped after loading");
+    }
+
     /// the names of the stages the next load runs, with `stages` in a plugin's place
     fn stage_names(stages: Vec<(PluginStage, Box<dyn ProcessStage>)>) -> Vec<String> {
         TEST_STAGES.replace(stages);
@@ -866,7 +926,7 @@ mod test {
 
     #[test]
     fn booking_runs_once_without_plugins_and_again_after_the_plugins_that_run_booked() {
-        assert_eq!(stage_names(vec![]), ["booking", "active-accounts", "balance-pad", "balance-check"]);
+        assert_eq!(stage_names(vec![]), ["booking", "active-accounts", "balance-pad", "balance-check", "validate"]);
 
         let log = Rc::new(RefCell::new(vec![]));
         TEST_STAGES.replace(vec![(PluginStage::Raw, stage("raw", &log, |it| it))]);
@@ -875,13 +935,16 @@ mod test {
         let names: Vec<String> = ledger.build_stages().iter().map(|it| it.name().to_owned()).collect();
         assert_eq!(
             names,
-            ["raw", "booking", "active-accounts", "balance-pad", "balance-check"],
+            ["raw", "booking", "active-accounts", "balance-pad", "balance-check", "validate"],
             "a raw plugin needs no second pass"
         );
 
         TEST_STAGES.replace(vec![(PluginStage::Booked, stage("booked", &log, |it| it))]);
         let names: Vec<String> = ledger.build_stages().iter().map(|it| it.name().to_owned()).collect();
-        assert_eq!(names, ["booking", "booked", "booking", "active-accounts", "balance-pad", "balance-check"]);
+        assert_eq!(
+            names,
+            ["booking", "booked", "booking", "active-accounts", "balance-pad", "balance-check", "validate"]
+        );
     }
 
     /// what the pad and balance-check stages see is what the store holds: a plugin's `{}` sale with

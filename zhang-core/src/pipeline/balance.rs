@@ -3,8 +3,8 @@
 //! [`PadStage`](crate::pipeline::PadStage) and
 //! [`BalanceCheckStage`](crate::pipeline::BalanceCheckStage) are two
 //! independent folds over the same stream (beancount's pad/balance design); they
-//! share no mutable state, only these helpers. Each fold sees exactly what the
-//! store fold will book, in stream order — the stream is sorted, so "every
+//! share no mutable state, only these helpers. Each fold sees exactly what
+//! final validation will book, in stream order — the stream is sorted, so "every
 //! transaction before this directive" is "every transaction up to its datetime".
 //! Only transactions move a balance: a balance assertion never does.
 //!
@@ -12,7 +12,7 @@
 //! ran before the plugins), so [`UnitBalances`] sums the units of the booked postings and
 //! reads the lots an account holds at cost off the legs that carry a cost. It books nothing
 //! itself, except a transaction a stage left unbooked (the padding transactions it makes, a
-//! plugin's posting without units), which it completes the way the store fold will.
+//! plugin's posting without units), which it completes the way final validation will.
 //! [`ActiveAccountsStage`](crate::pipeline::ActiveAccountsStage) folds the account
 //! lifecycle ([`AccountStates`]) the same way.
 
@@ -33,7 +33,7 @@ use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::inventory::BookingMethod;
 use crate::process::commodity::commodity_precision;
 
-/// an option's value; an invalid one aborts the load in the store fold
+/// An option's resolved value; invalid options abort the load before the pipeline runs.
 fn option_value<T: FromStr>(options: &[OptionDomain], key: &str) -> Option<T> {
     options.iter().find(|option| option.key == key).and_then(|option| option.value.parse().ok())
 }
@@ -57,14 +57,14 @@ pub struct UnitBalances {
     /// name so that an account's sub-accounts are a range
     balances: BTreeMap<String, HashMap<String, BigDecimal>>,
     /// account name -> lot (commodity, cost, acquisition date, label) -> units held in it, from the
-    /// booked legs that carry a cost: the lots the store fold ends with, sorted by name like
+    /// booked legs that carry a cost: the lots final validation ends with, sorted by name like
     /// `balances`
     at_cost: BTreeMap<String, HashMap<LotKey, BigDecimal>>,
-    /// completes the one kind of transaction the stages leave unbooked and the store fold accepts:
+    /// completes the one kind of transaction the stages leave unbooked and final validation accepts:
     /// a posting without units next to postings that weigh as written, which is what the pad
     /// stage's own padding transactions are (the stream is booked again after the plugins, so a
-    /// plugin's output never gets here unbooked). It interpolates as the fold will; it holds no
-    /// lots, and never needs them. Its errors are the fold's to report
+    /// plugin's output never gets here unbooked). It interpolates as final validation will; it holds no
+    /// lots, and never needs them. Its errors are final validation's to report
     booker: Booker,
 }
 
@@ -73,7 +73,7 @@ pub struct UnitBalances {
 /// as text
 type LotKey = (String, String);
 
-/// a booker set up like the store fold's: the ledger's default booking method and `commodities`,
+/// a booker set up like final validation's: the ledger's default booking method and `commodities`,
 /// those defined before the stream starts (by the options)
 pub(crate) fn booker(default_booking_method: BookingMethod, commodities: &[CommodityDomain]) -> Booker {
     let mut booker = Booker::new(default_booking_method);
@@ -116,10 +116,10 @@ impl UnitBalances {
 
     /// fold an `open`: its booking method decides which lots later reductions book against
     pub fn apply_open(&mut self, open: &Open) {
-        let _reported_by_the_fold = self.booker.apply_open(open);
+        let _reported_by_validation = self.booker.apply_open(open);
     }
 
-    /// fold a `commodity`: implicit postings in it are rounded at its precision, as the store fold
+    /// fold a `commodity`: implicit postings in it are rounded at its precision, as final validation
     /// defines it from the same options
     pub fn apply_commodity(&mut self, commodity: &Commodity, options: &[OptionDomain]) {
         define_commodity(&mut self.booker, commodity, options);
@@ -127,13 +127,13 @@ impl UnitBalances {
 
     /// fold a transaction: every posting adds its units. A transaction the booking stage
     /// booked is summed as it is. One left with a posting without units is completed first,
-    /// as the store fold will complete it, when nothing in it weighs by lots (the padding
-    /// transactions); otherwise, and when its implicit posting cannot be interpolated, the fold
+    /// as final validation will complete it, when nothing in it weighs by lots (the padding
+    /// transactions); otherwise, and when its implicit posting cannot be interpolated, final validation
     /// rejects it, and it is skipped here too. Returns the units of each posting as written
     /// (the legs booking split from it summed), none for a transaction skipped
     pub fn apply_transaction(&mut self, txn: &Transaction) -> Vec<Amount> {
         // An unresolved explicit cost after booking is an unbookable transaction (E6/E9),
-        // including one whose units were all written. The store fold rejects it too.
+        // including one whose units were all written. Final validation rejects it too.
         if txn.postings.iter().any(weighs_by_lots) {
             return vec![];
         }
@@ -171,7 +171,7 @@ impl UnitBalances {
     }
 
     /// a booked leg carrying a cost adds its units to the lot it names; a leg without a cost
-    /// number (`{}` no lot covered) is held without cost, like the store fold's default lot
+    /// number (`{}` no lot covered) is held without cost, like final validation's default lot
     fn add_at_cost(&mut self, leg: &Posting) {
         let (Some(units), Some(cost)) = (&leg.units, leg.cost.as_ref().and_then(|cost| cost.base.as_ref())) else {
             return;
@@ -286,7 +286,7 @@ impl AccountStates {
     }
 
     /// the account errors a directive referencing `accounts` raises, in the order
-    /// the store fold reports them: every missing account, then every closed one
+    /// the account stages report them: every missing account, then every closed one
     pub fn errors<'a>(&self, accounts: &[&'a Account]) -> Vec<(ErrorKind, &'a Account)> {
         let missing = accounts.iter().filter(|it| !self.exists(it)).map(|it| (ErrorKind::AccountDoesNotExist, *it));
         let closed = accounts.iter().filter(|it| self.is_closed(it)).map(|it| (ErrorKind::AccountClosed, *it));
@@ -411,7 +411,7 @@ mod test {
 
     #[test]
     fn should_complete_a_transaction_a_stage_left_unbooked() {
-        // the padding transaction the pad stage makes: an implicit leg, which the store fold
+        // the padding transaction the pad stage makes: an implicit leg, which final validation
         // interpolates; completed here the same way
         let balances = fold(indoc! {r#"
             2023-01-01 P "pad"
@@ -423,7 +423,7 @@ mod test {
     }
 
     #[test]
-    fn should_skip_transactions_the_store_fold_rejects() {
+    fn should_skip_transactions_final_validation_rejects() {
         let balances = fold(indoc! {r#"
             2023-01-01 * "two implicit postings"
               Assets:A

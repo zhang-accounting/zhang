@@ -21,8 +21,6 @@ impl DirectiveProcess for Commodity {
 
         operations.insert_commodity(&self.currency, precision, prefix, suffix, rounding)?;
         operations.insert_meta(MetaType::CommodityMeta, &self.currency, self.meta.clone())?;
-        // booking rounds the implicit posting of a transaction at this precision
-        ledger.booker_mut().define_commodity(&self.currency, precision, rounding);
 
         Ok(())
     }

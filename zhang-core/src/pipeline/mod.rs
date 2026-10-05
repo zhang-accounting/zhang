@@ -17,7 +17,8 @@
 //! Built-in stages ([`builtin_stages`]) run after the user's plugin stages:
 //! [`ActiveAccountsStage`], which only reports references to inactive accounts,
 //! then [`PadStage`] then [`BalanceCheckStage`], two independent folds over the
-//! stream that share only the pure helpers in the `balance` module.
+//! stream that share only the pure helpers in the `balance` module, then [`ValidateStage`],
+//! which books and validates the final stream and supplies its lots to the store.
 //!
 //! A balance assertion never moves a balance (as in beancount): [`PadStage`] adds the
 //! padding transactions, the only directives that book anything on behalf of an
@@ -30,6 +31,7 @@ mod balance_check;
 mod booking;
 mod pad;
 mod plugin_view;
+mod validate;
 
 use std::collections::{HashMap, VecDeque};
 
@@ -43,6 +45,8 @@ use log::debug;
 pub use pad::{serving_pads, PadStage};
 pub use plugin_view::AbiV1View;
 use uuid::Uuid;
+pub(crate) use validate::FinalValidation;
+pub use validate::ValidateStage;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
@@ -124,6 +128,7 @@ pub struct StageContext<'a> {
     pub commodities: Vec<CommodityDomain>,
     errors: Vec<StageError>,
     assertions: AssertionOutcomes,
+    validation: FinalValidation,
     inputs: IndexSet<ExtraInput>,
     /// the clock of the load, read on first use
     clock: LoadClock,
@@ -141,6 +146,7 @@ impl<'a> StageContext<'a> {
             commodities: vec![],
             errors: vec![],
             assertions: AssertionOutcomes::default(),
+            validation: FinalValidation::default(),
             inputs: IndexSet::new(),
             clock: LoadClock::new(Clock::System),
             timezone: Tz::UTC,
@@ -209,6 +215,12 @@ impl<'a> StageContext<'a> {
     pub fn into_results(self) -> (Vec<StageError>, AssertionOutcomes) {
         (self.errors, self.assertions)
     }
+
+    /// Results for materializing the final stream, keeping errors available for transaction ID binding.
+    pub(crate) fn into_materialize_results(mut self) -> (AssertionOutcomes, FinalValidation) {
+        self.validation.errors = self.errors;
+        (self.assertions, self.validation)
+    }
 }
 
 /// one step of the pipeline: transform the whole directive stream
@@ -221,9 +233,15 @@ pub trait ProcessStage {
 /// the native core stages that run after all plugin stages, in execution order.
 /// [`ActiveAccountsStage`] checks the stream before the pad stage adds its `P`
 /// transactions; the pad/check stages report the accounts of their directives themselves.
+/// [`ValidateStage`] runs last, booking and validating the stream the store will consume.
 /// [`BookingStage`] is not among them: it runs before the plugins
 pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {
-    vec![Box::new(ActiveAccountsStage), Box::new(PadStage), Box::new(BalanceCheckStage)]
+    vec![
+        Box::new(ActiveAccountsStage),
+        Box::new(PadStage),
+        Box::new(BalanceCheckStage),
+        Box::new(ValidateStage),
+    ]
 }
 
 /// run stages in order; the stream is re-sorted after every stage
@@ -251,7 +269,7 @@ pub(crate) mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Comment, Directive, SpanInfo, Spanned};
 
-    use super::{builtin_stages, run_pipeline, AssertionOutcome, ProcessStage, StageContext};
+    use super::{run_pipeline, ActiveAccountsStage, AssertionOutcome, BalanceCheckStage, PadStage, ProcessStage, StageContext};
     use crate::clock::{Clock, LoadClock};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
@@ -259,7 +277,14 @@ pub(crate) mod test {
     use crate::ledger::Ledger;
     use crate::ZhangResult;
 
-    /// parse a ledger, run the built-in stages over it and return the output
+    /// The account/pad/check stages in isolation: tests inspect the stream before final booking,
+    /// without requiring commodity definitions or collecting unrelated transaction errors.
+    pub(crate) fn balance_stages() -> Vec<Box<dyn ProcessStage>> {
+        vec![Box::new(ActiveAccountsStage), Box::new(PadStage), Box::new(BalanceCheckStage)]
+    }
+
+    /// Parse a ledger and run the account/pad/check stages in isolation, before final validation.
+    /// Return the output
     /// stream with the kinds of the errors the stages reported
     pub(crate) fn run_builtin_stages(content: &str) -> (Vec<Directive>, Vec<ErrorKind>) {
         let (directives, errors, _) = run_builtin_stages_with_assertions(content);
@@ -270,7 +295,7 @@ pub(crate) mod test {
     pub(crate) fn run_builtin_stages_with_assertions(content: &str) -> (Vec<Directive>, Vec<ErrorKind>, Vec<AssertionOutcome>) {
         let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
         let mut ctx = StageContext::new(&[]);
-        let out = run_pipeline(&builtin_stages(), Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
+        let out = run_pipeline(&balance_stages(), Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
         let (errors, mut assertions) = ctx.into_results();
         let outcomes = out
             .iter()
