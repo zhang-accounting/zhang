@@ -230,7 +230,7 @@ Config that changes over time belongs in the ledger, as dated `custom` directive
 2024-07-01 custom "large-expense" "threshold" "150 CNY"
 ```
 
-An entry dated 2024-03-05 sees the threshold of 2024-01-01; one dated 2024-08-01 the one of 2024-07-01. Values stay strings: `100 CNY` arrives as the two values `"100"` and `"CNY"`, and the SDK's `Values::amount` reads both shapes.
+An entry dated 2024-03-05 sees the threshold of 2024-01-01; one dated 2024-08-01 the one of 2024-07-01. Values stay strings: `100 CNY` arrives as the two values `"100"` and `"CNY"`, and the SDK's `Values::amount` reads both shapes. `Values::account` (like `Account::from_str`) accepts only a name the ledger can read back, such as `Assets:Bank`: `Assets`, `Assets:` and `Assets:My Bank` are errors, so a plugin never writes a posting to an account Zhang cannot read.
 
 `Config::resolve(key, date, entry_meta)` looks a setting up in this order, the first one holding the key winning:
 

@@ -238,24 +238,92 @@ impl Account {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct InvalidAccountError;
+/// Whether `c` may appear in a component of an account name, such as `Bank` in `Assets:Bank`: any character but a
+/// space, tab, line break, `"`, `:`, `(`, `)` or `,`. The ledger grammar reads account components by this rule, and
+/// [`Account::from_str`] accepts exactly the names the grammar reads.
+pub fn is_account_component_char(c: char) -> bool {
+    !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r')
+}
+
+/// A name that is not an account name of the ledger grammar.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct InvalidAccountError {
+    /// the rejected name
+    pub name: String,
+}
+
+impl std::fmt::Display for InvalidAccountError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?} is not an account name: an account is `Assets`, `Liabilities`, `Equity`, `Income` or `Expenses` followed by one or more `:`-separated components, and a component cannot be empty or contain a space, tab, line break, `\"`, `:`, `(`, `)` or `,`",
+            self.name
+        )
+    }
+}
+
+impl std::error::Error for InvalidAccountError {}
 
 impl FromStr for Account {
     type Err = InvalidAccountError;
 
+    /// Read `s` as an account name by the rule of the ledger grammar: an account type and at least one non-empty
+    /// component of [`is_account_component_char`] characters. `Assets`, `Assets:`, `Assets::Bank` and `Assets:My Bank`
+    /// are not account names, as a ledger could not read them back.
+    ///
+    /// ```rust
+    /// use std::str::FromStr;
+    /// use zhang_ast::Account;
+    /// assert_eq!(Account::from_str("Assets:Bank:Checking").unwrap().components(), vec!["Bank", "Checking"]);
+    /// assert!(Account::from_str("Assets").is_err());
+    /// assert!(Account::from_str("Assets:My Bank").is_err());
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split(':').collect();
-
-        let split = parts.split_first();
-        if let Some((account_type, rest)) = split {
-            Ok(Account {
-                account_type: AccountType::from_str(account_type).map_err(|_| InvalidAccountError)?,
-                content: s.to_string(),
-                components: rest.iter().map(|it| it.to_string()).collect(),
-            })
-        } else {
-            Err(InvalidAccountError)
+        let invalid = || InvalidAccountError { name: s.to_owned() };
+        let mut parts = s.split(':');
+        let account_type = parts.next().and_then(|it| AccountType::from_str(it).ok()).ok_or_else(invalid)?;
+        let components: Vec<String> = parts.map(str::to_owned).collect();
+        let valid_component = |component: &String| !component.is_empty() && component.chars().all(is_account_component_char);
+        if components.is_empty() || !components.iter().all(valid_component) {
+            return Err(invalid());
         }
+        Ok(Account {
+            account_type,
+            content: s.to_owned(),
+            components,
+        })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use crate::Account;
+
+    /// A name the ledger grammar cannot read back is no account: a root alone, an empty component, or a component with
+    /// a space, quote, comma or paren
+    #[test]
+    fn from_str_rejects_what_the_grammar_rejects() {
+        for name in [
+            "",
+            "Assets",
+            "Assets:",
+            "Assets::Bank",
+            "Assets:Bank:",
+            "Assets:My Bank",
+            "Assets:a\"b",
+            "Assets:a,b",
+            "Assets:(x)",
+            "assets:x",
+            "Bank:X",
+        ] {
+            let error = Account::from_str(name).unwrap_err();
+            assert_eq!(error.name, name);
+            assert!(error.to_string().contains("is not an account name"), "{error}");
+        }
+        let account = Account::from_str("Equity:Opening-Balances:中文").unwrap();
+        assert_eq!(account.components(), vec!["Opening-Balances", "中文"]);
+        assert_eq!(account.name(), "Equity:Opening-Balances:中文");
     }
 }

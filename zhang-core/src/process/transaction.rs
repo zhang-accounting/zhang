@@ -58,7 +58,7 @@ impl DirectiveProcess for Transaction {
                 &id,
                 posting_idx,
                 posting.flag.clone(),
-                posting.account.name(),
+                &posting.account,
                 unit,
                 cost,
                 inferred_amount,
