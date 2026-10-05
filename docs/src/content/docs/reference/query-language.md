@@ -686,7 +686,7 @@ This lists the account's postings of 2024, newest first, each with the account's
 
 ## Other tables
 
-Besides `postings`, a query can read one of the tables below with `FROM #name`. They are beanquery's tables, with the same column names, types and row order:
+Besides `postings`, a query can read one of the tables below with `FROM #name`. They are beanquery's tables, with the same column names and types, and rows in the order Zhang processes the ledger, which is beanquery's for a ledger without times (see [Processing order](#processing-order)):
 
 | Table | One row per | `SELECT *` |
 |-------|-------------|------------|
@@ -711,22 +711,23 @@ ORDER BY currency
 ```
 
 - **Columns are per table.** A table has only the columns listed for it, and none of the `postings` columns. `year`, `month` and `day` exist only on `#entries` and `postings`; elsewhere use [`year(date)`](#date-functions) and the other date functions. All functions, aggregates, `GROUP BY`, `HAVING`, `ORDER BY`, `PIVOT BY`, `DISTINCT` and `LIMIT` work on every table.
-- **Row order.** Without `ORDER BY`, rows come in ledger order: by date, then the order in which beancount sorts the directives of one day (`open` first, then balance assertions, the other directives, `document` and `close` last), then the order of your files.
+- **Row order.** Without `ORDER BY`, rows come in ledger order, the [processing order](#processing-order) that `seq` numbers: by date, then by time in a zhang ledger, as beancount orders a day in a beancount ledger.
 - **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries` and `#transactions` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
 - **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `pad` and `balance ... with pad` (flag `P`) are transactions, as in beancount.
 - **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `time` and `timestamp` on `#prices`; `actual`, `passed`, `pad`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_definitions`, `#budget_events` and `#errors` are Zhang's own tables.
 
 ### Processing order
 
-The `seq` column of `#entries`, `#transactions`, `#balances`, `#documents` and the [postings](#columns) is the position of an entry in the order Zhang processes the ledger, counting from 0:
+The `seq` column of `#entries`, `#transactions`, `#balances`, `#documents` and the [postings](#columns) is the position of an entry in the order Zhang processes the ledger, counting from 0. Zhang checks and books the ledger in this order, and every table lists its rows in it:
 
-1. by date and the time written; a directive written without one is at midnight;
-2. within one time, `open` and `commodity` directives first, then the balance entries (balance assertions, and the transactions flagged `P`: the padding transactions of a `balance ... with pad`, and any written by hand), then every other directive;
-3. then in the order of your files;
-4. except that a `balance ... with pad` is checked after the other balance entries of its time, its padding among them, and its `seq` is where it is checked;
-5. and that a [`pad`](/reference/directives/balance/#the-pad-directive) comes after every balance entry of its day, whatever their times (at the time of the last one, when that is later than its own), with its padding transactions right after it.
+1. by date;
+2. within a day, in a zhang ledger, by the time written, and within one time by kind; in a beancount ledger, as beancount orders a day, by kind, and within one kind by the time written (a transaction's `time` metadata). A directive written without a time is at midnight, but a `close` with only a date takes effect at the end of its day, so it comes after everything else of that day;
+3. the kinds, in order: `open`, `commodity`, the balance entries (balance assertions, and the transactions flagged `P`: the padding transactions of a `balance ... with pad`, and any written by hand), every other directive, `document`, `close`;
+4. then in the order of your files;
+5. except that a `balance ... with pad` is checked after the other balance entries of its time, its padding among them, and its `seq` is where it is checked;
+6. and that a [`pad`](/reference/directives/balance/#the-pad-directive) comes after every balance entry of its day, whatever their times (at the time of the last one, when that is later than its own), with its padding transactions right after it.
 
-This is the order in which balances change: the [running balance](#the-running-balance) of the postings adds them up in this order, and an assertion comes right after the postings its `actual` balance includes, so merging the rows of `#balances` and of the postings by `seq` lists every assertion in its place. The rows of the postings table and of `#transactions` come in this order. Without `ORDER BY`, the rows of `#entries` and of the other directive tables keep beancount's order, by date and then by kind: `open` first (before a `commodity` of the same day), then the balance assertions, the other directives, and `document` and `close` last, whatever their times. The two orders differ only within a day: Zhang keeps same-day `commodity` and `open` directives in the order of your files, sorts the directives of a day by their time (a timed `open` after the transactions written without a time), puts a balance after the transactions before its time and after a padding written before it, and leaves a `document` or a `close` where it is. `ORDER BY seq` lists the rows in Zhang's order.
+This is the order in which balances change: the [running balance](#the-running-balance) of the postings adds them up in this order, and an assertion comes right after the postings its `actual` balance includes, so merging the rows of `#balances` and of the postings by `seq` lists every assertion in its place. In a zhang ledger, a balance with a time comes after the transactions of its day before that time. In a beancount ledger, a balance is at the start of its day, whatever its `time` metadata, as beancount checks it. Without times, a ledger lists its entries as beanquery does, with two exceptions: a `commodity` comes before the balance assertions of its day, and a transaction flagged `P` comes among them.
 
 The time that decides the order is the time written. On a day daylight saving skips a time, a directive written in the gap is stored moved forward by the length of the gap, and `ORDER BY seq` can list the `time` and `timestamp` columns out of order there: in New York on 2024-03-10, an entry written at `02:30`, stored at `03:30:00`, comes before one written at `03:15`.
 
@@ -746,7 +747,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `tags`, `links` | `set` | Tags and links of a transaction, note or document. `NULL` for other directives. |
 | `meta` | `str` | Metadata of the directive. |
 | `accounts` | `set` | The accounts the directive refers to: the posting accounts of a transaction, the account of an `open`, `close`, `balance`, `note` or `document`, and the padded and pad accounts of a `pad` or a `balance ... with pad`. Empty for other directives. |
-| `seq` | `int` | Position of the directive in the [processing order](#processing-order), counting from 0. `ORDER BY seq DESC` lists the newest entries first. Without `ORDER BY` the rows keep beancount's order, which can differ within a day. Zhang extension. |
+| `seq` | `int` | Position of the directive in the [processing order](#processing-order), counting from 0: the rows come in this order. `ORDER BY seq DESC` lists the newest entries first. Zhang extension. |
 | `time`, `timestamp` | `str`, `int` | Time of day of the directive in the ledger's timezone (`HH:MM:SS`), as in `postings`: the time written, or midnight without one; on a day daylight saving skips that time, moved forward by the length of the gap, as Zhang stores it (`02:30` in New York on 2024-03-10 is `03:30:00`, midnight in São Paulo on 2018-11-04 is `01:00:00`); and the Unix time of its date and time, in seconds. Zhang extension. |
 | `metas` | `metas` | Metadata of the directive as `(key, value)` pairs, see [Structured metadata](#structured-metadata). Zhang extension, not part of `SELECT *`. |
 

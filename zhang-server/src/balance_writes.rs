@@ -303,7 +303,7 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
         .iter()
         .map(|row| check(Date::Date(tomorrow), row.account.clone(), row.amount.clone()))
         .collect::<Vec<_>>();
-    for (row, pad) in rows.iter().zip(serving_pads(&ledger.directives, replaced, &balances)) {
+    for (row, pad) in rows.iter().zip(serving_pads(&ledger.directives, ledger.dialect, replaced, &balances)) {
         let Some(pad) = pad else { continue };
         let commodity = &row.amount.commodity;
         let pad_date = pad.date.naive_date();

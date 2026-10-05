@@ -1110,7 +1110,8 @@ option "timezone" "UTC"
             &["Assets:Gone is closed", "a balance of Assets:Gone"],
         );
         let (errors, paddings, passed) = reloaded(&scratch).await;
-        assert!(errors.is_empty(), "{errors:?}");
+        // the padding from the account closed today leaves it at -10 CNY when its close takes effect, at the end of today
+        assert_eq!(errors, vec![ErrorKind::CloseNonZeroAccount]);
         assert_eq!(
             paddings,
             vec![format!("{} 10 CNY from Assets:Today", today()), format!("{} 10 CNY from Equity:Open", today())]
@@ -1134,7 +1135,8 @@ option "timezone" "UTC"
             &["Assets:Gone is closed", "a balance of Assets:Gone"],
         );
         let (errors, _, passed) = reloaded(&scratch).await;
-        assert!(errors.is_empty(), "{errors:?}");
+        // as in the zhang ledger, the account closed today holds -10 CNY when its close takes effect
+        assert_eq!(errors, vec![ErrorKind::CloseNonZeroAccount]);
         assert!(passed.iter().all(|it| *it), "{passed:?}");
     }
 

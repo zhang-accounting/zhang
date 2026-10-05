@@ -42,6 +42,7 @@ use zhang_ast::{Account, BalanceCheck, BalancePad, Directive, Pad, SpanInfo, Spa
 
 use super::pad::{may_serve, place, PadPairing, PadServes, Place};
 use super::{ProcessStage, StageContext};
+use crate::data_type::Dialect;
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -265,7 +266,7 @@ impl HiddenPads {
             .collect::<Vec<_>>();
         // a pad put back that would serve other balances than those, is left out: the balances it stood for pad
         // themselves, as the plugin returned them
-        for index in left_out(&out, &pad_of, &keep, &stands_for) {
+        for index in left_out(&out, &pad_of, &keep, &stands_for, ctx.dialect()) {
             keep[index] = false;
             for position in &claims[index] {
                 let Directive::BalanceCheck(check) = out[*position].data.clone() else {
@@ -322,8 +323,8 @@ fn day(directive: &Directive) -> Option<NaiveDate> {
 ///
 /// The pads of an account are checked from the last to the first: a pad left out leaves the balances it stood for to
 /// no pad, and the earlier pads of its account those it would have served. Each balance is looked at about once.
-fn left_out(out: &[Spanned<Directive>], pad_of: &HashMap<usize, usize>, keep: &[bool], stands_for: &[Vec<usize>]) -> Vec<usize> {
-    let keys = Ledger::sort_keys(out);
+fn left_out(out: &[Spanned<Directive>], pad_of: &HashMap<usize, usize>, keep: &[bool], stands_for: &[Vec<usize>], dialect: Dialect) -> Vec<usize> {
+    let keys = Ledger::sort_keys(out, dialect);
     let mut owner: HashMap<usize, usize> = HashMap::new();
     for (index, positions) in stands_for.iter().enumerate() {
         for position in positions {
@@ -400,7 +401,7 @@ mod test {
 
     use super::{hide_pads, AbiV1View};
     use crate::data_type::text::ZhangDataType;
-    use crate::data_type::DataType;
+    use crate::data_type::{DataType, Dialect};
     use crate::ledger::Ledger;
     use crate::pipeline::test::balance_stages;
     use crate::pipeline::{run_pipeline, ProcessStage, StageContext};
@@ -438,7 +439,7 @@ mod test {
     "#};
 
     fn parse(content: &str) -> Vec<Spanned<Directive>> {
-        Ledger::sort_directives_datetime(ZhangDataType {}.transform(content.to_owned(), None).unwrap())
+        Ledger::sort_directives_datetime(ZhangDataType {}.transform(content.to_owned(), None).unwrap(), Dialect::Zhang)
     }
 
     /// run the plugin through the view, then the built-in stages, as a load does

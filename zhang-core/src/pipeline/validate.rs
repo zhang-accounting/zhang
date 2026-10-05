@@ -245,7 +245,9 @@ mod test {
             .unwrap();
         let rejected = directives.iter().find(|it| it.span.content.contains("\"reject\"")).unwrap().clone();
         let mut ctx = StageContext::new(&[]);
-        let out = ValidateStage.process(Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
+        let out = ValidateStage
+            .process(Ledger::sort_directives_datetime(directives, crate::data_type::Dialect::Zhang), &mut ctx)
+            .unwrap();
         let (_, mut result) = ctx.into_materialize_results();
         assert_eq!(
             result.errors.iter().map(|it| &it.kind).collect::<Vec<_>>(),
@@ -297,7 +299,9 @@ mod test {
             suffix: None,
             rounding: Rounding::RoundDown,
         }]);
-        ValidateStage.process(Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
+        ValidateStage
+            .process(Ledger::sort_directives_datetime(directives, crate::data_type::Dialect::Zhang), &mut ctx)
+            .unwrap();
         assert_eq!(
             ctx.into_errors().into_iter().map(|it| it.kind).collect::<Vec<_>>(),
             [ErrorKind::CommodityDoesNotDefine, ErrorKind::UnbalancedTransaction]

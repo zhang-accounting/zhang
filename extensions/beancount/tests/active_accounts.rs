@@ -39,7 +39,9 @@ fn beancount(case: &Value) -> Vec<Located> {
     errors
 }
 
-/// the `AccountDoesNotExist` and `AccountClosed` errors zhang reports, sorted; it reports no other error
+/// the `AccountDoesNotExist` and `AccountClosed` errors zhang reports, sorted; it reports no other error but
+/// `CloseNonZeroAccount`, zhang's own check that an account is empty at its close, which beancount does not make: at
+/// the end of the close day, after the postings the oracle ledgers make on that day
 fn zhang(case: &str) -> Vec<Located> {
     let data_source = Arc::new(LocalFileSystemDataSource::new(Beancount::default()));
     let ledger = Ledger::load_with_data_source(dir(), format!("{case}.bean"), data_source).expect("the ledger loads");
@@ -48,13 +50,14 @@ fn zhang(case: &str) -> Vec<Located> {
     let other_errors = store
         .errors
         .iter()
-        .filter(|error| !inactive(&error.error_type))
+        .filter(|error| !inactive(&error.error_type) && error.error_type != ErrorKind::CloseNonZeroAccount)
         .map(|error| error.error_type.clone())
         .collect::<Vec<_>>();
     assert!(other_errors.is_empty(), "{case}: {other_errors:?}");
     let mut errors = store
         .errors
         .iter()
+        .filter(|error| inactive(&error.error_type))
         .map(|error| {
             (
                 error
@@ -102,9 +105,10 @@ fn zhang_reports_where_beancount_does_on_every_ledger_without_an_accepted_deviat
 
 #[test]
 fn an_account_is_active_through_the_day_of_its_close() {
-    // everything on the close day passes, as in beancount, and the transaction of the day after is reported
+    // everything on the close day passes, as in beancount, and the transaction of the day after is reported. The close
+    // is checked at the end of its day, after the postings of that day, which leave money in the account
     assert_eq!(zhang("close_day"), vec![(26, "Assets:Old".to_owned())]);
-    assert_eq!(kinds("close_day"), vec![ErrorKind::AccountClosed]);
+    assert_eq!(kinds("close_day"), vec![ErrorKind::AccountClosed, ErrorKind::CloseNonZeroAccount]);
     assert_eq!(kinds("before_open"), vec![ErrorKind::AccountDoesNotExist, ErrorKind::AccountDoesNotExist]);
 }
 

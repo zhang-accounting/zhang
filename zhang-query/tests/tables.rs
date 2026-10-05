@@ -345,9 +345,9 @@ fn entries_hold_every_directive_in_beancount_order() {
             &["2024-01-01", "budget", "NULL", "NULL", "NULL", "NULL", ""],
             &["2024-01-02", "budget-add", "NULL", "NULL", "NULL", "NULL", ""],
             &["2024-01-05", "transaction", "*", "Cafe", "lunch", "food", "Assets:Bank, Expenses:Food"],
-            // the rejected transaction is not an entry; the pad is a balance entry followed by
-            // its padding transaction, and the balance-check transactions are not entries
-            &["2024-02-01", "balance", "NULL", "NULL", "NULL", "NULL", "Assets:Bank, Equity:Opening"],
+            // the rejected transaction is not an entry; the pad's padding transaction comes before
+            // the balance, which zhang checks after it, and the balance-check transactions are not
+            // entries
             &[
                 "2024-02-01",
                 "transaction",
@@ -357,6 +357,7 @@ fn entries_hold_every_directive_in_beancount_order() {
                 "",
                 "Assets:Bank, Equity:Opening"
             ],
+            &["2024-02-01", "balance", "NULL", "NULL", "NULL", "NULL", "Assets:Bank, Equity:Opening"],
             &["2024-02-02", "balance", "NULL", "NULL", "NULL", "NULL", "Assets:Bank"],
             &["2024-02-03", "note", "NULL", "NULL", "NULL", "todo", "Assets:Bank"],
             &["2024-02-04", "document", "NULL", "NULL", "NULL", "", "Assets:Bank"],

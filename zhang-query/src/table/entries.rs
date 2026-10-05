@@ -24,7 +24,7 @@ use crate::value::{DataType, Value};
 pub(super) static ENTRIES: Table = Table {
     name: "entries",
     description: "One row per directive of the ledger (transactions, open, close, balance, price, note, document, event, \
-                  commodity, custom, query and budget directives), sorted by date as beancount sorts entries.",
+                  commodity, custom, query and budget directives), in the order zhang processes the ledger (seq).",
     columns: ENTRY_COLUMNS,
     wildcard: &[
         "id",
@@ -87,7 +87,7 @@ fn entry_info<'r>(record: &'r Record<'_>) -> Option<&'r EntryInfo> {
 }
 
 fn seq(record: &Record<'_>) -> Value {
-    entry_info(record).map_or(Value::Null, |info| Value::Int(info.order.into()))
+    entry_info(record).map_or(Value::Null, |info| Value::Int(info.seq.into()))
 }
 
 /// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and

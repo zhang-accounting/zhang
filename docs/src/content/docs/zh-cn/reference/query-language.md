@@ -686,7 +686,7 @@ ORDER BY seq DESC
 
 ## 其他表
 
-除了 `postings`，查询还可以用 `FROM #name` 读取下面的表。它们就是 beanquery 的表，列名、类型和行的顺序都与 beanquery 相同：
+除了 `postings`，查询还可以用 `FROM #name` 读取下面的表。它们就是 beanquery 的表，列名和类型与 beanquery 相同，行按张记账处理账本的顺序排列，对没有写时刻的账本就是 beanquery 的顺序（见[处理顺序](#处理顺序)）：
 
 | 表 | 每一行是 | `SELECT *` |
 |----|----------|------------|
@@ -711,22 +711,23 @@ ORDER BY currency
 ```
 
 - **每个表有自己的列**。一个表只有为它列出的列，没有 `postings` 的列。`year`、`month` 和 `day` 只存在于 `#entries` 和 `postings` 中，其他表请使用 [`year(date)`](#日期函数) 等日期函数。所有函数、聚合函数，以及 `GROUP BY`、`HAVING`、`ORDER BY`、`PIVOT BY`、`DISTINCT` 和 `LIMIT` 都可以用于每个表。
-- **行的顺序**。没有 `ORDER BY` 时，各行按账本顺序排列：先按日期，再按 beancount 对同一天指令的排序（`open` 最先，然后是余额断言、其他指令，`document` 和 `close` 最后），再按指令在文件中的顺序。
+- **行的顺序**。没有 `ORDER BY` 时，各行按账本顺序排列，也就是 `seq` 编号的[处理顺序](#处理顺序)：先按日期，在张记账账本中再按时刻，在 beancount 账本中按 beancount 对同一天指令的排序。
 - **元数据**。每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries` 和 `#transactions` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
 - **余额断言不是交易**。断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`pad` 和 `balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
 - **张记账扩展**。有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#prices` 的 `time` 和 `timestamp`；`#balances` 的 `actual`、`passed`、`pad`、`id`、`seq`、`time` 和 `timestamp`；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_definitions`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
 ### 处理顺序
 
-`#entries`、`#transactions`、`#balances`、`#documents` 和 [postings 表](#列)的 `seq` 列是记录在张记账处理账本的顺序中的位置，从 0 开始：
+`#entries`、`#transactions`、`#balances`、`#documents` 和 [postings 表](#列)的 `seq` 列是记录在张记账处理账本的顺序中的位置，从 0 开始。张记账按这个顺序检查和记账，每张表也按这个顺序列出它的行：
 
-1. 先按日期和写下的时刻；没有写时刻的指令在午夜；
-2. 同一时刻内，先是 `open` 和 `commodity` 指令，然后是余额记录（余额断言，以及标记为 `P` 的交易：`balance ... with pad` 的补齐交易和手写的 `P` 交易），再是其他所有指令；
-3. 再按指令在文件中的顺序；
-4. 例外：`balance ... with pad` 在同一时刻的其他余额记录（包括它的补齐交易）之后才检查，它的 `seq` 就是检查它的位置；
-5. 另外，[`pad`](/zh-cn/reference/directives/balance/#pad-指令) 排在它当天所有余额记录之后，不论它们的时刻（当最后一条的时刻晚于它自己时，它取那个时刻），它的补齐交易紧跟在它之后。
+1. 先按日期；
+2. 同一天之内，张记账账本先按写下的时刻，同一时刻内再按种类；beancount 账本像 beancount 那样先按种类，同一种类内再按写下的时刻（交易的 `time` 元数据）。没有写时刻的指令在午夜，但只有日期的 `close` 在当天结束时生效，所以排在当天所有其他条目之后；
+3. 种类的顺序是：`open`、`commodity`、余额记录（余额断言，以及标记为 `P` 的交易：`balance ... with pad` 的补齐交易和手写的 `P` 交易）、其他所有指令、`document`、`close`；
+4. 再按指令在文件中的顺序；
+5. 例外：`balance ... with pad` 在同一时刻的其他余额记录（包括它的补齐交易）之后才检查，它的 `seq` 就是检查它的位置；
+6. 另外，[`pad`](/zh-cn/reference/directives/balance/#pad-指令) 排在它当天所有余额记录之后，不论它们的时刻（当最后一条的时刻晚于它自己时，它取那个时刻），它的补齐交易紧跟在它之后。
 
-余额就是按这个顺序变化的：分录的[累计余额](#累计余额)按这个顺序相加，一个断言紧跟在它的 `actual` 余额所包含的分录之后，所以按 `seq` 合并 `#balances` 和分录的行，每个断言都会在正确的位置。postings 表和 `#transactions` 的行就是按这个顺序排列的。没有 `ORDER BY` 时，`#entries` 和其他指令表的行保持 beancount 的顺序：先按日期，再按种类：`open` 最先（在同一天的 `commodity` 之前），然后是余额断言、其他指令，`document` 和 `close` 最后，不论它们的时刻。两种顺序只在同一天之内不同：张记账让同一天的 `commodity` 和 `open` 指令保持文件中的顺序，按时刻排列一天中的指令（写了时刻的 `open` 排在没有写时刻的交易之后），把余额断言排在该时刻之前的交易之后、写在它之前的补齐之后，并让 `document` 和 `close` 留在原位。`ORDER BY seq` 按张记账的顺序列出各行。
+余额就是按这个顺序变化的：分录的[累计余额](#累计余额)按这个顺序相加，一个断言紧跟在它的 `actual` 余额所包含的分录之后，所以按 `seq` 合并 `#balances` 和分录的行，每个断言都会在正确的位置。在张记账账本中，写了时刻的余额断言排在当天该时刻之前的交易之后。在 beancount 账本中，余额断言在当天开始时，不论它的 `time` 元数据，与 beancount 检查它的位置相同。没有写时刻的账本列出的条目与 beanquery 相同，只有两处例外：`commodity` 排在当天的余额断言之前，标记为 `P` 的交易与余额断言排在一起。
 
 决定顺序的是写下的时刻。在夏令时跳过某段时间的那天，写在跳过时段中的指令存储时向后推迟跳过时段的长度，所以 `ORDER BY seq` 在那里列出的 `time` 和 `timestamp` 列可能不是递增的：在纽约 2024-03-10，写在 `02:30`、存储为 `03:30:00` 的记录排在写在 `03:15` 的记录之前。
 
@@ -746,7 +747,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `tags`、`links` | `set` | 交易、note 或 document 的标签和链接；其他指令为 `NULL`。 |
 | `meta` | `str` | 指令的元数据。 |
 | `accounts` | `set` | 指令涉及的账户：交易的各分录账户，`open`、`close`、`balance`、`note` 或 `document` 的账户，以及 `pad` 或 `balance ... with pad` 的被填充账户和填充账户。其他指令为空集合。 |
-| `seq` | `int` | 指令在[处理顺序](#处理顺序)中的位置，从 0 开始。`ORDER BY seq DESC` 把最新的记录排在最前。没有 `ORDER BY` 时各行保持 beancount 的顺序，在同一天之内可能与之不同。张记账扩展。 |
+| `seq` | `int` | 指令在[处理顺序](#处理顺序)中的位置，从 0 开始：各行就按这个顺序排列。`ORDER BY seq DESC` 把最新的记录排在最前。张记账扩展。 |
 | `time`、`timestamp` | `str`、`int` | 指令在账本时区中的时刻（`HH:MM:SS`），与 `postings` 中相同，即写下的时刻，没有写时为午夜；在夏令时跳过该时刻的那天，向后推迟跳过时段的长度，与张记账存储的一致（纽约 2024-03-10 的 `02:30` 为 `03:30:00`，圣保罗 2018-11-04 的午夜为 `01:00:00`）；以及其日期和时间的 Unix 时间，单位为秒。张记账扩展。 |
 | `metas` | `metas` | 指令的元数据，以 `(key, value)` 对给出，见[结构化元数据](#结构化元数据)。张记账扩展，不包含在 `SELECT *` 中。 |
 

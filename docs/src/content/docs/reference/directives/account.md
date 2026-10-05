@@ -138,8 +138,10 @@ As in Beancount, a list restricts the account to the commodities in it: a postin
 
 ### Closing
 
-- `close` checks the account's own balance in every commodity, without its sub-accounts. A balance that is not zero
-  reports [`CloseNonZeroAccount`](/reference/error-codes/#closenonzeroaccount). The account is closed anyway.
+- `close` checks the account's own balance in every commodity, without its sub-accounts, where it takes effect: a
+  `close` with only a date after everything else of its day, a `close` with a time at that time. A balance that is not
+  zero reports [`CloseNonZeroAccount`](/reference/error-codes/#closenonzeroaccount). The account is closed anyway. So a
+  transaction that empties the account on the day of its `close` may come before or after the `close` in your file.
 - Closing an account that was never opened reports `AccountDoesNotExist`, and closing a closed account reports
   `AccountClosed`. The first `close` stands.
 - A closed account keeps its balances and history. The account list marks it as closed and can hide it.

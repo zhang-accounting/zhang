@@ -10,6 +10,7 @@ use zhang_ast::{Account, Date, Directive, Flag, Pad, Posting, SpanInfo, Spanned,
 
 use super::balance::UnitBalances;
 use super::{ProcessStage, StageContext};
+use crate::data_type::Dialect;
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -141,7 +142,7 @@ pub(crate) fn may_serve(serves: &mut Option<PadServes>, directive: &Spanned<Dire
 /// those `gone` (to be replaced): the `pad` that would serve it once the ledger is loaded again, paired as the pad stage
 /// pairs them. `None` for a directive that is no balance assertion, or that no `pad` serves. A `pad` among `new` serves
 /// too
-pub fn serving_pads(directives: &[Spanned<Directive>], gone: impl Fn(&Spanned<Directive>) -> bool, new: &[Directive]) -> Vec<Option<Pad>> {
+pub fn serving_pads(directives: &[Spanned<Directive>], dialect: Dialect, gone: impl Fn(&Spanned<Directive>) -> bool, new: &[Directive]) -> Vec<Option<Pad>> {
     // what the pairing reads: the pads, and the balance entries, which also order the pads of a day
     let mut stream = directives
         .iter()
@@ -164,7 +165,7 @@ pub fn serving_pads(directives: &[Spanned<Directive>], gone: impl Fn(&Spanned<Di
             },
         ));
     }
-    let keys = Ledger::sort_keys(&stream);
+    let keys = Ledger::sort_keys(&stream, dialect);
     let mut order = (0..stream.len()).collect::<Vec<_>>();
     order.sort_by_key(|index| (keys[*index], *index));
     let mut pairing: PadPairing<usize> = PadPairing::default();
@@ -752,7 +753,7 @@ mod test {
         let mut ctx = crate::pipeline::StageContext::new(&[]);
         crate::pipeline::run_pipeline(
             &crate::pipeline::builtin_stages(),
-            crate::ledger::Ledger::sort_directives_datetime(directives),
+            crate::ledger::Ledger::sort_directives_datetime(directives, crate::data_type::Dialect::Zhang),
             &mut ctx,
         )
         .unwrap();

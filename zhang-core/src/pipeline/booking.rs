@@ -59,7 +59,12 @@ mod test {
         let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
         let mut ctx = StageContext::new(&[]);
         let stages: Vec<Box<dyn ProcessStage>> = vec![Box::new(BookingStage)];
-        let out = run_pipeline(&stages, Ledger::sort_directives_datetime(directives), &mut ctx).unwrap();
+        let out = run_pipeline(
+            &stages,
+            Ledger::sort_directives_datetime(directives, crate::data_type::Dialect::Zhang),
+            &mut ctx,
+        )
+        .unwrap();
         (postings(&out), ctx.into_errors().len())
     }
 

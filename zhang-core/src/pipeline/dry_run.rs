@@ -79,7 +79,7 @@ impl Ledger {
         }
         // the sort is stable, and the directives are sorted already: the candidate moves to its date and time, where
         // its place in the input breaks a tie
-        let mut stream = Ledger::sort_directives_datetime(stream);
+        let mut stream = Ledger::sort_directives_datetime(stream, self.dialect);
         let end = stream.iter().position(|it| it.span == span).expect("the candidate is in the stream") + 1;
         stream.truncate(end);
         stream
