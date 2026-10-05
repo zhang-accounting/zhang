@@ -4,14 +4,11 @@ import { Search, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router';
-import { AccountListItem } from '@/api/types';
 import Amount from '@/components/Amount';
-import { sumByCommodity } from '@/components/budget/budget-utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAmountText } from '@/hooks/use-amount-text';
 import { cn } from '@/lib/utils';
 import { accountAtom } from '@/states/account';
-import { subtreeTotals } from '@/utils/subtree-totals';
+import { TreeTotal, treeTotals } from '@/utils/account-totals';
 
 const GROUPS = [
   { type: 'Assets', label: 'SIDEBAR_ACCOUNTS_ASSETS' },
@@ -32,26 +29,21 @@ const FILTER_INPUT_CLASS = cn(
   'focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40',
 );
 
-/** Sum of several accounts, one amount per commodity (the first, i.e. operating, commodity is displayed). */
-function totals(accounts: AccountListItem[]) {
-  return sumByCommodity(accounts.map((account) => account.amount.calculated));
-}
-
-function TotalAmount({ amounts }: { amounts: ReturnType<typeof totals> }) {
-  const amountText = useAmountText();
-  const first = amounts[0];
-  if (!first) return <span className="shrink-0 tabular-nums">—</span>;
+/** The value of a group of accounts in the operating currency. */
+function TotalAmount({ total }: { total: Pick<TreeTotal, 'number' | 'commodity'> | undefined }) {
+  if (!total) return <span className="shrink-0 tabular-nums">—</span>;
   return (
-    <span className="shrink-0" title={amounts.length > 1 ? amounts.map((it) => amountText(it.number, it.commodity)).join('\n') : undefined}>
-      <Amount amount={first.number} currency={first.commodity} className={cn(first.number.isNegative() && 'text-negative')} />
+    <span className="shrink-0">
+      <Amount amount={total.number} currency={total.commodity} className={cn(total.number.isNegative() && 'text-negative')} />
     </span>
   );
 }
 
 /**
  * Desktop sidebar "Accounts" section (Actual Budget style): net total, then Assets / Liabilities with their subtotals and every
- * open account with its balance in the operating currency, with its sub-accounts as its page shows it. Rows link to the account
- * page; the current one is tinted. A search button toggles an inline filter. Expenses / Income are not listed.
+ * open account with its balance in the operating currency, with its sub-accounts as its page shows it. The totals are those of the
+ * Accounts page: every account counts, a closed one that still holds money too. Rows link to the account page; the current one is
+ * tinted. A search button toggles an inline filter. Expenses / Income are not listed.
  */
 export function SidebarAccounts({ className }: { className?: string }) {
   const { t } = useTranslation();
@@ -71,8 +63,13 @@ export function SidebarAccounts({ className }: { className?: string }) {
     });
   }, [accounts, query]);
   const filtering = query.trim() !== '';
-  // the subtotals add up the accounts' own balances; a row shows the account with its sub-accounts
-  const withSubAccounts = useMemo(() => subtreeTotals(accounts.state === 'hasData' ? accounts.data : []), [accounts]);
+  // the values of the account tree, as the Accounts page shows them; a row shows the account with its sub-accounts
+  const totals = useMemo(() => treeTotals(accounts.state === 'hasData' ? accounts.data : []), [accounts]);
+  const net = useMemo(() => {
+    const groupTotals = GROUPS.map((group) => totals.get(group.type)).filter((total) => total !== undefined);
+    if (groupTotals.length === 0) return undefined;
+    return { number: groupTotals.reduce((sum, total) => sum.plus(total.number), new BigNumber(0)), commodity: groupTotals[0].commodity };
+  }, [totals]);
 
   const toggleSearch = () => {
     if (searching) {
@@ -130,19 +127,20 @@ export function SidebarAccounts({ className }: { className?: string }) {
             {!filtering && (
               <Link to="/accounts" className={cn(ROW_CLASS, 'mb-1.5 font-semibold text-foreground')}>
                 <span className="min-w-0 truncate">{t('SIDEBAR_ACCOUNTS_ALL')}</span>
-                <TotalAmount amounts={totals(groups.flatMap((group) => group.all))} />
+                <TotalAmount total={net} />
               </Link>
             )}
             {groups.map((group) =>
-              group.shown.length === 0 ? null : (
+              // a group without open accounts still shows its total, of closed accounts that hold money
+              group.shown.length === 0 && (filtering || !totals.has(group.type)) ? null : (
                 <div key={group.type} className="mt-1 flex flex-col">
                   <Link to="/accounts" className={cn(ROW_CLASS, 'font-semibold text-foreground')}>
                     <span className="min-w-0 truncate">{t(group.label)}</span>
-                    <TotalAmount amounts={totals(group.all)} />
+                    <TotalAmount total={totals.get(group.type)} />
                   </Link>
                   {group.shown.map((account) => {
                     const short = account.name.split(':').slice(1).join(':') || account.name;
-                    const balance = withSubAccounts.get(account.name) ?? new BigNumber(account.amount.calculated.number);
+                    const balance = new BigNumber(account.amount_with_sub_accounts.calculated.number);
                     const active = account.name === activeAccount;
                     return (
                       <Link
@@ -156,7 +154,7 @@ export function SidebarAccounts({ className }: { className?: string }) {
                         <Amount
                           plain
                           amount={balance}
-                          currency={account.amount.calculated.commodity}
+                          currency={account.amount_with_sub_accounts.calculated.commodity}
                           className={cn('shrink-0', balance.isNegative() && 'text-negative')}
                         />
                       </Link>

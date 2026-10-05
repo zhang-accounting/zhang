@@ -18,6 +18,7 @@ import AccountLine from '../components/AccountLine';
 import Amount from '../components/Amount';
 import { accountAtom, accountFetcher } from '../states/account';
 import { breadcrumbAtom, titleAtom } from '../states/basic';
+import { heldCommodities, treeTotals } from '../utils/account-totals';
 import AccountTrie from '../utils/AccountTrie';
 
 /** Conventional order of the five account types; anything else sorts after them alphabetically. */
@@ -45,6 +46,8 @@ export default function Accounts() {
 
   const all = useMemo(() => (accounts.state === 'hasData' ? accounts.data : []), [accounts]);
   const closedCount = all.filter((it) => it.status !== 'Open').length;
+  // the values of the whole tree: every account counts, closed ones included, whatever the page shows
+  const totals = useMemo(() => treeTotals(all), [all]);
 
   const accountTrie = useMemo(() => {
     const trie = new AccountTrie();
@@ -87,7 +90,8 @@ export default function Accounts() {
       <div className="flex flex-col gap-4">
         {types.map((type) => {
           const node = accountTrie.children[type];
-          const multiple = Object.values(node.amount.data).filter((it) => !it.isZero()).length > 1;
+          const total = totals.get(type);
+          const multiple = heldCommodities(total).length > 1;
           return (
             <Card key={type} className="gap-0 py-0">
               <div className="flex min-h-12 items-center justify-between gap-3 px-4 py-2">
@@ -97,14 +101,14 @@ export default function Accounts() {
                 </h2>
                 <span className="flex items-baseline gap-1 text-sm font-semibold">
                   {multiple && <span aria-hidden>≈</span>}
-                  <Amount amount={node.amount.total} currency={node.amount.commodity} />
+                  {total && <Amount amount={total.number} currency={total.commodity} />}
                 </span>
               </div>
               <div>
                 {Object.keys(node.children)
                   .sort()
                   .map((child) => (
-                    <AccountLine key={node.children[child].path} data={node.children[child]} spacing={0} forceExpand={keyword !== ''} />
+                    <AccountLine key={node.children[child].path} data={node.children[child]} spacing={0} forceExpand={keyword !== ''} totals={totals} />
                   ))}
               </div>
             </Card>

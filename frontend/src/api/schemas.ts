@@ -426,6 +426,20 @@ export interface operations {
                 };
               };
               /**
+               * @description the balance of the account and all its sub-accounts, closed ones included, valued in the operating currency as
+               * `amount` is: what the account's page shows as its balance with sub-accounts
+               */
+              amount_with_sub_accounts: {
+                calculated: {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                };
+                detail: {
+                  [key: string]: string;
+                };
+              };
+              /**
                * @description the balance a balance assertion on the account is checked against, per currency: that of the account
                * and all its sub-accounts
                */
