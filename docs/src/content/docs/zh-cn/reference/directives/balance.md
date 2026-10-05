@@ -141,6 +141,7 @@ YYYY-MM-DD [HH:MM[:SS]] pad <Account> <PadAccount>
 | [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) | 账户或补齐账户在该日期未开立。检查和补齐仍会进行。 |
 | [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | 账户或补齐账户在该时刻已经关闭。 |
 | [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine) | 补齐交易使用了未定义的商品。错误指向这条 `balance … with pad`。 |
+| [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed) | 断言的商品，或补齐记入的商品，不在账户的 `open` 所列出的商品之内。 |
 
 ## Beancount 兼容性
 

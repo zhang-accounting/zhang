@@ -198,6 +198,7 @@ editor's is refused until you fix them there.
 | [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist) | The account, or the pad account, is not open at that date. The check and the padding still happen. |
 | [`AccountClosed`](/reference/error-codes/#accountclosed) | The account, or the pad account, is already closed at that point. |
 | [`CommodityDoesNotDefine`](/reference/error-codes/#commoditydoesnotdefine) | A padding transaction uses a commodity that is not defined. The error points at the `balance … with pad`. |
+| [`CommodityNotAllowed`](/reference/error-codes/#commoditynotallowed) | The asserted commodity, or the one a padding books, is not listed by the `open` of the account. |
 
 ## Beancount compatibility
 

@@ -243,10 +243,14 @@ enum AccountState {
 }
 
 /// account lifecycle folded from `open` / `close` directives, mirroring the store:
-/// `open` (re)opens an account, `close` only closes an account that exists
+/// `open` (re)opens an account, `close` only closes an account that exists.
+/// It also keeps the commodities each account was opened with, which restrict what it may hold
 #[derive(Default)]
 pub struct AccountStates {
     accounts: HashMap<String, AccountState>,
+    /// the commodities listed by the latest `open` of each account that lists any: the only
+    /// commodities it may hold. An `open` without any, a reopening included, lifts the restriction
+    allowed: HashMap<String, Vec<String>>,
 }
 
 impl AccountStates {
@@ -254,7 +258,13 @@ impl AccountStates {
     pub fn apply(&mut self, directive: &Directive) {
         match directive {
             Directive::Open(open) => {
-                self.accounts.insert(open.account.name().to_owned(), AccountState::Open);
+                let name = open.account.name().to_owned();
+                if open.commodities.is_empty() {
+                    self.allowed.remove(&name);
+                } else {
+                    self.allowed.insert(name.clone(), open.commodities.clone());
+                }
+                self.accounts.insert(name, AccountState::Open);
             }
             Directive::Close(close) => {
                 if let Some(state) = self.accounts.get_mut(close.account.name()) {
@@ -283,6 +293,15 @@ impl AccountStates {
             Some(AccountState::Closed(closed)) if *closed < date => Some(ErrorKind::AccountClosed),
             Some(_) => None,
         }
+    }
+
+    /// `CommodityNotAllowed` if the account was opened with a list of commodities that does not include
+    /// `commodity`, as in beancount: a posting, a balance assertion or a padding in it is invalid. `None` if the
+    /// account lists none (it holds any commodity), or never was opened. Only the account itself is restricted,
+    /// not its sub-accounts
+    pub fn commodity_error(&self, account: &Account, commodity: &str) -> Option<ErrorKind> {
+        let allowed = self.allowed.get(account.name())?;
+        (!allowed.iter().any(|it| it == commodity)).then_some(ErrorKind::CommodityNotAllowed)
     }
 
     /// the account errors a directive referencing `accounts` raises, in the order
@@ -520,5 +539,37 @@ mod test {
         assert_eq!(states.inactive_error(&closed, day(3)), Some(ErrorKind::AccountClosed));
         assert_eq!(states.inactive_error(&missing, day(1)), Some(ErrorKind::AccountDoesNotExist));
         assert_eq!(states.inactive_error(&account("Assets:Reopened"), day(4)), None);
+    }
+
+    #[test]
+    fn should_restrict_an_account_to_the_commodities_of_its_latest_open() {
+        let mut states = AccountStates::default();
+        let restricted = |states: &AccountStates, name: &str, commodity: &str| states.commodity_error(&account(name), commodity).is_some();
+        for directive in parse(indoc! {r#"
+            1970-01-01 open Assets:Bank USD, EUR
+            1970-01-01 open Assets:Any
+        "#})
+        {
+            states.apply(&directive);
+        }
+        assert!(!restricted(&states, "Assets:Bank", "USD"));
+        assert!(!restricted(&states, "Assets:Bank", "EUR"));
+        assert_eq!(states.commodity_error(&account("Assets:Bank"), "CNY"), Some(ErrorKind::CommodityNotAllowed));
+        // an open without commodities, a sub-account and an account never opened are not restricted
+        assert!(!restricted(&states, "Assets:Any", "CNY"));
+        assert!(!restricted(&states, "Assets:Bank:Sub", "CNY"));
+        assert!(!restricted(&states, "Assets:Missing", "CNY"));
+
+        // opened again: the commodities of its latest open count, none lifting the restriction
+        for directive in parse(indoc! {r#"
+            1970-01-02 close Assets:Bank
+            1970-01-03 open Assets:Bank
+            1970-01-03 open Assets:Any CNY
+        "#})
+        {
+            states.apply(&directive);
+        }
+        assert!(!restricted(&states, "Assets:Bank", "CNY"));
+        assert!(restricted(&states, "Assets:Any", "USD"));
     }
 }

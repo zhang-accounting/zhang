@@ -35,6 +35,7 @@
     "DocumentNotFound": "Document file {{meta.path}} does not exist",
     "AccountClosed": "Try to operate a closed account",
     "CommodityDoesNotDefine": "Try to use a undefined commodity",
+    "CommodityNotAllowed": "Commodity {{meta.commodity}} is not allowed in {{meta.account_name}}: its open lists other commodities",
     "TransactionHasMultipleImplicitPosting": "Transaction has more than one implicit posting unit",
     "CloseNonZeroAccount": "Trying to close an account with non zero balance",
     "MultipleOperatingCurrencyDetect": "Ledger contains multiple operating currency options, which is not recommended in zhang",

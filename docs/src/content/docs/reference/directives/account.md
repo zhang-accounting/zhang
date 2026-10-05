@@ -20,7 +20,7 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 |---|---|---|
 | Date and time | yes | When the account opens or closes, optionally with a time of day. |
 | `<Account>` | yes | The account name, such as `Assets:Bank:Checking`. |
-| `<Commodity>, …` | no | The commodities the account is meant to hold, separated by commas. Each must be defined. |
+| `<Commodity>, …` | no | The only commodities the account may hold, separated by commas. Each must be defined. Leave it out to allow any commodity. |
 | `<key>: <value>` | no | Metadata lines. See [Metadata](#metadata) for the keys Zhang reads. |
 
 **Account names** start with one of the five account types, `Assets`, `Liabilities`, `Equity`, `Income` or
@@ -95,9 +95,17 @@ still loads. See [Lots and cost basis](/guides/lots-and-cost-basis/) for working
 
 The commodities listed on `open` must be [defined](/reference/directives/commodity/) before it; an undefined one
 reports [`CommodityDoesNotDefine`](/reference/error-codes/#commoditydoesnotdefine) on the `open`. On the same date,
-write the `commodity` directive above the `open`. The list does not restrict
-the account: Zhang does not check the commodities of its postings against it. Queries read the list as
-`open.currencies` in `#accounts`.
+write the `commodity` directive above the `open`. Queries read the list as `open.currencies` in `#accounts`.
+
+As in Beancount, a list restricts the account to the commodities in it: a posting, a
+[balance assertion](/reference/directives/balance/) or a padding in another commodity reports
+[`CommodityNotAllowed`](/reference/error-codes/#commoditynotallowed) once for each posting as written, with the
+`account_name` and `commodity` metas. The ledger still loads and the transaction is still booked.
+
+- Only the units of a posting are checked, not its cost or its price, so an account opened with `AAPL` can buy
+  `AAPL {90 EUR}`.
+- An `open` without a list allows any commodity. Only the account itself is restricted, not its sub-accounts.
+- An account that is opened again follows the list of its latest `open` before the directive.
 
 ### Closing
 
@@ -113,6 +121,7 @@ the account: Zhang does not check the commodities of its postings against it. Qu
 | Error | When |
 |---|---|
 | [`CommodityDoesNotDefine`](/reference/error-codes/#commoditydoesnotdefine) | A commodity listed on `open` is not defined. |
+| [`CommodityNotAllowed`](/reference/error-codes/#commoditynotallowed) | A posting, balance assertion or padding is in a commodity the account's `open` does not list. |
 | [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | `booking_method` is not a booking method. |
 | [`UnsupportedBookingMethod`](/reference/error-codes/#unsupportedbookingmethod) | `booking_method` is `AVERAGE`, `AVERAGE_ONLY` or `NONE`. |
 | [`CloseNonZeroAccount`](/reference/error-codes/#closenonzeroaccount) | The account holds something when it is closed. |
@@ -129,7 +138,9 @@ the account: Zhang does not check the commodities of its postings against it. Qu
   2024-01-01 open Assets:Broker USD "FIFO"
   ```
 
-- Beancount rejects a posting in a commodity that the `open` does not list. Zhang does not check it.
+- Both report a posting in a commodity that the `open` does not list, and a balance assertion in one. For a sale booked
+  against several lots, Beancount reports one error for each lot, and Zhang one for the posting as written. Zhang lets
+  an account be opened again, with the list of its latest `open`; Beancount reports the second `open` as an error.
 - Beancount's default booking method is `STRICT`; Zhang's is `FIFO`.
 - `CloseNonZeroAccount` is Zhang's own check: Beancount closes such an account without an error.
 
