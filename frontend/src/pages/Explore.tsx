@@ -5,8 +5,7 @@ import { ApiError } from 'openapi-typescript-fetch';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
-import { useAsync } from 'react-use';
-import { executeQuery, exportQueryCsv, optionValue, retrieveOptions } from '@/api/requests';
+import { executeQuery, exportQueryCsv } from '@/api/requests';
 import { QueryError, QueryResult } from '@/api/types';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import QueryEditor from '@/components/query/QueryEditor';
@@ -25,6 +24,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { QUERY_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import { breadcrumbAtom, titleAtom } from '@/states/basic';
+import { operatingCurrencyAtom } from '@/states/options';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const RUN_SHORTCUT = IS_MAC ? '⌘ ↵' : 'Ctrl ↵';
@@ -128,7 +128,7 @@ export default function Explore() {
     }
   };
 
-  const { value: operatingCurrency } = useAsync(async () => optionValue((await retrieveOptions({})).data.data, 'operating_currency'), []);
+  const operatingCurrency = useAtomValue(operatingCurrencyAtom);
 
   const currentQuery = () => viewRef.current?.state.doc.toString() ?? query;
 
