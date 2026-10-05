@@ -227,7 +227,14 @@ pub struct ServeConfig {
     pub passkey_origin: Option<String>,
     /// the key that signs the sessions, random (sessions end on restart) when absent (`ZHANG_SESSION_SECRET`)
     pub session_secret: Option<String>,
-    pub is_local_fs: bool,
+}
+
+impl ServeConfig {
+    /// whether the ledger is on the local file system, which its data source tells: such a ledger is watched for
+    /// edits, and served from its canonical root
+    pub fn is_local(&self) -> bool {
+        self.data_source.local_root(&self.path).is_some()
+    }
 }
 
 /// A reload asked for. An asker that waits for it is told what it came to.
@@ -299,7 +306,7 @@ pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
     info!("start reload listener");
     start_reload_listener(ledger_data.clone(), broadcaster.clone(), reload_sender.clone(), rx);
 
-    if opts.is_local_fs {
+    if opts.is_local() {
         info!("start fs event listener");
         start_fs_event_lisenter(ledger_data.clone(), reload_sender.clone());
     }
@@ -320,7 +327,7 @@ pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
 /// files differently, and no edit ever reloaded the ledger (#492). A remote root is a path on the remote storage, and
 /// stays as it is.
 pub async fn load_served_ledger(opts: &mut ServeConfig) -> ZhangResult<Ledger> {
-    if opts.is_local_fs {
+    if opts.is_local() {
         opts.path = opts.path.canonicalize().with_path(&opts.path)?;
     }
     Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone()).await
@@ -806,6 +813,11 @@ mod served_root_test {
 
     #[async_trait::async_trait]
     impl DataSource for Joined {
+        /// a source on the local file system, as `zhang serve <root>` reads one
+        fn local_root(&self, entry: &Path) -> Option<PathBuf> {
+            Some(entry.to_path_buf())
+        }
+
         fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
             let file = PathBuf::from(entry).join(endpoint);
             let content = std::fs::read_to_string(&file)?;
@@ -832,7 +844,6 @@ mod served_root_test {
             passkey_rp_id: None,
             passkey_origin: None,
             session_secret: None,
-            is_local_fs: true,
         }
     }
 
