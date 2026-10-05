@@ -9,7 +9,7 @@ use crate::account::Account;
 use crate::amount::Amount;
 use crate::data::{Close, Comment, Commodity, Custom, Document, Event, Include, Note, Open, Options, Pad, Plugin, Price, Query, Transaction};
 use crate::error::ErrorKind;
-use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Meta};
+use crate::{BalanceCheck, BalancePad, Budget, BudgetAdd, BudgetClose, BudgetTransfer, Date, Meta};
 
 /// [`DirectiveType`] is the kind of a directive, named like its variant
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, EnumDiscriminants)]
@@ -39,33 +39,43 @@ pub enum Directive {
     BudgetClose(BudgetClose),
 }
 
+/// `$body` on the payload `$it` of a directive with a date, `$otherwise` on the others: an option, a plugin, an
+/// include and a comment
+macro_rules! when_dated {
+    ($directive: expr, |$it: ident| $body: expr, $otherwise: expr) => {
+        match $directive {
+            Directive::Open($it) => $body,
+            Directive::Close($it) => $body,
+            Directive::Commodity($it) => $body,
+            Directive::Transaction($it) => $body,
+            Directive::BalancePad($it) => $body,
+            Directive::BalanceCheck($it) => $body,
+            Directive::Pad($it) => $body,
+            Directive::Note($it) => $body,
+            Directive::Document($it) => $body,
+            Directive::Price($it) => $body,
+            Directive::Event($it) => $body,
+            Directive::Custom($it) => $body,
+            Directive::Query($it) => $body,
+            Directive::Budget($it) => $body,
+            Directive::BudgetAdd($it) => $body,
+            Directive::BudgetTransfer($it) => $body,
+            Directive::BudgetClose($it) => $body,
+            Directive::Option(_) | Directive::Plugin(_) | Directive::Include(_) | Directive::Comment(_) => $otherwise,
+        }
+    };
+}
+
 impl Directive {
     pub fn datetime(&self) -> Option<NaiveDateTime> {
-        match self {
-            Directive::Open(open) => Some(open.date.naive_datetime()),
-            Directive::Close(close) => Some(close.date.naive_datetime()),
-            Directive::Commodity(commodity) => Some(commodity.date.naive_datetime()),
-            Directive::Transaction(txn) => Some(txn.date.naive_datetime()),
-            Directive::BalanceCheck(check) => Some(check.date.naive_datetime()),
-            Directive::BalancePad(pad) => Some(pad.date.naive_datetime()),
-            Directive::Pad(pad) => Some(pad.date.naive_datetime()),
-            Directive::Note(note) => Some(note.date.naive_datetime()),
-            Directive::Document(document) => Some(document.date.naive_datetime()),
-            Directive::Price(price) => Some(price.date.naive_datetime()),
-            Directive::Event(event) => Some(event.date.naive_datetime()),
-            Directive::Custom(custom) => Some(custom.date.naive_datetime()),
-            Directive::Query(query) => Some(query.date.naive_datetime()),
-            Directive::Option(_) => None,
-            Directive::Plugin(_) => None,
-            Directive::Include(_) => None,
-            Directive::Comment(_) => None,
-
-            Directive::Budget(budget) => Some(budget.date.naive_datetime()),
-            Directive::BudgetAdd(budget_add) => Some(budget_add.date.naive_datetime()),
-            Directive::BudgetTransfer(budget_transfer) => Some(budget_transfer.date.naive_datetime()),
-            Directive::BudgetClose(budget_close) => Some(budget_close.date.naive_datetime()),
-        }
+        when_dated!(self, |directive| Some(directive.date.naive_datetime()), None)
     }
+
+    /// Mutable access to a directive's date, if it has one.
+    pub fn date_mut(&mut self) -> Option<&mut Date> {
+        when_dated!(self, |directive| Some(&mut directive.date), None)
+    }
+
     pub fn directive_type(&self) -> DirectiveType {
         self.into()
     }
@@ -77,30 +87,19 @@ impl Directive {
         self
     }
 
+    /// A directive's metadata, if it carries any: every directive with a date does, and so does a plugin.
+    pub fn meta(&self) -> Option<&Meta> {
+        match self {
+            Directive::Plugin(directive) => Some(&directive.meta),
+            _ => when_dated!(self, |directive| Some(&directive.meta), None),
+        }
+    }
+
     /// Mutable access to a directive's metadata, if it carries any.
     pub fn meta_mut(&mut self) -> Option<&mut Meta> {
         match self {
-            Directive::Open(directive) => Some(&mut directive.meta),
-            Directive::Close(directive) => Some(&mut directive.meta),
-            Directive::Commodity(directive) => Some(&mut directive.meta),
-            Directive::Transaction(directive) => Some(&mut directive.meta),
-            Directive::BalancePad(directive) => Some(&mut directive.meta),
-            Directive::BalanceCheck(directive) => Some(&mut directive.meta),
-            Directive::Pad(directive) => Some(&mut directive.meta),
-            Directive::Note(directive) => Some(&mut directive.meta),
-            Directive::Document(directive) => Some(&mut directive.meta),
-            Directive::Price(directive) => Some(&mut directive.meta),
-            Directive::Event(directive) => Some(&mut directive.meta),
-            Directive::Custom(directive) => Some(&mut directive.meta),
-            Directive::Query(directive) => Some(&mut directive.meta),
-            Directive::Budget(directive) => Some(&mut directive.meta),
-            Directive::BudgetAdd(directive) => Some(&mut directive.meta),
-            Directive::BudgetTransfer(directive) => Some(&mut directive.meta),
-            Directive::BudgetClose(directive) => Some(&mut directive.meta),
             Directive::Plugin(directive) => Some(&mut directive.meta),
-            Directive::Option(_) => None,
-            Directive::Include(_) => None,
-            Directive::Comment(_) => None,
+            _ => when_dated!(self, |directive| Some(&mut directive.meta), None),
         }
     }
 }

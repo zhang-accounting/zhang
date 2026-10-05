@@ -13,6 +13,7 @@ use super::{AssertionOutcome, ProcessStage, StageContext};
 use crate::booking::written_groups;
 use crate::data_type::Dialect;
 use crate::ledger::Ledger;
+use crate::utils::read_time;
 use crate::ZhangResult;
 
 /// validates every balance assertion, `balance` and `balance ... with pad`, against the account's
@@ -111,15 +112,6 @@ struct IgnoredTimes<'a> {
 /// a balance with a time: its index in the stream, its account, commodity and time, and what the transactions of its
 /// day before that time changed of it
 type TimedBalance<'a> = (usize, &'a Account, &'a str, NaiveTime, BigDecimal);
-
-/// a time as earlier versions of zhang read the `time` of a beancount directive: `H:M:S`, spaces around it trimmed
-fn read_time(text: &str) -> Option<NaiveTime> {
-    let parts = text.trim().split(':').map(|it| it.parse::<u32>().ok()).collect::<Option<Vec<_>>>()?;
-    match parts[..] {
-        [hour, minute, second] => NaiveTime::from_hms_opt(hour, minute, second),
-        _ => None,
-    }
-}
 
 impl<'a> IgnoredTimes<'a> {
     /// the timed balances among `directives` of a ledger in the format `dialect`: none in a zhang ledger, whose files

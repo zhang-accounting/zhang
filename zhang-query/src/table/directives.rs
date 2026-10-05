@@ -19,7 +19,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::{BalanceAssertionDomain, DocumentType, Store};
 
 use super::postings::time_value;
-use super::{directive_meta, ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
+use super::{ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -69,7 +69,7 @@ pub(super) fn set_value<'s>(items: impl IntoIterator<Item = &'s String>) -> Valu
 
 /// The `meta` column of a directive row.
 pub(super) fn meta_value(record: &Record<'_>) -> Value {
-    render_meta(directive(record).and_then(|it| directive_meta(&it.data)))
+    render_meta(directive(record).and_then(|it| it.data.meta()))
 }
 
 pub(super) fn year(date: NaiveDate) -> u32 {

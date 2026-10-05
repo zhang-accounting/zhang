@@ -17,7 +17,7 @@ use zhang_core::store::{Store, TransactionDomain};
 use super::cache::{EntryInfo, LedgerCache};
 use super::directives::{date_value, directive, directive_time, directive_timestamp, meta_value, set_value, str_value, year};
 use super::postings::{balanced, error_kinds, txn_date, txn_description, txn_flag, txn_narration, txn_payee, txn_time, txn_timestamp};
-use super::{directive_meta, meta_pairs, ColumnDef, Dataset, Record, Rows, Table};
+use super::{meta_pairs, ColumnDef, Dataset, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -373,5 +373,5 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
 
 /// The `metas` column of an entry.
 fn metas_value(record: &Record<'_>) -> Value {
-    of_directive(record, |it| Value::Metas(meta_pairs(directive_meta(&it.data))))
+    of_directive(record, |it| Value::Metas(meta_pairs(it.data.meta())))
 }
