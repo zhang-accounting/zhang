@@ -6,6 +6,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::{Date, Directive, Document, ZhangString};
 
 use crate::balance_writes::{balance_directives, BalanceRow, BalanceWriteEntity};
+use crate::builtin::ledger_now;
 use crate::request::{AccountBalanceRequest, AccountJournalRequest, BatchAccountBalanceRequest};
 use crate::response::{AccountBalanceHistoryEntity, AccountEntity, AccountInfoEntity, AccountJournalEntity, Created, DocumentEntity, Paged, ResponseWrapper};
 use crate::routes::Query;
@@ -17,6 +18,20 @@ use crate::{account_queries, validate, ApiResult, ServerResult};
 fn validated(amount: Amount, rules: &Rules) -> ServerResult<Amount> {
     validate::amount(&amount, rules)?;
     Ok(amount)
+}
+
+/// The balance `request` writes for `account`: the account, the amount and the pad account, in that order, each checked
+/// to read back unchanged.
+fn balance_row(account: &str, request: AccountBalanceRequest, rules: &Rules) -> ServerResult<BalanceRow> {
+    let (amount, pad) = match request {
+        AccountBalanceRequest::Check { amount } => (amount, None),
+        AccountBalanceRequest::Pad { amount, pad } => (amount, Some(pad)),
+    };
+    Ok(BalanceRow {
+        account: validate::account(account, rules)?,
+        amount: validated(amount, rules)?,
+        pad: pad.map(|pad| validate::account(&pad, rules)).transpose()?,
+    })
 }
 
 /// Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
@@ -51,6 +66,8 @@ pub async fn upload_account_document(
     let files = super::uploaded_files(&mut multipart).await?;
     let mut ledger_stage = ledger.for_writing().await?;
     let account = validate::account(&account_name, &Rules::of(&ledger_stage))?;
+    // the time of the ledger's clock, as for every other write: the documents of one upload share it
+    let now = ledger_now(&ledger_stage);
     let written = async {
         let mut documents = vec![];
         for (file_name, content_buf) in files {
@@ -63,7 +80,7 @@ pub async fn upload_account_document(
                 .await?;
 
             documents.push(Directive::Document(Document {
-                date: Date::now(&ledger_stage.options.timezone),
+                date: Date::Datetime(now),
                 account: account.clone(),
                 filename: ZhangString::QuoteString(striped_path_string),
                 tags: None,
@@ -132,20 +149,9 @@ pub async fn create_account_balance(
     let mut ledger = ledger.for_writing().await?;
     let rules = Rules::of(&ledger);
 
-    let row = match payload {
-        AccountBalanceRequest::Check { amount } => BalanceRow {
-            account: validate::account(&target_account, &rules)?,
-            amount: validated(amount, &rules)?,
-            pad: None,
-        },
-        AccountBalanceRequest::Pad { amount, pad } => BalanceRow {
-            account: validate::account(&target_account, &rules)?,
-            amount: validated(amount, &rules)?,
-            pad: Some(validate::account(&pad, &rules)?),
-        },
-    };
+    let row = balance_row(&target_account, payload, &rules)?;
 
-    let writes = balance_directives(&ledger, vec![row], Date::now(&ledger.options.timezone))?;
+    let writes = balance_directives(&ledger, vec![row], Date::Datetime(ledger_now(&ledger)))?;
     let written = writes.write(&ledger).await;
     ResponseWrapper::json(wrote(&mut ledger, &reload_sender, written)?)
 }
@@ -169,22 +175,15 @@ pub async fn create_batch_account_balances(
     // sub-accounts before their parents, deepest first: a `balance` on a parent covers its sub-accounts, so it
     // must come after their pads to assert, and pad to, the total they leave
     for balance in sub_accounts_first(payload) {
-        rows.push(match balance {
-            BatchAccountBalanceRequest::Check { account_name, amount } => BalanceRow {
-                account: validate::account(&account_name, &rules)?,
-                amount: validated(amount, &rules)?,
-                pad: None,
-            },
-            BatchAccountBalanceRequest::Pad { account_name, amount, pad } => BalanceRow {
-                account: validate::account(&account_name, &rules)?,
-                amount: validated(amount, &rules)?,
-                pad: Some(validate::account(&pad, &rules)?),
-            },
-        });
+        let (account_name, request) = match balance {
+            BatchAccountBalanceRequest::Check { account_name, amount } => (account_name, AccountBalanceRequest::Check { amount }),
+            BatchAccountBalanceRequest::Pad { account_name, amount, pad } => (account_name, AccountBalanceRequest::Pad { amount, pad }),
+        };
+        rows.push(balance_row(&account_name, request, &rules)?);
     }
 
     // one time for the whole batch, so the file order decides the order of its directives
-    let writes = balance_directives(&ledger, rows, Date::now(&ledger.options.timezone))?;
+    let writes = balance_directives(&ledger, rows, Date::Datetime(ledger_now(&ledger)))?;
     let written = writes.write(&ledger).await;
     ResponseWrapper::json(wrote(&mut ledger, &reload_sender, written)?)
 }
@@ -327,6 +326,135 @@ mod name_validation_test {
             assert!(message.starts_with(expected), "{message}");
         }
         assert_eq!(std::fs::read_to_string(dir.join("main.bean")).unwrap(), MAIN);
+        std::fs::remove_dir_all(dir).ok();
+    }
+}
+
+/// The writes of this module date what they write by the ledger's clock, as everything else that asks for "now" does,
+/// not by the system clock: under a fixed clock they write its instant, in the ledger's timezone.
+#[cfg(test)]
+mod clock_test {
+    use std::path::Path as FsPath;
+    use std::sync::Arc;
+
+    use axum::body::Body;
+    use axum::extract::{FromRequest, Multipart, Path, State};
+    use axum::http::{Request, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::Json;
+    use bigdecimal::BigDecimal;
+    use chrono::DateTime;
+    use tokio::sync::{mpsc, RwLock};
+    use zhang_ast::amount::Amount;
+    use zhang_core::clock::Clock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::{create_account_balance, create_batch_account_balances, upload_account_document};
+    use crate::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
+    use crate::state::{SharedLedger, SharedReloadSender};
+    use crate::ReloadSender;
+
+    const MAIN: &str = "option \"timezone\" \"Asia/Shanghai\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Assets:Bank\n";
+
+    /// the ledger's clock: 2024-03-15 20:30 UTC, 2024-03-16 04:30 in Shanghai
+    const NOW: &str = "2024-03-15T20:30:00Z";
+
+    /// a ledger in a new directory, loaded with the clock fixed at [`NOW`]
+    async fn states() -> (std::path::PathBuf, State<SharedLedger>, State<SharedReloadSender>) {
+        let dir = std::env::temp_dir().join(format!("zhang-write-clock-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.zhang"), MAIN).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let clock = Clock::Fixed(DateTime::parse_from_rfc3339(NOW).unwrap().to_utc());
+        let ledger = Ledger::async_load_with_clock(dir.clone(), "main.zhang".to_owned(), source, clock)
+            .await
+            .unwrap();
+        let (sender, _) = mpsc::channel(1);
+        (
+            dir,
+            State(SharedLedger(Arc::new(RwLock::new(ledger)))),
+            State(SharedReloadSender(Arc::new(ReloadSender::new(sender)))),
+        )
+    }
+
+    /// every line the writes added to the ledger's files, the main file aside
+    fn written(dir: &FsPath) -> Vec<String> {
+        let mut lines = vec![];
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(path) = pending.pop() {
+            if path.is_dir() {
+                pending.extend(std::fs::read_dir(&path).unwrap().map(|it| it.unwrap().path()));
+            } else if path.extension().is_some_and(|it| it == "zhang") && path != dir.join("main.zhang") {
+                lines.extend(
+                    std::fs::read_to_string(&path)
+                        .unwrap()
+                        .lines()
+                        .filter(|it| !it.trim().is_empty())
+                        .map(str::to_owned),
+                );
+            }
+        }
+        lines.sort();
+        lines
+    }
+
+    fn cny(number: i32) -> Amount {
+        Amount::new(BigDecimal::from(number), "CNY")
+    }
+
+    #[tokio::test]
+    async fn a_balance_is_dated_by_the_ledger_clock() {
+        let (dir, ledger, reload) = states().await;
+        let request = AccountBalanceRequest::Check { amount: cny(0) };
+        let response = create_account_balance(ledger, reload, Path(("Assets:Cash".to_owned(),)), Json(request))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(written(&dir), vec!["2024-03-16 04:30:00 balance Assets:Cash 0 CNY"]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_batch_of_balances_is_dated_by_the_ledger_clock() {
+        let (dir, ledger, reload) = states().await;
+        let batch = vec![
+            BatchAccountBalanceRequest::Check {
+                account_name: "Assets:Cash".to_owned(),
+                amount: cny(0),
+            },
+            BatchAccountBalanceRequest::Check {
+                account_name: "Assets:Bank".to_owned(),
+                amount: cny(0),
+            },
+        ];
+        let response = create_batch_account_balances(ledger, reload, Json(batch)).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            written(&dir),
+            vec!["2024-03-16 04:30:00 balance Assets:Bank 0 CNY", "2024-03-16 04:30:00 balance Assets:Cash 0 CNY"]
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn an_uploaded_document_is_dated_by_the_ledger_clock() {
+        let (dir, ledger, reload) = states().await;
+        let body = "--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"receipt.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF\r\n--X--\r\n";
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "multipart/form-data; boundary=X")
+            .body(Body::from(body))
+            .unwrap();
+        let multipart = Multipart::from_request(request, &()).await.unwrap();
+        let response = upload_account_document(ledger, reload, Path(("Assets:Cash".to_owned(),)), multipart)
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let lines = written(&dir);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].starts_with("2024-03-16 04:30:00 document Assets:Cash \"attachments/"), "{lines:?}");
         std::fs::remove_dir_all(dir).ok();
     }
 }

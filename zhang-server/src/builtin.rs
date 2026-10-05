@@ -519,6 +519,8 @@ mod test {
     use std::collections::{BTreeSet, HashMap};
     use std::path::PathBuf;
 
+    use zhang_ast::Flag;
+    use zhang_core::constants::BALANCE_CHECK_PAYEE;
     use zhang_query::{DataType, ParamRef, Query, Value};
 
     use super::{compiled, json_params, json_value, text, BuiltinQuery, BUILTINS};
@@ -558,6 +560,21 @@ mod test {
             // the registry compiles the same query
             assert_eq!(compiled(builtin.name).unwrap().source(), builtin.bql);
         }
+    }
+
+    /// A query cannot read a Rust constant, so the built-in queries write two of the ledger's as literals: the payee a
+    /// balance assertion is listed under in the journals, and the flag of padding transactions. Each literal is the
+    /// constant, and nothing else names that payee or compares the flag with another
+    #[test]
+    fn the_literals_builtins_copy_are_the_ledger_constants() {
+        let payee = format!("'{}'", BALANCE_CHECK_PAYEE);
+        let not_padding = format!("flag != '{}'", Flag::BalancePad);
+        let named = |text: &str| BUILTINS.iter().filter(|it| it.bql.contains(text)).map(|it| it.name).collect::<BTreeSet<_>>();
+        assert_eq!(named(&payee), BTreeSet::from(["journals.page"]));
+        assert_eq!(named("Balance Check"), named(&payee));
+        assert_eq!(named(&not_padding), BTreeSet::from(["journals.payees", "report.transaction_count"]));
+        assert_eq!(named("flag != '"), named(&not_padding));
+        assert_eq!(named("flag = '"), BTreeSet::new());
     }
 
     #[test]
