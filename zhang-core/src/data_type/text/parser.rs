@@ -21,6 +21,7 @@ use nom::combinator::{eof, map, map_res, opt, peek, recognize, value, verify};
 use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
+use zhang_ast::account::is_account_component_char;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 
@@ -129,10 +130,11 @@ fn account_type(i: &str) -> IResult<&str, &str> {
     alt((tag("Assets"), tag("Liabilities"), tag("Equity"), tag("Income"), tag("Expenses")))(i)
 }
 
-/// `account_name = account_type (":" unquote_string)+`
+/// `account_name = account_type (":" account_component)+`, where an `account_component` is one or more characters of
+/// [`is_account_component_char`], the rule [`Account::from_str`] reads names by
 pub fn account_name(i: &str) -> IResult<&str, Account> {
     let (i, account_type) = account_type(i)?;
-    let (i, components) = many1(preceded(char(':'), map(unquote_string_raw, |s: &str| s.to_string())))(i)?;
+    let (i, components) = many1(preceded(char(':'), map(take_while1(is_account_component_char), |s: &str| s.to_string())))(i)?;
     let content = format!("{}:{}", account_type, components.join(":"));
     Ok((
         i,
@@ -2744,11 +2746,11 @@ mod test {
         use bigdecimal::BigDecimal;
         use chrono::NaiveDate;
         use zhang_ast::amount::Amount;
-        use zhang_ast::{Date, PostingCost, SingleTotalPrice};
+        use zhang_ast::{Account, Date, PostingCost, SingleTotalPrice};
 
         use crate::data_type::text::parser::{
-            is_valid_account_name, is_valid_bare_meta_value, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
-            read_posting_cost, read_posting_price,
+            account_name, is_valid_account_name, is_valid_bare_meta_value, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link,
+            is_valid_transaction_flag, read_posting_cost, read_posting_price,
         };
 
         /// A cost or a price given as text (the transaction edit of the server, #473) is read whole by the
@@ -2928,6 +2930,40 @@ mod test {
                 "assets:x",
             ] {
                 assert!(!is_valid_account_name(invalid), "{invalid}");
+            }
+        }
+
+        /// `Account::from_str` reads names by the grammar's rule: the names the grammar rejects are no accounts there
+        /// either, so nothing built from a string (a plugin's config, a request) names an account a ledger cannot
+        /// read back, and the names it reads are the accounts the grammar makes of them
+        #[test]
+        fn account_from_str_reads_names_by_the_grammar() {
+            for name in [
+                "Assets:Bank",
+                "Expenses:Food:Lunch",
+                "Income:中文",
+                "Liabilities:Card-1",
+                "Equity:a;b",
+                "",
+                "Assets",
+                "Assets:",
+                "Assets::x",
+                "Assets:x:",
+                ":Bank",
+                "Assets:My Bank",
+                "Assets:Tab\there",
+                "Assets:a\"b",
+                "Assets:a,b",
+                "Assets:a(b)",
+                "Bank:X",
+                "assets:x",
+                "AssetsX:y",
+            ] {
+                let parsed = match account_name(name) {
+                    Ok(("", account)) => Some(account),
+                    _ => None,
+                };
+                assert_eq!(Account::from_str(name).ok(), parsed, "{name:?}");
             }
         }
 

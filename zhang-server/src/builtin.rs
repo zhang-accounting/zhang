@@ -31,7 +31,7 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDateTime;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryResult, Value};
 
@@ -460,7 +460,7 @@ pub async fn run_with_total(ledger: &LedgerState, name: &'static str, params: Pa
 /// The parameters of `builtin` from JSON values: every declared parameter must be given, and
 /// no other. `null` is NULL for any type; otherwise a `bool` takes a boolean, an `int` an
 /// integer, a `decimal` a number or a string such as `"12.50"`, a `str` a string, a `date` a
-/// string `YYYY-MM-DD`, and a `set` a list of strings.
+/// string `YYYY-MM-DD` read as BQL's `date(text)` reads it, and a `set` a list of strings.
 pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<BuiltinParamValue>>) -> ServerResult<Params> {
     let mut params = Params::new();
     for (name, ty) in builtin.params {
@@ -491,7 +491,8 @@ fn json_value(ty: DataType, value: Option<BuiltinParamValue>) -> Result<Value, &
         (DataType::Decimal, Number(it)) => decimal(&it.to_string()),
         (DataType::Decimal, Text(it)) => decimal(&it),
         (DataType::Str, Text(it)) => Some(Value::Str(it)),
-        (DataType::Date, Text(it)) => NaiveDate::parse_from_str(&it, "%Y-%m-%d").ok().map(Value::Date),
+        // the engine's one text-to-date rule, as `date(text)` reads it
+        (DataType::Date, Text(it)) => zhang_query::value::parse_date(&it).map(Value::Date),
         (DataType::Set, List(items)) => Some(Value::Set(items.into_iter().collect())),
         _ => None,
     };
@@ -661,6 +662,21 @@ mod test {
         assert_eq!(json_value(DataType::Set, Some(Text("a".into()))).unwrap_err(), "a list of strings or null");
         assert!(json_value(DataType::Decimal, Some(Text("twelve".into()))).is_err());
         assert!(json_value(DataType::Str, Some(Int(1))).is_err());
+    }
+
+    /// A `date` parameter given as text binds exactly the texts BQL's `date(text)` reads (beanquery's
+    /// `strptime(text, '%Y-%m-%d')`), as the same day; no other reading of text as a date.
+    #[test]
+    fn a_date_parameter_reads_text_as_bql_date_reads_it() {
+        let bind = |text: &str| json_value(DataType::Date, Some(BuiltinParamValue::Text(text.to_owned()))).ok();
+        let day = Some(Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 2, 9).unwrap()));
+        for text in ["2024-02-09", "2024-2-9", "2024-02- 9"] {
+            assert_eq!(bind(text), day, "{:?}", text);
+            assert_eq!(zhang_query::value::parse_date(text).map(Value::Date), day, "{:?}", text);
+        }
+        for text in [" 2024-02-09", "+2024-02-09", "24-02-09", "2024-02-09 ", "0000-02-09", "2024-02-30"] {
+            assert_eq!(bind(text), None, "{:?}", text);
+        }
     }
 
     #[test]

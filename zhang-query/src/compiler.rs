@@ -1540,12 +1540,14 @@ fn expect_bool(op: &str, ty: DataType, span: Span) -> Result<(), LocatedError> {
     }
 }
 
+/// A string literal compared with a date, read as a date by the one text-to-date rule
+/// ([`crate::value::parse_date`], as `date(text)` reads it); a string it does not read is an error.
 fn coerce_date_literal(expr: CExpr, ty: DataType, other: DataType, span: Span) -> Result<Typed, LocatedError> {
     if ty == DataType::Str && other == DataType::Date {
         if let CExpr::Const(Value::Str(text)) = &expr {
-            return match chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d") {
-                Ok(date) => Ok((CExpr::Const(Value::Date(date)), DataType::Date)),
-                Err(_) => err(format!("'{}' is not a valid date (expected YYYY-MM-DD)", text), span),
+            return match crate::value::parse_date(text) {
+                Some(date) => Ok((CExpr::Const(Value::Date(date)), DataType::Date)),
+                None => err(format!("'{}' is not a valid date (expected YYYY-MM-DD, as date() reads it)", text), span),
             };
         }
     }

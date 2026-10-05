@@ -524,6 +524,7 @@ mod test {
         store.balance_assertions.push(BalanceAssertionDomain {
             id: uuid::Uuid::nil(),
             sequence: 1,
+            directive: 0,
             datetime: chrono_tz::Tz::UTC.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             account: Account::from_str("Assets:Cash").unwrap(),
             amount: usd.clone(),

@@ -8,10 +8,10 @@
 //!
 //! - [`Entries`]: the rows of `#entries` in beancount's order, the position of every entry in
 //!   the order zhang processed the ledger (the `seq` column), the rows of `#transactions`, and
-//!   for every transaction its stored id and the kinds of the errors recorded for it. Stored
-//!   transactions are found by source position, which is how zhang derives their ids, so no id
-//!   is hashed; the records sharing a position, such as the padding transactions of a `pad`, one
-//!   for each commodity it pads, are taken in the order zhang stored them.
+//!   for every transaction its stored id and the kinds of the errors recorded for it. The store
+//!   records the directive every transaction and balance check was folded from, so directives
+//!   sharing a source position, such as the padding transactions of a `pad`, one for each
+//!   commodity it pads, or the copies a plugin emits, each find their own.
 //! - [`Postings`]: the rows of the `postings` table ([`CachedRow`]), one per booked posting of
 //!   the ledger's directives (zhang books while it loads, so a sale across several lots is one
 //!   posting per lot already), the transactions they belong to, and the rows of every account,
@@ -33,7 +33,7 @@ use std::sync::{Arc, OnceLock};
 
 use chrono::{NaiveDate, NaiveTime};
 use uuid::Uuid;
-use zhang_ast::{Directive, SpanInfo, Transaction, WrittenGroup};
+use zhang_ast::{written_groups, Directive, SpanInfo, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{Store, TransactionDomain};
 use zhang_core::utils::id::FromSpan;
@@ -272,7 +272,7 @@ impl Entries {
         for directive in directives {
             positions.of(&directive.span, true);
         }
-        let (stored, checked) = stored_records(ledger, store, &mut positions);
+        let (stored, checked) = stored_records(ledger, store);
         // what zhang records about a directive, it records at its position
         let mut errors: HashMap<Position, BTreeSet<String>> = HashMap::new();
         for error in &store.errors {
@@ -374,58 +374,19 @@ fn processing_order(ledger: &Ledger, store: &Store, rows: &[EntryInfo], of_direc
 /// and the check of a balance assertion (an index into `Store::balance_assertions`); `None` for a
 /// transaction zhang rejected and an assertion it did not check.
 ///
-/// zhang keeps both at the position of their directive. Several directives can share a position,
-/// as when a plugin makes them from one directive it read: each takes, in the order of the
-/// directives, the first record of the position not taken yet whose date (and for an assertion,
-/// account and amount) is its own.
-fn stored_records<'s>(ledger: &'s Ledger, store: &'s Store, positions: &mut Positions<'s>) -> (Vec<Option<&'s TransactionDomain>>, Vec<Option<u32>>) {
-    // the records of each position, in the order zhang stored them
-    let mut transactions: HashMap<Position, Vec<&TransactionDomain>> = HashMap::with_capacity(store.transactions.len());
-    for txn in store.transactions.values() {
-        if let Some(position) = positions.of(&txn.span, false) {
-            transactions.entry(position).or_default().push(txn);
-        }
-    }
-    for at in transactions.values_mut() {
-        at.sort_unstable_by_key(|txn| txn.sequence);
-    }
-    let mut assertions: HashMap<Position, Vec<u32>> = HashMap::new();
-    for (index, assertion) in store.balance_assertions.iter().enumerate() {
-        if let Some(position) = positions.of(&assertion.span, false) {
-            assertions.entry(position).or_default().push(index as u32);
-        }
-    }
+/// The store records the directive each was folded from, so directives that share a position, as
+/// when a plugin makes them from one directive it read, each have their own record, or none.
+fn stored_records<'s>(ledger: &Ledger, store: &'s Store) -> (Vec<Option<&'s TransactionDomain>>, Vec<Option<u32>>) {
     let mut stored = vec![None; ledger.directives.len()];
+    for txn in store.transactions.values() {
+        if let Some(slot) = stored.get_mut(txn.directive) {
+            *slot = Some(txn);
+        }
+    }
     let mut checked = vec![None; ledger.directives.len()];
-    for (idx, directive) in ledger.directives.iter().enumerate() {
-        let date = date_of(&directive.data);
-        match &directive.data {
-            Directive::Transaction(_) => {
-                let Some(at) = positions.of(&directive.span, false).and_then(|position| transactions.get_mut(&position)) else {
-                    continue;
-                };
-                if let Some(taken) = at.iter().position(|txn| Some(txn.datetime.date_naive()) == date) {
-                    stored[idx] = Some(at.remove(taken));
-                }
-            }
-            Directive::BalanceCheck(_) | Directive::BalancePad(_) => {
-                let (account, amount) = match &directive.data {
-                    Directive::BalanceCheck(check) => (&check.account, &check.amount),
-                    Directive::BalancePad(pad) => (&pad.account, &pad.amount),
-                    _ => unreachable!("a balance assertion"),
-                };
-                let Some(at) = positions.of(&directive.span, false).and_then(|position| assertions.get_mut(&position)) else {
-                    continue;
-                };
-                let taken = at.iter().position(|index| {
-                    let check = &store.balance_assertions[*index as usize];
-                    Some(check.datetime.date_naive()) == date && &check.account == account && &check.amount == amount
-                });
-                if let Some(taken) = taken {
-                    checked[idx] = Some(at.remove(taken));
-                }
-            }
-            _ => {}
+    for (index, assertion) in store.balance_assertions.iter().enumerate() {
+        if let Some(slot) = checked.get_mut(assertion.directive) {
+            *slot = Some(index as u32);
         }
     }
     (stored, checked)
@@ -473,9 +434,9 @@ pub(crate) struct CachedEntry {
     pub date: NaiveDate,
     /// its time of day in the ledger's timezone
     pub time: NaiveTime,
-    /// the parsed directive (its index in [`Ledger::directives`]) when its postings match the
-    /// stored ones: its metadata, costs and prices are read from it
-    pub parsed: Option<u32>,
+    /// the directive it was stored from (its index in [`Ledger::directives`]): its metadata,
+    /// costs and prices are read from it
+    pub parsed: u32,
     /// its row of `#entries` (an index into [`Entries::rows`]): its `seq` and errors
     pub entry: Option<u32>,
 }
@@ -504,19 +465,6 @@ pub(crate) struct Lot {
 
 impl Postings {
     fn build(ledger: &Ledger, store: &Store, entries: &Entries) -> Postings {
-        // the parsed transaction directives by position, in the order of the ledger's directives: the padding
-        // transactions of a `pad` share its position, and are stored in that order
-        let mut positions = Positions::default();
-        let mut parsed_at: HashMap<Position, Vec<usize>> = HashMap::new();
-        for (idx, directive) in ledger.directives.iter().enumerate().rev() {
-            if let Directive::Transaction(_) = &directive.data {
-                if let Some(position) = positions.of(&directive.span, true) {
-                    // the first last, to pop
-                    parsed_at.entry(position).or_default().push(idx);
-                }
-            }
-        }
-
         // in ledger order; the sequence is copied next to the transaction to sort on it
         let mut transactions = store.transactions.values().map(|txn| (txn.sequence, txn)).collect::<Vec<_>>();
         transactions.sort_unstable_by_key(|(sequence, _)| *sequence);
@@ -527,25 +475,12 @@ impl Postings {
         let mut accounts = Accounts::default();
         let mut rows = Vec::with_capacity(store.postings.len());
         for (_, txn) in transactions {
-            // the directive the transaction was stored from: the first at its position, in ledger
-            // order, whose booked postings are the stored ones (`stored_groups`), which the store
-            // has one row per posting as written of. A stage may have emitted another transaction
-            // at that position, say a copy the ledger could not book, which was never stored: it
-            // is passed over and left there, not taken for this one. Without a match the rows are
-            // the store's
-            let mut matched: Option<(usize, Vec<WrittenGroup<'_>>)> = None;
-            if let Some(candidates) = positions.of(&txn.span, false).and_then(|position| parsed_at.get_mut(&position)) {
-                // the last first: `parsed_at` holds them in reverse ledger order
-                for at in (0..candidates.len()).rev() {
-                    if let Directive::Transaction(parsed) = &ledger.directives[candidates[at]].data {
-                        if let Some(groups) = postings::stored_groups(parsed, txn) {
-                            matched = Some((candidates.remove(at), groups));
-                            break;
-                        }
-                    }
-                }
-            }
-            let directive = matched.as_ref().map(|(idx, _)| *idx);
+            // the directive the transaction was stored from, which the store records: its booked
+            // postings, grouped by the posting they were written as, are the stored ones
+            let Some(Directive::Transaction(parsed)) = ledger.directives.get(txn.directive).map(|it| &it.data) else {
+                debug_assert!(false, "a stored transaction names no transaction directive");
+                continue;
+            };
             let entry = cached.len();
             if let Ok(sequence) = usize::try_from(txn.sequence) {
                 entry_of_sequence[sequence] = entry as u32;
@@ -554,13 +489,10 @@ impl Postings {
                 id: txn.id,
                 date: txn.datetime.date_naive(),
                 time: txn.datetime.time(),
-                parsed: directive.map(|idx| idx as u32),
-                entry: directive.and_then(|idx| entries.of_directive(idx)).map(|it| it.seq),
+                parsed: txn.directive as u32,
+                entry: entries.of_directive(txn.directive).map(|it| it.seq),
             });
-            match matched {
-                Some((_, groups)) => rows.extend(postings::booked_rows(entry, &groups, &mut accounts)),
-                None => rows.extend(postings::stored_rows(entry, txn, &mut accounts)),
-            }
+            rows.extend(postings::booked_rows(entry, &written_groups(&parsed.postings), &mut accounts));
         }
 
         let mut account_rows = vec![vec![]; accounts.names.len()];
