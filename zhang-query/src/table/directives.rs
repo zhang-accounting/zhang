@@ -13,7 +13,7 @@ use bigdecimal::BigDecimal;
 use chrono::{Datelike, NaiveDate};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{resolve_local_datetime, Account, Directive, Meta, Posting, Spanned, Transaction};
+use zhang_ast::{resolve_local_datetime, written_groups, Account, Directive, Meta, Posting, Spanned, Transaction};
 use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{BalanceAssertionDomain, DocumentType, Store};
@@ -404,7 +404,8 @@ impl<'a> DocumentRow<'a> {
 
 /// The document directives in ledger order, then the `document` metadata values of the
 /// transactions the store keeps (those of `#transactions`), in ledger order: a transaction's own
-/// first, then those of its postings in order. A repeated key gives one row per value.
+/// first, then those of its postings as written, in order. A repeated key gives one row per value.
+/// This is the one list of the ledger's documents: the store keeps only the document directives.
 ///
 /// The path of a document directive of a beancount ledger is the one zhang resolved it to while
 /// loading the ledger (relative to the file of the directive, as beancount reads it, or relative to
@@ -425,12 +426,11 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
     let mut resolved: HashMap<(&str, NaiveDate), VecDeque<&'a str>> = HashMap::new();
     if is_beancount_endpoint(&ledger.entry.1) {
         for document in &store.documents {
-            if let DocumentType::Account(account) = &document.document_type {
-                resolved
-                    .entry((account.name(), document.datetime.date_naive()))
-                    .or_default()
-                    .push_back(document.path.as_str());
-            }
+            let DocumentType::Account(account) = &document.document_type;
+            resolved
+                .entry((account.name(), document.datetime.date_naive()))
+                .or_default()
+                .push_back(document.path.as_str());
         }
     }
     let cache = LedgerCache::of(ledger, store);
@@ -478,10 +478,12 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
         let Directive::Transaction(transaction) = &directive.data else {
             continue;
         };
+        // the postings as written, not the booked legs: booking copies the metadata of a posting
+        // it splits across lots onto every leg, and the posting names its documents once
         let holders = std::iter::once((DocumentSource::Transaction(transaction), &transaction.meta)).chain(
-            transaction
-                .postings
-                .iter()
+            written_groups(&transaction.postings)
+                .into_iter()
+                .map(|group| &group.legs[0])
                 .map(|posting| (DocumentSource::Posting(transaction, posting), &posting.meta)),
         );
         for (source, meta) in holders {

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use itertools::Itertools;
@@ -11,7 +10,6 @@ use crate::booking::{group_units, written_groups};
 use crate::domains::schemas::MetaType;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
-use crate::store::DocumentType;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
@@ -91,25 +89,7 @@ impl DirectiveProcess for Transaction {
                 super::budget::keep_foreign_amount(ledger, &budget, &units, via.as_deref(), datetime.date_naive(), span, Some(&account_name));
             }
         }
-        // extract documents from meta. A `document` of a posting is a document of its
-        // transaction too: older zhang appended uploaded documents after the postings, which
-        // a beancount ledger reads as metadata of the last posting. The legs of a split posting
-        // share its meta: counted once
-        let documents = std::iter::once(&self.meta)
-            .chain(written_groups(&self.postings).into_iter().map(|group| &group.legs[0].meta))
-            .flat_map(|meta| meta.get_all("document"))
-            .collect_vec();
-        for document_file_name in documents {
-            let document_path = document_file_name.as_str().to_owned();
-            let document_pathbuf = PathBuf::from(&document_path);
-            operations.insert_document(
-                self.date.to_timezone_datetime(&ledger.options.timezone),
-                document_pathbuf.file_name().and_then(|it| it.to_str()),
-                document_path,
-                None,
-                DocumentType::Trx(id),
-            )?;
-        }
+        // the documents its `document` metadata names are the query engine's (`#documents`)
         operations.insert_meta(MetaType::TransactionMeta, id.to_string(), self.meta.clone())?;
         Ok(())
     }

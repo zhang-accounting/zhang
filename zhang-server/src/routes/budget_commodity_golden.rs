@@ -689,7 +689,7 @@ option "timezone" "Asia/Shanghai"
     }
 
     /// The ledger of #499, with a budget-close at a time on another budget.
-    const CLOSED_499: &str = r#"
+    pub(super) const CLOSED_499: &str = r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
 1970-01-01 commodity USD
@@ -916,12 +916,16 @@ option "operating_currency" "USD"
 /// a month after the last row, the pages against the queries they open, and a date typo.
 #[cfg(test)]
 mod fixed_clock {
+    use std::collections::HashMap;
+
     use serde_json::json;
     use zhang_query::{Params, Value};
 
-    use super::worked_examples::{figures, json_answer as new_json, ledger_at, ledger_of, of, BUDGETS};
+    use super::worked_examples::{figures, json_answer as new_json, ledger_at, ledger_of, of, BUDGETS, CLOSED_499};
     use super::*;
     use crate::cells::rows;
+    use crate::request::{BuiltinParamValue, BuiltinQueryTextRequest, QueryRequest};
+    use crate::routes::query;
 
     /// Shanghai is UTC+8: at 2024-03-31 16:30 UTC it is already April 1st there. Without a month,
     /// the budget pages show April, the ledger's current month: 500 CNY assigned in March, 100
@@ -1073,6 +1077,94 @@ option "operating_currency" "CNY"
                     None => assert_eq!(figures(&page), of("0", "0", "0", false), "{} {}-{}", name, year, month),
                 }
             }
+        }
+    }
+
+    /// The parameters of `budgets.postings` that the budget page's "Open query" on its activity
+    /// sends, from the budget info it shows and its month (`budgetPostingsParams` in
+    /// `frontend/src/components/budget/budget-query.ts`).
+    fn postings_params(info: &Json, month: NaiveDate) -> HashMap<String, Option<BuiltinParamValue>> {
+        let field = |key: &str| info.get(key).cloned().unwrap_or_else(|| panic!("the budget info has no {}: {}", key, info));
+        let params = json!({
+            "accounts": field("related_accounts"),
+            "month": month.to_string(),
+            "name": field("name"),
+            "close": field("close"),
+            "close_time": field("close_time"),
+        });
+        serde_json::from_value(params).unwrap()
+    }
+
+    /// `budgets.postings` takes the budget's close (#684), so the budget info carries it: the
+    /// budget page's "Open query" on its activity is written out (not a 400 for a missing
+    /// parameter) and runs to the postings the page lists, for an open budget and for budgets
+    /// closed on a day and at a time.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_budget_pages_open_query_lists_the_postings_the_page_lists() {
+        let open = ledger_of(BUDGETS).await;
+        let closed = ledger_of(CLOSED_499).await;
+        let cases = [
+            // open: the dinner of March
+            (&open, "food", (2025, 3), json!(null), json!(null), 1),
+            // closed on 2024-03-01: the two lunches of January
+            (&closed, "Food", (2024, 1), json!("2024-03-01"), json!(null), 2),
+            // closed at 12:00 on 2024-04-10: the cinema before the close, not the one after
+            (&closed, "Fun", (2024, 4), json!("2024-04-10"), json!("12:00:00"), 1),
+        ];
+        for (ledger, name, (year, month), close, close_time, postings) in cases {
+            let info = new_json(
+                ledger,
+                Probe::BudgetInfo {
+                    name: name.to_owned(),
+                    month: Some((year, month)),
+                },
+            )
+            .await;
+            assert_eq!((&info["close"], &info["close_time"]), (&close, &close_time), "{}", name);
+
+            let params = postings_params(&info, NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap());
+            let written = call(query::get_builtin_query_text(
+                Path(("budgets.postings".to_owned(),)),
+                axum::Json(BuiltinQueryTextRequest { params }),
+            ))
+            .await;
+            let Outcome::Json(written) = written else {
+                panic!("{}: {:?}", name, written);
+            };
+            let text = written["query"].as_str().unwrap().to_owned();
+
+            let request = QueryRequest {
+                query: text.clone(),
+                count_total: None,
+            };
+            let response = query::run_query(State(SharedLedger(ledger.0.clone())), axum::Json(request))
+                .await
+                .into_response();
+            assert_eq!(response.status().as_u16(), 200, "{}: {}", name, text);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let result: Json = serde_json::from_slice(&bytes).unwrap();
+            let id = result["data"]["columns"].as_array().unwrap().iter().position(|it| it["name"] == "id").unwrap();
+            let ids = result["data"]["rows"].as_array().unwrap().iter().map(|row| row[id].clone()).collect::<Vec<_>>();
+
+            // the postings the page lists, newest first like the query
+            let detail = new_json(
+                ledger,
+                Probe::BudgetInterval {
+                    name: name.to_owned(),
+                    year,
+                    month,
+                },
+            )
+            .await;
+            let listed = detail
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|it| it["type"] != "BudgetEvent")
+                .map(|it| it["trx_id"].clone())
+                .collect::<Vec<_>>();
+            assert_eq!(listed.len(), postings, "{}", name);
+            assert_eq!(ids, listed, "{}: {}", name, text);
         }
     }
 

@@ -27,6 +27,7 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::JournalRequest;
+use zhang_server::routes::account::get_account_documents;
 use zhang_server::routes::common::get_errors;
 use zhang_server::routes::document::{download_document, get_documents};
 use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, update_single_transaction};
@@ -597,6 +598,50 @@ async fn the_new_transaction_form_suggests_sorted_payees_without_pads_and_open_a
     );
 }
 
+/// A document has the same type on the documents page and on its account's page: `extension` is the extension of its
+/// file name, lower case and without the dot, and `mime_type` the MIME type that extension stands for.
+#[tokio::test]
+async fn a_document_has_its_extension_and_mime_type_on_both_lists() {
+    let ledger_text = r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Cash
+
+2024-01-01 document Assets:Cash "statements/Jan.PDF"
+2024-01-02 document Assets:Cash "photos/receipt.webp"
+2024-01-03 document Assets:Cash "notes/README"
+"#;
+    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
+    let ledger = scratch.ledger().await;
+    let (status, all) = respond(get_documents(State(ledger.clone())).await).await;
+    assert_eq!(status, StatusCode::OK);
+    let account = UrlPath(("Assets:Cash".to_owned(),));
+    let (status, of_account) = respond(get_account_documents(State(ledger.clone()), account).await).await;
+    assert_eq!(status, StatusCode::OK);
+    let types = |documents: &Value| {
+        let mut types = documents
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| (it["path"].clone(), it["extension"].clone(), it["mime_type"].clone()))
+            .collect::<Vec<_>>();
+        types.sort_by_key(|it| it.0.to_string());
+        types
+    };
+    let expected = vec![
+        (json!("notes/README"), Value::Null, Value::Null),
+        (json!("photos/receipt.webp"), json!("webp"), json!("image/webp")),
+        (json!("statements/Jan.PDF"), json!("pdf"), json!("application/pdf")),
+    ];
+    assert_eq!(types(&all["data"]), expected);
+    assert_eq!(types(&of_account["data"]), expected);
+    // the very same entities
+    let mut all = all["data"].as_array().unwrap().clone();
+    all.sort_by_key(|it| it["path"].to_string());
+    let mut of_account = of_account["data"].as_array().unwrap().clone();
+    of_account.sort_by_key(|it| it["path"].to_string());
+    assert_eq!(all, of_account);
+}
+
 #[tokio::test]
 async fn documents_come_from_the_documents_table_newest_first() {
     let ledger_text = r#"option "operating_currency" "CNY"
@@ -622,31 +667,27 @@ async fn documents_come_from_the_documents_table_newest_first() {
     };
     let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
     assert_eq!(status, StatusCode::OK);
-    let document = |datetime: &str, path: &str, extension: &str, account: Value, trx_id: Value| {
+    let document = |datetime: &str, path: &str, (extension, mime_type): (&str, &str), account: Value, trx_id: Value| {
         json!({
             "datetime": datetime,
             "filename": path.rsplit('/').next().unwrap(),
             "path": path,
             "extension": extension,
+            "mime_type": mime_type,
             "account": account,
             "trx_id": trx_id,
         })
     };
+    let pdf = ("pdf", "application/pdf");
     assert_eq!(
         body["data"],
         json!([
             // the documents of a transaction in written order: its own, then its postings'
-            document("2024-01-02T09:00:00", "receipts/a.pdf", "application/pdf", Value::Null, json!(id)),
-            document("2024-01-02T09:00:00", "receipts/b.png", "image/png", Value::Null, json!(id)),
+            document("2024-01-02T09:00:00", "receipts/a.pdf", pdf, Value::Null, json!(id)),
+            document("2024-01-02T09:00:00", "receipts/b.png", ("png", "image/png"), Value::Null, json!(id)),
             // a posting's document belongs to the posting's account too
-            document("2024-01-02T09:00:00", "receipts/c.pdf", "application/pdf", json!("Expenses:Food"), json!(id)),
-            document(
-                "2024-01-01T00:00:00",
-                "statements/jan.pdf",
-                "application/pdf",
-                json!("Assets:Cash"),
-                Value::Null
-            ),
+            document("2024-01-02T09:00:00", "receipts/c.pdf", pdf, json!("Expenses:Food"), json!(id)),
+            document("2024-01-01T00:00:00", "statements/jan.pdf", pdf, json!("Assets:Cash"), Value::Null),
         ])
     );
 }
@@ -680,6 +721,52 @@ async fn a_beancount_document_is_listed_with_the_path_the_download_opens() {
     assert_eq!(response.status(), StatusCode::OK);
     let content = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     assert_eq!(String::from_utf8_lossy(&content).trim(), "the statement of January 2024");
+}
+
+/// A sale that booking splits across two lots names the document of its posting once: the documents page lists the
+/// posting as written, not each booked leg (which share its metadata).
+#[tokio::test]
+async fn the_document_of_a_split_sale_is_listed_once() {
+    let ledger_text = r#"option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Cash
+1970-01-01 open Assets:Broker
+  booking_method: "FIFO"
+1970-01-01 open Income:Gains
+
+2024-01-01 * "Broker" "buy"
+  Assets:Broker 10 AAPL {100 USD}
+  Assets:Cash -1000 USD
+
+2024-01-02 * "Broker" "buy"
+  Assets:Broker 10 AAPL {120 USD}
+  Assets:Cash -1200 USD
+
+2024-01-03 * "Broker" "sell"
+  Assets:Broker -15 AAPL {} @ 150 USD
+    document: "slips/sale.pdf"
+  Assets:Cash 2250 USD
+  Income:Gains
+"#;
+    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
+    let ledger = scratch.ledger().await;
+    {
+        let guard = ledger.read().await;
+        assert!(guard.store.read().unwrap().errors.is_empty(), "{:?}", guard.store.read().unwrap().errors);
+        // the sale is booked against both lots
+        let legs = zhang_query::execute(&guard, "SELECT count(*) FROM postings WHERE narration = 'sell' AND account = 'Assets:Broker'").unwrap();
+        assert_eq!(legs.rows, vec![vec![zhang_query::Value::Int(2)]]);
+    }
+    let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
+    assert_eq!(status, StatusCode::OK);
+    let paths = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| (it["path"].clone(), it["account"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(paths, vec![(json!("slips/sale.pdf"), json!("Assets:Broker"))]);
 }
 
 #[tokio::test]
