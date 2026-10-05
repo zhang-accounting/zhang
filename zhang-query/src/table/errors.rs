@@ -295,6 +295,7 @@ fn span_position(record: &Record<'_>, position: impl Fn(&SpanInfo) -> Option<usi
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::str::FromStr;
 
     use zhang_ast::error::ErrorKind;
 
@@ -343,6 +344,18 @@ mod tests {
                 .find(|kind| kind.to_string() == *name)
                 .unwrap_or_else(|| panic!("the UI translates an unknown kind {}", name));
             assert_eq!(message(kind), text.as_str().unwrap().trim(), "{}", name);
+        }
+    }
+
+    /// The UI's English text of every kind it translates is exactly the engine's `message`, not even drifting by a
+    /// space: both show the same error to the same user.
+    #[test]
+    fn ui_texts_are_exactly_the_messages() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/public/locales/en/translation.json");
+        let translation: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for (name, text) in translation["ERROR"].as_object().unwrap() {
+            let kind = ErrorKind::from_str(name).unwrap_or_else(|_| panic!("the UI translates an unknown kind {}", name));
+            assert_eq!(text.as_str(), Some(message(&kind)), "ERROR.{} of the English translation", name);
         }
     }
 

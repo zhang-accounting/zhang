@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 use regex::{Regex, RegexBuilder};
 
 pub(crate) use crate::ast::ArithOp;
@@ -19,7 +19,7 @@ use crate::functions::{resolve_scalar, AggregateFunction, AggregateKind, ScalarF
 use crate::params::{ParamRef, ParamTypes, Params};
 use crate::period::{Period, PeriodDate};
 use crate::table::{self, ColumnDef, Scope, Table, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN, POSTINGS};
-use crate::value::{DataType, Value};
+use crate::value::{first_of_month, DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CmpOp {
@@ -502,7 +502,7 @@ impl DateBound {
         };
         let date = if self.exclusive { date.pred_opt().unwrap_or(NaiveDate::MIN) } else { *date };
         if self.month {
-            let next = date.with_day(1).and_then(|first| first.checked_add_months(chrono::Months::new(1)));
+            let next = first_of_month(date).checked_add_months(chrono::Months::new(1));
             next.and_then(|next| next.pred_opt()).unwrap_or(NaiveDate::MAX)
         } else {
             date

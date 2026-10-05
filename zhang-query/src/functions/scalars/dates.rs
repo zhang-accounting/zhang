@@ -17,7 +17,7 @@
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 use crate::functions::FunctionContext;
-use crate::value::{calendar_value, in_calendar, parse_date, python_date, Interval, Value};
+use crate::value::{calendar_value, first_of_month, in_calendar, month_index, parse_date, python_date, Interval, Value};
 
 pub(super) fn month(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
     Ok(Value::Int(date_of(&args[0], "month")?.month() as i64))
@@ -50,7 +50,7 @@ pub(super) fn weekday(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Valu
 /// beanquery `yearmonth`: the first day of the date's month.
 pub(super) fn yearmonth(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
     let date = date_of(&args[0], "yearmonth")?;
-    Ok(Value::Date(date.with_day(1).ok_or("yearmonth() got an invalid date")?))
+    Ok(Value::Date(first_of_month(date)))
 }
 
 pub(super) fn today(_args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
@@ -185,11 +185,6 @@ pub(super) fn date_bin(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Val
     };
     let (source, origin) = (date_of(&args[1], "date_bin")?, date_of(&args[2], "date_bin")?);
     Ok(bin(stride, source, origin).map_or(Value::Null, Value::Date))
-}
-
-/// The month index `year * 12 + month0` of a date.
-fn month_index(date: NaiveDate) -> i64 {
-    date.year() as i64 * 12 + date.month0() as i64
 }
 
 /// How many times [`bin`] may move its estimate. The estimate is at most two strides off
