@@ -198,25 +198,36 @@ fn posting_comment(comment: String) -> String {
     }
 }
 
+/// The cost spec as written: its components separated by ` , `, the cost number first, such as
+/// `{ 150 USD , 2024-01-15 , "lot" }`, `{{ 1500 USD }}`, `{ 2024-01-15 }`, `{ "lot" }`, the
+/// compound `{ 100 # 5 USD }`, `{ * }`, or `{ }` for an empty spec. Each form reads back as the
+/// same spec in both formats.
 impl ZhangDataTypeExportable for PostingCost {
     type Output = String;
 
     fn export_as(self, style: QuoteStyle) -> Self::Output {
         let (open, close) = if self.total { ("{{", "}}") } else { ("{", "}") };
-        let mut string_builder = vec![open.to_string()];
+        let mut components = vec![];
         if let Some(cost_base) = self.base {
-            string_builder.push(cost_base.export_as(style));
+            components.push(match self.compound_total {
+                Some(total) => format!("{} # {} {}", plain_decimal(&cost_base.number), plain_decimal(&total), cost_base.commodity),
+                None => cost_base.export_as(style),
+            });
         };
         if let Some(date) = self.date {
-            string_builder.push(",".to_string());
-            string_builder.push(date.export_as(style));
+            components.push(date.export_as(style));
         };
         if let Some(label) = self.label {
-            string_builder.push(",".to_string());
-            string_builder.push(quote_as(&label, style));
+            components.push(quote_as(&label, style));
         };
-        string_builder.push(close.to_string());
-        string_builder.join(" ")
+        if self.merge {
+            components.push("*".to_owned());
+        }
+        if components.is_empty() {
+            format!("{open} {close}")
+        } else {
+            format!("{open} {} {close}", components.join(" , "))
+        }
     }
 }
 
@@ -881,6 +892,7 @@ mod test {
                 date: Some(Date::Date(chrono::NaiveDate::from_str(date).unwrap())),
                 label: None,
                 total: false,
+                ..PostingCost::default()
             }),
             price: None,
             comment: None,
@@ -946,6 +958,7 @@ mod test {
             date: Some(date.clone()),
             label: None,
             total: false,
+            ..PostingCost::default()
         });
         booked.postings[0].written = Some(WrittenPosting {
             index: 0,
@@ -957,6 +970,7 @@ mod test {
             date: Some(date),
             label: Some("a".to_owned()),
             total: false,
+            ..PostingCost::default()
         });
         booked.postings[1].written = Some(WrittenPosting {
             index: 1,
@@ -982,6 +996,46 @@ mod test {
             .trim()
         );
         assert_eq!(parse(&exported), written, "the export parses back to the transaction as written");
+    }
+
+    /// #497: every cost spec form is written back as written, in both styles, and reads back as
+    /// the same spec: a date or a label alone, the compound cost and the merge-cost marker. A
+    /// label written with the leading comma zhang took before (`{, "b"}`) is written without it
+    #[test]
+    fn every_cost_spec_form_round_trips() {
+        use zhang_ast::Directive;
+
+        use crate::data_type::text::exporter::ZhangDataTypeExportable;
+        use crate::utils::string_::QuoteStyle;
+
+        let parse = |text: &str| match (ZhangDataType {}).transform(text.to_owned(), None).unwrap().into_iter().next().unwrap().data {
+            Directive::Transaction(txn) => txn,
+            _ => panic!("a transaction"),
+        };
+        let cases = [
+            ("{2024-01-10}", "{ 2024-01-10 }"),
+            ("{\"b\"}", "{ \"b\" }"),
+            ("{, \"b\"}", "{ \"b\" }"),
+            ("{{\"b\"}}", "{{ \"b\" }}"),
+            ("{100 # 5 USD}", "{ 100 # 5 USD }"),
+            ("{100 # 5.25 USD, 2024-01-10, \"a\"}", "{ 100 # 5.25 USD , 2024-01-10 , \"a\" }"),
+            ("{*}", "{ * }"),
+            ("{\"a\", 2024-01-10, 100 USD, *}", "{ 100 USD , 2024-01-10 , \"a\" , * }"),
+            ("{150 USD, 2024-01-15, \"lot\"}", "{ 150 USD , 2024-01-15 , \"lot\" }"),
+            ("{}", "{ }"),
+        ];
+        for (spec, written) in cases {
+            let txn = parse(&format!("2024-02-01 * \"sell\"\n  Assets:Broker -1 HOOL {spec}\n  Assets:Cash 120 USD\n"));
+            for style in [QuoteStyle::Zhang, QuoteStyle::Beancount] {
+                let exported = Directive::Transaction(txn.clone()).export_as(style);
+                assert_eq!(
+                    exported,
+                    format!("2024-02-01 * \"sell\"\n  Assets:Broker -1 HOOL {written}\n  Assets:Cash 120 USD"),
+                    "{spec} in {style:?}"
+                );
+                assert_eq!(parse(&exported), txn, "{spec} in {style:?} reads back");
+            }
+        }
     }
 
     #[test]
@@ -1340,6 +1394,7 @@ mod test {
                             date: None,
                             label: Some(next()),
                             total: false,
+                            ..PostingCost::default()
                         }),
                         price: None,
                         comment: None,

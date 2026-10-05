@@ -45,9 +45,9 @@ Write the cost of the units in braces:
   Assets:Broker:Cash -950.00 USD
 ```
 
-- `{185.00 USD}` is the cost of one unit. `{{860.00 USD}}` is the cost of all the units of the posting: Zhang keeps the lot at 860 / 5 = 172.00 USD per unit.
+- `{185.00 USD}` is the cost of one unit. `{{860.00 USD}}` is the cost of all the units of the posting: Zhang keeps the lot at 860 / 5 = 172.00 USD per unit. A compound cost, `{185.00 # 5.00 USD}`, is a cost per unit plus a total, such as a commission: for 10 units Zhang keeps the lot at 185.00 + 5.00 / 10 = 185.50 USD per unit, as Beancount does.
 - A posting with a cost weighs its units times the cost, `10 × 185.00 = 1,850.00 USD`, and the transaction balances in USD.
-- The lot is acquired on the date of the transaction. To give it another date, add it after the cost: `{185.00 USD, 2024-01-09}`. A label can follow too, `{185.00 USD, 2024-01-09, "first"}`. Zhang cannot read a cost written with only a date or only a label, such as `{2024-01-09}`, and the file does not load: put the cost first.
+- The lot is acquired on the date of the transaction. To give it another date, add it after the cost: `{185.00 USD, 2024-01-09}`. A label can follow too, `{185.00 USD, 2024-01-09, "first"}`. The parts of a cost come in any order, and each can stand alone: `{2024-01-09}` or `{"first"}` is a cost too.
 - An empty `{}` on a purchase infers the cost from the other postings' amounts and opens a lot on the purchase date. For example, `3 AAPL {}` balanced by `-600 USD` has a cost of `200 USD` per share. Only one number can be missing: combining an unspecified cost with an implicit cash amount, or with another unspecified cost, is rejected with [`TransactionCannotInferTradeAmount`](/reference/error-codes/#transactioncannotinfertradeamount).
 
 The account now holds three lots: 10 AAPL at 185.00 USD, 5 at 172.00 and 5 at 190.00.
@@ -88,7 +88,10 @@ To sell from particular lots, write their cost instead of `{}`:
 
 - `{172.00 USD}` takes from the lots held at 172.00 USD, whatever their date.
 - `{172.00 USD, 2024-03-15}` takes only from the lot acquired on 15 March 2024.
-- `{172.00 USD, "first"}`, or `{, "first"}` without the cost, takes only from the lot labelled `first`. A label written on a purchase, such as `{172.00 USD, "first"}`, names its lot: lots that differ only by label are kept apart, and a purchase without a label never adds to a labelled lot.
+- `{2024-03-15}` alone takes only from the lots acquired on 15 March 2024, whatever their cost.
+- `{172.00 USD, "first"}`, or `{"first"}` without the cost (Zhang also reads the older `{, "first"}`), takes only from the lot labelled `first`. A label written on a purchase, such as `{172.00 USD, "first"}`, names its lot: lots that differ only by label are kept apart, and a purchase without a label never adds to a labelled lot.
+
+Beancount's merge-cost marker, `{*}`, is read but not supported: the sale is reported with [`CostMergingNotSupported`](/reference/error-codes/#costmergingnotsupported) and books like `{}`.
 
 ### Selling more than you hold
 

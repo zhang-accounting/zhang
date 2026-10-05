@@ -1,0 +1,44 @@
+option "operating_currency" "USD"
+2024-01-01 commodity USD
+2024-01-01 commodity HOOL
+2024-01-01 open Assets:Broker
+2024-01-01 open Assets:Single
+2024-01-01 open Assets:Cash
+2024-01-01 open Income:Gains
+2024-01-01 open Equity:Opening
+
+2024-01-10 * "Buy a"
+  Assets:Broker 10 HOOL {100 USD, "a"}
+  Assets:Cash -1000 USD
+
+2024-01-20 * "Buy b"
+  Assets:Broker 10 HOOL {110 USD, "b"}
+  Assets:Cash -1100 USD
+
+2024-01-25 * "Buy a single lot"
+  Assets:Single 2 HOOL {100 USD}
+  Assets:Cash -200 USD
+
+2024-02-01 * "Sell by date only"
+  Assets:Broker -1 HOOL {2024-01-10}
+  Assets:Cash 120 USD
+  Income:Gains
+
+2024-02-02 * "Sell by label only"
+  Assets:Broker -1 HOOL {"b"}
+  Assets:Cash 120 USD
+  Income:Gains
+
+2024-02-03 * "Buy with compound cost"
+  Assets:Broker 10 HOOL {100 # 5 USD}
+  Assets:Cash -1005 USD
+
+2024-02-04 * "Amount metadata"
+  limit: 10.00 USD
+  Assets:Cash -10 USD
+  Equity:Opening
+
+2024-02-05 * "Sell with the merge-cost marker"
+  Assets:Single -1 HOOL {*}
+  Assets:Cash 120 USD
+  Income:Gains

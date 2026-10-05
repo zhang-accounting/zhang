@@ -102,6 +102,7 @@ mod test {
             date: Some(Date::Date(chrono_date("2024-01-10"))),
             label: Some("a".to_owned()),
             total: false,
+            ..PostingCost::default()
         };
         let at_cost = Transaction {
             date: Date::Date(chrono_date("2024-01-10")),

@@ -470,6 +470,7 @@ fn export_writes_every_metadata_line_of_a_posting_under_it() {
         date: None,
         label: None,
         total: false,
+        ..PostingCost::default()
     });
     txn.postings[0].price = Some(SingleTotalPrice::Single(zhang_ast::amount::Amount::new(3.into(), "USD")));
     let exported = export(txn.clone());

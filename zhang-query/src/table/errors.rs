@@ -96,6 +96,7 @@ pub(crate) fn message(kind: &ErrorKind) -> &'static str {
         ErrorKind::ParseInvalidMeta => "Directive has an invalid meta value",
         ErrorKind::UnsupportedBookingMethod => "Booking method is not supported yet, the account uses the default booking method",
         ErrorKind::AmbiguousLotMatch => "Reduction matches several lots, which is ambiguous under the STRICT booking method",
+        ErrorKind::CostMergingNotSupported => "Cost merging is not supported yet, the posting books as if its cost had no `*`",
         ErrorKind::PluginError => "Plugin {{meta.plugin}}: {{meta.message}}",
     }
 }
@@ -319,6 +320,7 @@ mod tests {
             ErrorKind::ParseInvalidMeta,
             ErrorKind::UnsupportedBookingMethod,
             ErrorKind::AmbiguousLotMatch,
+            ErrorKind::CostMergingNotSupported,
             ErrorKind::PluginError,
         ];
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/public/locales/en/translation.json");

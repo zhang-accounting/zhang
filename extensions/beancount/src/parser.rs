@@ -27,8 +27,8 @@ use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::text::parser::{
     account_name, comma_separator, commodity_name, flag_char, indentation_width, is_digit, key_value_line, line_column, number_expr, offset, parse_items,
-    posting_amount, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag, unquote_string_raw,
-    CostComponent, PostingMeta, TransactionLine,
+    posting_amount, posting_cost_with_date, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag,
+    unquote_string_raw, PostingMeta, TransactionLine,
 };
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
@@ -122,32 +122,10 @@ fn parse_date(i: &str) -> IResult<&str, Date> {
 // postings
 // ---------------------------------------------------------------------------
 
-/// A `,`-separated component of a cost spec: an acquisition date or a lot label.
-fn cost_component(i: &str) -> IResult<&str, CostComponent> {
-    alt((
-        map(parse_date, CostComponent::Date),
-        map(quote_string, |label| CostComponent::Label(label.to_plain_string())),
-    ))(i)
-}
-
+/// The cost spec of a posting, zhang-core's grammar with beancount's date-only dates
+/// ([`posting_cost_with_date`]).
 fn cost_group(i: &str) -> IResult<&str, PostingCost> {
-    // `{{ }}` is a total cost, `{ }` is a per-unit cost.
-    let (i, total) = alt((value(true, tag("{{")), value(false, char('{'))))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, base) = opt(posting_amount)(i)?;
-    let (i, components) = many0(preceded(tuple((space0, char(','), space0)), cost_component))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = if total { value((), tag("}}"))(i)? } else { value((), char('}'))(i)? };
-
-    let mut date = None;
-    let mut label = None;
-    for component in components {
-        match component {
-            CostComponent::Date(d) => date = Some(d),
-            CostComponent::Label(l) => label = Some(l),
-        }
-    }
-    Ok((i, PostingCost { base, date, label, total }))
+    posting_cost_with_date(i, parse_date)
 }
 
 fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
@@ -972,6 +950,107 @@ mod test {
             for flag in ["&", "?", "%"] {
                 let trx = get_txn(&format!("2022-06-02 {flag} \"x\"\n  Assets:Card -1 USD\n  Expenses:Food\n"));
                 assert_eq!(trx.flag, Some(Flag::Custom(flag.to_string())));
+            }
+        }
+    }
+
+    /// The cost spec forms of #497, read through zhang-core's grammar with beancount's dates.
+    mod cost {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Date, PostingCost};
+
+        use crate::parser::parse;
+        use crate::parser::test::get_txn;
+
+        /// #497: every cost spec form bean-check 3.2.3 reads, read through zhang-core's grammar with
+        /// beancount's dates: a date or a label alone, the components in any order, the compound
+        /// cost `P # T CUR` and the merge-cost marker `*`
+        #[test]
+        fn every_cost_spec_form_is_read() {
+            let usd = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "USD");
+            let date = Date::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 10).unwrap());
+            let cases = [
+                (
+                    "{100 USD}",
+                    PostingCost {
+                        base: Some(usd("100")),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "{{1000 USD}}",
+                    PostingCost {
+                        base: Some(usd("1000")),
+                        total: true,
+                        ..Default::default()
+                    },
+                ),
+                ("{}", PostingCost::default()),
+                (
+                    "{2024-01-10}",
+                    PostingCost {
+                        date: Some(date.clone()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "{\"b\"}",
+                    PostingCost {
+                        label: Some("b".to_owned()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "{, \"b\"}",
+                    PostingCost {
+                        label: Some("b".to_owned()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "{100 # 5 USD}",
+                    PostingCost {
+                        base: Some(usd("100")),
+                        compound_total: Some(BigDecimal::from(5)),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "{*}",
+                    PostingCost {
+                        merge: true,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "{\"a\", 2024-01-10, 100 USD}",
+                    PostingCost {
+                        base: Some(usd("100")),
+                        date: Some(date.clone()),
+                        label: Some("a".to_owned()),
+                        ..Default::default()
+                    },
+                ),
+            ];
+            for (spec, expected) in cases {
+                let txn = get_txn(&format!(
+                    "2024-02-01 * \"sell\"\n  Assets:Broker -1 HOOL {spec} @ 120 USD\n  Assets:Cash 120 USD\n"
+                ));
+                assert_eq!(txn.postings[0].cost, Some(expected), "{spec}");
+                assert!(txn.postings[0].price.is_some(), "{spec}");
+            }
+        }
+
+        /// a compound cost in total braces, which beancount reads with an error (dropping the per-unit
+        /// part), does not read, nor does a second cost number, which beancount reports
+        #[test]
+        fn a_compound_total_cost_and_a_second_cost_number_are_rejected() {
+            for cost in ["{{100 # 5 USD}}", "{100 USD, 101 USD}"] {
+                let text = format!("2024-02-01 * \"buy\"\n  Assets:Broker 10 HOOL {cost}\n  Assets:Cash -1005 USD\n");
+                assert!(parse(&text, None).is_err(), "{cost}");
             }
         }
     }
