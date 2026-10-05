@@ -1,13 +1,12 @@
-import { Account, AccountListItem } from '@/api/types';
-import { BigNumber } from 'bignumber.js';
+import { AccountListItem } from '@/api/types';
 
+/** The account tree by the parts of the names: its structure only; the value of a node is `treeTotals`'s (account-totals.ts). */
 export default class AccountTrie {
   children: { [layer: string]: AccountTrie } = {};
   val?: AccountListItem;
   word?: string;
   path: string = '';
   isLeaf?: boolean | undefined = true;
-  amount: MultiCommodityAmount = new MultiCommodityAmount();
 
   insert(account: AccountListItem) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- walking the trie from the root node
@@ -22,35 +21,10 @@ export default class AccountTrie {
         node.children[ch].path = [node.path, ch].filter((item) => item.length > 0).join(':');
         node.isLeaf = false;
       }
-      node.amount.merge(account.amount);
       node = node.children[ch];
     }
-    node.amount.merge(account.amount);
     node.isLeaf = true;
     node.word = word;
     node.val = account;
-  }
-}
-
-export class MultiCommodityAmount {
-  total: BigNumber = new BigNumber(0);
-  commodity: string = '';
-  data: { [commodity: string]: BigNumber } = {};
-
-  insert(amount: string, commodity: string) {
-    this.insertBigNumber(new BigNumber(amount), commodity);
-  }
-  insertBigNumber(amount: BigNumber, commodity: string) {
-    if (!this.data[commodity]) {
-      this.data[commodity] = new BigNumber(0);
-    }
-    this.data[commodity] = this.data[commodity].plus(amount);
-  }
-  merge(other: Account['amount']) {
-    this.total = this.total.plus(other.calculated.number);
-    this.commodity = other.calculated.commodity;
-    Object.keys(other.detail).forEach((commodity) => {
-      this.insert(other.detail[commodity], commodity);
-    });
   }
 }

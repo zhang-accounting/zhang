@@ -88,9 +88,9 @@ A closed budget takes no more spending. The budget stays open through the whole 
 
 ## Follow your budgets in the web UI
 
-- The **Budget** page shows one month at a time, with the **Assigned**, **Activity** and **Available** amounts of each budget, grouped by category (budgets without one are **Uncategorized**). Use the arrows to change month. **Hide budgets with nothing assigned** hides the budgets with no money assigned that month.
+- The **Budget** page shows one month at a time, with the **Assigned**, **Activity** and **Available** amounts of each budget, grouped by category (budgets without one are **Uncategorized**). Use the arrows to change month. **Hide budgets with nothing assigned** hides the budgets with no money assigned that month. The month's totals, at the top of the page and of each category, add up every budget open that month, hidden or not: a budget closed in or before the month is listed, but no longer counts in them.
 - Select a budget to see its linked accounts and its activity in the month: the money assigned and transferred, and the postings that count toward it. The listed postings add up to the month's **Activity**: a posting from before the budget exists, after its close or that no price converts is not listed.
-- The **Overview** page shows this month's budgets and how much of each is used.
+- The **Overview** page shows this month's budgets and how much of each is used. What is left adds up the budgets as the **Budget** page does.
 
 The budgets are also available to [queries](/guides/querying/), in the `#budgets` table. See [Budgets](/reference/query-language/#budgets) in the query language reference.
 

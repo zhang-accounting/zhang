@@ -1,11 +1,6 @@
 import BigNumber from 'bignumber.js';
 import { cn } from '@/lib/utils';
 
-export interface AmountLike {
-  number: string;
-  commodity: string;
-}
-
 export interface BudgetUsage {
   /** 0..100, for the progress bar. */
   percent: number;
@@ -28,14 +23,7 @@ export function budgetUsage(activity: string | BigNumber, assigned: string | Big
   return { percent, label: `${raw.decimalPlaces(raw.abs().lt(10) ? 1 : 0).toFormat()}%`, over: used.gt(total) };
 }
 
-/** Sum amounts per commodity, keeping the first-seen commodity order. */
-export function sumByCommodity(amounts: AmountLike[]): { commodity: string; number: BigNumber }[] {
-  const totals = new Map<string, BigNumber>();
-  amounts.forEach((amount) => {
-    totals.set(amount.commodity, (totals.get(amount.commodity) ?? new BigNumber(0)).plus(new BigNumber(amount.number)));
-  });
-  return Array.from(totals.entries()).map(([commodity, number]) => ({ commodity, number }));
-}
+export { sumByCommodity, type AmountLike } from './month-totals';
 
 /** Reads `?year=2026&month=10` (month is 1-based); falls back to the current month. */
 export function monthFromSearchParams(params: URLSearchParams): Date {

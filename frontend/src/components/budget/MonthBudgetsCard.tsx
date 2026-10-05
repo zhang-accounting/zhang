@@ -1,4 +1,3 @@
-import BigNumber from 'bignumber.js';
 import { ArrowUpRight } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -7,7 +6,8 @@ import { useAsync } from 'react-use';
 import { retrieveBudgets } from '@/api/requests';
 import { BudgetListItem } from '@/api/types';
 import Amount from '@/components/Amount';
-import { budgetUsage, monthSearchParams, sumByCommodity } from '@/components/budget/budget-utils';
+import { budgetUsage, monthSearchParams } from '@/components/budget/budget-utils';
+import { countsInMonth, monthTotals } from '@/components/budget/month-totals';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import Section from '@/components/Section';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,7 +21,6 @@ function BudgetRow({ budget }: { budget: BudgetListItem }) {
   const activity = budget.activity_amount;
   const assigned = budget.assigned_amount;
   const usage = budgetUsage(activity.number, assigned.number);
-  const overBy = new BigNumber(activity.number).minus(assigned.number);
 
   return (
     <li className="flex flex-col gap-1.5 py-2.5">
@@ -50,7 +49,7 @@ function BudgetRow({ budget }: { budget: BudgetListItem }) {
         {usage.over ? (
           <>
             <span className="text-negative">
-              {t('ledger.home.budget_over_by')} <Amount amount={overBy} currency={activity.commodity} />
+              {t('ledger.home.budget_over_by')} <Amount amount={budget.available_amount.number} negative currency={budget.available_amount.commodity} />
             </span>
             <span>{usage.label}</span>
           </>
@@ -78,9 +77,10 @@ export function MonthBudgetsCard({ month, className }: { month: Date; className?
   const monthIndex = month.getMonth();
   const { value, loading, error } = useAsync(async () => (await retrieveBudgets({ year, month: monthIndex + 1 })).data.data, [year, monthIndex]);
 
-  const open = useMemo(() => (value ?? []).filter((budget) => !budget.closed), [value]);
+  const open = useMemo(() => (value ?? []).filter(countsInMonth), [value]);
   const rows = useMemo(() => [...open].sort((a, b) => Number(b.activity_amount.number) - Number(a.activity_amount.number)).slice(0, MAX_ROWS), [open]);
-  const left = sumByCommodity(open.map((budget) => budget.available_amount))[0];
+  // what is left in every commodity, by the rule the Budgets page adds up with
+  const left = useMemo(() => monthTotals(value ?? []).available, [value]);
   const monthLabel = year === new Date().getFullYear() ? fmt.format(month, i18n.language.startsWith('zh') ? 'M月' : 'MMM') : fmt.month(month);
   const params = new URLSearchParams(monthSearchParams(month)).toString();
 
@@ -92,18 +92,23 @@ export function MonthBudgetsCard({ month, className }: { month: Date; className?
       divider={false}
       title={t('ledger.home.month_budgets')}
       rightSection={
-        left && (
+        left.length > 0 && (
           <span className="text-xs text-muted-foreground tabular-nums">
-            {monthLabel} ·{' '}
-            {left.number.isNegative() ? (
-              <span className="text-negative">
-                {t('ledger.home.budget_over')} <Amount amount={left.number.abs()} currency={left.commodity} />
+            {monthLabel}
+            {left.map((total) => (
+              <span key={total.commodity}>
+                {' · '}
+                {total.number.isNegative() ? (
+                  <span className="text-negative">
+                    {t('ledger.home.budget_over')} <Amount amount={total.number.abs()} currency={total.commodity} />
+                  </span>
+                ) : (
+                  <>
+                    {t('ledger.home.budget_left')} <Amount amount={total.number} currency={total.commodity} />
+                  </>
+                )}
               </span>
-            ) : (
-              <>
-                {t('ledger.home.budget_left')} <Amount amount={left.number} currency={left.commodity} />
-              </>
-            )}
+            ))}
           </span>
         )
       }

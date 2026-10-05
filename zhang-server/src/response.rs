@@ -100,6 +100,9 @@ pub struct AccountEntity {
     /// and all its sub-accounts
     #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_map")]
     pub balance_with_sub_accounts: HashMap<Currency, BigDecimal>,
+    /// the balance of the account and all its sub-accounts, closed ones included, valued in the operating currency as
+    /// `amount` is: what the account's page shows as its balance with sub-accounts
+    pub amount_with_sub_accounts: CalculatedAmount,
     /// whether the account has sub-accounts, whose balances `balance_with_sub_accounts` includes
     pub has_sub_accounts: bool,
 }

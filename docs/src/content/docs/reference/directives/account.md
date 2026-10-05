@@ -144,7 +144,9 @@ As in Beancount, a list restricts the account to the commodities in it: a postin
   transaction that empties the account on the day of its `close` may come before or after the `close` in your file.
 - Closing an account that was never opened reports `AccountDoesNotExist`, and closing a closed account reports
   `AccountClosed`. The first `close` stands.
-- A closed account keeps its balances and history. The account list marks it as closed and can hide it.
+- A closed account keeps its balances and history. The account list marks it as closed and can hide it. Money it still holds
+  counts in every total: those of its parent accounts and account type on the Accounts page and in the sidebar, whether or not
+  the list hides it.
 - A plain `balance`, a [`document`](/reference/directives/document/) and a
   [`note`](/reference/directives/note-and-event/) may follow the `close` without an error.
 
