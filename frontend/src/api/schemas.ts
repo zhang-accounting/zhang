@@ -150,8 +150,8 @@ export interface paths {
     /**
      * Get Budget Info
      * @description One budget as of a month, by default the current one in the ledger's timezone, with the
-     * accounts whose postings are its activity, in name order. Before the budget's first month
-     * nothing is assigned or spent.
+     * accounts whose postings are its activity, in name order, and the date and time of its close.
+     * Before the budget's first month nothing is assigned or spent.
      */
     get: operations['get_budget_info'];
   };
@@ -1114,8 +1114,8 @@ export interface operations {
   /**
    * Get Budget Info
    * @description One budget as of a month, by default the current one in the ledger's timezone, with the
-   * accounts whose postings are its activity, in name order. Before the budget's first month
-   * nothing is assigned or spent.
+   * accounts whose postings are its activity, in name order, and the date and time of its close.
+   * Before the budget's first month nothing is assigned or spent.
    */
   get_budget_info: {
     parameters: {
@@ -1147,6 +1147,16 @@ export interface operations {
                 number: string;
               };
               category?: string | null;
+              /**
+               * Format: date
+               * @description the date of the budget's close, whatever the month asked for; `null` if it is never closed
+               */
+              close?: string | null;
+              /**
+               * @description the time of day of the budget's close (`HH:MM:SS`), until which it takes activity on its
+               * close day; `null` for a close without a time, or if it is never closed
+               */
+              close_time?: string | null;
               closed: boolean;
               name: string;
               related_accounts: string[];
