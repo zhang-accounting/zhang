@@ -608,10 +608,7 @@ option "operating_currency" "USD"
         ])
     );
     // and the sale of Assets:Twice booked the newest lot, as LIFO does
-    assert_eq!(
-        run("SELECT cost_number WHERE account = 'Assets:Twice' AND number < 0"),
-        rows(&[&["120"]])
-    );
+    assert_eq!(run("SELECT cost_number WHERE account = 'Assets:Twice' AND number < 0"), rows(&[&["120"]]));
 }
 
 #[test]
