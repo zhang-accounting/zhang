@@ -520,7 +520,7 @@ fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
             let txn = store.transactions.values().next().unwrap();
             let document = DocumentDomain {
                 datetime: txn.datetime,
-                document_type: DocumentType::Trx(txn.id),
+                document_type: DocumentType::Account(txn.postings[0].account.clone()),
                 filename: Some("receipt.pdf".to_owned()),
                 path: "receipts/receipt.pdf".to_owned(),
                 alternate: None,

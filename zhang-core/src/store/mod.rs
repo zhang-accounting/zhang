@@ -183,30 +183,22 @@ impl PostingMetaDomain {
     }
 }
 
+/// What a stored document belongs to. The store keeps the `document` directives only, with the path each was resolved
+/// to on load; the documents a transaction or a posting names in its `document` metadata are listed by the query
+/// engine, in `#documents`.
 #[derive(Clone, serde::Serialize)]
 pub enum DocumentType {
-    Trx(Uuid),
     Account(Account),
 }
 
 impl DocumentType {
     pub fn match_account(&self, account_name: &str) -> bool {
-        match self {
-            DocumentType::Trx(_) => false,
-            DocumentType::Account(acc) => acc.name().eq(account_name),
-        }
+        let DocumentType::Account(account) = self;
+        account.name().eq(account_name)
     }
     pub fn as_account(&self) -> Option<String> {
-        match self {
-            DocumentType::Trx(_) => None,
-            DocumentType::Account(account) => Some(account.name().to_owned()),
-        }
-    }
-    pub fn as_trx(&self) -> Option<String> {
-        match self {
-            DocumentType::Trx(id) => Some(id.to_string()),
-            DocumentType::Account(_) => None,
-        }
+        let DocumentType::Account(account) = self;
+        Some(account.name().to_owned())
     }
 }
 
@@ -244,16 +236,12 @@ pub struct CommodityLotRecord {
 mod test {
     use std::str::FromStr;
 
-    use uuid::uuid;
     use zhang_ast::Account;
 
     use crate::store::DocumentType;
 
     #[test]
     fn should_match_document_type() {
-        let document_type = DocumentType::Trx(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"));
-        assert!(!document_type.match_account("any"));
-
         let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
 
         assert!(account_type.match_account("Assets:A"));
@@ -263,21 +251,8 @@ mod test {
 
     #[test]
     fn should_return_account() {
-        let document_type = DocumentType::Trx(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"));
-        assert_eq!(None, document_type.as_account());
-
         let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
         assert_eq!(account_type.as_account(), Some("Assets:A".to_owned()));
-    }
-
-    #[test]
-    fn should_return_trx() {
-        let uuid = uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8");
-        let document_type = DocumentType::Trx(uuid);
-        assert_eq!(Some(uuid.to_string()), document_type.as_trx());
-
-        let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
-        assert_eq!(account_type.as_trx(), None);
     }
 }
 
