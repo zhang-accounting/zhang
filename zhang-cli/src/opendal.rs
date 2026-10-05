@@ -1524,7 +1524,6 @@ mod test {
             passkey_rp_id: None,
             passkey_origin: None,
             session_secret: None,
-            is_local_fs: true,
         };
         let ledger = zhang_server::load_served_ledger(&mut config).await.unwrap();
 

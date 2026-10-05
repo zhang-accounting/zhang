@@ -34,19 +34,6 @@ export function batchBalanceRows(accounts: AccountBalances[]): (BalanceCheckRow 
     .sort((a, b) => a.accountName.localeCompare(b.accountName) || a.commodity.localeCompare(b.commodity));
 }
 
-/**
- * The balances of a batch in the order to write them: those of sub-accounts before their parents', deepest first, the order
- * given kept otherwise. A `balance` on a parent covers its sub-accounts, so it comes after their pads to check, and pad to,
- * the total they leave.
- */
-export function subAccountsFirst<T extends { account_name: string }>(balances: T[]): T[] {
-  const depth = (balance: T) => balance.account_name.split(':').length;
-  return balances
-    .map((balance, index) => ({ balance, index }))
-    .sort((a, b) => depth(b.balance) - depth(a.balance) || a.index - b.index)
-    .map(({ balance }) => balance);
-}
-
 /** A balance a request replaced: one of the same account and commodity for the same date (`replaced` of the answer). */
 export interface ReplacedBalance {
   date: string;

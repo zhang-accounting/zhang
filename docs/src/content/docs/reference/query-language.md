@@ -740,7 +740,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `id` | `str` | Unique id of the directive. For a transaction it is the transaction's id, the same as the `id` column of its postings; for a balance assertion, the id Zhang stored its check with. |
 | `type` | `str` | Kind of directive, lowercase: `transaction`, `open`, `close`, `balance`, `price`, `note`, `document`, `event`, `commodity`, `custom`, `query` or `pad`, and Zhang's `budget`, `budget-add`, `budget-transfer` and `budget-close`. A `balance ... with pad` is a `balance`. |
 | `filename` | `str` | The ledger file that holds the directive. |
-| `date`, `year`, `month`, `day` | `date`, `int` | Date of the directive and its parts. |
+| `date`, `year`, `month`, `day` | `date`, `int` | Date of the directive and its parts. A transaction's columns (these, `flag`, `payee`, `narration`, `description`, `tags`, `links`, `time` and `timestamp`) are those of its postings: what Zhang stored. On a day the ledger's timezone skips, a transaction is stored at the first instant after the gap, so its date is the next day: `2011-12-30` in `Pacific/Apia` is `2011-12-31`. |
 | `flag`, `payee`, `narration`, `description` | `str` | As in `postings`, for a transaction. `NULL` for other directives. |
 | `tags`, `links` | `set` | Tags and links of a transaction, note or document. `NULL` for other directives. |
 | `meta` | `str` | Metadata of the directive. |
@@ -753,7 +753,7 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `date` | `date` | Date of the transaction. |
+| `date` | `date` | Date of the transaction, as in `postings` and [`#entries`](#entries): the date Zhang stores it at. |
 | `flag` | `str` | `*`, `!`, or `P` for padding. |
 | `payee` | `str` | Payee, or `NULL`. |
 | `narration` | `str` | Narration, `''` if there is none. |
@@ -822,7 +822,7 @@ ORDER BY date DESC
 | `open`, `open.date` | `date` | Date of the `open` directive, or `NULL` if there is none. On its own, `open` reads as this date. |
 | `open.account` | `str` | The account of the `open` directive. |
 | `open.currencies` | `set` | The currencies the account is restricted to, or `NULL` if it accepts any. |
-| `open.booking` | `str` | The booking method, from the `booking_method` metadata, or `NULL`. |
+| `open.booking` | `str` | The booking method zhang books the account with: the last `booking_method` value of the latest `open` that has one. `NULL` when the account books with the ledger's default, also when the value is not a booking method zhang implements. |
 | `open.meta` | `str` | Metadata of the `open` directive. |
 | `close`, `close.date` | `date` | Date of the `close` directive, or `NULL` while the account is open. On its own, `close` reads as this date. |
 | `close.account`, `close.meta` | `str` | The account and the metadata of the `close` directive. |

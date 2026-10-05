@@ -91,8 +91,9 @@ const BOOKING_METHOD_META: &str = "booking_method";
 pub(crate) struct Booker {
     /// the `default_booking_method` option
     default_method: BookingMethod,
-    /// the booking method of each account with a `booking_method` meta, folded from `open`s in
-    /// stream order. An invalid or unsupported value resolves to `default_method` (E1, E7)
+    /// the booking method of each account whose `booking_method` meta names one, folded from
+    /// `open`s in stream order. An account missing here books with `default_method`, also when
+    /// its value is invalid or unsupported (E1, E7)
     methods: HashMap<String, BookingMethod>,
     /// lots per account, in creation order, the order `Store.commodity_lots` keeps. FIFO and LIFO
     /// pick lots by acquisition date instead ([`pick`], E10)
@@ -250,12 +251,19 @@ impl Booker {
     pub(crate) fn apply_open(&mut self, open: &Open) -> Option<BookingError> {
         let value = open.meta.get_all(BOOKING_METHOD_META).last()?.as_str().to_owned();
         let account = open.account.name().to_owned();
-        let (method, error) = BookingMethod::resolve(&value, self.default_method);
-        self.methods.insert(account.clone(), method);
-        error.map(|kind| BookingError {
-            kind,
-            metas: HashMap::of2("account_name", account, BOOKING_METHOD_META, value),
-        })
+        match BookingMethod::resolve(&value, self.default_method) {
+            (method, None) => {
+                self.methods.insert(account, method);
+                None
+            }
+            (_, Some(kind)) => {
+                self.methods.remove(&account);
+                Some(BookingError {
+                    kind,
+                    metas: HashMap::of2("account_name", account, BOOKING_METHOD_META, value),
+                })
+            }
+        }
     }
 
     /// book a transaction: interpolate its implicit posting from the weights of the other postings,
@@ -636,6 +644,12 @@ impl Booker {
         };
         let filter = self.lot_filter(account, &units, &cost, txn_date);
         self.ambiguous_reduction(account, &units, &filter)
+    }
+
+    /// the booking method of every account whose `open`s set one (see [`Booker::apply_open`]); an
+    /// account missing here books with the default method
+    pub(crate) fn into_methods(self) -> HashMap<String, BookingMethod> {
+        self.methods
     }
 
     /// the lots of every account the fold booked a posting on, in lot order

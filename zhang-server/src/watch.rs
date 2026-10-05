@@ -7,13 +7,10 @@ use chrono::{DateTime, NaiveTime, TimeDelta, TimeZone, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use notify::{Event, EventKind};
+use zhang_core::constants::CACHE_DIR;
 use zhang_core::data_source::path_in_ledger;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::utils::has_path_visited;
-
-/// where zhang caches plugin modules, relative to the working directory. Serving from the ledger root puts it
-/// under the root, and every load rewrites it, so a change there is never a change to an input
-const CACHE_DIR: &str = ".cache";
 
 /// zhang's own state under the root (the registered passkeys), which the server writes itself, so a change there is
 /// never a change to an input either
@@ -51,7 +48,9 @@ pub fn should_reload(event: &Event, roots: &[PathBuf], visited_files: &[PathBuf]
 }
 
 /// `path`, a path on the disk an event names, relative to the ledger root; `None` outside the root and in zhang's own
-/// cache and state. A relative `path` is relative to no root
+/// cache and state. Serving from the root puts the cache ([`CACHE_DIR`], relative to the working directory) under it,
+/// and every load rewrites the plugin modules there, so a change in it is never a change to an input. A relative
+/// `path` is relative to no root
 fn relative_to_root(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
     roots
         .iter()

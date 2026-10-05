@@ -2,6 +2,7 @@
 //   pnpm run test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { rawEditLink } from '../lib/raw-edit-link.ts';
 import { reloadFailureDetail, reloadFailureEditorHref } from './reload-failure.ts';
 
 const syntaxError = {
@@ -20,11 +21,18 @@ test('the notice names the file when the reason does not', () => {
   assert.equal(reloadFailureDetail({ message: 'panic on reload: boom' }), 'panic on reload: boom');
 });
 
-test('the notice links to the raw editor, opened on the failing file when it is in the ledger', () => {
+test('the notice links to the raw editor, opened on the failing file', () => {
   assert.equal(reloadFailureEditorHref(syntaxError), '/edit?file=main.zhang');
   assert.equal(reloadFailureEditorHref({ file: 'data/2024/01.zhang', message: 'x' }), '/edit?file=data%2F2024%2F01.zhang');
-  // a file the editor cannot list, or none: the editor itself
-  assert.equal(reloadFailureEditorHref({ file: '/private/var/ledger/main.zhang', message: 'x' }), '/edit');
+  // no file: the editor itself
   assert.equal(reloadFailureEditorHref({ file: null, message: 'x' }), '/edit');
   assert.equal(reloadFailureEditorHref({ message: 'x' }), '/edit');
+});
+
+test('the notice opens a file by the same deep link as the error list', () => {
+  // one link builder for both (audit D10): the editor, not the notice, decides which files it can open, so an absolute
+  // path is passed on as the error list passes it, and a name that needs escaping is escaped alike
+  for (const file of ['main.zhang', 'data/2024 Q1/food & drink.zhang', '/private/var/ledger/main.zhang']) {
+    assert.equal(reloadFailureEditorHref({ file, message: 'x' }), rawEditLink(file));
+  }
 });
