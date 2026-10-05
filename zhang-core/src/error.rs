@@ -60,6 +60,50 @@ pub enum ZhangError {
     /// makes it: whether the file is there is not known
     #[error("the storage refused to read {0}")]
     ReadRefused(String),
+    /// the storage of the ledger refused to write the file at this path, as a read-only mount, file permissions or a
+    /// scoped access policy make it: nothing was written there
+    #[error("the storage refused to write {0}")]
+    WriteRefused(String),
+}
+
+/// Whether a storage error was met reading or writing a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    Read,
+    Write,
+}
+
+/// What a storage said of a failed access, whatever the storage (the local disk, opendal's services): the file is not
+/// there, the storage refused the access, or something else went wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageFailure {
+    NotFound,
+    Refused,
+    Other,
+}
+
+impl From<std::io::ErrorKind> for StorageFailure {
+    fn from(kind: std::io::ErrorKind) -> Self {
+        match kind {
+            std::io::ErrorKind::NotFound => StorageFailure::NotFound,
+            std::io::ErrorKind::PermissionDenied => StorageFailure::Refused,
+            _ => StorageFailure::Other,
+        }
+    }
+}
+
+/// The error of an `access` to the file at `path` that failed as `failure` says, `detail` being what the storage told:
+/// the one mapping of every data source. A missing file is [`ZhangError::FileNotFound`], a refusal
+/// [`ZhangError::ReadRefused`] or [`ZhangError::WriteRefused`], which name the file only, and anything else keeps the
+/// storage's details.
+pub fn storage_error(path: &str, access: Access, failure: StorageFailure, detail: impl std::fmt::Display) -> ZhangError {
+    match (failure, access) {
+        (StorageFailure::NotFound, _) => ZhangError::FileNotFound,
+        (StorageFailure::Refused, Access::Read) => ZhangError::ReadRefused(path.to_owned()),
+        (StorageFailure::Refused, Access::Write) => ZhangError::WriteRefused(path.to_owned()),
+        (StorageFailure::Other, Access::Read) => ZhangError::CustomError(format!("cannot read {path}: {detail}")),
+        (StorageFailure::Other, Access::Write) => ZhangError::CustomError(format!("cannot write {path}: {detail}")),
+    }
 }
 
 impl ZhangError {
@@ -81,5 +125,38 @@ pub trait IoErrorIntoZhangError<T> {
 impl<T> IoErrorIntoZhangError<T> for Result<T, std::io::Error> {
     fn with_path(self, path: &Path) -> Result<T, ZhangError> {
         self.map_err(|e| ZhangError::FileError { e, path: path.to_path_buf() })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{storage_error, Access, StorageFailure, ZhangError};
+
+    /// One mapping for every storage: missing is missing, a refusal names the file and whether it was read or written,
+    /// anything else keeps the storage's details
+    #[test]
+    fn a_storage_error_is_read_alike_whatever_the_storage() {
+        let error = |access, failure| storage_error("data/a.zhang", access, failure, "the service failed").to_string();
+        assert!(matches!(
+            storage_error("a", Access::Read, StorageFailure::NotFound, ""),
+            ZhangError::FileNotFound
+        ));
+        assert!(matches!(
+            storage_error("a", Access::Write, StorageFailure::NotFound, ""),
+            ZhangError::FileNotFound
+        ));
+        assert_eq!(error(Access::Read, StorageFailure::Refused), "the storage refused to read data/a.zhang");
+        assert_eq!(error(Access::Write, StorageFailure::Refused), "the storage refused to write data/a.zhang");
+        assert_eq!(
+            error(Access::Read, StorageFailure::Other),
+            "custom error: cannot read data/a.zhang: the service failed"
+        );
+        assert_eq!(
+            error(Access::Write, StorageFailure::Other),
+            "custom error: cannot write data/a.zhang: the service failed"
+        );
+        assert_eq!(StorageFailure::from(std::io::ErrorKind::PermissionDenied), StorageFailure::Refused);
+        assert_eq!(StorageFailure::from(std::io::ErrorKind::NotFound), StorageFailure::NotFound);
+        assert_eq!(StorageFailure::from(std::io::ErrorKind::Other), StorageFailure::Other);
     }
 }

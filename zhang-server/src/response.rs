@@ -59,10 +59,6 @@ impl<T: Serialize + Schematic> ResponseWrapper<T> {
     pub fn not_found() -> ServerResult<Self> {
         Err(ServerError::NotFound)
     }
-
-    pub fn bad_request() -> ServerResult<Self> {
-        Err(ServerError::BadRequest)
-    }
 }
 
 impl<T: Serialize + Schematic> IntoResponse for ResponseWrapper<T> {

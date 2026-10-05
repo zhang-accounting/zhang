@@ -90,7 +90,7 @@ CI（`.github/workflows/build-latest.yml`）会在每个 pull request 上运行�
 
 - **语法**：张记账的解析器和导出器在 `zhang-core/src/data_type/text/`，Beancount 的在 `extensions/beancount/`。
 - **新的检查或错误**：在 `zhang-ast/src/error.rs` 中为 `ErrorKind` 添加一个变体，并在 `zhang-core` 的某个流水线阶段或 `process` 处理函数中报告它。把它的消息添加到 `frontend/public/locales/*/translation.json` 的 `ERROR` 中，并在[错误码](/zh-cn/reference/error-codes/)中添加一节。
-- **API 接口**：`zhang-server/src/routes/` 中的处理函数，在 `zhang-server/src/lib.rs` 中注册。然后在 `frontend` 中运行 `pnpm api` 重新生成类型化客户端，它会从正在运行的服务器读取 `http://localhost:8000/openapi.json`。
+- **API 接口**：`zhang-server/src/routes/` 中的处理函数，在 `zhang-server/src/lib.rs` 中注册。然后在 `frontend` 中运行 `pnpm api` 重新生成类型化客户端，它会从正在运行的服务器读取 `http://localhost:8000/openapi.json`。错误用 `ServerError`（`zhang-server/src/error.rs`）返回：所有 API 错误（包括提取器的拒绝）都使用同一个 JSON 正文 `{"message": "..."}`，网页界面会显示它。
 - **查询语言**：`zhang-query`，以及[查询语言参考](/zh-cn/reference/query-language/)。
 - **网页界面的页面**：`frontend/src/pages/`，路由在 `frontend/src/router.tsx`，导航在 `frontend/src/layout/nav-links.ts`，文本在 `frontend/public/locales/en/` 和 `frontend/public/locales/zh/`。
 - **插件**：[编写插件](/zh-cn/developers/writing-plugins/)以及 `zhang-plugin-sdk/examples/` 中的示例。

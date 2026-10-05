@@ -24,7 +24,6 @@ use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use chrono::Utc;
@@ -32,7 +31,6 @@ use gotcha::oas::Responses;
 use gotcha::{Responsible, Schematic};
 use log::{error, info, warn};
 use serde::Serialize;
-use serde_json::json;
 use tokio::sync::RwLock;
 use webauthn_rs::prelude::{AuthenticationResult, Passkey, Url};
 use zhang_core::ledger::Ledger;
@@ -42,6 +40,7 @@ use self::limiter::FailureLimiter;
 use self::passkey::{Ceremonies, Ceremony, CeremonyKind, RelyingParty};
 pub use self::passkey::{PasskeyRecord, PASSKEYS_PATH, STATE_DIR};
 use self::session::{SessionClaims, SessionKey};
+use crate::error::error_response;
 use crate::response::{AuthMethodsEntity, AuthStatusEntity, PasskeyEntity, ResponseWrapper};
 use crate::ServeConfig;
 
@@ -137,12 +136,11 @@ impl AuthError {
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         if let AuthError::TooManyAttempts(wait) = self {
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                [(header::RETRY_AFTER, limiter::whole_seconds(wait).to_string())],
-                Json(json!({ "message": limiter::too_many_attempts_message(wait) })),
-            )
-                .into_response();
+            let mut response = error_response(StatusCode::TOO_MANY_REQUESTS, limiter::too_many_attempts_message(wait));
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(limiter::whole_seconds(wait)));
+            return response;
         }
         let (status, message) = match self {
             AuthError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
@@ -152,7 +150,7 @@ impl IntoResponse for AuthError {
             AuthError::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
             AuthError::TooManyAttempts(_) => unreachable!("answered above"),
         };
-        (status, Json(json!({ "message": message }))).into_response()
+        error_response(status, message)
     }
 }
 

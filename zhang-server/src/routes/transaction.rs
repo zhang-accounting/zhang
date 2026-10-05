@@ -310,9 +310,7 @@ pub async fn preview_new_transaction(ledger: State<SharedLedger>, Json(payload):
 pub async fn preview_transaction_update(
     ledger: State<SharedLedger>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<TransactionPreviewEntity> {
-    let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
-        return ResponseWrapper::bad_request();
-    };
+    let transaction_id = transaction_id(&path.0 .0)?;
     ResponseWrapper::json(
         with_ledger(&ledger.0, move |ledger| {
             let span = ledger.operations().transaction_span(&transaction_id)?;
@@ -368,9 +366,7 @@ fn preview(ledger: &Ledger, payload: CreateTransactionRequest, edits: Option<&Tr
 pub async fn upload_transaction_document(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, mut multipart: Multipart,
 ) -> ApiResult<String> {
-    let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
-        return ResponseWrapper::bad_request();
-    };
+    let transaction_id = transaction_id(&path.0 .0)?;
     // the files first, then the ledger, held to write
     let files = super::uploaded_files(&mut multipart).await?;
     let mut ledger = ledger.for_writing().await?;
@@ -403,6 +399,11 @@ pub async fn upload_transaction_document(
     .await;
     wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
     ResponseWrapper::json("Ok".to_string())
+}
+
+/// the id of a transaction a request names; a 400 naming it when it is no id
+fn transaction_id(id: &str) -> ServerResult<Uuid> {
+    Uuid::from_str(id).map_err(|_| ServerError::InvalidInput(format!("{id:?} is not the id of a transaction")))
 }
 
 /// `error`, for a write to a transaction: a file changed since the ledger was loaded may have moved the transaction,
@@ -461,9 +462,7 @@ fn insert_transaction_metas(content: &mut String, span_start: usize, span_end: u
 pub async fn update_single_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<()> {
-    let Ok(transaction_id) = Uuid::from_str(&path.0 .0) else {
-        return ResponseWrapper::bad_request();
-    };
+    let transaction_id = transaction_id(&path.0 .0)?;
     let mut ledger = ledger.for_writing().await?;
     let mut operations = ledger.operations();
 

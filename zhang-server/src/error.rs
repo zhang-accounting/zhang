@@ -25,9 +25,6 @@ pub enum ServerError {
     #[error("not found")]
     NotFound,
 
-    #[error("bad request")]
-    BadRequest,
-
     /// a request value the ledger could not read back; answered with HTTP 400
     #[error("{0}")]
     InvalidInput(String),
@@ -97,19 +94,18 @@ impl IntoResponse for ServerError {
             return (StatusCode::BAD_REQUEST, Json(crate::response::QueryErrorEntity::from(error))).into_response();
         }
         let message = match &self {
-            // nothing was written: the file changed since the ledger was loaded
-            ServerError::CoreError(error @ (ZhangError::FileChanged(_) | ZhangError::ReadRefused(_) | ZhangError::InvalidUtf8 { .. })) => error.to_string(),
+            // nothing was written: the file changed since the ledger was loaded, or the storage refused the access
+            ServerError::CoreError(
+                error @ (ZhangError::FileChanged(_) | ZhangError::ReadRefused(_) | ZhangError::WriteRefused(_) | ZhangError::InvalidUtf8 { .. }),
+            ) => error.to_string(),
             other => other.to_string(),
         };
-        let payload = json!({
-            "message": message,
-            "origin": "with_rejection"
-        });
 
         let status = match self {
             ServerError::NotFound | ServerError::NoSuchTransaction(_) | ServerError::NoSuchDocument(_) | ServerError::NoSuchFile(_) => StatusCode::NOT_FOUND,
-            ServerError::OutsideLedger(_) | ServerError::CoreError(ZhangError::ReadRefused(_)) => StatusCode::FORBIDDEN,
-            ServerError::BadRequest | ServerError::InvalidInput(_) | ServerError::PluginTransaction(_) => StatusCode::BAD_REQUEST,
+            // the storage refused the access, whatever the storage and whichever route met it
+            ServerError::OutsideLedger(_) | ServerError::CoreError(ZhangError::ReadRefused(_) | ZhangError::WriteRefused(_)) => StatusCode::FORBIDDEN,
+            ServerError::InvalidInput(_) | ServerError::PluginTransaction(_) => StatusCode::BAD_REQUEST,
             ServerError::CoreError(ZhangError::FileChanged(_)) | ServerError::UnloadableLedger(_) | ServerError::ReloadFailed(_) | ServerError::Conflict(_) => {
                 StatusCode::CONFLICT
             }
@@ -118,8 +114,41 @@ impl IntoResponse for ServerError {
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
-        (status, Json(payload)).into_response()
+        error_response(status, message)
     }
+}
+
+/// The one body of an API error, `{"message": …}`, with `status`: every error the API answers has it, those of the
+/// server, of authentication, of the router plugins' routing and of the extractors alike. A query error adds where in
+/// the query it is (`QueryErrorEntity`)
+pub fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
+    (status, Json(json!({ "message": message.into() }))).into_response()
+}
+
+/// the routes of the router plugins, whose answers are the plugins' own
+const PLUGIN_ROUTES: &str = "/api/plugins/";
+
+/// the most of a rejection's text read into its message
+const MAX_REJECTION_BYTES: usize = 64 * 1024;
+
+/// Middleware giving the rejections of axum's extractors the one body of an API error ([`error_response`]): a body
+/// that is not the JSON a route takes, a path or a query string that does not read, or an upload that cannot be read
+/// is answered by axum with its status and a `text/plain` reason, which becomes the message. What a router plugin
+/// answers is its own, and stays as it is
+pub async fn json_rejections(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let from_plugin = request.uri().path().starts_with(PLUGIN_ROUTES);
+    let response = next.run(request).await;
+    let status = response.status();
+    let plain_text = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|it| it.to_str().ok())
+        .is_some_and(|it| it.starts_with("text/plain"));
+    if from_plugin || !plain_text || !(status.is_client_error() || status.is_server_error()) {
+        return response;
+    }
+    let reason = axum::body::to_bytes(response.into_body(), MAX_REJECTION_BYTES).await.unwrap_or_default();
+    error_response(status, String::from_utf8_lossy(&reason).trim())
 }
 
 #[cfg(test)]

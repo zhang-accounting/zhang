@@ -7,7 +7,7 @@ use minijinja::{context, Environment};
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 
 use crate::data_type::{document_path_in_file, DataType, Dialect};
-use crate::error::IoErrorIntoZhangError;
+use crate::error::{storage_error, Access, IoErrorIntoZhangError};
 use crate::ledger::Ledger;
 use crate::utils::{has_path_visited, BOM};
 use crate::{ZhangError, ZhangResult};
@@ -92,12 +92,15 @@ where
     /// no file there. [`ZhangError::ReadRefused`] when the source refuses to read it, which tells nothing of whether it
     /// is there. [`DataSource::async_get`] errs on a missing file instead ([`ZhangError::is_file_not_found`]).
     async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
-        match self.async_get(path.clone()).await {
-            Ok(content) => Ok(Some(content)),
-            Err(ZhangError::FileNotFound) => Ok(None),
-            Err(ZhangError::IoError(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(ZhangError::IoError(error)) if error.kind() == std::io::ErrorKind::PermissionDenied => Err(ZhangError::ReadRefused(path)),
-            Err(error) => Err(error),
+        let error = match self.async_get(path.clone()).await {
+            Ok(content) => return Ok(Some(content)),
+            // an io error a source passed on as it is: read by the one mapping of storage errors
+            Err(ZhangError::IoError(error)) => storage_error(&path, Access::Read, error.kind().into(), error),
+            Err(error) => error,
+        };
+        match error {
+            ZhangError::FileNotFound => Ok(None),
+            error => Err(error),
         }
     }
 
@@ -682,7 +685,7 @@ impl DataSource for LocalFileSystemDataSource {
     /// a relative path climbing out of the ledger's root names no file of it
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
         let file = self.resolve(&path).ok_or(ZhangError::FileNotFound)?;
-        Ok(std::fs::read(file)?)
+        std::fs::read(file).map_err(|error| storage_error(&path, Access::Read, error.kind().into(), error))
     }
 
     /// the ledger root itself: this source reads the paths it is given from the local disk
@@ -705,10 +708,11 @@ impl DataSource for LocalFileSystemDataSource {
         let file = self
             .resolve(&path)
             .ok_or_else(|| ZhangError::CustomError(format!("{path} is not in the ledger's directory")))?;
+        let failed = |error: std::io::Error| storage_error(&path, Access::Write, error.kind().into(), error);
         if let Some(folder) = file.parent() {
-            std::fs::create_dir_all(folder).with_path(folder)?;
+            std::fs::create_dir_all(folder).map_err(failed)?;
         }
-        std::fs::write(&file, content).with_path(&file)
+        std::fs::write(&file, content).map_err(failed)
     }
 }
 
