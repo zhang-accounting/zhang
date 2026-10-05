@@ -411,8 +411,10 @@ pub struct FileDetailEntity {
 
 #[derive(Serialize, Schematic)]
 pub struct StatisticSummaryEntity {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    /// the first second of the range, in the ledger's timezone, as the graph and the rank echo it
+    pub from: NaiveDateTime,
+    /// the last second of the range, in the ledger's timezone
+    pub to: NaiveDateTime,
 
     pub balance: CalculatedAmount,
     pub liability: CalculatedAmount,

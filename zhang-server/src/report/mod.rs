@@ -15,8 +15,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveTime, TimeZone, Utc};
-use chrono_tz::Tz;
+use chrono::{Datelike, Days, Months, NaiveDate, NaiveTime};
 use zhang_ast::amount::CalculatedAmount;
 use zhang_ast::AccountType;
 use zhang_core::ledger::Ledger;
@@ -151,10 +150,9 @@ pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<Statist
     let count = run(ledger, &TRANSACTION_COUNT, range.bind(Params::new()))?;
 
     let figure = |figures: &HashMap<String, Figure>, account_type: AccountType| figures.get(&account_type.to_string()).cloned().unwrap_or_default();
-    let timezone = &ledger.options.timezone;
     Ok(StatisticSummaryEntity {
-        from: first_instant(range.from, timezone),
-        to: last_instant(range.to, timezone),
+        from: range.from.and_time(NaiveTime::MIN),
+        to: range.to.and_time(END_OF_DAY),
         balance: net_worth.amount(currency),
         liability: liabilities.amount(currency),
         income: figure(&flows, AccountType::Income).amount(currency),
@@ -529,38 +527,12 @@ fn bucket_count(range: &LedgerDateRange, interval: &StatisticInterval) -> u64 {
     u64::try_from(count + 1).unwrap_or(0)
 }
 
-/// The time of the last second of a day, the end of a range in the responses.
+/// The time of the last second of a day, the end of a range in the responses. Every report echoes its range as the
+/// ledger's dates, from the first to the last second of them in its timezone, as the range was asked for
 const END_OF_DAY: NaiveTime = match NaiveTime::from_hms_opt(23, 59, 59) {
     Some(time) => time,
     None => NaiveTime::MIN,
 };
-
-/// The first instant of a ledger date: its midnight, or when a change of the clocks skips
-/// midnight, the first time of the day that exists.
-pub fn first_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
-    (0..24 * 60)
-        .find_map(|minute| {
-            timezone
-                .from_local_datetime(&(date.and_time(NaiveTime::MIN) + chrono::Duration::minutes(minute)))
-                .earliest()
-        })
-        .map(|it| it.with_timezone(&Utc))
-        .unwrap_or_else(|| Utc.from_utc_datetime(&date.and_time(NaiveTime::MIN)))
-}
-
-/// The last second of a ledger date, 23:59:59, or when a change of the clocks skips it, the
-/// last second of the day that exists.
-pub fn last_instant(date: NaiveDate, timezone: &Tz) -> DateTime<Utc> {
-    (0..24 * 60 * 60)
-        .step_by(60)
-        .find_map(|seconds| {
-            timezone
-                .from_local_datetime(&(date.and_time(END_OF_DAY) - chrono::Duration::seconds(seconds)))
-                .latest()
-        })
-        .map(|it| it.with_timezone(&Utc))
-        .unwrap_or_else(|| Utc.from_utc_datetime(&date.and_time(END_OF_DAY)))
-}
 
 /// The result of one of the report's queries; its rows are read with [`cells::rows`].
 fn run(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<QueryResult> {
@@ -641,14 +613,13 @@ mod test {
     use std::time::Duration;
 
     use chrono::NaiveDate;
-    use chrono_tz::Tz;
     use zhang_core::clock::Clock;
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
     use zhang_core::ledger::{Ledger, LedgerProcessContext};
 
-    use super::{first_instant, graph_rows, last_instant, GraphLimits};
+    use super::{graph_rows, GraphLimits};
     use crate::builtin::LedgerDateRange;
     use crate::request::StatisticInterval;
 
@@ -807,23 +778,5 @@ option "operating_currency" "CNY"
         )
         .unwrap();
         assert_eq!(rows.build().unwrap().balances.len(), 1096);
-    }
-
-    #[test]
-    fn the_ends_of_a_day_exist_in_the_ledger_timezone() {
-        let at = |instant: chrono::DateTime<chrono::Utc>| instant.to_rfc3339();
-        let shanghai: Tz = "Asia/Shanghai".parse().unwrap();
-        assert_eq!(at(first_instant(date("2025-04-01"), &shanghai)), "2025-03-31T16:00:00+00:00");
-        assert_eq!(at(last_instant(date("2025-04-30"), &shanghai)), "2025-04-30T15:59:59+00:00");
-        // in Santiago the clocks jump from 00:00 to 01:00 on 2024-09-08: the day starts at 01:00 (-03)
-        let santiago: Tz = "America/Santiago".parse().unwrap();
-        assert_eq!(at(first_instant(date("2024-09-08"), &santiago)), "2024-09-08T04:00:00+00:00");
-        assert_eq!(at(last_instant(date("2024-09-08"), &santiago)), "2024-09-09T02:59:59+00:00");
-        // on 2024-04-07 they go back from 00:00 to 23:00 the day before: the day starts after it
-        assert_eq!(at(first_instant(date("2024-04-07"), &santiago)), "2024-04-07T04:00:00+00:00");
-        assert_eq!(at(last_instant(date("2024-04-06"), &santiago)), "2024-04-07T03:59:59+00:00");
-        // in New York the clocks skip 02:00 to 03:00 on 2025-03-09, so midnight exists
-        let new_york: Tz = "America/New_York".parse().unwrap();
-        assert_eq!(at(first_instant(date("2025-03-09"), &new_york)), "2025-03-09T05:00:00+00:00");
     }
 }

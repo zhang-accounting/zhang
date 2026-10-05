@@ -3,10 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, NaiveTime, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, NaiveTime, TimeDelta, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
 use notify::{Event, EventKind};
+use zhang_ast::resolve_local_datetime;
 use zhang_core::constants::CACHE_DIR;
 use zhang_core::data_source::path_in_ledger;
 use zhang_core::inputs::ExtraInput;
@@ -71,16 +72,12 @@ fn is_changed_by(input: &ExtraInput, kind: &EventKind, path: &Path) -> bool {
 /// the instant the local date in `timezone` next changes after `now`: the next midnight, the earlier one when a DST
 /// change repeats it, or the first minute of the day when a DST jump skips midnight
 pub fn next_local_midnight(now: DateTime<Utc>, timezone: Tz) -> DateTime<Utc> {
-    let a_day_later = now + TimeDelta::days(1);
-    let Some(tomorrow) = now.with_timezone(&timezone).date_naive().succ_opt() else {
-        return a_day_later;
-    };
-    let midnight = tomorrow.and_time(NaiveTime::MIN);
-    (0..24 * 60)
-        .map(|minutes| midnight + TimeDelta::minutes(minutes))
-        .find_map(|local| timezone.from_local_datetime(&local).earliest())
-        .map(|instant| instant.with_timezone(&Utc))
-        .unwrap_or(a_day_later)
+    match now.with_timezone(&timezone).date_naive().succ_opt() {
+        // the one reading of a local time every date of the ledger gets: the earlier of a repeated midnight, the end
+        // of the gap of a skipped one
+        Some(tomorrow) => resolve_local_datetime(&timezone, &tomorrow.and_time(NaiveTime::MIN)).with_timezone(&Utc),
+        None => now + TimeDelta::days(1),
+    }
 }
 
 #[cfg(test)]
