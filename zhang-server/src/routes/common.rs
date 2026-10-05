@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 
 use async_stream::try_stream;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive};
 use axum::response::Sse;
 use futures_util::Stream;
@@ -11,6 +11,7 @@ use zhang_core::domains::schemas::OptionDomain;
 use crate::error::ServerError;
 use crate::request::JournalRequest;
 use crate::response::{BasicInfoEntity, ErrorEntity, Pageable, ResponseWrapper};
+use crate::routes::Query;
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use crate::{journals, ApiResult};
 
@@ -53,8 +54,8 @@ pub async fn get_basic_info(ledger: State<SharedLedger>, reload_sender: State<Sh
 }
 
 /// The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-/// query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
-/// page past the last one is empty.
+/// query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
+/// default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
 #[api(group = "error")]
 pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
     ResponseWrapper::json(journals::errors(&ledger, params.0).await?)

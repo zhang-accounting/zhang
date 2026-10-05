@@ -71,19 +71,32 @@ fn sequence(seq: Option<i64>) -> i32 {
     seq.and_then(|seq| i32::try_from(seq).ok()).unwrap_or(i32::MAX)
 }
 
-/// The largest page a paged endpoint (`/api/journals`, `/api/errors`) returns.
+/// The rows of a page of a paged endpoint (`/api/journals`, `/api/errors`, `/api/accounts/{a}/journals`) when the
+/// request names no size.
+pub const DEFAULT_PAGE_SIZE: u32 = 100;
+
+/// The largest page a paged endpoint (`/api/journals`, `/api/errors`, `/api/accounts/{a}/journals`) returns.
 pub const MAX_PAGE_SIZE: u32 = 1000;
 
-/// The page, the page size and the offset of a paged request. A size outside 1 to
-/// [`MAX_PAGE_SIZE`] is a bad request; a page past the last one is empty.
-pub fn page_window(params: &JournalRequest) -> ServerResult<(u32, u32, i64)> {
-    let page = params.page();
-    let size = params.limit();
+/// The page, the page size and the offset of a request for page `page` of `size` rows, by the one rule of every paged
+/// endpoint: the page counts from 1 and is the first by default, the size is 1 to [`MAX_PAGE_SIZE`] and
+/// [`DEFAULT_PAGE_SIZE`] by default. Another page or size is a bad request; a page past the last one is empty.
+pub fn window(page: Option<u32>, size: Option<u32>) -> ServerResult<(u32, u32, i64)> {
+    let page = page.unwrap_or(1);
+    let size = size.unwrap_or(DEFAULT_PAGE_SIZE);
+    if page == 0 {
+        return Err(ServerError::InvalidInput("page must be at least 1".to_owned()));
+    }
     if !(1..=MAX_PAGE_SIZE).contains(&size) {
         return Err(ServerError::InvalidInput(format!("size must be between 1 and {}", MAX_PAGE_SIZE)));
     }
     let offset = window_offset(page, size).ok_or_else(|| ServerError::InvalidInput(format!("page {} of {} rows is out of range", page, size)))?;
     Ok((page, size, offset))
+}
+
+/// The page, the page size and the offset of a paged request, by [`window`].
+pub fn page_window(params: &JournalRequest) -> ServerResult<(u32, u32, i64)> {
+    window(params.page, params.size)
 }
 
 /// The rows before page `page` (from 1) of `size` rows, when the page ends where the query engine
@@ -533,7 +546,7 @@ mod test {
     #[test]
     fn pages_are_windows_of_the_rows() {
         assert_eq!(page_window(&request(None, None)).unwrap(), (1, 100, 0));
-        assert_eq!(page_window(&request(Some(0), Some(10))).unwrap(), (1, 10, 0));
+        assert_eq!(page_window(&request(Some(0), Some(10))).unwrap_err().to_string(), "page must be at least 1");
         assert_eq!(page_window(&request(Some(3), Some(50))).unwrap(), (3, 50, 100));
         // past the end of a u32, which the old journal wrapped around
         assert_eq!(page_window(&request(Some(42949674), Some(100))).unwrap(), (42949674, 100, 4294967300));

@@ -60,8 +60,8 @@ export interface paths {
      * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
      * assertion on the account, with the balance it was checked against.
      *
-     * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
-     * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+     * With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
+     * size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
      * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
      * name a 400, as for `GET /api/accounts/{a}`.
      *
@@ -191,8 +191,8 @@ export interface paths {
     /**
      * Get Errors
      * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-     * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
-     * page past the last one is empty.
+     * query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
+     * default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
      */
     get: operations['get_errors'];
   };
@@ -234,8 +234,8 @@ export interface paths {
      * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
      * of a page from `journals.postings` and `journals.balance_checks`.
      *
-     * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
-     * empty.
+     * Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
+     * paged endpoint; another page or size is a bad request, and a page past the last one is empty.
      */
     get: operations['get_journals'];
   };
@@ -710,8 +710,8 @@ export interface operations {
    * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
    * assertion on the account, with the balance it was checked against.
    *
-   * With `page` and `size` (from 1; `size` 100 by default and at most 1000), one page of the rows, and the number
-   * of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+   * With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
+   * size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
    * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
    * name a 400, as for `GET /api/accounts/{a}`.
    *
@@ -720,17 +720,9 @@ export interface operations {
    */
   get_account_journals: {
     parameters: {
-      query: {
-        /**
-         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
-         * most 1000. Without either, the whole journal.
-         */
-        page: number | null;
-        /**
-         * @description The page of an account's journal to return: `size` rows of page `page`, counting from 1, `size` at
-         * most 1000. Without either, the whole journal.
-         */
-        size: number | null;
+      query?: {
+        page?: number | null;
+        size?: number | null;
       };
       path: {
         account_name: string;
@@ -1421,8 +1413,8 @@ export interface operations {
   /**
    * Get Errors
    * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-   * query `journals.errors`. A page has 1 to 1000 errors (`size`, 100 by default); another size is a bad request, and a
-   * page past the last one is empty.
+   * query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
+   * default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
    */
   get_errors: {
     parameters: {
@@ -1591,12 +1583,8 @@ export interface operations {
    */
   get_info_for_new_transactions: {
     parameters: {
-      query: {
-        /**
-         * @description What the new-transaction form asks: the accounts open at `datetime`, the transaction's date and time as the form
-         * submits it, read in the ledger's timezone; now when it is left out.
-         */
-        datetime: string | null;
+      query?: {
+        datetime?: string | null;
       };
     };
     responses: {
@@ -1651,17 +1639,17 @@ export interface operations {
    * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
    * of a page from `journals.postings` and `journals.balance_checks`.
    *
-   * A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
-   * empty.
+   * Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
+   * paged endpoint; another page or size is a bad request, and a page past the last one is empty.
    */
   get_journals: {
     parameters: {
-      query: {
-        keyword: string | null;
-        links: string[] | null;
-        page: number | null;
-        size: number | null;
-        tags: string[] | null;
+      query?: {
+        page?: number | null;
+        size?: number | null;
+        keyword?: string | null;
+        tags?: string[] | null;
+        links?: string[] | null;
       };
     };
     responses: {
