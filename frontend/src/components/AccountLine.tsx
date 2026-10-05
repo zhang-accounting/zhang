@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
+import { heldCommodities, TreeTotal } from '../utils/account-totals';
 import AccountTrie from '../utils/AccountTrie';
 import { accountCollapseKey } from './layout/account-tree';
 import Amount from './Amount';
@@ -14,6 +15,8 @@ interface Props {
   spacing: number;
   /** Show every descendant regardless of the stored collapse state (used while searching). */
   forceExpand?: boolean;
+  /** The value of every node of the whole tree, by path (`treeTotals`): the same whatever the page filters. */
+  totals: Map<string, TreeTotal>;
 }
 
 const FOCUS_RING = 'outline-none focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -21,12 +24,13 @@ const TOGGLE_CLASS = cn('flex size-10 shrink-0 items-center justify-center round
 const LINK_CLASS = cn('flex min-h-10 min-w-0 flex-1 items-center rounded-md hover:underline hover:underline-offset-4 md:min-h-8', FOCUS_RING);
 
 /** One row of the account tree (div based, so it works as a card row on mobile and a dense list on desktop). */
-export default function AccountLine({ data, spacing, forceExpand = false }: Props) {
+export default function AccountLine({ data, spacing, forceExpand = false, totals }: Props) {
   const { t } = useTranslation();
   const [isShow, setCollapse] = useLocalStorage({ key: accountCollapseKey(data.path), defaultValue: false });
   const hasChildren = Object.keys(data.children).length > 0;
   const expanded = hasChildren && (forceExpand || isShow);
-  const commodities = Object.entries(data.amount.data).filter(([, value]) => !value.isZero());
+  const total = totals.get(data.path);
+  const commodities = heldCommodities(total);
   const haveMultipleCommodity = commodities.length > 1;
   const account = data.val;
   const isClosed = account?.status === 'Close';
@@ -83,7 +87,7 @@ export default function AccountLine({ data, spacing, forceExpand = false }: Prop
         <div className={cn('flex shrink-0 flex-col items-end text-sm', !data.isLeaf && 'text-muted-foreground', isClosed && 'text-muted-foreground')}>
           <span className="flex items-baseline gap-1">
             {haveMultipleCommodity && <span aria-hidden>≈</span>}
-            <Amount amount={data.amount.total} currency={data.amount.commodity} />
+            {total && <Amount amount={total.number} currency={total.commodity} />}
           </span>
           {haveMultipleCommodity &&
             commodities.map(([commodity, value]) => <Amount key={commodity} className="text-xs text-muted-foreground" amount={value} currency={commodity} />)}
@@ -92,7 +96,9 @@ export default function AccountLine({ data, spacing, forceExpand = false }: Prop
       {expanded &&
         Object.keys(data.children)
           .sort()
-          .map((child) => <AccountLine key={data.children[child].path} data={data.children[child]} spacing={spacing + 1} forceExpand={forceExpand} />)}
+          .map((child) => (
+            <AccountLine key={data.children[child].path} data={data.children[child]} spacing={spacing + 1} forceExpand={forceExpand} totals={totals} />
+          ))}
     </>
   );
 }

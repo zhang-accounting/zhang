@@ -9,6 +9,7 @@ import { retrieveBudgets } from '@/api/requests';
 import Amount from '@/components/Amount';
 import BudgetCategory from '@/components/budget/BudgetCategory';
 import { budgetUsage, monthFromSearchParams, monthSearchParams, sumByCommodity, usageProgressClass } from '@/components/budget/budget-utils';
+import { monthTotals, primaryFigures } from '@/components/budget/month-totals';
 import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
 import { EmptyState, LoadFailedState, PageHeader, PageShell } from '@/components/layout';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
@@ -84,10 +85,15 @@ export default function Budgets() {
     [visibleBudgets],
   );
 
-  const assigned = sumByCommodity(visibleBudgets.map((budget) => budget.assigned_amount));
-  const activity = sumByCommodity(visibleBudgets.map((budget) => budget.activity_amount));
-  const available = sumByCommodity(visibleBudgets.map((budget) => budget.available_amount));
-  const usage = budgetUsage(activity[0]?.number ?? '0', assigned[0]?.number ?? '0');
+  // the month's totals, by the rule the Home card adds up with too: every budget that counts in the month, shown or not
+  const totals = useMemo(() => monthTotals(budgets ?? []), [budgets]);
+  const categoryTotals = useMemo(
+    () => new Map(Object.entries(groupBy(budgets ?? [], (budget) => budget.category ?? UNCATEGORIZED)).map(([name, items]) => [name, monthTotals(items)])),
+    [budgets],
+  );
+  const { assigned, activity, available } = totals;
+  const primary = primaryFigures(totals);
+  const usage = budgetUsage(primary.activity?.number ?? '0', primary.assigned?.number ?? '0');
   const firstLoad = loading && budgets === undefined;
 
   return (
@@ -149,6 +155,7 @@ export default function Budgets() {
                 name={name}
                 label={name === UNCATEGORIZED ? t('budgets.uncategorized') : name}
                 items={items}
+                totals={categoryTotals.get(name) ?? monthTotals(items)}
                 search={`?year=${date.getFullYear()}&month=${date.getMonth() + 1}`}
               />
             ))}

@@ -106,7 +106,7 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 
 - `close` 在它生效的位置检查账户自身在每种商品上的余额，不含子账户：只有日期的 `close` 在当天所有其他条目之后，带时刻的 `close` 在该时刻。余额不为零时报告 [`CloseNonZeroAccount`](/zh-cn/reference/error-codes/#closenonzeroaccount)。账户仍会被关闭。所以在 `close` 当天清空账户的交易，在文件中写在 `close` 之前或之后都可以。
 - 关闭从未开立的账户会报告 `AccountDoesNotExist`，关闭已关闭的账户会报告 `AccountClosed`，以第一次 `close` 为准。
-- 已关闭的账户保留它的余额和历史。账户列表把它标记为已关闭，并且可以隐藏它。
+- 已关闭的账户保留它的余额和历史。账户列表把它标记为已关闭，并且可以隐藏它。它仍持有的资金计入每一个合计：账户页面和侧边栏中其上级账户及账户类型的合计，无论列表是否隐藏它。
 - `close` 之后可以有普通的 `balance`、[`document`](/zh-cn/reference/directives/document/) 和 [`note`](/zh-cn/reference/directives/note-and-event/)，不会报错。
 
 ## 错误

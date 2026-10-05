@@ -170,6 +170,7 @@ pub fn account_list(ledger: &Ledger) -> ServerResult<Vec<AccountEntity>> {
             alias: summary.alias.clone(),
             amount: summary.own.calculated(operating_currency),
             balance_with_sub_accounts: with_sub_accounts(&summary, operating_currency),
+            amount_with_sub_accounts: summary.subtree.calculated(operating_currency),
             has_sub_accounts: summary.has_sub_accounts,
             name,
         })

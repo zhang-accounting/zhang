@@ -7,7 +7,8 @@ import { Progress } from '@/components/ui/progress';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
 import Amount from '../Amount';
-import { budgetUsage, sumByCommodity, usageProgressClass } from './budget-utils';
+import { budgetUsage, usageProgressClass } from './budget-utils';
+import { MonthTotals, primaryFigures } from './month-totals';
 import BudgetLine from './BudgetLine';
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   /** Display name; defaults to `name` (the raw category key). */
   label?: string;
   items: BudgetListItem[];
+  /** The category's totals of the month, by the rule of `monthTotals`, of every budget of the category, shown or not. */
+  totals: MonthTotals;
   /** Query string for the budget detail links. */
   search?: string;
 }
@@ -27,10 +30,7 @@ export default function BudgetCategory(props: Props) {
     defaultValue: true,
   });
 
-  const assigned = sumByCommodity(props.items.map((item) => item.assigned_amount));
-  const activity = sumByCommodity(props.items.map((item) => item.activity_amount));
-  const primaryAssigned = assigned[0];
-  const primaryActivity = activity.find((it) => it.commodity === primaryAssigned?.commodity) ?? activity[0];
+  const { assigned: primaryAssigned, activity: primaryActivity } = primaryFigures(props.totals);
   const usage = budgetUsage(primaryActivity?.number.toString() ?? '0', primaryAssigned?.number.toString() ?? '0');
   const sortedItems = [...props.items].sort((a, b) => (a.alias ?? a.name).localeCompare(b.alias ?? b.name));
 
