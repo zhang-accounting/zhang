@@ -9,30 +9,28 @@
 //! as [`Either::Right`]; everything else maps onto zhang's [`Directive`] as
 //! [`Either::Left`].
 //!
-//! The token-level parsers both formats share are imported from
-//! [`zhang_core::data_type::text::parser`], so both data types read them the same way.
+//! The grammar both formats share is zhang-core's ([`zhang_core::data_type::text::parser`]), so
+//! both data types read it the same way: the directives they write alike, and comments, metadata,
+//! postings and transactions read with beancount's leaves (`BeancountText`).
 
 use std::path::PathBuf;
 
-use chrono::NaiveDate;
 use itertools::Either;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while1, take_while_m_n};
-use nom::character::complete::{char, line_ending, not_line_ending, space0, space1};
-use nom::combinator::{eof, map, map_res, opt, peek, recognize, value};
-use nom::multi::{many0, many1, many_m_n, separated_list1};
-use nom::sequence::{delimited, pair, preceded, terminated, tuple};
+use nom::bytes::complete::{tag, take_while1};
+use nom::character::complete::{char, line_ending, space0, space1};
+use nom::combinator::{eof, map, map_res, opt, peek, value};
+use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
-use zhang_ast::amount::Amount;
 use zhang_ast::*;
-use zhang_core::data_type::text::parser::{
-    account_name, comma_separator, commodity_name, flag_char, indentation_width, is_digit, key_value_line, line_column, number_expr, offset, parse_items,
-    posting_amount, posting_cost_with_date, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag,
-    unquote_string_raw, PostingMeta, TransactionLine,
-};
+use zhang_core::data_type::text::parser as zhang;
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
-use zhang_core::data_type::text::parser::{meta_key, spaced_tag_or_link};
+use zhang_core::data_type::text::parser::{account_name, meta_key, spaced_tag_or_link, transaction_flag};
+use zhang_core::data_type::text::parser::{
+    commodity_name, date_only, directive_metas, flag_char, inline_comment, key_value_line, line_column, line_trailer, offset, parse_items, posting_amount,
+    quote_string, string, transaction_head, unquote_string_raw, valuable_comment, Leaves, TransactionLine,
+};
 use zhang_core::utils::read_time;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
@@ -52,152 +50,36 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 // ---------------------------------------------------------------------------
-// low level tokens; strings, accounts and commodities are read by zhang-core's parser, comments
-// with beancount's own prefixes below
+// the leaves of a beancount file; the rest of the grammar is zhang-core's, read with them
 // ---------------------------------------------------------------------------
 
-/// `comment_prefix = ";" | "*" | "#" | "//"`: the start of a comment in a beancount file. `*` is
-/// one here, for the org-mode headings beancount ignores at the start of a line, such as
-/// `* Banking`, and not in a zhang file, where zhang-core's parser reads `*` as a flag only. Inside
-/// a transaction a posting is read before a comment, so `* Assets:Cash -10 USD` is a posting flagged
-/// `*` all the same ([`posting_flag`]).
-fn comment_prefix(i: &str) -> IResult<&str, &str> {
-    alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
-}
+/// The leaves where a beancount file differs from a zhang file ([`Leaves`]).
+struct BeancountText;
 
-/// An inline comment (prefix + rest of line), the whole of which is discarded.
-fn inline_comment(i: &str) -> IResult<&str, ()> {
-    value((), pair(comment_prefix, not_line_ending))(i)
-}
-
-/// Trailing `space* comment?` allowed after a single-line directive.
-fn line_trailer(i: &str) -> IResult<&str, ()> {
-    value((), pair(space0, opt(inline_comment)))(i)
-}
-
-/// `valuable_comment = space* comment_prefix space* comment_value`, returning the comment body.
-fn valuable_comment(i: &str) -> IResult<&str, String> {
-    preceded(space0, valuable_comment_body)(i)
-}
-
-/// The `comment_prefix space* comment_value` portion, assuming any leading spaces are already
-/// consumed.
-fn valuable_comment_body(i: &str) -> IResult<&str, String> {
-    let (i, _) = comment_prefix(i)?;
-    let (i, _) = space0(i)?;
-    let (i, body) = not_line_ending(i)?;
-    Ok((i, body.to_string()))
-}
-
-/// A single indented metadata line following a directive, with its trailing comment.
-fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
-    let (i, _) = line_ending(i)?;
-    let (i, _) = space1(i)?;
-    let (i, pair) = key_value_line(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
-    Ok((i, pair))
-}
-
-/// `metas = (line space+ key_value_line comment?)+`
-fn metas_block(i: &str) -> IResult<&str, Meta> {
-    map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
-}
-
-/// beancount dates are date-only; time (when present) is carried in metadata and
-/// re-attached by the caller.
-fn parse_date(i: &str) -> IResult<&str, Date> {
-    map_res(
-        recognize(tuple((
-            take_while_m_n(4, 4, is_digit),
-            char('-'),
-            take_while_m_n(1, 2, is_digit),
-            char('-'),
-            take_while_m_n(1, 2, is_digit),
-        ))),
-        |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(Date::Date),
-    )(i)
-}
-
-// ---------------------------------------------------------------------------
-// postings
-// ---------------------------------------------------------------------------
-
-/// The cost spec of a posting, zhang-core's grammar with beancount's date-only dates
-/// ([`posting_cost_with_date`]).
-fn cost_group(i: &str) -> IResult<&str, PostingCost> {
-    posting_cost_with_date(i, parse_date)
-}
-
-fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
-    let (i, cost) = opt(preceded(space0, cost_group))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, price) = opt(posting_price)(i)?;
-    Ok((i, (cost, price)))
-}
-
-fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)> {
-    let (i, amount) = opt(posting_amount)(i)?;
-    let (i, meta) = posting_meta(i)?;
-    Ok((i, (amount, Some(meta))))
-}
-
-/// `posting_flag = flag_char space+`: the flag of a posting, before its account, such as the `!`
-/// of `! Assets:Cash -10 USD`. A beancount file takes every flag beancount 3 reads on a posting, as
-/// beancount does, `#` included, which a zhang file reads as a comment. Beancount takes no `txn`
-/// there. The space is required, so an indented `*` or `#` comment such as `*Assets:Cash -10 USD`
-/// stays a comment.
-fn posting_flag(i: &str) -> IResult<&str, Flag> {
-    terminated(flag_char, space1)(i)
-}
-
-fn transaction_posting(i: &str) -> IResult<&str, Posting> {
-    let (i, flag) = opt(posting_flag)(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, unit) = opt(preceded(space1, posting_unit))(i)?;
-
-    let mut posting = Posting {
-        flag,
-        account,
-        units: None,
-        cost: None,
-        price: None,
-        comment: None,
-        meta: Meta::default(),
-        written: None,
-    };
-    if let Some((amount, meta)) = unit {
-        posting.units = amount;
-        if let Some((cost, price)) = meta {
-            posting.cost = cost;
-            posting.price = price;
-        }
+impl Leaves for BeancountText {
+    /// `comment_prefix = ";" | "*" | "#" | "//"`: the start of a comment in a beancount file. `*` is
+    /// one here, for the org-mode headings beancount ignores at the start of a line, such as
+    /// `* Banking`, and not in a zhang file, where zhang-core's parser reads `*` as a flag only. Inside
+    /// a transaction a posting is read before a comment, so `* Assets:Cash -10 USD` is a posting flagged
+    /// `*` all the same ([`Leaves::posting_flag`]).
+    fn comment_prefix(i: &str) -> IResult<&str, &str> {
+        alt((tag("//"), tag(";"), tag("*"), tag("#")))(i)
     }
-    Ok((i, posting))
-}
 
-/// A single indented line inside a transaction: a posting, a metadata pair, or an
-/// (ignored) comment / blank line, with the width of its indentation.
-fn transaction_line(i: &str) -> IResult<&str, (usize, TransactionLine)> {
-    let (i, _) = line_ending(i)?;
-    let (i, indent) = space1(i)?;
-    let (i, content) = opt(alt((
-        map(transaction_posting, |posting| TransactionLine::Posting(Box::new(posting))),
-        map(key_value_line, TransactionLine::Meta),
-    )))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, comment) = opt(valuable_comment_body)(i)?;
+    /// `posting_flag = flag_char space+`: the flag of a posting, before its account, such as the `!`
+    /// of `! Assets:Cash -10 USD`. A beancount file takes every flag beancount 3 reads on a posting, as
+    /// beancount does, `#` included, which a zhang file reads as a comment. Beancount takes no `txn`
+    /// there. The space is required, so an indented `*` or `#` comment such as `*Assets:Cash -10 USD`
+    /// stays a comment.
+    fn posting_flag(i: &str) -> IResult<&str, Flag> {
+        terminated(flag_char, space1)(i)
+    }
 
-    let line = match (content, comment) {
-        (Some(TransactionLine::Posting(posting)), Some(comment)) => TransactionLine::Posting(Box::new(posting.set_comment(comment))),
-        (Some(line), _) => line,
-        (None, _) => TransactionLine::Other,
-    };
-    Ok((i, (indentation_width(indent), line)))
-}
-
-fn transaction_lines(i: &str) -> IResult<&str, Vec<(usize, TransactionLine)>> {
-    many1(transaction_line)(i)
+    /// beancount dates are date-only, in a directive and in the cost of a posting alike; time (when
+    /// present) is carried in metadata and re-attached by the caller.
+    fn date(i: &str) -> IResult<&str, Date> {
+        date_only(i)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -216,174 +98,26 @@ fn booking_method(i: &str) -> IResult<&str, String> {
     )(i)
 }
 
+/// zhang's `open`, then the booking method beancount writes after the commodities
 fn open_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, commodities) = opt(preceded(space1, separated_list1(comma_separator, commodity_name)))(i)?;
+    let (i, mut open) = zhang::open_body(date, i)?;
     let (i, booking) = opt(preceded(space1, booking_method))(i)?;
-
-    let mut meta = Meta::default();
-    if let Some(booking) = booking {
+    if let (Some(booking), Some(meta)) = (booking, open.meta_mut()) {
         meta.insert("booking_method".to_string(), ZhangString::quote(booking));
     }
-    Ok((
-        i,
-        Either::Left(Directive::Open(Open {
-            date,
-            account,
-            commodities: commodities.unwrap_or_default(),
-            meta,
-        })),
-    ))
+    Ok((i, Either::Left(open)))
 }
 
-fn close_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Close(Close {
-            date,
-            account,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn note_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, comment) = string(i)?;
-    let (i, (tags, links)) = tag_and_link_sets(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Note(Note {
-            date,
-            account,
-            comment,
-            tags,
-            links,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
+/// zhang's `balance` without its `with pad`, which beancount has not
 fn balance_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, amount) = number_expr(i)?;
-    let (i, tolerance) = opt(preceded(tuple((space1, char('~'), space0)), number_expr))(i)?;
-    let (i, _) = space1(i)?;
-    let (i, commodity) = commodity_name(i)?;
+    let (i, (account, amount, tolerance)) = zhang::balance_assertion(i)?;
     Ok((
         i,
         Either::Right(BeancountOnlyDirective::Balance(BalanceDirective {
             date,
             account,
-            amount: Amount::new(amount, commodity),
+            amount,
             tolerance,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn pad_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, pad) = account_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Pad(Pad {
-            date,
-            account,
-            pad,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn document_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, filename) = string(i)?;
-    let (i, (tags, links)) = tag_and_link_sets(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Document(Document {
-            date,
-            account,
-            filename,
-            tags,
-            links,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn price_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, currency) = commodity_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, amount) = number_expr(i)?;
-    let (i, _) = space1(i)?;
-    let (i, target) = commodity_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Price(Price {
-            date,
-            currency,
-            amount: Amount::new(amount, target),
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn event_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, event_type) = string(i)?;
-    let (i, _) = space1(i)?;
-    let (i, description) = string(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Event(Event {
-            date,
-            event_type,
-            description,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-/// `query = date "query" space+ string space+ quote_string`; the query text is
-/// kept verbatim and not validated here.
-fn query_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, name) = string(i)?;
-    let (i, _) = space1(i)?;
-    let (i, query_string) = quote_string(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Query(Query {
-            date,
-            name,
-            query_string,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, currency) = commodity_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Commodity(Commodity {
-            date,
-            currency,
             meta: Meta::default(),
         })),
     ))
@@ -397,8 +131,8 @@ fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
 /// existing ledgers still hold. A `custom` of a budget's type whose values are not a budget
 /// directive's, such as Fava's `custom "budget" Expenses:Coffee "daily" 4.00 EUR`, is a generic
 /// custom directive, as it was, and so is every other type.
-fn custom_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
+fn custom_body(date: Date, original: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(original)?;
     let (rest, custom_type) = string(i)?;
     let budget = match custom_type.as_str() {
         "budget" => budget_body(date.clone(), rest),
@@ -411,18 +145,7 @@ fn custom_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
         Ok(directive) => Ok(directive),
         // a malformed escape in a quoted value is reported where it is, as in every string
         Err(nom::Err::Failure(error)) => Err(nom::Err::Failure(error)),
-        Err(_) => {
-            let (i, values) = many1(preceded(space1, string_or_account))(rest)?;
-            Ok((
-                i,
-                Either::Left(Directive::Custom(Custom {
-                    date,
-                    custom_type,
-                    values,
-                    meta: Meta::default(),
-                })),
-            ))
-        }
+        Err(_) => shared(zhang::custom_body(date, original)),
     }
 }
 
@@ -449,7 +172,10 @@ fn budget_commodity(i: &str) -> IResult<&str, String> {
 /// a budget's type with more values than the budget directive has is a generic custom directive,
 /// not a budget directive with the rest of its line left over.
 fn budget_line_end(i: &str) -> IResult<&str, ()> {
-    peek(value((), tuple((space0, opt(inline_comment), alt((value((), line_ending), value((), eof)))))))(i)
+    peek(value(
+        (),
+        tuple((space0, opt(inline_comment::<BeancountText>), alt((value((), line_ending), value((), eof))))),
+    ))(i)
 }
 
 fn budget_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
@@ -520,56 +246,30 @@ fn budget_close_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     ))
 }
 
+/// A directive both formats write alike, read by zhang-core's grammar.
+fn shared(result: IResult<&str, Directive>) -> IResult<&str, BeancountDirective> {
+    result.map(|(i, directive)| (i, Either::Left(directive)))
+}
+
 /// A dated directive: parse the shared `date keyword` prefix then dispatch on the
 /// keyword. Fails (so the caller can try a transaction) on an unknown keyword.
 fn dated_directive(original: &str) -> IResult<&str, BeancountDirective> {
-    let (i, date) = terminated(parse_date, space1)(original)?;
+    let (i, date) = terminated(BeancountText::date, space1)(original)?;
     let (rest, keyword) = take_while1(|c: char| c.is_ascii_lowercase())(i)?;
     match keyword {
         "open" => open_body(date, rest),
-        "close" => close_body(date, rest),
-        "note" => note_body(date, rest),
+        "close" => shared(zhang::close_body(date, rest)),
+        "note" => shared(zhang::note_body(date, rest)),
         "balance" => balance_body(date, rest),
-        "pad" => pad_body(date, rest),
-        "document" => document_body(date, rest),
-        "price" => price_body(date, rest),
-        "event" => event_body(date, rest),
-        "query" => query_body(date, rest),
-        "commodity" => commodity_body(date, rest),
+        "pad" => shared(zhang::pad_body(date, rest)),
+        "document" => shared(zhang::document_body(date, rest)),
+        "price" => shared(zhang::price_body(date, rest)),
+        "event" => shared(zhang::event_body(date, rest)),
+        "query" => shared(zhang::query_body(date, rest)),
+        "commodity" => shared(zhang::commodity_body(date, rest)),
         "custom" => custom_body(date, rest),
         _ => Err(nom::Err::Error(nom::error::Error::new(original, nom::error::ErrorKind::Tag))),
     }
-}
-
-fn plugin_directive(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("plugin")(i)?;
-    let (i, _) = space1(i)?;
-    let (i, module) = string(i)?;
-    let (i, values) = many0(preceded(space1, string))(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Plugin(Plugin {
-            module,
-            value: values,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn option_directive(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("option")(i)?;
-    let (i, _) = space1(i)?;
-    let (i, key) = string(i)?;
-    let (i, _) = space1(i)?;
-    let (i, value) = string(i)?;
-    Ok((i, Either::Left(Directive::Option(Options { key, value }))))
-}
-
-fn include_directive(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("include")(i)?;
-    let (i, _) = space1(i)?;
-    let (i, file) = quote_string(i)?;
-    Ok((i, Either::Left(Directive::Include(Include { file }))))
 }
 
 fn push_tag_directive(i: &str) -> IResult<&str, BeancountDirective> {
@@ -614,10 +314,8 @@ fn set_meta(directive: BeancountDirective, meta: Meta) -> BeancountDirective {
 }
 
 fn metable_item(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, directive) = alt((plugin_directive, dated_directive))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
-    let (i, metas) = opt(metas_block)(i)?;
+    let (i, directive) = alt((map(zhang::plugin_directive, Either::Left), dated_directive))(i)?;
+    let (i, metas) = directive_metas::<BeancountText>(i)?;
     let directive = match metas {
         Some(meta) => set_meta(directive, meta),
         None => directive,
@@ -625,38 +323,9 @@ fn metable_item(i: &str) -> IResult<&str, BeancountDirective> {
     Ok((i, directive))
 }
 
+/// A transaction of a beancount file ([`transaction_head`]).
 fn transaction(original: &str) -> IResult<&str, BeancountDirective> {
-    let (i, date) = parse_date(original)?;
-    let (i, flag) = opt(transaction_flag)(i)?;
-    let (i, strings) = many_m_n(0, 2, preceded(space1, quote_string))(i)?;
-    let (i, (tags, links)) = tags_or_links(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
-    let (i, lines) = transaction_lines(i)?;
-
-    if flag.is_none() && strings.is_empty() {
-        return Err(nom::Err::Error(nom::error::Error::new(original, nom::error::ErrorKind::Verify)));
-    }
-
-    let count = strings.len();
-    let mut strings = strings.into_iter();
-    let (payee, narration) = match (flag.is_some(), count) {
-        (_, 2) => (strings.next(), strings.next()),
-        (false, 1) => (strings.next(), None),
-        (true, 1) => (None, strings.next()),
-        _ => (None, None),
-    };
-
-    let mut transaction = Transaction {
-        date,
-        flag,
-        payee,
-        narration,
-        tags: tags.into_iter().collect(),
-        links: links.into_iter().collect(),
-        postings: Vec::new(),
-        meta: Meta::default(),
-    };
+    let (i, (mut transaction, lines)) = transaction_head::<BeancountText>(original)?;
     // as in beancount, a metadata line before the first posting belongs to the
     // transaction and one after a posting to that posting, however it is indented
     let mut posting_indent = 0;
@@ -714,13 +383,15 @@ fn lift_trailing_time(transaction: &mut Transaction, posting_times: &[PostingTim
 
 fn content_item(i: &str) -> IResult<&str, Option<BeancountDirective>> {
     alt((
-        map(terminated(option_directive, line_trailer), Some),
-        map(terminated(include_directive, line_trailer), Some),
-        map(terminated(push_tag_directive, line_trailer), Some),
-        map(terminated(pop_tag_directive, line_trailer), Some),
-        map(terminated(push_meta_directive, line_trailer), Some),
-        map(terminated(pop_meta_directive, line_trailer), Some),
-        map(valuable_comment, |content| Some(Either::Left(Directive::Comment(Comment { content })))),
+        map(terminated(zhang::option_directive, line_trailer::<BeancountText>), |it| Some(Either::Left(it))),
+        map(terminated(zhang::include_directive, line_trailer::<BeancountText>), |it| Some(Either::Left(it))),
+        map(terminated(push_tag_directive, line_trailer::<BeancountText>), Some),
+        map(terminated(pop_tag_directive, line_trailer::<BeancountText>), Some),
+        map(terminated(push_meta_directive, line_trailer::<BeancountText>), Some),
+        map(terminated(pop_meta_directive, line_trailer::<BeancountText>), Some),
+        map(valuable_comment::<BeancountText>, |content| {
+            Some(Either::Left(Directive::Comment(Comment { content })))
+        }),
         map(metable_item, Some),
         map(transaction, Some),
     ))(i)
