@@ -822,7 +822,7 @@ ORDER BY date DESC
 | `open`、`open.date` | `date` | `open` 指令的日期，没有时为 `NULL`。单独使用 `open` 时读作这个日期。 |
 | `open.account` | `str` | `open` 指令的账户。 |
 | `open.currencies` | `set` | 账户限定的货币；不限定时为 `NULL`。 |
-| `open.booking` | `str` | 记账方法，取自 `booking_method` 元数据，或 `NULL`。 |
+| `open.booking` | `str` | zhang 为该账户记账时使用的记账方法：带有 `booking_method` 元数据的最近一条 `open` 中的最后一个值。账户使用账本默认方法时为 `NULL`，值不是 zhang 实现的记账方法时也为 `NULL`。 |
 | `open.meta` | `str` | `open` 指令的元数据。 |
 | `close`、`close.date` | `date` | `close` 指令的日期，账户未关闭时为 `NULL`。单独使用 `close` 时读作这个日期。 |
 | `close.account`、`close.meta` | `str` | `close` 指令的账户和元数据。 |
