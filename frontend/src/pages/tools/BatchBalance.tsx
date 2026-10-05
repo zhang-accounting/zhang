@@ -20,7 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { batchBalanceRows, replacedBalancesText, subAccountsFirst } from '@/utils/balance-check';
+import { batchBalanceRows, replacedBalancesText } from '@/utils/balance-check';
 import { useListState } from '@/hooks/use-list-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -127,20 +127,18 @@ export default function BatchBalance() {
   const mismatchCount = accounts.filter(hasMismatch).length;
 
   const onSave = async () => {
-    // sub-accounts first: a parent's `balance` covers them, so it must come after their pads
-    const accountsToBalance = subAccountsFirst(
-      accounts
-        .filter((account) => account.balanceAmount.trim() !== '')
-        .map((account) => ({
-          type: account.pad ? ('Pad' as const) : ('Check' as const),
-          account_name: account.accountName,
-          amount: {
-            number: account.balanceAmount,
-            commodity: account.commodity,
-          },
-          pad: account.pad ?? '',
-        })),
-    );
+    // in the order of the rows: the server writes the balances of sub-accounts before their parents'
+    const accountsToBalance = accounts
+      .filter((account) => account.balanceAmount.trim() !== '')
+      .map((account) => ({
+        type: account.pad ? ('Pad' as const) : ('Check' as const),
+        account_name: account.accountName,
+        amount: {
+          number: account.balanceAmount,
+          commodity: account.commodity,
+        },
+        pad: account.pad ?? '',
+      }));
     toast.info(t('batch_balance.start_toast', { count: accountsToBalance.length }));
     setSubmitting(true);
     try {
