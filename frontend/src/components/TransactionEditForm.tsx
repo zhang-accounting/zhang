@@ -1,14 +1,16 @@
+import { useAtomValue } from 'jotai';
 import { CalendarIcon, Plus, TableProperties, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
-import { optionValue, previewNewTransaction, previewTransactionUpdate, retrieveNewTransactionInfo, retrieveOptions } from '@/api/requests';
+import { previewNewTransaction, previewTransactionUpdate, retrieveNewTransactionInfo } from '@/api/requests';
 import { JournalTransactionItem, MetaEntry } from '@/api/types';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { useDateFormat, useDateLocale } from '@/components/layout/use-date-format';
 import { useListState } from '@/hooks/use-list-state';
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
+import { operatingCurrencyAtom } from '@/states/options';
 import { accountOptions } from '@/utils/account-options';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Button } from './ui/button';
@@ -103,7 +105,8 @@ export default function TransactionEditForm(props: Props) {
   // or a comment, which must stay in view when editing; ids of the expanded postings.
   const [openPostingMetas, setOpenPostingMetas] = useState<ReadonlySet<number>>(() => new Set(postings.filter(hasDetails).map((it) => it.id)));
 
-  const { value: operatingCurrency } = useAsync(async () => optionValue((await retrieveOptions({})).data.data, 'operating_currency'), []);
+  // the ledger's options, fetched once for every page that uses one
+  const operatingCurrency = useAtomValue(operatingCurrencyAtom);
   // the payees, and the accounts open at the transaction's date and time, by the rule the ledger checks it with
   const { value: info } = useAsync(async () => (await retrieveNewTransactionInfo({ datetime: datetime ?? null })).data.data, [datetime]);
   useEffect(() => {
