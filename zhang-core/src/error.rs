@@ -31,8 +31,10 @@ pub enum ZhangError {
     #[error("cannot found option given key: {0}")]
     OptionNotFound(String),
 
-    #[error("invalid content encoding: {0}")]
-    ContentEncodingError(#[from] std::string::FromUtf8Error),
+    /// a file of the ledger whose content is not UTF-8 text: it is read neither as it is nor with its bytes replaced,
+    /// so nothing is loaded from it, and nothing is written into it ([`FileText::decode`](crate::data_source::FileText::decode))
+    #[error("the file {path} is not UTF-8 text: line {line} holds a byte that is not UTF-8. Save the file with the UTF-8 encoding")]
+    InvalidUtf8 { path: String, line: usize },
 
     #[error("file not found")]
     FileNotFound,

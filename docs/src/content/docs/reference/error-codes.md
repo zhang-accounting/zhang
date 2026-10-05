@@ -623,6 +623,10 @@ shows it in the web UI until a reload succeeds.
 
 - **A syntax error** in a file. The message names the file, line and column, such as
   `failed to parse zhang file: unexpected input at line 4, column 3`.
+- **A file that is not UTF-8 text**, such as one saved as Latin-1 or GBK. The message names the file and the line of
+  the first byte that is not UTF-8, such as
+  `the file data/2024.zhang is not UTF-8 text: line 3 holds a byte that is not UTF-8. Save the file with the UTF-8 encoding`.
+  A file that starts with a byte order mark is UTF-8 text.
 - **An invalid value** for the [`default_rounding`](/reference/directives/options/#default_rounding) or
   [`directive_output_path`](/reference/directives/options/#directive_output_path) option, or for the `rounding`
   metadata of a [commodity](/reference/directives/commodity/#rounding). The message is `option value is invalid`.

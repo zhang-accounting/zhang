@@ -33,14 +33,14 @@ ledger/
 
 The extension of the main file selects the format of the whole ledger: `.zhang`, or `.bean`, `.beancount` and `.bc` for beancount. If the main file does not exist, Zhang starts with an empty ledger.
 
-The files are UTF-8. A file that starts with a byte order mark (BOM), as some Windows editors write it, is read as if it started without one, and Zhang keeps the mark when it writes the file.
+The files are UTF-8. A file that starts with a byte order mark (BOM), as some Windows editors write it, is read as if it started without one, and Zhang keeps the mark when it writes the file. A file of the ledger that is not UTF-8, such as one saved as Latin-1 or GBK, stops the load with an error that names the file and the line of the first byte that is not UTF-8; Zhang never reads it with that byte replaced. Save the file as UTF-8 to fix it. See [When the ledger does not load](/reference/error-codes/#when-the-ledger-does-not-load).
 
 The web UI writes to these files:
 
 - A new transaction, balance check or document is appended to the file that the [`directive_output_path`](/reference/directives/options/) option names for its date, `data/{year}/{month}.zhang` by default (with the extension of the main file). The first time a file is used, Zhang appends an `include` for it to the main file.
 - Editing a transaction rewrites it in the file it comes from.
 - An uploaded document is stored as `attachments/<random id>/<file name>`, and linked from the account or the transaction.
-- **Raw Editing** saves the whole file you edited. It does not overwrite a file that changed since you opened it, by a transaction or balance check recorded in the web UI, an uploaded document or an edit outside: the save is refused, and the editor offers to reload the file (discarding your edits) or to keep editing. Through the API, `GET /api/files/{path}` answers with the `sha256` of the content it serves; a `PUT` that sends it back as `expected_sha256` is refused with 409, writing nothing, when the file no longer matches it, and a `PUT` without it overwrites the file. A `GET` of a file that does not exist is answered with 404, except for the main file of a ledger started without one, which is served empty so that you can write it.
+- **Raw Editing** saves the whole file you edited. It does not overwrite a file that changed since you opened it, by a transaction or balance check recorded in the web UI, an uploaded document or an edit outside: the save is refused, and the editor offers to reload the file (discarding your edits) or to keep editing. Through the API, `GET /api/files/{path}` answers with the `sha256` of the content it serves; a `PUT` that sends it back as `expected_sha256` is refused with 409, writing nothing, when the file no longer matches it, and a `PUT` without it overwrites the file. A `GET` of a file that does not exist is answered with 404, except for the main file of a ledger started without one, which is served empty so that you can write it. A `GET` of a file that is not UTF-8 text, such as an image in the ledger folder, is answered with 415 and a message naming the file.
 - Registering a passkey writes `.zhang/passkeys.json`, see [Authentication](/deployment/authentication/#where-passkeys-are-stored).
 
 ## When Zhang reloads

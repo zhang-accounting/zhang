@@ -26,7 +26,7 @@ pub struct ReloadFailure {
 impl From<&ZhangError> for ReloadFailure {
     fn from(error: &ZhangError) -> Self {
         let file = match error {
-            ZhangError::PestError { path, .. } => Some(path.clone()),
+            ZhangError::PestError { path, .. } | ZhangError::InvalidUtf8 { path, .. } => Some(path.clone()),
             ZhangError::ProcessError { span, .. } => span.filename.as_ref().map(|file| file.display().to_string()),
             ZhangError::FileError { path, .. } => Some(path.display().to_string()),
             _ => None,

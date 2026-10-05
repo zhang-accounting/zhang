@@ -101,7 +101,7 @@ where
     /// writer holds the ledger exclusively from this read until it saved the file, so no other write comes between
     async fn async_get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<FileText> {
         let content = match self.async_get(path.clone()).await {
-            Ok(content) => FileText::new(String::from_utf8(content)?),
+            Ok(content) => FileText::decode(content, &path)?,
             // a file removed since the ledger was loaded changed too
             Err(error) if error.is_file_not_found() => return Err(ZhangError::FileChanged(path)),
             Err(error) => return Err(error),
@@ -259,6 +259,23 @@ pub struct FileText {
 }
 
 impl FileText {
+    /// The text of the file at `path`, whose bytes are `content`: every reader of a file of the ledger decodes it here,
+    /// to load it, to edit it in place, to append to it or to show it in the editor. A file that is not UTF-8 text is
+    /// [`ZhangError::InvalidUtf8`], naming the file and the line of the first byte that is not: it is never read with
+    /// that byte replaced, which would load other text than the file holds and write it back so.
+    pub fn decode(content: Vec<u8>, path: impl AsRef<Path>) -> ZhangResult<FileText> {
+        match String::from_utf8(content) {
+            Ok(content) => Ok(FileText::new(content)),
+            Err(error) => {
+                let valid = &error.as_bytes()[..error.utf8_error().valid_up_to()];
+                Err(ZhangError::InvalidUtf8 {
+                    path: path.as_ref().to_string_lossy().into_owned(),
+                    line: valid.iter().filter(|it| **it == b'\n').count() + 1,
+                })
+            }
+        }
+    }
+
     /// the text of a file whose content is `content`
     pub fn new(mut content: String) -> Self {
         let bom = content.starts_with(BOM);
@@ -454,19 +471,17 @@ impl LocalFileSystemDataSource {
             self.append_directive(ledger, include, None, None)?;
         }
 
-        let content = match ledger.data_source.get(endpoint.to_string_lossy().to_string()) {
-            Ok(content) => String::from_utf8(content)?,
+        let mut content = match ledger.data_source.get(endpoint.to_string_lossy().to_string()) {
+            Ok(content) => FileText::decode(content, &endpoint)?,
             // a file this append creates
-            Err(error) if error.is_file_not_found() => String::new(),
+            Err(error) if error.is_file_not_found() => FileText::new(String::new()),
             Err(e) => return Err(e),
         };
 
         let directive = written_into(ledger, directive, endpoint.strip_prefix(entry).unwrap_or(&endpoint));
-        let appended_content = format!("{}\n{}\n", content, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
+        content.text = format!("{}\n{}\n", content.text, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
 
-        ledger
-            .data_source
-            .save(ledger, endpoint.to_string_lossy().to_string(), appended_content.as_bytes())?;
+        ledger.data_source.save(ledger, endpoint.to_string_lossy().to_string(), &content.into_bytes())?;
         Ok(())
     }
 }
@@ -523,10 +538,9 @@ impl DataSource for LocalFileSystemDataSource {
                 },
                 Err(error) => return Err(error),
             };
-            let entity_directives = self.data_type.transform(
-                String::from_utf8_lossy(&file_content).to_string(),
-                Some(pending.path.to_string_lossy().to_string()),
-            )?;
+            let name = pending.path.to_string_lossy().to_string();
+            // after the byte order mark it may start with, which the parsers skip too: the spans index the same text
+            let entity_directives = self.data_type.transform(FileText::decode(file_content, &name)?.text, Some(name))?;
 
             load_queue.extend(pending.includes(&entity_directives));
             directives.extend(entity_directives);
@@ -736,12 +750,13 @@ mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::Directive;
 
-    use super::LocalFileSystemDataSource;
+    use super::{FileText, LocalFileSystemDataSource};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
     use crate::store::Store;
+    use crate::ZhangError;
 
     #[test]
     fn an_append_includes_each_new_file_once() {
@@ -809,6 +824,68 @@ mod test {
         let store = reloaded.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 1);
+    }
+
+    /// A file that is not UTF-8 text, such as one holding a latin-1 `é` in a comment, stops the load with an error
+    /// naming the file and the line: this source read it with the byte replaced, and loaded other text than the file
+    /// holds, where `zhang serve` panicked.
+    #[test]
+    fn a_file_that_is_not_utf8_is_a_load_error_naming_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.zhang"), "1970-01-01 open Assets:Cash\ninclude \"bad.zhang\"\n").unwrap();
+        std::fs::write(dir.path().join("bad.zhang"), b"1970-01-01 open Assets:Bank\n; \xe9t\xe9\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+
+        let error = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
+            .err()
+            .expect("the ledger does not load");
+
+        let ZhangError::InvalidUtf8 { path, line } = &error else { panic!("{error}") };
+        assert!(path.ends_with("bad.zhang"), "{path}");
+        assert_eq!(*line, 2);
+        assert!(error.to_string().contains("bad.zhang is not UTF-8 text: line 2"), "{error}");
+    }
+
+    /// An append to a file that is not UTF-8 text leaves it as it is, and the error names the file: it was a 500
+    /// that named no file
+    #[test]
+    fn an_append_to_a_file_that_is_not_utf8_is_an_error_naming_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.zhang"), "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n").unwrap();
+        let month = dir.path().join("data/2024/01.zhang");
+        std::fs::create_dir_all(month.parent().unwrap()).unwrap();
+        std::fs::write(&month, b"; \xe9t\xe9\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
+        let coffee: Vec<Directive> = ZhangDataType {}
+            .transform("2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n".to_owned(), None)
+            .unwrap()
+            .into_iter()
+            .map(|it| it.data)
+            .collect();
+
+        let error = ledger.data_source.append(&ledger, coffee).expect_err("the transaction is not appended");
+
+        assert!(
+            matches!(&error, ZhangError::InvalidUtf8 { path, line: 1 } if path.ends_with("01.zhang")),
+            "{error}"
+        );
+        assert_eq!(std::fs::read(&month).unwrap(), b"; \xe9t\xe9\n");
+    }
+
+    /// A file's text is after the byte order mark it may start with; bytes that are not UTF-8 are an error naming the
+    /// file and the line of the first of them, the mark or not
+    #[test]
+    fn a_file_is_decoded_strictly_after_its_byte_order_mark() {
+        let text = FileText::decode(b"\xef\xbb\xbf\xc3\xa9t\xc3\xa9\n".to_vec(), "a.zhang").unwrap();
+        assert_eq!((text.bom, text.text.as_str()), (true, "\u{e9}t\u{e9}\n"));
+        assert_eq!(text.into_bytes(), b"\xef\xbb\xbf\xc3\xa9t\xc3\xa9\n");
+        for (content, line) in [(&b"\xef\xbb\xbfok\n\nok\xe9"[..], 3), (b"\xff", 1), (b"a\nb\r\n\xc3", 3)] {
+            match FileText::decode(content.to_vec(), "data/a.zhang") {
+                Err(ZhangError::InvalidUtf8 { path, line: at }) => assert_eq!((path.as_str(), at), ("data/a.zhang", line), "{content:?}"),
+                other => panic!("{content:?}: {other:?}"),
+            }
+        }
     }
 
     /// A pattern names the files that exist, whole names only, in any part of the path (#494): `*.zhang` next to the
