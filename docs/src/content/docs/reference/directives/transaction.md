@@ -113,7 +113,9 @@ A posting flag changes nothing in how the posting is booked. Zhang keeps it:
 ### Amounts
 
 An amount is a number followed by a commodity, such as `-1,234.50 CNY`. The number can have `,` or `_` between its
-digits, and can be an expression with `+`, `-`, `*`, `/` and parentheses: `(120 + 35) / 2 CNY` is `77.5 CNY`. The
+digits, and can be an expression with `+`, `-`, `*`, `/` and parentheses: `(120 + 35) / 2 CNY` is `77.5 CNY`. A
+quotient is rounded to at most 28 significant digits, as in Beancount: `1/3 CNY` is
+`0.3333333333333333333333333333 CNY`. A division by zero, such as `1/0 CNY`, is an error at the divisor. The
 commodity must be [defined](/reference/directives/commodity/) at the transaction's date.
 
 ### Elided amounts
