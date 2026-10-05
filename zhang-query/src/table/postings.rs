@@ -18,9 +18,7 @@
 use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap};
-use std::num::NonZeroU64;
 
-use bigdecimal::{BigDecimal, RoundingMode};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use zhang_ast::amount::Amount;
 use zhang_ast::{booked_group_units, written_groups, Directive, Meta, Posting, PostingCost, SingleTotalPrice, Transaction, WrittenGroup};
@@ -335,7 +333,7 @@ pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &
         for leg in legs {
             // every leg of a matched directive is booked ([`stored_groups`]), so it has units
             let Some(units) = &leg.units else { continue };
-            let cost = leg.cost.as_ref().and_then(|cost| lot_cost(leg, cost, legs));
+            let cost = leg.cost.as_ref().and_then(lot_cost);
             let price = leg.price.as_ref().and_then(|price| per_unit_price(leg, price, legs));
             rows.push(CachedRow {
                 entry: entry as u32,
@@ -387,53 +385,28 @@ fn written_units(leg: &Posting, legs: &[Posting]) -> Option<Amount> {
     }
 }
 
-/// The lot a booked leg names, as its row shows it. A cost the user wrote as a total
-/// (`{{1000 USD}}`) is divided over the written units ([`written_units`]) in the query's decimal
-/// context ([`decimal::div`], 28 significant digits like beanquery); any other per-unit cost
-/// zhang-core derived by division is rounded to that context too. A cost without a number (the
-/// part of a `{}` reduction no lot covered) is no lot.
-fn lot_cost(leg: &Posting, cost: &PostingCost, legs: &[Posting]) -> Option<Cost> {
+/// The lot a booked leg names, as its row shows it: the cost zhang-core booked it at, which for a
+/// cost written as a total (`{{1000 USD}}`) or inferred from the other postings is the per-unit
+/// cost divided in the 28-digit decimal context like beanquery's ([`decimal::per_unit`]), the cost
+/// the lot keeps. A cost without a number (the part of a `{}` reduction no lot covered) is no lot.
+fn lot_cost(cost: &PostingCost) -> Option<Cost> {
     let base = cost.base.as_ref()?;
-    let written_total = leg
-        .written
-        .as_ref()
-        .and_then(|written| written.cost.as_ref())
-        .filter(|written| written.total)
-        .and_then(|written| written.base.as_ref());
-    let number = match written_total {
-        Some(total) => written_units(leg, legs)
-            .and_then(|units| decimal::div(&total.number, &units.number.abs()))
-            .unwrap_or_else(|| base.number.clone()),
-        None => in_context(&base.number),
-    };
     Some(Cost {
-        number,
+        number: base.number.clone(),
         currency: base.commodity.clone(),
         date: cost.date.as_ref().map(|it| it.naive_date()),
         label: cost.label.clone(),
     })
 }
 
-/// `number` in the query's decimal context: rounded half-even to [`decimal::DIVISION_PRECISION`]
-/// significant digits when it has more (a per-unit cost zhang-core divided at its own precision),
-/// trailing zeros dropped like a quotient's; unchanged otherwise
-fn in_context(number: &BigDecimal) -> BigDecimal {
-    if number.digits() > decimal::DIVISION_PRECISION {
-        let precision = NonZeroU64::new(decimal::DIVISION_PRECISION).expect("non zero precision");
-        number.with_precision_round(precision, RoundingMode::HalfEven).normalized()
-    } else {
-        number.clone()
-    }
-}
-
 /// the per-unit price of the leg `leg` of `legs`: a total price (`@@`) spread over the units as
-/// written ([`written_units`]), the same for every leg of a split
+/// written ([`written_units`], [`decimal::per_unit`]), the same for every leg of a split
 fn per_unit_price(leg: &Posting, price: &SingleTotalPrice, legs: &[Posting]) -> Option<Amount> {
     match price {
         SingleTotalPrice::Single(price) => Some(price.clone()),
         SingleTotalPrice::Total(total) => {
             let units = written_units(leg, legs)?;
-            decimal::div(&total.number, &units.number.abs()).map(|number| Amount::new(number, total.commodity.clone()))
+            decimal::per_unit(&total.number, &units.number).map(|number| Amount::new(number, total.commodity.clone()))
         }
     }
 }
@@ -482,10 +455,12 @@ fn opt_str(value: Option<&str>) -> Value {
     value.map(|it| Value::Str(it.to_owned())).unwrap_or(Value::Null)
 }
 
+/// The weight of a row: its units at its cost, else at its price, in the decimal context like
+/// beanquery's (a per-unit cost or price may be a 28-digit quotient), else its units.
 fn weight(row: &Row<'_>) -> Amount {
     match (&row.cost, &row.price) {
-        (Some(cost), _) => Amount::new(decimal::mul(&row.units.number, &cost.number), cost.currency.clone()),
-        (None, Some(price)) => Amount::new(decimal::mul(&row.units.number, &price.number), price.commodity.clone()),
+        (Some(cost), _) => Amount::new(decimal::mul_in_context(&row.units.number, &cost.number), cost.currency.clone()),
+        (None, Some(price)) => Amount::new(decimal::mul_in_context(&row.units.number, &price.number), price.commodity.clone()),
         (None, None) => row.units.as_ref().clone(),
     }
 }

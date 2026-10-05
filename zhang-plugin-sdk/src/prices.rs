@@ -61,7 +61,7 @@ use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Directive, SingleTotalPrice, Spanned};
-use zhang_shared::decimal::{div, mul_in_context};
+use zhang_shared::decimal::{mul_in_context, per_unit};
 
 /// Exchange rates of a plugin's stream. See the [module docs](self) for the
 /// input policy; price histories and precision are shared with the query engine.
@@ -115,7 +115,7 @@ fn price_points(stream: &[Spanned<Directive>], implicit: bool) -> Vec<(NaiveDate
                     };
                     let per_unit = match price {
                         SingleTotalPrice::Single(price) => Some((price.number.clone(), &price.commodity)),
-                        SingleTotalPrice::Total(total) => div(&total.number, &units.number.abs()).map(|number| (number, &total.commodity)),
+                        SingleTotalPrice::Total(total) => per_unit(&total.number, &units.number).map(|number| (number, &total.commodity)),
                     };
                     if let Some((number, commodity)) = per_unit {
                         points.push((txn.date.naive_date(), units.commodity.clone(), commodity.clone(), number));
@@ -136,8 +136,9 @@ mod test {
     use chrono::NaiveDate;
     use zhang_ast::amount::Amount;
     use zhang_ast::{Account, Date, Directive, Flag, Meta, Posting, Price, SingleTotalPrice, SpanInfo, Spanned, Transaction};
+    use zhang_shared::decimal::div;
 
-    use super::{div, mul_in_context, PriceMap};
+    use super::{mul_in_context, PriceMap};
 
     fn day(text: &str) -> NaiveDate {
         NaiveDate::from_str(text).unwrap()

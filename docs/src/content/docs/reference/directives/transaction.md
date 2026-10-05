@@ -124,8 +124,8 @@ One posting of a transaction may leave out its amount. Zhang gives it the amount
   exactly one commodity unbalanced. The posting without an amount gets the opposite of that remainder.
 - If the other postings already balance and are all in one commodity, it gets zero of that commodity. The journal
   keeps the posting as you wrote it.
-- The inferred amount is exact. Only an amount that a division leaves with more than 20 decimals, such as a total cost
-  spread over 3 units, is rounded, with the commodity's `rounding`, at the larger of its precision and the most
+- The inferred amount is exact. Only an amount that a division leaves inexact, such as one at a total cost spread over
+  3 units (divided to 28 significant digits, as in Beancount), or one with more than 20 decimals, is rounded, with the commodity's `rounding`, at the larger of its precision and the most
   decimals written in the transaction in that commodity.
 
 When there is nothing to infer, or several postings leave out their amount, or the others leave several commodities

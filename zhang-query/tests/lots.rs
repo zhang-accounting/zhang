@@ -438,3 +438,123 @@ fn rows_follow_the_ledgers_booking() {
     );
     assert_eq!(holdings(ledger, "Assets:Broker"), "-10 AAPL {100 USD, 2024-01-10}");
 }
+
+/// The lot costs of the booked postings of `account`, as the ledger keeps them: what plugins and
+/// the final validation read.
+fn booked_costs(ledger: &zhang_core::ledger::Ledger, account: &str) -> Vec<String> {
+    ledger
+        .directives
+        .iter()
+        .filter_map(|directive| match &directive.data {
+            zhang_ast::Directive::Transaction(txn) => Some(txn),
+            _ => None,
+        })
+        .flat_map(|txn| &txn.postings)
+        .filter(|posting| posting.account.name() == account)
+        .filter_map(|posting| posting.cost.as_ref()?.base.as_ref())
+        .map(|cost| cost.number.to_string())
+        .collect()
+}
+
+/// The kinds of the errors the ledger reports.
+fn error_kinds(ledger: &zhang_core::ledger::Ledger) -> Vec<String> {
+    let store = ledger.store.read().unwrap();
+    store.errors.iter().map(|error| error.error_type.to_string()).collect()
+}
+
+const TOTAL_COST: &str = r#"
+1970-01-01 commodity STK
+1970-01-01 open Assets:Strict
+  booking_method: "STRICT"
+1970-01-01 open Assets:Inferred
+
+2024-01-01 * "Broker" "buy at a total cost"
+  Assets:Strict     3 STK {{100 USD}}
+  Assets:Bank    -100 USD
+
+2024-01-01 * "Broker" "buy at an inferred cost"
+  Assets:Inferred   3 STK {}
+  Assets:Bank    -100 USD
+"#;
+
+/// A lot bought at a total cost, or at a cost inferred from the other postings, holds the per-unit
+/// cost beancount computes in its 28-digit decimal context. The ledger keeps that cost, plugins
+/// read it, and queries show it; the ledger used to keep the quotient at 100 digits, which only
+/// the queries rounded to 28.
+#[test]
+fn a_lot_bought_at_a_divided_cost_keeps_the_cost_it_shows() {
+    // beancount 3.2.3: Cost(number=Decimal('33.33333333333333333333333333'), date=2024-01-01) for both
+    let cost = "33.33333333333333333333333333";
+    let ledger = common::load_text(&format!("{HEADER}{TOTAL_COST}"));
+    assert_eq!(booked_costs(&ledger, "Assets:Strict"), vec![cost]);
+    assert_eq!(booked_costs(&ledger, "Assets:Inferred"), vec![cost]);
+    assert_eq!(postings(TOTAL_COST, "Assets:Strict"), vec![row(&["3", cost, "2024-01-01", "NULL", "NULL"])]);
+    assert_eq!(postings(TOTAL_COST, "Assets:Inferred"), vec![row(&["3", cost, "2024-01-01", "NULL", "NULL"])]);
+}
+
+/// The per-unit cost a query shows of a lot bought at a total cost can be written back: a sale at
+/// it reduces that lot. It used to match no lot, as the ledger held the cost at 100 digits: the
+/// sale opened a short lot and was reported as NoEnoughCommodityLot.
+#[test]
+fn a_lot_bought_at_a_total_cost_sells_at_the_cost_it_shows() {
+    let ledger = format!(
+        "{TOTAL_COST}{}",
+        r#"
+2024-02-01 * "Broker" "sell at the cost shown"
+  Assets:Strict    -1 STK {33.33333333333333333333333333 USD}
+  Assets:Bank
+"#
+    );
+    let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    assert_eq!(error_kinds(&loaded), Vec::<String>::new());
+    // beancount 3.2.3: (2 STK {33.33333333333333333333333333 USD, 2024-01-01})
+    assert_eq!(holdings(&ledger, "Assets:Strict"), "2 STK {33.33333333333333333333333333 USD, 2024-01-01}");
+}
+
+/// The weights of a balanced purchase at a compound cost sum to nothing, as in beancount: the
+/// per-unit cost of `{1 # 10 USD}` over 7 units is 17/7 in the 28-digit context, and its product
+/// with the units is taken in that context too. The weight used to be the exact product,
+/// `17.000000000000000000000000003 USD`, so the transaction's weights summed to `3E-27 USD`.
+#[test]
+fn a_balanced_purchase_at_a_compound_cost_weighs_nothing_in_sum() {
+    let ledger = r#"
+1970-01-01 commodity X
+1970-01-01 open Assets:Broker
+
+2024-01-01 * "Broker" "buy at a compound cost"
+  Assets:Broker     7 X {1 # 10 USD}
+  Assets:Bank     -17 USD
+"#;
+    // beancount 3.2.3: Cost(number=Decimal('2.428571428571428571428571429')), weight
+    // 17.00000000000000000000000000 USD, and the weights sum to an empty inventory
+    assert_eq!(
+        query(ledger, "SELECT cost_number, weight, cost(position) WHERE account = 'Assets:Broker'"),
+        vec![row(&[
+            "2.428571428571428571428571429",
+            "17.00000000000000000000000000 USD",
+            "17.00000000000000000000000000 USD"
+        ])]
+    );
+    assert_eq!(query(ledger, "SELECT sum(weight), sum(cost(position))"), vec![row(&["", ""])]);
+}
+
+/// The implicit posting balancing `-1000.00 USD @ 1 CNY` books `1000.00 CNY`, as in beancount: a
+/// price of one keeps the scale of the units it converts. It used to book `1000 CNY`.
+#[test]
+fn an_implicit_posting_keeps_the_scale_of_a_price_of_one() {
+    let ledger = r#"
+1970-01-01 open Assets:Cny
+
+2024-03-01 * "exchange at par"
+  Assets:Bank  -1000.00 USD @ 1 CNY
+  Assets:Cny
+"#;
+    // beancount 3.2.3: Assets:Cny 1000.00 CNY, both weights in CNY with two decimals
+    assert_eq!(
+        query(ledger, "SELECT account, number, currency, weight"),
+        vec![
+            row(&["Assets:Bank", "-1000.00", "USD", "-1000.00 CNY"]),
+            row(&["Assets:Cny", "1000.00", "CNY", "1000.00 CNY"])
+        ]
+    );
+}
