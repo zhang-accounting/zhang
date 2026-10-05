@@ -9,6 +9,7 @@ use serde::Serialize;
 use strum::{AsRefStr, EnumString};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Currency, Rounding, SpanInfo};
+use zhang_shared::prices::PriceMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
 pub enum MetaType {
@@ -49,6 +50,18 @@ pub struct PriceDomain {
     #[serde(serialize_with = "zhang_shared::decimal::plain::serialize")]
     pub amount: BigDecimal,
     pub target_commodity: Currency,
+}
+
+impl PriceDomain {
+    /// The price map of `prices`, the store's `price` directives in ledger order: what the budget check and the query
+    /// engine's valuation convert with.
+    pub fn price_map<'a>(prices: impl IntoIterator<Item = &'a PriceDomain>) -> PriceMap {
+        PriceMap::from_points(
+            prices
+                .into_iter()
+                .map(|it| (it.datetime.date(), &it.commodity, &it.target_commodity, it.amount.clone())),
+        )
+    }
 }
 
 /// a named query saved in the ledger by a `query` directive.
