@@ -633,6 +633,38 @@ option "timezone" "Pacific/Apia"
     assert_eq!(run(&ledger, "SELECT id, seq FROM #entries WHERE type = 'transaction'"), stored);
 }
 
+/// A transaction has the same columns in `#entries`, `#transactions` and the postings: what zhang stored, with the date
+/// and time it books the transaction at. On a day its timezone skipped (Pacific/Apia went from 2011-12-29 to
+/// 2011-12-31), that is the first instant after the gap, 2011-12-31 00:00:00, in every table. `#entries` and
+/// `#transactions` read the date written.
+#[test]
+fn a_transaction_has_the_columns_zhang_stored_in_every_table() {
+    let ledger = common::load_text(
+        r#"
+option "timezone" "Pacific/Apia"
+1970-01-01 commodity USD
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+2011-12-30 ! "Shop" "skipped day" #food ^receipt-1
+  Expenses:Food 10 USD
+  Assets:Bank
+"#,
+    );
+    let columns = "id, date, flag, payee, narration, tags, links, time, timestamp";
+    let postings = run(&ledger, &format!("SELECT DISTINCT {} FROM #postings", columns));
+    assert_eq!(
+        postings.iter().map(|row| row[1..].to_vec()).collect::<Vec<_>>(),
+        rows(&[&["2011-12-31", "!", "Shop", "skipped day", "food", "receipt-1", "00:00:00", "1325239200"]])
+    );
+    assert_eq!(run(&ledger, &format!("SELECT {} FROM #transactions", columns)), postings);
+    assert_eq!(run(&ledger, &format!("SELECT {} FROM #entries WHERE type = 'transaction'", columns)), postings);
+    let parts = "date, year, month, day, description";
+    assert_eq!(
+        run(&ledger, &format!("SELECT {} FROM #entries WHERE type = 'transaction'", parts)),
+        run(&ledger, &format!("SELECT DISTINCT {} FROM #postings", parts))
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // #documents: directives, then transaction and posting metadata
 

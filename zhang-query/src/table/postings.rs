@@ -378,12 +378,55 @@ fn weight(row: &Row<'_>) -> Amount {
     }
 }
 
+// The columns of a stored transaction, read the same way by `postings`, `#entries` and `#transactions`: from what
+// zhang stored, at the date and time it books the transaction at.
+
+/// The `date` of a stored transaction: its date in the ledger's timezone, as zhang books it.
+pub(super) fn txn_date(txn: &TransactionDomain) -> NaiveDate {
+    txn.datetime.date_naive()
+}
+
+/// The `flag` of a stored transaction: `*` when it was written without one.
+pub(super) fn txn_flag(txn: &TransactionDomain) -> Value {
+    Value::Str(txn.flag.to_string())
+}
+
+/// The `payee` of a stored transaction.
+pub(super) fn txn_payee(txn: &TransactionDomain) -> Option<&str> {
+    txn.payee.as_deref()
+}
+
+/// The `narration` of a stored transaction: '' when absent, as in beancount.
+pub(super) fn txn_narration(txn: &TransactionDomain) -> &str {
+    txn.narration.as_deref().unwrap_or_default()
+}
+
+/// The `description` of a stored transaction: its payee and narration joined with ' | ', whichever are present.
+pub(super) fn txn_description(txn: &TransactionDomain) -> Value {
+    let parts = [txn.payee.as_deref(), txn.narration.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|it| !it.is_empty())
+        .collect::<Vec<_>>();
+    Value::Str(parts.join(" | "))
+}
+
+/// The `time` of a stored transaction: its time of day in the ledger's timezone, as zhang books it.
+pub(super) fn txn_time(txn: &TransactionDomain) -> Value {
+    time_value(txn.datetime.time())
+}
+
+/// The `timestamp` of a stored transaction: the Unix time zhang books it at.
+pub(super) fn txn_timestamp(txn: &TransactionDomain) -> Value {
+    Value::Int(txn.datetime.timestamp())
+}
+
 fn payee<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
-    data.entry(row).txn.payee.as_deref()
+    txn_payee(&data.entry(row).txn)
 }
 
 fn narration<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
-    Some(data.entry(row).txn.narration.as_deref().unwrap_or_default())
+    Some(txn_narration(&data.entry(row).txn))
 }
 
 fn account<'r>(_: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
@@ -455,7 +498,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "flag",
         ty: DataType::Str,
         description: "Flag of the transaction: '*', '!', or 'P' for padding.",
-        get: Get::Posting(|data, row| Value::Str(data.entry(row).txn.flag.to_string())),
+        get: Get::Posting(|data, row| txn_flag(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -479,15 +522,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "description",
         ty: DataType::Str,
         description: "Payee and narration joined with ' | ' (whichever are present).",
-        get: Get::Posting(|data, row| {
-            let txn = &data.entry(row).txn;
-            let parts = [txn.payee.as_deref(), txn.narration.as_deref()]
-                .into_iter()
-                .flatten()
-                .filter(|it| !it.is_empty())
-                .collect::<Vec<_>>();
-            Value::Str(parts.join(" | "))
-        }),
+        get: Get::Posting(|data, row| txn_description(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -653,7 +688,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         ty: DataType::Str,
         description: "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. \
                       A zhang extension.",
-        get: Get::Posting(|data, row| time_value(data.entry(row).txn.datetime.time())),
+        get: Get::Posting(|data, row| txn_time(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },
@@ -661,7 +696,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         name: "timestamp",
         ty: DataType::Int,
         description: "Unix time, in seconds, of the transaction's date and time. A zhang extension.",
-        get: Get::Posting(|data, row| Value::Int(data.entry(row).txn.datetime.timestamp())),
+        get: Get::Posting(|data, row| txn_timestamp(&data.entry(row).txn)),
         reads: Reads::POSTING,
         borrow: Borrow::No,
     },

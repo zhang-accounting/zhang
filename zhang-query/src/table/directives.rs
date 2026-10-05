@@ -84,13 +84,6 @@ pub(super) fn meta_value(record: &Record<'_>) -> Value {
     render_meta(directive(record).and_then(|it| directive_meta(&it.data)))
 }
 
-/// The `year`, `month` or `day` of the row's date.
-pub(super) fn date_part(record: &Record<'_>, part: fn(NaiveDate) -> u32) -> Value {
-    directive(record)
-        .and_then(|it| date_of(&it.data))
-        .map_or(Value::Null, |date| Value::Int(part(date) as i64))
-}
-
 pub(super) fn year(date: NaiveDate) -> u32 {
     date.year() as u32
 }

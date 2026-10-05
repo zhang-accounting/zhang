@@ -9,14 +9,14 @@
 //! also gives zhang's own columns: `seq` (the position in `#entries`), and on `#transactions`
 //! the stored `id` and the errors recorded for the transaction (`balanced`, `errors`).
 
-use chrono::Datelike;
-use zhang_ast::{Directive, Flag, Spanned, Transaction};
+use chrono::{Datelike, NaiveDate};
+use zhang_ast::{Directive, Spanned};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
+use zhang_core::store::{Store, TransactionDomain};
 
 use super::cache::{EntryInfo, LedgerCache};
-use super::directives::{date_part, date_value, directive, directive_time, directive_timestamp, meta_value, set_value, str_value, year};
-use super::postings::{balanced, error_kinds};
+use super::directives::{date_value, directive, directive_time, directive_timestamp, meta_value, set_value, str_value, year};
+use super::postings::{balanced, error_kinds, txn_date, txn_description, txn_flag, txn_narration, txn_payee, txn_time, txn_timestamp};
 use super::{directive_meta, meta_pairs, ColumnDef, Dataset, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -58,19 +58,24 @@ pub(super) static TRANSACTIONS: Table = Table {
 /// rejected (see [`super::cache::Entries`]).
 fn entry_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
     let table = LedgerCache::of(ledger, store).entries(ledger, store);
-    table.rows.iter().map(|info| entry_record(ledger, info)).collect()
+    table.rows.iter().map(|info| entry_record(ledger, store, info)).collect()
 }
 
 /// The transaction entries, in the order of the ledger's directives.
 fn transaction_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
     let table = LedgerCache::of(ledger, store).entries(ledger, store);
-    table.transactions.iter().map(|idx| entry_record(ledger, &table.rows[*idx as usize])).collect()
+    table
+        .transactions
+        .iter()
+        .map(|idx| entry_record(ledger, store, &table.rows[*idx as usize]))
+        .collect()
 }
 
-fn entry_record<'a>(ledger: &'a Ledger, info: &'a EntryInfo) -> Record<'a> {
+fn entry_record<'a>(ledger: &'a Ledger, store: &'a Store, info: &'a EntryInfo) -> Record<'a> {
     Record::Entry {
         directive: &ledger.directives[info.directive as usize],
         info,
+        txn: info.txn.and_then(|id| store.transactions.get(&id)),
     }
 }
 
@@ -86,20 +91,44 @@ fn seq(record: &Record<'_>) -> Value {
 }
 
 /// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and
-/// time of a transaction.
+/// time of a transaction; for a transaction, the time it is stored at.
 pub(super) fn time(data: &Dataset<'_>, record: &Record<'_>) -> Value {
-    directive(record).map_or(Value::Null, |it| directive_time(data, it))
+    match stored(record) {
+        Some(txn) => txn_time(txn),
+        None => directive(record).map_or(Value::Null, |it| directive_time(data, it)),
+    }
 }
 
 /// The Unix time of the row's directive, read like [`time`].
 pub(super) fn timestamp(data: &Dataset<'_>, record: &Record<'_>) -> Value {
-    directive(record).map_or(Value::Null, |it| directive_timestamp(data, it))
+    match stored(record) {
+        Some(txn) => txn_timestamp(txn),
+        None => directive(record).map_or(Value::Null, |it| directive_timestamp(data, it)),
+    }
 }
 
-fn transaction<'r>(record: &'r Record<'_>) -> Option<&'r Transaction> {
-    match &directive(record)?.data {
-        Directive::Transaction(txn) => Some(txn),
+/// What zhang stored of the transaction of an `#entries` or `#transactions` row, which its
+/// columns read, as the postings' do.
+fn stored<'r>(record: &'r Record<'_>) -> Option<&'r TransactionDomain> {
+    match record {
+        Record::Entry { txn, .. } => *txn,
         _ => None,
+    }
+}
+
+/// The date of the row: a transaction's as zhang stores it, another directive's as written.
+fn date(record: &Record<'_>) -> Value {
+    match stored(record) {
+        Some(txn) => Value::Date(txn_date(txn)),
+        None => date_value(record),
+    }
+}
+
+/// The `year`, `month` or `day` of the row's [`date`].
+fn date_part(record: &Record<'_>, part: fn(NaiveDate) -> u32) -> Value {
+    match date(record) {
+        Value::Date(date) => Value::Int(part(date) as i64),
+        _ => Value::Null,
     }
 }
 
@@ -146,41 +175,27 @@ fn entry_accounts(directive: &Directive) -> Value {
     Value::Set(accounts.into_iter().map(str::to_owned).collect())
 }
 
-fn flag(txn: &Transaction) -> Value {
-    Value::Str(txn.flag.clone().unwrap_or(Flag::Okay).to_string())
+fn payee(txn: &TransactionDomain) -> Value {
+    str_value(txn_payee(txn))
 }
 
-fn payee(txn: &Transaction) -> Value {
-    str_value(txn.payee.as_ref().map(|it| it.as_str()))
+fn narration(txn: &TransactionDomain) -> Value {
+    Value::Str(txn_narration(txn).to_owned())
 }
 
-/// '' when absent, as in beancount
-fn narration(txn: &Transaction) -> Value {
-    Value::Str(txn.narration.as_ref().map(|it| it.as_str()).unwrap_or_default().to_owned())
-}
-
-fn description(txn: &Transaction) -> Value {
-    let parts = [txn.payee.as_ref(), txn.narration.as_ref()]
-        .into_iter()
-        .flatten()
-        .map(|it| it.as_str())
-        .filter(|it| !it.is_empty())
-        .collect::<Vec<_>>();
-    Value::Str(parts.join(" | "))
-}
-
-/// The tags or links of a transaction, note or document; NULL for other directives.
-fn tags_or_links(directive: &Directive, links: bool) -> Value {
+/// The tags or links of a transaction, note or document; NULL for other directives. A
+/// transaction's are those zhang stored.
+fn tags_or_links(record: &Record<'_>, directive: &Directive, links: bool) -> Value {
     match directive {
-        Directive::Transaction(txn) => set_value(if links { &txn.links } else { &txn.tags }),
+        Directive::Transaction(_) => stored(record).map_or(Value::Null, |txn| set_value(if links { &txn.links } else { &txn.tags })),
         Directive::Note(note) => set_value((if links { &note.links } else { &note.tags }).iter().flatten()),
         Directive::Document(document) => set_value((if links { &document.links } else { &document.tags }).iter().flatten()),
         _ => Value::Null,
     }
 }
 
-fn of_transaction(record: &Record<'_>, get: fn(&Transaction) -> Value) -> Value {
-    transaction(record).map_or(Value::Null, get)
+fn of_transaction(record: &Record<'_>, get: fn(&TransactionDomain) -> Value) -> Value {
+    stored(record).map_or(Value::Null, get)
 }
 
 fn of_directive(record: &Record<'_>, get: impl Fn(&Spanned<Directive>) -> Value) -> Value {
@@ -205,7 +220,9 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
     ColumnDef::record("filename", DataType::Str, "The ledger file that holds the directive.", |_, record| {
         of_directive(record, |it| str_value(it.span.filename.as_ref().map(|path| path.to_string_lossy()).as_deref()))
     }),
-    ColumnDef::record("date", DataType::Date, "Date of the directive.", |_, record| date_value(record)),
+    ColumnDef::record("date", DataType::Date, "Date of the directive; of a transaction, as zhang stores it.", |_, record| {
+        date(record)
+    }),
     ColumnDef::record("year", DataType::Int, "Year of the date.", |_, record| date_part(record, year)),
     ColumnDef::record("month", DataType::Int, "Month (1-12) of the date.", |_, record| {
         date_part(record, |date| date.month())
@@ -214,7 +231,7 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
         date_part(record, |date| date.day())
     }),
     ColumnDef::record("flag", DataType::Str, "Flag of a transaction; NULL for other directives.", |_, record| {
-        of_transaction(record, flag)
+        of_transaction(record, txn_flag)
     }),
     ColumnDef::record("payee", DataType::Str, "Payee of a transaction; NULL for other directives.", |_, record| {
         of_transaction(record, payee)
@@ -229,19 +246,19 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
         "description",
         DataType::Str,
         "Payee and narration of a transaction joined with ' | '; NULL for other directives.",
-        |_, record| of_transaction(record, description),
+        |_, record| of_transaction(record, txn_description),
     ),
     ColumnDef::record(
         "tags",
         DataType::Set,
         "Tags of a transaction, note or document; NULL for other directives.",
-        |_, record| of_directive(record, |it| tags_or_links(&it.data, false)),
+        |_, record| of_directive(record, |it| tags_or_links(record, &it.data, false)),
     ),
     ColumnDef::record(
         "links",
         DataType::Set,
         "Links of a transaction, note or document; NULL for other directives.",
-        |_, record| of_directive(record, |it| tags_or_links(&it.data, true)),
+        |_, record| of_directive(record, |it| tags_or_links(record, &it.data, true)),
     ),
     ColumnDef::record("meta", DataType::Str, "Metadata of the directive, as `key: \"value\"` pairs.", |_, record| {
         meta_value(record)
@@ -283,9 +300,11 @@ static ENTRY_COLUMNS: &[ColumnDef] = &[
 ];
 
 static TRANSACTION_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record("date", DataType::Date, "Date of the transaction.", |_, record| date_value(record)),
+    ColumnDef::record("date", DataType::Date, "Date of the transaction, as zhang stores it.", |_, record| {
+        date(record)
+    }),
     ColumnDef::record("flag", DataType::Str, "Flag of the transaction: '*', '!', or 'P' for padding.", |_, record| {
-        of_transaction(record, flag)
+        of_transaction(record, txn_flag)
     }),
     ColumnDef::record("payee", DataType::Str, "Payee of the transaction.", |_, record| of_transaction(record, payee)),
     ColumnDef::record("narration", DataType::Str, "Narration of the transaction; '' when absent.", |_, record| {
