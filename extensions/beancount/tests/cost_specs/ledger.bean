@@ -1,0 +1,58 @@
+; The cost spec forms of #497, checked against beancount 3.2.3 by generate.py: a cost with only
+; a date or only a label, the components in any order, the compound cost `{P # T USD}`, and the
+; merge-cost marker `{*}`, which beancount reports as unsupported and books as `{}`.
+
+option "operating_currency" "USD"
+
+2024-01-01 commodity USD
+2024-01-01 commodity HOOL
+2024-01-01 open Assets:Broker
+2024-01-01 open Assets:Single
+2024-01-01 open Assets:Cash
+2024-01-01 open Income:Gains
+
+2024-01-10 * "Buy a"
+  Assets:Broker 10 HOOL {100 USD, "a"}
+  Assets:Cash -1000 USD
+
+2024-01-20 * "Buy b"
+  Assets:Broker 10 HOOL {110 USD, "b"}
+  Assets:Cash -1100 USD
+
+2024-02-01 * "Sell by date only"
+  Assets:Broker -1 HOOL {2024-01-10}
+  Assets:Cash 120 USD
+  Income:Gains
+
+2024-02-02 * "Sell by label only"
+  Assets:Broker -1 HOOL {"b"}
+  Assets:Cash 120 USD
+  Income:Gains
+
+2024-02-03 * "Sell by label only, with the leading comma zhang took before"
+  Assets:Broker -1 HOOL {, "b"}
+  Assets:Cash 120 USD
+  Income:Gains
+
+2024-02-04 * "Buy with a compound cost"
+  Assets:Broker 10 HOOL {100 # 5 USD}
+  Assets:Cash -1005 USD
+
+2024-02-05 * "Sell the compound lot by its per-unit cost"
+  Assets:Broker -4 HOOL {100.5 USD}
+  Assets:Cash 440 USD
+  Income:Gains
+
+2024-02-06 * "Components in any order"
+  Assets:Broker -1 HOOL {"a", 2024-01-10, 100 USD}
+  Assets:Cash 120 USD
+  Income:Gains
+
+2024-02-07 * "Buy a single lot with a compound cost"
+  Assets:Single 3 HOOL {100 # 1.5 USD}
+  Assets:Cash -301.5 USD
+
+2024-02-08 * "Sell with the merge-cost marker"
+  Assets:Single -1 HOOL {*}
+  Assets:Cash 120 USD
+  Income:Gains

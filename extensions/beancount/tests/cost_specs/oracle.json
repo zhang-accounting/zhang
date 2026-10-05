@@ -1,0 +1,392 @@
+{
+  "errors": [
+    {
+      "lineno": 56,
+      "message": "Cost merging is not supported yet"
+    }
+  ],
+  "positions": {
+    "Assets:Broker": [
+      {
+        "cost": {
+          "currency": "USD",
+          "date": "2024-01-10",
+          "label": "a",
+          "number": "100"
+        },
+        "units": {
+          "currency": "HOOL",
+          "number": "8"
+        }
+      },
+      {
+        "cost": {
+          "currency": "USD",
+          "date": "2024-01-20",
+          "label": "b",
+          "number": "110"
+        },
+        "units": {
+          "currency": "HOOL",
+          "number": "8"
+        }
+      },
+      {
+        "cost": {
+          "currency": "USD",
+          "date": "2024-02-04",
+          "label": null,
+          "number": "100.5"
+        },
+        "units": {
+          "currency": "HOOL",
+          "number": "6"
+        }
+      }
+    ],
+    "Assets:Single": [
+      {
+        "cost": {
+          "currency": "USD",
+          "date": "2024-02-07",
+          "label": null,
+          "number": "100.5"
+        },
+        "units": {
+          "currency": "HOOL",
+          "number": "2"
+        }
+      }
+    ]
+  },
+  "transactions": [
+    {
+      "date": "2024-01-10",
+      "lineno": 14,
+      "narration": "Buy a",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-01-10",
+            "label": "a",
+            "number": "100"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "10"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-1000"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-01-20",
+      "lineno": 18,
+      "narration": "Buy b",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-01-20",
+            "label": "b",
+            "number": "110"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "10"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-1100"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-01",
+      "lineno": 22,
+      "narration": "Sell by date only",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-01-10",
+            "label": "a",
+            "number": "100"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "-1"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "120"
+          }
+        },
+        {
+          "account": "Income:Gains",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-20"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-02",
+      "lineno": 27,
+      "narration": "Sell by label only",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-01-20",
+            "label": "b",
+            "number": "110"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "-1"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "120"
+          }
+        },
+        {
+          "account": "Income:Gains",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-10"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-03",
+      "lineno": 32,
+      "narration": "Sell by label only, with the leading comma zhang took before",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-01-20",
+            "label": "b",
+            "number": "110"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "-1"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "120"
+          }
+        },
+        {
+          "account": "Income:Gains",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-10"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-04",
+      "lineno": 37,
+      "narration": "Buy with a compound cost",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-02-04",
+            "label": null,
+            "number": "100.5"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "10"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-1005"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-05",
+      "lineno": 41,
+      "narration": "Sell the compound lot by its per-unit cost",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-02-04",
+            "label": null,
+            "number": "100.5"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "-4"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "440"
+          }
+        },
+        {
+          "account": "Income:Gains",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-38.0"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-06",
+      "lineno": 46,
+      "narration": "Components in any order",
+      "postings": [
+        {
+          "account": "Assets:Broker",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-01-10",
+            "label": "a",
+            "number": "100"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "-1"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "120"
+          }
+        },
+        {
+          "account": "Income:Gains",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-20"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-07",
+      "lineno": 51,
+      "narration": "Buy a single lot with a compound cost",
+      "postings": [
+        {
+          "account": "Assets:Single",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-02-07",
+            "label": null,
+            "number": "100.5"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "3"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-301.5"
+          }
+        }
+      ]
+    },
+    {
+      "date": "2024-02-08",
+      "lineno": 55,
+      "narration": "Sell with the merge-cost marker",
+      "postings": [
+        {
+          "account": "Assets:Single",
+          "cost": {
+            "currency": "USD",
+            "date": "2024-02-07",
+            "label": null,
+            "number": "100.5"
+          },
+          "units": {
+            "currency": "HOOL",
+            "number": "-1"
+          }
+        },
+        {
+          "account": "Assets:Cash",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "120"
+          }
+        },
+        {
+          "account": "Income:Gains",
+          "cost": null,
+          "units": {
+            "currency": "USD",
+            "number": "-19.5"
+          }
+        }
+      ]
+    }
+  ]
+}

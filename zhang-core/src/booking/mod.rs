@@ -242,8 +242,24 @@ impl Booker {
     /// book a transaction: interpolate its implicit posting from the weights of the other postings,
     /// then book every posting against the lots of its account, in written order, and rewrite the
     /// postings into their booked form (see the module docs). An unbookable transaction is left as
-    /// it is
+    /// it is. A posting whose cost spec carries the merge-cost marker (`{*}`) is reported
+    /// ([`ErrorKind::CostMergingNotSupported`]), once per posting as written, and books as if the
+    /// marker were not there, as in beancount
     pub(crate) fn book(&mut self, txn: &mut Transaction) -> BookOutcome {
+        let merge_errors = merge_cost_errors(&txn.postings);
+        let mut outcome = self.book_lots(txn);
+        if !merge_errors.is_empty() {
+            let errors = match &mut outcome {
+                BookOutcome::Booked(booked) => &mut booked.errors,
+                BookOutcome::Unbookable { errors, .. } => errors,
+            };
+            errors.splice(0..0, merge_errors);
+        }
+        outcome
+    }
+
+    /// [`Booker::book`] without the merge-cost report
+    fn book_lots(&mut self, txn: &mut Transaction) -> BookOutcome {
         let prepared = match self.infer_missing_cost(txn) {
             Ok(prepared) => prepared,
             Err((kind, errors)) => return BookOutcome::Unbookable { kind, errors },
@@ -793,6 +809,26 @@ fn reduces(lot: &CommodityLotRecord, units: &BigDecimal) -> bool {
     (lot.amount.is_positive() && units.is_negative()) || (lot.amount.is_negative() && units.is_positive())
 }
 
+/// one [`ErrorKind::CostMergingNotSupported`] per posting written with the merge-cost marker
+/// (`{*}`), as beancount reports it: the legs of a booked posting carry the lot they book against,
+/// so the marker is read from the written form they share
+fn merge_cost_errors(postings: &[Posting]) -> Vec<BookingError> {
+    written_groups(postings)
+        .iter()
+        .filter(|group| {
+            let cost = match group.written {
+                Some(written) => written.cost.as_ref(),
+                None => group.legs[0].cost.as_ref(),
+            };
+            cost.is_some_and(|cost| cost.merge)
+        })
+        .map(|_| BookingError {
+            kind: ErrorKind::CostMergingNotSupported,
+            metas: HashMap::new(),
+        })
+        .collect()
+}
+
 /// whether the posting's weight is decided by the lots it books against: an explicit posting with
 /// a cost but no cost number (`{}`, `{{}}`, `{date}`). Any other posting weighs as written
 pub(crate) fn weighs_by_lots(posting: &Posting) -> bool {
@@ -817,7 +853,7 @@ fn leg(lot: &CommodityLotRecord, units: BigDecimal, written: &PostingCost, commo
             base: Some(cost.clone()),
             date: lot.acquisition_date.map(Date::Date),
             label: lot.label.clone(),
-            total: false,
+            ..PostingCost::default()
         },
         None => written.clone(),
     };
@@ -902,13 +938,18 @@ fn written_scales<'a>(postings: &[TxnPosting<'a>]) -> HashMap<&'a str, i64> {
             Some(written) => (written.units.as_ref(), written.cost.as_ref()),
             None => (posting.units.as_ref(), posting.cost.as_ref()),
         };
-        let cost = cost.and_then(|cost| cost.base.as_ref());
+        let base = cost.and_then(|cost| cost.base.as_ref());
         let price = posting.price.as_ref().map(|price| match price {
             SingleTotalPrice::Single(amount) | SingleTotalPrice::Total(amount) => amount,
         });
-        for amount in units.into_iter().chain(cost).chain(price) {
+        for amount in units.into_iter().chain(base).chain(price) {
             let scale = scales.entry(amount.commodity.as_str()).or_insert(0);
             *scale = (*scale).max(amount.number.fractional_digit_count());
+        }
+        // the total part of a compound cost (`{100 # 5.25 USD}`) is written in the cost's commodity
+        if let (Some(base), Some(total)) = (base, cost.and_then(|cost| cost.compound_total.as_ref())) {
+            let scale = scales.entry(base.commodity.as_str()).or_insert(0);
+            *scale = (*scale).max(total.fractional_digit_count());
         }
     }
     scales

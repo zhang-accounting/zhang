@@ -105,7 +105,15 @@ impl TxnPosting<'_> {
             .units
             .as_ref()
             .map(|unit| match (self.posting.cost.as_ref(), self.posting.price.as_ref()) {
-                (Some(PostingCost { base: Some(cost), total, .. }), _) => {
+                (
+                    Some(PostingCost {
+                        base: Some(cost),
+                        total,
+                        compound_total,
+                        ..
+                    }),
+                    _,
+                ) => {
                     if *total {
                         // total cost contributes the signed total, like a total price
                         if unit.number.is_zero() {
@@ -116,7 +124,13 @@ impl TxnPosting<'_> {
                             cost.clone()
                         }
                     } else {
-                        Amount::new((&unit.number).mul(&cost.number), cost.commodity.clone())
+                        // `units × P`, plus the total part of a compound cost signed by the units
+                        // (`units × (P + T / |units|)`, the lot cost beancount gives it)
+                        let mut weight = (&unit.number).mul(&cost.number);
+                        if let Some(total) = compound_total {
+                            weight += total.mul(&unit.number.signum());
+                        }
+                        Amount::new(weight, cost.commodity.clone())
                     }
                 }
                 (None, Some(price)) => match price {
@@ -163,13 +177,22 @@ impl TxnPosting<'_> {
     }
 }
 
-/// `cost` as lots keep it: a total cost (`{{T}}`) becomes the per-unit cost of `units`
+/// `cost` as lots keep it: a total cost (`{{T}}`) becomes the per-unit cost of `units`, and a
+/// compound cost (`{P # T}`) the per-unit cost `P + T / |units|`, as beancount computes it. The
+/// merge-cost marker (`{*}`) plays no part in what a lot is: booking reports it apart
 pub(crate) fn normalise_cost(mut cost: PostingCost, units: &BigDecimal) -> PostingCost {
     if cost.total {
         // normalise total cost to per-unit for lot bookkeeping
         cost.base = cost.base.map(|base| per_unit_cost(base, units));
         cost.total = false;
     }
+    if let Some(total) = cost.compound_total.take() {
+        // zero units book nothing: the per-unit part stands, as the total part has no per-unit share
+        if !units.is_zero() {
+            cost.base = cost.base.map(|base| Amount::new(base.number + total.div(units.abs()), base.commodity));
+        }
+    }
+    cost.merge = false;
     cost
 }
 

@@ -261,14 +261,31 @@ pub fn written_postings(postings: Vec<Posting>) -> Vec<Posting> {
         .collect()
 }
 
+/// The cost spec of a posting, `{ ... }` or `{{ ... }}`: its components come in any order, separated
+/// by commas, as in beancount. Each one is a criterion for the lot the posting books against, and
+/// the missing ones are wildcards: `{150 USD}`, `{2024-01-15}`, `{"lot"}`, `{150 USD, 2024-01-15, "lot"}`
+/// and `{}` are all cost specs.
 #[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub struct PostingCost {
+    /// the cost number with its commodity: per unit (`{150 USD}`), or in total when [`total`](Self::total)
     pub base: Option<Amount>,
     pub date: Option<Date>,
     /// lot label from a `{ ..., "label" }` cost spec
     pub label: Option<String>,
     /// true when written as `{{ }}` (total cost) rather than `{ }` (per-unit)
     pub total: bool,
+    /// the total part `T` of a compound cost `{P # T USD}`, in the commodity of [`base`](Self::base),
+    /// which is the per-unit part `P`: the lot costs `P + T / |units|` per unit, as in beancount, so
+    /// `10 HOOL {100 # 5 USD}` books a lot at `100.5 USD`. `None` for every other spec. A missing field
+    /// reads as `None`, and `None` is not serialized: a posting without one serializes as before
+    /// the field existed
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compound_total: Option<BigDecimal>,
+    /// true when the spec carries beancount's merge-cost marker `*`, as in `{*}`. Cost merging is
+    /// not supported: booking reports it and books the spec as if the marker were not there, as
+    /// beancount does. A missing field reads as `false`, and `false` is not serialized
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub merge: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]

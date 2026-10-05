@@ -143,10 +143,19 @@ unbalanced, the transaction is reported and **not booked**: it changes no balanc
 | `Assets:Broker 3 AAPL {{1000 USD}}` | `1000 USD`: the total cost |
 | `Assets:Broker -5 AAPL {}` | the cost of the lots the reduction takes |
 
-A cost can also give the acquisition date and a label of a lot, as in `{185 USD, 2024-01-02, "lot-a"}`. A posting with
-a cost and a price, such as `-5 AAPL {185 USD} @ 200 USD`, weighs its cost; the price only records what it was sold
-for. How lots are created, matched and reduced is explained in [Lots and cost basis](/guides/lots-and-cost-basis/)
-and [Booking method](/reference/directives/account/#booking-method).
+A cost spec lists its parts in any order, separated by commas, and each part can stand alone: the cost number, the
+acquisition date and the label of a lot, as in `{185 USD, 2024-01-02, "lot-a"}`, `{2024-01-02}` or `{"lot-a"}`. On a
+reduction, the parts given are what the lot must match, and a missing part matches any lot. Two more forms come from
+Beancount:
+
+| Posting | Meaning |
+|---|---|
+| `Assets:Broker 10 AAPL {185 # 5 USD}` | A compound cost: 185 USD per unit plus 5 USD in total, such as a commission. The lot costs 185 + 5 / 10 = 185.5 USD per unit, and the posting weighs `1855 USD`. |
+| `Assets:Broker -5 AAPL {*}` | Beancount's merge-cost marker. Cost merging is not supported: the posting is reported with [`CostMergingNotSupported`](/reference/error-codes/#costmergingnotsupported) and books as if written `{}`. |
+
+A posting with a cost and a price, such as `-5 AAPL {185 USD} @ 200 USD`, weighs its cost; the price only records what
+it was sold for. How lots are created, matched and reduced is explained in
+[Lots and cost basis](/guides/lots-and-cost-basis/) and [Booking method](/reference/directives/account/#booking-method).
 
 ### How a transaction balances
 
@@ -253,6 +262,7 @@ without it, so that it stays a posting rather than a comment. A `*` flag is writ
 | [`CommodityDoesNotDefine`](/reference/error-codes/#commoditydoesnotdefine) | The transaction balances in a commodity that is not defined. | yes |
 | [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist), [`AccountClosed`](/reference/error-codes/#accountclosed) | A posting's account is not open at the transaction's date. | yes |
 | [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot), [`AmbiguousLotMatch`](/reference/error-codes/#ambiguouslotmatch) | A reduction at cost does not find its lots. | yes |
+| [`CostMergingNotSupported`](/reference/error-codes/#costmergingnotsupported) | A cost carries Beancount's merge-cost marker `*`. | yes |
 | [`BudgetDoesNotExist`](/reference/error-codes/#budgetdoesnotexist) | A posting's account is linked to a budget that is not defined. | yes |
 | [`TransactionCannotInferTradeAmount`](/reference/error-codes/#transactioncannotinfertradeamount) | The elided amount has nothing to be inferred from. | no |
 | [`TransactionHasMultipleImplicitPosting`](/reference/error-codes/#transactionhasmultipleimplicitposting) | More than one posting leaves out its amount. | no |
@@ -274,6 +284,9 @@ without it, so that it stays a posting rather than a comment. A `*` flag is writ
   it reads the file.
 - Posting metadata follows Beancount's rule in Beancount files, as described in
   [Which lines belong to a posting](#which-lines-belong-to-a-posting).
+- Cost specs read as in Beancount, in both formats: a date or a label alone, the parts in any order, the compound cost
+  `{185 # 5 USD}` and the merge-cost marker `{*}`, which Zhang reports as unsupported like Beancount does. A compound
+  cost with a missing part, such as `{# 5 USD}` or `{185 # USD}`, or in total braces, `{{185 # 5 USD}}`, is not read.
 
 ## Related
 
