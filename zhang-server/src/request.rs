@@ -168,6 +168,30 @@ pub struct CreateTransactionPostingRequest {
     pub unit: Option<Amount>,
     /// metadata of the posting, checked like the transaction's `metas`
     pub metas: Option<Vec<MetaRequest>>,
+    /// the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
+    /// whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+    /// the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+    #[serde(default, deserialize_with = "given")]
+    pub cost: Option<Option<String>>,
+    /// the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
+    /// a field left out keeps the price of the posting it edits, `null` removes it
+    #[serde(default, deserialize_with = "given")]
+    pub price: Option<Option<String>>,
+    /// the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
+    /// comment of the posting it edits, `null` removes it
+    #[serde(default, deserialize_with = "given")]
+    pub comment: Option<Option<String>>,
+}
+
+/// A field that may be left out of a request, be `null`, or carry a value, told apart: `None` when left out (with
+/// `#[serde(default)]`), `Some(None)` for `null`, `Some(Some(value))` otherwise. An update takes a field left out as
+/// "as it was", so a client that does not know the field never drops what it stands for.
+fn given<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Schematic, Deserialize)]
@@ -266,4 +290,24 @@ pub struct PasskeyLoginFinishRequest {
     pub state_id: String,
     /// the `PublicKeyCredential` of `navigator.credentials.get`
     pub credential: serde_json::Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CreateTransactionPostingRequest;
+
+    /// The cost, price and comment of a request posting left out, `null` or given are told apart (#473): an update
+    /// keeps what is left out, removes what is `null` and writes what is given.
+    #[test]
+    fn posting_fields_left_out_null_and_given_are_told_apart() {
+        let posting: CreateTransactionPostingRequest = serde_json::from_str(r#"{"account": "Assets:Stock", "unit": null}"#).unwrap();
+        assert_eq!((posting.cost, posting.price, posting.comment), (None, None, None));
+
+        let json = r#"{"account": "Assets:Stock", "unit": null, "cost": null, "price": "@ 6 USD", "comment": null}"#;
+        let posting: CreateTransactionPostingRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            (posting.cost, posting.price, posting.comment),
+            (Some(None), Some(Some("@ 6 USD".to_owned())), Some(None))
+        );
+    }
 }

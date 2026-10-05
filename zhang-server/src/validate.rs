@@ -24,9 +24,11 @@ use std::str::FromStr;
 use std::sync::RwLock;
 
 use zhang_ast::amount::Amount;
-use zhang_ast::Account;
+use zhang_ast::{Account, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::is_beancount_endpoint;
-use zhang_core::data_type::text::parser::{is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag};
+use zhang_core::data_type::text::parser::{
+    is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_posting_cost, read_posting_price,
+};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
@@ -157,6 +159,34 @@ pub fn amount(amount: &Amount, rules: &Rules) -> ServerResult<()> {
         ));
     }
     Ok(())
+}
+
+/// Parse the cost of a posting given as text in the ledger's own syntax, which the ledger parser reads
+/// (`read_posting_cost`): `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}`, with
+/// its commodity checked like a unit's. Spaces around it are ignored. Anything else is a 400.
+pub fn cost(text: &str, rules: &Rules) -> ServerResult<PostingCost> {
+    let cost = read_posting_cost(text.trim()).ok_or_else(|| {
+        invalid(
+            "cost",
+            text,
+            "it is written as in the ledger: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot there is, or `{150 USD, 2024-01-15, \"lot\"}` with the acquisition date and the label of the lot",
+        )
+    })?;
+    if let Some(base) = &cost.base {
+        amount(base, rules)?;
+    }
+    Ok(cost)
+}
+
+/// Parse the price of a posting given as text in the ledger's own syntax (`read_posting_price`):
+/// `@ 6 USD` per unit or `@@ 60 USD` in total, with its commodity checked like a unit's. Spaces
+/// around it are ignored. Anything else is a 400.
+pub fn price(text: &str, rules: &Rules) -> ServerResult<SingleTotalPrice> {
+    let price =
+        read_posting_price(text.trim()).ok_or_else(|| invalid("price", text, "it is written as in the ledger: `@ 6 USD` per unit or `@@ 60 USD` in total"))?;
+    let (SingleTotalPrice::Single(per_unit) | SingleTotalPrice::Total(per_unit)) = &price;
+    amount(per_unit, rules)?;
+    Ok(price)
 }
 
 pub fn tag(name: &str, rules: &Rules) -> ServerResult<()> {

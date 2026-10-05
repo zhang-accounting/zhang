@@ -1576,6 +1576,12 @@ export interface operations {
                 | {
                     /** Format: date-time */
                     datetime: string;
+                    /**
+                     * @description whether an edit through the API, which rewrites the transaction from its directive, drops text of it: a comment
+                     * line between its postings, a comment on its header line or after a metadata line. A client warns before such
+                     * an edit; `false` for a transaction a plugin made, which cannot be edited at all
+                     */
+                    edit_drops_text: boolean;
                     flag: string;
                     /** Format: uuid */
                     id: string;
@@ -1613,6 +1619,18 @@ export interface operations {
                       unit?: {
                         commodity: string;
                         number: string;
+                      } | null;
+                      /**
+                       * @description the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
+                       * the entry of a balance check and for a transaction a plugin made
+                       */
+                      written?: {
+                        /** @description the comment at the end of the line, without the `;` */
+                        comment?: string | null;
+                        /** @description the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}` */
+                        cost?: string | null;
+                        /** @description the price as written, `@ 6 USD` or `@@ 60 USD` */
+                        price?: string | null;
                       } | null;
                     }[];
                     sequence: number;
@@ -1663,6 +1681,18 @@ export interface operations {
                         commodity: string;
                         number: string;
                       } | null;
+                      /**
+                       * @description the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
+                       * the entry of a balance check and for a transaction a plugin made
+                       */
+                      written?: {
+                        /** @description the comment at the end of the line, without the `;` */
+                        comment?: string | null;
+                        /** @description the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}` */
+                        cost?: string | null;
+                        /** @description the price as written, `@ 6 USD` or `@@ 60 USD` */
+                        price?: string | null;
+                      } | null;
                     }[];
                     sequence: number;
                     /** @description the explicit tolerance (`~`) of the assertion; null for an exact one */
@@ -1704,6 +1734,18 @@ export interface operations {
                       unit?: {
                         commodity: string;
                         number: string;
+                      } | null;
+                      /**
+                       * @description the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
+                       * the entry of a balance check and for a transaction a plugin made
+                       */
+                      written?: {
+                        /** @description the comment at the end of the line, without the `;` */
+                        comment?: string | null;
+                        /** @description the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}` */
+                        cost?: string | null;
+                        /** @description the price as written, `@ 6 USD` or `@@ 60 USD` */
+                        price?: string | null;
                       } | null;
                     }[];
                     sequence: number;
@@ -2302,6 +2344,17 @@ export interface operations {
           payee: string;
           postings: {
             account: string;
+            /**
+             * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
+             * comment of the posting it edits, `null` removes it
+             */
+            comment?: string | null;
+            /**
+             * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
+             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             */
+            cost?: string | null;
             /** @description metadata of the posting, checked like the transaction's `metas` */
             metas?:
               | {
@@ -2309,6 +2362,11 @@ export interface operations {
                   value: string;
                 }[]
               | null;
+            /**
+             * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
+             * a field left out keeps the price of the posting it edits, `null` removes it
+             */
+            price?: string | null;
             unit?: {
               commodity: string;
               number: string;
@@ -2350,6 +2408,17 @@ export interface operations {
           payee: string;
           postings: {
             account: string;
+            /**
+             * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
+             * comment of the posting it edits, `null` removes it
+             */
+            comment?: string | null;
+            /**
+             * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
+             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             */
+            cost?: string | null;
             /** @description metadata of the posting, checked like the transaction's `metas` */
             metas?:
               | {
@@ -2357,6 +2426,11 @@ export interface operations {
                   value: string;
                 }[]
               | null;
+            /**
+             * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
+             * a field left out keeps the price of the posting it edits, `null` removes it
+             */
+            price?: string | null;
             unit?: {
               commodity: string;
               number: string;

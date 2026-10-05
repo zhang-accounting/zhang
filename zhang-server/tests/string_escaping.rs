@@ -73,11 +73,17 @@ async fn created_transaction_strings_survive_a_reload() {
                 account: "Expenses:Food".to_owned(),
                 unit: Some(Amount::new(BigDecimal::from(5), "CNY")),
                 metas: None,
+                cost: None,
+                price: None,
+                comment: None,
             },
             CreateTransactionPostingRequest {
                 account: "Assets:Cash".to_owned(),
                 unit: Some(Amount::new(BigDecimal::from(-5), "CNY")),
                 metas: None,
+                cost: None,
+                price: None,
+                comment: None,
             },
         ],
         metas: vec![MetaRequest {

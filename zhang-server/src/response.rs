@@ -170,6 +170,10 @@ pub struct JournalTransactionItemEntity {
     pub is_balanced: bool,
     pub postings: Vec<JournalTransactionPostingEntity>,
     pub metas: Vec<MetaEntity>,
+    /// whether an edit through the API, which rewrites the transaction from its directive, drops text of it: a comment
+    /// line between its postings, a comment on its header line or after a metadata line. A client warns before such
+    /// an edit; `false` for a transaction a plugin made, which cannot be edited at all
+    pub edit_drops_text: bool,
 }
 #[derive(Serialize, Schematic)]
 pub struct JournalTransactionPostingEntity {
@@ -181,6 +185,21 @@ pub struct JournalTransactionPostingEntity {
     pub account_after: Amount,
     /// metadata of the posting, sorted by key
     pub metas: Vec<MetaEntity>,
+    /// the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
+    /// the entry of a balance check and for a transaction a plugin made
+    pub written: Option<WrittenPostingEntity>,
+}
+
+/// What a posting line has besides its account and units, in the ledger's own syntax: the forms the `cost`, `price`
+/// and `comment` of an update request take, so that what is read here can be sent back as it is.
+#[derive(Serialize, Schematic, Clone)]
+pub struct WrittenPostingEntity {
+    /// the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}`
+    pub cost: Option<String>,
+    /// the price as written, `@ 6 USD` or `@@ 60 USD`
+    pub price: Option<String>,
+    /// the comment at the end of the line, without the `;`
+    pub comment: Option<String>,
 }
 
 #[derive(Serialize, Schematic)]

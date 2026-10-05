@@ -48,10 +48,14 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 /// `original` is the transaction an update replaces, as it was read from the ledger.
 fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> ServerResult<Directive> {
     let rules = validate::Rules::of(ledger);
+    // the postings of the original as written (#638): the ledger holds them booked, with the units it
+    // interpolated, a reduction split into one leg per lot and every cost resolved to its lot. An edit
+    // takes from them, and writes back, what was written
+    let written = original.map(|it| it.written_postings());
     let original_postings = payload
         .postings
         .iter()
-        .map(|posting| original.and_then(|original| original_posting(original, &payload.postings, posting)))
+        .map(|posting| written.as_deref().and_then(|written| original_posting(written, &payload.postings, posting)))
         .collect_vec();
     let mut postings = vec![];
     for (posting, original_posting) in payload.postings.into_iter().zip(original_postings) {
@@ -59,6 +63,15 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
         if let Some(unit) = &posting.unit {
             validate::amount(unit, &rules)?;
         }
+        // a cost, price or comment left out of the request is the matched posting's (#473), so a client
+        // that does not know the fields never drops them; `null` removes one, and a value replaces it
+        let cost = given(posting.cost, original_posting.and_then(|it| it.cost.clone()), |text| {
+            validate::cost(text, &rules)
+        })?;
+        let price = given(posting.price, original_posting.and_then(|it| it.price.clone()), |text| {
+            validate::price(text, &rules)
+        })?;
+        let comment = given(posting.comment, original_posting.and_then(|it| it.comment.clone()), |text| Ok(text.to_owned()))?;
         postings.push(Posting {
             // a request carries no posting flag: the posting it edits keeps its own, such as `!`. The
             // exporter leaves out one the ledger's format would not read back, such as a `*` a plugin
@@ -66,9 +79,9 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
             flag: original_posting.and_then(|it| it.flag.clone()),
             account: validate::account(&posting.account, &rules)?,
             units: posting.unit,
-            cost: None,
-            price: None,
-            comment: None,
+            cost,
+            price,
+            comment,
             meta: metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta)?,
             written: None,
         });
@@ -126,15 +139,26 @@ fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original
     Ok(meta)
 }
 
-/// The posting of `original` that the request posting `posting`, one of `requested`, edits:
-/// the only posting to its account, or else the only one to its account with its units,
-/// where `posting` is likewise the only one of `requested` (a split or repeated posting
-/// matches nothing). `None` when there is no such single pair, so that every value of the
-/// request posting counts as new.
+/// The value of a field of an update request that may be left out, `null` or given (see
+/// [`CreateTransactionPostingRequest::cost`]): left out, it is `original`, the value of the posting
+/// the request edits; `null` is none; a text given is what `parse` reads of it, or its error.
+fn given<T>(field: Option<Option<String>>, original: Option<T>, parse: impl FnOnce(&str) -> ServerResult<T>) -> ServerResult<Option<T>> {
+    match field {
+        None => Ok(original),
+        Some(None) => Ok(None),
+        Some(Some(text)) => parse(&text).map(Some),
+    }
+}
+
+/// The posting of `original`, the postings of a transaction as written, that the request posting
+/// `posting`, one of `requested`, edits: the only posting to its account, or else the only one to
+/// its account with its units, where `posting` is likewise the only one of `requested` (a split or
+/// repeated posting matches nothing). `None` when there is no such single pair, so that every value
+/// of the request posting counts as new.
 fn original_posting<'a>(
-    original: &'a Transaction, requested: &[CreateTransactionPostingRequest], posting: &CreateTransactionPostingRequest,
+    original: &'a [Posting], requested: &[CreateTransactionPostingRequest], posting: &CreateTransactionPostingRequest,
 ) -> Option<&'a Posting> {
-    let same_account = original.postings.iter().filter(|it| it.account.name() == posting.account).collect_vec();
+    let same_account = original.iter().filter(|it| it.account.name() == posting.account).collect_vec();
     let requested_same_account = requested.iter().filter(|it| it.account == posting.account).count();
     if let ([candidate], 1) = (same_account.as_slice(), requested_same_account) {
         return Some(candidate);
@@ -156,14 +180,7 @@ fn editable_file(ledger: &Ledger, span: &TransactionInfoDomain) -> ServerResult<
 
 /// The transaction directive the stored transaction at `span` was read from.
 fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) -> Option<&'a Transaction> {
-    ledger.directives.iter().find_map(|directive| match &directive.data {
-        Directive::Transaction(transaction)
-            if directive.span.start == span.span_start && directive.span.filename.as_deref() == Some(span.source_file.as_path()) =>
-        {
-            Some(transaction)
-        }
-        _ => None,
-    })
+    journals::written_transaction(ledger, &span.span)
 }
 
 #[api(group = "transaction")]
@@ -324,6 +341,7 @@ mod string_round_trip_test {
     use axum::Json;
     use bigdecimal::BigDecimal;
     use chrono::{NaiveDate, TimeZone, Utc};
+    use serde_json::json;
     use tokio::sync::{mpsc, RwLock};
     use uuid::Uuid;
     use zhang_ast::amount::Amount;
@@ -360,11 +378,17 @@ mod string_round_trip_test {
                     account: "Assets:Cash".to_owned(),
                     unit: Some(Amount::new(BigDecimal::from_str("-5").unwrap(), "CNY")),
                     metas: None,
+                    cost: None,
+                    price: None,
+                    comment: None,
                 },
                 CreateTransactionPostingRequest {
                     account: "Expenses:Food".to_owned(),
                     unit: Some(Amount::new(BigDecimal::from_str("5").unwrap(), "CNY")),
                     metas: None,
+                    cost: None,
+                    price: None,
+                    comment: None,
                 },
             ],
             metas: vec![MetaRequest {
@@ -1281,6 +1305,9 @@ mod string_round_trip_test {
                 account: account.to_string(),
                 unit: Some(Amount::new(BigDecimal::from(*number), "CNY")),
                 metas: Some(metas.iter().map(|(key, value)| meta(key, value)).collect()),
+                cost: None,
+                price: None,
+                comment: None,
             })
             .collect();
         update
@@ -1748,6 +1775,355 @@ mod string_round_trip_test {
             assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is written");
             assert!(!dir.join("attachments").exists(), "{case}: no attachment is saved");
             assert!(!dir.join("plugin.zhang").exists(), "{case}: no file is created");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // the cost, the price and the comment of a posting (#473)
+
+    /// The opens of a stock ledger, after the usual ones of [`stock_ledger`].
+    const STOCK_OPENS: &str = "1970-01-01 commodity USD\n1970-01-01 commodity STK\n1970-01-01 open Assets:Stock\n1970-01-01 open Income:Gains\n\n";
+
+    /// The transaction of issue #473: a purchase with a cost, a price and an inline comment, and an implicit posting.
+    const PURCHASE: &str = "2024-01-10 * \"Broker\" \"Buy\"\n  Assets:Stock 10 STK {5 USD} @ 6 USD ; inline\n  Assets:Cash\n";
+
+    /// Two lots and a sale booking splits across them (#638), with an implicit posting.
+    const LOTS_AND_SALE: &str = "2024-01-01 * \"Broker\" \"lot 1\"\n  Assets:Stock 10 STK {5 USD}\n  Assets:Cash\n\n2024-01-02 * \"Broker\" \"lot 2\"\n  Assets:Stock 10 STK {6 USD}\n  Assets:Cash\n\n2024-01-03 * \"Broker\" \"sale\"\n  Assets:Stock -15 STK {} @ 7 USD\n  Assets:Cash 105 USD\n  Income:Gains\n";
+
+    /// A field of a request posting as sent: left out (`None`), `null` (`Some(None)`) or a text.
+    type Field = Option<Option<&'static str>>;
+
+    /// `number commodity` as an amount.
+    fn amount(text: &str) -> Amount {
+        let (number, commodity) = text.split_once(' ').unwrap();
+        Amount::new(BigDecimal::from_str(number).unwrap(), commodity)
+    }
+
+    /// A request posting of `account` with `unit`, such as `10 STK`, or none, its cost, price and comment left out.
+    fn posting(account: &str, unit: Option<&str>) -> CreateTransactionPostingRequest {
+        CreateTransactionPostingRequest {
+            account: account.to_owned(),
+            unit: unit.map(amount),
+            metas: None,
+            cost: None,
+            price: None,
+            comment: None,
+        }
+    }
+
+    /// [`posting`], with its cost, price and comment as sent.
+    fn posting_with(account: &str, unit: Option<&str>, cost: Field, price: Field, comment: Field) -> CreateTransactionPostingRequest {
+        let text = |field: Field| field.map(|it| it.map(str::to_owned));
+        CreateTransactionPostingRequest {
+            cost: text(cost),
+            price: text(price),
+            comment: text(comment),
+            ..posting(account, unit)
+        }
+    }
+
+    /// An update request for the transaction `Broker` `narration` with `postings`, on January `day` 2024 at noon UTC.
+    fn stock_update(day: u32, narration: &str, postings: Vec<CreateTransactionPostingRequest>) -> CreateTransactionRequest {
+        CreateTransactionRequest {
+            datetime: Utc.with_ymd_and_hms(2024, 1, day, 12, 0, 0).unwrap(),
+            payee: "Broker".to_owned(),
+            flag: None,
+            narration: Some(narration.to_owned()),
+            postings,
+            metas: vec![],
+            tags: vec![],
+            links: vec![],
+        }
+    }
+
+    /// The ledger whose `main` file (`main.zhang` or `main.bean`) is in `dir`.
+    async fn load_main(dir: &FsPath, main: &str) -> Ledger {
+        let ledger = if main.ends_with(".bean") {
+            Ledger::async_load(
+                dir.to_path_buf(),
+                main.to_owned(),
+                Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {})),
+            )
+            .await
+        } else {
+            Ledger::async_load(dir.to_path_buf(), main.to_owned(), Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))).await
+        };
+        ledger.unwrap_or_else(|e| panic!("{main}: {e}"))
+    }
+
+    /// A new ledger directory whose `main` file is the usual opens, [`STOCK_OPENS`] and `ledger`, loaded without
+    /// errors: the directory and the ledger.
+    async fn stock_ledger(main: &str, ledger: &str) -> (PathBuf, Ledger) {
+        let dir = std::env::temp_dir().join(format!("zhang-stock-ledger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let opens = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\n";
+        std::fs::write(dir.join(main), format!("{opens}{STOCK_OPENS}{ledger}")).unwrap();
+        let loaded = load_main(&dir, main).await;
+        {
+            let operations = loaded.operations();
+            let store = operations.read();
+            assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
+        }
+        (dir, loaded)
+    }
+
+    /// Apply `update` to the transaction `Broker` `narration` of the ledger in `dir`: the status and the message of
+    /// the response, and the `main` file after it.
+    async fn try_stock_edit(dir: &FsPath, main: &str, narration: &str, update: CreateTransactionRequest) -> (StatusCode, String, String) {
+        let loaded = load_main(dir, main).await;
+        let id = {
+            let operations = loaded.operations();
+            let store = operations.read();
+            let transaction = store.transactions.values().find(|it| it.narration.as_deref() == Some(narration));
+            transaction.unwrap_or_else(|| panic!("{main}: no transaction {narration}")).id
+        };
+        let (state, reload) = states(loaded);
+        let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+            .await
+            .into_response();
+        let (status, message) = status_and_message(response).await;
+        (status, message, std::fs::read_to_string(dir.join(main)).unwrap())
+    }
+
+    /// [`try_stock_edit`], which succeeds and leaves a ledger that reloads without errors: the postings of the edited
+    /// transaction as written, from its first posting on, and the reloaded ledger.
+    async fn stock_edit(dir: &FsPath, main: &str, narration: &str, update: CreateTransactionRequest) -> (String, Ledger) {
+        let (status, message, written) = try_stock_edit(dir, main, narration, update).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {message}");
+        let reloaded = load_main(dir, main).await;
+        {
+            let operations = reloaded.operations();
+            let store = operations.read();
+            assert!(store.errors.is_empty(), "{main}: {:?}\n{written}", store.errors);
+        }
+        (postings_of(transaction_text(&written, narration)).to_owned(), reloaded)
+    }
+
+    /// The text of the transaction `narration` in `written`: its header line and the lines under it.
+    fn transaction_text<'a>(written: &'a str, narration: &str) -> &'a str {
+        let at = written
+            .find(&format!("\"{narration}\""))
+            .unwrap_or_else(|| panic!("no transaction {narration} in\n{written}"));
+        let start = written[..at].rfind('\n').map_or(0, |it| it + 1);
+        let end = written[at..].find("\n\n").map_or(written.len(), |it| at + it + 1);
+        &written[start..end]
+    }
+
+    /// An edit keeps the cost, the price and the comment of each posting it edits (#473): a request that leaves the
+    /// fields out, such as one from a client that does not know them, takes them from the posting it is matched to,
+    /// as that was written: the ledger holds the cost resolved to its lot, dated (#638). A request that sends them as
+    /// the journal shows them writes the same. Either way the implicit posting stays implicit.
+    #[tokio::test]
+    async fn an_edit_keeps_the_cost_price_and_comment_of_a_posting() {
+        for main in ["main.zhang", "main.bean"] {
+            let (dir, _) = stock_ledger(main, PURCHASE).await;
+            let kept = "\n  Assets:Stock 10 STK { 5 USD } @ 6 USD ; inline\n  Assets:Cash\n";
+
+            // the fields left out
+            let update = stock_update(10, "Buy", vec![posting("Assets:Stock", Some("10 STK")), posting("Assets:Cash", None)]);
+            let (postings, reloaded) = stock_edit(&dir, main, "Buy", update).await;
+            assert_eq!(postings, kept, "{main}");
+            let (stock, cash) = {
+                let operations = reloaded.operations();
+                let store = operations.read();
+                let of = |account: &str| store.postings.iter().find(|it| it.account.name() == account).cloned().unwrap();
+                (of("Assets:Stock"), of("Assets:Cash"))
+            };
+            assert_eq!((stock.cost, stock.inferred_amount), (Some(amount("5 USD")), amount("10 STK")), "{main}");
+            assert_eq!((cash.unit, cash.inferred_amount), (None, amount("-50 USD")), "{main}");
+
+            // the fields sent as the journal shows them
+            let stock = posting_with(
+                "Assets:Stock",
+                Some("10 STK"),
+                Some(Some("{ 5 USD }")),
+                Some(Some("@ 6 USD")),
+                Some(Some("inline")),
+            );
+            let (postings, _) = stock_edit(&dir, main, "Buy", stock_update(10, "Buy", vec![stock, posting("Assets:Cash", None)])).await;
+            assert_eq!(postings, kept, "{main}");
+
+            // the units changed and the postings reordered, the fields left out: kept, matched by account
+            let update = stock_update(10, "Buy", vec![posting("Assets:Cash", None), posting("Assets:Stock", Some("20 STK"))]);
+            let (postings, _) = stock_edit(&dir, main, "Buy", update).await;
+            assert_eq!(postings, "\n  Assets:Cash\n  Assets:Stock 20 STK { 5 USD } @ 6 USD ; inline\n", "{main}");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    /// A cost, price or comment sent replaces the posting's, in any form the ledger reads, and `null` removes it.
+    #[tokio::test]
+    async fn an_edit_sets_or_removes_the_cost_price_or_comment_of_a_posting() {
+        // the cost, the price and the comment as sent, and the posting line written
+        let cases: &[(Field, Field, Field, &str)] = &[
+            (Some(Some("{7 USD}")), None, None, "Assets:Stock 10 STK { 7 USD } @ 6 USD ; inline"),
+            (
+                Some(Some(" {{70 USD}} ")),
+                Some(Some("@@ 80 USD")),
+                Some(Some("bought")),
+                "Assets:Stock 10 STK {{ 70 USD }} @@ 80 USD ; bought",
+            ),
+            (
+                Some(Some("{5 USD, 2024-01-10, \"lot\"}")),
+                None,
+                None,
+                "Assets:Stock 10 STK { 5 USD , 2024-01-10 , \"lot\" } @ 6 USD ; inline",
+            ),
+            (Some(None), None, None, "Assets:Stock 10 STK @ 6 USD ; inline"),
+            (None, Some(None), None, "Assets:Stock 10 STK { 5 USD } ; inline"),
+            (None, None, Some(None), "Assets:Stock 10 STK { 5 USD } @ 6 USD"),
+            (Some(None), Some(None), Some(None), "Assets:Stock 10 STK"),
+        ];
+        for main in ["main.zhang", "main.bean"] {
+            for (cost, price, comment, line) in cases {
+                let (dir, _) = stock_ledger(main, PURCHASE).await;
+                let stock = posting_with("Assets:Stock", Some("10 STK"), *cost, *price, *comment);
+                let (postings, _) = stock_edit(&dir, main, "Buy", stock_update(10, "Buy", vec![stock, posting("Assets:Cash", None)])).await;
+                assert_eq!(postings, format!("\n  {line}\n  Assets:Cash\n"), "{main} {cost:?} {price:?} {comment:?}");
+                std::fs::remove_dir_all(dir).ok();
+            }
+        }
+    }
+
+    /// A cost or a price the ledger would not read back is refused with a 400 saying which it is, and nothing is
+    /// written. In a beancount ledger, a new commodity beancount cannot read is refused as in a unit.
+    #[tokio::test]
+    async fn a_cost_or_price_that_does_not_read_back_is_refused() {
+        let cases: &[(&str, Field, Field)] = &[
+            ("cost", Some(Some("5 USD")), None),
+            ("cost", Some(Some("{5 USD} x")), None),
+            ("cost", Some(Some("{5}")), None),
+            ("cost", Some(Some("{5 USD")), None),
+            ("cost", Some(Some("")), None),
+            ("price", None, Some(Some("6 USD"))),
+            ("price", None, Some(Some("@ 6"))),
+            ("price", None, Some(Some("@@"))),
+            ("price", None, Some(Some("@ 6 USD, x"))),
+        ];
+        for main in ["main.zhang", "main.bean"] {
+            let (dir, _) = stock_ledger(main, PURCHASE).await;
+            let before = std::fs::read_to_string(dir.join(main)).unwrap();
+            let mut cases = cases.to_vec();
+            if main.ends_with(".bean") {
+                cases.push(("commodity", Some(Some("{5 usd}")), None));
+                cases.push(("commodity", None, Some(Some("@ 6 usd"))));
+            }
+            for (what, cost, price) in cases {
+                let stock = posting_with("Assets:Stock", Some("10 STK"), cost, price, None);
+                let update = stock_update(10, "Buy", vec![stock, posting("Assets:Cash", None)]);
+                let (status, message, after) = try_stock_edit(&dir, main, "Buy", update).await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{main} {cost:?} {price:?}: {message}");
+                assert!(message.contains(&format!("invalid {what}")), "{main} {cost:?} {price:?}: {message}");
+                assert_eq!(after, before, "{main} {cost:?} {price:?}: nothing is written");
+            }
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    /// A transaction booking changed is written back as it was written (#638), not as the ledger holds it: a sale
+    /// booking split across two lots as its one posting with its `{}` and its price, a purchase whose cost booking
+    /// dated with its cost as written, and an implicit posting without units.
+    #[tokio::test]
+    async fn a_booked_transaction_is_written_back_as_written() {
+        for main in ["main.zhang", "main.bean"] {
+            let (dir, loaded) = stock_ledger(main, LOTS_AND_SALE).await;
+            let sale = loaded
+                .directives
+                .iter()
+                .find_map(|it| match &it.data {
+                    Directive::Transaction(transaction) if transaction.narration.as_ref().map(|it| it.as_str()) == Some("sale") => Some(transaction),
+                    _ => None,
+                })
+                .unwrap();
+            // the ledger holds the sale split into one leg per lot
+            assert_eq!(sale.postings.iter().filter(|it| it.account.name() == "Assets:Stock").count(), 2, "{main}");
+            assert_eq!(sale.written_postings().len(), 3, "{main}");
+
+            let update = stock_update(
+                3,
+                "sale",
+                vec![
+                    posting("Assets:Stock", Some("-15 STK")),
+                    posting("Assets:Cash", Some("105 USD")),
+                    posting("Income:Gains", None),
+                ],
+            );
+            let (postings, _) = stock_edit(&dir, main, "sale", update).await;
+            assert_eq!(
+                postings, "\n  Assets:Stock -15 STK { } @ 7 USD\n  Assets:Cash 105 USD\n  Income:Gains\n",
+                "{main}"
+            );
+
+            let update = stock_update(1, "lot 1", vec![posting("Assets:Stock", Some("10 STK")), posting("Assets:Cash", None)]);
+            let (postings, _) = stock_edit(&dir, main, "lot 1", update).await;
+            assert_eq!(postings, "\n  Assets:Stock 10 STK { 5 USD }\n  Assets:Cash\n", "{main}");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    /// The journal says whether an edit drops text of a transaction (#473, #443): one with a comment line between
+    /// its postings, or a comment on its header line, loses it when the transaction is rewritten from the form, so
+    /// a client warns first; a plain one, and one whose comments are on its posting lines, loses nothing.
+    #[tokio::test]
+    async fn the_journal_says_whether_an_edit_drops_text() {
+        let ledger = "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  ; paid in cash\n  Expenses:Food 5 CNY\n\n\
+                      2024-01-16 * \"Bob\" \"tea\" ; with milk\n  Assets:Cash -3 CNY\n  Expenses:Food 3 CNY\n\n\
+                      2024-01-17 * \"Bob\" \"water\"\n  Assets:Cash -1 CNY ; tap\n    rate: 1\n  Expenses:Food 1 CNY\n";
+        for main in ["main.zhang", "main.bean"] {
+            let (dir, loaded) = stock_ledger(main, ledger).await;
+            let records = journals(loaded).await;
+            let drops = |narration: &str| {
+                let record = records.as_array().unwrap().iter().find(|it| it["narration"] == narration);
+                record.unwrap_or_else(|| panic!("{main}: {narration}"))["edit_drops_text"].clone()
+            };
+            assert_eq!(drops("coffee"), json!(true), "{main}: a comment line between the postings");
+            assert_eq!(drops("tea"), json!(true), "{main}: a comment on the header line");
+            assert_eq!(drops("water"), json!(false), "{main}: a posting's comment is written back");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    /// The journal shows the cost, the price and the comment of each posting as they are written, in the forms the
+    /// update request takes, so that a client can send them back or change them; a balance check's entry has none.
+    #[tokio::test]
+    async fn the_journal_shows_each_posting_as_written() {
+        for main in ["main.zhang", "main.bean"] {
+            let ledger = format!("{LOTS_AND_SALE}\n{PURCHASE}\n2024-01-11 balance Assets:Stock 15 STK\n");
+            let (dir, loaded) = stock_ledger(main, &ledger).await;
+            let records = journals(loaded).await;
+            let records = records.as_array().unwrap();
+            let by_narration = |narration: &str| {
+                records
+                    .iter()
+                    .find(|it| it["narration"] == narration)
+                    .unwrap_or_else(|| panic!("{main}: {narration}"))
+            };
+
+            let buy = by_narration("Buy");
+            assert_eq!(buy["postings"][0]["account"], "Assets:Stock", "{main}");
+            assert_eq!(
+                buy["postings"][0]["written"],
+                json!({"cost": "{ 5 USD }", "price": "@ 6 USD", "comment": "inline"}),
+                "{main}"
+            );
+            assert_eq!(buy["postings"][1]["written"], json!({"cost": null, "price": null, "comment": null}), "{main}");
+
+            let sale = by_narration("sale");
+            assert_eq!(sale["postings"].as_array().unwrap().len(), 3, "{main}");
+            assert_eq!(sale["postings"][0]["account"], "Assets:Stock", "{main}");
+            assert_eq!(
+                sale["postings"][0]["written"],
+                json!({"cost": "{ }", "price": "@ 7 USD", "comment": null}),
+                "{main}"
+            );
+
+            let check = records
+                .iter()
+                .find(|it| it["type"] == "BalanceCheck")
+                .unwrap_or_else(|| panic!("{main}: no balance check"));
+            assert!(check["postings"][0]["written"].is_null(), "{main}: {check}");
             std::fs::remove_dir_all(dir).ok();
         }
     }

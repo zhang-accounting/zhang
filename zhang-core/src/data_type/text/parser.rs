@@ -288,7 +288,10 @@ fn cost_component(i: &str) -> IResult<&str, CostComponent> {
     ))(i)
 }
 
-fn cost_group(i: &str) -> IResult<&str, PostingCost> {
+/// `posting_cost = "{" posting_amount? ("," cost_component)* "}" | "{{" ... "}}"`: the cost spec of a
+/// posting, such as `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot booking
+/// finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of the lot.
+pub fn posting_cost(i: &str) -> IResult<&str, PostingCost> {
     // `{{ }}` is a total cost, `{ }` is a per-unit cost.
     let (i, total) = alt((value(true, tag("{{")), value(false, char('{'))))(i)?;
     let (i, _) = space0(i)?;
@@ -320,7 +323,7 @@ pub type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
 
 /// `posting_meta = ("{" ... "}")? space* posting_price?`
 fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
-    let (i, cost) = opt(preceded(space0, cost_group))(i)?;
+    let (i, cost) = opt(preceded(space0, posting_cost))(i)?;
     let (i, _) = space0(i)?;
     let (i, price) = opt(posting_price)(i)?;
     Ok((i, (cost, price)))
@@ -973,6 +976,26 @@ fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> IResult<&'a str, O>, text
     matches!(parser(text), Ok(("", _)))
 }
 
+/// `text` read whole as the cost spec of a posting ([`posting_cost`]): `{150 USD}`, `{{1500 USD}}`,
+/// `{}` or `{150 USD, 2024-01-15, "lot"}`. `None` when it is not one, such as `150 USD` without the
+/// braces or a cost followed by anything else: a caller that takes a cost as text (the server's
+/// transaction edit) writes exactly what the ledger reads back, or nothing.
+pub fn read_posting_cost(text: &str) -> Option<PostingCost> {
+    match posting_cost(text) {
+        Ok(("", cost)) => Some(cost),
+        _ => None,
+    }
+}
+
+/// `text` read whole as the price annotation of a posting ([`posting_price`]): `@ 6 USD` per unit or
+/// `@@ 60 USD` in total. `None` when it is not one, such as `6 USD` without the `@`.
+pub fn read_posting_price(text: &str) -> Option<SingleTotalPrice> {
+    match posting_price(text) {
+        Ok(("", price)) => Some(price),
+        _ => None,
+    }
+}
+
 /// Whether `name` is an account name, such as `Assets:Bank:Checking`, that reads
 /// back unchanged.
 pub fn is_valid_account_name(name: &str) -> bool {
@@ -1024,6 +1047,49 @@ pub fn transaction_header_len(text: &str) -> Option<usize> {
     ));
     let (rest, _) = terminated(header, peek(line_ending))(text).ok()?;
     Some(offset(text, rest))
+}
+
+/// Whether `text`, a transaction as written in zhang or beancount syntax, has text the exporter does not write back
+/// when the transaction is rewritten from its directive, as an edit through the API does: a comment on its header
+/// line, an indented line that is neither a posting nor a metadata line and not blank, such as a comment line
+/// between postings, or a comment after a metadata line. The comment of a posting line is the posting's, and is
+/// written back. The journal reports this (#473), so that a client warns before an edit drops such text.
+///
+/// The beancount parser reads the same lines, except that a posting flagged `#` (`# Assets:Cash 10 CNY`), which
+/// only beancount reads as a posting, counts as a comment line here: a warning too many, never one too few.
+pub fn transaction_has_unexported_text(text: &str) -> bool {
+    let Some(header_len) = transaction_header_len(text) else {
+        return false;
+    };
+    // the header without its comment; what the comment-less grammar leaves of the header is the comment
+    let mut structured = tuple((
+        parse_date,
+        opt(transaction_flag),
+        many_m_n(0, 2, preceded(space1, quote_string)),
+        tags_or_links,
+        space0,
+    ));
+    if let Ok((rest, _)) = structured(&text[..header_len]) {
+        if !rest.is_empty() {
+            return true;
+        }
+    }
+    text[header_len..]
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .filter(|line| !line.trim().is_empty())
+        .any(|line| !transaction_line_is_written_back(line))
+}
+
+/// Whether `line`, an indented line of a transaction, is written back by the exporter: a posting line, with or
+/// without its comment, or a metadata line without one.
+fn transaction_line_is_written_back(line: &str) -> bool {
+    let mut content = preceded(space1, alt((map(transaction_posting, |_| true), map(key_value_line, |_| false))));
+    let Ok((rest, is_posting)) = content(line) else {
+        return false;
+    };
+    let rest = rest.trim_start_matches([' ', '\t']);
+    rest.is_empty() || (is_posting && matches!(valuable_comment_body(rest), Ok(("", _))))
 }
 
 fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
@@ -2490,9 +2556,91 @@ mod test {
 
     /// The checks for names written unquoted run the grammar on the name.
     mod names {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+        use chrono::NaiveDate;
+        use zhang_ast::amount::Amount;
+        use zhang_ast::{Date, PostingCost, SingleTotalPrice};
+
         use crate::data_type::text::parser::{
             is_valid_account_name, is_valid_bare_meta_value, is_valid_commodity_name, is_valid_meta_key, is_valid_tag_or_link, is_valid_transaction_flag,
+            read_posting_cost, read_posting_price,
         };
+
+        /// A cost or a price given as text (the transaction edit of the server, #473) is read whole by the
+        /// posting grammar, in every form the ledger writes, and anything else is not a cost or a price.
+        #[test]
+        fn posting_costs_and_prices_as_text() {
+            let usd = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "USD");
+            let cost = |base: Option<&str>, date: Option<&str>, label: Option<&str>, total: bool| PostingCost {
+                base: base.map(usd),
+                date: date.map(|it| Date::Date(NaiveDate::from_str(it).unwrap())),
+                label: label.map(str::to_owned),
+                total,
+            };
+            assert_eq!(read_posting_cost("{150 USD}"), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{ 150 USD }"), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{{1500 USD}}"), Some(cost(Some("1500"), None, None, true)));
+            assert_eq!(read_posting_cost("{}"), Some(cost(None, None, None, false)));
+            assert_eq!(
+                read_posting_cost("{150 USD, 2024-01-15}"),
+                Some(cost(Some("150"), Some("2024-01-15"), None, false))
+            );
+            assert_eq!(
+                read_posting_cost("{150 USD, 2024-01-15, \"lot\"}"),
+                Some(cost(Some("150"), Some("2024-01-15"), Some("lot"), false))
+            );
+            for invalid in [
+                "",
+                "150 USD",
+                "{150 USD",
+                "150 USD}",
+                "{150 USD} x",
+                " {150 USD}",
+                "{150}",
+                "{{150 USD}",
+                "@ 150 USD",
+            ] {
+                assert_eq!(read_posting_cost(invalid), None, "{invalid:?}");
+            }
+
+            assert_eq!(read_posting_price("@ 6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@@ 60 USD"), Some(SingleTotalPrice::Total(usd("60"))));
+            for invalid in ["", "6 USD", "@ 6", "@ 6 USD x", " @ 6 USD", "@@", "{6 USD}"] {
+                assert_eq!(read_posting_price(invalid), None, "{invalid:?}");
+            }
+        }
+
+        /// The text of a transaction the exporter would not write back (#473): a header comment, a comment line
+        /// between postings and a comment after a metadata line; a posting's own comment, metadata and blank
+        /// lines are written back.
+        #[test]
+        fn transactions_with_text_an_edit_would_drop() {
+            use crate::data_type::text::parser::transaction_has_unexported_text;
+            for kept in [
+                "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY",
+                "2024-01-15 * \"Bob\" \"coffee\" #tag ^link\n  Assets:Cash -5 CNY ; paid in cash\n  Expenses:Food\n",
+                "2024-01-15 * \"Bob\" \"coffee\"\n  note: \"x; y\"\n  ! Assets:Cash -5 CNY\n    rate: 1.5\n\n  Expenses:Food 5 CNY {5 USD} @ 1 USD ; x\n",
+                "2024-01-15 txn \"Bob\" \"coffee\"\r\n  Assets:Cash -5 CNY\r\n  Expenses:Food 5 CNY\r\n",
+                "2024-01-15 * \"Bob; not a comment\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n",
+            ] {
+                assert!(!transaction_has_unexported_text(kept), "{kept:?}");
+            }
+            for dropped in [
+                "2024-01-15 * \"Bob\" \"coffee\" ; a comment\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY",
+                "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  ; paid in cash\n  Expenses:Food 5 CNY\n",
+                "2024-01-15 * \"Bob\" \"coffee\"\n  // a note\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n",
+                "2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n  # commented out: Expenses:Tips 1 CNY\n",
+                "2024-01-15 * \"Bob\" \"coffee\"\n  note: \"x\" ; about the note\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n",
+            ] {
+                assert!(transaction_has_unexported_text(dropped), "{dropped:?}");
+            }
+            // not a transaction at all: nothing to warn about
+            assert!(!transaction_has_unexported_text(""));
+            assert!(!transaction_has_unexported_text("2024-01-15 open Assets:Cash"));
+        }
 
         #[test]
         fn bare_meta_values() {
