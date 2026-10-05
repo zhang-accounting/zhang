@@ -11,10 +11,11 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
 use zhang_core::data_source::loaded_file;
+use zhang_core::data_type::text::exporter::meta_lines_as;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
 use zhang_core::domains::schemas::TransactionInfoDomain;
 use zhang_core::ledger::Ledger;
-use zhang_core::utils::string_::{quote_as, QuoteStyle, StringExt};
+use zhang_core::utils::string_::{QuoteStyle, StringExt};
 use zhang_core::ZhangError;
 
 use super::Query;
@@ -422,10 +423,10 @@ fn moved(error: ServerError) -> ServerError {
 async fn write_transaction_documents(ledger: &Ledger, span: &TransactionInfoDomain, documents: &[String]) -> ServerResult<()> {
     // the source file may be zhang or beancount text: the beancount quote style is
     // read back exactly by both parsers, and by Python beancount too
-    let lines = documents
+    let documents = documents
         .iter()
-        .map(|document| format!("  document: {}", quote_as(document, QuoteStyle::Beancount)))
-        .collect_vec();
+        .map(|document| ("document".to_owned(), ZhangString::QuoteString(document.clone())));
+    let lines = meta_lines_as(documents.collect(), QuoteStyle::Beancount);
     let source_file_path = editable_file(ledger, span)?;
     // the transaction must still be where the ledger loaded it
     let mut content = ledger

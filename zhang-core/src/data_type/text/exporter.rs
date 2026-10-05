@@ -20,11 +20,17 @@ pub trait ZhangDataTypeExportable: Sized {
     fn export_as(self, style: QuoteStyle) -> Self::Output;
 }
 
-/// Appends `meta` to `string`, one indented line per entry, writing quoted metadata values in `style`.
+/// Appends `meta` to `string`, its metadata lines ([`meta_lines_as`]).
 pub fn append_meta_as(meta: Meta, string: String, style: QuoteStyle) -> String {
-    let mut metas = meta.export_as(style).into_iter().map(|it| format!("  {}", it)).collect_vec();
+    let mut metas = meta_lines_as(meta, style);
     metas.insert(0, string);
     metas.join("\n")
+}
+
+/// The metadata lines of a directive, as written under it: one indented line per entry, sorted by key, writing quoted
+/// metadata values in `style`.
+pub fn meta_lines_as(meta: Meta, style: QuoteStyle) -> Vec<String> {
+    meta.export_as(style).into_iter().map(|it| format!("  {}", it)).collect_vec()
 }
 
 impl ZhangDataTypeExportable for Date {
@@ -131,7 +137,7 @@ impl ZhangDataTypeExportable for Transaction {
         // indented deeper than the posting) both read as the posting's.
         // Postings booking changed are written as the user wrote them: the legs of a split
         // merged back, implicit units left out, the cost spec as written
-        let meta = self.meta.export_as(style).into_iter().map(|it| format!("  {}", it));
+        let meta = meta_lines_as(self.meta, style);
         let postings = written_postings(self.postings).into_iter().flat_map(|mut posting| {
             let meta = std::mem::take(&mut posting.meta).export_as(style).into_iter().map(|it| format!("    {}", it));
             std::iter::once(format!("  {}", posting.export_as(style))).chain(meta)
