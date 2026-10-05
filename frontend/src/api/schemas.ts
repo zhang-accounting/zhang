@@ -159,8 +159,8 @@ export interface paths {
     /**
      * Get Budget Interval Detail
      * @description What happened to a budget in a month, newest first: what its `budget-add` and
-     * `budget-transfer` directives put in, and the postings of its accounts, with their times in
-     * the ledger's timezone.
+     * `budget-transfer` directives put in, and the postings of its accounts that count toward it
+     * (none after its close), with their times in the ledger's timezone.
      */
     get: operations['get_budget_interval_detail'];
   };
@@ -1159,8 +1159,8 @@ export interface operations {
   /**
    * Get Budget Interval Detail
    * @description What happened to a budget in a month, newest first: what its `budget-add` and
-   * `budget-transfer` directives put in, and the postings of its accounts, with their times in
-   * the ledger's timezone.
+   * `budget-transfer` directives put in, and the postings of its accounts that count toward it
+   * (none after its close), with their times in the ledger's timezone.
    */
   get_budget_interval_detail: {
     parameters: {

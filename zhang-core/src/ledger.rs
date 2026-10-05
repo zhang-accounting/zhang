@@ -2640,8 +2640,12 @@ mod test {
         /// the query engine leaves them out of the budget, and so are the postings after its close
         #[test]
         fn should_report_amounts_no_price_converts_and_postings_after_the_close() {
+            // the accounts of the lunch in USD allow any commodity
             let ledger = load(indoc! {r#"
                 1970-01-01 commodity USD
+                2023-01-01 open Assets:Wallet
+                2023-01-01 open Expenses:Abroad
+                  budget: "Food"
                 2023-01-01 budget Food CNY
                 2023-01-01 budget-add Food 1000 CNY
                 2023-01-02 budget-add Food 50 USD
@@ -2649,8 +2653,8 @@ mod test {
                   Assets:Cash -100 CNY
                   Expenses:Food 100 CNY
                 2023-01-11 "Shop" "lunch in USD"
-                  Assets:Cash -20 USD
-                  Expenses:Food 20 USD
+                  Assets:Wallet -20 USD
+                  Expenses:Abroad 20 USD
                 2023-03-01 budget-close Food
                 2023-03-01 "Shop" "lunch on the close day"
                   Assets:Cash -10 CNY
@@ -2669,14 +2673,15 @@ mod test {
                 errors,
                 vec![
                     unconverted("2023-01-02 budget-add Food 50 USD", "USD", "Food", None),
-                    unconverted(r#"2023-01-11 "Shop" "lunch in USD""#, "USD", "Food", Some("Expenses:Food")),
+                    unconverted(r#"2023-01-11 "Shop" "lunch in USD""#, "USD", "Food", Some("Expenses:Abroad")),
                     // once per account and budget
                     closed_budget(r#"2023-04-05 "Shop" "lunch after the close""#, "Expenses:Food", "Food"),
                 ]
             );
-            // reported, and still booked: 100 CNY, 20 USD, 10, 30 and 40 CNY
+            // reported, and still booked: 100, 10, 30 and 40 CNY, and 20 USD
             assert_eq!(ledger.store.read().unwrap().transactions.len(), 5);
-            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(200));
+            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(180));
+            assert_eq!(balance(&ledger, "Expenses:Abroad"), BigDecimal::from(20));
             assert!(
                 ledger.foreign_budget_amounts.is_empty() && ledger.open_budgets.is_empty(),
                 "validation state is dropped after loading"
