@@ -80,7 +80,7 @@ impl Operations {
     /// insert transaction postings
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
-        &mut self, trx_id: &Uuid, posting_idx: usize, flag: Option<Flag>, account_name: &str, unit: Option<Amount>, cost: Option<PostingCost>,
+        &mut self, trx_id: &Uuid, posting_idx: usize, flag: Option<Flag>, account: &Account, unit: Option<Amount>, cost: Option<PostingCost>,
         inferred_amount: Amount, meta: Meta,
     ) -> ZhangResult<()> {
         let mut store = self.write();
@@ -96,7 +96,7 @@ impl Operations {
             trx_sequence,
             trx_datetime,
             flag,
-            account: Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?,
+            account: account.clone(),
             unit,
             cost: cost.and_then(|it| it.base),
             inferred_amount,

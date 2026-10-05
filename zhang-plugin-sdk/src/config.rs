@@ -203,13 +203,11 @@ impl Values {
         NaiveDate::parse_from_str(self.str(index)?.trim(), "%Y-%m-%d").map_err(|_| self.error(index, "a date (YYYY-MM-DD)"))
     }
 
-    /// the value at `index` as an account name such as `Assets:Bank`
+    /// the value at `index` as an account name such as `Assets:Bank`, by the rule of the ledger grammar
+    /// ([`Account::from_str`]): `Assets:My Bank` is not one, as a ledger could not read a posting to it back
     pub fn account(&self, index: usize) -> Result<Account, ValueError> {
         let value = self.str(index)?.trim();
-        Account::from_str(value)
-            .ok()
-            .filter(|account| !account.components.is_empty() && account.components.iter().all(|it| !it.is_empty()))
-            .ok_or_else(|| self.error(index, "an account (such as Assets:Bank)"))
+        Account::from_str(value).map_err(|_| self.error(index, "an account (such as Assets:Bank)"))
     }
 
     /// The amount starting at `index`: either one value holding both parts (`"100 USD"`), or a number at
@@ -435,6 +433,11 @@ mod test {
         assert!(values.date(5).is_err());
         assert!(values.number(5).is_err());
         assert!(values.account(6).is_err());
+        // an account by the ledger grammar: a posting to any of these could not be read back
+        let names = self::values(&["Assets", "Assets:", "Assets::Bank", "Assets:My Bank", "Assets:a,b", "Assets:(x)"]);
+        for index in 0..6 {
+            assert_eq!(names.account(index).unwrap_err().expected, "an account (such as Assets:Bank)", "{index}");
+        }
         assert_eq!(values.str(8).unwrap_err().to_string(), "there is no value at position 8, expected a value");
     }
 
