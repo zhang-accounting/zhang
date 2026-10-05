@@ -1,4 +1,5 @@
 import { QueryError } from '@/api/types';
+import { tokenKind, tokenRegexp } from '@/components/query/bql-tokens';
 import { ErrorRange, errorRangeOf } from '@/components/query/errorRange';
 import CodeMirror, {
   Decoration,
@@ -12,25 +13,11 @@ import CodeMirror, {
   ViewPlugin,
   ViewUpdate,
 } from '@uiw/react-codemirror';
+import { useAtomValue } from 'jotai';
 import { useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-
-// Lightweight BQL highlighting built on the view package only, since no CodeMirror language package is installed.
-const KEYWORDS =
-  'select|distinct|from|where|group|by|order|asc|desc|limit|offset|as|and|or|not|in|is|null|true|false|open|close|on|clear|balances|journal|at|pivot|having';
-// one capture group per token kind, in this order: string, date, number, `#table`, keyword, function name
-const TOKEN_REGEXP = new RegExp(
-  [
-    /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)/.source,
-    /\b(\d{4}-\d{2}-\d{2})\b/.source,
-    /\b(\d+(?:\.\d+)?)\b/.source,
-    /(?<![\w#])(#[a-z_][a-z0-9_]*)/.source,
-    `\\b(${KEYWORDS})\\b`,
-    /\b([a-z_][a-z0-9_]*)(?=\s*\()/.source,
-  ].join('|'),
-  'gi',
-);
+import { queryKeywordsAtom } from '@/states/query';
 
 const tokenMarks = {
   string: Decoration.mark({ class: 'cm-bql-string' }),
@@ -41,32 +28,30 @@ const tokenMarks = {
   function: Decoration.mark({ class: 'cm-bql-function' }),
 };
 
-const tokenMatcher = new MatchDecorator({
-  regexp: TOKEN_REGEXP,
-  decoration: (match) => {
-    if (match[1] !== undefined) return tokenMarks.string;
-    if (match[2] !== undefined) return tokenMarks.date;
-    if (match[3] !== undefined) return tokenMarks.number;
-    if (match[4] !== undefined) return tokenMarks.table;
-    if (match[5] !== undefined) return tokenMarks.keyword;
-    return tokenMarks.function;
-  },
-});
+/**
+ * Lightweight BQL highlighting built on the view package only, since no CodeMirror language package is installed. The keywords
+ * are the parser's, from `/api/query/schema`.
+ */
+function bqlHighlight(keywords: readonly string[]) {
+  const tokenMatcher = new MatchDecorator({
+    regexp: tokenRegexp(keywords),
+    decoration: (match) => tokenMarks[tokenKind(match)],
+  });
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-const bqlHighlight = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = tokenMatcher.createDeco(view);
+      }
 
-    constructor(view: EditorView) {
-      this.decorations = tokenMatcher.createDeco(view);
-    }
-
-    update(update: ViewUpdate) {
-      this.decorations = tokenMatcher.updateDeco(update, this.decorations);
-    }
-  },
-  { decorations: (plugin) => plugin.decorations },
-);
+      update(update: ViewUpdate) {
+        this.decorations = tokenMatcher.updateDeco(update, this.decorations);
+      }
+    },
+    { decorations: (plugin) => plugin.decorations },
+  );
+}
 
 const setErrorRange = StateEffect.define<ErrorRange | null>();
 
@@ -133,6 +118,7 @@ export default function QueryEditor({ value, onChange, onRun, error, placeholder
   const [view, setView] = useState<EditorView | null>(null);
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
+  const keywords = useAtomValue(queryKeywordsAtom);
 
   const extensions = useMemo(
     () => [
@@ -147,13 +133,13 @@ export default function QueryEditor({ value, onChange, onRun, error, placeholder
           },
         ]),
       ),
-      bqlHighlight,
+      bqlHighlight(keywords),
       errorField,
       queryEditorTheme,
       EditorView.lineWrapping,
       EditorView.contentAttributes.of(label ? { 'aria-label': label } : {}),
     ],
-    [label],
+    [label, keywords],
   );
 
   useEffect(() => {

@@ -14,6 +14,27 @@ use crate::Account;
 
 pub type Meta = MultiValueMap<String, ZhangString>;
 
+impl Meta {
+    /// The entries as `(key, value)` text pairs, sorted by key; the values of a repeated key keep their written order
+    /// (zhang keeps no order between different keys).
+    ///
+    /// ```rust
+    /// use zhang_ast::{Meta, ZhangString};
+    /// let meta: Meta = [("b", "2"), ("a", "1"), ("b", "3")].into_iter().map(|(k, v)| (k.to_owned(), ZhangString::quote(v))).collect();
+    /// assert_eq!(meta.sorted_pairs(), [("a", "1"), ("b", "2"), ("b", "3")].map(|(k, v)| (k.to_owned(), v.to_owned())));
+    /// ```
+    pub fn sorted_pairs(self) -> Vec<(String, String)> {
+        let mut pairs = self
+            .get_flatten()
+            .into_iter()
+            .map(|(key, value)| (key, value.to_plain_string()))
+            .collect::<Vec<_>>();
+        // a stable sort keeps the values of a key in order
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum Date {
     Date(NaiveDate),

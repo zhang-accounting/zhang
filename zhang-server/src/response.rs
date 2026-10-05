@@ -272,6 +272,9 @@ pub struct JournalBalanceCheckItemEntity {
 
 #[derive(Serialize, Schematic)]
 pub struct InfoForNewTransaction {
+    /// the ledger's current wall-clock time in its timezone, by its clock, to the second: when a new transaction is, by
+    /// default
+    pub now: NaiveDateTime,
     pub payee: Vec<String>,
     pub account_name: Vec<String>,
 }
@@ -525,6 +528,8 @@ pub enum BudgetEventType {
 
 #[derive(Serialize, Schematic)]
 pub struct BudgetEventEntity {
+    /// the date and time of the event: the ledger's wall-clock time in its timezone, as every `datetime` of the API
+    pub datetime: NaiveDateTime,
     pub timestamp: i64,
     pub amount: Amount,
     pub event_type: BudgetEventType,
@@ -1089,6 +1094,8 @@ pub struct QuerySchemaEntity {
     pub functions: Vec<QuerySchemaFunctionEntity>,
     /// every table, `postings` first
     pub tables: Vec<QuerySchemaTableEntity>,
+    /// every word the query parser reads as a keyword, lower case, for an editor to highlight
+    pub keywords: Vec<String>,
 }
 
 impl From<zhang_query::ColumnDoc> for QuerySchemaColumnEntity {
@@ -1105,6 +1112,7 @@ impl From<zhang_query::Schema> for QuerySchemaEntity {
     fn from(value: zhang_query::Schema) -> Self {
         QuerySchemaEntity {
             columns: value.columns.into_iter().map(QuerySchemaColumnEntity::from).collect(),
+            keywords: value.keywords.into_iter().map(str::to_owned).collect(),
             tables: value
                 .tables
                 .into_iter()

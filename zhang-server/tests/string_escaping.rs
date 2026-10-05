@@ -64,7 +64,7 @@ async fn created_transaction_strings_survive_a_reload() {
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);
     let reload_sender = SharedReloadSender(Arc::new(ReloadSender::new(sender)));
     let request = CreateTransactionRequest {
-        datetime: Utc.with_ymd_and_hms(2024, 5, 1, 12, 0, 0).unwrap(),
+        datetime: Utc.with_ymd_and_hms(2024, 5, 1, 12, 0, 0).unwrap().into(),
         payee: "Cafe `Central`".to_owned(),
         flag: None,
         narration: Some("coffee $5".to_owned()),
