@@ -1656,7 +1656,8 @@ export interface operations {
               account_name: string[];
               /**
                * Format: date-time
-               * @description the ledger's current wall-clock time in its timezone, by its clock: when a new transaction is, by default
+               * @description the ledger's current wall-clock time in its timezone, by its clock, to the second: when a new transaction is, by
+               * default
                */
               now: string;
               payee: string[];
