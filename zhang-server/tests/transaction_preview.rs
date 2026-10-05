@@ -265,3 +265,42 @@ async fn a_name_beancount_rejects_has_its_own_kind() {
         [(json!("beancount_commodity"), json!("cny")), (json!("beancount_account"), json!("Assets:bank"))]
     );
 }
+
+/// Units, a cost or a price that divide by zero made the parser panic, which the preview answered with a 500. Each is
+/// a field error, as any that does not read back, and a create answers with the first one, a 400.
+#[tokio::test]
+async fn a_division_by_zero_is_a_field_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = ledger(dir.path(), LEDGER).await;
+    let postings = json!([
+        {"account": "Assets:Broker", "unit": "1/0 AAPL", "cost": "{1/0 USD}", "price": "@ 1/0 USD"},
+        {"account": "Assets:Cash", "unit": "10 / (2 - 2)"},
+    ]);
+    let preview = preview(&ledger, postings.clone()).await;
+    assert_eq!(preview["text"], Value::Null);
+    let fields = preview["field_errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| (error["posting"].clone(), error["field"].clone(), error["kind"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        fields,
+        [
+            (json!(0), json!("unit"), json!("invalid_amount")),
+            (json!(0), json!("cost"), json!("invalid_cost")),
+            (json!(0), json!("price"), json!("invalid_price")),
+            (json!(1), json!("unit"), json!("invalid_amount")),
+        ]
+    );
+    let (sender, _receiver) = mpsc::channel(1);
+    let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
+    let (status, body) = body(
+        create_new_transaction(State(ledger.clone()), reload, Json(request(postings)))
+            .await
+            .into_response(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["message"], preview["field_errors"][0]["message"]);
+}

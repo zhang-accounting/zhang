@@ -2189,6 +2189,74 @@ mod string_round_trip_test {
         }
     }
 
+    /// Units, a cost or a price that divide by zero, such as `1/0 CNY` or `{1/0 USD}`, made the parser panic. They are
+    /// refused with a 400 like any that do not read back, in a new transaction and in an edit, and nothing is written.
+    #[tokio::test]
+    async fn units_cost_or_price_dividing_by_zero_are_refused() {
+        // the field, and the units, the cost and the price sent
+        let cases: &[(&str, &str, Field, Field)] = &[
+            ("amount", "1/0 STK", None, None),
+            ("amount", "10 / (2 - 2)", None, None),
+            ("cost", "10 STK", Some(Some("{1/0 USD}")), None),
+            ("cost", "10 STK", Some(Some("{{10 / (2 - 2) USD}}")), None),
+            ("price", "10 STK", None, Some(Some("@ 1/0 USD"))),
+            ("price", "10 STK", None, Some(Some("@@ 6/0 USD"))),
+        ];
+        for main in ["main.zhang", "main.bean"] {
+            let (dir, _) = stock_ledger(main, PURCHASE).await;
+            let before = std::fs::read_to_string(dir.join(main)).unwrap();
+            for (what, units, cost, price) in cases {
+                let context = format!("{main} {units:?} {cost:?} {price:?}");
+                let postings = || {
+                    let stock = CreateTransactionPostingRequest {
+                        unit: Some(crate::request::UnitRequest::Text((*units).to_owned())),
+                        ..posting_with("Assets:Stock", None, *cost, *price, None)
+                    };
+                    vec![stock, posting("Assets:Cash", None)]
+                };
+
+                let (status, message, after) = try_stock_edit(&dir, main, "Buy", stock_update(10, "Buy", postings())).await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{context}: {message}");
+                assert!(message.starts_with(&format!("invalid {what} ")), "{context}: {message}");
+                assert_eq!(after, before, "{context}: nothing is written");
+
+                let (state, reload) = states(load_main(&dir, main).await);
+                let response = create_new_transaction(state, reload, Json(stock_update(11, "New", postings()))).await;
+                let (status, message) = status_and_message(response.into_response()).await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{context}: {message}");
+                assert!(message.starts_with(&format!("invalid {what} ")), "{context}: {message}");
+                assert_eq!(std::fs::read_to_string(dir.join(main)).unwrap(), before, "{context}: nothing is written");
+            }
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    /// A metadata value that divides by zero, such as `1/0`, made the parser panic when the server checked whether it
+    /// reads back written bare. It does not, so it is written quoted, as text.
+    #[tokio::test]
+    async fn a_metadata_value_dividing_by_zero_is_written_quoted() {
+        for main in ["main.zhang", "main.bean"] {
+            let (dir, _) = stock_ledger(main, "").await;
+            let (state, reload) = states(load_main(&dir, main).await);
+            let mut food = posting("Expenses:Food", Some("5 CNY"));
+            food.metas = Some(vec![meta("share", "1/0")]);
+            let mut create = stock_update(11, "Lunch", vec![food, posting("Assets:Cash", None)]);
+            create.metas = vec![meta("ratio", "1/0")];
+            let (status, message) = status_and_message(create_new_transaction(state, reload, Json(create)).await.into_response()).await;
+            assert_eq!(status, StatusCode::OK, "{main}: {message}");
+
+            // a new transaction goes to the file of its month
+            let written = std::fs::read_to_string(dir.join(main.replace("main", "data/2024/01"))).unwrap();
+            assert!(
+                written.contains("\n  ratio: \"1/0\"\n") && written.contains("\n    share: \"1/0\"\n"),
+                "{main}: {written}"
+            );
+            let reloaded = load_main(&dir, main).await;
+            assert!(reloaded.operations().read().errors.is_empty(), "{main}: {written}");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
     /// A transaction booking changed is written back as it was written (#638), not as the ledger holds it: a sale
     /// booking split across two lots as its one posting with its `{}` and its price, a purchase whose cost booking
     /// dated with its cost as written, and an implicit posting without units.

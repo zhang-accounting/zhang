@@ -1503,6 +1503,43 @@ mod test {
         }
     }
 
+    /// An arithmetic expression without a value, such as `1/0`, made the parser panic (beancount 3.2.3 crashes on it).
+    /// It is an error at the operand that makes it so, wherever a number is written, as in a zhang file.
+    mod arithmetic {
+        use crate::parser::parse;
+
+        #[test]
+        fn a_division_by_zero_is_an_error_at_its_divisor() {
+            let txn = |posting: &str| format!("2024-01-02 * \"x\"\n  {posting}\n  Assets:Cash\n");
+            let cases = [
+                (txn("Expenses:Food 1/0 CNY"), 2, 19),
+                (txn("Expenses:Food 10 / (2 - 2) CNY"), 2, 22),
+                (txn("Assets:Stock 1 STK {1/0 USD}"), 2, 25),
+                (txn("Assets:Stock 1 STK @ 1/0 USD"), 2, 26),
+                ("2024-01-02 balance Assets:Cash 1/0 CNY\n".to_owned(), 1, 34),
+                ("2024-01-02 price STK 1/0 USD\n".to_owned(), 1, 24),
+                ("2024-01-02 custom \"budget-add\" Food 1/0 CNY\n".to_owned(), 1, 39),
+                ("2024-01-02 open Assets:Cash\n  ratio: 1/0\n".to_owned(), 2, 12),
+            ];
+            for (content, line, column) in cases {
+                assert_eq!(
+                    parse(&content, None).expect_err(&content).to_string(),
+                    format!("failed to parse beancount file: division by zero at line {line}, column {column}"),
+                    "{content:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn an_operand_out_of_range_is_an_error() {
+            let content = "2024-01-02 price STK 1e-9223372036854775807 * 1e-9223372036854775807 USD\n";
+            assert_eq!(
+                parse(content, None).expect_err(content).to_string(),
+                "failed to parse beancount file: number out of range at line 1, column 47"
+            );
+        }
+    }
+
     /// The metadata values beancount reads without quotes (#475): an account, a currency, a
     /// number or an arithmetic expression, an amount, a date, a tag, `TRUE`, `FALSE` and `NULL`,
     /// each kept as it is written, on a transaction, on a posting and on the other directives.
