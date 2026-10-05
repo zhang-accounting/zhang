@@ -12,7 +12,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
 use super::directives::{date_of, ledger_order, set_value, str_value};
-use super::{directive_meta, render_meta, ColumnDef, Record, Rows, Table};
+use super::{render_meta, ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -80,7 +80,7 @@ fn date(directive: Option<(&Spanned<Directive>, impl Sized)>) -> Value {
 }
 
 fn meta(directive: Option<(&Spanned<Directive>, impl Sized)>) -> Value {
-    directive.map_or(Value::Null, |(it, _)| render_meta(directive_meta(&it.data)))
+    directive.map_or(Value::Null, |(it, _)| render_meta(it.data.meta()))
 }
 
 static COLUMNS: &[ColumnDef] = &[
