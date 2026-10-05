@@ -13,6 +13,7 @@ use zhang_ast::{Directive, SpanInfo, Spanned};
 use zhang_core::data_source::{DataSource, LedgerFiles, LoadResult, SourceEntry};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{DataType, Dialect};
+use zhang_core::error::{storage_error, Access, StorageFailure};
 use zhang_core::ledger::Ledger;
 use zhang_core::{ZhangError, ZhangResult};
 
@@ -40,10 +41,7 @@ impl DataSource for OpendalDataSource {
         let file = &path;
         self.blocking(None, |operator| async move { operator.read(file).await })
             .map(|data| data.to_vec())
-            .map_err(|e| match e {
-                BlockingError::Opendal(e) if e.kind() == ErrorKind::NotFound => ZhangError::FileNotFound,
-                e => ZhangError::CustomError(format!("fail to get file content [{}] : {}", path, e)),
-            })
+            .map_err(|e| e.into_zhang_error(&path))
     }
 
     fn local_root(&self, _entry: &Path) -> Option<PathBuf> {
@@ -130,11 +128,11 @@ impl DataSource for OpendalDataSource {
     /// [`ZhangError::FileNotFound`] for a file that is not there, never an empty file: a missing `include` or plugin
     /// module read as empty was loaded as such, and the module cached empty (#487, #494)
     async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        match self.operator.read(&path).await {
-            Ok(data) => Ok(data.to_vec()),
-            Err(err) if err.kind() == ErrorKind::NotFound => Err(ZhangError::FileNotFound),
-            Err(err) => Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err))),
-        }
+        self.operator
+            .read(&path)
+            .await
+            .map(|data| data.to_vec())
+            .map_err(|err| storage_error(&path, Access::Read, storage_failure(&err), err))
     }
 
     /// a file only, with one stat before the read: what the stat tells a directory, which a WebDAV service reads as a
@@ -150,10 +148,11 @@ impl DataSource for OpendalDataSource {
         }
         match self.operator.read(&path).await {
             Ok(data) => Ok(Some(data.to_vec())),
-            Err(err) => match err.kind() {
-                ErrorKind::NotFound | ErrorKind::IsADirectory | ErrorKind::NotADirectory => Ok(None),
-                ErrorKind::PermissionDenied => Err(ZhangError::ReadRefused(path)),
-                _ => Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err))),
+            // what turned out to be no file is none here
+            Err(err) if matches!(err.kind(), ErrorKind::IsADirectory | ErrorKind::NotADirectory) => Ok(None),
+            Err(err) => match storage_error(&path, Access::Read, storage_failure(&err), err) {
+                ZhangError::FileNotFound => Ok(None),
+                error => Err(error),
             },
         }
     }
@@ -165,7 +164,7 @@ impl DataSource for OpendalDataSource {
         self.operator
             .write(&path, vec)
             .await
-            .map_err(|e| ZhangError::CustomError(format!("cannot write {path}: {e}")))?;
+            .map_err(|e| storage_error(&path, Access::Write, storage_failure(&e), e))?;
         Ok(())
     }
 }
@@ -189,12 +188,24 @@ impl Display for BlockingError {
 }
 
 impl BlockingError {
-    /// a missing file is [`ZhangError::FileNotFound`]; the rest keeps opendal's details, which only the host logs
+    /// the error of reading `path`, by the one mapping of storage errors ([`storage_error`]): a missing file is
+    /// [`ZhangError::FileNotFound`], a refusal [`ZhangError::ReadRefused`]; the rest keeps opendal's details, which only
+    /// the host logs
     fn into_zhang_error(self, path: &str) -> ZhangError {
-        match self {
-            BlockingError::Opendal(e) if e.kind() == ErrorKind::NotFound => ZhangError::FileNotFound,
-            other => ZhangError::CustomError(format!("[{path}]: {other}")),
-        }
+        let failure = match &self {
+            BlockingError::Opendal(e) => storage_failure(e),
+            BlockingError::TimedOut(_) | BlockingError::Runtime(_) => StorageFailure::Other,
+        };
+        storage_error(path, Access::Read, failure, self)
+    }
+}
+
+/// what opendal's `error` says of the access that failed, for [`storage_error`]
+fn storage_failure(error: &opendal::Error) -> StorageFailure {
+    match error.kind() {
+        ErrorKind::NotFound => StorageFailure::NotFound,
+        ErrorKind::PermissionDenied => StorageFailure::Refused,
+        _ => StorageFailure::Other,
     }
 }
 
@@ -321,7 +332,7 @@ mod test {
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::inputs::ExtraInput;
     use zhang_core::ledger::Ledger;
-    use zhang_core::ZhangError;
+    use zhang_core::{ZhangError, ZhangResult};
 
     use super::{BlockingError, OpendalDataSource, PLUGIN_FILE_TIMEOUT};
     use crate::{FileSystem, ServerOpts};
@@ -1046,6 +1057,8 @@ mod test {
         failing_stats: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
         /// paths whose read only fails with an error of this kind
         failing_reads: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
+        /// paths whose write fails with an error of this kind
+        failing_writes: Arc<std::sync::Mutex<Vec<(String, opendal::ErrorKind)>>>,
         /// paths whose stat tells an entry that is neither a file nor a directory
         special: Arc<std::sync::Mutex<Vec<String>>>,
     }
@@ -1133,6 +1146,9 @@ mod test {
 
         fn write(&self, ctx: &opendal::OperationContext, path: &str, args: opendal::raw::OpWrite) -> opendal::Result<Self::Writer> {
             self.count("write", path);
+            if let Some((_, kind)) = self.layer.failing_writes.lock().unwrap().iter().find(|(failing, _)| failing == path) {
+                return Err(opendal::Error::new(*kind, "the service failed"));
+            }
             self.inner.write(ctx, path, args)
         }
 
@@ -1290,10 +1306,7 @@ mod test {
         counting.calls();
         assert_eq!(
             download(&state, "attachments/refused.pdf").await,
-            (
-                403,
-                "{\"message\":\"the storage refused to read attachments/refused.pdf\",\"origin\":\"with_rejection\"}".to_owned()
-            )
+            (403, "{\"message\":\"the storage refused to read attachments/refused.pdf\"}".to_owned())
         );
         assert_eq!(counting.calls(), vec![stat("attachments/refused.pdf"), read("attachments/refused.pdf")]);
         let (status, message) = download(&state, "attachments/broken.pdf").await;
@@ -1329,6 +1342,73 @@ mod test {
         counting.calls();
         assert_eq!(download(&state, "attachments/special").await.0, 404);
         assert_eq!(counting.calls(), vec![stat("attachments/special")]);
+    }
+
+    /// A refusal of the storage is one error whatever reads or writes the file: a read refused is
+    /// [`ZhangError::ReadRefused`] and a write refused [`ZhangError::WriteRefused`], naming the file only, never
+    /// opendal's details, and the API answers both with a 403. The file editor answered an unreadable file with a 500
+    /// holding opendal's details, while a document download answered 403.
+    #[tokio::test]
+    async fn a_refusal_of_the_storage_is_one_error_whatever_meets_it() {
+        use axum::response::IntoResponse;
+        use zhang_server::routes::file::{get_file_content, update_file_content};
+        use zhang_server::routes::Base64Path;
+
+        let counting = Counting::default();
+        let operator = Operator::new(Memory::default()).unwrap().layer(counting.clone());
+        operator
+            .write("main.zhang", b"include \"more.zhang\"\n1970-01-01 open Assets:Cash\n".to_vec())
+            .await
+            .unwrap();
+        operator.write("more.zhang", b"1970-01-01 open Expenses:Food\n".to_vec()).await.unwrap();
+        let source = Arc::new(OpendalDataSource {
+            operator,
+            data_type: Box::new(ZhangDataType {}),
+            local_root: None,
+        });
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ledger = Ledger::async_load(std::path::PathBuf::from(format!("/refused-{}", nanos)), "main.zhang".to_owned(), source.clone())
+            .await
+            .unwrap();
+        counting
+            .failing_reads
+            .lock()
+            .unwrap()
+            .push(("more.zhang".to_owned(), opendal::ErrorKind::PermissionDenied));
+        counting
+            .failing_writes
+            .lock()
+            .unwrap()
+            .push(("more.zhang".to_owned(), opendal::ErrorKind::PermissionDenied));
+
+        let read_refused = |result: ZhangResult<()>| matches!(result, Err(ZhangError::ReadRefused(path)) if path == "more.zhang");
+        assert!(read_refused(source.get("more.zhang".to_owned()).map(drop)));
+        assert!(read_refused(source.get_limited("more.zhang".to_owned(), 1024).map(drop)));
+        assert!(read_refused(source.async_get("more.zhang".to_owned()).await.map(drop)));
+        assert!(read_refused(source.async_get_existing("more.zhang".to_owned()).await.map(drop)));
+        assert!(read_refused(source.async_get_unchanged("more.zhang".to_owned(), &[]).await.map(drop)));
+        let saved = source.async_save(&ledger, "more.zhang".to_owned(), b"".as_slice()).await;
+        assert!(matches!(&saved, Err(ZhangError::WriteRefused(path)) if path == "more.zhang"), "{:?}", saved);
+
+        // the file editor, reading and saving it
+        let state = axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
+        let (sender, _) = tokio::sync::mpsc::channel(1);
+        let reload = axum::extract::State(zhang_server::state::SharedReloadSender(Arc::new(zhang_server::ReloadSender::new(sender))));
+        let answer = |response: axum::response::Response| async move {
+            let status = response.status().as_u16();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            (status, String::from_utf8_lossy(&body).into_owned())
+        };
+        let read = get_file_content(state.clone(), Base64Path("more.zhang".to_owned())).await.into_response();
+        assert_eq!(answer(read).await, (403, "{\"message\":\"the storage refused to read more.zhang\"}".to_owned()));
+        let request = serde_json::from_value(serde_json::json!({ "content": "1970-01-01 open Expenses:Food\n" })).unwrap();
+        let saved = update_file_content(state, reload, Base64Path("more.zhang".to_owned()), axum::extract::Json(request))
+            .await
+            .into_response();
+        assert_eq!(
+            answer(saved).await,
+            (403, "{\"message\":\"the storage refused to write more.zhang\"}".to_owned())
+        );
     }
 
     /// On a remote source whose stat fails, a download reads the document, and the read's error decides: missing is
@@ -1483,7 +1563,7 @@ mod test {
         assert_eq!(std::fs::read_to_string(&main).unwrap(), OPENS, "nothing was written");
         assert!(!dir.path().join("data").exists(), "no data folder was created");
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(status, 500, "{}", body);
+        assert_eq!(status, 403, "{}", body);
         let message = body["message"].as_str().unwrap_or_default();
         assert!(message.contains("main.zhang"), "{}", body);
     }

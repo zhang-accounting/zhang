@@ -18,16 +18,16 @@ use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use log::error;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::sync::OwnedRwLockReadGuard;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_query::{Params, Query, QueryError};
 
+use crate::error::error_response;
 use crate::response::QueryResultEntity;
 use crate::routes::query::{execute_options, max_result_values};
 use crate::state::SharedLedger;
@@ -142,10 +142,6 @@ async fn dispatch(ledger: SharedLedger, name: String, request: PluginRequest) ->
             error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("plugin {name} failed while handling the request"))
         }
     }
-}
-
-fn error_response(status: StatusCode, message: String) -> Response {
-    (status, Json(json!({ "message": message }))).into_response()
 }
 
 #[cfg(test)]
