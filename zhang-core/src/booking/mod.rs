@@ -215,13 +215,19 @@ impl Booker {
     /// Validate the residual with the commodity definitions available at this point in the stream.
     /// Undefined commodities take precedence over imbalance, even when their residual is zero.
     pub(crate) fn check_transaction_balance(&self, residual: &BTreeMap<Currency, BigDecimal>) -> Option<ErrorKind> {
-        if residual.keys().any(|currency| !self.precisions.contains_key(currency)) {
+        if self.undefined_commodity(residual).is_some() {
             return Some(ErrorKind::CommodityDoesNotDefine);
         }
         if !self.unbalanced(residual).is_empty() {
             return Some(ErrorKind::UnbalancedTransaction);
         }
         None
+    }
+
+    /// The first commodity of `residual`, in commodity order, that is not defined at this point in the stream: the one
+    /// [`ErrorKind::CommodityDoesNotDefine`] names.
+    pub(crate) fn undefined_commodity<'r>(&self, residual: &'r BTreeMap<Currency, BigDecimal>) -> Option<&'r Currency> {
+        residual.keys().find(|currency| !self.precisions.contains_key(*currency))
     }
 
     /// What a transaction whose weights sum to `residual` is unbalanced by, by the rule

@@ -897,6 +897,21 @@ fn transaction_residual_rounds_at_the_commodity_precision() {
 }
 
 #[test]
+fn undefined_commodity_of_a_transaction_is_named() {
+    // as for an `open` or a `price`, the error names the commodity: the first undefined one, in commodity order
+    for postings in ["Assets:A 10 JPY\n  Income:I -10 EUR", "Assets:A 10 EUR\n  Income:I -10 JPY"] {
+        let ledger = load(&format!("2024-05-16 * \"two undefined\"\n  {postings}\n"));
+        let store = ledger.store.read().unwrap();
+        let named = store
+            .errors
+            .iter()
+            .map(|it| (it.error_type.clone(), it.metas.get("commodity_name").cloned()))
+            .collect::<Vec<_>>();
+        assert_eq!(named, vec![(ErrorKind::CommodityDoesNotDefine, Some("EUR".to_owned()))], "{postings}");
+    }
+}
+
+#[test]
 fn undefined_commodity_is_reported_before_unbalanced() {
     // #441: a transaction with an undefined weight commodity and an unbalanced one reports
     // `CommodityDoesNotDefine`, whatever the order of its commodities, on every load

@@ -12,6 +12,7 @@ use super::balance::{define_commodity, stage_booker, AccountCommodities};
 use super::{ProcessStage, StageContext, StageError};
 use crate::booking::{is_booked, written_groups, BookOutcome};
 use crate::constants::TXN_ID;
+use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 
@@ -142,9 +143,9 @@ impl ProcessStage for ValidateStage {
                         BookOutcome::Booked(booked) => {
                             let balance_error = booker.check_transaction_balance(&booked.residual);
                             ctx.validation.watch(span, || booker.unbalanced(&booked.residual));
-                            if balance_error == Some(ErrorKind::CommodityDoesNotDefine) {
+                            if let Some(commodity) = booker.undefined_commodity(&booked.residual) {
                                 error_indices.push(ctx.errors.len());
-                                ctx.emit_error(ErrorKind::CommodityDoesNotDefine, span.clone(), HashMap::new());
+                                ctx.emit_error(ErrorKind::CommodityDoesNotDefine, span.clone(), HashMap::of("commodity_name", commodity));
                             }
                             for error in booked.errors {
                                 ctx.emit_error(error.kind, span.clone(), error.metas);

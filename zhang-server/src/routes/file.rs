@@ -105,6 +105,7 @@ pub async fn update_file_content(
 
 #[cfg(test)]
 mod save_test {
+    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
@@ -117,9 +118,10 @@ mod save_test {
     use zhang_core::ledger::Ledger;
 
     use super::{get_file_content, get_files, update_file_content};
-    use crate::request::{CreateTransactionRequest, FileUpdateRequest};
+    use crate::request::{CreateTransactionRequest, FileUpdateRequest, JournalRequest};
+    use crate::routes::common::get_errors;
     use crate::routes::transaction::create_new_transaction;
-    use crate::routes::Base64Path;
+    use crate::routes::{Base64Path, Query};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::util::sha256_hex;
     use crate::ReloadSender;
@@ -349,6 +351,63 @@ mod save_test {
         let saved = update_file_content(state.clone(), reload.clone(), Base64Path("main.bean".to_owned()), Json(request)).await;
         assert_eq!(answer(saved).await.0, StatusCode::CREATED);
         assert_eq!(std::fs::read_to_string(real.join("main.bean")).unwrap(), edited);
+    }
+
+    /// The errors name their files as the file list does: by the path within the ledger, one helper for both
+    /// (`path_in_ledger`), so the error dialog's "Open in Raw Editing" opens a file the editor lists (#669, #675). Also
+    /// for a ledger loaded through a link to its directory, as `/tmp` is on macOS, and through a relative path.
+    #[tokio::test]
+    async fn the_errors_name_their_files_as_the_file_list_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().canonicalize().unwrap().join("ledger");
+        std::fs::create_dir_all(real.join("data")).unwrap();
+        let link = real.with_file_name("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // the same directory relative to the working directory, through the root
+        let cwd = std::env::current_dir().unwrap();
+        let relative = cwd
+            .components()
+            .skip(1)
+            .map(|_| "..")
+            .collect::<PathBuf>()
+            .join(real.strip_prefix("/").unwrap());
+        assert!(relative.is_relative());
+        std::fs::write(
+            real.join("main.bean"),
+            format!("{LEDGER}include \"data/2024.bean\"\n2024-01-02 balance Assets:Gone 1 CNY\n"),
+        )
+        .unwrap();
+        std::fs::write(real.join("data/2024.bean"), "2024-01-03 balance Assets:Lost 1 CNY\n").unwrap();
+
+        for root in [real.clone(), link, relative] {
+            let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+            let loaded = Ledger::async_load(root.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+            let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
+            let listed = answer_json(get_files(state.clone()).await).await;
+            assert_eq!(listed["data"], serde_json::json!(["main.bean", "data/2024.bean"]), "{}", root.display());
+            let request = JournalRequest {
+                page: None,
+                size: None,
+                keyword: None,
+                tags: None,
+                links: None,
+            };
+            let errors = answer_json(get_errors(state.clone(), Query(request)).await).await;
+            // an error in each file, named as the file list names it
+            let files = errors["data"]["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|error| error["span"]["filename"].as_str().unwrap_or("no file").to_owned())
+                .collect::<BTreeSet<_>>();
+            let listed = listed["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|file| file.as_str().unwrap().to_owned())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(files, listed, "{}: {}", root.display(), errors);
+        }
     }
 
     async fn answer_json(response: impl IntoResponse) -> serde_json::Value {
