@@ -37,6 +37,7 @@
     "ParseInvalidMeta": "指令中存在无效的 meta 值",
     "UnsupportedBookingMethod": "暂不支持该预订方法，账户改用默认的预订方法",
     "AmbiguousLotMatch": "STRICT 预订方法下，减仓匹配到多个批次，无法确定减哪一个",
+    "CostMergingNotSupported": "暂不支持成本合并，该记账行按不带 `*` 的成本记账",
     "PluginError": "插件 {{meta.plugin}}：{{meta.message}}"
   },
   "ERROR_BOX_LOCATION": "{{file}} · 第 {{start}}–{{end}} 行",

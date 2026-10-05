@@ -120,7 +120,14 @@ YYYY-MM-DD [HH:MM[:SS]] [<Flag>] ["<Payee>"] ["<Narration>"] [#tag …] [^link �
 | `Assets:Broker 3 AAPL {{1000 USD}}` | `1000 USD`：总成本 |
 | `Assets:Broker -5 AAPL {}` | 减仓所扣除批次的成本 |
 
-成本还可以给出批次的取得日期和标签，例如 `{185 USD, 2024-01-02, "lot-a"}`。同时带成本和价格的记账行，例如 `-5 AAPL {185 USD} @ 200 USD`，按成本计算权重；价格只记录它卖出的价格。批次如何建立、匹配和减少，见[批次与成本](/zh-cn/guides/lots-and-cost-basis/)和[记账方法](/zh-cn/reference/directives/account/#记账方法)。
+成本的各个部分用逗号分隔，顺序任意，每个部分都可以单独出现：成本数字、批次的取得日期和标签，例如 `{185 USD, 2024-01-02, "lot-a"}`、`{2024-01-02}` 或 `{"lot-a"}`。减仓时，写出的部分是批次必须匹配的条件，没写的部分匹配任意批次。还有两种来自 Beancount 的写法：
+
+| 记账行 | 含义 |
+|---|---|
+| `Assets:Broker 10 AAPL {185 # 5 USD}` | 复合成本：每单位 185 USD，另加总计 5 USD（例如佣金）。批次的单位成本是 185 + 5 / 10 = 185.5 USD，记账行的权重是 `1855 USD`。 |
+| `Assets:Broker -5 AAPL {*}` | Beancount 的成本合并标记。暂不支持成本合并：该记账行会报告 [`CostMergingNotSupported`](/zh-cn/reference/error-codes/#costmergingnotsupported)，并按写成 `{}` 记账。 |
+
+同时带成本和价格的记账行，例如 `-5 AAPL {185 USD} @ 200 USD`，按成本计算权重；价格只记录它卖出的价格。批次如何建立、匹配和减少，见[批次与成本](/zh-cn/guides/lots-and-cost-basis/)和[记账方法](/zh-cn/reference/directives/account/#记账方法)。
 
 ### 交易如何配平
 
@@ -197,6 +204,7 @@ WASM 插件收到和返回的交易中，每个记账行的元数据位于该记
 | [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine) | 交易配平所用的商品未定义。 | 是 |
 | [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist)、[`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | 记账行的账户在交易日期不处于开立状态。 | 是 |
 | [`NoEnoughCommodityLot`](/zh-cn/reference/error-codes/#noenoughcommoditylot)、[`AmbiguousLotMatch`](/zh-cn/reference/error-codes/#ambiguouslotmatch) | 按成本减仓时找不到对应的批次。 | 是 |
+| [`CostMergingNotSupported`](/zh-cn/reference/error-codes/#costmergingnotsupported) | 成本带有 Beancount 的成本合并标记 `*`。 | 是 |
 | [`BudgetDoesNotExist`](/zh-cn/reference/error-codes/#budgetdoesnotexist) | 记账行的账户关联到未定义的预算。 | 是 |
 | [`TransactionCannotInferTradeAmount`](/zh-cn/reference/error-codes/#transactioncannotinfertradeamount) | 省略的金额没有可以推断的依据。 | 否 |
 | [`TransactionHasMultipleImplicitPosting`](/zh-cn/reference/error-codes/#transactionhasmultipleimplicitposting) | 不止一个记账行省略了金额。 | 否 |
@@ -210,6 +218,7 @@ WASM 插件收到和返回的交易中，每个记账行的元数据位于该记
 - 在交易之外以 `*` 开头的行（org-mode 标题）在 Beancount 文件中会被跳过，与 Beancount 相同。在张记账文件中它是解析错误：请用 `;` 或 `#` 写注释。
 - Beancount 的 `pushtag` / `poptag` 和 `pushmeta` / `popmeta` 只能在 Beancount 文件中使用。张记账在读取文件时应用它们。
 - 在 Beancount 文件中，记账行元数据遵循 Beancount 的规则，见[哪些行属于记账行](#哪些行属于记账行)。
+- 成本在两种格式中都按 Beancount 的写法读取：单独的日期或标签、顺序任意的各部分、复合成本 `{185 # 5 USD}`，以及成本合并标记 `{*}`（张记账与 Beancount 一样报告为不支持）。缺少一部分的复合成本，例如 `{# 5 USD}` 或 `{185 # USD}`，以及写在双花括号里的复合成本 `{{185 # 5 USD}}`，无法读取。
 
 ## 相关页面
 

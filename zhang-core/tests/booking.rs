@@ -953,6 +953,76 @@ fn e5_dated_cost_only_reduces_the_lot_of_that_date() {
     assert_eq!(lots(&ledger, "Assets:S"), vec!["10 USD {10 CNY, 2024-05-16}", "5 USD {11 CNY, 2024-05-17}"]);
 }
 
+/// #497: a cost with only a date or only a label selects the lot of that date or label, as in
+/// beancount (bean-check 3.2.3), under every booking method; the label needs no leading comma
+#[test]
+fn date_only_and_label_only_costs_reduce_the_matching_lot() {
+    for method in ["FIFO", "LIFO", "STRICT"] {
+        // the date selects lot a, which LIFO would not take first
+        let ledger = load_two_labelled_lots(method, "  Assets:S -1 USD {2024-05-16}\n  Income:I");
+        assert_eq!(errors(&ledger), vec![], "{method}");
+        assert_eq!(inferred(&ledger, 3), vec!["-1 USD", "10 CNY"], "{method}");
+        assert_eq!(
+            lots(&ledger, "Assets:S"),
+            vec!["9 USD {10 CNY, 2024-05-16, \"a\"}", "10 USD {11 CNY, 2024-05-17, \"b\"}"],
+            "{method}"
+        );
+        // the label alone selects lot b, which FIFO would not take first
+        let ledger = load_two_labelled_lots(method, "  Assets:S -1 USD {\"b\"}\n  Income:I");
+        assert_eq!(errors(&ledger), vec![], "{method}");
+        assert_eq!(inferred(&ledger, 3), vec!["-1 USD", "11 CNY"], "{method}");
+        assert_eq!(
+            lots(&ledger, "Assets:S"),
+            vec!["10 USD {10 CNY, 2024-05-16, \"a\"}", "9 USD {11 CNY, 2024-05-17, \"b\"}"],
+            "{method}"
+        );
+    }
+}
+
+/// #497: a compound cost `{P # T}` books a lot at `P + T / |units|` per unit and weighs
+/// `units × P + T`, as in beancount (bean-check 3.2.3 books `10 HOOL {100 # 5 USD}` at 100.5 USD)
+#[test]
+fn a_compound_cost_books_a_lot_at_the_per_unit_cost_plus_the_total_share() {
+    let ledger = load(indoc! {r#"
+        2024-05-16 * "buy with a compound cost"
+          Assets:A 10 USD {100 # 5 CNY}
+          Income:I -1005 CNY
+        2024-05-17 * "sell part of it by its lot cost"
+          Assets:A -4 USD {100.5 CNY}
+          Income:I
+        2024-05-18 * "sell part of it with a compound cost of the same lot"
+          Assets:A -2 USD {100 # 1 CNY}
+          Income:I
+    "#});
+    assert_eq!(errors(&ledger), vec![]);
+    assert_eq!(inferred(&ledger, 2), vec!["-4 USD", "402.0 CNY"]);
+    // `-2 USD {100 # 1 CNY}` is the lot at 100 + 1 / 2 = 100.5 CNY, and weighs -201 CNY
+    assert_eq!(inferred(&ledger, 3), vec!["-2 USD", "201 CNY"]);
+    assert_eq!(lots(&ledger, "Assets:A"), vec!["4 USD {100.5 CNY, 2024-05-16}"]);
+}
+
+/// #497: `{*}`, beancount's merge-cost marker, reads and is reported once as unsupported. The
+/// posting books as if its cost were `{}`, as beancount books it, and the rest of the ledger is
+/// untouched
+#[test]
+fn a_merge_cost_is_reported_once_and_books_without_the_marker() {
+    let ledger = load_two_lots("FIFO", "  Assets:S -5 USD {*}\n  Income:I");
+    assert_eq!(
+        error_details(&ledger),
+        vec![(ErrorKind::CostMergingNotSupported, "2024-05-18 * \"sell\"".to_owned(), metas([]))]
+    );
+    assert_eq!(inferred(&ledger, 3), vec!["-5 USD", "50 CNY"]);
+    assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"]);
+
+    // with a label, the marker is reported and the label still selects the lot
+    let ledger = load_two_labelled_lots("STRICT", "  Assets:S -1 USD {*, \"b\"}\n  Income:I");
+    assert_eq!(errors(&ledger), vec![(ErrorKind::CostMergingNotSupported, None)]);
+    assert_eq!(
+        lots(&ledger, "Assets:S"),
+        vec!["10 USD {10 CNY, 2024-05-16, \"a\"}", "9 USD {11 CNY, 2024-05-17, \"b\"}"]
+    );
+}
+
 /// two lots of `Assets:S` at the same cost, bought on consecutive days
 const TWO_SAME_COST_LOTS: &str = indoc! {r#"
     2024-05-16 * "buy"
@@ -1392,6 +1462,7 @@ fn legs_a_stage_moved_apart_make_one_row_each_as_booked() {
             date: Some(Date::Date(chrono::NaiveDate::from_str(date).unwrap())),
             label: None,
             total: false,
+            ..PostingCost::default()
         }),
         written: Some(written_sale.clone()),
         ..sale.postings[0].clone()

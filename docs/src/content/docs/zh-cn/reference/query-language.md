@@ -602,6 +602,7 @@ WHERE account ~ '^Expenses'
 - **加仓**。其他按成本持有的分录会开立一个新批次，或者加到完全相同的批次上。没有日期的成本（例如 `10 AAPL {100 USD}`）使用其交易的日期，所以按成本持有的分录的 `cost_date` 永远不会是 `NULL`。写成 `{}` 的加仓会加入该账户按成本持有的第一个批次，它的行带有那个批次的成本。
 - **剩余部分**。如果未平仓的批次不足以覆盖整个减仓，张记账报告 [`NoEnoughCommodityLot`](/zh-cn/reference/error-codes/#noenoughcommoditylot) 错误，并把剩余部分按加仓处理。没有成本数值的成本（例如 `{}`）无法开立批次，所以这部分没有成本。
 - **总成本**。以总成本买入的批次（例如 `3 AAPL {{1000 USD}}`）的 `cost_number` 是总成本除以单位数量，与 beanquery 一样保留 28 位有效数字。
+- **复合成本**。以复合成本买入的批次（例如 `10 AAPL {100 # 5 USD}`）的 `cost_number` 是单位部分加上总额部分除以单位数量，即 `100 + 5 / 10 = 100.5`，与 Beancount 相同。
 
 记账方法见[批次与成本](/zh-cn/guides/lots-and-cost-basis/#选择记账方法)。
 
