@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveTime};
+use zhang_ast::account::is_under;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned, Transaction};
@@ -163,9 +164,7 @@ impl<'a> IgnoredTimes<'a> {
                 continue;
             }
             for (group, units) in written_groups(&txn.postings).into_iter().zip(units) {
-                let name = group.legs[0].account.name();
-                let under = name == account.name() || name.strip_prefix(account.name()).is_some_and(|rest| rest.starts_with(':'));
-                if under && units.commodity == *commodity {
+                if is_under(group.legs[0].account.name(), account.name()) && units.commodity == *commodity {
                     *changed += &units.number;
                 }
             }
