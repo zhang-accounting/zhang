@@ -77,17 +77,14 @@ impl fmt::Display for QueryError {
 
 impl std::error::Error for QueryError {}
 
-/// Convert a byte offset into a 1-based (line, column) pair, counting characters.
+/// Convert a byte offset into a 1-based (line, column) pair, counting characters, as the ledger parser does. An
+/// offset past the end or inside a character is clamped to the character boundary before it.
 pub(crate) fn line_column(source: &str, offset: usize) -> (usize, usize) {
     let mut offset = offset.min(source.len());
     while !source.is_char_boundary(offset) {
         offset -= 1;
     }
-    let before = &source[..offset];
-    let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map(|it| it + 1).unwrap_or(0);
-    let column = before[line_start..].chars().count() + 1;
-    (line, column)
+    zhang_core::data_type::text::parser::line_column(source, (1, 0), offset)
 }
 
 /// An error raised while compiling or evaluating, located by a [`Span`] that is resolved
