@@ -2870,6 +2870,24 @@ mod test {
             assert!(ledger.defined_budgets.is_none(), "validation state is dropped after loading");
         }
 
+        /// a budget directive's `BudgetDoesNotExist` names the budget, as a posting's does
+        #[test]
+        fn should_name_the_undefined_budget_of_a_budget_directive() {
+            let ledger = load(indoc! {r#"
+                2023-02-01 budget-add Travel 10 CNY
+                2023-02-02 budget-close Travel
+            "#});
+
+            let travel = BTreeMap::from([("budget_name".to_owned(), "Travel".to_owned())]);
+            assert_eq!(
+                errors(&ledger),
+                vec![
+                    (ErrorKind::BudgetDoesNotExist, "2023-02-01 budget-add Travel 10 CNY".to_owned(), travel.clone()),
+                    (ErrorKind::BudgetDoesNotExist, "2023-02-02 budget-close Travel".to_owned(), travel),
+                ]
+            );
+        }
+
         #[test]
         fn should_report_an_undefined_budget_once_per_account() {
             let ledger = load(indoc! {r#"

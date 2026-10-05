@@ -311,9 +311,12 @@ account, correct the date, or reopen the account with a new `open`.
 
 A commodity is used before a `commodity` directive defines it:
 
-- a transaction balances in it, as units, price or cost (the error has the transaction's `txn_id` meta);
-- an `open` lists it, or a `price` names it (the error has a `commodity_name` meta);
+- a transaction balances in it, as units, price or cost (the error also has the transaction's `txn_id` meta);
+- an `open` lists it, or a `price` names it;
 - a padding transaction of `balance … with pad` is in it.
+
+The error has a `commodity_name` meta naming the commodity. For a transaction with several undefined commodities, it
+is the first of them in alphabetical order.
 
 ```zhang
 2024-01-01 open Assets:Cash
@@ -415,8 +418,10 @@ A directive names a [budget](/reference/directives/budget/) that is not defined 
 
 - a `budget-add`, `budget-transfer` or `budget-close`. The directive is ignored.
 - a posting to an account linked to the budget with its `budget` metadata. It is reported once per account and
-  budget, with the `account_name` and `budget_name` metas; the posting is not counted toward the budget, and the
+  budget, and the error also has the `account_name` meta. The posting is not counted toward the budget, and the
   transaction is still booked.
+
+The error has a `budget_name` meta naming the budget.
 
 ```zhang
 2024-01-01 budget-add Travel 500 CNY
