@@ -9,6 +9,7 @@
 //! imports them instead of keeping copies.
 
 use std::collections::HashSet;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -728,17 +729,31 @@ pub fn note_body(date: Date, i: &str) -> IResult<&str, Directive> {
     ))
 }
 
-/// `space+ account space+ number (space+ "~" space* number)? space+ commodity`, the account, amount and tolerance of a
-/// `balance` in both formats
+/// `space+ account space+ balance_amount`, the account, amount and tolerance of a `balance` in both formats
 pub fn balance_assertion(i: &str) -> IResult<&str, (Account, Amount, Option<BigDecimal>)> {
     let (i, _) = space1(i)?;
     let (i, account) = account_name(i)?;
     let (i, _) = space1(i)?;
+    let (i, (amount, tolerance)) = balance_amount(i)?;
+    Ok((i, (account, amount, tolerance)))
+}
+
+/// `balance_amount = number (space+ "~" space* number)? space+ commodity`, the amount and tolerance of a `balance`
+fn balance_amount(i: &str) -> IResult<&str, (Amount, Option<BigDecimal>)> {
     let (i, amount) = number_expr(i)?;
     let (i, tolerance) = opt(preceded(tuple((space1, char('~'), space0)), number_expr))(i)?;
     let (i, _) = space1(i)?;
     let (i, commodity) = commodity_name(i)?;
-    Ok((i, (account, Amount::new(amount, commodity), tolerance)))
+    Ok((i, (Amount::new(amount, commodity), tolerance)))
+}
+
+/// The place in `text`, a `balance` as written in zhang or beancount syntax, of its amount: from its number to its
+/// commodity, with any tolerance (`~`) in between ([`balance_amount`]). `None` when `text` does not start with a
+/// `balance`.
+pub fn balance_amount_span(text: &str) -> Option<Range<usize>> {
+    let (amount, _) = tuple((ZhangText::date, space1, tag("balance"), space1, account_name, space1))(text).ok()?;
+    let (rest, _) = balance_amount(amount).ok()?;
+    Some(offset(text, amount)..offset(text, rest))
 }
 
 fn balance_body(date: Date, i: &str) -> IResult<&str, Directive> {
@@ -2165,6 +2180,32 @@ mod test {
             }
             assert_eq!(transaction_header_len("2024-01-15 balance Assets:Cash 5 CNY"), None);
             assert_eq!(transaction_header_len("2024-01-15 balance Assets:Cash 5 CNY\n"), None);
+        }
+
+        /// The amount of a `balance` is its number to its commodity, a tolerance in between, as the grammar reads it:
+        /// a comment glued to the commodity is not part of it
+        #[test]
+        fn balance_amount_span_is_the_number_to_the_commodity() {
+            use crate::data_type::text::parser::balance_amount_span;
+
+            for (text, amount) in [
+                ("2024-01-15 balance Assets:Cash 5 CNY", "5 CNY"),
+                ("2024-01-15 balance Assets:Cash   -5.20  CNY ; a comment", "-5.20  CNY"),
+                ("2024-01-15 balance Assets:Cash 5 ~ 0.01 CNY", "5 ~ 0.01 CNY"),
+                ("2024-01-15 balance Assets:Cash 5 ~0.01 CNY;glued", "5 ~0.01 CNY"),
+                ("2024-01-15 balance Assets:Cash 5 CNY\n  statement: \"a.pdf\"\n", "5 CNY"),
+                ("2024-01-15 10:30:00 balance Assets:Cash 5 CNY with pad Equity:Open", "5 CNY"),
+            ] {
+                let span = balance_amount_span(text).unwrap_or_else(|| panic!("{text:?}"));
+                assert_eq!(&text[span], amount, "{text:?}");
+            }
+            for text in [
+                "2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n",
+                "2024-01-15 pad Assets:Cash Equity:Open",
+                "balance Assets:Cash 5 CNY",
+            ] {
+                assert_eq!(balance_amount_span(text), None, "{text:?}");
+            }
         }
 
         /// A metadata line belongs to the posting before it only when it is indented

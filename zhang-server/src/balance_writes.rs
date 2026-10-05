@@ -36,6 +36,8 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Flag, Posting, SpanInfo, Spanned, Transaction, ZhangString};
 use zhang_core::data_source::loaded_file;
+use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
+use zhang_core::data_type::text::parser::balance_amount_span;
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
 use zhang_core::pipeline::{serving_pads, AccountUse};
@@ -124,39 +126,12 @@ impl BalanceWrites {
 }
 
 /// `text`, a `balance` as written, asserting exactly the amount of `balance` instead: its amount, from the number to
-/// the commodity, with any tolerance (`~`) in between, is the new one, and its comment and metadata stay as written.
-/// `None` when the commodity is not a word of its own
+/// the commodity, with any tolerance (`~`) in between ([`balance_amount_span`]), is the new one as the exporter writes
+/// it, and its comment and metadata stay as written. `None` when `text` is not a `balance`
 fn with_amount_of(text: &str, balance: &Directive) -> Option<String> {
     let Directive::BalanceCheck(balance) = balance else { return None };
-    let line = text.lines().next()?;
-    // the places of the words of the line, up to its comment
-    let mut words = vec![];
-    let mut start = None;
-    for (at, character) in line.char_indices().chain(std::iter::once((line.len(), ' '))) {
-        match (character.is_whitespace(), start) {
-            (false, None) if character == ';' => break,
-            (false, None) => start = Some(at),
-            (true, Some(from)) => {
-                words.push((from, at));
-                start = None;
-            }
-            _ => {}
-        }
-    }
-    // the date, `balance`, the account, then the amount: a number, a tolerance maybe, and the commodity
-    let &(keyword_start, keyword_end) = words.get(1)?;
-    if &line[keyword_start..keyword_end] != "balance" {
-        return None;
-    }
-    let &(amount_start, _) = words.get(3)?;
-    let &(_, amount_end) = words.iter().skip(4).find(|(from, to)| line[*from..*to] == balance.amount.commodity)?;
-    Some(format!(
-        "{}{} {}{}",
-        &text[..amount_start],
-        plain_decimal(&balance.amount.number),
-        balance.amount.commodity,
-        &text[amount_end..]
-    ))
+    let amount = balance_amount_span(text)?;
+    Some(format!("{}{}{}", &text[..amount.start], balance.amount.clone().export(), &text[amount.end..]))
 }
 
 /// What `rows` write to `ledger`, made `now`.
@@ -440,4 +415,39 @@ fn held_units(ledger: &Ledger, account: &str, commodity: &str, day: NaiveDate) -
         .transpose()?
         .flatten()
         .unwrap_or_default())
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use bigdecimal::BigDecimal;
+    use chrono::NaiveDate;
+    use zhang_ast::amount::Amount;
+    use zhang_ast::{Account, Date};
+
+    use super::{check, with_amount_of};
+
+    /// A balance replaced in its place asserts the new amount, its tolerance dropped, and keeps its comment and
+    /// metadata as written, also a comment glued to its commodity, which the grammar reads as a comment
+    #[test]
+    fn a_balance_replaced_in_its_place_keeps_its_comment_and_metadata() {
+        let day = Date::Date(NaiveDate::from_ymd_opt(2024, 1, 16).unwrap());
+        let balance = check(day, Account::from_str("Assets:A").unwrap(), Amount::new(BigDecimal::from(61), "CNY"));
+        for (written, replaced) in [
+            ("2024-01-16 balance Assets:A 60 CNY", "2024-01-16 balance Assets:A 61 CNY"),
+            (
+                "2024-01-16 balance Assets:A 60 ~ 0.01 CNY ; a comment",
+                "2024-01-16 balance Assets:A 61 CNY ; a comment",
+            ),
+            ("2024-01-16 balance Assets:A 60 CNY;glued", "2024-01-16 balance Assets:A 61 CNY;glued"),
+            (
+                "2024-01-16  balance  Assets:A  60.00 CNY\n  statement: \"a.pdf\"",
+                "2024-01-16  balance  Assets:A  61 CNY\n  statement: \"a.pdf\"",
+            ),
+        ] {
+            assert_eq!(with_amount_of(written, &balance).as_deref(), Some(replaced), "{written:?}");
+        }
+        assert_eq!(with_amount_of("2024-01-16 pad Assets:A Equity:Open", &balance), None);
+    }
 }
