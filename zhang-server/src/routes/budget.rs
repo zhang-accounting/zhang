@@ -151,6 +151,7 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
                     _ => BudgetEventType::Transfer,
                 };
                 Ok(BudgetIntervalEventEntity::BudgetEvent(BudgetEventEntity {
+                    datetime: row.datetime("date", "time")?.unwrap_or_default(),
                     timestamp: row.int("timestamp")?.unwrap_or_default(),
                     amount: row.amount("amount")?.unwrap_or_else(|| Amount::zero("")),
                     event_type,

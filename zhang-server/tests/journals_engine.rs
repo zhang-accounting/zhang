@@ -592,8 +592,14 @@ async fn tags_and_links_keep_their_written_order_through_a_save() {
 async fn the_new_transaction_form_suggests_sorted_payees_without_pads_and_open_accounts() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
     let ledger = scratch.ledger().await;
-    let (status, body) = respond(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
+    let (status, mut body) = respond(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
     assert_eq!(status, StatusCode::OK);
+    // the ledger's time now, by the system clock here
+    let now = body["data"].as_object_mut().unwrap().remove("now").unwrap();
+    assert!(
+        chrono::NaiveDateTime::parse_from_str(now.as_str().unwrap(), "%Y-%m-%dT%H:%M:%S").is_ok(),
+        "{now}"
+    );
     assert_eq!(
         body["data"],
         json!({
