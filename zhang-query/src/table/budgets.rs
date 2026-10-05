@@ -104,7 +104,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
 use super::directives::date_of;
-use super::postings::{MaybeOwned, Row};
+use super::postings::{time_value, MaybeOwned, Row};
 use super::{ledger_file, ColumnDef, Dataset, Generation, LedgerCache, Limits, Record, Rows, Table};
 use crate::error::{LocatedError, QueryErrorKind};
 use crate::prices::PriceMap;
@@ -841,9 +841,9 @@ static DEFINITION_COLUMNS: &[ColumnDef] = &[
                 .and_then(|it| it.close)
                 .and_then(|close| match close {
                     Date::Date(_) => None,
-                    Date::DateHour(datetime) | Date::Datetime(datetime) => Some(datetime.time().format("%H:%M:%S").to_string()),
+                    Date::DateHour(datetime) | Date::Datetime(datetime) => Some(time_value(datetime.time())),
                 })
-                .map_or(Value::Null, Value::Str)
+                .unwrap_or(Value::Null)
         },
     ),
 ];
@@ -873,7 +873,7 @@ static EVENT_COLUMNS: &[ColumnDef] = &[
         "time",
         DataType::Str,
         "Time of day of the budget directive in the ledger's timezone, as HH:MM:SS; 00:00:00 without a time.",
-        |_, record| budget_event(record).map_or(Value::Null, |it| Value::Str(it.time.format("%H:%M:%S").to_string())),
+        |_, record| budget_event(record).map_or(Value::Null, |it| time_value(it.time)),
     ),
     ColumnDef::record(
         "timestamp",
