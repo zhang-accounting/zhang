@@ -256,6 +256,31 @@ include "accounts/2024.zhang"
 
 [主货币](/zh-cn/reference/directives/options/#operating_currency)由它的选项定义，所以没有这个选项的账本可以不写 `commodity` 指令就使用 `CNY`。**修正方法**：在首次使用之日或之前添加一条 `commodity` 指令。同一日期内，把它写在列出它的 `open` 上方。
 
+## CommodityNotAllowed
+
+*货币 `<commodity>` 不允许用于账户 `<account>`：该账户的 open 指令限定了其它货币*
+
+账户开立时列出了商品，而有东西把另一种商品放了进去。与 Beancount 一样，这样的 [`open`](/zh-cn/reference/directives/account/#商品) 把账户限定在它列出的商品之内。错误会报告在：
+
+- 数量属于另一种商品的记账行上。只看数量：记账行的成本和价格不检查，列出 `AAPL` 的账户可以买入 `AAPL {90 EUR}`。省略金额的记账行，按张记账为它推断出的商品检查；
+- 断言另一种商品的 [`balance`](/zh-cn/reference/directives/balance/) 上，断言零也一样；
+- [`pad`](/zh-cn/reference/directives/balance/) 的补齐交易记入另一种商品时，报告在这条 `pad` 上，其两个账户中每个没有列出该商品的账户各报告一次。`balance … with pad` 是一条指令：它的账户只报告一次，断言和补齐都算在内；补齐来源账户没有列出该商品时，再为它报告一次。
+
+错误带有 `account_name` 和 `commodity` 元数据，每个写下的记账行各报告一次。没有列出商品的 `open` 允许任何商品，限制只针对账户本身，子账户不受限制。账户被重新开立时，以该指令之前最近一次 `open` 的商品为准。
+
+```zhang
+2024-01-01 commodity USD
+2024-01-01 commodity EUR
+2024-01-01 open Assets:Bank USD
+2024-01-01 open Equity:Opening
+
+2024-01-10 * "Deposit in the wrong currency"
+  Assets:Bank 100 EUR
+  Equity:Opening -100 EUR
+```
+
+账本仍会加载，交易仍按写下的内容记账。**修正方法**：用 `open` 列出的商品记账，或者把这种商品加进 `open`：`2024-01-01 open Assets:Bank USD, EUR`。不写列表则允许任何商品。
+
 ## NoEnoughCommodityLot
 
 *没有足够的货币批次用于记账*

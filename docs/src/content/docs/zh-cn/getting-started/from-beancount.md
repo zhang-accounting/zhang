@@ -137,7 +137,7 @@ Beancount 允许 `balance` 在差额不超过某个容差时通过，这个容�
 #### 其他检查
 
 - 关闭仍有余额的账户会被报告为错误。Beancount 允许这样做。
-- 使用账户 `open` 中未列出的商品的记账行不会被报告。Beancount 会报告它们。
+- 商品不在账户 `open` 列表中的记账行或余额断言，与 Beancount 一样会被报告为 [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed)，但每个写下的记账行只报告一次：对按多个批次记账的卖出，Beancount 每个批次报告一次。
 - 账户名必须以 `Assets`、`Liabilities`、`Equity`、`Income` 或 `Expenses` 开头。Beancount 中用来重命名它们的 `name_assets`… 等选项不会被读取。
 - 在带引号的字符串中，不构成转义的反斜杠会被保留：`"\d"` 仍是 `\d`，而 Beancount 会丢掉这个反斜杠。
 

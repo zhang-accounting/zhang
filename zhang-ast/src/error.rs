@@ -32,6 +32,9 @@ pub enum ErrorKind {
     AccountClosed,
 
     CommodityDoesNotDefine,
+    /// a posting, balance assertion or padding in a commodity the account's `open` does not list. An `open` with
+    /// commodities restricts the account to them, as in beancount; metas `account_name` and `commodity`
+    CommodityNotAllowed,
     NoEnoughCommodityLot,
     CloseNonZeroAccount,
 

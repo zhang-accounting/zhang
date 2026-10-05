@@ -1,0 +1,74 @@
+{
+  "ledger": {
+    "accepted_deviation": null,
+    "errors": [
+      {
+        "account": "Assets:Bank",
+        "currency": "EUR",
+        "line": 42
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "EUR",
+        "line": 50
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "EUR",
+        "line": 12
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "EUR",
+        "line": 28
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "EUR",
+        "line": 28
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "EUR",
+        "line": 33
+      },
+      {
+        "account": "Equity:Opening",
+        "currency": "EUR",
+        "line": 46
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "EUR",
+        "line": 49
+      }
+    ],
+    "other_errors": []
+  },
+  "split_reduction": {
+    "accepted_deviation": "a posting is reported once as written: beancount reports a reduction booked against several lots once for each lot",
+    "errors": [
+      {
+        "account": "Assets:Bank",
+        "currency": "AAPL",
+        "line": 7
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "AAPL",
+        "line": 7
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "AAPL",
+        "line": 12
+      },
+      {
+        "account": "Assets:Bank",
+        "currency": "AAPL",
+        "line": 12
+      }
+    ],
+    "other_errors": []
+  }
+}
