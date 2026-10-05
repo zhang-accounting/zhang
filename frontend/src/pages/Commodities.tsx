@@ -3,8 +3,6 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { ChevronRight, Coins } from 'lucide-react';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
-import { optionValue, retrieveOptions } from '@/api/requests';
 import Amount from '@/components/Amount';
 import CommodityBox, { CommodityLatestPrice, CommoditySymbol, type CommodityBoxProps } from '@/components/CommodityBox';
 import { EmptyState, LoadFailedState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
@@ -14,6 +12,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { COMMODITIES_LINK } from '@/layout/nav-links';
 import { breadcrumbAtom, titleAtom } from '@/states/basic';
 import { commoditiesAtom, commoditiesFetcher, FRONTEND_DEFAULT_GROUP, groupedCommoditiesAtom } from '@/states/commodity';
+import { operatingCurrencyAtom } from '@/states/options';
 
 type CommodityRow = CommodityBoxProps;
 
@@ -29,7 +28,7 @@ export default function Commodities() {
   const commodities = useAtomValue(commoditiesAtom);
   const refreshCommodities = useSetAtom(commoditiesFetcher);
   const groupedCommodities = useAtomValue(groupedCommoditiesAtom);
-  const { value: operatingCurrency } = useAsync(async () => optionValue((await retrieveOptions({})).data.data, 'operating_currency'), []);
+  const operatingCurrency = useAtomValue(operatingCurrencyAtom);
 
   const groupNames = Object.keys(groupedCommodities).sort((a, b) =>
     a === FRONTEND_DEFAULT_GROUP ? -1 : b === FRONTEND_DEFAULT_GROUP ? 1 : a.localeCompare(b),

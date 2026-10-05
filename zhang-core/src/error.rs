@@ -8,8 +8,6 @@ use zhang_ast::SpanInfo;
 pub enum ZhangError {
     #[error("date is invalid")]
     InvalidDate,
-    #[error("account is invalid")]
-    InvalidAccount,
 
     #[error("option value is invalid")]
     InvalidOptionValue,

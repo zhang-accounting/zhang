@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { serverBaseUrl } from '@/api/fetcher';
-import { optionValue, retrieveOptions, retrievePlugins } from '@/api/requests';
+import { retrievePlugins } from '@/api/requests';
 import { PasskeySettings } from '@/components/auth/PasskeySettings';
 import { SettingRow, SettingsSection } from '@/components/basic/Setting';
 import { EmptyState, PageHeader, PageShell } from '@/components/layout';
@@ -22,7 +22,9 @@ import { THEMES } from '@/layout/themes';
 import { useReloadLedger } from '@/layout/use-reload-ledger';
 import { LANGUAGES } from '@/lib/languages';
 import { cn } from '@/lib/utils';
+import { loadable_unwrap } from '@/states';
 import { basicInfoAtom, breadcrumbAtom, titleAtom, updatableVersionAtom, versionAtom } from '@/states/basic';
+import { operatingCurrencyAtom, optionsAtom } from '@/states/options';
 
 const API_DOCS = [
   { label: 'OpenAPI JSON', path: '/openapi.json' },
@@ -37,10 +39,10 @@ export default function Settings() {
   const { theme, setTheme } = useTheme();
   const reloadLedger = useReloadLedger();
 
-  const { value: options, loading: optionsLoading } = useAsync(async () => {
-    const res = await retrieveOptions({});
-    return res.data.data;
-  }, []);
+  const optionsLoadable = useAtomValue(optionsAtom);
+  const optionsLoading = optionsLoadable.state === 'loading';
+  const options = loadable_unwrap(optionsLoadable, undefined, (data) => data);
+  const operatingCurrency = useAtomValue(operatingCurrencyAtom);
   const { value: plugins, loading: pluginsLoading } = useAsync(async () => {
     const res = await retrievePlugins({});
     return res.data.data;
@@ -51,7 +53,6 @@ export default function Settings() {
   const basicInfo = useAtomValue(basicInfoAtom);
   const updatableVersion = useAtomValue(updatableVersionAtom);
   const buildDate = basicInfo.state === 'hasData' ? basicInfo.data.build_date : undefined;
-  const operatingCurrency = optionValue(options, 'operating_currency');
 
   useDocumentTitle(`${t('settings.title')} - ${ledgerTitle}`);
   useEffect(() => {

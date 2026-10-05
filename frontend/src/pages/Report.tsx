@@ -146,12 +146,14 @@ export default function Report() {
           <Breakdown
             title={t('ledger.report.expense_breakdown')}
             data={expenses.value}
+            total={data?.expense.calculated}
             loading={!expenses.value && !expenses.error}
             action={openQuery('report.account_totals', { ...rangeOnly, type: 'Expenses' })}
           />
           <Breakdown
             title={t('ledger.report.income_breakdown')}
             data={income.value}
+            total={data?.income.calculated}
             loading={!income.value && !income.error}
             negative
             action={openQuery('report.account_totals', { ...rangeOnly, type: 'Income' })}
@@ -189,18 +191,22 @@ function NetFlow({ income, expense, commodity }: { income?: string; expense?: st
 }
 
 /**
- * Totals per account as horizontal bars (largest first), sized relative to the largest account. Bars use the cash-flow
- * chart colours: income (`negative`, stored as negative numbers) chart-1, expenses chart-2.
+ * Totals per account as horizontal bars (largest first), sized relative to the largest account, each with its share of the
+ * type's `total`. Bars use the cash-flow chart colours: income (`negative`, stored as negative numbers) chart-1, expenses
+ * chart-2.
  */
 function Breakdown({
   title,
   data,
+  total: typeTotal,
   loading,
   negative,
   action,
 }: {
   title: string;
   data?: AccountTypeStatistic;
+  /** The type's total in the range: the summary's figure, which the server values as it values the accounts' rows. */
+  total?: { number: string; commodity: string };
   loading: boolean;
   negative?: boolean;
   action?: ReactNode;
@@ -214,7 +220,7 @@ function Breakdown({
     }));
     return rows.filter((it) => !it.value.isZero()).sort((a, b) => b.value.comparedTo(a.value) ?? 0);
   }, [data, negative]);
-  const total = items.reduce((sum, it) => sum.plus(it.value), new BigNumber(0));
+  const total = typeTotal ? new BigNumber(typeTotal.number).multipliedBy(negative ? -1 : 1) : undefined;
   const largest = items[0]?.value.abs() ?? new BigNumber(1);
 
   return (
@@ -222,7 +228,7 @@ function Breakdown({
       title={title}
       rightSection={
         <>
-          {!total.isZero() && <Amount className="text-sm font-semibold" amount={total} currency={items[0]?.commodity ?? ''} />}
+          {typeTotal && total?.isZero() === false && <Amount className="text-sm font-semibold" amount={total} currency={typeTotal.commodity} />}
           {action}
         </>
       }
@@ -238,7 +244,8 @@ function Breakdown({
       ) : (
         <ul className="flex flex-col gap-3">
           {items.map((it) => {
-            const share = total.isZero() ? 0 : it.value.dividedBy(total).multipliedBy(100).toNumber();
+            // no share until the summary is back
+            const share = total === undefined ? null : total.isZero() ? 0 : it.value.dividedBy(total).multipliedBy(100).toNumber();
             return (
               <li key={it.account} className="flex flex-col gap-1">
                 <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -247,7 +254,7 @@ function Breakdown({
                   </span>
                   <span className="flex shrink-0 items-baseline gap-2">
                     <Amount amount={it.value} currency={it.commodity} />
-                    <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">{Math.round(share)}%</span>
+                    <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">{share === null ? '' : `${Math.round(share)}%`}</span>
                   </span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted">
