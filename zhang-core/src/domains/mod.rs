@@ -50,11 +50,11 @@ impl Operations {
         Ok(())
     }
 
-    /// insert new transaction
+    /// insert new transaction, folded from the directive with index `directive` in the ledger's directives
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction(
-        &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>,
-        links: Vec<String>, span: &SpanInfo,
+        &mut self, id: &Uuid, sequence: i32, directive: usize, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>,
+        tags: Vec<String>, links: Vec<String>, span: &SpanInfo,
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
@@ -63,6 +63,7 @@ impl Operations {
             TransactionDomain {
                 id: *id,
                 sequence,
+                directive,
                 datetime,
                 flag,
                 payee: payee.map(|it| it.to_owned()),
