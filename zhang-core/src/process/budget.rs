@@ -8,6 +8,7 @@ use zhang_ast::{Budget, BudgetAdd, BudgetClose, BudgetTransfer, Date, SpanInfo};
 use crate::domains::schemas::PriceDomain;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
+use crate::utils::hashmap::HashMapOfExt;
 use crate::ZhangResult;
 
 impl DirectiveProcess for Budget {
@@ -108,7 +109,9 @@ fn budget_exists(ledger: &mut Ledger, name: &str, span: &SpanInfo) -> ZhangResul
     if defined(ledger, name).is_some() {
         Ok(true)
     } else {
-        ledger.operations().new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::default())?;
+        ledger
+            .operations()
+            .new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::of("budget_name", name))?;
         Ok(false)
     }
 }

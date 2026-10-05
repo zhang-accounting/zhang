@@ -241,9 +241,11 @@ include "accounts/2024.zhang"
 
 在 `commodity` 指令定义某种商品之前就使用了它：
 
-- 交易以它配平，作为数量、价格或成本（错误带有交易的 `txn_id` 元数据）；
-- `open` 列出了它，或者 `price` 提到了它（错误带有 `commodity_name` 元数据）；
+- 交易以它配平，作为数量、价格或成本（错误还带有交易的 `txn_id` 元数据）；
+- `open` 列出了它，或者 `price` 提到了它；
 - `balance … with pad` 的补齐交易使用它。
+
+错误带有 `commodity_name` 元数据，指明这种商品。一笔交易有多种未定义的商品时，指明按字母顺序的第一种。
 
 ```zhang
 2024-01-01 open Assets:Cash
@@ -330,7 +332,9 @@ include "accounts/2024.zhang"
 指令指定的[预算](/zh-cn/reference/directives/budget/)在其日期未定义：
 
 - `budget-add`、`budget-transfer` 或 `budget-close`。这条指令会被忽略。
-- 记到通过 `budget` 元数据关联到该预算的账户的记账行。每个账户和预算报告一次，带有 `account_name` 和 `budget_name` 元数据；该记账行不计入预算，交易仍会记账。
+- 记到通过 `budget` 元数据关联到该预算的账户的记账行。每个账户和预算报告一次，错误还带有 `account_name` 元数据；该记账行不计入预算，交易仍会记账。
+
+错误带有 `budget_name` 元数据，指明这个预算。
 
 ```zhang
 2024-01-01 budget-add Travel 500 CNY
