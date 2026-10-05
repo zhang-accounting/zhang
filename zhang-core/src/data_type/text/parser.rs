@@ -61,35 +61,67 @@ pub fn blank_line(i: &str) -> IResult<&str, ()> {
     value((), pair(space0, line_ending))(i)
 }
 
-/// `comment_prefix = ";" | "#" | "//"`: the start of a comment in a zhang file. `*` is not one: it
-/// is a flag, of a transaction and, before an account, of a posting ([`posting_flag`]), and a line
-/// starting with `*` that is neither is an error, never a comment. The beancount parser has its own
-/// prefixes, `*` among them for the org-mode headings beancount ignores.
-fn comment_prefix(i: &str) -> IResult<&str, &str> {
-    alt((tag("//"), tag(";"), tag("#")))(i)
+/// The leaves of the grammar where a zhang file and a beancount file differ. The rest of the grammar is one, read with
+/// the leaves of the format: comments, metadata, postings and transactions. zhang's leaves are [`ZhangText`]; the
+/// beancount parser has its own.
+pub trait Leaves {
+    /// The start of a comment.
+    fn comment_prefix(i: &str) -> IResult<&str, &str>;
+    /// The flag of a posting, before its account, with the space after it.
+    fn posting_flag(i: &str) -> IResult<&str, Flag>;
+    /// The date of a directive, of a transaction and of a lot.
+    fn date(i: &str) -> IResult<&str, Date>;
+}
+
+/// The leaves of a zhang file.
+pub struct ZhangText;
+
+impl Leaves for ZhangText {
+    /// `comment_prefix = ";" | "#" | "//"`: the start of a comment in a zhang file. `*` is not one: it
+    /// is a flag, of a transaction and, before an account, of a posting, and a line starting with `*`
+    /// that is neither is an error, never a comment. The beancount parser has its own prefixes, `*`
+    /// among them for the org-mode headings beancount ignores.
+    fn comment_prefix(i: &str) -> IResult<&str, &str> {
+        alt((tag("//"), tag(";"), tag("#")))(i)
+    }
+
+    /// `posting_flag = ("*" | "!" | "&" | "?" | "%" | ASCII_ALPHA_UPPER) space+`: the flag of a
+    /// posting, before its account, such as the `!` of `! Assets:Cash -10 CNY`. Beancount takes no `txn`
+    /// there, and `#` starts a comment (see [`is_posting_flag_char`]). The space is required.
+    fn posting_flag(i: &str) -> IResult<&str, Flag> {
+        terminated(
+            map(satisfy(is_posting_flag_char), |c| Flag::from_str(&c.to_string()).expect("invalid flag")),
+            space1,
+        )(i)
+    }
+
+    /// `date = datetime | date_hour | date_only` — longest form first.
+    fn date(i: &str) -> IResult<&str, Date> {
+        alt((datetime, date_hour, date_only))(i)
+    }
 }
 
 /// An inline comment (prefix + rest of line), the whole of which is discarded.
-pub fn inline_comment(i: &str) -> IResult<&str, ()> {
-    value((), pair(comment_prefix, not_line_ending))(i)
+pub fn inline_comment<L: Leaves>(i: &str) -> IResult<&str, ()> {
+    value((), pair(L::comment_prefix, not_line_ending))(i)
 }
 
 /// Trailing `space* comment?` allowed after a single-line directive.
-pub fn line_trailer(i: &str) -> IResult<&str, ()> {
-    value((), pair(space0, opt(inline_comment)))(i)
+pub fn line_trailer<L: Leaves>(i: &str) -> IResult<&str, ()> {
+    value((), pair(space0, opt(inline_comment::<L>)))(i)
 }
 
 /// `valuable_comment = space* comment_prefix space* comment_value`, returning the
 /// comment body (`comment_value`).
-pub fn valuable_comment(i: &str) -> IResult<&str, String> {
+pub fn valuable_comment<L: Leaves>(i: &str) -> IResult<&str, String> {
     let (i, _) = space0(i)?;
-    valuable_comment_body(i)
+    valuable_comment_body::<L>(i)
 }
 
 /// The `comment_prefix space* comment_value` portion, assuming any leading spaces
 /// are already consumed.
-pub fn valuable_comment_body(i: &str) -> IResult<&str, String> {
-    let (i, _) = comment_prefix(i)?;
+pub fn valuable_comment_body<L: Leaves>(i: &str) -> IResult<&str, String> {
+    let (i, _) = L::comment_prefix(i)?;
     let (i, _) = space0(i)?;
     let (i, body) = not_line_ending(i)?;
     Ok((i, body.to_string()))
@@ -161,7 +193,7 @@ fn date_only_raw(i: &str) -> IResult<&str, &str> {
     )))(i)
 }
 
-fn date_only(i: &str) -> IResult<&str, Date> {
+pub fn date_only(i: &str) -> IResult<&str, Date> {
     map_res(date_only_raw, |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(Date::Date))(i)
 }
 
@@ -191,11 +223,6 @@ fn date_hour(i: &str) -> IResult<&str, Date> {
         ))),
         |s: &str| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").map(Date::DateHour),
     )(i)
-}
-
-/// `date = datetime | date_hour | date_only` — longest form first.
-fn parse_date(i: &str) -> IResult<&str, Date> {
-    alt((datetime, date_hour, date_only))(i)
 }
 
 // ---------------------------------------------------------------------------
@@ -355,21 +382,19 @@ fn cost_amount(i: &str) -> IResult<&str, CostComponent> {
 }
 
 /// `cost_component = date | cost_amount | string | "*"`: one `,`-separated component of a cost
-/// spec, read with `date` as the date grammar of the format. A date comes first: its digits would
-/// otherwise read as an arithmetic expression.
-fn cost_component(date: fn(&str) -> IResult<&str, Date>) -> impl FnMut(&str) -> IResult<&str, CostComponent> {
-    move |i| {
-        alt((
-            map(date, CostComponent::Date),
-            cost_amount,
-            map(quote_string, |label| CostComponent::Label(label.to_plain_string())),
-            map(char('*'), |_| CostComponent::Merge),
-        ))(i)
-    }
+/// spec, read with the dates of the format. A date comes first: its digits would otherwise read as
+/// an arithmetic expression.
+fn cost_component<L: Leaves>(i: &str) -> IResult<&str, CostComponent> {
+    alt((
+        map(L::date, CostComponent::Date),
+        cost_amount,
+        map(quote_string, |label| CostComponent::Label(label.to_plain_string())),
+        map(char('*'), |_| CostComponent::Merge),
+    ))(i)
 }
 
 /// `posting_cost = "{" cost_component? ("," cost_component)* "}" | "{{" ... "}}"`: the cost spec
-/// of a posting, read with `date` as the date grammar of the format. Its components come in any
+/// of a posting, read with the dates of the format. Its components come in any
 /// order, as in beancount: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot
 /// booking finds, `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of the
 /// lot, `{2024-01-15}` or `{"lot"}` alone (also written `{, "lot"}`), the compound cost
@@ -379,12 +404,12 @@ fn cost_component(date: fn(&str) -> IResult<&str, Date>) -> impl FnMut(&str) -> 
 /// (`{100 USD, 200 USD}`) does not read: beancount reports it and keeps the first, and silently
 /// taking either would change what the lot costs. Nor does a compound cost in total braces
 /// (`{{100 # 5 USD}}`), which beancount reads with an error, dropping the per-unit part.
-pub fn posting_cost_with_date(i: &str, date: fn(&str) -> IResult<&str, Date>) -> IResult<&str, PostingCost> {
+pub fn posting_cost<L: Leaves>(i: &str) -> IResult<&str, PostingCost> {
     // `{{ }}` is a total cost, `{ }` is a per-unit cost.
     let (i, total) = alt((value(true, tag("{{")), value(false, char('{'))))(i)?;
     let (i, _) = space0(i)?;
-    let (i, first) = opt(cost_component(date))(i)?;
-    let (i, rest) = many0(preceded(tuple((space0, char(','), space0)), cost_component(date)))(i)?;
+    let (i, first) = opt(cost_component::<L>)(i)?;
+    let (i, rest) = many0(preceded(tuple((space0, char(','), space0)), cost_component::<L>))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = if total { value((), tag("}}"))(i)? } else { value((), char('}'))(i)? };
 
@@ -412,11 +437,6 @@ pub fn posting_cost_with_date(i: &str, date: fn(&str) -> IResult<&str, Date>) ->
     Ok((i, cost))
 }
 
-/// The cost spec of a posting in a zhang file ([`posting_cost_with_date`] with zhang's dates).
-pub fn posting_cost(i: &str) -> IResult<&str, PostingCost> {
-    posting_cost_with_date(i, parse_date)
-}
-
 /// `posting_price = "@@" ... | "@" ...`
 pub fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
     alt((
@@ -428,17 +448,17 @@ pub fn posting_price(i: &str) -> IResult<&str, SingleTotalPrice> {
 pub type PostingMeta = (Option<PostingCost>, Option<SingleTotalPrice>);
 
 /// `posting_meta = ("{" ... "}")? space* posting_price?`
-fn posting_meta(i: &str) -> IResult<&str, PostingMeta> {
-    let (i, cost) = opt(preceded(space0, posting_cost))(i)?;
+fn posting_meta<L: Leaves>(i: &str) -> IResult<&str, PostingMeta> {
+    let (i, cost) = opt(preceded(space0, posting_cost::<L>))(i)?;
     let (i, _) = space0(i)?;
     let (i, price) = opt(posting_price)(i)?;
     Ok((i, (cost, price)))
 }
 
 /// `posting_unit = posting_amount? posting_meta`
-fn posting_unit(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)> {
+fn posting_unit<L: Leaves>(i: &str) -> IResult<&str, (Option<Amount>, Option<PostingMeta>)> {
     let (i, amount) = opt(posting_amount)(i)?;
-    let (i, meta) = posting_meta(i)?;
+    let (i, meta) = posting_meta::<L>(i)?;
     Ok((i, (amount, Some(meta))))
 }
 
@@ -475,21 +495,11 @@ pub fn transaction_flag(i: &str) -> IResult<&str, Flag> {
     preceded(space1, flag)(i)
 }
 
-/// `posting_flag = ("*" | "!" | "&" | "?" | "%" | ASCII_ALPHA_UPPER) space+`: the flag of a
-/// posting, before its account, such as the `!` of `! Assets:Cash -10 CNY`. Beancount takes no `txn`
-/// there, and `#` starts a comment (see [`is_posting_flag_char`]). The space is required.
-fn posting_flag(i: &str) -> IResult<&str, Flag> {
-    terminated(
-        map(satisfy(is_posting_flag_char), |c| Flag::from_str(&c.to_string()).expect("invalid flag")),
-        space1,
-    )(i)
-}
-
 /// `transaction_posting = posting_flag? account_name (space+ posting_unit)?`
-fn transaction_posting(i: &str) -> IResult<&str, Posting> {
-    let (i, flag) = opt(posting_flag)(i)?;
+fn transaction_posting<L: Leaves>(i: &str) -> IResult<&str, Posting> {
+    let (i, flag) = opt(L::posting_flag)(i)?;
     let (i, account) = account_name(i)?;
-    let (i, unit) = opt(preceded(space1, posting_unit))(i)?;
+    let (i, unit) = opt(preceded(space1, posting_unit::<L>))(i)?;
 
     let mut posting = Posting {
         flag,
@@ -528,15 +538,15 @@ pub fn indentation_width(indent: &str) -> usize {
 
 /// A single indented line inside a transaction: a posting, a metadata pair, or an
 /// (ignored) comment / blank line, with the width of its indentation.
-fn transaction_line(i: &str) -> IResult<&str, (usize, TransactionLine)> {
+fn transaction_line<L: Leaves>(i: &str) -> IResult<&str, (usize, TransactionLine)> {
     let (i, _) = line_ending(i)?;
     let (i, indent) = space1(i)?;
     let (i, content) = opt(alt((
-        map(transaction_posting, |posting| TransactionLine::Posting(Box::new(posting))),
+        map(transaction_posting::<L>, |posting| TransactionLine::Posting(Box::new(posting))),
         map(key_value_line, TransactionLine::Meta),
     )))(i)?;
     let (i, _) = space0(i)?;
-    let (i, comment) = opt(valuable_comment_body)(i)?;
+    let (i, comment) = opt(valuable_comment_body::<L>)(i)?;
 
     let line = match (content, comment) {
         (Some(TransactionLine::Posting(posting)), Some(comment)) => TransactionLine::Posting(Box::new(posting.set_comment(comment))),
@@ -546,9 +556,12 @@ fn transaction_line(i: &str) -> IResult<&str, (usize, TransactionLine)> {
     Ok((i, (indentation_width(indent), line)))
 }
 
+/// The lines of a transaction, each with the width of its indentation.
+pub type TransactionLines = Vec<(usize, TransactionLine)>;
+
 /// `transaction_lines = transaction_line+`
-fn transaction_lines(i: &str) -> IResult<&str, Vec<(usize, TransactionLine)>> {
-    many1(transaction_line)(i)
+fn transaction_lines<L: Leaves>(i: &str) -> IResult<&str, TransactionLines> {
+    many1(transaction_line::<L>)(i)
 }
 
 /// A tag (`#name`) or link (`^name`) preceded by optional whitespace. The bool is
@@ -599,7 +612,7 @@ pub fn tag_and_link_sets(i: &str) -> IResult<&str, TagAndLinkSets> {
 /// grammar reads bare reads back as a key in either format. In a zhang file `*path: "x"` is then
 /// neither metadata nor a comment, and an error.
 pub fn meta_key(i: &str) -> IResult<&str, &str> {
-    verify(unquote_string_raw, |key: &str| comment_prefix(key).is_err() && !key.starts_with('*'))(i)
+    verify(unquote_string_raw, |key: &str| ZhangText::comment_prefix(key).is_err() && !key.starts_with('*'))(i)
 }
 
 /// Where a bare metadata value may end: the end of the input or of the line, whitespace, or a
@@ -643,18 +656,21 @@ pub fn key_value_line(i: &str) -> IResult<&str, (String, ZhangString)> {
 }
 
 /// A single indented metadata line following a directive.
-fn meta_line(i: &str) -> IResult<&str, (String, ZhangString)> {
+fn meta_line<L: Leaves>(i: &str) -> IResult<&str, (String, ZhangString)> {
     let (i, _) = line_ending(i)?;
     let (i, _) = space1(i)?;
     let (i, pair) = key_value_line(i)?;
     let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
+    let (i, _) = opt(inline_comment::<L>)(i)?;
     Ok((i, pair))
 }
 
+/// `space* comment? metas?` after the head of a directive: the rest of its line, then its metadata,
 /// `metas = (line space+ key_value_line comment?)+`
-pub fn metas_block(i: &str) -> IResult<&str, Meta> {
-    map(many1(meta_line), |pairs| pairs.into_iter().collect())(i)
+pub fn directive_metas<L: Leaves>(i: &str) -> IResult<&str, Option<Meta>> {
+    let (i, _) = space0(i)?;
+    let (i, _) = opt(inline_comment::<L>)(i)?;
+    opt(map(many1(meta_line::<L>), |pairs| pairs.into_iter().collect()))(i)
 }
 
 // ---------------------------------------------------------------------------
@@ -937,7 +953,7 @@ fn budget_close_body(date: Date, i: &str) -> IResult<&str, Directive> {
 /// keyword. Fails (so the caller can try a transaction) when the keyword after the
 /// date is unknown.
 fn dated_directive(original: &str) -> IResult<&str, Directive> {
-    let (i, date) = terminated(parse_date, space1)(original)?;
+    let (i, date) = terminated(ZhangText::date, space1)(original)?;
     let (rest, keyword) = take_while1(|c: char| c.is_ascii_lowercase() || c == '-')(i)?;
     match keyword {
         "open" => open_body(date, rest),
@@ -997,9 +1013,7 @@ pub fn include_directive(i: &str) -> IResult<&str, Directive> {
 /// and metadata block.
 fn metable_item(i: &str) -> IResult<&str, Directive> {
     let (i, directive) = alt((plugin_directive, dated_directive))(i)?;
-    let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
-    let (i, metas) = opt(metas_block)(i)?;
+    let (i, metas) = directive_metas::<ZhangText>(i)?;
     let directive = match metas {
         Some(meta) => directive.set_meta(meta),
         None => directive,
@@ -1007,15 +1021,16 @@ fn metable_item(i: &str) -> IResult<&str, Directive> {
     Ok((i, directive))
 }
 
-/// `transaction = date flag? ("payee"? "narration"?) tags_or_links? comment? transaction_lines`
-fn transaction(original: &str) -> IResult<&str, Directive> {
-    let (i, date) = parse_date(original)?;
+/// `transaction = date flag? ("payee"? "narration"?) tags_or_links? comment? transaction_lines`: a transaction without
+/// its postings and metadata, and its lines, which each format gives to the transaction and its postings by its rule
+pub fn transaction_head<L: Leaves>(original: &str) -> IResult<&str, (Transaction, TransactionLines)> {
+    let (i, date) = L::date(original)?;
     let (i, flag) = opt(transaction_flag)(i)?;
     let (i, strings) = many_m_n(0, 2, preceded(space1, quote_string))(i)?;
     let (i, (tags, links)) = tags_or_links(i)?;
     let (i, _) = space0(i)?;
-    let (i, _) = opt(inline_comment)(i)?;
-    let (i, lines) = transaction_lines(i)?;
+    let (i, _) = opt(inline_comment::<L>)(i)?;
+    let (i, lines) = transaction_lines::<L>(i)?;
 
     // A transaction must carry at least a flag or a quoted string, otherwise the
     // line is not a transaction at all.
@@ -1032,7 +1047,7 @@ fn transaction(original: &str) -> IResult<&str, Directive> {
         _ => (None, None),
     };
 
-    let mut transaction = Transaction {
+    let transaction = Transaction {
         date,
         flag,
         payee,
@@ -1042,6 +1057,12 @@ fn transaction(original: &str) -> IResult<&str, Directive> {
         postings: Vec::new(),
         meta: Meta::default(),
     };
+    Ok((i, (transaction, lines)))
+}
+
+/// A transaction of a zhang file ([`transaction_head`]).
+fn transaction(original: &str) -> IResult<&str, Directive> {
+    let (i, (mut transaction, lines)) = transaction_head::<ZhangText>(original)?;
     // A metadata line belongs to the posting before it only when it is indented deeper
     // than that posting's line, and to the transaction otherwise, wherever it is: zhang
     // wrote transaction metadata after the postings, at their indentation, until #457.
@@ -1066,9 +1087,9 @@ fn transaction(original: &str) -> IResult<&str, Directive> {
 /// (currently only impossible-to-reach empty lines, kept for completeness).
 fn content_item(i: &str) -> IResult<&str, Option<Directive>> {
     alt((
-        map(terminated(option_directive, line_trailer), Some),
-        map(terminated(include_directive, line_trailer), Some),
-        map(valuable_comment, |content| Some(Directive::Comment(Comment { content }))),
+        map(terminated(option_directive, line_trailer::<ZhangText>), Some),
+        map(terminated(include_directive, line_trailer::<ZhangText>), Some),
+        map(valuable_comment::<ZhangText>, |content| Some(Directive::Comment(Comment { content }))),
         map(metable_item, Some),
         map(transaction, Some),
     ))(i)
@@ -1095,7 +1116,7 @@ fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> IResult<&'a str, O>, text
 /// a cost as text (the server's transaction edit) writes exactly what the ledger reads back, or
 /// nothing.
 pub fn read_posting_cost(text: &str) -> Option<PostingCost> {
-    match posting_cost(text) {
+    match posting_cost::<ZhangText>(text) {
         Ok(("", cost)) => Some(cost),
         _ => None,
     }
@@ -1171,12 +1192,12 @@ pub fn is_valid_transaction_flag(flag: &str) -> bool {
 /// a transaction header followed by a line ending, such as a one-line `balance`.
 pub fn transaction_header_len(text: &str) -> Option<usize> {
     let header = tuple((
-        parse_date,
+        ZhangText::date,
         opt(transaction_flag),
         many_m_n(0, 2, preceded(space1, quote_string)),
         tags_or_links,
         space0,
-        opt(inline_comment),
+        opt(inline_comment::<ZhangText>),
     ));
     let (rest, _) = terminated(header, peek(line_ending))(text).ok()?;
     Some(offset(text, rest))
@@ -1196,7 +1217,7 @@ pub fn transaction_has_unexported_text(text: &str) -> bool {
     };
     // the header without its comment; what the comment-less grammar leaves of the header is the comment
     let mut structured = tuple((
-        parse_date,
+        ZhangText::date,
         opt(transaction_flag),
         many_m_n(0, 2, preceded(space1, quote_string)),
         tags_or_links,
@@ -1217,12 +1238,12 @@ pub fn transaction_has_unexported_text(text: &str) -> bool {
 /// Whether `line`, an indented line of a transaction, is written back by the exporter: a posting line, with or
 /// without its comment, or a metadata line without one.
 fn transaction_line_is_written_back(line: &str) -> bool {
-    let mut content = preceded(space1, alt((map(transaction_posting, |_| true), map(key_value_line, |_| false))));
+    let mut content = preceded(space1, alt((map(transaction_posting::<ZhangText>, |_| true), map(key_value_line, |_| false))));
     let Ok((rest, is_posting)) = content(line) else {
         return false;
     };
     let rest = rest.trim_start_matches([' ', '\t']);
-    rest.is_empty() || (is_posting && matches!(valuable_comment_body(rest), Ok(("", _))))
+    rest.is_empty() || (is_posting && matches!(valuable_comment_body::<ZhangText>(rest), Ok(("", _))))
 }
 
 fn error_at(original: &str, rest: &str, message: &str) -> ParseError {
