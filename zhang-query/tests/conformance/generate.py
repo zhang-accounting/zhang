@@ -1090,6 +1090,20 @@ CASES = [
           notes="The scale of a decimal literal is part of the aggregate: the two maxima are the same number, with one "
                 "and two more decimal places, so they are not the same aggregate. str() shows the scale, which the "
                 "harness otherwise ignores when it compares numbers."),
+    case4("date", "date_text_compared_with_a_date",
+          "SELECT date, position WHERE account = 'Expenses:Home:Rent' AND (date = '2016-1-6' OR date = '2016-02- 3' "
+          "OR (date >= '2016-3-6' AND date < '2016-4-5')) ORDER BY date",
+          ordered=True,
+          oracle_query="SELECT date, position WHERE account = 'Expenses:Home:Rent' AND (date = date('2016-1-6') "
+                       "OR date = date('2016-02- 3') OR (date >= date('2016-3-6') AND date < date('2016-4-5'))) "
+                       "ORDER BY date",
+          notes="DELIBERATE DEVIATION FROM THE ORACLE: zhang reads a string compared with a date as a date, by the "
+                "rule of date(text) (beanquery 0.2.0 rejects the comparison). The expected rows were generated "
+                "from the same query with each string wrapped in date()."),
+    case4("error", "error_date_text_that_date_does_not_read",
+          "SELECT date WHERE account = 'Expenses:Home:Rent' AND date = ' 2016-01-06'", expect="error",
+          notes="date(' 2016-01-06') is NULL (strptime takes no leading space), so the string is no date and the "
+                "comparison is an error, in zhang as in beanquery."),
 ]
 
 

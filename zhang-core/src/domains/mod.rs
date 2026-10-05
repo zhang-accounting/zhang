@@ -50,11 +50,11 @@ impl Operations {
         Ok(())
     }
 
-    /// insert new transaction
+    /// insert new transaction, folded from the directive with index `directive` in the ledger's directives
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction(
-        &mut self, id: &Uuid, sequence: i32, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>, tags: Vec<String>,
-        links: Vec<String>, span: &SpanInfo,
+        &mut self, id: &Uuid, sequence: i32, directive: usize, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>,
+        tags: Vec<String>, links: Vec<String>, span: &SpanInfo,
     ) -> ZhangResult<()> {
         let mut store = self.write();
 
@@ -63,6 +63,7 @@ impl Operations {
             TransactionDomain {
                 id: *id,
                 sequence,
+                directive,
                 datetime,
                 flag,
                 payee: payee.map(|it| it.to_owned()),
@@ -80,7 +81,7 @@ impl Operations {
     /// insert transaction postings
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn insert_transaction_posting(
-        &mut self, trx_id: &Uuid, posting_idx: usize, flag: Option<Flag>, account_name: &str, unit: Option<Amount>, cost: Option<PostingCost>,
+        &mut self, trx_id: &Uuid, posting_idx: usize, flag: Option<Flag>, account: &Account, unit: Option<Amount>, cost: Option<PostingCost>,
         inferred_amount: Amount, meta: Meta,
     ) -> ZhangResult<()> {
         let mut store = self.write();
@@ -96,7 +97,7 @@ impl Operations {
             trx_sequence,
             trx_datetime,
             flag,
-            account: Account::from_str(account_name).map_err(|_| ZhangError::InvalidAccount)?,
+            account: account.clone(),
             unit,
             cost: cost.and_then(|it| it.base),
             inferred_amount,

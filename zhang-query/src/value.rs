@@ -384,6 +384,61 @@ pub(crate) fn calendar_value(date: Option<NaiveDate>) -> Value {
     date.filter(|date| in_calendar(*date)).map_or(Value::Null, Value::Date)
 }
 
+/// A date of Python's calendar (years 1 to 9999), as `datetime.date` builds it; `None` when
+/// there is no such day.
+pub(crate) fn python_date(year: i64, month: i64, day: i64) -> Option<NaiveDate> {
+    if !(1..=9999).contains(&year) {
+        return None;
+    }
+    NaiveDate::from_ymd_opt(year as i32, u32::try_from(month).ok()?, u32::try_from(day).ok()?)
+}
+
+/// The date a text names, or `None`: the one text-to-date rule of the engine. `date(text)`, a
+/// string compared with a date, a bare date literal and a `date` parameter given as text all
+/// read text with it.
+///
+/// It is beanquery's `date(text)`, Python's `strptime(text, '%Y-%m-%d')`: a four-digit year, a
+/// month of one or two digits and a day of one or two digits (or a space and one digit), and
+/// nothing else around them, in the years 1 to 9999.
+///
+/// ```
+/// use chrono::NaiveDate;
+/// use zhang_query::value::parse_date;
+///
+/// assert_eq!(parse_date("2024-2-9"), NaiveDate::from_ymd_opt(2024, 2, 9));
+/// assert_eq!(parse_date("2024-02- 9"), NaiveDate::from_ymd_opt(2024, 2, 9));
+/// assert_eq!(parse_date(" 2024-02-09"), None);
+/// assert_eq!(parse_date("+2024-02-09"), None);
+/// assert_eq!(parse_date("24-02-09"), None);
+/// assert_eq!(parse_date("2023-02-29"), None);
+/// ```
+pub fn parse_date(text: &str) -> Option<NaiveDate> {
+    let mut parts = text.splitn(3, '-');
+    let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
+    let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    if year.len() != 4 || !digits(year) {
+        return None;
+    }
+    // %m: 1[0-2] | 0[1-9] | [1-9]
+    if !(1..=2).contains(&month.len()) || !digits(month) || month == "0" || month == "00" {
+        return None;
+    }
+    // %d: 3[01] | [12]\d | 0[1-9] | [1-9] | ' '[1-9]
+    let day = match day.strip_prefix(' ') {
+        Some(rest) if rest.len() == 1 => rest,
+        Some(_) => return None,
+        None => day,
+    };
+    if !(1..=2).contains(&day.len()) || !digits(day) || day == "0" || day == "00" {
+        return None;
+    }
+    let (month, day) = (month.parse::<i64>().ok()?, day.parse::<i64>().ok()?);
+    if month > 12 || day > 31 {
+        return None;
+    }
+    python_date(year.parse().ok()?, month, day)
+}
+
 /// The number of days of a month; `None` for a month outside the calendar.
 pub(crate) fn days_in_month(year: i32, month: u32) -> Option<u32> {
     let first = NaiveDate::from_ymd_opt(year, month, 1)?;

@@ -116,6 +116,50 @@ fn an_unbookable_copy_at_the_same_position_is_passed_over() {
     );
 }
 
+/// The ledger with a stage that duplicates the sale before it, at the same position, onto an
+/// account that holds no lots: the copy cannot be booked (its cost cannot be resolved), so the
+/// ledger reports it and never stores it, but it stays among the directives.
+fn with_an_unbookable_copy_of_the_sale() -> Ledger {
+    common::load_transformed(&format!("{LOTS}{SALE_PER_UNIT}"), |mut directives| {
+        let at = transaction_at(&directives, "sell");
+        let Directive::Transaction(sale) = &directives[at].data else { unreachable!() };
+        let mut copy = sale.clone();
+        copy.narration = Some(ZhangString::quote("DUP"));
+        copy.postings[0].account = Account::from_str("Assets:Other").unwrap();
+        let span = directives[at].span.clone();
+        directives.insert(at, Spanned::new(Directive::Transaction(copy), span));
+        directives
+    })
+}
+
+/// The copy was never stored, so it is no entry: `#entries`, `#transactions` (which `/api/journals`
+/// lists) and `#postings` all show the sale, under the id zhang stored it with, with its narration,
+/// its accounts and its `seq`. Matching the stored sale to the first directive of its position and
+/// date listed the copy under the sale's id, and left the sale's postings without a `seq`.
+#[test]
+fn an_unbookable_copy_at_the_same_position_takes_neither_the_id_nor_the_seq_of_the_sale() {
+    let ledger = with_an_unbookable_copy_of_the_sale();
+    let stored = run(&ledger, "SELECT DISTINCT id, seq FROM #postings WHERE narration = 'sell'");
+    assert_eq!(stored.len(), 1, "one stored sale: {stored:?}");
+    let (id, seq) = (stored[0][0].clone(), stored[0][1].clone());
+    assert_ne!(seq, "NULL", "the sale's postings have its seq");
+
+    let june = "date >= 2024-06-01";
+    assert_eq!(
+        run(&ledger, &format!("SELECT id, seq, narration, accounts FROM #entries WHERE {june}")),
+        vec![vec![
+            id.clone(),
+            seq.clone(),
+            "sell".to_owned(),
+            "Assets:Bank, Assets:Fifo, Income:Gains".to_owned()
+        ]]
+    );
+    assert_eq!(
+        run(&ledger, &format!("SELECT id, seq, narration FROM #transactions WHERE {june}")),
+        vec![vec![id, seq, "sell".to_owned()]]
+    );
+}
+
 /// A stage emits a second sale after the first, at the same position, and it books too (3 of the
 /// 5 AAPL left): the two are stored in that order, and each reads its own directive.
 #[test]

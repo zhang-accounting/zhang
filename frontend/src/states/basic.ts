@@ -17,10 +17,6 @@ export const basicInfoAtom = loadable(basicInfoFetcher);
 export const titleAtom = atom((get) => {
   return loadable_unwrap(get(basicInfoAtom), 'Zhang Accounting', (data) => data.title);
 });
-/** The ledger's file format: `beancount` or `zhang`. */
-export const ledgerFormatAtom = atom((get) => {
-  return loadable_unwrap(get(basicInfoAtom), undefined, (data) => data.format);
-});
 export const versionAtom = atom((get) => {
   return loadable_unwrap(get(basicInfoAtom), undefined, (data) => data.version);
 });

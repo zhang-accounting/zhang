@@ -576,6 +576,8 @@ impl<'a> Transform<'_, 'a> {
             txn: MaybeOwned::owned(TransactionDomain {
                 id,
                 sequence: 0,
+                // folded from no directive of the ledger
+                directive: usize::MAX,
                 datetime,
                 flag: Flag::Custom(kind.flag().to_owned()),
                 payee: None,
