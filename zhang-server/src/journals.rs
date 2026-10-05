@@ -186,11 +186,11 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
             postings.entry(row.str("id")?.unwrap_or_default()).or_default().push(posting);
         }
     }
-    let mut checks: HashMap<String, BalanceCheckRow> = HashMap::new();
+    let mut checks: HashMap<String, BalanceAssertion> = HashMap::new();
     if !balance_ids.is_empty() {
         let result = execute(ledger, JOURNAL_BALANCE_CHECKS, &Params::new().bind("ids", balance_ids), false)?;
         for row in cells::rows(JOURNAL_BALANCE_CHECKS, &result) {
-            checks.insert(row.str("id")?.unwrap_or_default(), BalanceCheckRow::of(&row)?);
+            checks.insert(row.str("id")?.unwrap_or_default(), BalanceAssertion::of(&row)?);
         }
     }
 
@@ -330,27 +330,39 @@ impl PostingRow {
     }
 }
 
-/// A row of [`JOURNAL_BALANCE_CHECKS`].
-struct BalanceCheckRow {
-    account: String,
-    tolerance: Option<BigDecimal>,
-    actual: Option<Amount>,
-    difference: Option<Amount>,
-    asserted: Option<Amount>,
-    amount: Option<Amount>,
-    passed: bool,
+/// A balance assertion as both journals describe it, the journal ([`JOURNAL_BALANCE_CHECKS`]) and an account's journal
+/// (`accounts.balance_assertions`), from a row of the projection of `#balances` they share: one shape, with one meaning
+/// of each figure.
+pub(crate) struct BalanceAssertion {
+    pub account: String,
+    /// the asserted amount, as written
+    pub asserted: Amount,
+    /// the balance it was checked against: that of the account and all its sub-accounts where the assertion stands, in
+    /// the asserted commodity
+    pub checked_balance: Amount,
+    /// the asserted amount minus the checked balance
+    pub difference: Amount,
+    /// the explicit tolerance (`~`) of the assertion; none for an exact one
+    pub tolerance: Option<BigDecimal>,
+    /// whether the checked balance is within the tolerance of the asserted amount, as the ledger checked it
+    pub passed: bool,
 }
 
-impl BalanceCheckRow {
-    fn of(row: &Row<'_>) -> ServerResult<BalanceCheckRow> {
-        Ok(BalanceCheckRow {
+impl BalanceAssertion {
+    pub(crate) fn of(row: &Row<'_>) -> ServerResult<BalanceAssertion> {
+        let asserted = row.amount("amount")?.unwrap_or_else(|| Amount::new(BigDecimal::from(0), ""));
+        let zero = || Amount::new(BigDecimal::from(0), asserted.commodity.clone());
+        let checked_balance = row.amount("actual")?.unwrap_or_else(zero);
+        let difference = row
+            .amount("difference")?
+            .unwrap_or_else(|| Amount::new(&asserted.number - &checked_balance.number, asserted.commodity.clone()));
+        Ok(BalanceAssertion {
             account: row.str("account")?.unwrap_or_default(),
             tolerance: row.decimal("tolerance")?,
-            actual: row.amount("actual")?,
-            difference: row.amount("difference")?,
-            asserted: row.amount("asserted")?,
-            amount: row.amount("amount")?,
             passed: row.bool("passed")?.unwrap_or(false),
+            asserted,
+            checked_balance,
+            difference,
         })
     }
 }
@@ -359,26 +371,26 @@ impl BalanceCheckRow {
 /// balance assertion. This is the only place journal items are built:
 ///
 /// - a `balance` entry (`balance`, or `balance ... with pad`) is a `BalanceCheck` item: payee
-///   `Balance Check`, its account as the narration, and one entry that describes the check, the
-///   balance before (`account_before`), the asserted amount (`account_after`) and their
-///   difference (`unit`, `inferred_unit`), as zhang's balance check found them (`#balances`);
+///   `Balance Check`, its account as the narration, and the [`BalanceAssertion`] as zhang's balance
+///   check found it (`#balances`). Its one entry is no posting: the assertion books nothing, so the
+///   balance before and after it is the checked balance, and it adds zero;
 /// - a padding transaction (flag `P`) is a `BalancePad` item, with its postings;
 /// - any other transaction is a `Transaction` item.
-fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<BalanceCheckRow>) -> JournalItemEntity {
+fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<BalanceAssertion>) -> JournalItemEntity {
     let id = Uuid::from_str(&entry.id).unwrap_or_default();
     if entry.kind == "balance" {
-        let check = check.unwrap_or(BalanceCheckRow {
-            account: String::new(),
-            tolerance: None,
-            actual: None,
-            difference: None,
-            asserted: None,
-            amount: None,
-            passed: false,
+        let check = check.unwrap_or_else(|| {
+            let nothing = Amount::new(BigDecimal::from(0), "");
+            BalanceAssertion {
+                account: String::new(),
+                asserted: nothing.clone(),
+                checked_balance: nothing.clone(),
+                difference: nothing,
+                tolerance: None,
+                passed: false,
+            }
         });
-        let asserted = check.asserted.or(check.amount).unwrap_or_else(|| Amount::new(BigDecimal::from(0), ""));
-        let zero = || Amount::new(BigDecimal::from(0), asserted.commodity.clone());
-        let difference = check.difference.unwrap_or_else(zero);
+        let zero = Amount::new(BigDecimal::from(0), check.asserted.commodity.clone());
         return JournalItemEntity::BalanceCheck(JournalBalanceCheckItemEntity {
             id,
             sequence: entry.seq,
@@ -388,14 +400,17 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
             type_: Flag::BalanceCheck.to_string(),
             postings: vec![JournalTransactionPostingEntity {
                 account: check.account,
-                unit: Some(difference.clone()),
+                unit: None,
                 cost: None,
-                inferred_unit: difference,
-                account_before: check.actual.unwrap_or_else(zero),
-                account_after: asserted,
+                inferred_unit: zero,
+                account_before: check.checked_balance.clone(),
+                account_after: check.checked_balance.clone(),
                 metas: vec![],
                 written: None,
             }],
+            asserted: check.asserted,
+            checked_balance: check.checked_balance,
+            difference: check.difference,
             tolerance: check.tolerance,
             passed: check.passed,
         });

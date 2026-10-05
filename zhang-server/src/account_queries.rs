@@ -20,6 +20,7 @@ use zhang_core::ledger::Ledger;
 use zhang_query::{Inventory, Params, QueryResult};
 
 use crate::builtin::{self, calculated_amount};
+use crate::journals::BalanceAssertion;
 use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, AccountJournalEntity, DocumentEntity};
 use crate::state::SharedLedger;
 use crate::{cells, ServerResult};
@@ -295,6 +296,8 @@ fn posting_rows(query: &str, result: &QueryResult) -> ServerResult<Vec<PostingRo
                     account_after: units_of(row.get("balance")?.as_inventory(), &currency),
                     asserted: None,
                     checked_balance: None,
+                    difference: None,
+                    tolerance: None,
                     passed: None,
                 },
             })
@@ -306,25 +309,24 @@ fn posting_rows(query: &str, result: &QueryResult) -> ServerResult<Vec<PostingRo
 fn assertion_rows(result: &QueryResult) -> ServerResult<Vec<(i64, AccountJournalEntity)>> {
     cells::rows(BALANCE_ASSERTIONS, result)
         .map(|row| {
-            let asserted = row.amount("amount")?.expect("an assertion asserts an amount");
-            let actual = row
-                .amount("actual")?
-                .unwrap_or_else(|| Amount::new(BigDecimal::zero(), asserted.commodity.clone()));
+            let assertion = BalanceAssertion::of(&row)?;
             // zero, written with the decimals of the asserted amount and the balance
-            let nothing = BigDecimal::zero().with_scale((&asserted.number - &actual.number).fractional_digit_count());
+            let nothing = BigDecimal::zero().with_scale(assertion.difference.number.fractional_digit_count());
             let journal = AccountJournalEntity {
                 datetime: row.datetime("date", "time")?.unwrap_or_default(),
                 timestamp: row.int("timestamp")?.unwrap_or_default(),
-                account: row.str("account")?.unwrap_or_default(),
+                account: assertion.account.clone(),
                 trx_id: row.str("id")?.unwrap_or_default(),
                 payee: Some(BALANCE_CHECK_PAYEE.to_owned()),
-                narration: row.str("account")?,
-                inferred_unit: Amount::new(nothing, asserted.commodity.clone()),
+                narration: Some(assertion.account),
+                inferred_unit: Amount::new(nothing, assertion.asserted.commodity.clone()),
                 // the running balance where it stands: the balance it was checked against
-                account_after: actual.clone(),
-                asserted: Some(asserted),
-                checked_balance: Some(actual),
-                passed: row.bool("passed")?,
+                account_after: assertion.checked_balance.clone(),
+                asserted: Some(assertion.asserted),
+                checked_balance: Some(assertion.checked_balance),
+                difference: Some(assertion.difference),
+                tolerance: assertion.tolerance,
+                passed: Some(assertion.passed),
             };
             Ok((row.int("seq")?.unwrap_or_default(), journal))
         })
