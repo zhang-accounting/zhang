@@ -1,0 +1,27 @@
+[package]
+name = "zhang-extism-scripts-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# An isolated experiment; it does not add a runtime to Zhang's production build.
+[workspace]
+
+[features]
+lua-exceptions = ["extism/wasmtime-exceptions"]
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+chrono-tz = "0.10"
+extism = "=1.30.0"
+serde_json = "1"
+tempfile = "3"
+zhang-core = { path = "../../zhang-core", features = ["plugin_runtime"] }
+zhang-query = { path = "../../zhang-query" }
+
+[profile.dev]
+debug = 0
+
+[profile.dev.package."*"]
+opt-level = 2
