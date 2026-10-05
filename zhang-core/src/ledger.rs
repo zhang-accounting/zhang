@@ -18,6 +18,7 @@ use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, Spa
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
 use crate::data_source::{DataSource, MissingInclude};
+use crate::data_type::Dialect;
 use crate::derived::Derived;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
@@ -37,6 +38,10 @@ type SlottedStages = Vec<(PluginStage, Box<dyn ProcessStage>)>;
 
 pub struct Ledger {
     pub entry: (PathBuf, String),
+
+    /// the format of the ledger, decided from its main file once ([`Dialect::of`]); everything that depends on the
+    /// format reads it here
+    pub dialect: Dialect,
 
     pub data_source: Arc<dyn DataSource>,
 
@@ -95,6 +100,8 @@ pub struct Ledger {
 pub struct LedgerProcessContext {
     pub directives: Vec<Spanned<Directive>>,
     pub entry: (PathBuf, String),
+    /// the format the directives were read in; a load gives that of the main file ([`Dialect::of`])
+    pub dialect: Dialect,
     pub visited_files: Vec<PathBuf>,
     pub data_source: Arc<dyn DataSource>,
     /// where the load reads the current time from, if anything asks for it (a plugin calling `zhang_now`).
@@ -159,6 +166,7 @@ impl SplitDirectives {
 
 impl Ledger {
     pub fn load_with_data_source(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
+        let dialect = Dialect::of(&endpoint)?;
         let entry = entry.canonicalize().with_path(&entry)?;
 
         let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
@@ -166,6 +174,7 @@ impl Ledger {
             LedgerProcessContext {
                 directives: load_result.directives,
                 entry: (entry, endpoint),
+                dialect,
                 visited_files: load_result.visited_files,
                 data_source,
                 clock: Clock::System,
@@ -180,12 +189,14 @@ impl Ledger {
     /// [`Ledger::async_load`] with the current time read from `clock`: [`Clock::Fixed`] pins "today" for the
     /// load, its reloads and everything that asks the ledger for the time ([`Ledger::now`])
     pub async fn async_load_with_clock(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>, clock: Clock) -> ZhangResult<Ledger> {
+        let dialect = Dialect::of(&endpoint)?;
         let load_result = data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
 
         Ledger::async_process(
             LedgerProcessContext {
                 directives: load_result.directives,
                 entry: (entry, endpoint),
+                dialect,
                 visited_files: load_result.visited_files,
                 data_source,
                 clock,
@@ -217,6 +228,7 @@ impl Ledger {
         let ledger = Self {
             options: InMemoryOptions::default(),
             entry: context.entry,
+            dialect: context.dialect,
             visited_files: context.visited_files,
             extra_inputs: IndexSet::new(),
             directives: vec![],
@@ -321,6 +333,7 @@ impl Ledger {
             LedgerProcessContext {
                 directives: transform_result.directives,
                 entry: (entry.clone(), endpoint.clone()),
+                dialect: self.dialect,
                 visited_files: transform_result.visited_files,
                 data_source: self.data_source.clone(),
                 clock: self.clock.clock(),
@@ -338,6 +351,7 @@ impl Ledger {
             LedgerProcessContext {
                 directives: transform_result.directives,
                 entry: (entry.clone(), endpoint.clone()),
+                dialect: self.dialect,
                 visited_files: transform_result.visited_files,
                 data_source: self.data_source.clone(),
                 clock: self.clock.clock(),
@@ -654,6 +668,7 @@ impl Ledger {
         let options = self.operations().options()?;
         let commodities = self.operations().read().commodities.values().cloned().collect_vec();
         let mut ctx = StageContext::new(&options)
+            .with_dialect(self.dialect)
             .with_commodities(commodities)
             .with_clock(self.clock.clone(), self.options.timezone);
         let directives = run_pipeline(&stages, directives, &mut ctx)?;
@@ -1166,6 +1181,7 @@ mod test {
         let ledger = Ledger::process(super::LedgerProcessContext {
             directives,
             entry: (tempdir().unwrap().keep(), "main.zhang".to_owned()),
+            dialect: crate::data_type::Dialect::Zhang,
             visited_files: vec![],
             data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
             clock: crate::clock::Clock::System,
@@ -2459,6 +2475,7 @@ mod test {
             let mut ledger = Ledger::process(LedgerProcessContext {
                 directives: loaded.directives,
                 entry: (root, "main.zhang".to_owned()),
+                dialect: crate::data_type::Dialect::Zhang,
                 visited_files: loaded.visited_files,
                 data_source: source,
                 clock: Clock::Fixed(fixed),

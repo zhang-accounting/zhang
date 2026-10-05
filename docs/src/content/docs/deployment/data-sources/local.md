@@ -31,7 +31,7 @@ ledger/
     └── passkeys.json      registered passkeys
 ```
 
-The extension of the main file selects the format of the whole ledger: `.zhang`, or `.bean`, `.beancount` and `.bc` for beancount. If the main file does not exist, Zhang starts with an empty ledger.
+The extension of the main file selects the format of the whole ledger: `.zhang`, or `.bean`, `.beancount` and `.bc` for beancount. Every file the ledger includes is read in that format, and its rules apply to all of them, whatever their own extension. Any other extension of the main file, or none, is an error that names the main file, and `zhang serve` exits with code 1. If the main file does not exist, Zhang starts with an empty ledger.
 
 The files are UTF-8. A file that starts with a byte order mark (BOM), as some Windows editors write it, is read as if it started without one, and Zhang keeps the mark when it writes the file. A file of the ledger that is not UTF-8, such as one saved as Latin-1 or GBK, stops the load with an error that names the file and the line of the first byte that is not UTF-8; Zhang never reads it with that byte replaced. Save the file as UTF-8 to fix it. See [When the ledger does not load](/reference/error-codes/#when-the-ledger-does-not-load).
 

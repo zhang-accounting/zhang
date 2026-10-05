@@ -138,7 +138,7 @@ impl Opts {
             Opts::Serve(mut opts) => {
                 let file_system = opts.source.clone().or(FileSystem::from_env()).unwrap_or(FileSystem::Fs);
                 info!("active file system is {:?}", file_system);
-                let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await;
+                let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await?;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 let passkey_secret = opts.passkey.or_else(|| env_value("ZHANG_PASSKEY")).filter(|it| !it.is_empty());
                 let result = zhang_server::serve(ServeConfig {
@@ -349,7 +349,8 @@ mod test {
                             no_report: false,
                         },
                     )
-                    .await;
+                    .await
+                    .expect("a known ledger format");
                     let data_source = Arc::new(data_source);
                     let ledger = Ledger::async_load(test_temp_folder.to_path_buf(), main_file.to_string(), data_source.clone())
                         .await
@@ -466,7 +467,7 @@ mod test {
             source: None,
             no_report: true,
         };
-        let data_source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let data_source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::async_load(path.to_path_buf(), "main.zhang".to_string(), data_source.clone())
             .await
             .expect("cannot load ledger");

@@ -373,6 +373,7 @@ dependencies = [
  "itertools 0.15.0",
  "nom",
  "serde_json",
+ "tempfile",
  "zhang-ast",
  "zhang-core",
 ]

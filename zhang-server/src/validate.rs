@@ -25,10 +25,10 @@ use std::sync::RwLock;
 
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, PostingCost, SingleTotalPrice};
-use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::data_type::text::parser::{
     is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_posting_cost, read_posting_price,
 };
+use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::Store;
 
@@ -44,13 +44,11 @@ pub enum Rules<'a> {
 }
 
 impl<'a> Rules<'a> {
-    /// The rules for `ledger`, whose format comes from its main file's extension, as
-    /// when loading it.
+    /// The rules for `ledger`, by its format ([`Ledger::dialect`]).
     pub fn of(ledger: &'a Ledger) -> Rules<'a> {
-        if is_beancount_endpoint(&ledger.entry.1) {
-            Rules::Beancount(KnownNames::of(&ledger.store))
-        } else {
-            Rules::Zhang
+        match ledger.dialect {
+            Dialect::Beancount => Rules::Beancount(KnownNames::of(&ledger.store)),
+            Dialect::Zhang => Rules::Zhang,
         }
     }
 

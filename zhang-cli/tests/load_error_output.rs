@@ -81,3 +81,34 @@ fn a_file_that_is_not_utf8_is_explained_on_stderr() {
         stderr
     );
 }
+
+/// A main file whose extension tells no format is an error naming it, with or without an extension: `zhang serve -e
+/// main.txt` panicked with `entered unreachable code: not supported data format` and exit code 101.
+#[test]
+fn a_main_file_of_no_known_format_is_explained_on_stderr() {
+    for main in ["main.txt", "main"] {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(main), "2024-01-01 open Assets:A CNY\n").unwrap();
+
+        let output = serve(dir.path(), &["--endpoint", main], &[]);
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{}: zhang serve exited with {:?}: {}",
+            main,
+            output.status,
+            stderr
+        );
+        assert!(
+            stderr.contains(&format!(
+                "error: cannot tell the format of the ledger from its main file {}: name it with the extension .zhang",
+                main
+            )),
+            "{}: stderr does not explain the format:\n{}",
+            main,
+            stderr
+        );
+    }
+}

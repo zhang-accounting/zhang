@@ -14,7 +14,7 @@ use chrono::{Datelike, NaiveDate};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{resolve_local_datetime, written_groups, Account, Directive, Meta, Posting, Spanned, Transaction};
-use zhang_core::data_type::is_beancount_endpoint;
+use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{BalanceAssertionDomain, DocumentType, Store};
 
@@ -424,7 +424,7 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
         })
     };
     let mut resolved: HashMap<(&str, NaiveDate), VecDeque<&'a str>> = HashMap::new();
-    if is_beancount_endpoint(&ledger.entry.1) {
+    if ledger.dialect == Dialect::Beancount {
         for document in &store.documents {
             let DocumentType::Account(account) = &document.document_type;
             resolved

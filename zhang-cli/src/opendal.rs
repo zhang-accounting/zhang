@@ -12,7 +12,7 @@ use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 use zhang_core::data_source::{DataSource, LedgerFiles, LoadResult, SourceEntry};
 use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::{is_beancount_endpoint, DataType};
+use zhang_core::data_type::{DataType, Dialect};
 use zhang_core::ledger::Ledger;
 use zhang_core::{ZhangError, ZhangResult};
 
@@ -236,7 +236,11 @@ impl OpendalDataSource {
         })
     }
 
-    pub async fn from_env(source: FileSystem, server_opts: &mut ServerOpts) -> OpendalDataSource {
+    /// The source `zhang serve` reads the ledger of `server_opts` from, through `source`: its files are read in the
+    /// format of the main file ([`Dialect::of`]), and a main file whose extension tells no format is an error
+    pub async fn from_env(source: FileSystem, server_opts: &mut ServerOpts) -> ZhangResult<OpendalDataSource> {
+        let dialect = Dialect::of(&server_opts.endpoint)?;
+        info!("detected ledger type: {}", dialect.name());
         let mut local_root = None;
         let operator = match source {
             FileSystem::Fs => {
@@ -291,21 +295,15 @@ impl OpendalDataSource {
                 Operator::new(builder).expect("cannot build s3 operator, check your s3 configuration")
             }
         };
-        let is_beancount = if is_beancount_endpoint(&server_opts.endpoint) {
-            info!("detected ledger type: beancount");
-            true
-        } else if PathBuf::from(&server_opts.endpoint).extension().is_some_and(|it| it == "zhang") {
-            info!("detected ledger type: zhang");
-            false
-        } else {
-            unreachable!("not supported data format")
+        let data_type: Box<dyn DataType<Carrier = String> + Send + Sync> = match dialect {
+            Dialect::Zhang => Box::new(ZhangDataType {}),
+            Dialect::Beancount => Box::new(Beancount {}),
         };
-        let new_data_type: Box<dyn DataType<Carrier = String> + Send + Sync> = if is_beancount { Box::new(Beancount {}) } else { Box::new(ZhangDataType {}) };
-        Self {
+        Ok(Self {
             operator,
-            data_type: new_data_type,
+            data_type,
             local_root,
-        }
+        })
     }
 }
 
@@ -417,7 +415,7 @@ mod test {
             source: None,
             no_report: true,
         };
-        Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await)
+        Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap())
     }
 
     /// the errors of `ledger`, by the text of their directive: the kind, the metas as `key=value` in order, and the text
@@ -731,7 +729,7 @@ mod test {
             source: None,
             no_report: true,
         };
-        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::async_load(dir.to_path_buf(), main.to_string(), source.clone())
             .await
             .expect("load ledger");
@@ -794,7 +792,7 @@ mod test {
                 source: None,
                 no_report: true,
             };
-            let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+            let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
 
             let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source)
                 .await
@@ -854,7 +852,7 @@ mod test {
             source: None,
             no_report: true,
         };
-        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_string(), source.clone())
             .await
             .unwrap();
@@ -900,7 +898,7 @@ mod test {
                 source: None,
                 no_report: true,
             };
-            let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+            let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
             let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source.clone()).await.unwrap();
             let document = zhang_parse("2024-01-15 document Assets:Cash \"attachments/u1/a statement.pdf\"\n", None)
                 .unwrap()
@@ -1030,7 +1028,7 @@ mod test {
             source: None,
             no_report: true,
         };
-        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         assert_documents(Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_owned(), source).await.unwrap()).await;
     }
 
@@ -1447,7 +1445,7 @@ mod test {
             source: None,
             no_report: true,
         };
-        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_string(), source.clone())
             .await
             .unwrap();
@@ -1513,7 +1511,7 @@ mod test {
             source: None,
             no_report: true,
         };
-        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await);
+        let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let mut config = ServeConfig {
             path: opts.path,
             endpoint: opts.endpoint,

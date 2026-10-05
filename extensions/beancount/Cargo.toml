@@ -16,3 +16,4 @@ bigdecimal = { workspace = true }
 [dev-dependencies]
 indoc = "2"
 serde_json = { workspace = true }
+tempfile = "3.20"

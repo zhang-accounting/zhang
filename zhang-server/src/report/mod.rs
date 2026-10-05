@@ -655,6 +655,7 @@ mod test {
         Ledger::process(LedgerProcessContext {
             directives,
             entry: (PathBuf::from("."), "main.zhang".to_owned()),
+            dialect: zhang_core::data_type::Dialect::Zhang,
             visited_files: vec![],
             data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
             clock: Clock::System,

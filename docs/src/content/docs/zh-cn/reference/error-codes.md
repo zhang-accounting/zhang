@@ -505,6 +505,7 @@ option "operating_currency" "EUR"
 以下问题会让张记账无法加载账本。`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出。服务器已在运行时，失败的重新加载会保持账本原样，在日志中记录原因，并在网页界面中显示原因，直到某次重新加载成功为止。
 
 - 文件中的**语法错误**。消息会指出文件、行和列，例如 `failed to parse zhang file: unexpected input at line 4, column 3`。
+- **扩展名无法确定格式的主文件**，例如 `main.txt` 或 `main`。消息会指出主文件以及能确定格式的扩展名：`.zhang`，或者 Beancount 的 `.bean`、`.beancount` 和 `.bc`。
 - **不是 UTF-8 文本的文件**，例如以 Latin-1 或 GBK 保存的文件。消息会指出该文件以及第一个非 UTF-8 字节所在的行，例如 `the file data/2024.zhang is not UTF-8 text: line 3 holds a byte that is not UTF-8. Save the file with the UTF-8 encoding`。以字节顺序标记开头的文件仍是 UTF-8 文本。
 - [`default_rounding`](/zh-cn/reference/directives/options/#default_rounding) 或 [`directive_output_path`](/zh-cn/reference/directives/options/#directive_output_path) 选项的**无效值**，或者[商品](/zh-cn/reference/directives/commodity/#舍入)的 `rounding` 元数据的无效值。消息为 `option value is invalid`。
 - 启用插件时，**插件**的模块缺失或无法加载，或者插件调用失败或运行超过 `timeout`。见[插件](/zh-cn/reference/directives/plugin/#加载与顺序)。

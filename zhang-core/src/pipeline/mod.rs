@@ -52,6 +52,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned};
 
 use crate::clock::{Clock, LoadClock};
+use crate::data_type::Dialect;
 use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
@@ -134,6 +135,8 @@ pub struct StageContext<'a> {
     clock: LoadClock,
     /// the ledger timezone, which [`StageContext::now`] gives the time in
     timezone: Tz,
+    /// the format of the ledger
+    dialect: Dialect,
     /// the balance assertions a `pad` may serve, once a plugin decided them; any before
     pub(crate) pad_serves: Option<pad::PadServes>,
 }
@@ -150,8 +153,20 @@ impl<'a> StageContext<'a> {
             inputs: IndexSet::new(),
             clock: LoadClock::new(Clock::System),
             timezone: Tz::UTC,
+            dialect: Dialect::Zhang,
             pad_serves: None,
         }
+    }
+
+    /// the context of a ledger in the format `dialect`; a zhang ledger's without it
+    pub fn with_dialect(mut self, dialect: Dialect) -> Self {
+        self.dialect = dialect;
+        self
+    }
+
+    /// the format of the ledger ([`Ledger::dialect`](crate::ledger::Ledger::dialect))
+    pub fn dialect(&self) -> Dialect {
+        self.dialect
     }
 
     /// the context with the commodities the options defined

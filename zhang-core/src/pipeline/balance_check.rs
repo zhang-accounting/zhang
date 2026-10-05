@@ -11,7 +11,7 @@ use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned, Transac
 use super::balance::{exceeds_tolerance, AccountStates, UnitBalances};
 use super::{AssertionOutcome, ProcessStage, StageContext};
 use crate::booking::written_groups;
-use crate::data_type::is_beancount_endpoint;
+use crate::data_type::Dialect;
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -38,7 +38,7 @@ impl ProcessStage for BalanceCheckStage {
     }
 
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let mut ignored_times = IgnoredTimes::of(&directives);
+        let mut ignored_times = IgnoredTimes::of(&directives, ctx.dialect());
         let mut balances = UnitBalances::for_stage(ctx);
         let mut accounts = AccountStates::default();
         // the `balance ... with pad` directives of the balance entries being applied, checked after the last one
@@ -103,9 +103,9 @@ fn check(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, amo
     ctx.record_assertion(span, AssertionOutcome { balance, passed });
 }
 
-/// The balances of beancount files whose `time` zhang ignores ([`ErrorKind::BalanceTimeIgnored`]).
+/// The balances of a beancount ledger whose `time` zhang ignores ([`ErrorKind::BalanceTimeIgnored`]).
 ///
-/// A `balance` of a beancount file is checked at the start of its date, as beancount checks it, and its `time`
+/// A `balance` of a beancount ledger, in whichever of its files, is checked at the start of its date, as beancount checks it, and its `time`
 /// metadata is plain metadata. Earlier versions of zhang read that `time`, as `H:M:S` (spaces around it trimmed), and
 /// checked the balance at it, after the transactions of its day before it. Where those transactions changed what the
 /// account and its sub-accounts hold in the balance's commodity, the balance checks a different amount now: it is
@@ -131,11 +131,13 @@ fn read_time(text: &str) -> Option<NaiveTime> {
 }
 
 impl<'a> IgnoredTimes<'a> {
-    fn of(directives: &'a [Spanned<Directive>]) -> Self {
+    /// the timed balances among `directives` of a ledger in the format `dialect`: none in a zhang ledger, whose files
+    /// are read as zhang text whatever their extension
+    fn of(directives: &'a [Spanned<Directive>], dialect: Dialect) -> Self {
         let mut timed: HashMap<NaiveDate, Vec<_>> = HashMap::new();
         for (index, directive) in directives.iter().enumerate() {
             let Directive::BalanceCheck(check) = &directive.data else { continue };
-            if !matches!(check.date, Date::Date(_)) || !directive.span.filename.as_ref().is_some_and(is_beancount_endpoint) {
+            if !matches!(check.date, Date::Date(_)) || dialect != Dialect::Beancount {
                 continue;
             }
             if let Some(time) = check.meta.get_one("time").and_then(|it| read_time(it.as_str())) {

@@ -2,14 +2,42 @@ use std::path::{Component, Path};
 
 use zhang_ast::{Directive, Spanned};
 
-use crate::ZhangResult;
+use crate::{ZhangError, ZhangResult};
 
 pub mod text;
 
-/// Whether a ledger whose main file is `endpoint` is a beancount ledger: its file
-/// extension is `bc`, `bean` or `beancount`. Anything else is read as zhang text.
-pub fn is_beancount_endpoint(endpoint: impl AsRef<Path>) -> bool {
-    matches!(endpoint.as_ref().extension().and_then(|it| it.to_str()), Some("bc" | "bean" | "beancount"))
+/// The format of a ledger: the grammar every file of it is read with, whatever the file's own extension, and the
+/// rules that differ between zhang and beancount (how a `document` path is written, when a `balance` is checked, which
+/// account names a write accepts, how strings are quoted). It is decided once, from the extension of the main file
+/// ([`Dialect::of`]), and kept on the ledger ([`Ledger::dialect`](crate::ledger::Ledger::dialect)): every place that
+/// depends on the format reads it there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Dialect {
+    /// a zhang ledger, whose main file is a `.zhang` file
+    Zhang,
+    /// a beancount ledger, whose main file is a `.bean`, `.beancount` or `.bc` file
+    Beancount,
+}
+
+impl Dialect {
+    /// The format of the ledger whose main file is `endpoint`, by its extension: `zhang` for zhang, `bean`,
+    /// `beancount` or `bc` for beancount. Any other extension, or none, is [`ZhangError::UnknownLedgerFormat`]: the
+    /// extension is all that tells the format, and reading a file in the wrong one would only report its every line
+    pub fn of(endpoint: impl AsRef<Path>) -> ZhangResult<Dialect> {
+        match endpoint.as_ref().extension().and_then(|it| it.to_str()) {
+            Some("zhang") => Ok(Dialect::Zhang),
+            Some("bean" | "beancount" | "bc") => Ok(Dialect::Beancount),
+            _ => Err(ZhangError::UnknownLedgerFormat(endpoint.as_ref().display().to_string())),
+        }
+    }
+
+    /// the name of the format, as `/api/info` gives it: `zhang` or `beancount`
+    pub fn name(self) -> &'static str {
+        match self {
+            Dialect::Zhang => "zhang",
+            Dialect::Beancount => "beancount",
+        }
+    }
 }
 
 /// The path a `document` of a beancount ledger is written with in `file`, a file of the ledger named by its path within
@@ -85,5 +113,53 @@ mod document_path_test {
         }
         assert_eq!(document_path_in_ledger("./a/../b.pdf", Path::new("data/x.bean")), "data/b.pdf");
         assert_eq!(document_path_in_ledger("../../../b.pdf", Path::new("data/x.bean")), "../../b.pdf");
+    }
+}
+
+#[cfg(test)]
+mod dialect_test {
+    use std::sync::Arc;
+
+    use super::text::ZhangDataType;
+    use super::Dialect;
+    use crate::data_source::LocalFileSystemDataSource;
+    use crate::ledger::Ledger;
+    use crate::ZhangError;
+
+    /// The extension of the main file tells the format; any other extension, or none, is an error naming the file,
+    /// never a guess
+    #[test]
+    fn the_format_is_the_extension_of_the_main_file() {
+        assert_eq!(Dialect::of("main.zhang").unwrap(), Dialect::Zhang);
+        assert_eq!(Dialect::of("books/2024.zhang").unwrap(), Dialect::Zhang);
+        for beancount in ["main.bean", "main.beancount", "main.bc"] {
+            assert_eq!(Dialect::of(beancount).unwrap(), Dialect::Beancount, "{beancount}");
+        }
+        for unknown in ["main.txt", "main", "main.ZHANG", "main.zhang.bak", ""] {
+            assert!(
+                matches!(Dialect::of(unknown), Err(ZhangError::UnknownLedgerFormat(file)) if file == unknown),
+                "{unknown}"
+            );
+        }
+        assert_eq!((Dialect::Zhang.name(), Dialect::Beancount.name()), ("zhang", "beancount"));
+    }
+
+    /// A ledger whose main file has another extension is an error naming it and the extensions that tell a format,
+    /// before anything is read: it was read as zhang text here, while `zhang serve` panicked on it
+    #[test]
+    fn a_main_file_of_no_known_format_is_an_error_naming_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.txt"), "1970-01-01 open Assets:Cash\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+
+        let error = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.txt".to_owned(), source)
+            .err()
+            .expect("the ledger does not load");
+
+        assert_eq!(
+            error.to_string(),
+            "cannot tell the format of the ledger from its main file main.txt: name it with the extension .zhang for a zhang \
+             ledger, or .bean, .beancount or .bc for a beancount one"
+        );
     }
 }
