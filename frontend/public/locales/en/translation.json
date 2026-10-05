@@ -48,6 +48,7 @@
     "ParseInvalidMeta": "Directive has an invalid meta value",
     "UnsupportedBookingMethod": "Booking method is not supported yet, the account uses the default booking method",
     "AmbiguousLotMatch": "Reduction matches several lots, which is ambiguous under the STRICT booking method",
+    "CostMergingNotSupported": "Cost merging is not supported yet, the posting books as if its cost had no `*`",
     "PluginError": "Plugin {{meta.plugin}}: {{meta.message}}"
   },
   "ERROR_BOX_LOCATION": "{{file}} · lines {{start}}–{{end}}",

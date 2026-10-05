@@ -30,6 +30,7 @@ fn cost(base: Option<Amount>, date: Option<&str>) -> PostingCost {
         date: date.map(|it| Date::Date(chrono::NaiveDate::from_str(it).unwrap())),
         label: None,
         total: false,
+        ..PostingCost::default()
     }
 }
 

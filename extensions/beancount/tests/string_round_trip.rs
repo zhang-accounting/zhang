@@ -86,6 +86,7 @@ fn directives_with_strings(mut next: impl FnMut() -> String) -> Vec<Directive> {
                         date: None,
                         label: Some(next()),
                         total: false,
+                        ..PostingCost::default()
                     }),
                     price: None,
                     comment: None,

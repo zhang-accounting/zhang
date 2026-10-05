@@ -1402,6 +1402,7 @@ export interface operations {
                   | 'ParseInvalidMeta'
                   | 'UnsupportedBookingMethod'
                   | 'AmbiguousLotMatch'
+                  | 'CostMergingNotSupported'
                   | 'PluginError';
                 id: string;
                 metas: {

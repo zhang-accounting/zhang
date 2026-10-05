@@ -263,6 +263,7 @@ fn random_posting(rng: &mut XorShift) -> Posting {
         date: rng.chance(30).then(|| date(2023, 1 + rng.below(12) as u32, 1 + rng.below(28) as u32)),
         label: rng.chance(30).then(|| rng.pick(&["lot-1", "a b", "say \"hi\""]).to_string()),
         total: rng.chance(20),
+        ..PostingCost::default()
     });
     let price = (units.is_some() && rng.chance(20)).then(|| {
         if rng.chance(50) {

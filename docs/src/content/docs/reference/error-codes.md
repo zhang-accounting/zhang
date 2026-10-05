@@ -493,6 +493,37 @@ like `FIFO` among the matching lots, so the ledger keeps its numbers until the a
 **Fix:** name the lot to reduce with its cost and acquisition date, such as `-5 AAPL {100 USD, 2024-01-02}`, or with
 its label, reduce all matching lots at once, or use the `FIFO` or `LIFO` booking method on the account.
 
+## CostMergingNotSupported
+
+*Cost merging is not supported yet, the posting books as if its cost had no `*`*
+
+A posting's cost carries `*`, Beancount's merge-cost marker, as in `-5 AAPL {*}`. In Beancount it asks to merge the
+account's lots at their average cost before the reduction, which Beancount reports as not supported yet. Zhang reports
+the posting once and books it as if the `*` were not there: `{*}` books like `{}`, by the account's
+[booking method](/reference/directives/account/#booking-method), and `{*, "lot-a"}` like `{"lot-a"}`. The file is
+written back with the `*`.
+
+```zhang
+2024-01-01 commodity USD
+2024-01-01 commodity AAPL
+2024-01-01 open Assets:Broker
+2024-01-01 open Assets:Cash
+2024-01-01 open Income:Gains
+
+2024-01-02 * "buy"
+  Assets:Broker 10 AAPL {185 USD}
+  Assets:Cash -1850 USD
+
+2024-02-01 * "sell"
+  Assets:Broker -5 AAPL {*}
+  Assets:Cash 1000 USD
+  Income:Gains
+```
+
+The ledger still loads, and the transaction is booked. **Fix:** write the cost of the lots to reduce, or `{}` to let the
+booking method choose. An average cost needs the `AVERAGE` booking method, which is not implemented either; see
+[`UnsupportedBookingMethod`](#unsupportedbookingmethod).
+
 ## PluginError
 
 *Plugin `<plugin>`: `<message>`*
