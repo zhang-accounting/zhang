@@ -70,8 +70,14 @@ where
         unimplemented!()
     }
 
-    fn append(&self, _ledger: &Ledger, _directives: Vec<Directive>) -> ZhangResult<()> {
-        unimplemented!()
+    /// Append `directives` to the files of `ledger` ([`append_plan`]): every source appends alike, reading each file
+    /// with [`DataSource::get`] and writing it back with [`DataSource::save`]
+    fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
+        for (path, directive) in append_plan(ledger, directives)? {
+            let content = appended(self.get(path.clone()), &path, &self.export(directive)?)?;
+            self.save(ledger, path, &content)?;
+        }
+        Ok(())
     }
 
     async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
@@ -109,8 +115,13 @@ where
         unchanged(&path, &content.text, spans)?;
         Ok(content)
     }
+    /// [`DataSource::append`], reading and writing with [`DataSource::async_get`] and [`DataSource::async_save`]
     async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        self.append(ledger, directives)
+        for (path, directive) in append_plan(ledger, directives)? {
+            let content = appended(self.async_get(path.clone()).await, &path, &self.export(directive)?)?;
+            self.async_save(ledger, path, &content).await?;
+        }
+        Ok(())
     }
 
     async fn async_save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
@@ -220,18 +231,89 @@ pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangRes
     Ok(entry.join(path))
 }
 
-/// Include a new output file once per append batch. Files already loaded by the ledger or
-/// included earlier in the batch need no new directive. The path is relative to the ledger root
-/// when possible, as both local and remote sources write it into the main file.
-pub fn include_for_append(ledger: &Ledger, endpoint: &PathBuf, included: &mut Vec<PathBuf>) -> Option<Directive> {
-    if has_path_visited(&ledger.visited_files, endpoint) || has_path_visited(included.iter(), endpoint) {
-        return None;
+/// What an append of `directives` to `ledger` writes, in order: each directive as it is written there
+/// ([`written_into`]), with the file it is appended to, by its path within the ledger as [`DataSource::get`] takes it.
+/// That is the file [`directive_output_file`] gives it. The main file gets an `include` of that file first, once per
+/// append, unless the ledger loaded it already. A file outside the ledger's directory is an error, and nothing is
+/// written: a source writes nothing there, and an `include` of it would name no file of the ledger.
+pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<Vec<(String, Directive)>> {
+    let within = |file: &Path| {
+        ledger
+            .path_in_ledger(file)
+            .filter(|it| !it.as_os_str().is_empty())
+            .ok_or_else(|| ZhangError::CustomError(format!("{} is not in the ledger's directory", file.display())))
+    };
+    let main = within(&ledger.entry.0.join(&ledger.entry.1))?;
+    // the files the ledger loaded, and those this append includes
+    let mut included: Vec<PathBuf> = ledger.visited_files.iter().filter_map(|it| ledger.path_in_ledger(it)).collect();
+    let mut plan = vec![];
+    for directive in directives {
+        let file = within(&directive_output_file(ledger, &directive)?)?;
+        if !included.contains(&file) {
+            let include = Directive::Include(Include {
+                file: ZhangString::QuoteString(slashed(&file)),
+            });
+            plan.push((slashed(&main), include));
+            included.push(file.clone());
+        }
+        let directive = written_into(ledger, directive, &file);
+        plan.push((slashed(&file), directive));
     }
-    included.push(endpoint.clone());
-    let path = endpoint.strip_prefix(&ledger.entry.0).unwrap_or(endpoint);
-    Some(Directive::Include(Include {
-        file: ZhangString::QuoteString(path.to_str().unwrap().to_owned()),
-    }))
+    Ok(plan)
+}
+
+/// the content of the file at `path`, whose content is `existing` (none when it is not there), with `directive`
+/// appended on a line of its own; the byte order mark the file may start with stays ([`FileText`])
+fn appended(existing: ZhangResult<Vec<u8>>, path: &str, directive: &[u8]) -> ZhangResult<Vec<u8>> {
+    let content = match existing {
+        Ok(content) => FileText::decode(content, path)?,
+        // a file this append creates
+        Err(error) if error.is_file_not_found() => FileText::new(String::new()),
+        Err(error) => return Err(error),
+    };
+    Ok([content.into_bytes().as_slice(), b"\n", directive, b"\n"].concat())
+}
+
+/// `path`, a file or directory of the ledger whose root is `root`, by its path within the ledger: the path a
+/// [`DataSource`] reads and writes it by, and the spans of the directives of a file hold. Every place that names a
+/// file of the ledger, or tells whether a path is one, asks here.
+///
+/// A path under the root is named relative to it; a relative path is within the ledger already. The path is
+/// normalized lexically (`.` dropped, `..` taking out the part before it), so a file has one name however an
+/// `include` spells it; the root itself is the empty path. `None` for a path outside the root: an absolute path not
+/// under it, or one that climbs above it with `..`. Nothing is looked up on the disk: a root and the paths under it are
+/// spelled alike, the root as the ledger was loaded from it.
+pub fn path_in_ledger(root: &Path, path: &Path) -> Option<PathBuf> {
+    let within = match path.strip_prefix(root) {
+        Ok(within) => within,
+        Err(_) if path.is_relative() => path,
+        Err(_) => return None,
+    };
+    normalize_relative(within)
+}
+
+/// a relative `path` normalized lexically (no `.` or `..` components, no empty ones); `None` when it is absolute or
+/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way
+pub(crate) fn normalize_relative(relative: &Path) -> Option<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(normalized)
+}
+
+/// a path within the ledger written with `/`, as a [`DataSource`] takes it and an `include` writes it
+pub fn slashed(path: &Path) -> String {
+    path.components().map(|it| it.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 
 /// `directive` as it is written into `file`, a file of `ledger` named by its path within it. In a beancount ledger, the
@@ -313,13 +395,12 @@ pub fn loaded_file(ledger: &Ledger, span: &SpanInfo) -> Option<String> {
     if span.start >= span.end || span.content.is_empty() {
         return None;
     }
-    // a local source names a file by its full path, a remote one by its path within the ledger
-    let entry = &ledger.entry.0;
+    let file = ledger.path_in_ledger(file)?;
     let loaded = ledger
         .visited_files
         .iter()
-        .any(|visited| visited == file || visited.strip_prefix(entry).is_ok_and(|within| within == file));
-    loaded.then(|| file.to_string_lossy().to_string())
+        .any(|visited| ledger.path_in_ledger(visited).as_ref() == Some(&file));
+    loaded.then(|| slashed(&file))
 }
 
 /// An `include` path with `*` in it: a pattern naming every file that matches, as beancount's `include` does. `*`
@@ -413,26 +494,163 @@ pub fn segment_matches(pattern: &str, name: &str) -> bool {
     rest.ends_with(last)
 }
 
-/// `LocalFileSystemDataSource` is the data source that store the data in the local file system.
+/// The files of one load of a ledger, in the order a data source reads them: the main file, then the files named by
+/// the `include`s of each file read, a pattern naming the files it matches. Every source loads through it, reading the
+/// files and listing the directories it asks for, so a load follows the same rules whatever stores the ledger:
+/// - a file is named by its path within the ledger ([`path_in_ledger`]): [`DataSource::get`] reads it by that name,
+///   and the spans of its directives hold it. [`LoadResult::visited_files`] lists it joined onto the root;
+/// - an `include` naming a file outside the ledger's root, or no file, is reported on it as `IncludeNotFound`, and the
+///   rest of the ledger loads ([`MissingInclude`]);
+/// - a main file that is not there is an empty ledger, which the web UI writes the first entries of (`zhang serve` on
+///   a new folder);
+/// - a file is read once, however many `include`s name it;
+/// - a file that is not UTF-8 text stops the load, naming it ([`FileText::decode`]).
 ///
-/// # Warning
-/// This data source is not fully tested yet and may contain bugs. Use with caution.
+/// ```text
+/// let mut files = LedgerFiles::new(root, main);
+/// while let Some(file) = files.next(|dir| list(dir))? {
+///     let content = read(file.path());
+///     files.read(file, content, data_type)?;
+/// }
+/// let loaded = files.finish();
+/// ```
+pub struct LedgerFiles {
+    /// the root of the ledger, as it was given
+    root: PathBuf,
+    queue: VecDeque<PendingFile>,
+    visited: Vec<PathBuf>,
+    directives: Vec<Spanned<Directive>>,
+    missing_includes: Vec<MissingInclude>,
+}
+
+/// A file of a load, to read next ([`LedgerFiles::next`])
+pub struct NextFile {
+    pending: PendingFile,
+    /// its path within the ledger
+    within: PathBuf,
+}
+
+impl NextFile {
+    /// the path of the file within the ledger, written with `/`, as [`DataSource::get`] takes it
+    pub fn path(&self) -> String {
+        slashed(&self.within)
+    }
+}
+
+impl LedgerFiles {
+    /// the load of the ledger whose root is `root` and whose main file is `main`, relative to the root
+    pub fn new(root: impl Into<PathBuf>, main: &str) -> Self {
+        let root = root.into();
+        LedgerFiles {
+            queue: VecDeque::from([PendingFile::main(root.join(main))]),
+            root,
+            visited: vec![],
+            directives: vec![],
+            missing_includes: vec![],
+        }
+    }
+
+    /// The next file to read, or `None` when every file is read. A pattern is expanded first: `list` gives the entries
+    /// of a directory of the ledger, by its path within it (empty for the root), none for one that is not there. An
+    /// `include` of a path outside the ledger's root is reported as missing without a read, as every source holds
+    /// nothing there; a main file outside it is an error
+    pub fn next(&mut self, mut list: impl FnMut(&Path) -> ZhangResult<Vec<SourceEntry>>) -> ZhangResult<Option<NextFile>> {
+        while let Some(mut pending) = self.queue.pop_front() {
+            let Some(within) = path_in_ledger(&self.root, &pending.path) else {
+                match pending.missing() {
+                    Some(missing) => self.missing_includes.push(missing),
+                    None => {
+                        return Err(ZhangError::CustomError(format!(
+                            "the main file {} is outside the ledger's directory {}",
+                            pending.path.display(),
+                            self.root.display()
+                        )))
+                    }
+                }
+                continue;
+            };
+            if let Some(pattern) = IncludePattern::parse(&within) {
+                let files = pattern.expand(Path::new(""), &mut list)?;
+                if files.is_empty() {
+                    self.missing_includes.extend(pending.missing());
+                }
+                self.queue.extend(files.into_iter().map(|file| pending.matched(self.root.join(file))));
+                continue;
+            }
+            pending.path = self.root.join(&within);
+            if has_path_visited(&self.visited, &pending.path) {
+                continue;
+            }
+            debug!("visited entry file: {:?}", pending.path.display());
+            return Ok(Some(NextFile { pending, within }));
+        }
+        Ok(None)
+    }
+
+    /// What the source read for `file`: its content, or why it could not; a missing file is
+    /// [`ZhangError::is_file_not_found`]. Its directives are read as `data_type` reads them
+    pub fn read(&mut self, file: NextFile, content: ZhangResult<Vec<u8>>, data_type: &dyn DataType<Carrier = String>) -> ZhangResult<()> {
+        let NextFile { pending, within } = file;
+        let name = slashed(&within);
+        let text = match content {
+            // after the byte order mark it may start with, which the parsers skip too: the spans index the same text
+            Ok(content) => FileText::decode(content, &name)?.text,
+            Err(error) if error.is_file_not_found() => match pending.missing() {
+                Some(missing) => {
+                    self.missing_includes.push(missing);
+                    return Ok(());
+                }
+                // the main file, not there yet: an empty ledger
+                None => String::new(),
+            },
+            Err(error) => return Err(error),
+        };
+        let directives = data_type.transform(text, Some(name))?;
+        self.queue.extend(pending.includes(&directives));
+        self.directives.extend(directives);
+        self.visited.push(pending.path);
+        Ok(())
+    }
+
+    /// what the load read
+    pub fn finish(self) -> LoadResult {
+        LoadResult {
+            directives: self.directives,
+            visited_files: self.visited,
+            missing_includes: self.missing_includes,
+        }
+    }
+}
+
+/// `LocalFileSystemDataSource` is the data source that stores the ledger on the local disk, as the `Fs` service of the
+/// opendal source `zhang serve` runs does: it loads through [`LedgerFiles`] and appends through [`append_plan`], so a
+/// ledger loads and is written alike through both.
 ///
+/// It reads and writes a relative path within the root of the ledger it loaded last, never the working directory, and
+/// creates the directories a write needs; an absolute path is read and written where it is.
 pub struct LocalFileSystemDataSource {
     data_type: Box<dyn DataType<Carrier = String> + 'static + Send + Sync>,
+    /// the root of the ledger this source loaded last; `None` before its first load
+    root: std::sync::RwLock<Option<PathBuf>>,
 }
 
 impl LocalFileSystemDataSource {
     pub fn new<DT: DataType<Carrier = String> + Send + Sync + 'static>(data_type: DT) -> Self {
         LocalFileSystemDataSource {
             data_type: Box::new(data_type),
+            root: std::sync::RwLock::new(None),
         }
     }
-    pub(crate) fn create_folder_if_not_exist(filename: &std::path::Path) -> ZhangResult<()> {
-        match filename.parent() {
-            Some(folder) => std::fs::create_dir_all(folder).with_path(folder),
-            None => Ok(()),
+
+    /// `path` on the local disk: a relative path within the root of the ledger this source loaded (the working
+    /// directory before a load), an absolute path where it is. `None` for a relative path climbing out of the root
+    fn resolve(&self, path: &str) -> Option<PathBuf> {
+        let path = Path::new(path);
+        if path.is_absolute() {
+            return Some(path.to_path_buf());
         }
+        let root = self.root.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone().unwrap_or_default();
+        normalize_relative(path).map(|within| root.join(within))
     }
 
     /// the entries of the directory at `dir` on the local disk, none when there is no directory there
@@ -453,37 +671,6 @@ impl LocalFileSystemDataSource {
             .collect::<Result<Vec<_>, std::io::Error>>()
             .with_path(dir)
     }
-
-    /// append `directive` to `file`, or to the file `directive_output_path` gives it ([`directive_output_file`]), which
-    /// the main file then includes unless the ledger or this append (`included`) has it already. Without `included`, no
-    /// include
-    fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, included: Option<&mut Vec<PathBuf>>) -> ZhangResult<()> {
-        let (entry, _) = &ledger.entry;
-
-        let endpoint = match file {
-            Some(file) => file,
-            None => directive_output_file(ledger, &directive)?,
-        };
-
-        LocalFileSystemDataSource::create_folder_if_not_exist(&endpoint)?;
-
-        if let Some(include) = included.and_then(|included| include_for_append(ledger, &endpoint, included)) {
-            self.append_directive(ledger, include, None, None)?;
-        }
-
-        let mut content = match ledger.data_source.get(endpoint.to_string_lossy().to_string()) {
-            Ok(content) => FileText::decode(content, &endpoint)?,
-            // a file this append creates
-            Err(error) if error.is_file_not_found() => FileText::new(String::new()),
-            Err(e) => return Err(e),
-        };
-
-        let directive = written_into(ledger, directive, endpoint.strip_prefix(entry).unwrap_or(&endpoint));
-        content.text = format!("{}\n{}\n", content.text, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
-
-        ledger.data_source.save(ledger, endpoint.to_string_lossy().to_string(), &content.into_bytes())?;
-        Ok(())
-    }
 }
 
 #[async_trait::async_trait]
@@ -492,8 +679,10 @@ impl DataSource for LocalFileSystemDataSource {
         Ok(self.data_type.export(Spanned::new(directive, SpanInfo::default())).into_bytes())
     }
 
+    /// a relative path climbing out of the ledger's root names no file of it
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        Ok(std::fs::read(PathBuf::from(path))?)
+        let file = self.resolve(&path).ok_or(ZhangError::FileNotFound)?;
+        Ok(std::fs::read(file)?)
     }
 
     /// the ledger root itself: this source reads the paths it is given from the local disk
@@ -502,68 +691,24 @@ impl DataSource for LocalFileSystemDataSource {
     }
 
     fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
-        let entry = PathBuf::from(entry);
-        let entry = entry.canonicalize().with_path(&entry)?;
-        let main_endpoint = entry.join(endpoint);
-        let main_endpoint = main_endpoint.canonicalize().with_path(&main_endpoint)?;
-
-        let mut load_queue: VecDeque<PendingFile> = VecDeque::new();
-        load_queue.push_back(PendingFile::main(main_endpoint));
-
-        let mut visited: Vec<PathBuf> = Vec::new();
-        let mut directives = vec![];
-        let mut missing_includes = vec![];
-        while let Some(pending) = load_queue.pop_front() {
-            if let Some(pattern) = IncludePattern::parse(&pending.path) {
-                let files = pattern.expand(&entry, Self::entries)?;
-                if files.is_empty() {
-                    missing_includes.extend(pending.missing());
-                }
-                load_queue.extend(files.into_iter().map(|file| pending.matched(file)));
-                continue;
-            }
-            debug!("visited entry file: {:?}", pending.path.display());
-
-            if has_path_visited(&visited, &pending.path) {
-                continue;
-            }
-            let file_content = match self.get(pending.path.to_string_lossy().to_string()) {
-                Ok(content) => content,
-                Err(error) if error.is_file_not_found() => match pending.missing() {
-                    Some(missing) => {
-                        missing_includes.push(missing);
-                        continue;
-                    }
-                    None => return Err(error),
-                },
-                Err(error) => return Err(error),
-            };
-            let name = pending.path.to_string_lossy().to_string();
-            // after the byte order mark it may start with, which the parsers skip too: the spans index the same text
-            let entity_directives = self.data_type.transform(FileText::decode(file_content, &name)?.text, Some(name))?;
-
-            load_queue.extend(pending.includes(&entity_directives));
-            directives.extend(entity_directives);
-            visited.push(pending.path);
+        let root = PathBuf::from(entry);
+        *self.root.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(root.clone());
+        let mut files = LedgerFiles::new(root.clone(), &endpoint);
+        while let Some(file) = files.next(|dir| Self::entries(&root.join(dir)))? {
+            let content = self.get(file.path());
+            files.read(file, content, &*self.data_type)?;
         }
-        Ok(LoadResult {
-            directives,
-            visited_files: visited,
-            missing_includes,
-        })
+        Ok(files.finish())
     }
 
     fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-        std::fs::write(&path, content).with_path(PathBuf::from(path).as_path())
-    }
-
-    fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        // the files this append includes: the ledger it was given does not know them yet
-        let mut included = vec![];
-        for directive in directives {
-            self.append_directive(ledger, directive, None, Some(&mut included))?;
+        let file = self
+            .resolve(&path)
+            .ok_or_else(|| ZhangError::CustomError(format!("{path} is not in the ledger's directory")))?;
+        if let Some(folder) = file.parent() {
+            std::fs::create_dir_all(folder).with_path(folder)?;
         }
-        Ok(())
+        std::fs::write(&file, content).with_path(&file)
     }
 }
 
@@ -745,18 +890,136 @@ mod include_pattern_test {
 
 #[cfg(test)]
 mod test {
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use zhang_ast::error::ErrorKind;
     use zhang_ast::Directive;
 
-    use super::{FileText, LocalFileSystemDataSource};
+    use super::{path_in_ledger, FileText, LocalFileSystemDataSource};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
     use crate::store::Store;
     use crate::ZhangError;
+
+    /// A file is named by its path within the ledger, normalized, whether it is given relative to the root or under
+    /// it; nothing outside the root is: an absolute path elsewhere, or one climbing above the root.
+    #[test]
+    fn a_file_is_named_by_its_path_within_the_ledger() {
+        let within = |root: &str, path: &str| path_in_ledger(Path::new(root), Path::new(path));
+        let some = |path: &str| Some(PathBuf::from(path));
+        assert_eq!(within("/ledger", "/ledger/data/2024.zhang"), some("data/2024.zhang"));
+        assert_eq!(within("/ledger", "data/2024.zhang"), some("data/2024.zhang"));
+        assert_eq!(within("/ledger", "/ledger/./data/old/../2024.zhang"), some("data/2024.zhang"));
+        assert_eq!(within("/ledger", "./data//2024.zhang"), some("data/2024.zhang"));
+        assert_eq!(within("/ledger", "/ledger"), some(""));
+        assert_eq!(within("/ledger", "/ledger/../outside/o.zhang"), None);
+        assert_eq!(within("/ledger", "../outside/o.zhang"), None);
+        assert_eq!(within("/ledger", "data/../../o.zhang"), None);
+        assert_eq!(within("/ledger", "/elsewhere/o.zhang"), None);
+        assert_eq!(within("/ledger", "/ledger-other/o.zhang"), None);
+        assert_eq!(within("/", "/data/2024.zhang"), some("data/2024.zhang"));
+        assert_eq!(within(".", "./main.zhang"), some("main.zhang"));
+    }
+
+    const OPENS: &str = "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
+
+    /// the transaction recorded on 2024-01-15, as the web UI appends it
+    fn coffee() -> Vec<Directive> {
+        ZhangDataType {}
+            .transform("2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n".to_owned(), None)
+            .unwrap()
+            .into_iter()
+            .map(|it| it.data)
+            .collect()
+    }
+
+    /// A ledger whose main file is not there yet is empty, without an error, as `zhang serve` serves a new folder: this
+    /// source failed the load with an io error. The first entry appended writes the main file.
+    #[test]
+    fn a_missing_main_file_is_an_empty_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source.clone()).expect("an empty ledger");
+
+        assert!(ledger.store.read().unwrap().errors.is_empty());
+        assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
+        ledger.data_source.append(&ledger, coffee()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("main.zhang")).unwrap().trim(),
+            "include \"data/2024/01.zhang\""
+        );
+        std::fs::write(root.join("accounts.zhang"), OPENS).unwrap();
+        std::fs::write(root.join("main.zhang"), "include \"accounts.zhang\"\ninclude \"data/2024/01.zhang\"\n").unwrap();
+        let reloaded = Ledger::load_with_data_source(root, "main.zhang".to_owned(), source).unwrap();
+        assert_eq!(reloaded.store.read().unwrap().transactions.len(), 1);
+    }
+
+    /// An `include` of a file outside the ledger's directory, by a relative path climbing out of it or by an absolute
+    /// path, names no file of the ledger: it is an error on the `include`, and the rest loads, as `zhang serve`
+    /// reports it. This source read it.
+    #[test]
+    fn an_include_outside_the_ledger_is_an_error_on_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("ledger")).unwrap();
+        std::fs::create_dir_all(root.join("outside")).unwrap();
+        std::fs::write(root.join("outside/o.zhang"), "1970-01-01 open Assets:Outside\n").unwrap();
+        let absolute = root.join("outside/o.zhang").display().to_string();
+        std::fs::write(
+            root.join("ledger/main.zhang"),
+            format!("{OPENS}include \"../outside/o.zhang\"\ninclude \"{absolute}\"\n"),
+        )
+        .unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+
+        let ledger = Ledger::load_with_data_source(root.join("ledger"), "main.zhang".to_owned(), source).unwrap();
+
+        let store = ledger.store.read().unwrap();
+        assert_eq!(
+            include_errors(&store),
+            vec![
+                ("../outside/o.zhang".to_owned(), "include \"../outside/o.zhang\"".to_owned()),
+                (absolute.clone(), format!("include \"{absolute}\""))
+            ]
+        );
+        assert!(store.accounts.contains_key("Assets:Cash"));
+        assert!(!store.accounts.contains_key("Assets:Outside"));
+        assert_eq!(ledger.visited_files, vec![root.join("ledger/main.zhang")]);
+        assert!(ledger.extra_inputs.is_empty(), "a file outside the ledger's directory is not watched");
+    }
+
+    /// A relative path this source reads or writes is within the ledger's directory, as the paths of a `DataSource`
+    /// are, never the working directory: a document uploaded to `attachments/<id>/<name>`, or a file saved in the
+    /// editor by the name the file list gives it. The folders it needs are created. The spans of the directives name
+    /// their files so too, as `zhang serve` names them.
+    #[test]
+    fn a_relative_path_is_read_and_written_within_the_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        std::fs::write(root.join("main.zhang"), "include \"data/accounts.zhang\"\n").unwrap();
+        std::fs::write(root.join("data/accounts.zhang"), OPENS).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+
+        let files: Vec<_> = ledger.directives.iter().map(|it| it.span.filename.clone().unwrap()).collect();
+        assert_eq!(files, vec![PathBuf::from("data/accounts.zhang"); 2]);
+        let saved = "attachments/0f3c/receipt.txt".to_owned();
+        ledger.data_source.save(&ledger, saved.clone(), b"receipt").unwrap();
+        assert_eq!(std::fs::read(root.join(&saved)).unwrap(), b"receipt");
+        assert_eq!(ledger.data_source.get(saved).unwrap(), b"receipt");
+        assert_eq!(ledger.data_source.get("data/accounts.zhang".to_owned()).unwrap(), OPENS.as_bytes());
+        assert!(ledger.data_source.get("../outside.zhang".to_owned()).unwrap_err().is_file_not_found());
+        assert!(
+            !Path::new("attachments/0f3c/receipt.txt").exists(),
+            "nothing is written in the working directory"
+        );
+    }
 
     #[test]
     fn an_append_includes_each_new_file_once() {

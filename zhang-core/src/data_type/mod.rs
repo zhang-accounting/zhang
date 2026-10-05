@@ -1,4 +1,4 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 use zhang_ast::{Directive, Spanned};
 
@@ -10,22 +10,6 @@ pub mod text;
 /// extension is `bc`, `bean` or `beancount`. Anything else is read as zhang text.
 pub fn is_beancount_endpoint(endpoint: impl AsRef<Path>) -> bool {
     matches!(endpoint.as_ref().extension().and_then(|it| it.to_str()), Some("bc" | "bean" | "beancount"))
-}
-
-/// `file`, a file of the ledger in `root`, by its path within the ledger: a local source names its files by their full
-/// path, a remote one by their path within the ledger already
-pub fn file_in_ledger(root: &Path, file: &Path) -> PathBuf {
-    if let Ok(within) = file.strip_prefix(root) {
-        return within.to_path_buf();
-    }
-    if file.is_relative() {
-        return file.to_path_buf();
-    }
-    // the same directory named another way, as `/tmp` is `/private/tmp`
-    match (root.canonicalize(), file.canonicalize()) {
-        (Ok(root), Ok(file)) => file.strip_prefix(root).map(Path::to_path_buf).unwrap_or(file),
-        _ => file.to_path_buf(),
-    }
 }
 
 /// The path a `document` of a beancount ledger is written with in `file`, a file of the ledger named by its path within

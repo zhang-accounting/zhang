@@ -35,7 +35,8 @@ include "data/*/*.zhang"
 
 - 相对路径相对于包含这条 `include` 的文件所在的目录解析：`data/2024.zhang` 中的 `include "sibling.zhang"` 读取 `data/sibling.zhang`。
 - 每个被包含的文件都按主文件的格式读取，不论它自己的扩展名是什么：主文件为 `main.zhang` 的账本把每个文件都当作 zhang 文本读取，主文件为 `main.bean` 的账本把每个文件都当作 Beancount 文本读取。
-- 绝对路径在账本根目录内读取，服务器只读取这个范围：在本地磁盘上，账本文件夹内的路径会被读取，文件夹外的路径找不到任何文件。
+- 绝对路径在账本根目录内读取，服务器只读取这个范围：在本地磁盘上，账本文件夹内的路径会被读取，文件夹外的路径找不到任何文件。用 `..` 跳出账本根目录的相对路径（例如主文件中的 `include "../shared/accounts.zhang"`）同样找不到任何文件。
+- 不论路径怎样书写，一个文件只有一个名称：主文件中的 `accounts.zhang`、`./accounts.zhang` 和 `data/../accounts.zhang` 是同一个文件，只读取一次。
 - 不存在的文件会在这条 `include` 上报告 [`IncludeNotFound`](/zh-cn/reference/error-codes/#includenotfound) 错误，账本的其余部分照常加载。它不会出现在网页界面的文件列表中。
 
 ### 通配符
@@ -66,7 +67,7 @@ include "data/*/*.zhang"
 
 | 错误 | 触发条件 |
 |---|---|
-| [`IncludeNotFound`](/zh-cn/reference/error-codes/#includenotfound) | 路径上没有文件、绝对路径在账本根目录之外，或者没有文件匹配这个模式。错误指向这条 `include`，账本的其余部分照常加载。 |
+| [`IncludeNotFound`](/zh-cn/reference/error-codes/#includenotfound) | 路径上没有文件、路径在账本根目录之外（位于别处的绝对路径，或用 `..` 跳出根目录的相对路径），或者没有文件匹配这个模式。错误指向这条 `include`，账本的其余部分照常加载。 |
 
 无法解析的文件会让账本无法加载，错误信息会指出文件、行和列。
 

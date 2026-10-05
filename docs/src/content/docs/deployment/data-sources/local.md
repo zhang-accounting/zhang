@@ -15,7 +15,7 @@ With Docker, the folder is the one mounted at `/data`, see [Installation](/getti
 
 ## Layout
 
-Zhang starts from the main file, `main.zhang` unless you pass `--endpoint`, and loads every file it [includes](/reference/directives/include/), directly or through other included files. Paths in an `include` are relative to the file that contains it. A folder served by Zhang can look like this:
+Zhang starts from the main file, `main.zhang` unless you pass `--endpoint`, and loads every file it [includes](/reference/directives/include/), directly or through other included files. Paths in an `include` are relative to the file that contains it. Zhang reads and writes only inside the folder: an `include` of a file outside it, by an absolute path or by a relative one climbing out with `..`, is reported as [`IncludeNotFound`](/reference/error-codes/#includenotfound), and the rest of the ledger loads. A folder served by Zhang can look like this:
 
 ```text
 ledger/

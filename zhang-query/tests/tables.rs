@@ -514,10 +514,10 @@ fn notes_documents_and_commodities() {
         on_directives("SELECT * FROM #notes"),
         rows(&[&["2024-02-03", "Assets:Bank", "check the statement", "todo", "stmt"]])
     );
-    // a relative document path is resolved against the directory of its ledger file
+    // a relative document path is resolved against the directory of its ledger file, the root
+    // here, which the ledger names by its path within it, as `zhang serve` does
     let documents = on_directives("SELECT filename FROM #documents");
-    let filename = &documents[0][0];
-    assert!(filename.ends_with("/docs/statement.pdf") && !filename.contains(".."), "{}", filename);
+    assert_eq!(documents[0][0], "../docs/statement.pdf");
     assert_eq!(on_directives("SELECT * FROM #commodities"), rows(&[&["precision: \"2\"", "1970-01-01", "USD"]]));
 }
 

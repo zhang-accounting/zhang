@@ -1,6 +1,8 @@
+use std::path::Path;
+
 use axum::extract::State;
 use gotcha::api;
-use zhang_core::data_source::FileText;
+use zhang_core::data_source::{slashed, FileText};
 use zhang_core::utils::BOM;
 
 use crate::error::ServerError;
@@ -14,15 +16,13 @@ use crate::{ApiResult, ServerResult};
 #[api(group = "file")]
 pub async fn get_files(ledger: State<SharedLedger>) -> ApiResult<Vec<Option<String>>> {
     let ledger = ledger.read().await;
-    let entry_path = &ledger.entry.0;
-
-    let mut ret = vec![];
-    for path in &ledger.visited_files {
-        if let Ok(striped_path) = path.strip_prefix(entry_path) {
-            ret.push(striped_path.to_str().map(|it| it.to_string()));
-        }
-    }
-    ResponseWrapper::json(ret)
+    // by their paths within the ledger, which the editor reads and writes them by
+    let files = ledger
+        .visited_files
+        .iter()
+        .filter_map(|path| ledger.path_in_ledger(path))
+        .map(|path| Some(slashed(&path)));
+    ResponseWrapper::json(files.collect())
 }
 
 /// The fingerprint of a file as the editor is shown it: the SHA-256, in hex, of its content after the byte order mark
@@ -42,7 +42,8 @@ pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename):
             let (root, main) = &ledger.entry;
             // the main file of a ledger started without one (`zhang serve` on a new folder) is the empty ledger served,
             // which the editor writes; any other file that is not there is not shown as an empty one
-            if root.join(main) != root.join(&filename) {
+            let main = ledger.path_in_ledger(&root.join(main));
+            if main.is_none() || ledger.path_in_ledger(Path::new(&filename)) != main {
                 return Err(ServerError::NoSuchFile(filename));
             }
             vec![]
@@ -115,7 +116,7 @@ mod save_test {
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::ledger::Ledger;
 
-    use super::{get_file_content, update_file_content};
+    use super::{get_file_content, get_files, update_file_content};
     use crate::request::{CreateTransactionRequest, FileUpdateRequest};
     use crate::routes::transaction::create_new_transaction;
     use crate::routes::Base64Path;
@@ -305,6 +306,54 @@ mod save_test {
             assert!(message.contains(&format!("the file {path} is not UTF-8 text: line {line}")), "{message}");
         }
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// The file list names the ledger's files by their paths within it, and the editor reads and saves them by those
+    /// names, under the local source the tests load through as under the one `zhang serve` runs: the local source read
+    /// and wrote such a name in the working directory. A ledger loaded through a link to its directory, as `/tmp` is
+    /// on macOS, too: its file list was empty, and each transaction recorded wrote the `include` of its month's file
+    /// into the main file once more.
+    #[tokio::test]
+    async fn the_editor_reads_and_saves_the_files_it_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().canonicalize().unwrap().join("ledger");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = real.with_file_name("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        std::fs::write(real.join("main.bean"), LEDGER).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+        let loaded = Ledger::async_load(link.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
+        let (sender, _receiver) = mpsc::channel(8);
+        let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
+
+        for _ in 0..2 {
+            let (status, message) = answer(create_new_transaction(state.clone(), reload.clone(), Json(new_transaction())).await).await;
+            assert_eq!(status, StatusCode::OK, "{message}");
+        }
+        let main = std::fs::read_to_string(real.join("main.bean")).unwrap();
+        assert_eq!(main.matches("include \"data/2024/06.bean\"").count(), 1, "{main}");
+
+        state.write().await.reload().unwrap();
+        let listed = answer_json(get_files(state.clone()).await).await;
+        assert_eq!(listed["data"], serde_json::json!(["main.bean", "data/2024/06.bean"]));
+        for file in ["main.bean", "data/2024/06.bean"] {
+            let (content, _) = shown(&state, Path::new(file)).await;
+            assert_eq!(content, std::fs::read_to_string(real.join(file)).unwrap(), "{file}");
+        }
+        let edited = format!("{main}2024-01-01 open Assets:B\n");
+        let request = FileUpdateRequest {
+            content: edited.clone(),
+            expected_sha256: None,
+        };
+        let saved = update_file_content(state.clone(), reload.clone(), Base64Path("main.bean".to_owned()), Json(request)).await;
+        assert_eq!(answer(saved).await.0, StatusCode::CREATED);
+        assert_eq!(std::fs::read_to_string(real.join("main.bean")).unwrap(), edited);
+    }
+
+    async fn answer_json(response: impl IntoResponse) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_response().into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
     }
 
     async fn answer(response: impl IntoResponse) -> (StatusCode, String) {

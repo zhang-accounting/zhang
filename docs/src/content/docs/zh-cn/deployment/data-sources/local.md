@@ -15,7 +15,7 @@ zhang serve /home/me/ledger
 
 ## 目录结构
 
-张记账从主文件开始（除非传入 `--endpoint`，否则为 `main.zhang`），并加载它直接或通过其他被引入的文件间接[引入](/zh-cn/reference/directives/include/)的每一个文件。`include` 中的路径相对于包含它的文件。张记账提供服务的文件夹可以是这样的：
+张记账从主文件开始（除非传入 `--endpoint`，否则为 `main.zhang`），并加载它直接或通过其他被引入的文件间接[引入](/zh-cn/reference/directives/include/)的每一个文件。`include` 中的路径相对于包含它的文件。张记账只在该文件夹内读写：引入文件夹之外的文件（无论是绝对路径，还是用 `..` 跳出文件夹的相对路径）会报告为 [`IncludeNotFound`](/zh-cn/reference/error-codes/#includenotfound)，账本的其余部分照常加载。张记账提供服务的文件夹可以是这样的：
 
 ```text
 ledger/

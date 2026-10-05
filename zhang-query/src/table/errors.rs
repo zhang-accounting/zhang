@@ -56,7 +56,7 @@ pub(super) static ERRORS: Table = Table {
 pub(crate) struct LedgerError<'a> {
     error: &'a ErrorDomain,
     /// the file of the directive, relative to the ledger's directory when it is inside it
-    file: Option<&'a Path>,
+    file: Option<Cow<'a, Path>>,
     /// the date of the directive; only looked up when the `date` column is projected
     date: Option<NaiveDate>,
 }
@@ -67,7 +67,7 @@ impl LedgerError<'_> {
     }
 
     fn file(&self) -> Option<Cow<'_, str>> {
-        self.file.map(Path::to_string_lossy)
+        self.file.as_deref().map(Path::to_string_lossy)
     }
 }
 

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -205,6 +205,12 @@ impl Ledger {
     /// Today's date in the ledger's timezone, by [`Ledger::now`].
     pub fn today(&self) -> NaiveDate {
         self.now().with_timezone(&self.options.timezone).date_naive()
+    }
+
+    /// `path`, a file or directory of this ledger, by its path within it; `None` outside the ledger's directory. See
+    /// [`path_in_ledger`](crate::data_source::path_in_ledger)
+    pub fn path_in_ledger(&self, path: &Path) -> Option<PathBuf> {
+        crate::data_source::path_in_ledger(&self.entry.0, path)
     }
 
     fn init(context: LedgerProcessContext) -> (Self, SplitDirectives) {

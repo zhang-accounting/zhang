@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Document, SpanInfo};
 
-use crate::data_type::{document_path_in_file, document_path_in_ledger, file_in_ledger, is_beancount_endpoint};
+use crate::data_type::{document_path_in_file, document_path_in_ledger, is_beancount_endpoint};
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
@@ -48,7 +48,11 @@ impl DirectiveProcess for Document {
 /// opening the document looks at when nothing is at the path. Nothing is reported then: what is not known is neither
 /// an error nor a reason to pick a path.
 fn beancount_document_path(ledger: &Ledger, written: &str, span: &SpanInfo) -> ZhangResult<(String, Option<String>)> {
-    let file = span.filename.as_ref().map(|file| file_in_ledger(&ledger.entry.0, file)).unwrap_or_default();
+    let file = span
+        .filename
+        .as_ref()
+        .map(|file| ledger.path_in_ledger(file).unwrap_or_else(|| file.clone()))
+        .unwrap_or_default();
     let from_file = document_path_in_ledger(written, &file);
     let from_root = document_path_in_ledger(written, Path::new(""));
     // within the ledger's directory, and other than the path

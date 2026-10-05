@@ -1,4 +1,4 @@
-use std::path::Component;
+use std::path::Path;
 
 use axum::extract::State;
 use axum::http::header;
@@ -8,7 +8,7 @@ use gotcha::api;
 use itertools::Itertools;
 use log::{info, warn};
 use zhang_core::ledger::Ledger;
-use zhang_core::ZhangError;
+use zhang_core::{data_source, ZhangError};
 
 use crate::error::ServerError;
 use crate::response::{DocumentEntity, ResponseWrapper};
@@ -58,30 +58,16 @@ fn path_in_ledger(ledger: &Ledger, requested: &str) -> ServerResult<String> {
     if requested.contains(['\n', '\0']) {
         return Err(ServerError::InvalidInput(format!("{requested:?} is not the path of a document")));
     }
-    let requested_path = std::path::Path::new(requested);
-    let relative = match requested_path.is_absolute() {
-        true => {
-            let roots = [Some(ledger.entry.0.clone()), ledger.data_source.local_root(&ledger.entry.0)];
-            roots
-                .iter()
-                .flatten()
-                .find_map(|root| requested_path.strip_prefix(root).ok())
-                .ok_or_else(outside)?
-        }
-        false => requested_path,
-    };
-    let mut parts: Vec<String> = vec![];
-    for component in relative.components() {
-        match component {
-            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-            Component::CurDir => {}
-            Component::ParentDir if parts.pop().is_some() => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return Err(outside()),
-        }
-    }
-    match parts.is_empty() {
+    // an absolute path is within the root the ledger was loaded from, or the directory the source reads on the disk
+    let roots = [Some(ledger.entry.0.clone()), ledger.data_source.local_root(&ledger.entry.0)];
+    let within = roots
+        .iter()
+        .flatten()
+        .find_map(|root| data_source::path_in_ledger(root, Path::new(requested)))
+        .ok_or_else(outside)?;
+    match within.as_os_str().is_empty() {
         true => Err(ServerError::InvalidInput(format!("{requested:?} is not the path of a document"))),
-        false => Ok(parts.join("/")),
+        false => Ok(data_source::slashed(&within)),
     }
 }
 

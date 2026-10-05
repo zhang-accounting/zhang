@@ -6,7 +6,9 @@
 //! [`Ledger::extra_inputs`](crate::ledger::Ledger::extra_inputs),
 //! so a server can reload the ledger when one of them changes without listing receipts or modules in the editor.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+
+use crate::data_source::path_in_ledger;
 
 /// something a load read besides the ledger's own files; a change to it makes the loaded ledger stale
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,34 +37,8 @@ impl ExtraInput {
     /// the input for the file at `path`, absolute or relative to the ledger root `root`; `None` for a file outside
     /// the root, which a change to the root never touches
     pub fn ledger_file(root: &Path, path: &Path) -> Option<ExtraInput> {
-        relative_to_root(root, path).filter(|path| !path.as_os_str().is_empty()).map(ExtraInput::File)
+        path_in_ledger(root, path).filter(|path| !path.as_os_str().is_empty()).map(ExtraInput::File)
     }
-}
-
-/// `path` relative to `root`, normalized lexically (no `.` or `..` components); `None` when it is outside the root.
-/// A relative `path` is taken as relative to the root already
-fn relative_to_root(root: &Path, path: &Path) -> Option<PathBuf> {
-    let relative = if path.has_root() { path.strip_prefix(root).ok()? } else { path };
-    normalize_relative(relative)
-}
-
-/// a relative `path` normalized lexically (no `.` or `..` components, no empty ones); `None` when it is absolute or
-/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way
-pub(crate) fn normalize_relative(relative: &Path) -> Option<PathBuf> {
-    let mut normalized = PathBuf::new();
-    for component in relative.components() {
-        match component {
-            Component::Normal(part) => normalized.push(part),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return None;
-                }
-            }
-            Component::RootDir | Component::Prefix(_) => return None,
-        }
-    }
-    Some(normalized)
 }
 
 #[cfg(test)]

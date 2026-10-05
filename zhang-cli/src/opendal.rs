@@ -1,10 +1,8 @@
-use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use async_recursion::async_recursion;
 use beancount::Beancount;
 use futures::TryStreamExt;
 use log::{debug, info};
@@ -12,14 +10,11 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, SpanInfo, Spanned};
-use zhang_core::data_source::{
-    directive_output_file, include_for_append, written_into, DataSource, FileText, IncludePattern, LoadResult, PendingFile, SourceEntry,
-};
-use zhang_core::data_type::text::parser::parse as zhang_parse;
+use zhang_core::data_source::{DataSource, LedgerFiles, LoadResult, SourceEntry};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{is_beancount_endpoint, DataType};
 use zhang_core::ledger::Ledger;
-use zhang_core::{utils, ZhangError, ZhangResult};
+use zhang_core::{ZhangError, ZhangResult};
 
 use crate::{FileSystem, ServerOpts};
 
@@ -31,7 +26,6 @@ const PLUGIN_FILE_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct OpendalDataSource {
     operator: Operator,
     data_type: Box<dyn DataType<Carrier = String> + 'static + Send + Sync>,
-    is_beancount: bool,
     /// the directory the `Fs` service reads, the ledger root on the local disk; `None` for a remote service
     local_root: Option<PathBuf>,
 }
@@ -115,75 +109,22 @@ impl DataSource for OpendalDataSource {
         entries.ok_or_else(|| ZhangError::TooLarge(format!("the directory {path:?} has more than {max_entries} entries")))
     }
 
+    /// The `Fs` service is jailed to the ledger's directory and a remote service holds nothing outside its root: an
+    /// `include` of a path outside names no file this source has, and is reported as missing, never a panic that
+    /// aborts the start or kills the reload task (#492). A pattern lists through the blocking helper, as plugins list
+    /// during a load
     async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
-        let entry = PathBuf::from(entry);
-        let main_endpoint = entry.join(endpoint);
-
-        let mut load_queue: VecDeque<PendingFile> = VecDeque::new();
-        load_queue.push_back(PendingFile::main(main_endpoint));
-
-        let mut visited: Vec<PathBuf> = Vec::new();
-        let mut directives = vec![];
-        let mut missing_includes = vec![];
-        while let Some(pending) = load_queue.pop_front() {
-            // the `Fs` service is jailed to the ledger's directory and a remote service holds nothing outside its root:
-            // an `include` of an absolute path outside names no file this source has, and is reported as missing,
-            // never a panic that aborts the start or kills the reload task (#492)
-            let Ok(striped_pathbuf) = pending.path.strip_prefix(&entry).map(Path::to_path_buf) else {
-                match pending.missing() {
-                    Some(missing) => missing_includes.push(missing),
-                    None => {
-                        return Err(ZhangError::CustomError(format!(
-                            "cannot include {}: it is outside the ledger's directory {}",
-                            pending.path.display(),
-                            entry.display()
-                        )))
-                    }
-                }
-                continue;
-            };
-            if let Some(pattern) = IncludePattern::parse(&striped_pathbuf) {
-                // listed through the blocking helper, as plugins list during a load; a directory that is not there
-                // holds nothing
-                let files = pattern.expand(Path::new(""), |dir| match self.list(dir.to_string_lossy().into_owned(), usize::MAX) {
-                    Err(ZhangError::FileNotFound) => Ok(vec![]),
-                    listed => listed,
-                })?;
-                if files.is_empty() {
-                    missing_includes.extend(pending.missing());
-                }
-                load_queue.extend(files.into_iter().map(|file| pending.matched(entry.join(file))));
-                continue;
-            }
-            debug!("visited entry file: {:?}", striped_pathbuf.display());
-            if utils::has_path_visited(&visited, &pending.path) {
-                continue;
-            }
-            let file_content = match self.async_get(striped_pathbuf.to_string_lossy().into_owned()).await {
-                // after the byte order mark it may start with, which the parsers skip too: the spans index the same text
-                Ok(content) => FileText::decode(content, &striped_pathbuf)?.text,
-                Err(ZhangError::FileNotFound) => match pending.missing() {
-                    Some(missing) => {
-                        missing_includes.push(missing);
-                        continue;
-                    }
-                    // a main file that is not there yet is an empty ledger, which the web UI writes the first entries
-                    // of (`zhang serve` on a new folder)
-                    None => String::new(),
-                },
-                Err(error) => return Err(error),
-            };
-            let entity_directives = self.parse(&file_content, striped_pathbuf.clone())?;
-
-            load_queue.extend(pending.includes(&entity_directives));
-            directives.extend(entity_directives);
-            visited.push(pending.path);
+        let mut files = LedgerFiles::new(entry, &endpoint);
+        let list = |dir: &Path| match self.list(dir.to_string_lossy().into_owned(), usize::MAX) {
+            // a directory that is not there holds nothing
+            Err(ZhangError::FileNotFound) => Ok(vec![]),
+            listed => listed,
+        };
+        while let Some(file) = files.next(list)? {
+            let content = self.async_get(file.path()).await;
+            files.read(file, content, &*self.data_type)?;
         }
-        Ok(LoadResult {
-            directives,
-            visited_files: visited,
-            missing_includes,
-        })
+        Ok(files.finish())
     }
 
     /// [`ZhangError::FileNotFound`] for a file that is not there, never an empty file: a missing `include` or plugin
@@ -215,15 +156,6 @@ impl DataSource for OpendalDataSource {
                 _ => Err(ZhangError::CustomError(format!("Error getting file content from {}: {}", path, err))),
             },
         }
-    }
-
-    async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        // the files this append includes: the ledger it was given does not know them yet
-        let mut included = vec![];
-        for directive in directives {
-            self.append_directive(ledger, directive, None, Some(&mut included)).await?;
-        }
-        Ok(())
     }
 
     async fn async_save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
@@ -304,43 +236,6 @@ impl OpendalDataSource {
         })
     }
 
-    /// append `directive` to `file`, or to the file `directive_output_path` gives it ([`directive_output_file`]), which
-    /// the main file then includes unless the ledger or this append (`included`) has it already. Without `included`, no
-    /// include
-    // `async_recursion` adds a `#[must_use]` to the boxed future it returns
-    #[allow(clippy::double_must_use)]
-    #[async_recursion]
-    async fn append_directive(&self, ledger: &Ledger, directive: Directive, file: Option<PathBuf>, included: Option<&mut Vec<PathBuf>>) -> ZhangResult<()> {
-        let (entry, _) = &ledger.entry;
-
-        let endpoint = match file {
-            Some(file) => file,
-            None => directive_output_file(ledger, &directive)?,
-        };
-        let striped_endpoint = endpoint
-            .strip_prefix(entry)
-            .map_err(|_| ZhangError::CustomError(format!("{} is not in the ledger's directory", endpoint.display())))?;
-
-        if let Some(include) = included.and_then(|included| include_for_append(ledger, &endpoint, included)) {
-            self.append_directive(ledger, include, None, None).await?;
-        }
-
-        let mut content = match ledger.data_source.async_get(striped_endpoint.to_string_lossy().to_string()).await {
-            Ok(content) => FileText::decode(content, striped_endpoint)?,
-            // a file this append creates
-            Err(error) if error.is_file_not_found() => FileText::new(String::new()),
-            Err(error) => return Err(error),
-        };
-
-        let directive = written_into(ledger, directive, striped_endpoint);
-        content.text = format!("{}\n{}\n", content.text, self.data_type.export(Spanned::new(directive, SpanInfo::default())));
-
-        ledger
-            .data_source
-            .async_save(ledger, striped_endpoint.to_string_lossy().to_string(), &content.into_bytes())
-            .await?;
-        Ok(())
-    }
     pub async fn from_env(source: FileSystem, server_opts: &mut ServerOpts) -> OpendalDataSource {
         let mut local_root = None;
         let operator = match source {
@@ -409,21 +304,7 @@ impl OpendalDataSource {
         Self {
             operator,
             data_type: new_data_type,
-            is_beancount,
             local_root,
-        }
-    }
-
-    fn parse(&self, content: &str, path: PathBuf) -> ZhangResult<Vec<Spanned<Directive>>> {
-        let path_string = path.to_string_lossy().to_string();
-        if self.is_beancount {
-            // its error names the file already
-            beancount::Beancount {}.transform(content.to_string(), Some(path_string))
-        } else {
-            zhang_parse(content, path).map_err(|it| ZhangError::PestError {
-                path: path_string,
-                msg: it.to_string(),
-            })
         }
     }
 }
@@ -456,7 +337,6 @@ mod test {
         OpendalDataSource {
             operator,
             data_type: Box::new(ZhangDataType {}),
-            is_beancount: false,
             local_root: None,
         }
     }
@@ -474,7 +354,6 @@ mod test {
         let source = OpendalDataSource {
             operator,
             data_type: Box::new(ZhangDataType {}),
-            is_beancount: false,
             local_root: None,
         };
         Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.zhang".to_owned(), Arc::new(source))
@@ -653,6 +532,69 @@ mod test {
         assert!(store.accounts.contains_key("Assets:Cash"));
         assert!(!store.accounts.contains_key("Assets:Outside"));
         assert!(ledger.extra_inputs.is_empty(), "a file outside the ledger's directory is not watched");
+    }
+
+    /// The local source the tests load through loads a ledger as the one `zhang serve` runs does: the same files, named
+    /// alike in the spans of their directives, and the same errors. An `include` outside the ledger's directory is an
+    /// error on it in both, a pattern matching nothing too, and a file named twice is read once. The local source read
+    /// the files outside, named every file by its full path, and failed the load of a ledger without its main file.
+    #[tokio::test]
+    async fn the_local_source_loads_a_ledger_as_zhang_serve_does() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap().join("ledger");
+        let outside = root.with_file_name("outside.zhang");
+        std::fs::write(&outside, "1970-01-01 open Assets:Outside\n").unwrap();
+        let write = |path: &str, content: &str| {
+            std::fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
+            std::fs::write(root.join(path), content).unwrap();
+        };
+        write(
+            "main.zhang",
+            &format!(
+                "include \"accounts.zhang\"\ninclude \"./data/../accounts.zhang\"\ninclude \"data/*.zhang\"\ninclude \"none/*.zhang\"\n\
+                 include \"../outside.zhang\"\ninclude \"{}\"\ninclude \"typo.zhang\"\n",
+                outside.display()
+            ),
+        );
+        write("accounts.zhang", OPENS);
+        write(
+            "data/2024.zhang",
+            "include \"sibling.zhang\"\n2024-01-01 * \"shop\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n",
+        );
+        write("data/sibling.zhang", "2024-01-02 * \"shop\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n");
+
+        let served = Ledger::async_load(root.clone(), "main.zhang".to_owned(), local_source(&root, "main.zhang").await)
+            .await
+            .unwrap();
+        let local = Arc::new(zhang_core::data_source::LocalFileSystemDataSource::new(ZhangDataType {}));
+        let tested = Ledger::async_load(root.clone(), "main.zhang".to_owned(), local.clone()).await.unwrap();
+
+        let loaded = |ledger: &Ledger| {
+            let spans: Vec<_> = ledger.directives.iter().chain(&ledger.metas).map(|it| it.span.filename.clone()).collect();
+            let accounts: std::collections::BTreeSet<_> = ledger.store.read().unwrap().accounts.keys().cloned().collect();
+            (ledger.visited_files.clone(), spans, errors_of(ledger), accounts)
+        };
+        assert_eq!(loaded(&tested), loaded(&served));
+        let (visited, _, errors, accounts) = loaded(&served);
+        assert_eq!(
+            visited,
+            ["main.zhang", "accounts.zhang", "data/2024.zhang", "data/sibling.zhang"].map(|it| root.join(it))
+        );
+        let outside = outside.display().to_string();
+        assert_eq!(
+            errors.iter().map(|it| it.2.as_str()).collect::<Vec<_>>(),
+            vec![
+                "include \"../outside.zhang\"".to_owned(),
+                format!("include \"{}\"", outside),
+                "include \"none/*.zhang\"".to_owned(),
+                "include \"typo.zhang\"".to_owned(),
+            ]
+        );
+        assert!(!accounts.contains("Assets:Outside"));
+
+        let empty = tempdir().unwrap();
+        let tested = Ledger::async_load(empty.path().to_path_buf(), "main.zhang".to_owned(), local).await;
+        assert!(errors_of(&tested.expect("a ledger without its main file is empty")).is_empty());
     }
 
     /// the same on a remote source, whose root holds every file it can read
@@ -1254,7 +1196,6 @@ mod test {
         let source = OpendalDataSource {
             operator: operator.clone(),
             data_type: Box::new(beancount::Beancount {}),
-            is_beancount: true,
             local_root: None,
         };
         // a ledger of its own, for the cache of downloads
@@ -1419,7 +1360,6 @@ mod test {
         let source = OpendalDataSource {
             operator,
             data_type: Box::new(beancount::Beancount {}),
-            is_beancount: true,
             local_root: None,
         };
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
@@ -1454,7 +1394,6 @@ mod test {
             let source = OpendalDataSource {
                 operator,
                 data_type: Box::new(beancount::Beancount {}),
-                is_beancount: true,
                 local_root: None,
             };
             let entry = std::path::PathBuf::from(format!("/{}-{}", name, nanos));

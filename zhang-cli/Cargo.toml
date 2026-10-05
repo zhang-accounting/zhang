@@ -32,7 +32,6 @@ opendal = { version = "0.59", features = ["services-fs", "services-github", "ser
 opendal-http-transport-reqwest = "0.59"
 reqwest = { version = "0.13", default-features = false }
 
-async-recursion = "1.0.5"
 chrono = "0.4"
 
 [dev-dependencies]
