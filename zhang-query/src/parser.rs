@@ -90,6 +90,14 @@ const RESERVED: &[&str] = &[
     "having", "pivot",
 ];
 
+/// Every word the parser reads as a keyword, lower case: those of the statements and their clauses, the operators, the
+/// literals and the `CASE` expression; not `PRINT`, which it only reads to say it is not supported. A query editor
+/// highlights them; [`schema`](crate::schema) lists them.
+pub const KEYWORDS: &[&str] = &[
+    "select", "balances", "journal", "distinct", "from", "open", "on", "close", "clear", "at", "where", "group", "by", "having", "order", "asc", "desc",
+    "pivot", "limit", "offset", "as", "and", "or", "not", "in", "is", "null", "true", "false", "case", "when", "then", "else", "end",
+];
+
 /// The clauses that may follow `FROM #table`.
 const FOLLOWS_TABLE: &[&str] = &["where", "group", "order", "having", "pivot", "limit"];
 
@@ -1199,6 +1207,35 @@ impl<'s> Parser<'s> {
 
 #[cfg(test)]
 mod tests {
+    /// [`KEYWORDS`] lists exactly the words the parser reads as keywords: those it matches with `keyword` or
+    /// `is_keyword`, the reserved words and the literal keywords, but `print`, which it only reads to refuse it.
+    #[test]
+    fn the_keyword_list_is_the_parsers() {
+        use std::collections::BTreeSet;
+
+        let source = include_str!("parser.rs");
+        let code = &source[..source.find("#[cfg(test)]").expect("the tests")];
+        let quoted = |text: &str| text.split('"').nth(1).map(str::to_owned);
+        let mut read: BTreeSet<String> = BTreeSet::new();
+        for (index, _) in code.match_indices("keyword(") {
+            let call = &code[index..];
+            let args = &call[..call.find(')').expect("a closed call")];
+            // `keyword("word")` and `is_keyword(input, "word")`; not the calls with a variable
+            if let Some(word) = quoted(args) {
+                read.insert(word);
+            }
+        }
+        read.extend(RESERVED.iter().chain(FOLLOWS_TABLE).map(|word| word.to_string()));
+        for literal in ["true", "false", "null"] {
+            assert!(code.contains(&format!("\"{literal}\" =>")), "{literal} is read as a literal");
+            read.insert(literal.to_owned());
+        }
+        assert!(code.contains("lower == \"case\""));
+        read.insert("case".to_owned());
+        assert!(read.remove("print"));
+        assert_eq!(read, KEYWORDS.iter().map(|word| word.to_string()).collect::<BTreeSet<_>>());
+    }
+
     use chrono::NaiveDate;
 
     use super::*;

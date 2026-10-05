@@ -517,7 +517,7 @@ mod schema_test {
     #[test]
     fn the_openapi_schema_declares_the_tables() {
         let schema = serde_json::to_value(QuerySchemaEntity::generate_schema().schema).unwrap();
-        assert_eq!(schema["required"], serde_json::json!(["columns", "functions", "tables"]));
+        assert_eq!(schema["required"], serde_json::json!(["columns", "functions", "tables", "keywords"]));
         let table = &schema["properties"]["tables"]["items"];
         assert_eq!(table["required"], serde_json::json!(["name", "description", "columns"]));
         assert_eq!(table["properties"]["columns"]["type"], "array");

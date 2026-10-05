@@ -2259,6 +2259,8 @@ export interface operations {
                 /** @description e.g. `root(str, int) -> str` */
                 signature: string;
               }[];
+              /** @description every word the query parser reads as a keyword, lower case, for an editor to highlight */
+              keywords: string[];
               /** @description every table, `postings` first */
               tables: {
                 columns: {

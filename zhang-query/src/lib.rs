@@ -430,6 +430,8 @@ pub struct Schema {
     pub functions: Vec<FunctionDoc>,
     /// every table, `postings` first
     pub tables: Vec<TableDoc>,
+    /// every word the parser reads as a keyword, lower case
+    pub keywords: Vec<&'static str>,
 }
 
 fn column_docs(table: &table::Table) -> Vec<ColumnDoc> {
@@ -471,5 +473,6 @@ pub fn schema() -> Schema {
         columns,
         functions: aggregates.chain(scalars).collect(),
         tables,
+        keywords: parser::KEYWORDS.to_vec(),
     }
 }
