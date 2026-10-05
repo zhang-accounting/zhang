@@ -158,15 +158,20 @@ async fn every_invalid_field_is_named_and_nothing_else_is_checked() {
     assert_eq!(preview["text"], Value::Null);
     assert_eq!(preview["unbalanced"], Value::Null);
     assert_eq!(preview["errors"], json!([]));
+    // each with the kind and the value a client tells it with in its own words
     let fields = preview["field_errors"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|error| (error["posting"].clone(), error["field"].as_str().unwrap().to_owned()))
+        .map(|error| (error["posting"].clone(), error["field"].clone(), error["kind"].clone(), error["value"].clone()))
         .collect::<Vec<_>>();
     assert_eq!(
         fields,
-        [(json!(0), "unit".to_owned()), (json!(1), "cost".to_owned()), (json!(1), "price".to_owned())]
+        [
+            (json!(0), json!("unit"), json!("invalid_amount"), json!("10 AAPL {150 USD}")),
+            (json!(1), json!("cost"), json!("invalid_cost"), json!("150 USD")),
+            (json!(1), json!("price"), json!("invalid_price"), json!("6 USD")),
+        ]
     );
     // the create answers with the first one
     let (sender, _receiver) = mpsc::channel(1);
@@ -232,4 +237,31 @@ async fn an_update_preview_of_no_transaction_is_not_found() {
         .await
         .into_response();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_name_beancount_rejects_has_its_own_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.bean"), "1970-01-01 open Assets:Cash\n1970-01-01 commodity CNY\n").unwrap();
+    let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
+    let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_owned(), source).await.unwrap();
+    let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
+    let preview = preview(
+        &ledger,
+        json!([
+            {"account": "Assets:Cash", "unit": "-5 cny"},
+            {"account": "Assets:bank", "unit": "5 CNY"},
+        ]),
+    )
+    .await;
+    let kinds = preview["field_errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| (error["kind"].clone(), error["value"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [(json!("beancount_commodity"), json!("cny")), (json!("beancount_account"), json!("Assets:bank"))]
+    );
 }

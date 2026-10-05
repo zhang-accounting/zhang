@@ -292,8 +292,33 @@ pub struct TransactionFieldErrorEntity {
     /// the posting it is a field of, counting from 0; `null` for a field of the transaction
     pub posting: Nullable<usize>,
     pub field: TransactionField,
+    /// why it cannot be written, for a client to tell in its own words with `value`
+    pub kind: InvalidKind,
+    /// the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
+    /// tag, the link or the flag
+    pub value: String,
     /// what the create or update answers for it with a 400
     pub message: String,
+}
+
+/// Why a value of a request cannot be written: a name the ledger would not read back (`invalid_…`), or in a beancount
+/// ledger a new name beancount rejects (`beancount_…`), or an amount, cost or price the ledger grammar does not read.
+#[derive(Serialize, Schematic, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InvalidKind {
+    InvalidAccount,
+    BeancountAccount,
+    InvalidCommodity,
+    BeancountCommodity,
+    InvalidAmount,
+    InvalidCost,
+    InvalidPrice,
+    BeancountMetaKey,
+    InvalidTag,
+    BeancountTag,
+    InvalidLink,
+    BeancountLink,
+    InvalidFlag,
 }
 
 /// A field of a transaction request, in the order they are checked: those of each posting, then the transaction's.

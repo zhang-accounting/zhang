@@ -104,7 +104,7 @@ To change a transaction, open the menu of its row on the Journals page and choos
 The same holds for the API: `PUT /api/transactions/{id}` takes a `cost`, a `price` and a `comment` per posting in the same forms, keeps those of a posting when the fields are left out, and removes one sent as `null`. The `unit` of a posting is either an object `{"number": "-28", "commodity": "CNY"}` or the text of the amount, such as `"-28 CNY"`, which is read as the form reads it. `POST /api/transactions/preview` and `POST /api/transactions/{id}/preview` take the same body as the create and the update, and answer with the form's check without writing anything:
 
 - `text`: what would be written.
-- `field_errors`: each field the create or update would refuse, with its message.
+- `field_errors`: each field the create or update would refuse: the posting and the field, a `kind` such as `invalid_amount` or `beancount_commodity` with the `value` it is about, and the message of the 400.
 - `unbalanced`: what the transaction is unbalanced by.
 - `errors`: the errors the ledger would report.
 

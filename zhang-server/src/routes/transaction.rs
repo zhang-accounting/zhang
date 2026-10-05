@@ -26,6 +26,7 @@ use crate::response::{
 };
 use crate::routes::query::with_ledger;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
+use crate::validate::{Checked, Invalid};
 use crate::{journals, validate, ApiResult, ServerResult};
 
 /// The payees and the accounts the new-transaction form suggests: the built-in queries `journals.payees` and
@@ -53,7 +54,7 @@ pub(crate) struct FieldError {
     /// the posting it is a field of, counting from 0; `None` for a field of the transaction
     pub posting: Option<usize>,
     pub field: TransactionField,
-    pub error: ServerError,
+    pub invalid: Invalid,
 }
 
 impl FieldError {
@@ -73,14 +74,14 @@ struct Fields {
 impl Fields {
     /// `result`, the value read from the field `field` of the posting `posting` (or of the transaction), or `None`
     /// when it failed, keeping its error
-    fn check<T>(&mut self, posting: Option<usize>, field: TransactionField, result: ServerResult<T>) -> Option<T> {
-        result.map_err(|error| self.errors.push(FieldError { posting, field, error })).ok()
+    fn check<T>(&mut self, posting: Option<usize>, field: TransactionField, result: Checked<T>) -> Option<T> {
+        result.map_err(|invalid| self.errors.push(FieldError { posting, field, invalid })).ok()
     }
 }
 
 /// The units of a request posting: an amount, or its text read with the ledger's grammar ([`validate::units`]). A text
 /// of spaces alone is no units, like `null`.
-fn units_of(unit: &UnitRequest, rules: &validate::Rules, ledger: &Ledger) -> ServerResult<Option<Amount>> {
+fn units_of(unit: &UnitRequest, rules: &validate::Rules, ledger: &Ledger) -> Checked<Option<Amount>> {
     match unit {
         UnitRequest::Amount(amount) => validate::amount(amount, rules).map(|_| Some(amount.clone())),
         UnitRequest::Text(text) if text.trim().is_empty() => Ok(None),
@@ -141,9 +142,11 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
                 validate::price(text, &rules)
             }),
         );
-        let comment = given(posting.comment, original_posting.and_then(|it| it.comment.clone()), |text| Ok(text.to_owned()))
-            .ok()
-            .flatten();
+        let comment = given(posting.comment, original_posting.and_then(|it| it.comment.clone()), |text| {
+            Checked::Ok(text.to_owned())
+        })
+        .ok()
+        .flatten();
         let account = fields.check(at, TransactionField::Account, validate::account(&posting.account, &rules));
         let meta = fields.check(
             at,
@@ -204,7 +207,7 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
 fn requested_transaction(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> ServerResult<Directive> {
     transaction_from_request(payload, ledger, original)
         .map(Directive::Transaction)
-        .map_err(|errors| errors.into_iter().next().expect("a failed request has an error").error)
+        .map_err(|errors| errors.into_iter().next().expect("a failed request has an error").invalid.into())
 }
 
 /// The metadata of a request, every key checked by [`validate::meta_key`].
@@ -217,7 +220,7 @@ fn requested_transaction(payload: CreateTransactionRequest, ledger: &Ledger, ori
 /// A value is only written unquoted when the parser reads it back as the same bare value:
 /// `original` comes after the plugins, and a plugin can make an unquoted value of any
 /// text, such as `from plugin`.
-fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> ServerResult<Meta> {
+fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> Checked<Meta> {
     let mut meta = Meta::default();
     let mut occurrences: HashMap<(String, String), usize> = HashMap::new();
     for MetaRequest { key, value } in metas {
@@ -239,7 +242,7 @@ fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original
 /// The value of a field of an update request that may be left out, `null` or given (see
 /// [`CreateTransactionPostingRequest::cost`]): left out, it is `original`, the value of the posting
 /// the request edits; `null` is none; a text given is what `parse` reads of it, or its error.
-fn given<T>(field: Option<Option<String>>, original: Option<T>, parse: impl FnOnce(&str) -> ServerResult<T>) -> ServerResult<Option<T>> {
+fn given<T, E>(field: Option<Option<String>>, original: Option<T>, parse: impl FnOnce(&str) -> Result<T, E>) -> Result<Option<T>, E> {
     match field {
         None => Ok(original),
         Some(None) => Ok(None),
@@ -335,7 +338,9 @@ fn preview(ledger: &Ledger, payload: CreateTransactionRequest, edits: Option<&Tr
                     .map(|error| TransactionFieldErrorEntity {
                         posting: Nullable(error.posting),
                         field: error.field,
-                        message: error.error.to_string(),
+                        kind: error.invalid.kind,
+                        value: error.invalid.value,
+                        message: error.invalid.message,
                     })
                     .collect(),
                 unbalanced: Nullable(None),

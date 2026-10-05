@@ -2657,10 +2657,33 @@ export interface operations {
               field_errors: {
                 /** @enum {string} */
                 field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                /**
+                 * @description why it cannot be written, for a client to tell in its own words with `value`
+                 * @enum {string}
+                 */
+                kind:
+                  | 'invalid_account'
+                  | 'beancount_account'
+                  | 'invalid_commodity'
+                  | 'beancount_commodity'
+                  | 'invalid_amount'
+                  | 'invalid_cost'
+                  | 'invalid_price'
+                  | 'beancount_meta_key'
+                  | 'invalid_tag'
+                  | 'beancount_tag'
+                  | 'invalid_link'
+                  | 'beancount_link'
+                  | 'invalid_flag';
                 /** @description what the create or update answers for it with a 400 */
                 message: string;
                 /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
                 posting: number | null;
+                /**
+                 * @description the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
+                 * tag, the link or the flag
+                 */
+                value: string;
               }[];
               /**
                * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
@@ -2897,10 +2920,33 @@ export interface operations {
               field_errors: {
                 /** @enum {string} */
                 field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                /**
+                 * @description why it cannot be written, for a client to tell in its own words with `value`
+                 * @enum {string}
+                 */
+                kind:
+                  | 'invalid_account'
+                  | 'beancount_account'
+                  | 'invalid_commodity'
+                  | 'beancount_commodity'
+                  | 'invalid_amount'
+                  | 'invalid_cost'
+                  | 'invalid_price'
+                  | 'beancount_meta_key'
+                  | 'invalid_tag'
+                  | 'beancount_tag'
+                  | 'invalid_link'
+                  | 'beancount_link'
+                  | 'invalid_flag';
                 /** @description what the create or update answers for it with a 400 */
                 message: string;
                 /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
                 posting: number | null;
+                /**
+                 * @description the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
+                 * tag, the link or the flag
+                 */
+                value: string;
               }[];
               /**
                * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a

@@ -10,6 +10,41 @@ export type TransactionPreview = operations['preview_new_transaction']['response
 /** A field of a request the server would refuse with a 400. */
 export type TransactionFieldError = TransactionPreview['field_errors'][number];
 
+/** Why the server would refuse a field. */
+export type FieldErrorKind = TransactionFieldError['kind'];
+
+/** Every kind of field error, each with a message of the form in `ledger.txn.field_error.<kind>`. */
+export const FIELD_ERROR_KINDS = [
+  'invalid_account',
+  'beancount_account',
+  'invalid_commodity',
+  'beancount_commodity',
+  'invalid_amount',
+  'invalid_cost',
+  'invalid_price',
+  'beancount_meta_key',
+  'invalid_tag',
+  'beancount_tag',
+  'invalid_link',
+  'beancount_link',
+  'invalid_flag',
+] as const satisfies readonly FieldErrorKind[];
+
+// every kind the server sends is listed above
+const allKinds: Exclude<FieldErrorKind, (typeof FIELD_ERROR_KINDS)[number]> extends never ? true : never = true;
+void allKinds;
+
+/** The `t` of i18next, as far as the form's messages need it. */
+export type Translate = (key: string, options: { value: string; defaultValue: string }) => string;
+
+/**
+ * The message of a field error in the user's language: `ledger.txn.field_error.<kind>` with the value it is about, or the
+ * server's own message for a kind this client does not know.
+ */
+export function fieldErrorText(error: TransactionFieldError, t: Translate): string {
+  return t(`ledger.txn.field_error.${error.kind}`, { value: error.value, defaultValue: error.message });
+}
+
 /** An error the ledger would report against the transaction once written. */
 export type TransactionLedgerError = TransactionPreview['errors'][number];
 
@@ -29,14 +64,18 @@ export function previewKey(request: unknown): string {
 }
 
 /**
- * The messages of the fields of one posting (its index), or of the transaction (`null`), by field: the first message of each. A
+ * The errors of the fields of one posting (its index), or of the transaction (`null`), by field: the first error of each. A
  * preview for another request than `key` has none, as its fields may be fixed already.
  */
-export function fieldErrors(state: PreviewState | undefined, key: string, posting: number | null): Partial<Record<TransactionFieldError['field'], string>> {
-  const errors: Partial<Record<TransactionFieldError['field'], string>> = {};
+export function fieldErrors(
+  state: PreviewState | undefined,
+  key: string,
+  posting: number | null,
+): Partial<Record<TransactionFieldError['field'], TransactionFieldError>> {
+  const errors: Partial<Record<TransactionFieldError['field'], TransactionFieldError>> = {};
   if (state?.key !== key) return errors;
   for (const error of state.preview?.field_errors ?? []) {
-    if ((error.posting ?? null) === posting) errors[error.field] ??= error.message;
+    if ((error.posting ?? null) === posting) errors[error.field] ??= error;
   }
   return errors;
 }

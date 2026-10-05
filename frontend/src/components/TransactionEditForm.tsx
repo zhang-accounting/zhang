@@ -17,7 +17,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { DOCUMENT_KEY, emptyDraft, PostingDraft, toPostingDrafts, toPostingRequest, toRequestMetas, TransactionFormValue } from './transaction-form-utils';
-import { createPreviewer, fieldErrors, ledgerErrors, PreviewState, previewKey, refused, unbalancedText } from './transaction-preview';
+import { createPreviewer, fieldErrors, fieldErrorText, ledgerErrors, PreviewState, previewKey, refused, unbalancedText } from './transaction-preview';
 
 export type { TransactionFormValue } from './transaction-form-utils';
 
@@ -153,7 +153,7 @@ export default function TransactionEditForm(props: Props) {
   }, [key, value, transactionId]);
   const preview = previewState?.preview;
   const unbalanced = unbalancedText(preview);
-  const transactionErrors = Object.values(fieldErrors(previewState, key, null));
+  const transactionErrors = Object.values(fieldErrors(previewState, key, null)).map((error) => fieldErrorText(error, t));
 
   const emptyAmounts = postings.filter((it) => it.amount.trim() === '').length;
   const missingAccount = postings.some((it) => !it.account);
@@ -257,9 +257,9 @@ export default function TransactionEditForm(props: Props) {
             // the cost and price errors show at their fields, in the details when they are open; an account not picked yet is
             // no error, the picker asks for it
             const accountError = posting.account ? errors.account : undefined;
-            const postingErrors = [accountError, errors.unit, errors.metas, ...(metasOpen ? [] : [errors.cost, errors.price])].filter(
-              (error) => error !== undefined,
-            );
+            const postingErrors = [accountError, errors.unit, errors.metas, ...(metasOpen ? [] : [errors.cost, errors.price])]
+              .filter((error) => error !== undefined)
+              .map((error) => fieldErrorText(error, t));
             return (
               <div key={posting.id} className={cn(POSTING_CARD, POSTING_ROW)}>
                 <GroupCombobox
@@ -351,7 +351,7 @@ export default function TransactionEditForm(props: Props) {
                             />
                             {error && (
                               <p id={`${fieldId}-error`} className="text-xs break-words text-destructive">
-                                {error}
+                                {fieldErrorText(error, t)}
                               </p>
                             )}
                           </Field>

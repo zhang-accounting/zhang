@@ -104,7 +104,7 @@ include "data/*.zhang"
 API 也是如此：`PUT /api/transactions/{id}` 为每条记账行接受同样写法的 `cost`、`price` 和 `comment`；省略这些字段时保留该记账行原有的值，传 `null` 则删除。记账行的 `unit` 可以是对象 `{"number": "-28", "commodity": "CNY"}`，也可以是金额的文本，例如 `"-28 CNY"`，读法与表单相同。`POST /api/transactions/preview` 和 `POST /api/transactions/{id}/preview` 接受与创建、更新相同的请求体，返回表单的检查结果，不写入任何内容：
 
 - `text`：将写入的文本。
-- `field_errors`：创建或更新会拒绝的每个字段及原因。
+- `field_errors`：创建或更新会拒绝的每个字段：所属记账行和字段、`kind`（如 `invalid_amount` 或 `beancount_commodity`）及其涉及的 `value`，以及 400 响应的消息。
 - `unbalanced`：交易相差多少。
 - `errors`：账本会报告的错误。
 
