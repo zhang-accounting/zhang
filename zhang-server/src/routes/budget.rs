@@ -91,8 +91,8 @@ pub async fn get_budget_list(ledger: State<SharedLedger>, params: Query<BudgetLi
 }
 
 /// One budget as of a month, by default the current one in the ledger's timezone, with the
-/// accounts whose postings are its activity, in name order. Before the budget's first month
-/// nothing is assigned or spent.
+/// accounts whose postings are its activity, in name order, and the date and time of its close.
+/// Before the budget's first month nothing is assigned or spent.
 #[api(group = "budget")]
 pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>, params: Query<BudgetListRequest>) -> ApiResult<BudgetInfoEntity> {
     let (budget_name,) = paths.0;
@@ -113,6 +113,8 @@ pub async fn get_budget_info(ledger: State<SharedLedger>, paths: Path<(String,)>
             alias: budget.str("alias")?,
             category: budget.str("category")?,
             closed: figures.closed,
+            close: budget.date("close")?,
+            close_time: budget.str("close_time")?,
             related_accounts: budget.set("accounts")?.unwrap_or_default().into_iter().collect_vec(),
             assigned_amount: figures.assigned,
             activity_amount: figures.activity,

@@ -9,6 +9,7 @@ import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests';
 import { operations } from '@/api/schemas';
 import Amount from '@/components/Amount';
 import PayeeNarration from '@/components/basic/PayeeNarration';
+import { budgetPostingsParams } from '@/components/budget/budget-query';
 import { budgetUsage, monthFromSearchParams, monthSearchParams, usageProgressClass } from '@/components/budget/budget-utils';
 import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
 import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
@@ -228,9 +229,7 @@ function SingleBudget() {
       <section aria-busy={refreshing} className={cn('flex flex-col gap-3 transition-opacity', refreshing && 'opacity-60')}>
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: fmt.month(date) })}</h2>
-          {budgetInfo && (
-            <OpenInExplore name="budgets.postings" params={{ accounts: budgetInfo.related_accounts, month: date, name: budgetInfo.name }} iconOnly />
-          )}
+          {budgetInfo && <OpenInExplore name="budgets.postings" params={budgetPostingsParams(budgetInfo, date)} iconOnly />}
         </div>
         {eventsError ? (
           <EmptyState icon={TriangleAlert} title={t('page_state.load_failed')} description={eventsError.message} />

@@ -379,6 +379,11 @@ pub struct BudgetInfoEntity {
     pub alias: Option<String>,
     pub category: Option<String>,
     pub closed: bool,
+    /// the date of the budget's close, whatever the month asked for; `null` if it is never closed
+    pub close: Option<NaiveDate>,
+    /// the time of day of the budget's close (`HH:MM:SS`), until which it takes activity on its
+    /// close day; `null` for a close without a time, or if it is never closed
+    pub close_time: Option<String>,
 
     pub related_accounts: Vec<String>,
 
