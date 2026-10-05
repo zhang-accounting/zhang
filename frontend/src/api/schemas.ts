@@ -206,6 +206,14 @@ export interface paths {
     /** Update File Content */
     put: operations['update_file_content'];
   };
+  '/api/for-new-document': {
+    /**
+     * Get Info For New Document
+     * @description The accounts the document upload may name: every account opened by now, closed ones included, as a document only
+     * records and may follow the close; not one opened later or never.
+     */
+    get: operations['get_info_for_new_document'];
+  };
   '/api/for-new-transaction': {
     /**
      * Get Info For New Transactions
@@ -1524,6 +1532,26 @@ export interface operations {
       /** @description no content */
       204: {
         content: never;
+      };
+    };
+  };
+  /**
+   * Get Info For New Document
+   * @description The accounts the document upload may name: every account opened by now, closed ones included, as a document only
+   * records and may follow the close; not one opened later or never.
+   */
+  get_info_for_new_document: {
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description every account opened by now, closed ones included, by name: a document only records, and may follow the close */
+              account_name: string[];
+            };
+          };
+        };
       };
     };
   };

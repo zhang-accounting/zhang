@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
-import { accountSelectItemsAtom } from '@/states/account';
+import { documentAccountSelectItemsAtom } from '@/states/account';
 
 interface Props {
   onUploaded?: () => void;
@@ -25,7 +25,8 @@ export function DocumentUploadDialog({ onUploaded }: Props) {
   const [account, setAccount] = useState<string | undefined>();
   const [files, setFiles] = useState<FileWithPath[]>([]);
   const [uploading, setUploading] = useState(false);
-  const accountItems = useAtomValue(accountSelectItemsAtom);
+  // a document only records: it may name a closed account, as a final statement does
+  const accountItems = useAtomValue(documentAccountSelectItemsAtom);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop: (accepted) => setFiles((current) => [...current, ...accepted]) });
 
   const reset = () => {
