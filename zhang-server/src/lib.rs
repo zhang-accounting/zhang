@@ -251,6 +251,10 @@ pub struct ReloadRequest {
 pub struct ReloadSender {
     sender: Sender<ReloadRequest>,
     last_failure: std::sync::RwLock<Option<ReloadFailure>>,
+    /// the readers told of every reload, set once the reload listener runs
+    broadcaster: std::sync::OnceLock<Arc<Broadcaster>>,
+    /// the reload at the next local midnight of a ledger that depends on the date, replaced on every reload
+    midnight_reload: std::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Deref for ReloadSender {
@@ -266,6 +270,8 @@ impl ReloadSender {
         ReloadSender {
             sender,
             last_failure: std::sync::RwLock::new(None),
+            broadcaster: std::sync::OnceLock::new(),
+            midnight_reload: std::sync::Mutex::new(None),
         }
     }
 
@@ -296,6 +302,58 @@ impl ReloadSender {
     /// keep what the last reload came to
     fn record(&self, outcome: &Result<(), ReloadFailure>) {
         *self.last_failure.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = outcome.clone().err();
+    }
+
+    /// Reload `ledger` in place, as every reload of the served ledger runs, the one the listener runs and the one a
+    /// write runs first on a stale ledger ([`SharedLedger::for_writing`]) alike. A reload that panics does not unwind
+    /// into the caller, which left a write without an answer and ended the listener (#492): the panic is caught and
+    /// is a failure like an error. The ledger served stays the previous one, as a reload replaces it only once it
+    /// loaded whole, so `ledger` is unwind safe. What the reload came to is kept for `/api/info`, the readers are told,
+    /// and the midnight reload is scheduled again for the ledger now served
+    pub(crate) async fn reload_in_place(self: &Arc<Self>, ledger: &mut Ledger) -> Result<(), ReloadFailure> {
+        info!("start reloading...");
+        let start_time = Instant::now();
+        let outcome = match AssertUnwindSafe(ledger.async_reload()).catch_unwind().await {
+            Ok(Ok(_)) => {
+                info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
+                Ok(())
+            }
+            Ok(Err(err)) => {
+                error!("error on reload: {}", err);
+                Err(ReloadFailure::from(&err))
+            }
+            Err(panic) => {
+                let message = panic_message(panic.as_ref());
+                error!("panic on reload, the previous ledger is kept: {}", message);
+                Err(ReloadFailure {
+                    file: None,
+                    message: format!("panic on reload: {message}"),
+                })
+            }
+        };
+        // a failed reload is no longer only logged (#492): it is kept for `/api/info` while the ledger served is the
+        // one loaded before, and the readers are told
+        self.record(&outcome);
+        if let Some(broadcaster) = self.broadcaster.get() {
+            match &outcome {
+                // todo: add reload duration to reload event
+                Ok(()) => broadcaster.broadcast(BroadcastEvent::Reload).await,
+                Err(failure) => broadcaster.broadcast(BroadcastEvent::ReloadFailed(failure.clone())).await,
+            }
+        }
+        // replaced on every reload, for the ledger now served: a failed reload keeps the previous one
+        self.schedule_midnight_reload(ledger);
+        outcome
+    }
+
+    /// reload `ledger` at the next local midnight in its timezone if it depends on the date, instead of the reload
+    /// scheduled before
+    fn schedule_midnight_reload(self: &Arc<Self>, ledger: &Ledger) {
+        let mut scheduled = self.midnight_reload.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(task) = scheduled.take() {
+            task.abort();
+        }
+        *scheduled = schedule_midnight_reload(ledger, self);
     }
 }
 
@@ -414,50 +472,16 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
 fn start_reload_listener(
     ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<ReloadRequest>,
 ) {
+    reload_sender.broadcaster.set(cloned_broadcaster).ok();
     tokio::spawn(async move {
-        let mut midnight_reload = schedule_midnight_reload(&*ledger_for_reload.read().await, &reload_sender);
+        reload_sender.schedule_midnight_reload(&*ledger_for_reload.read().await);
         while let Some(request) = rx.recv().await {
-            info!("start reloading...");
-            let start_time = Instant::now();
             let mut guard = ledger_for_reload.write().await;
-            // a reload that panics must not end this task, which left the server on the ledger it had, never reloading
-            // again (#492): the panic is caught and logged like a failed reload. The ledger served stays the previous
-            // one, as a reload replaces it only once it loaded whole, so the guard is unwind safe
-            let outcome = match AssertUnwindSafe(guard.async_reload()).catch_unwind().await {
-                Ok(Ok(_)) => {
-                    let duration = start_time.elapsed();
-                    info!("ledger is reloaded successfully in {:?}", duration);
-                    Ok(())
-                }
-                Ok(Err(err)) => {
-                    error!("error on reload: {}", err);
-                    Err(ReloadFailure::from(&err))
-                }
-                Err(panic) => {
-                    let message = panic_message(panic.as_ref());
-                    error!("panic on reload, the previous ledger is kept: {}", message);
-                    Err(ReloadFailure {
-                        file: None,
-                        message: format!("panic on reload: {message}"),
-                    })
-                }
-            };
-            // a failed reload is no longer only logged (#492): it is kept for `/api/info` while the ledger served is
-            // the one loaded before, the readers are told, and the request that waits for it is answered
-            reload_sender.record(&outcome);
-            match &outcome {
-                // todo: add reload duration to reload event
-                Ok(()) => cloned_broadcaster.broadcast(BroadcastEvent::Reload).await,
-                Err(failure) => cloned_broadcaster.broadcast(BroadcastEvent::ReloadFailed(failure.clone())).await,
-            }
+            let outcome = reload_sender.reload_in_place(&mut guard).await;
+            // the request that waits for it is answered
             if let Some(reply) = request.reply {
                 reply.send(outcome).ok();
             }
-            // replaced on every reload, for the ledger now served: a failed reload keeps the previous one
-            if let Some(task) = midnight_reload.take() {
-                task.abort();
-            }
-            midnight_reload = schedule_midnight_reload(&guard, &reload_sender);
             drop(guard);
         }
     });
@@ -742,6 +766,59 @@ mod reload_test {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         assert_eq!(served, vec!["Assets:A", "Assets:B"], "the next change is reloaded");
+    }
+
+    /// A write on a ledger an earlier write left stale reloads it first, by the reload the listener runs: a reload that
+    /// panics is answered with a 409 that says nothing was written, kept for `/api/info` and told to the readers. The
+    /// write's own reload had no guard, and the panic dropped the connection without an answer.
+    #[tokio::test]
+    async fn a_write_whose_reload_panics_is_answered_and_recorded() {
+        let source = Arc::new(Panicking {
+            panicking: AtomicBool::new(false),
+            content: Mutex::new("1970-01-01 commodity CNY\n1970-01-01 open Assets:A\n".to_owned()),
+            loads: AtomicUsize::new(0),
+        });
+        let mut loaded = Ledger::async_load(PathBuf::from("/panicking-write"), "main.zhang".to_owned(), source.clone())
+            .await
+            .expect("load ledger");
+        // as an earlier write leaves it
+        loaded.stale = true;
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        let broadcaster = Broadcaster::create();
+        start_reload_listener(ledger.clone(), broadcaster.clone(), reload_sender.clone(), receiver);
+        let mut events = broadcaster.new_client().await;
+
+        source.panicking.store(true, Ordering::SeqCst);
+        let check = AccountBalanceRequest::Check {
+            amount: Amount::new(BigDecimal::from(0), "CNY"),
+        };
+        let answer = create_account_balance(
+            State(SharedLedger(ledger.clone())),
+            State(SharedReloadSender(reload_sender.clone())),
+            Path(("Assets:A".to_owned(),)),
+            Json(check),
+        )
+        .await;
+        let (status, message) = refused(answer.err().expect("the write is answered with the failed reload")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert!(
+            message.contains("nothing was written") && message.contains("panic on reload: the load panicked"),
+            "{message}"
+        );
+        let failure = reload_sender.last_failure().expect("the failure is kept for /api/info");
+        assert_eq!(failure.message, "panic on reload: the load panicked");
+        let mut told = false;
+        while let Ok(Some(event)) = tokio::time::timeout(Duration::from_secs(5), events.recv()).await {
+            if format!("{event:?}").contains("ReloadFailed") {
+                told = true;
+                break;
+            }
+        }
+        assert!(told, "the readers are told the reload failed");
+        assert!(ledger.read().await.stale, "the ledger is still to reload before the next write");
+        assert_eq!(accounts(&ledger).await, vec!["Assets:A"], "the ledger served is the previous one");
     }
 
     /// the body of the error `response` is answered with: its status, and the `message`
