@@ -4,8 +4,8 @@ use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Budget, BudgetAdd, BudgetClose, BudgetTransfer, Date, SpanInfo};
-use zhang_shared::prices::PriceMap;
 
+use crate::domains::schemas::PriceDomain;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::ZhangResult;
@@ -137,7 +137,7 @@ pub(super) fn keep_foreign_amount(
 
 /// Report the amounts [`keep_foreign_amount`] kept that no price converts to their budget's
 /// commodity at their date, as the query engine converts them
-/// ([`PriceMap::conversion`]): the engine leaves them out of the budget instead of adding them
+/// ([`zhang_shared::prices::PriceMap::conversion`]): the engine leaves them out of the budget instead of adding them
 /// as numbers of another commodity.
 pub(crate) fn report_unconverted_amounts(ledger: &mut Ledger) -> ZhangResult<()> {
     let amounts = std::mem::take(&mut ledger.foreign_budget_amounts);
@@ -145,17 +145,7 @@ pub(crate) fn report_unconverted_amounts(ledger: &mut Ledger) -> ZhangResult<()>
         return Ok(());
     }
     let mut operations = ledger.operations();
-    let prices = {
-        let store = operations.read();
-        PriceMap::from_points(store.prices.iter().map(|price| {
-            (
-                price.datetime.date(),
-                price.commodity.clone(),
-                price.target_commodity.clone(),
-                price.amount.clone(),
-            )
-        }))
-    };
+    let prices = PriceDomain::price_map(&operations.read().prices);
     for amount in amounts {
         if prices
             .conversion(&amount.commodity, &amount.budget_commodity, amount.via.as_deref(), Some(amount.date))

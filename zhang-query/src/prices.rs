@@ -50,11 +50,7 @@ impl PriceMap {
     }
 
     pub fn from_prices<'a>(prices: impl IntoIterator<Item = &'a PriceDomain>) -> Self {
-        Self::from_points(
-            prices
-                .into_iter()
-                .map(|price| (price.datetime.date(), price.commodity.as_str(), price.target_commodity.as_str(), &price.amount)),
-        )
+        Self(PriceDomain::price_map(prices))
     }
 
     /// Build from `(date, base, quote, rate)` points in ledger order.
