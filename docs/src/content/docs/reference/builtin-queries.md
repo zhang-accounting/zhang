@@ -394,14 +394,14 @@ LIMIT :limit OFFSET :offset
 
 #### `accounts.balance_assertions`
 
-The balance assertions on the account, newest first by [`seq`](/reference/query-language/#processing-order). `actual` is the balance of the account and its sub-accounts that the assertion was checked against, which is the running balance of the journal where its `seq` puts it. `pad` is the account a `balance ... with pad` pads from.
+The balance assertions on the account, newest first by [`seq`](/reference/query-language/#processing-order), with the columns of `journals.balance_checks`. `actual` is the balance of the account and its sub-accounts that the assertion was checked against, which is the running balance of the journal where its `seq` puts it. `pad` is the account a `balance ... with pad` pads from.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `account` | `str` | the account of the page |
 
 ```sql
-SELECT date, time, timestamp, id, account, amount, actual, passed, pad, seq
+SELECT date, time, timestamp, id, account, amount, tolerance, actual, amount - actual AS difference, passed, pad, seq
 FROM #balances
 WHERE account = :account
 ORDER BY seq DESC
@@ -500,21 +500,19 @@ GROUP BY id, posting_index, account, automatic, balanced
 
 #### `journals.balance_checks`
 
-Some balance assertions with the asserted amount, the account's true balance, their difference and whether the assertion holds.
+Some balance assertions with the asserted amount, its tolerance, the balance of the account and its sub-accounts it was checked against, their difference and whether the assertion holds.
 
 | Parameter | Type | Value |
 |-----------|------|-------|
 | `ids` | `set` | the ids of the assertions, those of a page of `journals.page` |
 
 ```sql
-SELECT id, account, amount, tolerance, actual, passed,
-       amount - actual AS difference,
-       actual + (amount - actual) AS asserted
+SELECT id, account, amount, tolerance, actual, amount - actual AS difference, passed
 FROM #balances
 WHERE id IN :ids
 ```
 
-`asserted` is the asserted amount written with the decimal places of the balance too.
+This query and `accounts.balance_assertions` describe an assertion with the same columns, so the journal and an account's journal show it alike. Both API responses give it the same fields: `asserted` (the `amount`), `checked_balance` (the `actual` balance), `difference`, `tolerance` and `passed`. An assertion books nothing, so in the journal the balance before and after it is the checked balance.
 
 #### `journals.payees`
 

@@ -394,14 +394,14 @@ LIMIT :limit OFFSET :offset
 
 #### `accounts.balance_assertions`
 
-对该账户的余额断言，按 [`seq`](/zh-cn/reference/query-language/#处理顺序) 最新的在前。`actual` 是断言所检查的该账户及其子账户的余额，也就是流水中它的 `seq` 所在位置的累计余额。`pad` 是 `balance ... with pad` 用来补齐的账户。
+对该账户的余额断言，按 [`seq`](/zh-cn/reference/query-language/#处理顺序) 最新的在前，列与 `journals.balance_checks` 相同。`actual` 是断言所检查的该账户及其子账户的余额，也就是流水中它的 `seq` 所在位置的累计余额。`pad` 是 `balance ... with pad` 用来补齐的账户。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `account` | `str` | 页面的账户 |
 
 ```sql
-SELECT date, time, timestamp, id, account, amount, actual, passed, pad, seq
+SELECT date, time, timestamp, id, account, amount, tolerance, actual, amount - actual AS difference, passed, pad, seq
 FROM #balances
 WHERE account = :account
 ORDER BY seq DESC
@@ -500,21 +500,19 @@ GROUP BY id, posting_index, account, automatic, balanced
 
 #### `journals.balance_checks`
 
-一些余额断言：断言金额、账户的真实余额、两者之差，以及断言是否成立。
+一些余额断言：断言金额及其容差、断言所检查的该账户及其子账户的余额、两者之差，以及断言是否成立。
 
 | 参数 | 类型 | 值 |
 |------|------|----|
 | `ids` | `set` | 断言的 id，即 `journals.page` 一页中的断言 |
 
 ```sql
-SELECT id, account, amount, tolerance, actual, passed,
-       amount - actual AS difference,
-       actual + (amount - actual) AS asserted
+SELECT id, account, amount, tolerance, actual, amount - actual AS difference, passed
 FROM #balances
 WHERE id IN :ids
 ```
 
-`asserted` 是断言金额，按余额的小数位数书写。
+本查询与 `accounts.balance_assertions` 用同样的列描述断言，因此流水和账户流水对断言的展示一致。两处 API 响应给断言的字段也相同：`asserted`（即 `amount`）、`checked_balance`（即 `actual` 余额）、`difference`、`tolerance` 和 `passed`。断言不记账，因此在流水中，它前后的余额都是所检查的余额。
 
 #### `journals.payees`
 

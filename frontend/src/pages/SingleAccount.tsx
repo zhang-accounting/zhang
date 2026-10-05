@@ -23,6 +23,8 @@ import { AccountBalanceHistoryGraph } from '../components/AccountBalanceHistoryG
 import AccountDocumentUpload from '../components/AccountDocumentUpload';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
+import { assertionOf } from '../components/journalLines/balance-assertion';
+import { AssertionAmount } from '../components/journalLines/BalanceAssertion';
 import { ImageLightBox } from '../components/ImageLightBox';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import Section from '../components/Section';
@@ -220,16 +222,16 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
   // The journal is that of the account and its sub-accounts: the balance column is their running balance, and the rows
   // of a sub-account name it. A balance assertion adds nothing: its row shows the amount it asserted instead, red when
   // it failed, and the balance it was checked against in the balance column.
-  const change = (item: Row, className?: string) =>
-    item.asserted ? (
-      <span title={t('ledger.preview.balance_amount')} className={cn('text-muted-foreground', !item.passed && 'text-destructive', className)}>
-        = <Amount amount={item.asserted.number} currency={item.asserted.commodity} />
-      </span>
+  const change = (item: Row, className?: string) => {
+    const assertion = assertionOf(item);
+    return assertion ? (
+      <AssertionAmount assertion={assertion} className={className} />
     ) : (
       <Amount className={className} tone signed amount={item.inferred_unit.number} currency={item.inferred_unit.commodity} />
     );
+  };
   const failed = (item: Row) =>
-    item.passed === false && (
+    assertionOf(item)?.passed === false && (
       <Badge variant="destructive" className="shrink-0">
         {t('ledger.journal.check_failed')}
       </Badge>

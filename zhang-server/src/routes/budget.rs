@@ -180,6 +180,8 @@ pub async fn get_budget_interval_detail(ledger: State<SharedLedger>, paths: Path
                     inferred_unit: units,
                     asserted: None,
                     checked_balance: None,
+                    difference: None,
+                    tolerance: None,
                     passed: None,
                 }))
             })

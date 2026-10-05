@@ -3,8 +3,9 @@
 //! - an assertion moves no balance: accounts show the sum of their postings, and a pad is sized
 //!   from it;
 //! - `GET /api/journals` lists every assertion as a `BalanceCheck` item, in its place among the
-//!   transactions, with the balance (`account_before`), the asserted amount (`account_after`),
-//!   its tolerance, and `passed`, decided by the server within the tolerance;
+//!   transactions, with the asserted amount (`asserted`), the balance it was checked against
+//!   (`checked_balance`), their `difference`, its tolerance, and `passed`, decided by the server
+//!   within the tolerance;
 //! - `GET /api/accounts/:account/journals` lists every assertion of the account as a row that adds
 //!   nothing, with the true running balance, the asserted amount and `passed`;
 //! - a transaction flagged `C` is an ordinary transaction.
@@ -189,15 +190,15 @@ async fn the_journal_lists_each_assertion_with_its_balance_and_whether_it_passed
         assert_eq!(check["type_"], "C");
         assert_eq!(check["postings"].as_array().unwrap().len(), 1);
     }
-    let posting = |check: &Value, field: &str| check["postings"][0][field]["number"].clone();
+    let field = |check: &Value, field: &str| check[field]["number"].clone();
     // (balance, asserted, asserted - balance, passed), newest first
     let described = checks
         .iter()
         .map(|check| {
             (
-                number(&posting(check, "account_before")),
-                number(&posting(check, "account_after")),
-                number(&posting(check, "inferred_unit")),
+                number(&field(check, "checked_balance")),
+                number(&field(check, "asserted")),
+                number(&field(check, "difference")),
                 check["passed"].as_bool().unwrap(),
             )
         })
@@ -222,6 +223,50 @@ async fn the_journal_lists_each_assertion_with_its_balance_and_whether_it_passed
         numbers(&[&pad["postings"][0]["inferred_unit"]["number"], &pad["postings"][0]["account_after"]["number"]]),
         vec![decimal("345.004"), decimal("500")]
     );
+}
+
+/// One shape for an assertion (audit finding D5): the journal and an account's journal describe it with the same
+/// fields and the same figures, and in both it adds nothing and leaves the balance it was checked against.
+#[tokio::test]
+async fn both_journals_describe_an_assertion_alike() {
+    let scratch = Scratch::new(LEDGER);
+    let journal = scratch.journals(None, None, None, None).await;
+    let checks = journal["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|it| it["type"] == "BalanceCheck")
+        .cloned()
+        .collect::<Vec<_>>();
+    let rows = scratch
+        .account_journals("Assets:Bank")
+        .await
+        .into_iter()
+        .filter(|it| !it["asserted"].is_null())
+        .collect::<Vec<_>>();
+    let shape = |item: &Value| ["asserted", "checked_balance", "difference", "tolerance", "passed"].map(|field| item[field].clone());
+    assert_eq!(checks.iter().map(shape).collect::<Vec<_>>(), rows.iter().map(shape).collect::<Vec<_>>());
+    // newest first: the oldest asserts 200 against 165 and fails
+    assert_eq!(
+        shape(checks.last().unwrap()),
+        [
+            json!({"number": "200", "commodity": "CNY"}),
+            json!({"number": "165", "commodity": "CNY"}),
+            json!({"number": "35", "commodity": "CNY"}),
+            Value::Null,
+            json!(false),
+        ]
+    );
+    for check in &checks {
+        let entry = &check["postings"][0];
+        assert_eq!(entry["account_before"], check["checked_balance"], "{check}");
+        assert_eq!(entry["account_after"], check["checked_balance"], "{check}");
+        assert_eq!(number(&entry["inferred_unit"]["number"]), decimal("0"), "{check}");
+    }
+    for row in &rows {
+        assert_eq!(row["account_after"], row["checked_balance"], "{row}");
+        assert_eq!(number(&row["inferred_unit"]["number"]), decimal("0"), "{row}");
+    }
 }
 
 #[tokio::test]

@@ -62,6 +62,15 @@ impl BuiltinQuery {
     }
 }
 
+/// The columns of `#balances` both journals describe a balance assertion with, in one projection, so the journal and an
+/// account's journal show an assertion alike: the account, the asserted `amount` and its `tolerance`, the balance it was
+/// checked against (`actual`), the asserted amount minus that balance (`difference`) and whether it held (`passed`).
+macro_rules! assertion_columns {
+    () => {
+        "account, amount, tolerance, actual, amount - actual AS difference, passed"
+    };
+}
+
 /// Every built-in query, grouped by the endpoints that run it.
 pub static BUILTINS: &[BuiltinQuery] = &[
     // ---- general ----
@@ -158,12 +167,16 @@ LIMIT :limit OFFSET :offset",
     },
     BuiltinQuery {
         name: "accounts.balance_assertions",
-        description: "The balance assertions on an account, newest first, with the balance of the account and its sub-accounts each \
-                      was checked against, whether it held, and the account a balance with pad pads from.",
-        bql: "SELECT date, time, timestamp, id, account, amount, actual, passed, pad, seq
+        description: "The balance assertions on an account, newest first, each as journals.balance_checks describes it, with the \
+                      account a balance with pad pads from.",
+        bql: concat!(
+            "SELECT date, time, timestamp, id, ",
+            assertion_columns!(),
+            ", pad, seq
 FROM #balances
 WHERE account = :account
-ORDER BY seq DESC",
+ORDER BY seq DESC"
+        ),
         params: &[("account", DataType::Str)],
     },
     BuiltinQuery {
@@ -227,13 +240,9 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "journals.balance_checks",
-        description: "Some balance assertions with the asserted amount, the account's true balance, their difference and whether the \
-                      assertion holds.",
-        bql: "SELECT id, account, amount, tolerance, actual, passed, \
-                     amount - actual AS difference, \
-                     actual + (amount - actual) AS asserted \
-              FROM #balances \
-              WHERE id IN :ids",
+        description: "Some balance assertions with the asserted amount, its tolerance, the balance of the account and its \
+                      sub-accounts it was checked against, their difference and whether the assertion holds.",
+        bql: concat!("SELECT id, ", assertion_columns!(), " FROM #balances WHERE id IN :ids"),
         params: &[("ids", DataType::Set)],
     },
     BuiltinQuery {

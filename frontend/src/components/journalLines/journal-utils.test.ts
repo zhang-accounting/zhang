@@ -37,7 +37,7 @@ test('transactionDocuments is empty without document metadata', () => {
   assert.deepEqual(transactionDocuments(transaction([])), []);
 });
 
-/** A balance check the server checked: `account_before` is the balance, `account_after` the asserted amount. */
+/** A balance check the server checked: `checked_balance` is the balance, `asserted` the asserted amount. */
 function check(balance: string, asserted: string, passed: boolean, tolerance: string | null = null): JournalBalanceCheckItem {
   const amount = (number: string) => ({ number, commodity: 'CNY' });
   const difference = String(Number(asserted) - Number(balance));
@@ -49,16 +49,19 @@ function check(balance: string, asserted: string, passed: boolean, tolerance: st
     datetime: '2024-01-02T00:00:00',
     payee: 'Balance Check',
     narration: 'Assets:Bank',
+    asserted: amount(asserted),
+    checked_balance: amount(balance),
+    difference: amount(difference),
     tolerance,
     passed,
     postings: [
       {
         account: 'Assets:Bank',
-        unit: amount(difference),
+        unit: null,
         cost: null,
-        inferred_unit: amount(difference),
+        inferred_unit: amount('0'),
         account_before: amount(balance),
-        account_after: amount(asserted),
+        account_after: amount(balance),
         metas: [],
       },
     ],
