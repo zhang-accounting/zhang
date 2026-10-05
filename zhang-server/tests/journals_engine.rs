@@ -596,7 +596,10 @@ async fn the_new_transaction_form_suggests_sorted_payees_without_pads_and_open_a
     assert_eq!(status, StatusCode::OK);
     // the ledger's time now, by the system clock here
     let now = body["data"].as_object_mut().unwrap().remove("now").unwrap();
-    assert!(chrono::NaiveDateTime::parse_from_str(now.as_str().unwrap(), "%Y-%m-%dT%H:%M:%S").is_ok(), "{now}");
+    assert!(
+        chrono::NaiveDateTime::parse_from_str(now.as_str().unwrap(), "%Y-%m-%dT%H:%M:%S").is_ok(),
+        "{now}"
+    );
     assert_eq!(
         body["data"],
         json!({
