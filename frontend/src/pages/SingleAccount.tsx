@@ -6,6 +6,7 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import { useAsync } from 'react-use';
 import { retrieveAccountBalance, retrieveAccountDocuments, retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
 import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/layout';
+import { JOURNAL_PAGE_SIZE } from '@/components/journalLines/journal-utils';
 import { PagePagination } from '@/components/layout/PagePagination';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { useDateFormat } from '@/components/layout/use-date-format';
@@ -195,9 +196,6 @@ function SingleAccount() {
 }
 
 export default SingleAccount;
-
-/** Rows of a page of the journal, as on the Journals page. */
-const JOURNAL_PAGE_SIZE = 100;
 
 function AccountJournals({ accountName, reloadKey }: { accountName: string; reloadKey: number }) {
   const { t } = useTranslation();

@@ -21,10 +21,9 @@ pub mod frontend;
 use axum::async_trait;
 use axum::extract::{FromRequestParts, MatchedPath, OriginalUri, Path};
 use axum::http::request::Parts;
-use axum::http::StatusCode;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
-use gotcha::oas::{Parameter, ParameterIn, Referenceable, RequestBody};
+use gotcha::oas::{Parameter, RequestBody};
 use gotcha::{Either, ParameterProvider, Schematic};
 use percent_encoding::percent_decode_str;
 use serde::de::DeserializeOwned;
@@ -116,11 +115,13 @@ where
     T: DeserializeOwned,
     S: Send + Sync,
 {
-    type Rejection = StatusCode;
+    type Rejection = ServerError;
 
+    /// a query string that does not read as `T` is a 400 with the JSON error body of every other bad request, saying
+    /// what it could not read
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let query = parts.uri.query().unwrap_or_default();
-        let params = serde_qs::from_str(query).map_err(|_| StatusCode::BAD_REQUEST)?;
+        let params = serde_qs::from_str(query).map_err(|error| ServerError::InvalidInput(format!("the query string cannot be read: {error}")))?;
         Ok(Query(params))
     }
 }
@@ -129,33 +130,9 @@ impl<T> ParameterProvider for Query<T>
 where
     T: Schematic,
 {
-    fn generate(_url: String) -> Either<Vec<Parameter>, RequestBody> {
-        let mut ret = vec![];
-        let mut schema = T::generate_schema();
-        if let Some(mut properties) = schema.schema.extras.remove("properties") {
-            if let Some(properties) = properties.as_object_mut() {
-                properties.iter_mut().for_each(|(key, value)| {
-                    let schema = serde_json::from_value(value.clone()).unwrap();
-                    let param = Parameter {
-                        name: key.to_string(),
-                        _in: ParameterIn::Query,
-                        description: T::doc(),
-                        required: Some(T::required()),
-                        deprecated: None,
-                        allow_empty_value: None,
-                        style: None,
-                        explode: None,
-                        allow_reserved: None,
-                        schema: Some(Referenceable::Data(schema)),
-                        example: None,
-                        examples: None,
-                        content: None,
-                    };
-                    ret.push(param);
-                })
-            }
-        }
-        Either::Left(ret)
+    fn generate(url: String) -> Either<Vec<Parameter>, RequestBody> {
+        // documented like the `axum::extract::Query` it replaces: a parameter per field, required only when the field is
+        <axum::extract::Query<T> as ParameterProvider>::generate(url)
     }
 }
 

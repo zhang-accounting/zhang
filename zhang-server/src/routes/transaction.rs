@@ -42,8 +42,8 @@ pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>, params: 
 /// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
 /// of a page from `journals.postings` and `journals.balance_checks`.
 ///
-/// A page has 1 to 1000 rows (`size`, 100 by default); another size is a bad request, and a page past the last one is
-/// empty.
+/// Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
+/// paged endpoint; another page or size is a bad request, and a page past the last one is empty.
 #[api(group = "transaction")]
 pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<JournalItemEntity>> {
     ResponseWrapper::json(journals::journal(&ledger, params.0).await?)
