@@ -18,15 +18,17 @@
 //! A `pad` the ledger has, written by hand, would still pad a balance written after it in a commodity it never
 //! served, and absorb later transactions in it: such a balance is refused, with the `pad` to close first.
 //!
-//! In both ledgers, these are refused: a balance of an account that is not open, or padded from an account that is
-//! not; a pad from the account itself or one of its sub-accounts, which moves units within the total it asserts and
-//! never changes it; and a pad of a commodity the account or a sub-account holds at cost, which would book units
-//! without a cost. What is refused is a 400 with the reason, and nothing is written.
+//! In both ledgers, these are refused: a balance of an account that is not open when it is checked, or padded from an
+//! account that is not open now, by the rule the ledger checks its directives with (an account is active through the
+//! day of a `close` with only a date, and until the time of one with a time); a pad from the account itself or one of
+//! its sub-accounts, which moves units within the total it asserts and never changes it; and a pad of a commodity the
+//! account or a sub-account holds at cost, which would book units without a cost. What is refused is a 400 with the
+//! reason, and nothing is written.
 
 use std::collections::BTreeMap;
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use gotcha::Schematic;
 use serde::Serialize;
 use zhang_ast::amount::Amount;
@@ -155,7 +157,12 @@ fn with_amount_of(text: &str, balance: &Directive) -> Option<String> {
 
 /// What `rows` write to `ledger`, made `now`.
 pub(crate) fn balance_directives(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date) -> ServerResult<BalanceWrites> {
-    refuse_accounts_not_open(ledger, &rows)?;
+    // a beancount ledger checks the balance at the start of tomorrow, and books the padding now
+    let checked_at = match ledger.dialect {
+        Dialect::Beancount => now.naive_date().succ_opt().unwrap_or(now.naive_date()).and_time(NaiveTime::MIN),
+        Dialect::Zhang => now.naive_datetime(),
+    };
+    refuse_accounts_not_open(ledger, &rows, checked_at, now.naive_datetime())?;
     let held = held_at_end_of(ledger, now.naive_date());
     refuse_pads_that_cannot_pass(ledger, &rows, &held, now.naive_date())?;
     if ledger.dialect == Dialect::Beancount {
@@ -195,14 +202,18 @@ fn refused(message: String) -> ServerError {
     ServerError::InvalidInput(message)
 }
 
-/// a balance of an account that is not open, or padded from one, would only be reported once written
-fn refuse_accounts_not_open(ledger: &Ledger, rows: &[BalanceRow]) -> ServerResult<()> {
-    let store = ledger.store.read().expect("poison lock detect");
+/// a balance of an account that is not open when it is `checked_at`, or padded to or from an account that is not open
+/// when the padding is booked, at `padded_at`, would only be reported once written: the account lifecycle of the ledger
+/// tells, by the rule its directives are checked with
+fn refuse_accounts_not_open(ledger: &Ledger, rows: &[BalanceRow], checked_at: NaiveDateTime, padded_at: NaiveDateTime) -> ServerResult<()> {
     for row in rows {
-        let accounts = std::iter::once((&row.account, "a balance of")).chain(row.pad.iter().map(|it| (it, "a pad from")));
-        for (account, what) in accounts {
+        let padding = row
+            .pad
+            .iter()
+            .flat_map(|pad| [(&row.account, "a balance of", padded_at), (pad, "a pad from", padded_at)]);
+        for (account, what, at) in std::iter::once((&row.account, "a balance of", checked_at)).chain(padding) {
             let name = account.name();
-            match store.accounts.get(name).map(|it| it.status) {
+            match ledger.account_status(name, at) {
                 Some(AccountStatus::Open) => {}
                 Some(AccountStatus::Close) => {
                     return Err(refused(format!(

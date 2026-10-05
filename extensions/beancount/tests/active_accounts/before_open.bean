@@ -1,0 +1,16 @@
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+2024-01-01 open Assets:Cash
+
+2024-01-02 * "before the open"
+  Assets:Late 1 CNY
+  Assets:Cash -1 CNY
+
+2024-01-03 open Assets:Late
+2024-01-03 * "on the open day"
+  Assets:Late 1 CNY
+  Assets:Cash -1 CNY
+
+2024-01-04 * "never opened"
+  Assets:Never 1 CNY
+  Assets:Cash -1 CNY

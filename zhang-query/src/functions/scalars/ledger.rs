@@ -1,13 +1,14 @@
 //! beanquery 0.2.0's functions over the ledger's `open`, `close` and `commodity` directives:
 //! `open_date`, `close_date`, `open_meta` and `commodity_meta` (also `currency_meta`), and zhang's
-//! `account_budgets`.
+//! `account_budgets` and `account_status`.
 //!
 //! As in beancount, an account's directives are its earliest `open` and earliest `close`, and
 //! a currency's is its last `commodity` directive. An unknown account or currency is NULL.
 //! The metadata is the directive's own (beancount adds `filename` and `lineno`, which zhang
 //! does not keep); values are text.
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
+use zhang_core::domains::schemas::AccountStatus;
 
 use crate::functions::FunctionContext;
 use crate::table::meta_pairs;
@@ -55,6 +56,30 @@ pub(super) fn account_budgets(args: &[Value], ctx: &dyn FunctionContext) -> Resu
     Ok(Value::Set(ctx.account_budgets(account, date).unwrap_or_default()))
 }
 
+/// `account_status(account, date)` and `account_status(account, date, time)`: whether the account is `'open'` or
+/// `'closed'` at the start of the date, or at its time of day (a zhang extension), by the ledger's account lifecycle,
+/// the rule every directive is checked with; NULL when neither an `open` nor a `close` of it is in effect then.
+pub(super) fn account_status(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+    let account = name_arg(args, "account_status")?;
+    let Value::Date(date) = args[1] else {
+        return Err("account_status() expects a date".to_owned());
+    };
+    let time = match args.get(2) {
+        None => NaiveTime::MIN,
+        Some(time) => {
+            let text = time.as_str().ok_or_else(|| "account_status() expects a time".to_owned())?;
+            NaiveTime::parse_from_str(text, "%H:%M:%S")
+                .or_else(|_| NaiveTime::parse_from_str(text, "%H:%M"))
+                .map_err(|_| format!("account_status() expects a time as HH:MM:SS or HH:MM, not '{}'", text))?
+        }
+    };
+    Ok(match ctx.account_status(account, date.and_time(time)) {
+        Some(AccountStatus::Open) => Value::Str("open".to_owned()),
+        Some(AccountStatus::Close) => Value::Str("closed".to_owned()),
+        None => Value::Null,
+    })
+}
+
 /// `commodity_meta(currency)`: the metadata of the currency's `commodity` directive, and
 /// `commodity_meta(currency, key)`: one value of it.
 pub(super) fn commodity_meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
@@ -91,5 +116,8 @@ mod tests {
         assert_eq!(call("commodity_meta", vec!["USD".into(), "name".into()]), Value::Null);
         assert_eq!(call("currency_meta", vec!["USD".into()]), Value::Null);
         assert_eq!(call("open_date", vec![Value::Null]), Value::Null);
+        let date = Value::Date(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap());
+        assert_eq!(call("account_status", vec!["Assets:Bank".into(), date.clone()]), Value::Null);
+        assert_eq!(call("account_status", vec!["Assets:Bank".into(), date, "10:00".into()]), Value::Null);
     }
 }

@@ -293,10 +293,10 @@ The page lists the journal by pages of 100 rows (`GET /api/accounts/{account}/jo
 
 #### `accounts.list`
 
-Every account with an `open` or `close` directive, with its open and close dates and its alias, by name. With `accounts.balances`, it makes the account list: an account with postings but no `open` directive is listed too.
+Every account with an `open` or `close` directive, with its open and close dates, its alias and its status today by [`account_status`](/reference/query-language/#account-and-commodity-directives), by name. With `accounts.balances`, it makes the account list: an account with postings but no `open` directive is listed too, as open. The list shows an account as closed when its status is `'closed'`.
 
 ```sql
-SELECT account, open, close, meta('alias') AS alias
+SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
 FROM #accounts
 ORDER BY account
 ```
@@ -326,7 +326,7 @@ An account and its sub-accounts that have an `open` or `close` directive. The ac
 | `account` | `str` | the account of the page |
 
 ```sql
-SELECT account, open, close, meta('alias') AS alias
+SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
 FROM #accounts
 WHERE under(account, :account)
 ORDER BY account
@@ -522,12 +522,12 @@ ORDER BY payee
 
 #### `journals.accounts`
 
-The open accounts, sorted by name.
+The accounts open today, by [`account_status`](/reference/query-language/#account-and-commodity-directives), sorted by name: an account closed today with only a date is still open, and one opened again after its close is open.
 
 ```sql
 SELECT account
 FROM #accounts
-WHERE open IS NOT NULL AND close IS NULL
+WHERE account_status(account, today()) = 'open'
 ORDER BY account
 ```
 

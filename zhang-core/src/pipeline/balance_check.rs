@@ -8,7 +8,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalancePad, Date, Directive, SpanInfo, Spanned, Transaction};
 
-use super::balance::{exceeds_tolerance, AccountStates, UnitBalances};
+use super::balance::{exceeds_tolerance, UnitBalances};
 use super::{AssertionOutcome, ProcessStage, StageContext};
 use crate::booking::written_groups;
 use crate::data_type::Dialect;
@@ -40,7 +40,6 @@ impl ProcessStage for BalanceCheckStage {
     fn process(&self, directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut ignored_times = IgnoredTimes::of(&directives, ctx.dialect());
         let mut balances = UnitBalances::for_stage(ctx);
-        let mut accounts = AccountStates::default();
         // the `balance ... with pad` directives of the balance entries being applied, checked after the last one
         let mut pads: Vec<(&BalancePad, &SpanInfo)> = vec![];
         let mut pads_at = None;
@@ -52,20 +51,13 @@ impl ProcessStage for BalanceCheckStage {
                 }
             }
             match &directive.data {
-                Directive::Open(open) => {
-                    accounts.apply(&directive.data);
-                    balances.apply_open(open);
-                }
-                Directive::Close(_) => accounts.apply(&directive.data),
+                Directive::Open(open) => balances.apply_open(open),
                 Directive::Commodity(commodity) => balances.apply_commodity(commodity, ctx.options),
                 Directive::Transaction(txn) => {
                     let units = balances.apply_transaction(txn);
                     ignored_times.transaction(directive, txn, &units);
                 }
                 Directive::BalanceCheck(check_directive) => {
-                    for (kind, _) in accounts.errors(&[&check_directive.account]) {
-                        ctx.emit_error(kind, directive.span.clone(), account_name(&check_directive.account));
-                    }
                     check(
                         ctx,
                         &balances,
@@ -75,7 +67,6 @@ impl ProcessStage for BalanceCheckStage {
                         &directive.span,
                     );
                 }
-                // the pad stage reported its accounts
                 Directive::BalancePad(pad) => {
                     pads.push((pad, &directive.span));
                     pads_at = directive.datetime();

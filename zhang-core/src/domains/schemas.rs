@@ -29,6 +29,8 @@ pub struct AccountDomain {
     pub date: NaiveDateTime,
     pub r#type: String,
     pub name: String,
+    /// `Close` when the latest `open` or `close` of the account is a `close`, whatever its date. Whether the account is
+    /// active at a given time is [`Ledger::account_status`](crate::ledger::Ledger::account_status)
     pub status: AccountStatus,
     pub alias: Option<String>,
 }

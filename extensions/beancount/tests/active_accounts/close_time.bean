@@ -1,0 +1,11 @@
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+2024-01-01 open Assets:A
+2024-01-01 open Equity:Open
+
+2024-01-05 close Assets:A
+  time: "10:00:00"
+2024-01-05 * "after the time of the close"
+  time: "15:00:00"
+  Assets:A 1 CNY
+  Equity:Open -1 CNY

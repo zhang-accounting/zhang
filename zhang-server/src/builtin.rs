@@ -94,8 +94,9 @@ pub static BUILTINS: &[BuiltinQuery] = &[
     // an account's page is its subtree: `under(account, :account)`
     BuiltinQuery {
         name: "accounts.list",
-        description: "Every account with an open or close directive, with its open and close dates and its alias, by name.",
-        bql: "SELECT account, open, close, meta('alias') AS alias
+        description: "Every account with an open or close directive, with its open and close dates, its alias and its status today, \
+                      by name.",
+        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
 FROM #accounts
 ORDER BY account",
         params: &[],
@@ -113,9 +114,9 @@ ORDER BY account, currency",
     },
     BuiltinQuery {
         name: "accounts.subtree",
-        description: "An account and those of its sub-accounts that have an open or close directive, with their open and close dates \
-                      and their aliases, by name.",
-        bql: "SELECT account, open, close, meta('alias') AS alias
+        description: "An account and those of its sub-accounts that have an open or close directive, with their open and close dates, \
+                      their aliases and their statuses today, by name.",
+        bql: "SELECT account, open, close, meta('alias') AS alias, account_status(account, today()) AS status
 FROM #accounts
 WHERE under(account, :account)
 ORDER BY account",
@@ -246,10 +247,10 @@ WHERE source = 'directive' AND under(account, :account)",
     },
     BuiltinQuery {
         name: "journals.accounts",
-        description: "The open accounts, sorted by name.",
+        description: "The accounts open today, sorted by name.",
         bql: "SELECT account \
               FROM #accounts \
-              WHERE open IS NOT NULL AND close IS NULL \
+              WHERE account_status(account, today()) = 'open' \
               ORDER BY account",
         params: &[],
     },

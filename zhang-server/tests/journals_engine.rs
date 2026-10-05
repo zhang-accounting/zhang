@@ -642,6 +642,33 @@ async fn a_document_has_its_extension_and_mime_type_on_both_lists() {
     assert_eq!(all, of_account);
 }
 
+/// The form offers the accounts open today, by the rule the ledger checks the transaction with: an account closed today
+/// with only a date, and one opened again after its close, but not one closed before today or opened later.
+#[tokio::test]
+async fn the_new_transaction_form_offers_the_accounts_open_today() {
+    let today = chrono::Utc::now().date_naive();
+    let tomorrow = today.succ_opt().unwrap();
+    let scratch = Scratch::new(&[(
+        "main.zhang",
+        &format!(
+            r#"option "timezone" "UTC"
+1970-01-01 open Assets:Again
+2000-01-01 close Assets:Again
+2001-01-01 open Assets:Again
+1970-01-01 open Assets:Gone
+2000-01-01 close Assets:Gone
+{tomorrow} open Assets:Later
+1970-01-01 open Assets:Today
+{today} close Assets:Today
+"#
+        ),
+    )]);
+    let ledger = scratch.ledger().await;
+    let (status, body) = respond(get_info_for_new_transactions(State(ledger.clone())).await).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["account_name"], json!(["Assets:Again", "Assets:Today"]));
+}
+
 #[tokio::test]
 async fn documents_come_from_the_documents_table_newest_first() {
     let ledger_text = r#"option "operating_currency" "CNY"

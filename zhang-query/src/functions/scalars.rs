@@ -112,6 +112,20 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = &[
         eval: ledger::account_budgets,
     },
     ScalarFunction {
+        name: "account_status",
+        params: &[Exact(Str), Exact(Date)],
+        returns: ReturnType::Exact(Str),
+        description: "Whether an account is 'open' or 'closed' at the start of a date, as a directive of that date without a time sees it: open from its open on, closed once its close takes effect, which a close with only a date does at the end of its day and a close with a time at that time, and open again after a later open; NULL when neither an open nor a close of it is in effect. A zhang extension.",
+        eval: ledger::account_status,
+    },
+    ScalarFunction {
+        name: "account_status",
+        params: &[Exact(Str), Exact(Date), Exact(Str)],
+        returns: ReturnType::Exact(Str),
+        description: "Whether an account is 'open' or 'closed' at a date and a time of day, written HH:MM:SS or HH:MM as the time column holds it, e.g. account_status(account, date, time). A zhang extension.",
+        eval: ledger::account_status,
+    },
+    ScalarFunction {
         name: "commodity_meta",
         params: &[Exact(Str)],
         returns: ReturnType::Exact(Metas),

@@ -67,10 +67,26 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 
 ### 账户何时可用
 
-- 账户从 `open` 起可用，直到 `close` 当天结束。在同一日期和时间内，`open` 排在其他所有指令之前，所以 `open` 当天的交易没有问题。
-- 记到从未开立的账户、或者开立日期更晚的账户的记账行，会报告 [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist)。日期在账户 `close` 当天之后的记账行会报告 [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed)。两者对每个账户和交易各报告一次，交易仍会记账。
-- 开立一个账户不会开立它的父账户。不开立 `Assets:Bank` 也可以使用 `Assets:Bank:Checking`，但对 `Assets:Bank` 的[余额断言](/zh-cn/reference/directives/balance/)需要 `Assets:Bank` 已经开立。
+账户是否可用由同一条规则决定，所有使用账户的指令和网页界面都遵循它：
+
+- 账户从 `open` 起可用。在同一日期和时间内，`open` 排在其他所有指令之前，所以 `open` 当天的交易没有问题。
+- 账户在 `close` 生效之前一直可用。只有日期的 `close` 在当天结束（24:00）时关闭账户，所以当天的所有指令都还可以使用它。带时间的 `close` 在该时刻关闭账户：正好在该时刻的指令还可以使用它，当天更晚的指令则不行。
 - 在 `close` 之后再写 `open` 会重新开立账户。
+- 交易、[余额断言或补齐](/zh-cn/reference/directives/balance/)、[`document`](/zh-cn/reference/directives/document/) 使用了从未开立、或者开立时间更晚的账户，会报告 [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist)；在账户关闭之后使用它，会报告 [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed)。两者对每个账户和指令各报告一次，指令仍然有效：交易仍会记账，文档仍会列出。
+- 开立一个账户不会开立它的父账户。不开立 `Assets:Bank` 也可以使用 `Assets:Bank:Checking`，但对 `Assets:Bank` 的[余额断言](/zh-cn/reference/directives/balance/)需要 `Assets:Bank` 已经开立。
+
+```zhang
+2024-01-01 open Assets:Wallet
+2024-03-31 close Assets:Wallet
+2024-03-31 18:00 * "Last coffee"     ; 没有问题：账户在 3 月 31 日当天仍可用
+  Assets:Wallet -3 CNY
+  Expenses:Coffee
+2024-04-01 * "Too late"              ; AccountClosed
+  Assets:Wallet -3 CNY
+  Expenses:Coffee
+```
+
+账户列表在账户的 `close` 生效之后把它显示为已关闭，在之后的 `open` 之后又显示为开立。
 
 ### 商品
 
@@ -85,7 +101,7 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 ### 关闭
 
 - `close` 检查账户自身在每种商品上的余额，不含子账户。余额不为零时报告 [`CloseNonZeroAccount`](/zh-cn/reference/error-codes/#closenonzeroaccount)。账户仍会被关闭。
-- 关闭从未开立的账户会报告 `AccountDoesNotExist`，关闭已关闭的账户会报告 `AccountClosed`。
+- 关闭从未开立的账户会报告 `AccountDoesNotExist`，关闭已关闭的账户会报告 `AccountClosed`，以第一次 `close` 为准。
 - 已关闭的账户保留它的余额和历史。账户列表把它标记为已关闭，并且可以隐藏它。
 - `close` 之后可以有 [`note`](/zh-cn/reference/directives/note-and-event/)，不会报错。
 
@@ -99,7 +115,7 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 | [`UnsupportedBookingMethod`](/zh-cn/reference/error-codes/#unsupportedbookingmethod) | `booking_method` 为 `AVERAGE`、`AVERAGE_ONLY` 或 `NONE`。 |
 | [`CloseNonZeroAccount`](/zh-cn/reference/error-codes/#closenonzeroaccount) | 账户关闭时仍持有某种商品。 |
 | [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) | 指令使用了尚未开立的账户，或者关闭了从未开立的账户。 |
-| [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | 交易记到已关闭的账户，或者已关闭的账户再次被关闭。 |
+| [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | 指令在账户关闭之后使用了它，或者已关闭的账户再次被关闭。 |
 
 ## Beancount 兼容性
 
@@ -112,6 +128,8 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 - 两者都会报告商品不在 `open` 列表中的记账行，以及这种商品的余额断言。对按多个批次记账的卖出，Beancount 每个批次报告一次，张记账对写下的记账行报告一次。张记账允许重新开立账户，以最近一次 `open` 的列表为准；Beancount 会把第二次 `open` 报告为错误。
 - Beancount 的默认记账方法是 `STRICT`；张记账的是 `FIFO`。
 - `CloseNonZeroAccount` 是张记账自己的检查：Beancount 关闭这样的账户时不会报错。
+- 两者都让账户在 `close` 当天保持可用：Beancount 把 `close` 排在当天所有其他指令之后。Beancount 没有时间的概念，所以把 Beancount 文件中 `close` 的 `time` 元数据当作普通元数据；张记账把它读作 `close` 的时间，在该时刻关闭账户。
+- Beancount 接受 `close` 之后的 `balance` 和 `document`；张记账对它们报告 `AccountClosed`。两者都接受 `note`。
 
 ## 相关页面
 

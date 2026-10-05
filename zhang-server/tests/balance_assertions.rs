@@ -1080,6 +1080,52 @@ option "timezone" "UTC"
         );
     }
 
+    /// whether an account is open is the account lifecycle's, the rule the written balance is checked with
+    #[tokio::test]
+    async fn a_balance_is_refused_by_the_rule_it_is_checked_with() {
+        let ledger = format!(
+            "{OPENS}1970-01-01 open Assets:Today\n{} close Assets:Today\n1970-01-01 open Assets:Again\n{} close Assets:Again\n{} open Assets:Again\n",
+            today(),
+            days_ago(10),
+            days_ago(5)
+        );
+
+        // a zhang ledger checks a balance dated now: an account closed today with only a date is open through today, and
+        // one opened again after its close is open
+        let scratch = Scratch::new(&ledger);
+        let (status, body) = check(&scratch, "Assets:Today", amount(0, "CNY")).await;
+        assert!(status.is_success(), "{status} {body}");
+        let (status, body) = pad(&scratch, "Assets:Again", amount(10, "CNY"), "Equity:Open").await;
+        assert!(status.is_success(), "{status} {body}");
+        let (status, body) = pad(&scratch, "Assets:A", amount(10, "CNY"), "Assets:Today").await;
+        assert!(status.is_success(), "{status} {body}");
+        let (errors, paddings, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            paddings,
+            vec![format!("{} 10 CNY from Assets:Today", today()), format!("{} 10 CNY from Equity:Open", today())]
+        );
+        assert!(passed.iter().all(|it| *it), "{passed:?}");
+
+        // a beancount ledger checks it at the start of tomorrow, after the account closed today
+        let scratch = Scratch::beancount(&ledger);
+        let before = written(&scratch);
+        refused(
+            &scratch,
+            &before,
+            check(&scratch, "Assets:Today", amount(0, "CNY")).await,
+            &["Assets:Today is closed", "a balance of Assets:Today"],
+        );
+        // its padding is booked now, while it is open
+        let (status, body) = pad(&scratch, "Assets:A", amount(10, "CNY"), "Assets:Today").await;
+        assert!(status.is_success(), "{status} {body}");
+        let (status, body) = pad(&scratch, "Assets:Again", amount(10, "CNY"), "Equity:Open").await;
+        assert!(status.is_success(), "{status} {body}");
+        let (errors, _, passed) = reloaded(&scratch).await;
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(passed.iter().all(|it| *it), "{passed:?}");
+    }
+
     #[tokio::test]
     async fn a_pad_row_with_nothing_to_pad_books_nothing() {
         let scratch = Scratch::beancount(&format!(

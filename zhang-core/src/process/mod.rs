@@ -4,13 +4,11 @@ use log::trace;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::*;
 
-use crate::domains::schemas::AccountStatus;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::ZhangResult;
 
 pub(crate) mod budget;
-pub(crate) mod close;
 pub(crate) mod commodity;
 pub(crate) mod document;
 pub(crate) mod open;
@@ -51,26 +49,6 @@ pub(crate) trait DirectivePreProcess {
     fn pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()>;
     /// async function of pre handler
     async fn async_pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()>;
-}
-
-fn check_account_existed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-    let mut operations = ledger.operations();
-    let existed = operations.exist_account(account_name)?;
-
-    if !existed {
-        operations.new_error(ErrorKind::AccountDoesNotExist, span, HashMap::of("account_name", account_name.to_string()))?;
-    }
-    Ok(())
-}
-
-fn check_account_closed(account_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-    let mut operations = ledger.operations();
-
-    let account = operations.account(account_name)?;
-    if let Some(true) = account.map(|it| it.status == AccountStatus::Close) {
-        operations.new_error(ErrorKind::AccountClosed, span, HashMap::of("account_name", account_name.to_string()))?;
-    }
-    Ok(())
 }
 
 fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {

@@ -55,6 +55,9 @@ pub async fn with_ledger<T: Send + 'static>(ledger: &SharedLedger, f: impl FnOnc
 struct Summary {
     open: Option<NaiveDate>,
     close: Option<NaiveDate>,
+    /// its status today, by the account lifecycle: `open`, `closed`, or none when neither an `open` nor a `close` of it
+    /// is in effect
+    status: Option<String>,
     alias: Option<String>,
     first_posting: Option<NaiveDate>,
     /// the balance of its own postings
@@ -104,6 +107,7 @@ fn summaries(accounts: (&str, &QueryResult), balances: (&str, &QueryResult)) -> 
         let summary = summaries.entry(row.str("account")?.unwrap_or_default()).or_default();
         summary.open = row.date("open")?;
         summary.close = row.date("close")?;
+        summary.status = row.str("status")?;
         summary.alias = row.str("alias")?;
     }
     for row in cells::rows(balances.0, balances.1) {
@@ -144,11 +148,11 @@ fn with_sub_accounts(summary: &Summary, operating_currency: &str) -> HashMap<Str
     summary.subtree.calculated(operating_currency).detail
 }
 
+/// `Close` once the account's close took effect; an account not opened yet, or with postings only, is listed as open
 fn status(summary: &Summary) -> AccountStatus {
-    if summary.close.is_some() {
-        AccountStatus::Close
-    } else {
-        AccountStatus::Open
+    match summary.status.as_deref() {
+        Some("closed") => AccountStatus::Close,
+        _ => AccountStatus::Open,
     }
 }
 

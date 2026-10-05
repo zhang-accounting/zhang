@@ -1,0 +1,36 @@
+{
+  "after_close": {
+    "accepted_deviation": "zhang reports a balance and a document after the close of their account: beancount accepts both, and a note, after the close",
+    "errors": [],
+    "other_errors": []
+  },
+  "before_open": {
+    "accepted_deviation": null,
+    "errors": [
+      {
+        "account": "Assets:Late",
+        "line": 5
+      },
+      {
+        "account": "Assets:Never",
+        "line": 14
+      }
+    ],
+    "other_errors": []
+  },
+  "close_day": {
+    "accepted_deviation": null,
+    "errors": [
+      {
+        "account": "Assets:Old",
+        "line": 26
+      }
+    ],
+    "other_errors": []
+  },
+  "close_time": {
+    "accepted_deviation": "zhang reads the time metadata of a close as its time, and closes the account at that time: beancount knows no times, and closes it at the end of its day",
+    "errors": [],
+    "other_errors": []
+  }
+}

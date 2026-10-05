@@ -20,12 +20,13 @@ use crate::clock::{Clock, LoadClock};
 use crate::data_source::{DataSource, MissingInclude};
 use crate::data_type::Dialect;
 use crate::derived::Derived;
+use crate::domains::schemas::AccountStatus;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
 use crate::options::{BuiltinOption, InMemoryOptions};
 use crate::pipeline::{
-    builtin_stages, run_pipeline, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage, StageContext,
+    builtin_stages, run_pipeline, AccountLifecycle, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage, StageContext,
 };
 use crate::process::budget::{DefinedBudget, ForeignAmount};
 use crate::process::{DirectivePreProcess, DirectiveProcess};
@@ -84,6 +85,9 @@ pub struct Ledger {
 
     /// the clock of this load, read at most once, on first use; a reload starts a new reading of the same [`Clock`]
     pub(crate) clock: LoadClock,
+
+    /// when each account is active, from the `open` and `close` directives of [`Ledger::directives`]
+    lifecycle: AccountLifecycle,
 
     /// what readers compute from this ledger once and keep with it, such as the query engine's booked postings; a
     /// reload replaces the ledger, and starts this empty
@@ -224,6 +228,14 @@ impl Ledger {
         crate::data_source::path_in_ledger(&self.entry.0, path)
     }
 
+    /// The status of `account` at the wall-clock time `at` in the ledger's timezone, by the one rule every directive is
+    /// checked with ([`AccountLifecycle`]): `Open` from its `open` on, `Close` once its close took effect (a `close` with
+    /// only a date at the end of that day, a `close` with a time at that time), `Open` again after a later `open`, and
+    /// `None` when neither an `open` nor a `close` of it is in effect.
+    pub fn account_status(&self, account: &str, at: NaiveDateTime) -> Option<AccountStatus> {
+        self.lifecycle.status(account, at)
+    }
+
     fn init(context: LedgerProcessContext) -> (Self, SplitDirectives) {
         let ledger = Self {
             options: InMemoryOptions::default(),
@@ -243,6 +255,7 @@ impl Ledger {
             reported_undefined_budgets: HashSet::new(),
             reported_closed_budgets: HashSet::new(),
             clock: LoadClock::new(context.clock),
+            lifecycle: AccountLifecycle::default(),
             derived: Derived::default(),
             stale: false,
             #[cfg(feature = "plugin_runtime")]
@@ -313,6 +326,12 @@ impl Ledger {
         // Stage errors precede materialization errors. Delay insertion until transaction IDs have
         // been bound, then move them before the fold's errors without disturbing either group.
         operations.write().errors[stage_error_start..].rotate_right(stage_error_count);
+        self.lifecycle = AccountLifecycle::of(&dated);
+        for account in operations.write().accounts.values_mut() {
+            if let Some(status) = self.lifecycle.final_status(&account.name) {
+                account.status = status;
+            }
+        }
         self.metas = metas;
         self.directives = dated;
 
@@ -531,7 +550,8 @@ impl Ledger {
                 // before the pipeline, and the undated arms below are unreachable
                 Directive::Option(_) => {}
                 Directive::Open(open) => open.handler(self, &directive.span)?,
-                Directive::Close(close) => close.handler(self, &directive.span)?,
+                // the account lifecycle reads it from the processed stream: `Ledger::account_status`
+                Directive::Close(_) => {}
                 Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
                 Directive::Transaction(trx) => trx.handler(self, &directive.span)?,
                 // the pad stage materialized it into its padding transactions
@@ -2054,10 +2074,13 @@ mod test {
         }
     }
     mod active_accounts {
+        use std::str::FromStr;
+
         use indoc::indoc;
         use itertools::Itertools;
         use zhang_ast::error::ErrorKind;
 
+        use crate::domains::schemas::AccountStatus;
         use crate::ledger::test::load_from_temp_str;
         use crate::ledger::Ledger;
 
@@ -2126,6 +2149,102 @@ mod test {
             assert_eq!(
                 errors(&ledger),
                 vec![error(ErrorKind::AccountClosed, r#"2023-01-06 * "the day after the close""#, "Expenses:Old")]
+            );
+        }
+
+        #[test]
+        fn should_close_an_account_at_the_time_of_a_close_with_a_time() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 open Assets:Cash
+                1970-01-01 open Expenses:Old
+                2024-01-05 10:00:00 close Expenses:Old
+                2024-01-05 10:00:00 * "at the time of the close"
+                  Assets:Cash -1 CNY
+                  Expenses:Old 1 CNY
+                2024-01-05 15:00:00 * "later on the close day"
+                  Assets:Cash -1 CNY
+                  Expenses:Old 1 CNY
+                2024-01-05 15:00:00 note Expenses:Old "a note may follow the close"
+                2024-01-05 16:00:00 document Expenses:Old "receipt.pdf"
+                2024-01-05 17:00:00 balance Expenses:Old 2 CNY
+            "#});
+
+            assert_eq!(
+                errors(&ledger),
+                vec![
+                    error(ErrorKind::AccountClosed, r#"2024-01-05 15:00:00 * "later on the close day""#, "Expenses:Old"),
+                    error(
+                        ErrorKind::AccountClosed,
+                        r#"2024-01-05 16:00:00 document Expenses:Old "receipt.pdf""#,
+                        "Expenses:Old"
+                    ),
+                    error(ErrorKind::AccountClosed, "2024-01-05 17:00:00 balance Expenses:Old 2 CNY", "Expenses:Old"),
+                ]
+            );
+        }
+
+        #[test]
+        fn should_open_an_account_again_after_its_close() {
+            let ledger = load_from_temp_str(indoc! {r#"
+                2020-01-01 open Assets:Card
+                2020-01-01 open Equity:Open
+                2021-01-01 close Assets:Card
+                2021-06-01 * "while it is closed"
+                  Assets:Card 1 CNY
+                  Equity:Open -1 CNY
+                2022-01-01 open Assets:Card
+                2022-02-01 * "after it is opened again"
+                  Assets:Card 1 CNY
+                  Equity:Open -1 CNY
+            "#});
+
+            assert_eq!(
+                errors(&ledger),
+                vec![error(ErrorKind::AccountClosed, r#"2021-06-01 * "while it is closed""#, "Assets:Card")]
+            );
+            // the host reads the same rule
+            let at = |date: &str| chrono::NaiveDate::from_str(date).unwrap().and_hms_opt(12, 0, 0).unwrap();
+            assert_eq!(ledger.account_status("Assets:Card", at("2019-12-31")), None);
+            assert_eq!(ledger.account_status("Assets:Card", at("2021-01-01")), Some(AccountStatus::Open));
+            assert_eq!(ledger.account_status("Assets:Card", at("2021-06-01")), Some(AccountStatus::Close));
+            assert_eq!(ledger.account_status("Assets:Card", at("2022-02-01")), Some(AccountStatus::Open));
+            // and the store: opened again, its latest `open` stands
+            assert_eq!(ledger.store.read().unwrap().accounts["Assets:Card"].status, AccountStatus::Open);
+        }
+
+        #[test]
+        fn should_keep_an_account_active_through_its_close_day_for_every_directive() {
+            // a close with only a date lasts through its day for a document, a pad and a balance as for a transaction
+            let ledger = load_from_temp_str(indoc! {r#"
+                1970-01-01 open Assets:Cash
+                1970-01-01 open Assets:Old
+                1970-01-01 open Equity:Open
+                1970-01-01 open Equity:Old
+                2024-01-05 close Assets:Old
+                2024-01-05 close Equity:Old
+                2024-01-05 document Assets:Old "statement.pdf"
+                2024-01-05 note Assets:Old "closed today"
+                2024-01-05 pad Assets:Cash Equity:Old
+                2024-01-05 10:00:00 balance Assets:Old 5 CNY with pad Equity:Open
+                2024-01-05 12:00:00 balance Assets:Old 5 CNY
+                2024-01-05 18:00:00 * "late on the close day"
+                  Assets:Cash -1 CNY
+                  Assets:Old 1 CNY
+                2024-01-06 balance Assets:Cash 9 CNY
+                2024-01-06 balance Assets:Old 6 CNY
+                2024-01-06 document Assets:Old "late.pdf"
+                2024-01-06 * "the day after the close"
+                  Assets:Cash -1 CNY
+                  Assets:Old 1 CNY
+            "#});
+
+            assert_eq!(
+                errors(&ledger),
+                vec![
+                    error(ErrorKind::AccountClosed, "2024-01-06 balance Assets:Old 6 CNY", "Assets:Old"),
+                    error(ErrorKind::AccountClosed, r#"2024-01-06 document Assets:Old "late.pdf""#, "Assets:Old"),
+                    error(ErrorKind::AccountClosed, r#"2024-01-06 * "the day after the close""#, "Assets:Old"),
+                ]
             );
         }
 

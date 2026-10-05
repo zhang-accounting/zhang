@@ -36,21 +36,17 @@ impl Operations {
 }
 
 impl Operations {
-    /// insert or update account
-    /// if account exists, then update its status only
-    pub(crate) fn insert_or_update_account(&mut self, datetime: DateTime<Tz>, account: Account, status: AccountStatus, alias: Option<&str>) -> ZhangResult<()> {
+    /// insert an account at its first `open`; a later `open` changes nothing. Its status is the account
+    /// lifecycle's, set once the ledger is processed ([`crate::ledger::Ledger::account_status`])
+    pub(crate) fn insert_account(&mut self, datetime: DateTime<Tz>, account: Account, alias: Option<&str>) -> ZhangResult<()> {
         let mut store = self.write();
-        let account_domain = store.accounts.entry(account.name().to_owned()).or_insert_with(|| AccountDomain {
+        store.accounts.entry(account.name().to_owned()).or_insert_with(|| AccountDomain {
             date: datetime.naive_local(),
             r#type: account.account_type.to_string(),
             name: account.name().to_owned(),
-            status,
+            status: AccountStatus::Open,
             alias: alias.map(|it| it.to_owned()),
         });
-
-        // if account exists, the property only can be changed is status;
-        account_domain.status = status;
-
         Ok(())
     }
 
@@ -295,18 +291,6 @@ impl Operations {
                 }),
             }
         }
-        Ok(())
-    }
-
-    pub fn close_account(&mut self, account_name: &str) -> ZhangResult<()> {
-        let mut store = self.write();
-
-        let option = store.accounts.get_mut(account_name);
-
-        if let Some(account) = option {
-            account.status = AccountStatus::Close
-        }
-
         Ok(())
     }
 
