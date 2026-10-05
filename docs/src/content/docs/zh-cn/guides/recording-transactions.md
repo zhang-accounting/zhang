@@ -84,7 +84,7 @@ include "data/*.zhang"
 
 选择侧边栏顶部的**新建交易**，然后填写：
 
-- **日期**：选择哪一天。新交易会带上当前的时间。
+- **日期**：选择哪一天。新交易会带上当前的时间。日期和时间都是账本的，即账本 [`timezone`](/zh-cn/reference/directives/options/#timezone) 时区的时间，与浏览器的时区无关：编辑交易时不改日期，时间就保持不变。
 - **收款方**和**摘要**。
 - **分录**：每条记账行的账户和金额，金额写作“金额 货币”的形式，例如 `-28 CNY`，读法与账本文件相同：`1,000 CNY` 和 `(10 + 2) / 4 USD` 也可以；只写数字时，货币为[运营货币](/zh-cn/reference/directives/options/#operating_currency)。留空一个金额，张记账会自动填上。
 - **分录详情**（点开记账行的详情按钮）：它的**成本**和**价格**，写法与账本文件相同（成本如 `{150 USD}`、`{{1500 USD}}` 或 `{}`，价格如 `@ 6 USD` 或 `@@ 60 USD`，见[批次与成本基础](/zh-cn/guides/lots-and-cost-basis/)），行尾的**注释**，以及它的元数据。
@@ -101,7 +101,7 @@ include "data/*.zhang"
 
 要修改一笔交易，在流水页面中打开该行的菜单，选择**编辑**。张记账会把修改后的交易写回原处，即它所在的文件。它根据表单重写整笔交易：每条记账行的成本、价格、注释、元数据和[标记](/zh-cn/reference/directives/transaction/#记账行标记)都会保留，未写金额的记账行也保持原样；只有原文的排版和记账行之间（或首行末尾）的注释行不会保留；当编辑会丢弃这类注释行时，张记账会先请你确认。插件生成的交易不能编辑：它不在账本的任何文件中，编辑会被拒绝，不会写入任何内容。
 
-API 也是如此：`PUT /api/transactions/{id}` 为每条记账行接受同样写法的 `cost`、`price` 和 `comment`；省略这些字段时保留该记账行原有的值，传 `null` 则删除。记账行的 `unit` 可以是对象 `{"number": "-28", "commodity": "CNY"}`，也可以是金额的文本，例如 `"-28 CNY"`，读法与表单相同。`POST /api/transactions/preview` 和 `POST /api/transactions/{id}/preview` 接受与创建、更新相同的请求体，返回表单的检查结果，不写入任何内容：
+API 也是如此：`PUT /api/transactions/{id}` 为每条记账行接受同样写法的 `cost`、`price` 和 `comment`；省略这些字段时保留该记账行原有的值，传 `null` 则删除。请求中的 `datetime` 是账本时区的墙上时间，不带时区偏移（`"2024-01-02T07:00:00"`），与所有响应一致；带偏移或 `Z` 的时间点仍可读取，按它在账本时区的墙上时间处理。记账行的 `unit` 可以是对象 `{"number": "-28", "commodity": "CNY"}`，也可以是金额的文本，例如 `"-28 CNY"`，读法与表单相同。`POST /api/transactions/preview` 和 `POST /api/transactions/{id}/preview` 接受与创建、更新相同的请求体，返回表单的检查结果，不写入任何内容：
 
 - `text`：将写入的文本。
 - `field_errors`：创建或更新会拒绝的每个字段：所属记账行和字段、`kind`（如 `invalid_amount` 或 `beancount_commodity`）及其涉及的 `value`，以及 400 响应的消息。

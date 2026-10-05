@@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Timelike};
 use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
@@ -28,7 +28,7 @@ use zhang_query::{Params, QueryResult, Value};
 use crate::builtin::{bind_instant, execute, ledger_now};
 use crate::cells::{self, Row};
 use crate::error::ServerError;
-use crate::request::JournalRequest;
+use crate::request::{JournalRequest, LedgerDateTime};
 use crate::response::{
     DocumentEntity, ErrorEntity, InfoForNewDocument, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
     JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity, Pageable, SpanInfoEntity, WrittenPostingEntity,
@@ -450,14 +450,14 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
 
 /// `GET /api/for-new-transaction`: the payees, and the accounts open at `at`, an instant read in the ledger's timezone,
 /// or now.
-pub async fn info_for_new_transaction(ledger: &SharedLedger, at: Option<DateTime<Utc>>) -> ServerResult<InfoForNewTransaction> {
+pub async fn info_for_new_transaction(ledger: &SharedLedger, at: Option<LedgerDateTime>) -> ServerResult<InfoForNewTransaction> {
     with_ledger(&ledger.0, move |ledger| {
         let first_column = |result: QueryResult| result.rows.iter().filter_map(|row| row[0].as_str().map(str::to_owned)).collect_vec();
-        let at = match at {
-            Some(at) => at.with_timezone(&ledger.options.timezone).naive_local(),
-            None => ledger_now(ledger),
-        };
+        let now = ledger_now(ledger);
+        let at = at.map_or(now, |at| at.in_ledger(&ledger.options.timezone));
         Ok(InfoForNewTransaction {
+            // to the second, as the ledger writes a time
+            now: now.with_nanosecond(0).unwrap_or(now),
             payee: first_column(execute(ledger, PAYEES, &Params::new(), false)?),
             account_name: first_column(execute(ledger, OPEN_ACCOUNTS, &bind_instant(Params::new(), at), false)?),
         })

@@ -81,7 +81,7 @@ function SingleBudget() {
       key: 'date',
       header: t('budgets.date'),
       className: 'w-36 text-muted-foreground tabular-nums',
-      cell: (event) => fmt.dayTime(event.timestamp * 1000),
+      cell: (event) => fmt.dayTime(new Date(event.datetime)),
     },
     {
       key: 'activity',
@@ -120,7 +120,7 @@ function SingleBudget() {
           {isBudgetEvent(event) ? t(`budgets.event.${event.event_type}`) : [event.payee, event.narration].filter(Boolean).join(' · ') || event.account}
         </div>
         <div className="truncate text-xs text-muted-foreground">
-          {fmt.dayTime(event.timestamp * 1000)}
+          {fmt.dayTime(new Date(event.datetime))}
           {!isBudgetEvent(event) && ` · ${event.account}`}
         </div>
       </div>
