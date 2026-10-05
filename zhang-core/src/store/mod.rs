@@ -175,16 +175,7 @@ pub struct PostingMetaDomain {
 impl PostingMetaDomain {
     /// The entries of `meta`, sorted by key; the values of a repeated key keep their order.
     pub fn of(meta: Meta) -> Vec<PostingMetaDomain> {
-        let mut metas = meta
-            .get_flatten()
-            .into_iter()
-            .map(|(key, value)| PostingMetaDomain {
-                key,
-                value: value.to_plain_string(),
-            })
-            .collect::<Vec<_>>();
-        metas.sort_by(|a, b| a.key.cmp(&b.key));
-        metas
+        meta.sorted_pairs().into_iter().map(|(key, value)| PostingMetaDomain { key, value }).collect()
     }
 }
 

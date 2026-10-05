@@ -16,6 +16,7 @@ import { Calendar } from './ui/calendar';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { calendarDay, LedgerDateTime, timeOfDay, withDay } from './ledger-datetime';
 import { DOCUMENT_KEY, emptyDraft, PostingDraft, toPostingDrafts, toPostingRequest, toRequestMetas, TransactionFormValue } from './transaction-form-utils';
 import { createPreviewer, fieldErrors, fieldErrorText, ledgerErrors, PreviewState, previewKey, refused, unbalancedText } from './transaction-preview';
 
@@ -44,14 +45,6 @@ const DETAIL_FIELDS: DetailField[] = ['cost', 'price', 'comment'];
 
 /** Whether a posting row has any detail besides its metadata: a cost, a price or a comment. */
 const hasDetails = (posting: PostingDraft) => DETAIL_FIELDS.some((field) => posting[field].trim() !== '');
-
-/** Picking a day in the calendar keeps the time of day (an edit must not silently move a transaction to 00:00). */
-function withTimeOf(day: Date, previous: Date | undefined) {
-  if (!previous) return day;
-  const next = new Date(day);
-  next.setHours(previous.getHours(), previous.getMinutes(), previous.getSeconds(), previous.getMilliseconds());
-  return next;
-}
 
 /** Key / value rows of a metadata editor (the transaction's or one posting's). */
 function MetaRows({ metas, onChange }: { metas: MetaEntry[]; onChange(next: MetaEntry[]): void }) {
@@ -97,7 +90,10 @@ export default function TransactionEditForm(props: Props) {
   const locale = useDateLocale();
   const payeeListId = useId();
 
-  const [date, setDate] = useState<Date | undefined>(props.data?.datetime ? new Date(props.data.datetime) : new Date());
+  // the ledger's wall-clock time, as the journal shows it and as it is sent: never an instant of the browser's timezone. A new
+  // transaction is now by the ledger's clock, which the server tells
+  const [datetime, setDatetime] = useState<LedgerDateTime | undefined>(props.data?.datetime);
+  const date = datetime ? calendarDay(datetime) : undefined;
   const [dateOpen, setDateOpen] = useState(false);
   const [payee, setPayee] = useState<string>(props.data?.payee ?? '');
   const [narration, setNarration] = useState(props.data?.narration ?? '');
@@ -109,8 +105,10 @@ export default function TransactionEditForm(props: Props) {
 
   const { value: operatingCurrency } = useAsync(async () => optionValue((await retrieveOptions({})).data.data, 'operating_currency'), []);
   // the payees, and the accounts open at the transaction's date and time, by the rule the ledger checks it with
-  const at = date?.toISOString() ?? null;
-  const { value: info } = useAsync(async () => (await retrieveNewTransactionInfo({ datetime: at })).data.data, [at]);
+  const { value: info } = useAsync(async () => (await retrieveNewTransactionInfo({ datetime: datetime ?? null })).data.data, [datetime]);
+  useEffect(() => {
+    if (datetime === undefined && info) setDatetime(info.now);
+  }, [datetime, info]);
   const payees = info?.payee;
   // an account a posting already uses stays in the list, so an edited transaction still shows a closed account
   const usedAccounts = useMemo(() => postings.map((it) => it.account), [postings]);
@@ -119,7 +117,7 @@ export default function TransactionEditForm(props: Props) {
   // Exactly what is submitted; the server previews this value.
   const value = useMemo<TransactionFormValue>(
     () => ({
-      datetime: (date ?? new Date()).toISOString(),
+      datetime: datetime ?? '',
       payee: payee ?? '',
       narration: narration,
       flag: props.data?.flag,
@@ -129,7 +127,7 @@ export default function TransactionEditForm(props: Props) {
       metas: [...toRequestMetas(metas), ...(props.data?.metas ?? []).filter((meta) => meta.key === DOCUMENT_KEY)],
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [date, payee, narration, postings, metas],
+    [datetime, payee, narration, postings, metas],
   );
 
   // The server reads the value as saving would, and tells what it would write, the fields it would refuse and what the ledger
@@ -145,6 +143,7 @@ export default function TransactionEditForm(props: Props) {
     return () => instance.cancel();
   }, []);
   useEffect(() => {
+    if (!value.datetime) return;
     previewer.current?.request(
       key,
       async () => (transactionId ? await previewTransactionUpdate({ ...value, transaction_id: transactionId }) : await previewNewTransaction(value)).data.data,
@@ -202,7 +201,7 @@ export default function TransactionEditForm(props: Props) {
                 locale={locale}
                 selected={date}
                 onSelect={(day) => {
-                  setDate(day ? withTimeOf(day, date) : undefined);
+                  if (day) setDatetime(withDay(day, datetime, timeOfDay(info?.now)));
                   setDateOpen(false);
                 }}
                 autoFocus

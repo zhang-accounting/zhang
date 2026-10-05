@@ -84,7 +84,7 @@ include "data/*.zhang"
 
 Select **New transaction** at the top of the sidebar, and fill in:
 
-- **Date**: pick the day. A new transaction gets the current time of day.
+- **Date**: pick the day. A new transaction gets the current time of day. Dates and times are the ledger's, in its [`timezone`](/reference/directives/options/#timezone), whatever the timezone of your browser: editing a transaction without touching its date keeps its time.
 - **Payee** and **Narration**.
 - **Postings**: an account and an amount written as `amount commodity`, such as `-28 CNY`, read as in a ledger file: `1,000 CNY` and `(10 + 2) / 4 USD` work too, and a number alone is in the [operating currency](/reference/directives/options/#operating_currency). Leave one amount empty and Zhang fills it in.
 - **Posting details**, behind the details button of a posting: its **cost** and **price**, written as in a ledger file (`{150 USD}`, `{{1500 USD}}` or `{}` for the cost, `@ 6 USD` or `@@ 60 USD` for the price; see [Lots and cost basis](/guides/lots-and-cost-basis/)), a **comment** for the end of its line, and its metadata.
@@ -101,7 +101,7 @@ The form has no fields for tags or links. For those, write the transaction in a 
 
 To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form: each posting keeps its cost, price, comment, metadata and [flag](/reference/directives/transaction/#posting-flags), and a posting written without an amount stays that way. Only the layout of the text and comment lines between the postings (or at the end of the first line) are not kept; before an edit that would drop such lines, Zhang asks you to confirm. A transaction a plugin generated cannot be edited: it is in no file of the ledger, so the edit is refused and nothing is written.
 
-The same holds for the API: `PUT /api/transactions/{id}` takes a `cost`, a `price` and a `comment` per posting in the same forms, keeps those of a posting when the fields are left out, and removes one sent as `null`. The `unit` of a posting is either an object `{"number": "-28", "commodity": "CNY"}` or the text of the amount, such as `"-28 CNY"`, which is read as the form reads it. `POST /api/transactions/preview` and `POST /api/transactions/{id}/preview` take the same body as the create and the update, and answer with the form's check without writing anything:
+The same holds for the API: `PUT /api/transactions/{id}` takes a `cost`, a `price` and a `comment` per posting in the same forms, keeps those of a posting when the fields are left out, and removes one sent as `null`. The `datetime` of a request is the ledger's wall-clock time in its timezone, written without an offset (`"2024-01-02T07:00:00"`), as every response gives it; an instant with an offset or `Z` is still read, as the wall-clock time it is in the ledger's timezone. The `unit` of a posting is either an object `{"number": "-28", "commodity": "CNY"}` or the text of the amount, such as `"-28 CNY"`, which is read as the form reads it. `POST /api/transactions/preview` and `POST /api/transactions/{id}/preview` take the same body as the create and the update, and answer with the form's check without writing anything:
 
 - `text`: what would be written.
 - `field_errors`: each field the create or update would refuse: the posting and the field, a `kind` such as `invalid_amount` or `beancount_commodity` with the `value` it is about, and the message of the 400.

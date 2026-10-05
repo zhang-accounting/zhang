@@ -245,6 +245,23 @@ pub fn is_account_component_char(c: char) -> bool {
     !matches!(c, '"' | ':' | '(' | ')' | ',' | ' ' | '\t' | '\n' | '\r')
 }
 
+/// Whether the account named `account` is `ancestor` or one of its sub-accounts: `ancestor` followed by `:`, never a
+/// sibling with a longer name. A strict sub-account is `is_under(account, ancestor) && account != ancestor`.
+///
+/// ```rust
+/// use zhang_ast::account::is_under;
+/// assert!(is_under("Assets:Bank", "Assets:Bank"));
+/// assert!(is_under("Assets:Bank:Cash", "Assets:Bank"));
+/// assert!(!is_under("Assets:Banking", "Assets:Bank"));
+/// assert!(!is_under("Assets", "Assets:Bank"));
+/// ```
+pub fn is_under(account: &str, ancestor: &str) -> bool {
+    match account.strip_prefix(ancestor) {
+        Some(rest) => rest.is_empty() || rest.starts_with(':'),
+        None => false,
+    }
+}
+
 /// A name that is not an account name of the ledger grammar.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InvalidAccountError {

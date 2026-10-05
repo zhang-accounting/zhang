@@ -358,32 +358,19 @@ impl<'a> Record<'a> {
 /// Metadata as `(key, value)` pairs, the value of the `metas` columns: sorted by key, the
 /// values of a repeated key in written order (zhang keeps no order between different keys).
 pub(crate) fn meta_pairs(meta: Option<&Meta>) -> Vec<(String, String)> {
-    let mut pairs = meta
-        .cloned()
-        .map(|meta| meta.get_flatten())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(key, value)| (key, value.to_plain_string()))
-        .collect::<Vec<_>>();
-    // a stable sort keeps the values of a key in order
-    pairs.sort_by(|a, b| a.0.cmp(&b.0));
-    pairs
+    meta.cloned().map(Meta::sorted_pairs).unwrap_or_default()
 }
 
 /// Metadata as text, the value of the `meta` columns: `key: "value"` pairs sorted by key and
 /// separated by `, ` (the values of a repeated key in ledger order); `''` without metadata.
 /// Quotes and backslashes in values are escaped with a backslash.
 pub(crate) fn render_meta(meta: Option<&Meta>) -> Value {
-    let pairs = meta.cloned().map(|meta| meta.get_flatten()).unwrap_or_default();
-    render_pairs(pairs.iter().map(|(key, value)| (key.as_str(), value.as_str())))
+    render_pairs(meta_pairs(meta).iter().map(|(key, value)| (key.as_str(), value.as_str())))
 }
 
-/// Metadata `pairs` as text, as [`render_meta`] writes it.
+/// Metadata `pairs`, already sorted as [`Meta::sorted_pairs`] sorts them, as text, as [`render_meta`] writes it.
 pub(crate) fn render_pairs<'p>(pairs: impl Iterator<Item = (&'p str, &'p str)>) -> Value {
-    let mut pairs = pairs.collect::<Vec<_>>();
-    pairs.sort_by_key(|(key, _)| *key);
     let text = pairs
-        .iter()
         .map(|(key, value)| format!("{}: \"{}\"", key, value.replace('\\', "\\\\").replace('"', "\\\"")))
         .collect::<Vec<_>>()
         .join(", ");

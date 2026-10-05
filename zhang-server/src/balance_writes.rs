@@ -31,6 +31,7 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use gotcha::Schematic;
 use serde::Serialize;
+use zhang_ast::account::is_under;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Flag, Posting, SpanInfo, Spanned, Transaction, ZhangString};
@@ -237,7 +238,7 @@ fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Hel
     for row in rows {
         let Some(source) = &row.pad else { continue };
         let account = row.account.name();
-        if source == &row.account || is_under(source, account) {
+        if is_under(source.name(), account) {
             return Err(refused(format!(
                 "{account} cannot be padded from {}, which its balance covers: the padding would move units within the \
                  balance it asserts, and never change it. Pad it from another account",
@@ -252,7 +253,7 @@ fn refuse_pads_that_cannot_pass(ledger: &Ledger, rows: &[BalanceRow], held: &Hel
         let at_cost = lots
             .get_or_insert_with(|| ledger.lots_at_end_of(today))
             .iter()
-            .filter(|(name, _)| name.as_str() == account || name.strip_prefix(account).is_some_and(|rest| rest.starts_with(':')))
+            .filter(|(name, _)| is_under(name, account))
             .flat_map(|(_, lots)| lots)
             .any(|lot| &lot.commodity == commodity && lot.cost.is_some() && !lot.amount.is_zero());
         if at_cost {
@@ -330,11 +331,11 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date, held: &
     let expected = |name: &str, commodity: &str| {
         let padding = rows
             .iter()
-            .filter(|row| row.pad.is_some() && row.amount.commodity == commodity && is_under(&row.account, name))
+            .filter(|row| row.pad.is_some() && row.amount.commodity == commodity && below(&row.account, name))
             // the outermost padded sub-accounts: a padded sub-account of theirs is counted in theirs
             .filter(|row| {
                 !rows.iter().any(|other| {
-                    other.pad.is_some() && other.amount.commodity == commodity && is_under(&other.account, name) && is_under(&row.account, other.account.name())
+                    other.pad.is_some() && other.amount.commodity == commodity && below(&other.account, name) && below(&row.account, other.account.name())
                 })
             })
             .map(|row| &row.amount.number - held.subtree_in(row.account.name(), commodity))
@@ -413,8 +414,8 @@ fn padding(date: Date, account: &Account, source: &Account, difference: Amount) 
 }
 
 /// whether `account` is a strict sub-account of the account named `parent`
-fn is_under(account: &Account, parent: &str) -> bool {
-    account.name().len() > parent.len() && account.name().starts_with(parent) && account.name()[parent.len()..].starts_with(':')
+fn below(account: &Account, parent: &str) -> bool {
+    is_under(account.name(), parent) && account.name() != parent
 }
 
 /// the units every account holds at the end of a day: the sum of the postings dated on it or before
@@ -439,7 +440,7 @@ impl Held {
     fn subtree_in(&self, name: &str, commodity: &str) -> BigDecimal {
         self.0
             .iter()
-            .filter(|(account, _)| account.as_str() == name || (account.starts_with(name) && account[name.len()..].starts_with(':')))
+            .filter(|(account, _)| is_under(account, name))
             .filter_map(|(_, units)| units.get(commodity))
             .fold(BigDecimal::zero(), |sum, it| sum + it)
     }
