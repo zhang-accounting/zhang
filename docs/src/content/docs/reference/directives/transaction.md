@@ -261,6 +261,7 @@ without it, so that it stays a posting rather than a comment. A `*` flag is writ
 | [`UnbalancedTransaction`](/reference/error-codes/#unbalancedtransaction) | A commodity does not balance. | yes |
 | [`CommodityDoesNotDefine`](/reference/error-codes/#commoditydoesnotdefine) | The transaction balances in a commodity that is not defined. | yes |
 | [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist), [`AccountClosed`](/reference/error-codes/#accountclosed) | A posting's account is not open at the transaction's date. | yes |
+| [`CommodityNotAllowed`](/reference/error-codes/#commoditynotallowed) | A posting's units are in a commodity its account's `open` does not list. | yes |
 | [`NoEnoughCommodityLot`](/reference/error-codes/#noenoughcommoditylot), [`AmbiguousLotMatch`](/reference/error-codes/#ambiguouslotmatch) | A reduction at cost does not find its lots. | yes |
 | [`CostMergingNotSupported`](/reference/error-codes/#costmergingnotsupported) | A cost carries Beancount's merge-cost marker `*`. | yes |
 | [`BudgetDoesNotExist`](/reference/error-codes/#budgetdoesnotexist) | A posting's account is linked to a budget that is not defined. | yes |

@@ -137,7 +137,7 @@ Only `price` directives give prices. The prices written on postings with `@` and
 #### Other checks
 
 - Closing an account that still holds something is reported as an error. Beancount allows it.
-- Postings in a commodity that the account's `open` does not list are not reported. Beancount reports them.
+- A posting or balance assertion in a commodity that the account's `open` does not list is reported as [`CommodityNotAllowed`](/reference/error-codes/#commoditynotallowed), as in beancount, but once for each posting as written: beancount reports a sale booked against several lots once for each lot.
 - Account names must start with `Assets`, `Liabilities`, `Equity`, `Income` or `Expenses`. The `name_assets`… options, which rename them in beancount, are not read.
 - In a quoted string, a backslash that does not start an escape is kept: `"\d"` stays `\d`, where beancount drops the backslash.
 

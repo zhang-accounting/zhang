@@ -2,7 +2,8 @@
 //!
 //! The ledger's `.zhang`/`.bean` files are listed in [`Ledger::visited_files`](crate::ledger::Ledger::visited_files),
 //! which also feeds the file editor. Everything else a load read (a plugin's module, a file or directory a plugin
-//! read, the current date) is an [`ExtraInput`] in [`Ledger::extra_inputs`](crate::ledger::Ledger::extra_inputs),
+//! read, the current date), or looked for (an included file that does not exist), is an [`ExtraInput`] in
+//! [`Ledger::extra_inputs`](crate::ledger::Ledger::extra_inputs),
 //! so a server can reload the ledger when one of them changes without listing receipts or modules in the editor.
 
 use std::path::{Component, Path, PathBuf};
@@ -28,9 +29,13 @@ impl ExtraInput {
         if module.contains("://") {
             return None;
         }
-        relative_to_root(root, Path::new(module))
-            .filter(|path| !path.as_os_str().is_empty())
-            .map(ExtraInput::File)
+        ExtraInput::ledger_file(root, Path::new(module))
+    }
+
+    /// the input for the file at `path`, absolute or relative to the ledger root `root`; `None` for a file outside
+    /// the root, which a change to the root never touches
+    pub fn ledger_file(root: &Path, path: &Path) -> Option<ExtraInput> {
+        relative_to_root(root, path).filter(|path| !path.as_os_str().is_empty()).map(ExtraInput::File)
     }
 }
 

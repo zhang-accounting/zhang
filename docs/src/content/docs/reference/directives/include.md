@@ -39,8 +39,10 @@ name matches `*.zhang`, and the matching files of every directory under `data`.
   in `data/2024.zhang` reads `data/sibling.zhang`.
 - Every included file is read in the format of the main file, whatever its own extension: a ledger whose main file is
   `main.zhang` reads every file as zhang text, one whose main file is `main.bean` reads every file as Beancount text.
-- A file that does not exist is read as an empty file, without an error. It still appears in the file list of the
-  web UI. Check the path when the entries of an included file do not show up.
+- An absolute path is read within the ledger root, which is all the server reads: on the local disk, a path inside
+  the ledger's folder is read, and a path outside it names no file.
+- A file that does not exist is an [`IncludeNotFound`](/reference/error-codes/#includenotfound) error on the
+  `include`, and the rest of the ledger loads without it. It is not listed in the file list of the web UI.
 
 ### Wildcards
 
@@ -55,7 +57,8 @@ whole name: `*.zhang` matches `01.zhang`, not `01.zhang.bak`, and `report(*).zha
 - The last part names files, the parts before it directories. A `*` at the start of a part does not match a hidden
   name, one starting with `.`, as in a shell: `*.zhang` leaves an editor's `.#01.zhang` out.
 - The matching files are read in the order of their names.
-- A pattern that matches no file includes nothing, without an error.
+- A pattern that matches no file is an [`IncludeNotFound`](/reference/error-codes/#includenotfound) error on the
+  `include`, as for a file that does not exist.
 
 ### Files read once
 
@@ -69,7 +72,7 @@ is set in several files, the value read last wins.
 ### Reloading
 
 With a ledger on the local disk, `zhang serve` watches the ledger root and reloads the ledger when one of its files
-changes. A new file that matches a pattern, or a missing included file that is created, is read at the next reload:
+changes, or when a missing included file is created. A new file that matches a pattern is read at the next reload:
 when a file of the ledger changes, or when you choose **Reload ledger** in the web UI. Ledgers on S3, WebDAV or
 GitHub are not watched; reload them from the web UI. Includes and patterns work the same on every data source.
 
@@ -81,14 +84,16 @@ part of the ledger yet, Zhang creates it and appends an `include` of it to the m
 
 ## Errors
 
-An `include` produces no ledger error. A file that cannot be parsed stops the ledger from loading, with an error
-naming the file, line and column.
+| Error | When |
+|---|---|
+| [`IncludeNotFound`](/reference/error-codes/#includenotfound) | No file is at the path, the absolute path is outside the ledger root, or no file matches the pattern. The error points at the `include`, and the rest of the ledger loads. |
+
+A file that cannot be parsed stops the ledger from loading, with an error naming the file, line and column.
 
 ## Beancount compatibility
 
 Beancount's `include` has the same syntax and also accepts patterns. Zhang differs:
 
-- Beancount reports an `include` that matches no file. Zhang reads a missing file as empty, without an error.
 - Beancount's patterns follow Python's glob rules. Zhang's `*` works the same way, but `?` and `[...]` are not
   special in Zhang: they match themselves.
 

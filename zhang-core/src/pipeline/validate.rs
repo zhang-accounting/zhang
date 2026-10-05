@@ -5,11 +5,11 @@ use std::collections::{HashMap, VecDeque};
 use log::{trace, warn};
 use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Directive, SpanInfo, Spanned};
+use zhang_ast::{Account, Directive, Flag, Posting, SpanInfo, Spanned};
 
-use super::balance::{define_commodity, stage_booker};
+use super::balance::{define_commodity, stage_booker, AccountStates};
 use super::{ProcessStage, StageContext, StageError};
-use crate::booking::{is_booked, BookOutcome};
+use crate::booking::{is_booked, written_groups, BookOutcome};
 use crate::constants::TXN_ID;
 use crate::store::CommodityLotRecord;
 use crate::utils::id::FromSpan;
@@ -18,6 +18,16 @@ use crate::ZhangResult;
 /// Books the final stream and reports booking, transaction balance and nonzero close errors
 /// once. Rejected transactions stay in the stream but contribute no postings or lots to the store.
 /// The store consumes these results without booking again.
+///
+/// It also enforces the commodities an account was opened with ([`ErrorKind::CommodityNotAllowed`]),
+/// as beancount does: an `open` that lists commodities restricts the account to them. Only the units
+/// of a posting count, not its cost or price. The final stream is where every posting has its units
+/// (the implicit one interpolated, a reduction split into lots) and where the padding transactions
+/// of the pad stage already are, so one check covers the postings of the ledger, of plugins and of
+/// pads alike, one error for each posting as written. A transaction booking rejects is checked no
+/// further, as beancount drops it. Balance assertions, `balance` and `balance ... with pad`, are
+/// checked on the asserted commodity. The padding a `balance ... with pad` books on its own account
+/// is in the asserted commodity, so that account is reported once, for the assertion.
 pub struct ValidateStage;
 
 /// Results consumed by the store fold. Transaction IDs are allocated there, alongside balance
@@ -65,8 +75,12 @@ impl ProcessStage for ValidateStage {
 
     fn process(&self, mut directives: Vec<Spanned<Directive>>, ctx: &mut StageContext) -> ZhangResult<Vec<Spanned<Directive>>> {
         let mut booker = stage_booker(ctx);
+        let mut accounts = AccountStates::default();
+        // the span and account of the latest `balance ... with pad`: its padding transaction follows it with its span
+        let mut asserted_pad: Option<(Uuid, String)> = None;
         for directive in &mut directives {
             let span = &directive.span;
+            accounts.apply(&directive.data);
             match &mut directive.data {
                 Directive::Open(open) => {
                     if let Some(error) = booker.apply_open(open) {
@@ -117,6 +131,12 @@ impl ProcessStage for ValidateStage {
                             for error in booked.errors {
                                 ctx.emit_error(error.kind, span.clone(), error.metas);
                             }
+                            // the padding of a `balance ... with pad`: its assertion reported the padded account
+                            let asserted = asserted_pad
+                                .as_ref()
+                                .filter(|(id, _)| txn.flag == Some(Flag::BalancePad) && *id == Uuid::from_span(span))
+                                .map(|(_, account)| account.as_str());
+                            report_disallowed_postings(ctx, &accounts, &txn.postings, asserted, span);
                             trace!("residual of transaction at {:?}:{}: {:?}", span.filename, span.start, booked.residual);
                             if balance_error == Some(ErrorKind::UnbalancedTransaction) {
                                 error_indices.push(ctx.errors.len());
@@ -127,11 +147,45 @@ impl ProcessStage for ValidateStage {
                     };
                     ctx.validation.record(span, accepted, error_indices);
                 }
+                Directive::BalanceCheck(check) => report_disallowed_commodity(ctx, &accounts, &check.account, &check.amount.commodity, span),
+                Directive::BalancePad(pad) => {
+                    report_disallowed_commodity(ctx, &accounts, &pad.account, &pad.amount.commodity, span);
+                    asserted_pad = Some((Uuid::from_span(span), pad.account.name().to_owned()));
+                }
                 _ => {}
             }
         }
         ctx.validation.lots = booker.into_lots();
         Ok(directives)
+    }
+}
+
+/// report each of the `postings` of a booked transaction, as written (the legs a reduction was split into
+/// are one), whose units are in a commodity its account does not list, but for those of the account `asserted`
+/// reported already
+fn report_disallowed_postings(ctx: &mut StageContext, accounts: &AccountStates, postings: &[Posting], asserted: Option<&str>, span: &SpanInfo) {
+    for group in written_groups(postings) {
+        let leg = &group.legs[0];
+        if Some(leg.account.name()) == asserted {
+            continue;
+        }
+        if let Some(units) = &leg.units {
+            report_disallowed_commodity(ctx, accounts, &leg.account, &units.commodity, span);
+        }
+    }
+}
+
+/// report `commodity` held, asserted or padded in `account` if its `open` lists commodities without it
+fn report_disallowed_commodity(ctx: &mut StageContext, accounts: &AccountStates, account: &Account, commodity: &str, span: &SpanInfo) {
+    if let Some(kind) = accounts.commodity_error(account, commodity) {
+        ctx.emit_error(
+            kind,
+            span.clone(),
+            HashMap::from([
+                ("account_name".to_owned(), account.name().to_owned()),
+                ("commodity".to_owned(), commodity.to_owned()),
+            ]),
+        );
     }
 }
 

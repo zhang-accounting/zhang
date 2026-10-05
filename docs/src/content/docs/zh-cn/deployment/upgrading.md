@@ -55,6 +55,7 @@ zhang update --verbose
 打开网页界面，在**设置**页面上确认版本，并查看**总览**页面上的错误列表。较新的发布版可能会报告旧版本默默接受的问题。从 0.2.0 升级到之后的发布版时，尤其要注意：
 
 - 对尚未开设或已经关闭的账户的记账行，会报告为 [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) 或 [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed)。账户名中的笔误会以这种方式暴露出来。
+- 开立时列出了商品的账户（例如 `open Assets:Bank USD`）只接受这些商品：使用其他商品的记账行或余额断言会被报告为 [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed)，与 Beancount 一致。把该商品加进 `open`，或者不写列表。
 - 不成立的[余额断言](/zh-cn/reference/directives/balance/)仍然报告为 [`AccountBalanceCheckError`](/zh-cn/reference/error-codes/#accountbalancecheckerror)，但不再把账户余额改成断言的金额：余额、报表和补齐都以记账行为准。
 - 交易必须按商品分别平衡，并以该商品的精度计算。混用多种商品或价格却不平衡的交易，会报告为 [`UnbalancedTransaction`](/zh-cn/reference/error-codes/#unbalancedtransaction)。
 - 使用不受支持的记账方法（`NONE`、`AVERAGE`、`AVERAGE_ONLY`）或无效记账方法的账户，会带着一个错误、以默认方法加载，而不是让加载中止。见[记账方法](/zh-cn/reference/directives/account/)。

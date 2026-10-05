@@ -673,6 +673,7 @@ mod reload_test {
             Ok(LoadResult {
                 directives,
                 visited_files: vec![PathBuf::from(entry).join(endpoint)],
+                missing_includes: vec![],
             })
         }
     }
@@ -811,6 +812,7 @@ mod served_root_test {
             Ok(LoadResult {
                 directives,
                 visited_files: vec![file],
+                missing_includes: vec![],
             })
         }
     }

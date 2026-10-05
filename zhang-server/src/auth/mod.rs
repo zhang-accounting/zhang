@@ -317,7 +317,7 @@ impl AuthState {
         };
         let content = match content {
             Ok(content) => content,
-            Err(ZhangError::IoError(e)) | Err(ZhangError::FileError { e, .. }) if e.kind() == std::io::ErrorKind::NotFound => vec![],
+            Err(e) if e.is_file_not_found() => vec![],
             Err(e) => return Err(e),
         };
         let records = passkey::parse_records(&content).map_err(|e| ZhangError::CustomError(format!("cannot read {PASSKEYS_PATH}: {e}")))?;

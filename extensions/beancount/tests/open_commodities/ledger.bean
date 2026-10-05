@@ -1,0 +1,50 @@
+option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity EUR
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Bank USD
+1970-01-01 open Assets:Bank:Savings
+1970-01-01 open Assets:Broker AAPL, USD
+1970-01-01 open Assets:Any
+1970-01-01 open Equity:Opening USD
+1970-01-01 open Equity:Free
+
+2024-01-01 * "a posting in a commodity the open does not list"
+  Assets:Bank 10 EUR
+  Equity:Free -10 EUR
+
+2024-01-02 * "a posting in a listed commodity"
+  Assets:Bank 5 USD
+  Equity:Free -5 USD
+
+2024-01-03 * "a cost in another commodity: only the units count"
+  Assets:Broker 2 AAPL {5 EUR}
+  Equity:Free -10 EUR
+
+2024-01-04 * "a price in another commodity: only the units count"
+  Assets:Bank 11 USD @ 0.9 EUR
+  Equity:Free -9.9 EUR
+
+2024-01-05 * "two offending postings"
+  Assets:Bank 1 EUR
+  Assets:Bank 2 EUR
+  Equity:Free -3 EUR
+
+2024-01-06 * "an elided amount, inferred in another commodity"
+  Assets:Bank
+  Equity:Free -4 EUR
+
+2024-01-07 * "a sub-account and an account opened without commodities"
+  Assets:Bank:Savings 3 EUR
+  Assets:Any 3 EUR
+  Equity:Free -6 EUR
+
+2024-01-08 balance Assets:Bank 20 EUR
+2024-01-08 balance Assets:Bank 16 USD
+2024-01-08 balance Assets:Broker 2 AAPL
+
+2024-01-09 pad Assets:Any Equity:Opening
+2024-01-10 balance Assets:Any 100 EUR
+
+2024-01-11 pad Assets:Bank Equity:Free
+2024-01-12 balance Assets:Bank 30 EUR

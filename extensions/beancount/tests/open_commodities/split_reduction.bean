@@ -1,0 +1,14 @@
+option "operating_currency" "USD"
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+1970-01-01 open Assets:Bank USD
+1970-01-01 open Equity:Free
+
+2024-01-01 * "two lots"
+  Assets:Bank 1 AAPL {10 USD}
+  Assets:Bank 1 AAPL {11 USD}
+  Equity:Free -21 USD
+
+2024-01-02 * "a sale across both lots"
+  Assets:Bank -2 AAPL {}
+  Equity:Free 21 USD

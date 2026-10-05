@@ -12,11 +12,12 @@ use itertools::Itertools;
 use log::{error, info};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
+use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, SpanInfo, Spanned};
 
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
-use crate::data_source::DataSource;
+use crate::data_source::{DataSource, MissingInclude};
 use crate::derived::Derived;
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
@@ -161,13 +162,16 @@ impl Ledger {
         let entry = entry.canonicalize().with_path(&entry)?;
 
         let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
-        Ledger::process(LedgerProcessContext {
-            directives: load_result.directives,
-            entry: (entry, endpoint),
-            visited_files: load_result.visited_files,
-            data_source,
-            clock: Clock::System,
-        })
+        Ledger::process_loaded(
+            LedgerProcessContext {
+                directives: load_result.directives,
+                entry: (entry, endpoint),
+                visited_files: load_result.visited_files,
+                data_source,
+                clock: Clock::System,
+            },
+            load_result.missing_includes,
+        )
     }
     pub async fn async_load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
         Ledger::async_load_with_clock(entry, endpoint, data_source, Clock::System).await
@@ -178,13 +182,16 @@ impl Ledger {
     pub async fn async_load_with_clock(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>, clock: Clock) -> ZhangResult<Ledger> {
         let load_result = data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
 
-        Ledger::async_process(LedgerProcessContext {
-            directives: load_result.directives,
-            entry: (entry, endpoint),
-            visited_files: load_result.visited_files,
-            data_source,
-            clock,
-        })
+        Ledger::async_process(
+            LedgerProcessContext {
+                directives: load_result.directives,
+                entry: (entry, endpoint),
+                visited_files: load_result.visited_files,
+                data_source,
+                clock,
+            },
+            load_result.missing_includes,
+        )
         .await
     }
 
@@ -228,17 +235,38 @@ impl Ledger {
     }
 
     pub fn process(context: LedgerProcessContext) -> ZhangResult<Ledger> {
+        Ledger::process_loaded(context, vec![])
+    }
+
+    /// [`Ledger::process`] of what a data source loaded, with the `include`s it found naming no file
+    fn process_loaded(context: LedgerProcessContext, missing_includes: Vec<MissingInclude>) -> ZhangResult<Ledger> {
         let (mut ret_ledger, mut split) = Ledger::init(context);
+        ret_ledger.report_missing_includes(missing_includes)?;
         ret_ledger.handle_options(&mut split.options_directives)?;
         ret_ledger.handle_plugins_pre_process(&mut split.plugin_directives)?;
         ret_ledger.finish_process(split)
     }
 
-    async fn async_process(context: LedgerProcessContext) -> ZhangResult<Ledger> {
+    async fn async_process(context: LedgerProcessContext, missing_includes: Vec<MissingInclude>) -> ZhangResult<Ledger> {
         let (mut ret_ledger, mut split) = Ledger::init(context);
+        ret_ledger.report_missing_includes(missing_includes)?;
         ret_ledger.handle_options(&mut split.options_directives)?;
         ret_ledger.async_handle_plugins_pre_process(&mut split.plugin_directives).await?;
         ret_ledger.finish_process(split)
+    }
+
+    /// An `include` that names no file is an error on it, and the rest of the ledger loads (#494): a typo in one path
+    /// leaves the other files usable, and the errors page shows it. The file it looks for is an input of the ledger,
+    /// so creating it reloads the ledger
+    fn report_missing_includes(&mut self, missing_includes: Vec<MissingInclude>) -> ZhangResult<()> {
+        let mut operations = self.operations();
+        for missing in missing_includes {
+            operations.new_error(ErrorKind::IncludeNotFound, &missing.span, HashMap::from([("path".to_owned(), missing.path)]))?;
+            if let Some(input) = missing.file.and_then(|file| ExtraInput::ledger_file(&self.entry.0, &file)) {
+                self.extra_inputs.insert(input);
+            }
+        }
+        Ok(())
     }
 
     /// the shared tail of `process`/`async_process`, after plugin modules have been fetched
@@ -283,13 +311,16 @@ impl Ledger {
     pub fn reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
         let transform_result = self.data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
-        let reload_ledger = Ledger::process(LedgerProcessContext {
-            directives: transform_result.directives,
-            entry: (entry.clone(), endpoint.clone()),
-            visited_files: transform_result.visited_files,
-            data_source: self.data_source.clone(),
-            clock: self.clock.clock(),
-        })?;
+        let reload_ledger = Ledger::process_loaded(
+            LedgerProcessContext {
+                directives: transform_result.directives,
+                entry: (entry.clone(), endpoint.clone()),
+                visited_files: transform_result.visited_files,
+                data_source: self.data_source.clone(),
+                clock: self.clock.clock(),
+            },
+            transform_result.missing_includes,
+        )?;
         *self = reload_ledger;
         Ok(())
     }
@@ -297,13 +328,16 @@ impl Ledger {
     pub async fn async_reload(&mut self) -> ZhangResult<()> {
         let (entry, endpoint) = &mut self.entry;
         let transform_result = self.data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
-        let reload_ledger = Ledger::async_process(LedgerProcessContext {
-            directives: transform_result.directives,
-            entry: (entry.clone(), endpoint.clone()),
-            visited_files: transform_result.visited_files,
-            data_source: self.data_source.clone(),
-            clock: self.clock.clock(),
-        })
+        let reload_ledger = Ledger::async_process(
+            LedgerProcessContext {
+                directives: transform_result.directives,
+                entry: (entry.clone(), endpoint.clone()),
+                visited_files: transform_result.visited_files,
+                data_source: self.data_source.clone(),
+                clock: self.clock.clock(),
+            },
+            transform_result.missing_includes,
+        )
         .await?;
         *self = reload_ledger;
         Ok(())
