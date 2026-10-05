@@ -1269,6 +1269,11 @@ export interface operations {
                     /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
+                  /**
+                   * Format: date-time
+                   * @description the date and time of the event: the ledger's wall-clock time in its timezone, as every `datetime` of the API
+                   */
+                  datetime: string;
                   /** @enum {string} */
                   event_type: 'AddAssignedAmount' | 'Transfer';
                   timestamp: number;
@@ -1649,6 +1654,12 @@ export interface operations {
           'application/json': {
             data: {
               account_name: string[];
+              /**
+               * Format: date-time
+               * @description the ledger's current wall-clock time in its timezone, by its clock, to the second: when a new transaction is, by
+               * default
+               */
+              now: string;
               payee: string[];
             };
           };
@@ -2537,6 +2548,11 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': {
+          /**
+           * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
+           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           * timezone
+           */
           datetime: string;
           flag?: string | null;
           links: string[];
@@ -2610,6 +2626,11 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': {
+          /**
+           * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
+           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           * timezone
+           */
           datetime: string;
           flag?: string | null;
           links: string[];
@@ -2773,6 +2794,11 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': {
+          /**
+           * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
+           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           * timezone
+           */
           datetime: string;
           flag?: string | null;
           links: string[];
@@ -2873,6 +2899,11 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': {
+          /**
+           * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
+           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           * timezone
+           */
           datetime: string;
           flag?: string | null;
           links: string[];
