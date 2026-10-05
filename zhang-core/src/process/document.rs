@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Document, SpanInfo};
 
-use crate::data_type::{document_path_in_file, document_path_in_ledger, is_beancount_endpoint};
+use crate::data_type::{document_path_in_file, document_path_in_ledger, Dialect};
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::store::DocumentType;
@@ -20,9 +20,9 @@ impl DirectiveProcess for Document {
 
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
         let written = self.filename.clone().to_plain_string();
-        let (path, alternate) = match is_beancount_endpoint(&ledger.entry.1) {
-            true => beancount_document_path(ledger, &written, span)?,
-            false => (written, None),
+        let (path, alternate) = match ledger.dialect {
+            Dialect::Beancount => beancount_document_path(ledger, &written, span)?,
+            Dialect::Zhang => (written, None),
         };
 
         let document_pathbuf = PathBuf::from(&path);

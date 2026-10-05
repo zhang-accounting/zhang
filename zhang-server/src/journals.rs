@@ -17,9 +17,9 @@ use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Flag, SpanInfo, Transaction};
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
-use zhang_core::data_type::is_beancount_endpoint;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::text::parser::transaction_has_unexported_text;
+use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::QuoteStyle;
 use zhang_query::{Params, QueryResult, Value};
@@ -138,10 +138,9 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
     // as written: tags and links in their order, which the engine's sets sort and the edit form writes back as
     // listed, a narration that is absent, which the engine reads as '' as beancount does, and the cost, price and
     // comment of each posting line, which the engine holds booked
-    let style = if is_beancount_endpoint(&ledger.entry.1) {
-        QuoteStyle::Beancount
-    } else {
-        QuoteStyle::Zhang
+    let style = match ledger.dialect {
+        Dialect::Beancount => QuoteStyle::Beancount,
+        Dialect::Zhang => QuoteStyle::Zhang,
     };
     let written: HashMap<String, Written> = {
         let store = ledger

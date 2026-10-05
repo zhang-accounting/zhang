@@ -75,6 +75,7 @@ fn load_with_clock(dir: &TempDir, content: &str, clock: Clock) -> Ledger {
     Ledger::process(LedgerProcessContext {
         directives: loaded.directives,
         entry: (root, "main.zhang".to_owned()),
+        dialect: zhang_core::data_type::Dialect::Zhang,
         visited_files: loaded.visited_files,
         data_source: source,
         clock,

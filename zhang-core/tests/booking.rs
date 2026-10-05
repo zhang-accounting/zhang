@@ -1481,6 +1481,7 @@ fn legs_a_stage_moved_apart_make_one_row_each_as_booked() {
     let ledger = Ledger::process(LedgerProcessContext {
         directives: loaded.directives,
         entry: (root, "main.zhang".to_owned()),
+        dialect: zhang_core::data_type::Dialect::Zhang,
         visited_files: loaded.visited_files,
         data_source: source,
         clock: Clock::System,

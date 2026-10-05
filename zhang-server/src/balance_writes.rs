@@ -32,7 +32,7 @@ use serde::Serialize;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Flag, Posting, SpanInfo, Spanned, Transaction, ZhangString};
 use zhang_core::data_source::loaded_file;
-use zhang_core::data_type::is_beancount_endpoint;
+use zhang_core::data_type::Dialect;
 use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
 use zhang_core::pipeline::serving_pads;
@@ -157,7 +157,7 @@ pub(crate) fn balance_directives(ledger: &Ledger, rows: Vec<BalanceRow>, now: Da
     refuse_accounts_not_open(ledger, &rows)?;
     let held = held_at_end_of(ledger, now.naive_date());
     refuse_pads_that_cannot_pass(ledger, &rows, &held, now.naive_date())?;
-    if is_beancount_endpoint(&ledger.entry.1) {
+    if ledger.dialect == Dialect::Beancount {
         return beancount_balances(ledger, rows, now, &held);
     }
     let append = rows

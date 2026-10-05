@@ -624,6 +624,8 @@ shows it in the web UI until a reload succeeds.
 
 - **A syntax error** in a file. The message names the file, line and column, such as
   `failed to parse zhang file: unexpected input at line 4, column 3`.
+- **A main file whose extension tells no format**, such as `main.txt` or `main`. The message names the main file and
+  the extensions that select a format: `.zhang`, or `.bean`, `.beancount` and `.bc` for beancount.
 - **A file that is not UTF-8 text**, such as one saved as Latin-1 or GBK. The message names the file and the line of
   the first byte that is not UTF-8, such as
   `the file data/2024.zhang is not UTF-8 text: line 3 holds a byte that is not UTF-8. Save the file with the UTF-8 encoding`.

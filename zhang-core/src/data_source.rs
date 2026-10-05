@@ -6,7 +6,7 @@ use log::{debug, warn};
 use minijinja::{context, Environment};
 use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
 
-use crate::data_type::{document_path_in_file, is_beancount_endpoint, DataType};
+use crate::data_type::{document_path_in_file, DataType, Dialect};
 use crate::error::IoErrorIntoZhangError;
 use crate::ledger::Ledger;
 use crate::utils::{has_path_visited, BOM};
@@ -320,7 +320,7 @@ pub fn slashed(path: &Path) -> String {
 /// path of a `document`, within the ledger, is written relative to the directory of that file, as beancount reads it
 pub fn written_into(ledger: &Ledger, directive: Directive, file: &Path) -> Directive {
     match directive {
-        Directive::Document(mut document) if is_beancount_endpoint(&ledger.entry.1) => {
+        Directive::Document(mut document) if ledger.dialect == Dialect::Beancount => {
             let path = document.filename.clone().to_plain_string();
             document.filename = ZhangString::QuoteString(document_path_in_file(&path, file));
             Directive::Document(document)

@@ -33,6 +33,7 @@ pub fn load_text_at(content: &str, clock: zhang_core::clock::Clock) -> Ledger {
     Ledger::process(LedgerProcessContext {
         directives,
         entry: (dir, "main.zhang".to_owned()),
+        dialect: zhang_core::data_type::Dialect::Zhang,
         visited_files: vec![],
         data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
         clock,
@@ -52,6 +53,7 @@ pub fn load_transformed(content: &str, transform: impl FnOnce(Vec<Spanned<Direct
     Ledger::process(LedgerProcessContext {
         directives: transform(loaded.directives),
         entry: (dir, "main.zhang".to_owned()),
+        dialect: zhang_core::data_type::Dialect::Zhang,
         visited_files: loaded.visited_files,
         data_source: source,
         clock: zhang_core::clock::Clock::System,

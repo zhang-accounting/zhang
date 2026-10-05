@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 use zhang_core::ast::{Directive, Spanned};
 use zhang_core::clock::Clock;
 use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::DataType;
+use zhang_core::data_type::{DataType, Dialect};
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::ZhangResult;
 
@@ -62,18 +62,20 @@ pub fn parse(content: &str) -> PlayGroundParse {
         data_type: Box::new(ZhangDataType {}),
     });
     PlayGroundParse {
-        zhang: parse_result(ZhangDataType {}.transform(content.to_owned(), None), &source),
-        beancount: parse_result(Beancount::default().transform(content.to_owned(), None), &source),
+        zhang: parse_result(ZhangDataType {}.transform(content.to_owned(), None), Dialect::Zhang, &source),
+        beancount: parse_result(Beancount::default().transform(content.to_owned(), None), Dialect::Beancount, &source),
     }
 }
 
-/// the playground result of one data type: the store of the processed directives, or the parse error
-fn parse_result(parsed: ZhangResult<Vec<Spanned<Directive>>>, source: &Arc<InMemoryDataSource>) -> ParseResult {
+/// the playground result of one data type: the store of the directives `parsed` in the format `dialect`, processed as a
+/// ledger in that format, or the parse error
+fn parse_result(parsed: ZhangResult<Vec<Spanned<Directive>>>, dialect: Dialect, source: &Arc<InMemoryDataSource>) -> ParseResult {
     match parsed {
         Ok(directives) => {
             let ledger = Ledger::process(LedgerProcessContext {
                 directives,
                 entry: (PathBuf::from("/"), "".to_owned()),
+                dialect,
                 visited_files: vec![],
                 data_source: source.clone(),
                 // never read: the playground runs no plugins, and nothing else asks for the time

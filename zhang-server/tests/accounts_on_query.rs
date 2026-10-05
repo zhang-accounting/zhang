@@ -126,6 +126,7 @@ async fn load(dir: &Path, entry: &str) -> SharedLedger {
             Ledger::process(LedgerProcessContext {
                 directives,
                 entry: (dir.to_path_buf(), entry.to_owned()),
+                dialect: zhang_core::data_type::Dialect::of(entry).unwrap(),
                 visited_files: visited,
                 data_source: source,
                 clock: Clock::System,

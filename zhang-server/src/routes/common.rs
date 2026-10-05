@@ -47,12 +47,7 @@ pub async fn get_basic_info(ledger: State<SharedLedger>, reload_sender: State<Sh
         title: operations.option::<String>("title")?,
         version: env!("ZHANG_BUILD_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
-        format: if zhang_core::data_type::is_beancount_endpoint(&ledger.entry.1) {
-            "beancount"
-        } else {
-            "zhang"
-        }
-        .to_owned(),
+        format: ledger.dialect.name().to_owned(),
         reload_failure: reload_sender.last_failure(),
     })
 }

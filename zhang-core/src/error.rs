@@ -39,6 +39,10 @@ pub enum ZhangError {
     #[error("file not found")]
     FileNotFound,
 
+    /// a main file whose extension tells no format a ledger has ([`Dialect::of`](crate::data_type::Dialect::of))
+    #[error("cannot tell the format of the ledger from its main file {0}: name it with the extension .zhang for a zhang ledger, or .bean, .beancount or .bc for a beancount one")]
+    UnknownLedgerFormat(String),
+
     #[error("custom error: {0}")]
     CustomError(String),
 
