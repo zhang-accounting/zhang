@@ -20,15 +20,15 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
 use nom::character::complete::{char, line_ending, not_line_ending, space0, space1};
 use nom::combinator::{eof, map, map_res, opt, peek, recognize, value};
-use nom::multi::{many0, many1, many_m_n, separated_list1};
+use nom::multi::{many1, many_m_n};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
+use zhang_core::data_type::text::parser as zhang;
 use zhang_core::data_type::text::parser::{
-    account_name, comma_separator, commodity_name, flag_char, indentation_width, is_digit, key_value_line, line_column, number_expr, offset, parse_items,
-    posting_amount, posting_cost_with_date, posting_price, quote_string, string, string_or_account, tag_and_link_sets, tags_or_links, transaction_flag,
-    unquote_string_raw, PostingMeta, TransactionLine,
+    account_name, commodity_name, flag_char, indentation_width, is_digit, key_value_line, line_column, offset, parse_items, posting_amount,
+    posting_cost_with_date, posting_price, quote_string, string, tags_or_links, transaction_flag, unquote_string_raw, PostingMeta, TransactionLine,
 };
 // the name tests (`test::names`) read these against zhang-core's validators
 #[cfg(test)]
@@ -215,174 +215,26 @@ fn booking_method(i: &str) -> IResult<&str, String> {
     )(i)
 }
 
+/// zhang's `open`, then the booking method beancount writes after the commodities
 fn open_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, commodities) = opt(preceded(space1, separated_list1(comma_separator, commodity_name)))(i)?;
+    let (i, mut open) = zhang::open_body(date, i)?;
     let (i, booking) = opt(preceded(space1, booking_method))(i)?;
-
-    let mut meta = Meta::default();
-    if let Some(booking) = booking {
+    if let (Some(booking), Some(meta)) = (booking, open.meta_mut()) {
         meta.insert("booking_method".to_string(), ZhangString::quote(booking));
     }
-    Ok((
-        i,
-        Either::Left(Directive::Open(Open {
-            date,
-            account,
-            commodities: commodities.unwrap_or_default(),
-            meta,
-        })),
-    ))
+    Ok((i, Either::Left(open)))
 }
 
-fn close_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Close(Close {
-            date,
-            account,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn note_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, comment) = string(i)?;
-    let (i, (tags, links)) = tag_and_link_sets(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Note(Note {
-            date,
-            account,
-            comment,
-            tags,
-            links,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
+/// zhang's `balance` without its `with pad`, which beancount has not
 fn balance_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, amount) = number_expr(i)?;
-    let (i, tolerance) = opt(preceded(tuple((space1, char('~'), space0)), number_expr))(i)?;
-    let (i, _) = space1(i)?;
-    let (i, commodity) = commodity_name(i)?;
+    let (i, (account, amount, tolerance)) = zhang::balance_assertion(i)?;
     Ok((
         i,
         Either::Right(BeancountOnlyDirective::Balance(BalanceDirective {
             date,
             account,
-            amount: Amount::new(amount, commodity),
+            amount,
             tolerance,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn pad_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, pad) = account_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Pad(Pad {
-            date,
-            account,
-            pad,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn document_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, account) = account_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, filename) = string(i)?;
-    let (i, (tags, links)) = tag_and_link_sets(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Document(Document {
-            date,
-            account,
-            filename,
-            tags,
-            links,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn price_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, currency) = commodity_name(i)?;
-    let (i, _) = space1(i)?;
-    let (i, amount) = number_expr(i)?;
-    let (i, _) = space1(i)?;
-    let (i, target) = commodity_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Price(Price {
-            date,
-            currency,
-            amount: Amount::new(amount, target),
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn event_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, event_type) = string(i)?;
-    let (i, _) = space1(i)?;
-    let (i, description) = string(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Event(Event {
-            date,
-            event_type,
-            description,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-/// `query = date "query" space+ string space+ quote_string`; the query text is
-/// kept verbatim and not validated here.
-fn query_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, name) = string(i)?;
-    let (i, _) = space1(i)?;
-    let (i, query_string) = quote_string(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Query(Query {
-            date,
-            name,
-            query_string,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
-    let (i, currency) = commodity_name(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Commodity(Commodity {
-            date,
-            currency,
             meta: Meta::default(),
         })),
     ))
@@ -396,8 +248,8 @@ fn commodity_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
 /// existing ledgers still hold. A `custom` of a budget's type whose values are not a budget
 /// directive's, such as Fava's `custom "budget" Expenses:Coffee "daily" 4.00 EUR`, is a generic
 /// custom directive, as it was, and so is every other type.
-fn custom_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = space1(i)?;
+fn custom_body(date: Date, original: &str) -> IResult<&str, BeancountDirective> {
+    let (i, _) = space1(original)?;
     let (rest, custom_type) = string(i)?;
     let budget = match custom_type.as_str() {
         "budget" => budget_body(date.clone(), rest),
@@ -410,18 +262,7 @@ fn custom_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
         Ok(directive) => Ok(directive),
         // a malformed escape in a quoted value is reported where it is, as in every string
         Err(nom::Err::Failure(error)) => Err(nom::Err::Failure(error)),
-        Err(_) => {
-            let (i, values) = many1(preceded(space1, string_or_account))(rest)?;
-            Ok((
-                i,
-                Either::Left(Directive::Custom(Custom {
-                    date,
-                    custom_type,
-                    values,
-                    meta: Meta::default(),
-                })),
-            ))
-        }
+        Err(_) => shared(zhang::custom_body(date, original)),
     }
 }
 
@@ -519,6 +360,11 @@ fn budget_close_body(date: Date, i: &str) -> IResult<&str, BeancountDirective> {
     ))
 }
 
+/// A directive both formats write alike, read by zhang-core's grammar.
+fn shared(result: IResult<&str, Directive>) -> IResult<&str, BeancountDirective> {
+    result.map(|(i, directive)| (i, Either::Left(directive)))
+}
+
 /// A dated directive: parse the shared `date keyword` prefix then dispatch on the
 /// keyword. Fails (so the caller can try a transaction) on an unknown keyword.
 fn dated_directive(original: &str) -> IResult<&str, BeancountDirective> {
@@ -526,49 +372,18 @@ fn dated_directive(original: &str) -> IResult<&str, BeancountDirective> {
     let (rest, keyword) = take_while1(|c: char| c.is_ascii_lowercase())(i)?;
     match keyword {
         "open" => open_body(date, rest),
-        "close" => close_body(date, rest),
-        "note" => note_body(date, rest),
+        "close" => shared(zhang::close_body(date, rest)),
+        "note" => shared(zhang::note_body(date, rest)),
         "balance" => balance_body(date, rest),
-        "pad" => pad_body(date, rest),
-        "document" => document_body(date, rest),
-        "price" => price_body(date, rest),
-        "event" => event_body(date, rest),
-        "query" => query_body(date, rest),
-        "commodity" => commodity_body(date, rest),
+        "pad" => shared(zhang::pad_body(date, rest)),
+        "document" => shared(zhang::document_body(date, rest)),
+        "price" => shared(zhang::price_body(date, rest)),
+        "event" => shared(zhang::event_body(date, rest)),
+        "query" => shared(zhang::query_body(date, rest)),
+        "commodity" => shared(zhang::commodity_body(date, rest)),
         "custom" => custom_body(date, rest),
         _ => Err(nom::Err::Error(nom::error::Error::new(original, nom::error::ErrorKind::Tag))),
     }
-}
-
-fn plugin_directive(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("plugin")(i)?;
-    let (i, _) = space1(i)?;
-    let (i, module) = string(i)?;
-    let (i, values) = many0(preceded(space1, string))(i)?;
-    Ok((
-        i,
-        Either::Left(Directive::Plugin(Plugin {
-            module,
-            value: values,
-            meta: Meta::default(),
-        })),
-    ))
-}
-
-fn option_directive(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("option")(i)?;
-    let (i, _) = space1(i)?;
-    let (i, key) = string(i)?;
-    let (i, _) = space1(i)?;
-    let (i, value) = string(i)?;
-    Ok((i, Either::Left(Directive::Option(Options { key, value }))))
-}
-
-fn include_directive(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, _) = tag("include")(i)?;
-    let (i, _) = space1(i)?;
-    let (i, file) = quote_string(i)?;
-    Ok((i, Either::Left(Directive::Include(Include { file }))))
 }
 
 fn push_tag_directive(i: &str) -> IResult<&str, BeancountDirective> {
@@ -613,7 +428,7 @@ fn set_meta(directive: BeancountDirective, meta: Meta) -> BeancountDirective {
 }
 
 fn metable_item(i: &str) -> IResult<&str, BeancountDirective> {
-    let (i, directive) = alt((plugin_directive, dated_directive))(i)?;
+    let (i, directive) = alt((map(zhang::plugin_directive, Either::Left), dated_directive))(i)?;
     let (i, _) = space0(i)?;
     let (i, _) = opt(inline_comment)(i)?;
     let (i, metas) = opt(metas_block)(i)?;
@@ -713,8 +528,8 @@ fn lift_trailing_time(transaction: &mut Transaction, posting_times: &[PostingTim
 
 fn content_item(i: &str) -> IResult<&str, Option<BeancountDirective>> {
     alt((
-        map(terminated(option_directive, line_trailer), Some),
-        map(terminated(include_directive, line_trailer), Some),
+        map(terminated(zhang::option_directive, line_trailer), |it| Some(Either::Left(it))),
+        map(terminated(zhang::include_directive, line_trailer), |it| Some(Either::Left(it))),
         map(terminated(push_tag_directive, line_trailer), Some),
         map(terminated(pop_tag_directive, line_trailer), Some),
         map(terminated(push_meta_directive, line_trailer), Some),
