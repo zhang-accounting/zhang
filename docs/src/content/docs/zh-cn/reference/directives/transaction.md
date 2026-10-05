@@ -203,6 +203,7 @@ WASM 插件收到和返回的交易中，每个记账行的元数据位于该记
 | [`UnbalancedTransaction`](/zh-cn/reference/error-codes/#unbalancedtransaction) | 某种商品不平衡。 | 是 |
 | [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine) | 交易配平所用的商品未定义。 | 是 |
 | [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist)、[`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed) | 记账行的账户在交易日期不处于开立状态。 | 是 |
+| [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed) | 记账行的数量属于其账户的 `open` 没有列出的商品。 | 是 |
 | [`NoEnoughCommodityLot`](/zh-cn/reference/error-codes/#noenoughcommoditylot)、[`AmbiguousLotMatch`](/zh-cn/reference/error-codes/#ambiguouslotmatch) | 按成本减仓时找不到对应的批次。 | 是 |
 | [`CostMergingNotSupported`](/zh-cn/reference/error-codes/#costmergingnotsupported) | 成本带有 Beancount 的成本合并标记 `*`。 | 是 |
 | [`BudgetDoesNotExist`](/zh-cn/reference/error-codes/#budgetdoesnotexist) | 记账行的账户关联到未定义的预算。 | 是 |

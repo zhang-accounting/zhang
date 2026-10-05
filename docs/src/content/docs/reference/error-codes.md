@@ -306,6 +306,42 @@ The [operating currency](/reference/directives/options/#operating_currency) is d
 without that option can use `CNY` without a `commodity` directive. **Fix:** add a `commodity` directive dated on or
 before the first use. On the same date, write it above an `open` that lists it.
 
+## CommodityNotAllowed
+
+*Commodity `<commodity>` is not allowed in `<account>`: its open lists other commodities*
+
+An account was opened with a list of commodities, and something puts another commodity in it. As in Beancount, such an
+[`open`](/reference/directives/account/#commodities) restricts the account to the commodities it lists. The error is
+reported on:
+
+- a posting whose units are in another commodity. Only the units count: the cost and the price of a posting are not
+  checked, and an account that lists `AAPL` may buy `AAPL {90 EUR}`. The posting of a transaction that leaves out its
+  amount is checked in the commodity Zhang infers for it;
+- a [`balance`](/reference/directives/balance/) assertion of another commodity, even one that asserts zero;
+- the padding a [`pad`](/reference/directives/balance/) books in another commodity, on the `pad`, once for each of its
+  two accounts that does not list it. A `balance … with pad` is one directive: it is reported once for its account,
+  for the assertion and its padding alike, and once for the account it pads from if that one does not list the
+  commodity.
+
+The error has the `account_name` and `commodity` metas, and is reported once for each offending posting as written. An
+`open` without commodities allows any commodity, and the restriction is for the account itself: its sub-accounts are
+not restricted. If an account is opened again, the commodities of the latest `open` before the directive count.
+
+```zhang
+2024-01-01 commodity USD
+2024-01-01 commodity EUR
+2024-01-01 open Assets:Bank USD
+2024-01-01 open Equity:Opening
+
+2024-01-10 * "Deposit in the wrong currency"
+  Assets:Bank 100 EUR
+  Equity:Opening -100 EUR
+```
+
+The ledger still loads, and the transaction is still booked as written. **Fix:** post in one of the commodities the
+`open` lists, or add the commodity to the `open`: `2024-01-01 open Assets:Bank USD, EUR`. Leave the list out to allow
+any commodity.
+
 ## NoEnoughCommodityLot
 
 *Not enough commodity lots to book this posting*

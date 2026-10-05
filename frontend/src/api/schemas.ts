@@ -1393,6 +1393,7 @@ export interface operations {
                   | 'AccountDoesNotExist'
                   | 'AccountClosed'
                   | 'CommodityDoesNotDefine'
+                  | 'CommodityNotAllowed'
                   | 'NoEnoughCommodityLot'
                   | 'CloseNonZeroAccount'
                   | 'BudgetDoesNotExist'

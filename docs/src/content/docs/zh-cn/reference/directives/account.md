@@ -19,7 +19,7 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 |---|---|---|
 | 日期和时间 | 是 | 账户开立或关闭的时间，可以附带一天中的时刻。 |
 | `<Account>` | 是 | 账户名，例如 `Assets:Bank:Checking`。 |
-| `<Commodity>, …` | 否 | 这个账户打算持有的商品，用逗号分隔。每种商品都必须已经定义。 |
+| `<Commodity>, …` | 否 | 这个账户只能持有的商品，用逗号分隔。每种商品都必须已经定义。不写则允许任何商品。 |
 | `<key>: <value>` | 否 | 元数据行。张记账读取的键见[元数据](#元数据)。 |
 
 **账户名**以五种账户类型之一开头：`Assets`、`Liabilities`、`Equity`、`Income` 或 `Expenses`，后面跟一个或多个用 `:` 分隔的部分。每个部分可以是任何不含空格、引号、冒号、括号或逗号的文本，所以 `Expenses:Food:餐饮` 是有效的账户名。
@@ -74,7 +74,13 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 
 ### 商品
 
-`open` 中列出的商品必须在它之前[定义](/zh-cn/reference/directives/commodity/)；未定义的商品会在 `open` 上报告 [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine)。同一日期内，把 `commodity` 指令写在 `open` 上方。这个列表并不限制账户：张记账不会用它检查账户记账行的商品。查询在 `#accounts` 中以 `open.currencies` 读取这个列表。
+`open` 中列出的商品必须在它之前[定义](/zh-cn/reference/directives/commodity/)；未定义的商品会在 `open` 上报告 [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine)。同一日期内，把 `commodity` 指令写在 `open` 上方。查询在 `#accounts` 中以 `open.currencies` 读取这个列表。
+
+与 Beancount 一样，列表把账户限定在它列出的商品之内：商品不同的记账行、[余额断言](/zh-cn/reference/directives/balance/)或补齐，每个写下的记账行各报告一次 [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed)，带有 `account_name` 和 `commodity` 元数据。账本仍会加载，交易仍会记账。
+
+- 只检查记账行的数量，不检查它的成本和价格，所以以 `AAPL` 开立的账户可以买入 `AAPL {90 EUR}`。
+- 没有列表的 `open` 允许任何商品。限制只针对账户本身，子账户不受限制。
+- 被重新开立的账户，以该指令之前最近一次 `open` 的列表为准。
 
 ### 关闭
 
@@ -88,6 +94,7 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
 | 错误 | 触发条件 |
 |---|---|
 | [`CommodityDoesNotDefine`](/zh-cn/reference/error-codes/#commoditydoesnotdefine) | `open` 中列出的商品未定义。 |
+| [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed) | 记账行、余额断言或补齐使用了账户的 `open` 没有列出的商品。 |
 | [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) | `booking_method` 不是一种记账方法。 |
 | [`UnsupportedBookingMethod`](/zh-cn/reference/error-codes/#unsupportedbookingmethod) | `booking_method` 为 `AVERAGE`、`AVERAGE_ONLY` 或 `NONE`。 |
 | [`CloseNonZeroAccount`](/zh-cn/reference/error-codes/#closenonzeroaccount) | 账户关闭时仍持有某种商品。 |
@@ -102,7 +109,7 @@ YYYY-MM-DD [HH:MM[:SS]] close <Account>
   2024-01-01 open Assets:Broker USD "FIFO"
   ```
 
-- Beancount 拒绝商品不在 `open` 列表中的记账行。张记账不做这项检查。
+- 两者都会报告商品不在 `open` 列表中的记账行，以及这种商品的余额断言。对按多个批次记账的卖出，Beancount 每个批次报告一次，张记账对写下的记账行报告一次。张记账允许重新开立账户，以最近一次 `open` 的列表为准；Beancount 会把第二次 `open` 报告为错误。
 - Beancount 的默认记账方法是 `STRICT`；张记账的是 `FIFO`。
 - `CloseNonZeroAccount` 是张记账自己的检查：Beancount 关闭这样的账户时不会报错。
 
