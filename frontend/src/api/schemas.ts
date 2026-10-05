@@ -646,8 +646,17 @@ export interface operations {
               account?: string | null;
               /** Format: date-time */
               datetime: string;
+              /**
+               * @description the extension of the document's file name, lower case and without the dot, e.g. `pdf`; null for a file name
+               * without one
+               */
               extension?: string | null;
               filename: string;
+              /**
+               * @description the MIME type of the document, guessed from the extension of its file name, e.g. `application/pdf`; null when
+               * the extension says nothing
+               */
+              mime_type?: string | null;
               path: string;
               trx_id?: string | null;
             }[];
@@ -1353,8 +1362,17 @@ export interface operations {
               account?: string | null;
               /** Format: date-time */
               datetime: string;
+              /**
+               * @description the extension of the document's file name, lower case and without the dot, e.g. `pdf`; null for a file name
+               * without one
+               */
               extension?: string | null;
               filename: string;
+              /**
+               * @description the MIME type of the document, guessed from the extension of its file name, e.g. `application/pdf`; null when
+               * the extension says nothing
+               */
+              mime_type?: string | null;
               path: string;
               trx_id?: string | null;
             }[];

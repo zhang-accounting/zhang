@@ -424,10 +424,12 @@ ORDER BY date, currency
 | `account` | `str` | 页面的账户 |
 
 ```sql
-SELECT date, time, account, path
+SELECT date, time, account, path, transaction_id
 FROM #documents
 WHERE source = 'directive' AND under(account, :account)
 ```
+
+`document` 指令的 `transaction_id` 为 `NULL`；这一列让结果与 [`journals.documents`](/zh-cn/reference/builtin-queries/#journalsdocuments) 的列相同，两个列表以同样的方式显示文档。
 
 ### 流水
 
