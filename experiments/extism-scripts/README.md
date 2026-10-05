@@ -67,6 +67,42 @@ For each language it:
 The harness prints JSON results, including observed instance/call times and module
 sizes. These are smoke-test timings, not a comparative performance benchmark.
 
+## Measure latency
+
+```sh
+cargo run --locked --manifest-path experiments/extism-scripts/Cargo.toml --features lua-exceptions --bin performance
+```
+
+The separate performance executable writes `artifacts/performance.json`; recorded
+results and interpretation are in [PERFORMANCE.md](PERFORMANCE.md). It checks
+every script result, uses two warm-up calls for repeated script measurements, and
+reports sample counts, median, p95, minimum and maximum. Both the harness and Rust
+dependencies use optimization level 2; the WASM artifacts are the same as in the
+functional checks.
+
+Measurements separate uncached WASM compilation, creation from a `CompiledPlugin`,
+creation with Extism's default cache settings, first execution, and repeated calls
+on one instance. Note that Extism defers actual WASM instantiation until the first
+call, so `new_from_compiled` alone does not include that initialization.
+
+The repeated-call clock excludes Rust request serialization and Rust response JSON
+decoding. It includes Extism input/output copies, guest JSON decoding/encoding,
+source compilation, execution, and host calls. The data transfer test passes the
+actual serialized Zhang directives for 1, 1,000 and 10,000 transactions through an
+identity script. It does not perform financial calculations in either language.
+
+The report test uses the real current `execute_as_router` path, which creates a new
+plugin for each request, and runs BQL against a 10,000-transaction ledger. A separate
+reused-instance test uses a benchmark-only query host binding over a fixed ledger;
+it demonstrates latency potential, not an implemented production instance pool.
+The same query adapter and BQL engine are timed directly in Rust. HTTP/networking,
+concurrent requests, source caching, and a production pool are outside this test.
+
+These are local sequential latency measurements, not throughput results or a
+general Python-versus-Lua comparison. The Lua prototype currently creates a Lua
+state and loads its JSON library on each invocation; Python reuses its initialized
+interpreter. That difference is part of the measured prototypes.
+
 ## Scope
 
 This is a feasibility experiment, not a production language SDK or a new loader.

@@ -3,6 +3,7 @@ name = "zhang-extism-scripts-spike"
 version = "0.0.0"
 edition = "2021"
 publish = false
+default-run = "zhang-extism-scripts-spike"
 
 # An isolated experiment; it does not add a runtime to Zhang's production build.
 [workspace]
@@ -22,6 +23,7 @@ zhang-query = { path = "../../zhang-query" }
 
 [profile.dev]
 debug = 0
+opt-level = 2
 
 [profile.dev.package."*"]
 opt-level = 2

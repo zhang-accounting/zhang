@@ -1,0 +1,258 @@
+{
+  "cpu": "Apple M4",
+  "date": "2026-10-05",
+  "extism": "1.30.0",
+  "native_bql_10k_transactions": {
+    "max_ms": 82.282125,
+    "min_ms": 2.403041,
+    "p50_ms": 4.4228749999999994,
+    "p95_ms": 48.791416999999996,
+    "samples": 20
+  },
+  "native_integer_loop_100k": {
+    "max_ms": 0.18937500000000002,
+    "min_ms": 0.07162500000000001,
+    "p50_ms": 0.11687499999999999,
+    "p95_ms": 0.136625,
+    "samples": 100
+  },
+  "native_json_roundtrips": [
+    {
+      "bytes": 2102,
+      "timing": {
+        "max_ms": 0.012709,
+        "min_ms": 0.008833,
+        "p50_ms": 0.008875000000000001,
+        "p95_ms": 0.012709,
+        "samples": 10
+      },
+      "transactions": 1
+    },
+    {
+      "bytes": 859414,
+      "timing": {
+        "max_ms": 58.112833,
+        "min_ms": 4.269958,
+        "p50_ms": 9.856958,
+        "p95_ms": 58.112833,
+        "samples": 10
+      },
+      "transactions": 1000
+    },
+    {
+      "bytes": 8632761,
+      "timing": {
+        "max_ms": 267.491625,
+        "min_ms": 93.130084,
+        "p50_ms": 132.936333,
+        "p95_ms": 267.491625,
+        "samples": 10
+      },
+      "transactions": 10000
+    }
+  ],
+  "runtimes": [
+    {
+      "current_router_bql_10k_transactions": {
+        "max_ms": 618.124375,
+        "min_ms": 491.172958,
+        "p50_ms": 572.313834,
+        "p95_ms": 618.124375,
+        "samples": 3
+      },
+      "default_cache_new_instance": {
+        "max_ms": 1441.739584,
+        "min_ms": 841.850292,
+        "p50_ms": 1205.639125,
+        "p95_ms": 1441.739584,
+        "samples": 3
+      },
+      "first_call_ms": 17.180083,
+      "language": "python",
+      "precompiled_new_instance": {
+        "max_ms": 2.526333,
+        "min_ms": 0.9949169999999999,
+        "p50_ms": 1.0838340000000002,
+        "p95_ms": 2.526333,
+        "samples": 10
+      },
+      "reused_bql_10k_transactions_benchmark_binding": {
+        "max_ms": 6.0668750000000005,
+        "min_ms": 3.068125,
+        "p50_ms": 4.176583,
+        "p95_ms": 5.8855,
+        "request_bytes": 173,
+        "samples": 20
+      },
+      "reused_host_100": {
+        "max_ms": 33.35175,
+        "min_ms": 1.5585,
+        "p50_ms": 4.957917,
+        "p95_ms": 10.220333,
+        "request_bytes": 136,
+        "samples": 20
+      },
+      "reused_host_once": {
+        "max_ms": 25.375667,
+        "min_ms": 0.116333,
+        "p50_ms": 0.43074999999999997,
+        "p95_ms": 3.08975,
+        "request_bytes": 134,
+        "samples": 100
+      },
+      "reused_integer_loop_100k": {
+        "max_ms": 246.126375,
+        "min_ms": 44.702875000000006,
+        "p50_ms": 64.620625,
+        "p95_ms": 160.950375,
+        "request_bytes": 134,
+        "samples": 20
+      },
+      "reused_noop": {
+        "max_ms": 22.152375,
+        "min_ms": 0.067458,
+        "p50_ms": 0.078667,
+        "p95_ms": 0.560083,
+        "request_bytes": 61,
+        "samples": 100
+      },
+      "reused_whole_directive_roundtrips": [
+        {
+          "timing": {
+            "max_ms": 2.050333,
+            "min_ms": 0.555708,
+            "p50_ms": 0.916167,
+            "p95_ms": 2.050333,
+            "request_bytes": 2159,
+            "samples": 10
+          },
+          "transactions": 1
+        },
+        {
+          "timing": {
+            "max_ms": 397.848542,
+            "min_ms": 106.774375,
+            "p50_ms": 130.403,
+            "p95_ms": 397.848542,
+            "request_bytes": 859471,
+            "samples": 10
+          },
+          "transactions": 1000
+        },
+        {
+          "timing": {
+            "max_ms": 2920.807042,
+            "min_ms": 1336.858541,
+            "p50_ms": 2088.960834,
+            "p95_ms": 2920.807042,
+            "request_bytes": 8632818,
+            "samples": 5
+          },
+          "transactions": 10000
+        }
+      ],
+      "uncached_wasm_compile_ms": 3723.785416
+    },
+    {
+      "current_router_bql_10k_transactions": {
+        "max_ms": 13.714042,
+        "min_ms": 10.373083,
+        "p50_ms": 12.95725,
+        "p95_ms": 13.714042,
+        "samples": 3
+      },
+      "default_cache_new_instance": {
+        "max_ms": 6.274958,
+        "min_ms": 4.631709000000001,
+        "p50_ms": 4.995542,
+        "p95_ms": 6.274958,
+        "samples": 3
+      },
+      "first_call_ms": 1.314875,
+      "language": "lua",
+      "precompiled_new_instance": {
+        "max_ms": 0.451541,
+        "min_ms": 0.146167,
+        "p50_ms": 0.155625,
+        "p95_ms": 0.451541,
+        "samples": 10
+      },
+      "reused_bql_10k_transactions_benchmark_binding": {
+        "max_ms": 15.281875,
+        "min_ms": 3.886541,
+        "p50_ms": 4.495084,
+        "p95_ms": 8.42325,
+        "request_bytes": 185,
+        "samples": 20
+      },
+      "reused_host_100": {
+        "max_ms": 6.862,
+        "min_ms": 3.427708,
+        "p50_ms": 4.715625,
+        "p95_ms": 6.831459,
+        "request_bytes": 127,
+        "samples": 20
+      },
+      "reused_host_once": {
+        "max_ms": 26.047207999999998,
+        "min_ms": 0.851958,
+        "p50_ms": 1.780291,
+        "p95_ms": 4.658291999999999,
+        "request_bytes": 125,
+        "samples": 100
+      },
+      "reused_integer_loop_100k": {
+        "max_ms": 129.22783299999998,
+        "min_ms": 4.828792,
+        "p50_ms": 6.46075,
+        "p95_ms": 34.723625,
+        "request_bytes": 134,
+        "samples": 20
+      },
+      "reused_noop": {
+        "max_ms": 2.96775,
+        "min_ms": 0.814792,
+        "p50_ms": 0.965542,
+        "p95_ms": 2.129625,
+        "request_bytes": 73,
+        "samples": 100
+      },
+      "reused_whole_directive_roundtrips": [
+        {
+          "timing": {
+            "max_ms": 23.920041,
+            "min_ms": 2.322416,
+            "p50_ms": 3.616875,
+            "p95_ms": 23.920041,
+            "request_bytes": 2171,
+            "samples": 10
+          },
+          "transactions": 1
+        },
+        {
+          "timing": {
+            "max_ms": 624.725333,
+            "min_ms": 495.2485,
+            "p50_ms": 560.782791,
+            "p95_ms": 624.725333,
+            "request_bytes": 859483,
+            "samples": 10
+          },
+          "transactions": 1000
+        },
+        {
+          "timing": {
+            "max_ms": 21309.33425,
+            "min_ms": 4785.2278750000005,
+            "p50_ms": 9172.111959,
+            "p95_ms": 21309.33425,
+            "request_bytes": 8632830,
+            "samples": 5
+          },
+          "transactions": 10000
+        }
+      ],
+      "uncached_wasm_compile_ms": 175.54287499999998
+    }
+  ]
+}
