@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, Utc};
+use chrono_tz::Tz;
 use gotcha::Schematic;
 use serde::Deserialize;
 use zhang_ast::amount::Amount;
@@ -56,10 +58,78 @@ pub struct StatisticGraphRequest {
 }
 
 /// What the new-transaction form asks: the accounts open at `datetime`, the transaction's date and time as the form
-/// submits it, read in the ledger's timezone; now when it is left out.
+/// submits it ([`LedgerDateTime`]); now when it is left out.
 #[derive(Schematic, Deserialize, Debug, Default)]
 pub struct NewTransactionInfoRequest {
-    pub datetime: Option<DateTime<Utc>>,
+    pub datetime: Option<LedgerDateTime>,
+}
+
+/// A date and time of the ledger in a request: its wall-clock time in the ledger's timezone, written without an offset, such
+/// as `2024-01-02T07:00:00`, as every response gives it. An instant with an offset or `Z`, such as `2024-01-01T23:00:00Z`,
+/// what requests took before, is still read: it is the wall-clock time it is in the ledger's timezone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LedgerDateTime {
+    /// a wall-clock time of the ledger's timezone
+    WallClock(NaiveDateTime),
+    /// an instant
+    Instant(DateTime<FixedOffset>),
+}
+
+impl LedgerDateTime {
+    /// the wall-clock time this is in the ledger's timezone `timezone`
+    pub fn in_ledger(&self, timezone: &Tz) -> NaiveDateTime {
+        match self {
+            LedgerDateTime::WallClock(time) => *time,
+            LedgerDateTime::Instant(instant) => instant.with_timezone(timezone).naive_local(),
+        }
+    }
+}
+
+impl From<DateTime<Utc>> for LedgerDateTime {
+    fn from(instant: DateTime<Utc>) -> Self {
+        LedgerDateTime::Instant(instant.fixed_offset())
+    }
+}
+
+impl FromStr for LedgerDateTime {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if let Ok(instant) = DateTime::parse_from_rfc3339(text) {
+            return Ok(LedgerDateTime::Instant(instant));
+        }
+        ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f"]
+            .iter()
+            .find_map(|format| NaiveDateTime::parse_from_str(text, format).ok())
+            .map(LedgerDateTime::WallClock)
+            .ok_or_else(|| format!("invalid date and time {text:?}: write the ledger's wall-clock time as 2024-01-02T07:00:00"))
+    }
+}
+
+impl<'de> Deserialize<'de> for LedgerDateTime {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl Schematic for LedgerDateTime {
+    fn name() -> &'static str {
+        "LedgerDateTime"
+    }
+    fn required() -> bool {
+        true
+    }
+    fn type_() -> &'static str {
+        "string"
+    }
+    fn doc() -> Option<String> {
+        Some(
+            "the ledger's wall-clock time, in its timezone, without an offset, as responses give it: `2024-01-02T07:00:00`. An \
+             instant with an offset or `Z` is read too, as the wall-clock time it is in the ledger's timezone"
+                .to_string(),
+        )
+    }
 }
 
 #[derive(Schematic, Deserialize, Debug)]
@@ -96,7 +166,10 @@ impl AccountJournalRequest {
 
 #[derive(Schematic, Deserialize)]
 pub struct CreateTransactionRequest {
-    pub datetime: DateTime<Utc>,
+    /// when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
+    /// (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+    /// timezone
+    pub datetime: LedgerDateTime,
     pub payee: String,
     pub flag: Option<FlagRequest>,
     pub narration: Option<String>,

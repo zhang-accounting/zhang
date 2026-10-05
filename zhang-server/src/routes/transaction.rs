@@ -189,7 +189,7 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
         return Err(errors);
     };
 
-    let time = payload.datetime.with_timezone(&ledger.options.timezone).naive_local();
+    let time = payload.datetime.in_ledger(&ledger.options.timezone);
     Ok(Transaction {
         date: Date::Datetime(time),
         flag: Some(flag),
@@ -534,7 +534,7 @@ mod string_round_trip_test {
 
     fn request(narration: &str, note: &str) -> CreateTransactionRequest {
         CreateTransactionRequest {
-            datetime: Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap(),
+            datetime: Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap().into(),
             payee: PAYEE.to_owned(),
             flag: None,
             narration: Some(narration.to_owned()),
@@ -1993,7 +1993,7 @@ mod string_round_trip_test {
     /// An update request for the transaction `Broker` `narration` with `postings`, on January `day` 2024 at noon UTC.
     fn stock_update(day: u32, narration: &str, postings: Vec<CreateTransactionPostingRequest>) -> CreateTransactionRequest {
         CreateTransactionRequest {
-            datetime: Utc.with_ymd_and_hms(2024, 1, day, 12, 0, 0).unwrap(),
+            datetime: Utc.with_ymd_and_hms(2024, 1, day, 12, 0, 0).unwrap().into(),
             payee: "Broker".to_owned(),
             flag: None,
             narration: Some(narration.to_owned()),

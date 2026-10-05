@@ -269,6 +269,9 @@ pub struct JournalBalanceCheckItemEntity {
 
 #[derive(Serialize, Schematic)]
 pub struct InfoForNewTransaction {
+    /// the ledger's current wall-clock time in its timezone, by its clock, to the second: when a new transaction is, by
+    /// default
+    pub now: NaiveDateTime,
     pub payee: Vec<String>,
     pub account_name: Vec<String>,
 }
@@ -522,6 +525,8 @@ pub enum BudgetEventType {
 
 #[derive(Serialize, Schematic)]
 pub struct BudgetEventEntity {
+    /// the date and time of the event: the ledger's wall-clock time in its timezone, as every `datetime` of the API
+    pub datetime: NaiveDateTime,
     pub timestamp: i64,
     pub amount: Amount,
     pub event_type: BudgetEventType,
