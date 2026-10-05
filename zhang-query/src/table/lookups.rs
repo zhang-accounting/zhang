@@ -1,7 +1,7 @@
 //! The ledger's account and commodity directives by name, for the functions that read them
 //! from any row (`open_date()`, `close_date()`, `open_meta()`, `commodity_meta()`). Kept in
 //! the cache of the ledger ([`super::LedgerCache::lookups`]), so they are indexed once per
-//! loaded ledger.
+//! loaded ledger. `#accounts` lists the accounts from here too.
 //!
 //! As beancount keeps them for beanquery: an account's earliest `open` and earliest `close`
 //! (ties in ledger order), and a currency's last `commodity` directive.
@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
 use zhang_ast::{Commodity, Directive};
 use zhang_core::ledger::Ledger;
 
@@ -19,14 +20,15 @@ use crate::functions::AccountDirectives;
 
 /// Indexes into [`Ledger::directives`].
 pub(crate) struct Lookups {
-    accounts: HashMap<String, (Option<usize>, Option<usize>)>,
+    /// the first `open` and first `close` of each account, in the order of the first of them
+    accounts: IndexMap<String, (Option<usize>, Option<usize>)>,
     commodities: HashMap<String, usize>,
 }
 
 impl Lookups {
     /// Index the directives of `ledger`, walking the `#entries` rows (the ledger order).
     pub fn build(ledger: &Ledger, entries: &Entries) -> Self {
-        let mut accounts: HashMap<String, (Option<usize>, Option<usize>)> = HashMap::new();
+        let mut accounts: IndexMap<String, (Option<usize>, Option<usize>)> = IndexMap::new();
         let mut commodities = HashMap::new();
         for entry in &entries.rows {
             let idx = entry.directive as usize;
@@ -44,6 +46,12 @@ impl Lookups {
             }
         }
         Lookups { accounts, commodities }
+    }
+
+    /// Every account with an `open` or a `close`, in the order of the first of them, with the indexes of its first
+    /// `open` and its first `close`.
+    pub fn accounts(&self) -> impl Iterator<Item = (&str, Option<usize>, Option<usize>)> {
+        self.accounts.iter().map(|(name, (open, close))| (name.as_str(), *open, *close))
     }
 
     /// The `open` and `close` directives of `account`; `None` when it has neither.
