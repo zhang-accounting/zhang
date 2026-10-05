@@ -398,24 +398,29 @@ async fn balance_assertions_and_pads_keep_their_shape() {
         assert_eq!(item["type_"], "C");
         assert_eq!(item["tolerance"], tolerance);
         assert_eq!(item["passed"], passed);
+        // the assertion in the fields an account's journal describes it with too
+        assert_eq!(item["asserted"], amount(asserted, "CNY"));
+        assert_eq!(item["checked_balance"], amount(actual, "CNY"));
+        assert_eq!(item["difference"], amount(difference, "CNY"));
         assert_eq!(
             item["postings"],
             json!([{
                 "account": "Assets:Cash",
-                "unit": amount(difference, "CNY"),
+                "unit": null,
                 "cost": null,
-                "inferred_unit": amount(difference, "CNY"),
+                // an assertion books nothing: the balance before and after it is the checked balance
+                "inferred_unit": amount("0", "CNY"),
                 "account_before": amount(actual, "CNY"),
-                "account_after": amount(asserted, "CNY"),
+                "account_after": amount(actual, "CNY"),
                 "metas": [],
                 // a check's entry is no posting line: nothing is written on it
                 "written": null,
             }])
         );
     };
-    check(0, "100.00", "-50.00", "50.00", Value::Null, false);
+    check(0, "100.00", "-50.00", "50", Value::Null, false);
     check(1, "100.00", "0.004", "100.004", json!("0.01"), true);
-    check(2, "100.00", "0.00", "100.00", Value::Null, true);
+    check(2, "100.00", "0.00", "100", Value::Null, true);
     assert_eq!(checks[0]["datetime"], "2024-01-06T00:00:00");
 
     let pad = records.iter().find(|it| it["type"] == "BalancePad").unwrap();

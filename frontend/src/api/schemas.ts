@@ -790,7 +790,7 @@ export interface operations {
                 /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                 number: string;
               };
-              /** @description for the row of a balance assertion: the asserted amount; null for a posting */
+              /** @description for the row of a balance assertion, as in the journal: the asserted amount; null for a posting */
               asserted?: {
                 commodity: string;
                 /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
@@ -807,6 +807,12 @@ export interface operations {
               } | null;
               /** Format: date-time */
               datetime: string;
+              /** @description for the row of a balance assertion: the asserted amount minus the checked balance; null for a posting */
+              difference?: {
+                commodity: string;
+                /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                number: string;
+              } | null;
               /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
               inferred_unit: {
                 commodity: string;
@@ -818,6 +824,8 @@ export interface operations {
               passed?: boolean | null;
               payee?: string | null;
               timestamp: number;
+              /** @description for the row of a balance assertion: its explicit tolerance (`~`); null for an exact one, and for a posting */
+              tolerance?: string | null;
               /** @description the id of the transaction; for a balance assertion, its id */
               trx_id: string;
             }[];
@@ -1282,7 +1290,7 @@ export interface operations {
                     /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                     number: string;
                   };
-                  /** @description for the row of a balance assertion: the asserted amount; null for a posting */
+                  /** @description for the row of a balance assertion, as in the journal: the asserted amount; null for a posting */
                   asserted?: {
                     commodity: string;
                     /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
@@ -1299,6 +1307,12 @@ export interface operations {
                   } | null;
                   /** Format: date-time */
                   datetime: string;
+                  /** @description for the row of a balance assertion: the asserted amount minus the checked balance; null for a posting */
+                  difference?: {
+                    commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                    number: string;
+                  } | null;
                   /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                   inferred_unit: {
                     commodity: string;
@@ -1310,6 +1324,8 @@ export interface operations {
                   passed?: boolean | null;
                   payee?: string | null;
                   timestamp: number;
+                  /** @description for the row of a balance assertion: its explicit tolerance (`~`); null for an exact one, and for a posting */
+                  tolerance?: string | null;
                   /** @description the id of the transaction; for a balance assertion, its id */
                   trx_id: string;
                   /** @enum {string} */
@@ -1771,20 +1787,37 @@ export interface operations {
                     type: 'Transaction';
                   }
                 | {
+                    /** @description the asserted amount, as written */
+                    asserted: {
+                      commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                      number: string;
+                    };
+                    /** @description the balance it was checked against: that of the account and all its sub-accounts where the assertion stands */
+                    checked_balance: {
+                      commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                      number: string;
+                    };
                     /** Format: date-time */
                     datetime: string;
+                    /** @description the asserted amount minus the checked balance */
+                    difference: {
+                      commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                      number: string;
+                    };
                     /** Format: uuid */
                     id: string;
                     /** @description the account */
                     narration?: string | null;
-                    /** @description whether the balance is within the tolerance of the asserted amount */
+                    /** @description whether the checked balance is within the tolerance of the asserted amount */
                     passed: boolean;
                     /** @description `Balance Check` */
                     payee: string;
                     /**
-                     * @description one entry describing the check, not a posting: `account_before` is the balance it was checked against, that of the
-                     * account and all its sub-accounts where the assertion stands, `account_after` the asserted amount, and `unit` and
-                     * `inferred_unit` the asserted amount minus the balance
+                     * @description one entry of the asserted account, not a posting: an assertion books nothing, so `account_before` and
+                     * `account_after` are both the checked balance, and `inferred_unit` is zero, as in an account's journal
                      */
                     postings: {
                       account: string;
@@ -2444,7 +2477,7 @@ export interface operations {
                   /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                   number: string;
                 };
-                /** @description for the row of a balance assertion: the asserted amount; null for a posting */
+                /** @description for the row of a balance assertion, as in the journal: the asserted amount; null for a posting */
                 asserted?: {
                   commodity: string;
                   /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
@@ -2461,6 +2494,12 @@ export interface operations {
                 } | null;
                 /** Format: date-time */
                 datetime: string;
+                /** @description for the row of a balance assertion: the asserted amount minus the checked balance; null for a posting */
+                difference?: {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                } | null;
                 /** @description what the row adds to the account; zero for a balance assertion, which changes no balance */
                 inferred_unit: {
                   commodity: string;
@@ -2472,6 +2511,8 @@ export interface operations {
                 passed?: boolean | null;
                 payee?: string | null;
                 timestamp: number;
+                /** @description for the row of a balance assertion: its explicit tolerance (`~`); null for an exact one, and for a posting */
+                tolerance?: string | null;
                 /** @description the id of the transaction; for a balance assertion, its id */
                 trx_id: string;
               }[];

@@ -24,6 +24,7 @@ use nom::IResult;
 use zhang_ast::account::is_account_component_char;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
+use zhang_shared::decimal;
 
 use crate::utils::string_::{invalid_escape_at, quoted_string};
 use crate::utils::BOM;
@@ -238,12 +239,58 @@ fn binary_operator(operators: &'static str) -> impl Fn(&str) -> IResult<&str, ch
     }
 }
 
+/// The nom error kind of a division by zero in an expression ([`number_expr`]).
+const DIVISION_BY_ZERO: nom::error::ErrorKind = nom::error::ErrorKind::Fail;
+
+/// The nom error kind of an operation in an expression ([`number_expr`]) with an operand beyond
+/// [`MAX_OPERAND_SIZE`].
+const OUT_OF_RANGE: nom::error::ErrorKind = nom::error::ErrorKind::TooLarge;
+
+/// The most digits an operand of `+`, `-`, `*` or `/` in an expression ([`number_expr`]) may have, and the largest
+/// exponent it may have either way: far beyond any number of a ledger (the decimal context of Python, which beancount
+/// computes in, keeps exponents within ±999999 too). `BigDecimal` does not bound its operations: the exponent of a
+/// result overflows, which panics, or gives a wrong number in a release build, and the sum of numbers far apart, such
+/// as `1e-999999999 + 1`, has as many digits as they are apart. Beyond this bound an operation is out of range instead.
+const MAX_OPERAND_SIZE: u64 = 999_999;
+
+/// `lhs operator rhs` for an operator of [`number_expr`], or the nom error kind of why it has no value: a division by
+/// zero ([`DIVISION_BY_ZERO`]) or an operand out of range ([`OUT_OF_RANGE`]), on which `BigDecimal`'s own operators
+/// panic. A quotient is rounded to 28 significant digits ([`decimal::div`]), as everywhere zhang divides.
+fn arithmetic(lhs: BigDecimal, operator: char, rhs: BigDecimal) -> Result<BigDecimal, nom::error::ErrorKind> {
+    let in_range = |number: &BigDecimal| number.fractional_digit_count().unsigned_abs() <= MAX_OPERAND_SIZE && number.digits() <= MAX_OPERAND_SIZE;
+    if !in_range(&lhs) || !in_range(&rhs) {
+        return Err(OUT_OF_RANGE);
+    }
+    match operator {
+        '+' => Ok(lhs + rhs),
+        '-' => Ok(lhs - rhs),
+        '*' => Ok(lhs * rhs),
+        _ => decimal::div(&lhs, &rhs).ok_or(DIVISION_BY_ZERO),
+    }
+}
+
+/// The failure of an expression without a value ([`arithmetic`]) at `operand`, its right operand: never backtracked
+/// over, so a file reports it there ([`arithmetic_error_at`]).
+fn arithmetic_failure(operand: &str, kind: nom::error::ErrorKind) -> nom::Err<nom::error::Error<&str>> {
+    nom::Err::Failure(nom::error::Error::new(operand, kind))
+}
+
+/// If `err` is an expression without a value ([`arithmetic_failure`]), the input at its right operand and what it
+/// is, such as `division by zero`.
+fn arithmetic_error_at<'a>(err: &nom::Err<nom::error::Error<&'a str>>) -> Option<(&'a str, &'static str)> {
+    match err {
+        nom::Err::Failure(error) if error.code == DIVISION_BY_ZERO => Some((error.input, "division by zero")),
+        nom::Err::Failure(error) if error.code == OUT_OF_RANGE => Some((error.input, "number out of range")),
+        _ => None,
+    }
+}
+
 /// Multiplicative level, left-associative: `expr_atom (("*" | "/") expr_atom)*`.
 fn mul_expr(i: &str) -> IResult<&str, BigDecimal> {
     let (mut i, mut acc) = expr_atom(i)?;
-    while let Ok((next, operator)) = binary_operator("*/")(i) {
-        let (next, rhs) = expr_atom(next)?;
-        acc = if operator == '*' { acc * rhs } else { acc / rhs };
+    while let Ok((operand, operator)) = binary_operator("*/")(i) {
+        let (next, rhs) = expr_atom(operand)?;
+        acc = arithmetic(acc, operator, rhs).map_err(|kind| arithmetic_failure(operand, kind))?;
         i = next;
     }
     Ok((i, acc))
@@ -253,12 +300,13 @@ fn mul_expr(i: &str) -> IResult<&str, BigDecimal> {
 ///
 /// Together with [`mul_expr`] and [`expr_atom`] this reproduces the precedence of
 /// the original pratt parser (`* /` bind tighter than `+ -`, unary minus binds
-/// tightest).
+/// tightest). An expression without a value, such as `1/0`, fails at the operand
+/// that makes it so ([`arithmetic_failure`]).
 pub fn number_expr(i: &str) -> IResult<&str, BigDecimal> {
     let (mut i, mut acc) = mul_expr(i)?;
-    while let Ok((next, operator)) = binary_operator("+-")(i) {
-        let (next, rhs) = mul_expr(next)?;
-        acc = if operator == '+' { acc + rhs } else { acc - rhs };
+    while let Ok((operand, operator)) = binary_operator("+-")(i) {
+        let (next, rhs) = mul_expr(operand)?;
+        acc = arithmetic(acc, operator, rhs).map_err(|kind| arithmetic_failure(operand, kind))?;
         i = next;
     }
     Ok((i, acc))
@@ -567,6 +615,7 @@ fn bare_value_end(i: &str) -> IResult<&str, ()> {
 /// number is only read where the value ends there ([`bare_value_end`]), so `1.0.0` is the word
 /// `1.0.0` and not the number `1.0` followed by `.0`. A value never starts with whitespace,
 /// which a number expression would otherwise skip: ` 10` is not a bare value that reads back.
+/// An expression without a value, such as `1/0`, is an error here as anywhere: quoted, it is text.
 pub fn bare_meta_value(i: &str) -> IResult<&str, &str> {
     let (i, _) = peek(satisfy(|c: char| !c.is_whitespace()))(i)?;
     alt((
@@ -1192,8 +1241,8 @@ pub fn parse(input_str: &str, file: impl Into<Option<PathBuf>>) -> Result<Vec<Sp
 }
 
 /// Read a whole text file with a format's item parser and error constructor. Both formats
-/// share whitespace handling, byte spans, escape-error locations and the progress guard;
-/// their directive grammars and public error types remain with the callers.
+/// share whitespace handling, byte spans, the locations of escape and arithmetic errors and the
+/// progress guard; their directive grammars and public error types remain with the callers.
 pub fn parse_items<'a, T: std::fmt::Debug + PartialEq, E>(
     input_str: &'a str, file: Option<PathBuf>, mut item: impl FnMut(&'a str) -> IResult<&'a str, Option<T>>, error_at: impl Fn(&'a str, &'a str, &str) -> E,
 ) -> Result<Vec<Spanned<T>>, E> {
@@ -1214,9 +1263,12 @@ pub fn parse_items<'a, T: std::fmt::Debug + PartialEq, E>(
         }
 
         let start = offset(original, rest);
-        let (next, directive) = item(rest).map_err(|err| match invalid_escape_at(&err) {
-            Some(escape) => error_at(original, escape, "invalid escape sequence"),
-            None => error_at(original, rest, "unexpected input"),
+        let (next, directive) = item(rest).map_err(|err| {
+            let (at, message) = invalid_escape_at(&err)
+                .map(|escape| (escape, "invalid escape sequence"))
+                .or_else(|| arithmetic_error_at(&err))
+                .unwrap_or((rest, "unexpected input"));
+            error_at(original, at, message)
         })?;
 
         // Defensive: every successful item must make progress.
@@ -2735,6 +2787,96 @@ mod test {
             }
             for invalid in ["Assets:Bank 10 USD", "10 USD USD", "Assets:", "10 ", " 10", " 1 + 2", "\t10 USD"] {
                 assert!(!is_valid_bare_meta_value(invalid), "{invalid:?}");
+            }
+        }
+    }
+
+    /// An arithmetic expression without a value, such as `1/0`, made the parser panic. It is an error at the operand
+    /// that makes it so, wherever a number is written.
+    mod arithmetic {
+        use std::str::FromStr;
+
+        use bigdecimal::BigDecimal;
+
+        use crate::data_type::text::parser::{is_valid_bare_meta_value, number_expr, parse, read_posting_cost, read_posting_price};
+
+        /// The parse error of `content`.
+        fn error(content: &str) -> String {
+            parse(content, None).expect_err(content).to_string()
+        }
+
+        #[test]
+        fn a_division_by_zero_is_an_error_at_its_divisor() {
+            let txn = |posting: &str| format!("2024-01-02 * \"x\"\n  {posting}\n  Assets:Cash\n");
+            let cases = [
+                (txn("Expenses:Food 1/0 CNY"), 2, 19),
+                (txn("Expenses:Food 10 / (2 - 2) CNY"), 2, 22),
+                (txn("Expenses:Food 0/0.00 CNY"), 2, 19),
+                (txn("Expenses:Food 1 + 2 * 3/0 CNY"), 2, 27),
+                (txn("Assets:Stock 1 STK {1/0 USD}"), 2, 25),
+                (txn("Assets:Stock 1 STK {1 # 5/0 USD}"), 2, 29),
+                (txn("Assets:Stock 1 STK @ 1/0 USD"), 2, 26),
+                (txn("Assets:Stock 1 STK @@ 1/0 USD"), 2, 27),
+                ("2024-01-02 balance Assets:Cash 1/0 CNY\n".to_owned(), 1, 34),
+                ("2024-01-02 balance Assets:Cash 0 ~ 1/0 CNY\n".to_owned(), 1, 38),
+                ("2024-01-02 price STK 1/0 USD\n".to_owned(), 1, 24),
+                ("2024-01-02 budget-add Food 1/0 CNY\n".to_owned(), 1, 30),
+                // a metadata value is kept as written, but a number expression is still read as one: quoted, it is text
+                ("2024-01-02 open Assets:Cash\n  ratio: 1/0\n".to_owned(), 2, 12),
+            ];
+            for (content, line, column) in cases {
+                assert_eq!(
+                    error(&content),
+                    format!("failed to parse zhang file: division by zero at line {line}, column {column}"),
+                    "{content:?}"
+                );
+            }
+            assert!(parse("2024-01-02 open Assets:Cash\n  ratio: \"1/0\"\n", None).is_ok());
+        }
+
+        /// `BigDecimal` does not bound the exponent of its operations: it overflowed, a panic, and a wrong number in a
+        /// release build. An operand beyond the bound is out of range, and a literal alone is still read.
+        #[test]
+        fn an_operand_out_of_range_is_an_error() {
+            for expression in [
+                "1e-9223372036854775807 * 1e-9223372036854775807",
+                "1e9223372036854775807 / 1e-9223372036854775807",
+                "1e1000000 * 1",
+            ] {
+                let content = format!("2024-01-02 price STK {expression} USD\n");
+                assert!(
+                    error(&content).starts_with("failed to parse zhang file: number out of range at line 1, column "),
+                    "{content:?}: {}",
+                    error(&content)
+                );
+            }
+            assert!(parse("2024-01-02 price STK 1e1000000 USD\n", None).is_ok());
+            assert!(parse("2024-01-02 price STK 1e999999 * 1e-999999 USD\n", None).is_ok());
+        }
+
+        /// The cost, price and metadata value the server reads from a request: not one, never a panic.
+        #[test]
+        fn a_division_by_zero_is_no_cost_price_or_bare_metadata_value() {
+            assert_eq!(read_posting_cost("{1/0 USD}"), None);
+            assert_eq!(read_posting_price("@ 1/0 USD"), None);
+            assert!(!is_valid_bare_meta_value("1/0"));
+            assert!(!is_valid_bare_meta_value("1/0 USD"));
+        }
+
+        /// A quotient is rounded to 28 significant digits, as beancount and everywhere else zhang divides, and an
+        /// exact one keeps the scale of its operands (`10.00/4` is `2.50`).
+        #[test]
+        fn a_quotient_is_divided_in_the_decimal_context() {
+            for (expression, quotient) in [
+                ("1/3", "0.3333333333333333333333333333"),
+                ("2/3", "0.6666666666666666666666666667"),
+                ("10.00/4", "2.50"),
+                ("120/10", "12"),
+                ("(1 + 2) * 3 / 7", "1.285714285714285714285714286"),
+            ] {
+                let (rest, number) = number_expr(expression).unwrap();
+                assert_eq!((rest, number.to_string()), ("", quotient.to_owned()), "{expression}");
+                assert_eq!(number, BigDecimal::from_str(quotient).unwrap());
             }
         }
     }

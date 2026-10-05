@@ -9,8 +9,9 @@ import { useDateFormat } from '@/components/layout/use-date-format';
 import { cn } from '@/lib/utils';
 import { editTransactionAtom, previewJournalAtom } from '@/states/journals';
 import { calculate } from '@/utils/trx-calculator';
+import { assertionOf } from './balance-assertion';
+import { AssertionAmount } from './BalanceAssertion';
 import { JournalChips, JournalStatusBadge, StatusEdge } from './JournalBits';
-import { isBalanceCheckPassed } from './journal-utils';
 import { LineMenu } from './LineMenu';
 
 type Posting = JournalTransactionItem['postings'][number];
@@ -196,8 +197,7 @@ function BalanceCheckRow({ data, showDate, dense }: RowProps<JournalBalanceCheck
   const { t } = useTranslation();
   const setPreviewJournal = useSetAtom(previewJournalAtom);
   const when = useWhen(data.datetime, showDate);
-  const posting = data.postings[0];
-  const passed = isBalanceCheckPassed(data);
+  const assertion = assertionOf(data);
   const openPreview = () => setPreviewJournal(data);
 
   return (
@@ -210,20 +210,11 @@ function BalanceCheckRow({ data, showDate, dense }: RowProps<JournalBalanceCheck
       chips={
         <>
           <span className="text-xs text-muted-foreground">{t('ledger.journal.type_check')}</span>
-          <AccountChip account={posting.account} />
+          {data.narration && <AccountChip account={data.narration} />}
           <JournalStatusBadge data={data} />
         </>
       }
-      amount={
-        <>
-          <Amount className={cn(!passed && 'text-destructive')} amount={posting.account_after.number} currency={posting.account_after.commodity} />
-          {!passed && (
-            <span className="text-xs text-muted-foreground">
-              {t('ledger.journal.accumulated')} <Amount amount={posting.account_before.number} currency={posting.account_before.commodity} />
-            </span>
-          )}
-        </>
-      }
+      amount={assertion && <AssertionAmount assertion={assertion} withBalance />}
       meta={when}
       menu={<LineMenu actions={[{ label: t('ledger.journal.preview'), icon: ZoomIn, onClick: openPreview }]} />}
     />

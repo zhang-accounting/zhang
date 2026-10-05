@@ -126,11 +126,16 @@ pub struct AccountJournalEntity {
     /// the balance after the row, in the row's currency: in an account's journal, the running balance of the account
     /// and its sub-accounts, and for a balance assertion the balance it was checked against
     pub account_after: Amount,
-    /// for the row of a balance assertion: the asserted amount; null for a posting
+    /// for the row of a balance assertion, as in the journal: the asserted amount; null for a posting
     pub asserted: Option<Amount>,
     /// for the row of a balance assertion: the balance it was checked against, that of the account and
     /// all its sub-accounts; null for a posting
     pub checked_balance: Option<Amount>,
+    /// for the row of a balance assertion: the asserted amount minus the checked balance; null for a posting
+    pub difference: Option<Amount>,
+    /// for the row of a balance assertion: its explicit tolerance (`~`); null for an exact one, and for a posting
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_option")]
+    pub tolerance: Option<BigDecimal>,
     /// for the row of a balance assertion: whether it held, within its tolerance; null for a posting
     pub passed: Option<bool>,
 }
@@ -249,14 +254,19 @@ pub struct JournalBalanceCheckItemEntity {
     /// the account
     pub narration: Option<String>,
     pub type_: String,
-    /// one entry describing the check, not a posting: `account_before` is the balance it was checked against, that of the
-    /// account and all its sub-accounts where the assertion stands, `account_after` the asserted amount, and `unit` and
-    /// `inferred_unit` the asserted amount minus the balance
+    /// one entry of the asserted account, not a posting: an assertion books nothing, so `account_before` and
+    /// `account_after` are both the checked balance, and `inferred_unit` is zero, as in an account's journal
     pub(crate) postings: Vec<JournalTransactionPostingEntity>,
+    /// the asserted amount, as written
+    pub asserted: Amount,
+    /// the balance it was checked against: that of the account and all its sub-accounts where the assertion stands
+    pub checked_balance: Amount,
+    /// the asserted amount minus the checked balance
+    pub difference: Amount,
     /// the explicit tolerance (`~`) of the assertion; null for an exact one
     #[serde(serialize_with = "zhang_shared::decimal::plain::serialize_option")]
     pub tolerance: Option<BigDecimal>,
-    /// whether the balance is within the tolerance of the asserted amount
+    /// whether the checked balance is within the tolerance of the asserted amount
     pub passed: bool,
 }
 

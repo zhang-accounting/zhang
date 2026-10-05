@@ -450,6 +450,8 @@ fn top_posting(row: &Row<'_>) -> ServerResult<Option<AccountJournalEntity>> {
         account_after: account_balance,
         asserted: None,
         checked_balance: None,
+        difference: None,
+        tolerance: None,
         passed: None,
     }))
 }
