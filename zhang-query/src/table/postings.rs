@@ -1,8 +1,8 @@
 //! The `postings` table: one row per posting, with the columns of its transaction.
 //!
 //! Rows are read from the booked directives of the ledger (units, lots, price annotations,
-//! transaction metadata) and from its in-memory [`Store`] (the transaction they belong to, the
-//! posting metadata, and the rows of a transaction whose directive cannot be matched).
+//! transaction metadata) and from its in-memory [`Store`] (the transaction they belong to and the
+//! posting metadata). The store records the directive of every transaction it keeps.
 //!
 //! Which entries produce rows follows beancount: transactions and padding transactions
 //! (flag `P`) do; balance assertions, which book nothing, do not.
@@ -16,13 +16,11 @@
 //! Columns of the transaction are read from the store on access, never copied up front.
 
 use std::borrow::Cow;
-use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use zhang_ast::amount::Amount;
-use zhang_ast::{booked_group_units, written_groups, Directive, Meta, Posting, PostingCost, SingleTotalPrice, Transaction, WrittenGroup};
-use zhang_core::domains::schemas::MetaType;
+use zhang_ast::{booked_group_units, Directive, Meta, Posting, PostingCost, SingleTotalPrice, WrittenGroup};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
 
@@ -186,10 +184,10 @@ impl<'a> Dataset<'a> {
                         entries.push(Entry {
                             txn: MaybeOwned::Borrowed(txn),
                             date: cached_entry.date,
-                            meta: cached_entry.parsed.and_then(|idx| match &ledger.directives[idx as usize].data {
+                            meta: match &ledger.directives[cached_entry.parsed as usize].data {
                                 Directive::Transaction(parsed) => Some(&parsed.meta),
                                 _ => None,
-                            }),
+                            },
                             seq: cached_entry.entry,
                             errors: cached_entry.entry.and_then(|seq| table.rows[seq as usize].errors.as_ref()),
                         });
@@ -222,7 +220,6 @@ impl<'a> Dataset<'a> {
             ledger,
             store,
             cache,
-            store_meta: OnceCell::new(),
         }
     }
 
@@ -247,82 +244,25 @@ impl<'a> Dataset<'a> {
 
     /// Transaction metadata `key` of the row, as a string.
     pub fn entry_meta(&self, row: &Row<'_>, key: &str) -> Option<String> {
-        let entry = self.entry(row);
-        if let Some(meta) = entry.meta {
-            return meta.get_one(key).map(|value| value.as_str().to_owned());
-        }
-        self.stored_entry_metas(row)
-            .iter()
-            .find(|(k, _)| *k == key)
-            .map(|(_, value)| (*value).to_owned())
+        self.entry(row).meta?.get_one(key).map(|value| value.as_str().to_owned())
     }
 
     /// Every value of transaction metadata `key` of the row, in written order.
     pub fn entry_meta_values(&self, row: &Row<'_>, key: &str) -> Vec<String> {
-        match self.entry(row).meta {
-            Some(meta) => meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect(),
-            None => self
-                .stored_entry_metas(row)
-                .iter()
-                .filter(|(k, _)| *k == key)
-                .map(|(_, value)| (*value).to_owned())
-                .collect(),
-        }
+        self.entry(row)
+            .meta
+            .map(|meta| meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect())
+            .unwrap_or_default()
     }
 
     /// The transaction metadata of the row as `(key, value)` pairs: the `entry_metas` column.
     pub fn entry_metas(&self, row: &Row<'_>) -> Vec<(String, String)> {
-        match self.entry(row).meta {
-            Some(meta) => super::meta_pairs(Some(meta)),
-            None => {
-                let mut pairs = self
-                    .stored_entry_metas(row)
-                    .iter()
-                    .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-                    .collect::<Vec<_>>();
-                pairs.sort_by(|a, b| a.0.cmp(&b.0));
-                pairs
-            }
-        }
+        super::meta_pairs(self.entry(row).meta)
     }
-
-    /// The transaction metadata the store keeps for the row's transaction (one value per
-    /// key), for a transaction whose directive could not be matched.
-    fn stored_entry_metas(&self, row: &Row<'_>) -> &[(&'a str, &'a str)] {
-        let entry = self.entry(row);
-        let index = self.store_meta.get_or_init(|| {
-            let mut index: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
-            for meta in &self.store.metas {
-                if meta.meta_type == MetaType::TransactionMeta.as_ref() {
-                    index
-                        .entry(meta.type_identifier.as_str())
-                        .or_default()
-                        .push((meta.key.as_str(), meta.value.as_str()));
-                }
-            }
-            index
-        });
-        index.get(entry.txn.id.to_string().as_str()).map_or(&[], Vec::as_slice)
-    }
-}
-
-/// The written groups ([`written_groups`]) of the directive `parsed` when it is the one the
-/// stored transaction `txn` was processed from: one group per stored posting, on its account,
-/// every leg booked. `None` for another transaction a stage emitted at the same position: a copy
-/// the ledger could not book (its postings keep no units, so it was never stored), or one on
-/// other accounts; such a directive is no source of rows for `txn`.
-pub(super) fn stored_groups<'a>(parsed: &'a Transaction, txn: &TransactionDomain) -> Option<Vec<WrittenGroup<'a>>> {
-    let groups = written_groups(&parsed.postings);
-    let matches = groups.len() == txn.postings.len()
-        && groups
-            .iter()
-            .zip(&txn.postings)
-            .all(|(group, stored)| group.legs[0].account == stored.account && group.legs.iter().all(|leg| leg.units.is_some()));
-    matches.then_some(groups)
 }
 
 /// The rows of a stored transaction, the entry `entry` of the table, from the booked postings of
-/// its directive, grouped by the posting they were written as (`groups`, see [`stored_groups`]):
+/// its directive, grouped by the posting they were written as (`groups`, [`zhang_ast::written_groups`]):
 /// one row per booked leg, as beanquery lists a sale across several lots, with the lot the leg
 /// names and its per-unit price. The rows of a posting as written share its index, which is the
 /// store's row.
@@ -331,7 +271,7 @@ pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &
     for (posting_index, group) in groups.iter().enumerate() {
         let legs = group.legs;
         for leg in legs {
-            // every leg of a matched directive is booked ([`stored_groups`]), so it has units
+            // every leg of a stored transaction is booked, so it has units
             let Some(units) = &leg.units else { continue };
             let cost = leg.cost.as_ref().and_then(lot_cost);
             let price = leg.price.as_ref().and_then(|price| per_unit_price(leg, price, legs));
@@ -345,33 +285,6 @@ pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &
         }
     }
     rows
-}
-
-/// The rows of the stored transaction `txn` whose directive could not be matched: one per stored
-/// posting, with the cost number the store keeps, dated by the transaction, and no price.
-pub(super) fn stored_rows(entry: usize, txn: &TransactionDomain, accounts: &mut Accounts) -> Vec<CachedRow> {
-    let date = txn.datetime.date_naive();
-    txn.postings
-        .iter()
-        .enumerate()
-        .map(|(posting_index, posting)| CachedRow {
-            entry: entry as u32,
-            posting_index: posting_index as u32,
-            account: accounts.index(posting.account.name()),
-            units: posting.inferred_amount.clone(),
-            lot: posting.cost.as_ref().map(|cost| {
-                Box::new(Lot {
-                    cost: Some(Cost {
-                        number: cost.number.clone(),
-                        currency: cost.commodity.clone(),
-                        date: Some(date),
-                        label: None,
-                    }),
-                    price: None,
-                })
-            }),
-        })
-        .collect()
 }
 
 /// The units of the posting `leg` was written as, which a total price (`@@`) or a total cost

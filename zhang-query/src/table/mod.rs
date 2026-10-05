@@ -42,8 +42,7 @@ mod postings;
 mod prices;
 
 use std::borrow::Cow;
-use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
 
@@ -445,7 +444,6 @@ pub(crate) struct Dataset<'a> {
     store: &'a Store,
     /// what every query of the ledger shares (see [`LedgerCache`])
     cache: &'a LedgerCache,
-    store_meta: OnceCell<HashMap<&'a str, Vec<(&'a str, &'a str)>>>,
 }
 
 impl<'a> Dataset<'a> {
@@ -470,7 +468,6 @@ impl<'a> Dataset<'a> {
             ledger,
             store,
             cache,
-            store_meta: OnceCell::new(),
         })
     }
 

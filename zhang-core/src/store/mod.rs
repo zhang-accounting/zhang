@@ -106,6 +106,8 @@ impl Store {
 pub struct TransactionDomain {
     pub id: Uuid,
     pub sequence: i32,
+    /// the index in [`Ledger::directives`](crate::ledger::Ledger::directives) of the directive it was folded from
+    pub directive: usize,
     pub datetime: DateTime<Tz>,
     pub flag: Flag,
     pub payee: Option<String>,
@@ -129,6 +131,8 @@ pub struct BalanceAssertionDomain {
     pub id: Uuid,
     /// its place in the journal: assertions and transactions share one sequence
     pub sequence: i32,
+    /// the index in [`Ledger::directives`](crate::ledger::Ledger::directives) of the `balance` directive it checks
+    pub directive: usize,
     pub datetime: DateTime<Tz>,
     pub account: Account,
     /// the asserted amount
