@@ -3,6 +3,11 @@
  * Do not make direct changes to the file.
  */
 
+/** OneOf type helpers */
+type Without<T, U> = { [P in Exclude<keyof T, keyof U>]?: never };
+type XOR<T, U> = T | U extends object ? (Without<T, U> & U) | (Without<U, T> & T) : T | U;
+type OneOf<T extends any[]> = T extends [infer Only] ? Only : T extends [infer A, infer B, ...infer Rest] ? OneOf<[XOR<A, B>, ...Rest]> : never;
+
 export interface paths {
   '/api/accounts': {
     /**
@@ -356,6 +361,16 @@ export interface paths {
     /** Create New Transaction */
     post: operations['create_new_transaction'];
   };
+  '/api/transactions/preview': {
+    /**
+     * Preview New Transaction
+     * @description What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
+     * would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
+     * unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
+     * before it, each posting weighed by its cost or price, at each commodity's precision.
+     */
+    post: operations['preview_new_transaction'];
+  };
   '/api/transactions/{transaction_id}': {
     /** Update Single Transaction */
     put: operations['update_single_transaction'];
@@ -363,6 +378,14 @@ export interface paths {
   '/api/transactions/{transaction_id}/documents': {
     /** Upload Transaction Document */
     post: operations['upload_transaction_document'];
+  };
+  '/api/transactions/{transaction_id}/preview': {
+    /**
+     * Preview Transaction Update
+     * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
+     * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+     */
+    post: operations['preview_transaction_update'];
   };
 }
 
@@ -2493,11 +2516,18 @@ export interface operations {
              * a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
-            unit?: {
-              commodity: string;
-              /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-              number: string;
-            } | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
           }[];
           tags: string[];
         };
@@ -2509,6 +2539,147 @@ export interface operations {
         content: {
           'application/json': {
             data: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Preview New Transaction
+   * @description What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
+   * would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
+   * unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
+   * before it, each posting weighed by its cost or price, at each commodity's precision.
+   */
+  preview_new_transaction: {
+    requestBody: {
+      content: {
+        'application/json': {
+          datetime: string;
+          flag?: string | null;
+          links: string[];
+          metas: {
+            key: string;
+            value: string;
+          }[];
+          narration?: string | null;
+          payee: string;
+          postings: {
+            account: string;
+            /**
+             * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
+             * comment of the posting it edits, `null` removes it
+             */
+            comment?: string | null;
+            /**
+             * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
+             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             */
+            cost?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
+            /**
+             * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
+             * a field left out keeps the price of the posting it edits, `null` removes it
+             */
+            price?: string | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
+          }[];
+          tags: string[];
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the errors the ledger would report against the transaction once written, as `GET /api/errors` lists them, such
+               * as `UnbalancedTransaction` or `AccountClosed`
+               */
+              errors: {
+                /** @enum {string} */
+                error_type:
+                  | 'UnbalancedTransaction'
+                  | 'TransactionCannotInferTradeAmount'
+                  | 'TransactionHasMultipleImplicitPosting'
+                  | 'TransactionExplicitPostingHaveMultipleCommodity'
+                  | 'AccountBalanceCheckError'
+                  | 'UnusedPad'
+                  | 'PadWithCost'
+                  | 'BalanceTimeIgnored'
+                  | 'DocumentPathRelativeToRoot'
+                  | 'DocumentNotFound'
+                  | 'IncludeNotFound'
+                  | 'AccountDoesNotExist'
+                  | 'AccountClosed'
+                  | 'CommodityDoesNotDefine'
+                  | 'CommodityNotAllowed'
+                  | 'NoEnoughCommodityLot'
+                  | 'CloseNonZeroAccount'
+                  | 'BudgetDoesNotExist'
+                  | 'DefineDuplicatedBudget'
+                  | 'BudgetCommodityMismatch'
+                  | 'BudgetClosed'
+                  | 'MultipleOperatingCurrencyDetect'
+                  | 'ParseInvalidMeta'
+                  | 'UnsupportedBookingMethod'
+                  | 'AmbiguousLotMatch'
+                  | 'CostMergingNotSupported'
+                  | 'PluginError';
+                metas: {
+                  [key: string]: string;
+                };
+              }[];
+              /**
+               * @description the fields the create or update refuses with a 400, each with its message, in the order they are checked: the
+               * first is what the create or update answers. Nothing else is checked while there is one
+               */
+              field_errors: {
+                /** @enum {string} */
+                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                /** @description what the create or update answers for it with a 400 */
+                message: string;
+                /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
+                posting: number | null;
+              }[];
+              /**
+               * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
+               * field is invalid
+               */
+              text: string | null;
+              /**
+               * @description what the transaction is unbalanced by once booked, each posting weighed by its cost or price, rounded at each
+               * commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
+               * (see `errors`) or a field is invalid
+               */
+              unbalanced:
+                | {
+                    commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                    number: string;
+                  }[]
+                | null;
+            };
           };
         };
       };
@@ -2558,11 +2729,18 @@ export interface operations {
              * a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
-            unit?: {
-              commodity: string;
-              /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-              number: string;
-            } | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
           }[];
           tags: string[];
         };
@@ -2598,6 +2776,150 @@ export interface operations {
         content: {
           'application/json': {
             data: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Preview Transaction Update
+   * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
+   * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+   */
+  preview_transaction_update: {
+    parameters: {
+      path: {
+        transaction_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          datetime: string;
+          flag?: string | null;
+          links: string[];
+          metas: {
+            key: string;
+            value: string;
+          }[];
+          narration?: string | null;
+          payee: string;
+          postings: {
+            account: string;
+            /**
+             * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
+             * comment of the posting it edits, `null` removes it
+             */
+            comment?: string | null;
+            /**
+             * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
+             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             */
+            cost?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas` */
+            metas?:
+              | {
+                  key: string;
+                  value: string;
+                }[]
+              | null;
+            /**
+             * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
+             * a field left out keeps the price of the posting it edits, `null` removes it
+             */
+            price?: string | null;
+            /** @description the units of the posting, `null` for the one posting whose units booking infers */
+            unit?: OneOf<
+              [
+                {
+                  commodity: string;
+                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                  number: string;
+                },
+                string,
+                null,
+              ]
+            >;
+          }[];
+          tags: string[];
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * @description the errors the ledger would report against the transaction once written, as `GET /api/errors` lists them, such
+               * as `UnbalancedTransaction` or `AccountClosed`
+               */
+              errors: {
+                /** @enum {string} */
+                error_type:
+                  | 'UnbalancedTransaction'
+                  | 'TransactionCannotInferTradeAmount'
+                  | 'TransactionHasMultipleImplicitPosting'
+                  | 'TransactionExplicitPostingHaveMultipleCommodity'
+                  | 'AccountBalanceCheckError'
+                  | 'UnusedPad'
+                  | 'PadWithCost'
+                  | 'BalanceTimeIgnored'
+                  | 'DocumentPathRelativeToRoot'
+                  | 'DocumentNotFound'
+                  | 'IncludeNotFound'
+                  | 'AccountDoesNotExist'
+                  | 'AccountClosed'
+                  | 'CommodityDoesNotDefine'
+                  | 'CommodityNotAllowed'
+                  | 'NoEnoughCommodityLot'
+                  | 'CloseNonZeroAccount'
+                  | 'BudgetDoesNotExist'
+                  | 'DefineDuplicatedBudget'
+                  | 'BudgetCommodityMismatch'
+                  | 'BudgetClosed'
+                  | 'MultipleOperatingCurrencyDetect'
+                  | 'ParseInvalidMeta'
+                  | 'UnsupportedBookingMethod'
+                  | 'AmbiguousLotMatch'
+                  | 'CostMergingNotSupported'
+                  | 'PluginError';
+                metas: {
+                  [key: string]: string;
+                };
+              }[];
+              /**
+               * @description the fields the create or update refuses with a 400, each with its message, in the order they are checked: the
+               * first is what the create or update answers. Nothing else is checked while there is one
+               */
+              field_errors: {
+                /** @enum {string} */
+                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                /** @description what the create or update answers for it with a 400 */
+                message: string;
+                /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
+                posting: number | null;
+              }[];
+              /**
+               * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
+               * field is invalid
+               */
+              text: string | null;
+              /**
+               * @description what the transaction is unbalanced by once booked, each posting weighed by its cost or price, rounded at each
+               * commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
+               * (see `errors`) or a field is invalid
+               */
+              unbalanced:
+                | {
+                    commodity: string;
+                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                    number: string;
+                  }[]
+                | null;
+            };
           };
         };
       };

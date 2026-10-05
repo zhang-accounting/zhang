@@ -86,15 +86,27 @@ Select **New transaction** at the top of the sidebar, and fill in:
 
 - **Date**: pick the day. A new transaction gets the current time of day.
 - **Payee** and **Narration**.
-- **Postings**: an account and an amount written as `amount commodity`, such as `-28 CNY`. Leave one amount empty and Zhang fills it in.
+- **Postings**: an account and an amount written as `amount commodity`, such as `-28 CNY`, read as in a ledger file: `1,000 CNY` and `(10 + 2) / 4 USD` work too, and a number alone is in the [operating currency](/reference/directives/options/#operating_currency). Leave one amount empty and Zhang fills it in.
 - **Posting details**, behind the details button of a posting: its **cost** and **price**, written as in a ledger file (`{150 USD}`, `{{1500 USD}}` or `{}` for the cost, `@ 6 USD` or `@@ 60 USD` for the price; see [Lots and cost basis](/guides/lots-and-cost-basis/)), a **comment** for the end of its line, and its metadata.
 - **Metadata**: key and value pairs for the transaction.
+
+While you type, Zhang checks the transaction as the ledger will once it is saved, and the form shows the result:
+
+- **Preview** shows the text that will be written to the file.
+- A field Zhang cannot read, such as a cost without its braces, is marked with the reason, and the transaction cannot be saved until it is fixed.
+- Under the postings, the form shows what the postings are off by, if they do not balance. Each posting is weighed as the ledger weighs it, by its cost or price, and rounded at each commodity's precision. So `10 AAPL {150 USD}` against `-1500 USD` balances.
+- It also lists any other error the ledger would report, such as an account that is closed at the transaction's date or a sale with no lot to sell. You can still save such a transaction, as you can write it in a file.
 
 The form has no fields for tags or links. For those, write the transaction in a file, for example on the **Raw Editing** page, which edits the ledger files in the browser.
 
 To change a transaction, open the menu of its row on the Journals page and choose **Edit**. Zhang writes the edited transaction back in place, in the file it came from. It rewrites the whole transaction from the form: each posting keeps its cost, price, comment, metadata and [flag](/reference/directives/transaction/#posting-flags), and a posting written without an amount stays that way. Only the layout of the text and comment lines between the postings (or at the end of the first line) are not kept; before an edit that would drop such lines, Zhang asks you to confirm. A transaction a plugin generated cannot be edited: it is in no file of the ledger, so the edit is refused and nothing is written.
 
-The same holds for the API: `PUT /api/transactions/{id}` takes a `cost`, a `price` and a `comment` per posting in the same forms, keeps those of a posting when the fields are left out, and removes one sent as `null`.
+The same holds for the API: `PUT /api/transactions/{id}` takes a `cost`, a `price` and a `comment` per posting in the same forms, keeps those of a posting when the fields are left out, and removes one sent as `null`. The `unit` of a posting is either an object `{"number": "-28", "commodity": "CNY"}` or the text of the amount, such as `"-28 CNY"`, which is read as the form reads it. `POST /api/transactions/preview` and `POST /api/transactions/{id}/preview` take the same body as the create and the update, and answer with the form's check without writing anything:
+
+- `text`: what would be written.
+- `field_errors`: each field the create or update would refuse, with its message.
+- `unbalanced`: what the transaction is unbalanced by.
+- `errors`: the errors the ledger would report.
 
 ### Where new entries are written
 

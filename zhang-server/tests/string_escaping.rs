@@ -71,7 +71,7 @@ async fn created_transaction_strings_survive_a_reload() {
         postings: vec![
             CreateTransactionPostingRequest {
                 account: "Expenses:Food".to_owned(),
-                unit: Some(Amount::new(BigDecimal::from(5), "CNY")),
+                unit: Some(Amount::new(BigDecimal::from(5), "CNY").into()),
                 metas: None,
                 cost: None,
                 price: None,
@@ -79,7 +79,7 @@ async fn created_transaction_strings_survive_a_reload() {
             },
             CreateTransactionPostingRequest {
                 account: "Assets:Cash".to_owned(),
-                unit: Some(Amount::new(BigDecimal::from(-5), "CNY")),
+                unit: Some(Amount::new(BigDecimal::from(-5), "CNY").into()),
                 metas: None,
                 cost: None,
                 price: None,

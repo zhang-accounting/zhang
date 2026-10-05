@@ -26,7 +26,8 @@ use std::sync::RwLock;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
-    is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_posting_cost, read_posting_price,
+    is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
+    read_posting_price,
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
@@ -157,6 +158,26 @@ pub fn amount(amount: &Amount, rules: &Rules) -> ServerResult<()> {
         ));
     }
     Ok(())
+}
+
+/// Read the units of a posting given as text in the ledger's own syntax ([`read_posting_amount`]): a number, which may
+/// be an expression such as `(10 + 2) / 4` and may group its digits with `,` or `_`, then the commodity, as in
+/// `-1,000.50 CNY`. A number alone ([`read_number`]) is in `operating_currency`. Its commodity is checked like any.
+/// Spaces around it are ignored. Anything else, such as units followed by a cost or a price, which have fields of
+/// their own, is a 400.
+pub fn units(text: &str, rules: &Rules, operating_currency: &str) -> ServerResult<Amount> {
+    let text = text.trim();
+    let units = read_posting_amount(text)
+        .or_else(|| read_number(text).map(|number| Amount::new(number, operating_currency)))
+        .ok_or_else(|| {
+            invalid(
+                "amount",
+                text,
+                "it is a number followed by a commodity, as in `-1,000.50 CNY`, or a number alone in the operating currency; the cost and the price of a posting have fields of their own",
+            )
+        })?;
+    amount(&units, rules)?;
+    Ok(units)
 }
 
 /// Parse the cost of a posting given as text in the ledger's own syntax, which the ledger parser reads
