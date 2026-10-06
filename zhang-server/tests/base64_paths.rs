@@ -93,9 +93,7 @@ async fn server(dir: &Path) -> Router {
         root: dir.to_path_buf(),
         inner: LocalFileSystemDataSource::new(ZhangDataType {}),
     });
-    let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone())
-        .await
-        .unwrap_or_else(|error| panic!("ledger should load: {error}"));
+    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap_or_else(|error| panic!("ledger should load: {error}"));
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);
     let app = create_server_app(
         ServeConfig {

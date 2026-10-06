@@ -31,7 +31,7 @@ use crate::pipeline::{
     StageContext,
 };
 use crate::process::budget::{DefinedBudget, ForeignAmount};
-use crate::process::{DirectivePreProcess, DirectiveProcess};
+use crate::process::DirectiveProcess;
 use crate::store::{BalanceAssertionDomain, Store};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
@@ -219,34 +219,24 @@ impl SplitDirectives {
 }
 
 impl Ledger {
+    /// [`Ledger::load`] of the ledger at the canonical path of `entry`
     pub fn load_with_data_source(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
-        let dialect = Dialect::of(&endpoint)?;
         let entry = entry.canonicalize().with_path(&entry)?;
+        Ledger::load(entry, endpoint, data_source)
+    }
 
+    /// Load the ledger whose main file is `endpoint` in the folder `entry`, from `data_source`. The load reads files
+    /// and runs plugins, so it blocks: an async caller runs it on a blocking thread
+    pub fn load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
+        Ledger::load_with_clock(entry, endpoint, data_source, Clock::System)
+    }
+
+    /// [`Ledger::load`] with the current time read from `clock`: [`Clock::Fixed`] pins "today" for the
+    /// load, its reloads and everything that asks the ledger for the time ([`Ledger::now`])
+    pub fn load_with_clock(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>, clock: Clock) -> ZhangResult<Ledger> {
+        let dialect = Dialect::of(&endpoint)?;
         let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
         Ledger::process_loaded(
-            LedgerProcessContext {
-                directives: load_result.directives,
-                entry: (entry, endpoint),
-                dialect,
-                visited_files: load_result.visited_files,
-                data_source,
-                clock: Clock::System,
-            },
-            load_result.missing_includes,
-        )
-    }
-    pub async fn async_load(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>) -> ZhangResult<Ledger> {
-        Ledger::async_load_with_clock(entry, endpoint, data_source, Clock::System).await
-    }
-
-    /// [`Ledger::async_load`] with the current time read from `clock`: [`Clock::Fixed`] pins "today" for the
-    /// load, its reloads and everything that asks the ledger for the time ([`Ledger::now`])
-    pub async fn async_load_with_clock(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>, clock: Clock) -> ZhangResult<Ledger> {
-        let dialect = Dialect::of(&endpoint)?;
-        let load_result = data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
-
-        Ledger::async_process(
             LedgerProcessContext {
                 directives: load_result.directives,
                 entry: (entry, endpoint),
@@ -257,7 +247,6 @@ impl Ledger {
             },
             load_result.missing_includes,
         )
-        .await
     }
 
     /// The current time by the ledger's [`Clock`]: the system's, or the instant a [`Clock::Fixed`] pins. Unlike
@@ -344,15 +333,6 @@ impl Ledger {
         let (mut ret_ledger, mut split) = Ledger::init(context);
         ret_ledger.report_missing_includes(missing_includes)?;
         ret_ledger.handle_options(&mut split.options_directives)?;
-        ret_ledger.handle_plugins_pre_process(&mut split.plugin_directives)?;
-        ret_ledger.finish_process(split)
-    }
-
-    async fn async_process(context: LedgerProcessContext, missing_includes: Vec<MissingInclude>) -> ZhangResult<Ledger> {
-        let (mut ret_ledger, mut split) = Ledger::init(context);
-        ret_ledger.report_missing_includes(missing_includes)?;
-        ret_ledger.handle_options(&mut split.options_directives)?;
-        ret_ledger.async_handle_plugins_pre_process(&mut split.plugin_directives).await?;
         ret_ledger.finish_process(split)
     }
 
@@ -370,7 +350,7 @@ impl Ledger {
         Ok(())
     }
 
-    /// the shared tail of `process`/`async_process`, after plugin modules have been fetched
+    /// the rest of [`Ledger::process_loaded`], once the options are handled: the plugins, the stages and the store
     fn finish_process(mut self, split: SplitDirectives) -> ZhangResult<Ledger> {
         let SplitDirectives {
             options_directives: _,
@@ -415,41 +395,18 @@ impl Ledger {
         Ok(self)
     }
 
+    /// load the ledger again from its source, with the same clock
     pub fn reload(&mut self) -> ZhangResult<()> {
-        let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
-        let reload_ledger = Ledger::process_loaded(
-            LedgerProcessContext {
-                directives: transform_result.directives,
-                entry: (entry.clone(), endpoint.clone()),
-                dialect: self.dialect,
-                visited_files: transform_result.visited_files,
-                data_source: self.data_source.clone(),
-                clock: self.clock.clock(),
-            },
-            transform_result.missing_includes,
-        )?;
-        *self = reload_ledger;
+        *self = self.reloader()()?;
         Ok(())
     }
 
-    pub async fn async_reload(&mut self) -> ZhangResult<()> {
-        let (entry, endpoint) = &mut self.entry;
-        let transform_result = self.data_source.async_load(entry.to_string_lossy().to_string(), endpoint.clone()).await?;
-        let reload_ledger = Ledger::async_process(
-            LedgerProcessContext {
-                directives: transform_result.directives,
-                entry: (entry.clone(), endpoint.clone()),
-                dialect: self.dialect,
-                visited_files: transform_result.visited_files,
-                data_source: self.data_source.clone(),
-                clock: self.clock.clock(),
-            },
-            transform_result.missing_includes,
-        )
-        .await?;
-        *self = reload_ledger;
-        Ok(())
+    /// The load of this ledger again, from its source as it is then, with the same clock, to run where the caller
+    /// likes: a server runs it on a blocking thread, and keeps this ledger until it succeeds
+    pub fn reloader(&self) -> impl FnOnce() -> ZhangResult<Ledger> + Send + 'static {
+        let (entry, endpoint) = self.entry.clone();
+        let (data_source, clock) = (self.data_source.clone(), self.clock.clock());
+        move || Ledger::load_with_clock(entry, endpoint, data_source, clock)
     }
 
     /// the booking method every account books with at the end of the stream, as booking resolves the
@@ -590,18 +547,6 @@ impl Ledger {
         Ok(())
     }
 
-    fn handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
-        for (plugin, _) in plugin_directives.iter_mut() {
-            plugin.pre_process(self)?;
-        }
-        Ok(())
-    }
-    async fn async_handle_plugins_pre_process(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
-        for (plugin, _) in plugin_directives.iter_mut() {
-            plugin.async_pre_process(self).await?;
-        }
-        Ok(())
-    }
     fn handle_plugins(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
         for (plugin, span) in plugin_directives.iter_mut() {
             plugin.handler(self, span)?;

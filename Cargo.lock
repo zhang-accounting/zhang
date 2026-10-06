@@ -6600,7 +6600,6 @@ dependencies = [
 name = "zhang"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "axum",
  "beancount",
  "chrono",
@@ -6652,7 +6651,6 @@ dependencies = [
 name = "zhang-core"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "base64 0.23.1",
  "bigdecimal",
  "cap-std",
@@ -6752,7 +6750,6 @@ name = "zhang-server"
 version = "0.1.0"
 dependencies = [
  "async-stream",
- "async-trait",
  "axum",
  "base64 0.23.1",
  "beancount",

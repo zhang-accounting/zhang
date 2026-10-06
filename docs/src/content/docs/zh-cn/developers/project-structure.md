@@ -26,7 +26,7 @@ sidebar:
 
 ## 账本在代码中的流转
 
-1. **读取。** `zhang serve` 为所选的后端构建数据源（`zhang-cli/src/opendal.rs`），并调用 `Ledger::async_load`（`zhang-core/src/ledger.rs`）。数据源读取主文件，用张记账解析器或 Beancount 解析器解析它，并顺着 `include` 指令（包括通配符）继续读取。结果是一组指令（`zhang-ast`），每条指令都带有它所在的文件和位置。
+1. **读取。** `zhang serve` 为所选的后端构建数据源（`zhang-cli/src/opendal.rs`），并在一个阻塞线程上调用 `Ledger::load`（`zhang-core/src/ledger.rs`）。数据源读取主文件，用张记账解析器或 Beancount 解析器解析它，并顺着 `include` 指令（包括通配符）继续读取。结果是一组指令（`zhang-ast`），每条指令都带有它所在的文件和位置。
 2. **选项与插件。** 首先应用选项。然后获取并注册 `plugin` 指令的模块（`zhang-core/src/plugin/`）。
 3. **流水线。** 指令按日期排序，并依次经过 `zhang-core/src/pipeline/` 中的各个阶段：先是按声明顺序执行的 WASM 插件（processor 和 mapper），然后是内置阶段 `ActiveAccounts`、`Pad` 和 `BalanceCheck`。每个阶段都能看到整个指令流，可以修改它，也可以报告错误。
 4. **存储。** 结果被逐条指令地（`zhang-core/src/process/`）合并进内存存储（`zhang-core/src/store/`）。记账器（`zhang-core/src/booking/`）把记账行与批次进行匹配，每个问题都会成为一个带有 `ErrorKind` 的错误。

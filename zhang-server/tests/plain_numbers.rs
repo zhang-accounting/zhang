@@ -64,7 +64,7 @@ async fn ledger() -> SharedLedger {
     let dir = tempfile::tempdir().unwrap().keep();
     std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(dir, "main.zhang".to_owned(), source).await.unwrap();
+    let ledger = Ledger::load(dir, "main.zhang".to_owned(), source).unwrap();
     SharedLedger(Arc::new(RwLock::new(ledger)))
 }
 

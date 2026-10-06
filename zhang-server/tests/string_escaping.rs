@@ -32,9 +32,7 @@ impl Drop for ScratchDir {
 
 async fn load(dir: &Path) -> Ledger {
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source)
-        .await
-        .unwrap_or_else(|error| panic!("ledger should load: {error}"))
+    Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"))
 }
 
 /// The text of every `.zhang` file under `dir`.

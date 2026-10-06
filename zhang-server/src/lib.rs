@@ -1,6 +1,5 @@
 use std::any::Any;
 use std::ops::Deref;
-use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,7 +7,6 @@ use std::time::{Duration, Instant};
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{any, get};
 use chrono::Utc;
-use futures::FutureExt;
 use gotcha::config::BasicConfig;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
 use log::{debug, error, info, trace};
@@ -304,16 +302,18 @@ impl ReloadSender {
     }
 
     /// Reload `ledger` in place, as every reload of the served ledger runs, the one the listener runs and the one a
-    /// write runs first on a stale ledger ([`SharedLedger::for_writing`]) alike. A reload that panics does not unwind
-    /// into the caller, which left a write without an answer and ended the listener (#492): the panic is caught and
-    /// is a failure like an error. The ledger served stays the previous one, as a reload replaces it only once it
-    /// loaded whole, so `ledger` is unwind safe. What the reload came to is kept for `/api/info`, the readers are told,
-    /// and the midnight reload is scheduled again for the ledger now served
+    /// write runs first on a stale ledger ([`SharedLedger::for_writing`]) alike. The load runs on a blocking thread, as
+    /// it reads files and runs plugins. A reload that panics does not unwind into the caller, which left a write
+    /// without an answer and ended the listener (#492): the blocking task catches the panic, and it is a failure like
+    /// an error. The ledger served stays the previous one, as a reload replaces it only once it loaded whole. What the
+    /// reload came to is kept for `/api/info`, the readers are told, and the midnight reload is scheduled again for the
+    /// ledger now served
     pub(crate) async fn reload_in_place(self: &Arc<Self>, ledger: &mut Ledger) -> Result<(), ReloadFailure> {
         info!("start reloading...");
         let start_time = Instant::now();
-        let outcome = match AssertUnwindSafe(ledger.async_reload()).catch_unwind().await {
-            Ok(Ok(_)) => {
+        let outcome = match tokio::task::spawn_blocking(ledger.reloader()).await {
+            Ok(Ok(reloaded)) => {
+                *ledger = reloaded;
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
             }
@@ -321,8 +321,11 @@ impl ReloadSender {
                 error!("error on reload: {}", err);
                 Err(ReloadFailure::from(&err))
             }
-            Err(panic) => {
-                let message = panic_message(panic.as_ref());
+            Err(failure) => {
+                let message = match failure.try_into_panic() {
+                    Ok(panic) => panic_message(panic.as_ref()).to_owned(),
+                    Err(failure) => failure.to_string(),
+                };
                 error!("panic on reload, the previous ledger is kept: {}", message);
                 Err(ReloadFailure {
                     file: None,
@@ -386,12 +389,15 @@ pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
 /// watcher compares that list with the paths the filesystem reports, which are canonical (macOS) or joined onto the
 /// watched root (other platforms). A root as typed, `.` or through a symlink such as `/tmp` on macOS, spelled the
 /// files differently, and no edit ever reloaded the ledger (#492). A remote root is a path on the remote storage, and
-/// stays as it is.
+/// stays as it is. The load runs on a blocking thread, as it reads files and runs plugins.
 pub async fn load_served_ledger(opts: &mut ServeConfig) -> ZhangResult<Ledger> {
     if opts.is_local() {
         opts.path = opts.path.canonicalize().with_path(&opts.path)?;
     }
-    Ledger::async_load(opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone()).await
+    let (path, endpoint, data_source) = (opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone());
+    tokio::task::spawn_blocking(move || Ledger::load(path, endpoint, data_source))
+        .await
+        .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()))
 }
 
 fn start_report_tasker() {
@@ -655,7 +661,7 @@ mod reload_test {
         )
         .unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-        let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let loaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
         let ledger = Arc::new(RwLock::new(loaded));
         let (sender, receiver) = mpsc::channel(1);
         let reload_sender = Arc::new(ReloadSender::new(sender));
@@ -696,7 +702,6 @@ mod reload_test {
         loads: AtomicUsize,
     }
 
-    #[async_trait::async_trait]
     impl DataSource for Panicking {
         fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
             self.loads.fetch_add(1, Ordering::SeqCst);
@@ -731,9 +736,7 @@ mod reload_test {
             content: Mutex::new("1970-01-01 open Assets:A\n".to_owned()),
             loads: AtomicUsize::new(0),
         });
-        let loaded = Ledger::async_load(PathBuf::from("/panicking"), "main.zhang".to_owned(), source.clone())
-            .await
-            .expect("load ledger");
+        let loaded = Ledger::load(PathBuf::from("/panicking"), "main.zhang".to_owned(), source.clone()).expect("load ledger");
         let ledger = Arc::new(RwLock::new(loaded));
         let (sender, receiver) = mpsc::channel(1);
         let reload_sender = Arc::new(ReloadSender::new(sender));
@@ -777,9 +780,7 @@ mod reload_test {
             content: Mutex::new("1970-01-01 commodity CNY\n1970-01-01 open Assets:A\n".to_owned()),
             loads: AtomicUsize::new(0),
         });
-        let mut loaded = Ledger::async_load(PathBuf::from("/panicking-write"), "main.zhang".to_owned(), source.clone())
-            .await
-            .expect("load ledger");
+        let mut loaded = Ledger::load(PathBuf::from("/panicking-write"), "main.zhang".to_owned(), source.clone()).expect("load ledger");
         // as an earlier write leaves it
         loaded.stale = true;
         let ledger = Arc::new(RwLock::new(loaded));
@@ -840,7 +841,7 @@ mod reload_test {
         let main = dir.join("main.zhang");
         std::fs::write(&main, "1970-01-01 open Assets:A\n").unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let loaded = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        let loaded = Ledger::load(dir.clone(), "main.zhang".to_owned(), source).expect("load ledger");
         let ledger = Arc::new(RwLock::new(loaded));
         let (sender, receiver) = mpsc::channel(1);
         let reload_sender = Arc::new(ReloadSender::new(sender));
@@ -891,7 +892,6 @@ mod served_root_test {
     /// a source listing the files it loads as the CLI's does: the file joined onto the root as it was given
     struct Joined;
 
-    #[async_trait::async_trait]
     impl DataSource for Joined {
         /// a source on the local file system, as `zhang serve <root>` reads one
         fn local_root(&self, entry: &Path) -> Option<PathBuf> {

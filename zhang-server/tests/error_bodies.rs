@@ -24,7 +24,7 @@ const MAIN: &str = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n";
 async fn server(dir: &Path) -> Router {
     std::fs::write(dir.join("main.zhang"), MAIN).unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone()).await.unwrap();
+    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap();
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);
     let app = create_server_app(
         ServeConfig {

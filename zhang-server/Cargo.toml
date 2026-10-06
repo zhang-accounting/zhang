@@ -55,7 +55,6 @@ form_urlencoded = "1"
 chrono = { version = "0.4" }
 
 [dev-dependencies]
-async-trait = { workspace = true }
 beancount = { version = "0.1", path = "../extensions/beancount" }
 webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }
 tower = { version = "0.4", features = ["util"] }

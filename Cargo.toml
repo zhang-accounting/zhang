@@ -46,7 +46,6 @@ gotcha_core = { version = "0.3" }
 bytes = "1.6.0"
 chrono-tz = "0.10"
 http = "1.1"
-async-trait = "0.1"
 
 openssl = { version = "0.10", features = ["vendored"] }
 

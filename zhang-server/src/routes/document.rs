@@ -117,7 +117,7 @@ async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<V
             ),
         }
         info!("loading the document {:?} from the source...", path);
-        if let Some(content) = ledger.data_source.async_get_existing(path.clone()).await? {
+        if let Some(content) = ledger.data_source.get_existing(path.clone())? {
             if let Err(error) = cache_document(&key, &content).await {
                 warn!(
                     "the document {path:?} is served but not kept in {}, which cannot be written to: {error}",
@@ -189,7 +189,7 @@ mod download_test {
         )
         .unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(root.clone(), "main.zhang".to_owned(), source).await.unwrap();
+        let ledger = Ledger::load(root.clone(), "main.zhang".to_owned(), source).unwrap();
         let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
 
         for within in [
@@ -240,7 +240,7 @@ mod download_test {
         link(&root.join("attachments/gone.pdf"), "attachments/u1/dangling.pdf");
         std::fs::write(root.join("main.zhang"), "1970-01-01 open Assets:Cash\n").unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(root.clone(), "main.zhang".to_owned(), source).await.unwrap();
+        let ledger = Ledger::load(root.clone(), "main.zhang".to_owned(), source).unwrap();
         let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
 
         for within in ["attachments/u1/inside.pdf", "attachments/u1/dirlink/a.pdf"] {
@@ -271,7 +271,7 @@ mod download_test {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(link.clone(), "main.zhang".to_owned(), source).await.unwrap();
+        let ledger = Ledger::load(link.clone(), "main.zhang".to_owned(), source).unwrap();
         let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
         for path in ["attachments/a.pdf".to_owned(), link.join("attachments/a.pdf").to_string_lossy().into_owned()] {
             assert_eq!(download(&state, &path).await, (200, "the statement".to_owned()), "{path}");
@@ -303,7 +303,7 @@ mod download_test {
         std::fs::write(&secret, "secret").unwrap();
         std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000)).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(root.clone(), "main.zhang".to_owned(), source).await.unwrap();
+        let ledger = Ledger::load(root.clone(), "main.zhang".to_owned(), source).unwrap();
         let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
 
         assert_eq!(download(&state, "attachments/pipe.pdf").await.0, 404);

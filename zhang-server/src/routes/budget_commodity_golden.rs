@@ -123,7 +123,7 @@ impl Fixture {
             } else {
                 Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
             };
-            Ledger::async_load_with_clock(dir, self.entry.clone(), source, clock).await.ok()
+            Ledger::load_with_clock(dir, self.entry.clone(), source, clock).ok()
         };
         let ledger = match load(self.dir.clone()).await {
             Some(ledger) => ledger,

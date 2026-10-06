@@ -43,9 +43,7 @@ async fn load(name: &str) -> SharedLedger {
 /// The ledger of `dir`, loaded the way the server loads a ledger.
 async fn load_dir(dir: &Path) -> SharedLedger {
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source)
-        .await
-        .unwrap_or_else(|error| panic!("{} should load: {error}", dir.display()));
+    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("{} should load: {error}", dir.display()));
     SharedLedger(Arc::new(RwLock::new(ledger)))
 }
 

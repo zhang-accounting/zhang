@@ -41,16 +41,6 @@ pub(crate) trait DirectiveProcess: std::fmt::Debug {
     fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()>;
 }
 
-/// DirectivePreProcess is to do some logic before directive been executed via [DirectiveProcess]
-/// zhang can be run in sync and async context, sync and async function are provided
-#[async_trait::async_trait]
-pub(crate) trait DirectivePreProcess {
-    /// sync function of pre handler
-    fn pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()>;
-    /// async function of pre handler
-    async fn async_pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()>;
-}
-
 fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
     let mut operations = ledger.operations();
     let existed = operations.exist_commodity(commodity_name)?;

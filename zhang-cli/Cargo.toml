@@ -19,7 +19,6 @@ beancount = { version = "0.1", path = "../extensions/beancount" }
 tokio = { workspace = true, features = ["time"] }
 futures = "0.3"
 log = { workspace = true }
-async-trait = { workspace = true }
 http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

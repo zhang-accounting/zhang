@@ -121,8 +121,8 @@ A plugin can also read settings that change over time from [`custom`](/reference
 
 ### Loading and order
 
-- Zhang reads the module through the ledger's data source, from the ledger root. It keeps a copy in `.cache/plugins`
-  under the directory you start `zhang serve` from. When a local module changes, `zhang serve` reloads the ledger.
+- Zhang reads the module through the ledger's data source, from the ledger root, every time the ledger loads. When a
+  local module changes, `zhang serve` reloads the ledger.
 - Plugins run in the order of their `plugin` directives, every time the ledger loads, after Zhang has booked the
   transactions (plugins declared `stage: "raw"` run before that) and before Zhang's own steps: the check of accounts
   that are not open, then [padding](/reference/directives/balance/#padding-with-with-pad), then balance checks. A

@@ -306,9 +306,7 @@ mod test {
                     .await
                     .expect("a known ledger format");
                     let data_source = Arc::new(data_source);
-                    let ledger = Ledger::async_load(test_temp_folder.to_path_buf(), main_file.to_string(), data_source.clone())
-                        .await
-                        .expect("cannot load ledger");
+                    let ledger = Ledger::load(test_temp_folder.to_path_buf(), main_file.to_string(), data_source.clone()).expect("cannot load ledger");
                     let ledger_data = Arc::new(RwLock::new(ledger));
                     let broadcaster = Broadcaster::create();
                     let (tx, _) = mpsc::channel(1);
@@ -421,9 +419,7 @@ mod test {
             no_report: true,
         };
         let data_source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
-        let ledger = Ledger::async_load(path.to_path_buf(), "main.zhang".to_string(), data_source.clone())
-            .await
-            .expect("cannot load ledger");
+        let ledger = Ledger::load(path.to_path_buf(), "main.zhang".to_string(), data_source.clone()).expect("cannot load ledger");
         let (tx, _) = mpsc::channel(1);
         let app = create_server_app(
             ServeConfig {

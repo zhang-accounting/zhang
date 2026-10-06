@@ -46,7 +46,7 @@ async fn router() -> (tempfile::TempDir, Router) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.zhang"), MAIN).unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).await.unwrap();
+    let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
     let router = Router::new()
         .route("/api/journals", get(get_journals))
         .route("/api/errors", get(get_errors))

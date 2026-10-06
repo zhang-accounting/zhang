@@ -291,7 +291,7 @@ pub async fn create_new_transaction(
 
     let trx = requested_transaction(payload, &ledger, None)?;
 
-    let appended = ledger.data_source.async_append(&ledger, vec![trx]).await;
+    let appended = ledger.data_source.append(&ledger, vec![trx]);
     wrote(&mut ledger, &reload_sender, appended.map_err(ServerError::from))?;
     ResponseWrapper::json("Ok".to_string())
 }
@@ -383,15 +383,12 @@ pub async fn upload_transaction_document(
 
     let written = async {
         // nor for one that is no longer where the ledger loaded it
-        ledger
-            .data_source
-            .async_get_unchanged(source_file_path, std::slice::from_ref(&span_info.span))
-            .await?;
+        ledger.data_source.get_unchanged(source_file_path, std::slice::from_ref(&span_info.span))?;
         for (file_name, content_buf) in files {
             let (v4, path) = super::attachment_path(&file_name);
             info!("uploading document `{}`(id={}) to transaction {}", file_name, v4, transaction_id);
 
-            ledger.data_source.async_save(&ledger, path.clone(), &content_buf).await?;
+            ledger.data_source.save(&ledger, path.clone(), &content_buf)?;
 
             documents.push(path);
         }
@@ -429,12 +426,9 @@ async fn write_transaction_documents(ledger: &Ledger, span: &TransactionInfoDoma
     let lines = meta_lines_as(documents.collect(), QuoteStyle::Beancount);
     let source_file_path = editable_file(ledger, span)?;
     // the transaction must still be where the ledger loaded it
-    let mut content = ledger
-        .data_source
-        .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span.span))
-        .await?;
+    let mut content = ledger.data_source.get_unchanged(source_file_path.clone(), std::slice::from_ref(&span.span))?;
     insert_transaction_metas(&mut content.text, span.span_start, span.span_end, &lines);
-    ledger.data_source.async_save(ledger, source_file_path, &content.into_bytes()).await?;
+    ledger.data_source.save(ledger, source_file_path, &content.into_bytes())?;
     Ok(())
 }
 
@@ -481,12 +475,11 @@ pub async fn update_single_transaction(
         // the transaction must still be where the ledger loaded it
         let mut content = ledger
             .data_source
-            .async_get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))
-            .await?;
+            .get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))?;
         content
             .text
             .replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
-        ledger.data_source.async_save(&ledger, source_file_path, &content.into_bytes()).await?;
+        ledger.data_source.save(&ledger, source_file_path, &content.into_bytes())?;
         ServerResult::Ok(())
     }
     .await;
@@ -592,9 +585,7 @@ mod string_round_trip_test {
 
     async fn load(dir: &FsPath) -> Ledger {
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source)
-            .await
-            .expect("load ledger")
+        Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).expect("load ledger")
     }
 
     fn states(ledger: Ledger) -> (State<SharedLedger>, State<SharedReloadSender>) {
@@ -895,7 +886,7 @@ mod string_round_trip_test {
         std::fs::write(&data_file, "").unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+            Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger")
         };
 
         let mut cases = names_only_zhang_reads();
@@ -944,7 +935,7 @@ mod string_round_trip_test {
         std::fs::write(dir.join("data/2024/01.bean"), "").unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+            Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger")
         };
 
         let cases: Vec<(&str, StatusCode, Change)> = vec![
@@ -1138,7 +1129,7 @@ mod string_round_trip_test {
         std::fs::write(dir.join("main.bean"), main).unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+            Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger")
         };
 
         // as in beancount, metadata after a posting is that posting's
@@ -1218,7 +1209,7 @@ mod string_round_trip_test {
                     } else {
                         Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
                     };
-                    Ledger::async_load(dir.clone(), main.to_owned(), source).await.expect("load ledger")
+                    Ledger::load(dir.clone(), main.to_owned(), source).expect("load ledger")
                 };
 
                 let ledger = load().await;
@@ -1260,7 +1251,7 @@ mod string_round_trip_test {
         std::fs::write(dir.join("main.bean"), main).unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+            Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger")
         };
 
         let ledger = load().await;
@@ -1367,7 +1358,7 @@ mod string_round_trip_test {
             } else {
                 Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
             };
-            Ledger::async_load(dir.clone(), main.to_owned(), source).await.expect("load ledger")
+            Ledger::load(dir.clone(), main.to_owned(), source).expect("load ledger")
         };
         let mut loaded = load().await;
         prepare(&mut loaded);
@@ -1566,7 +1557,7 @@ mod string_round_trip_test {
                 } else {
                     Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
                 };
-                Ledger::async_load(dir.clone(), main.to_owned(), source).await.expect("load ledger")
+                Ledger::load(dir.clone(), main.to_owned(), source).expect("load ledger")
             };
 
             let ledger = load().await;
@@ -1610,7 +1601,7 @@ mod string_round_trip_test {
         std::fs::write(dir.join("other.bean"), transaction("Other", "\"1.5\"")).unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger")
+            Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger")
         };
 
         for (payee, file, written_rate) in [("Other", "other.bean", "  rate: \"1.5\"\n"), ("Main", "main.bean", "  rate: 1.5\n")] {
@@ -1725,9 +1716,7 @@ mod string_round_trip_test {
                 } else {
                     Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
                 };
-                Ledger::async_load(dir.clone(), main.to_owned(), source)
-                    .await
-                    .unwrap_or_else(|e| panic!("{main}: {e}"))
+                Ledger::load(dir.clone(), main.to_owned(), source).unwrap_or_else(|e| panic!("{main}: {e}"))
             };
             let loaded = load().await;
             let id = loaded.operations().read().transactions.values().next().unwrap().id;
@@ -1767,7 +1756,7 @@ mod string_round_trip_test {
         let ledger = format!("{opens}2024-01-15 * \"Bob\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n");
         std::fs::write(&main, &ledger).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-        let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let loaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
         let id = loaded.operations().read().transactions.values().next().unwrap().id;
         let span = loaded.operations().transaction_span(&id).unwrap().unwrap();
         // an editor adds a line at the top, which the ledger has not loaded yet
@@ -2008,14 +1997,13 @@ mod string_round_trip_test {
     /// The ledger whose `main` file (`main.zhang` or `main.bean`) is in `dir`.
     async fn load_main(dir: &FsPath, main: &str) -> Ledger {
         let ledger = if main.ends_with(".bean") {
-            Ledger::async_load(
+            Ledger::load(
                 dir.to_path_buf(),
                 main.to_owned(),
                 Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {})),
             )
-            .await
         } else {
-            Ledger::async_load(dir.to_path_buf(), main.to_owned(), Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))).await
+            Ledger::load(dir.to_path_buf(), main.to_owned(), Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})))
         };
         ledger.unwrap_or_else(|e| panic!("{main}: {e}"))
     }
