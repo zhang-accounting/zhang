@@ -1,7 +1,10 @@
 //! The tables with one row per directive of a kind, as in beanquery: `#balances`, `#notes`,
 //! `#events`, `#documents` and `#commodities`, plus the helpers the directive tables share.
 //!
-//! Rows come in ledger order, the order zhang processed the ledger in ([`ledger_order`]).
+//! Rows come in ledger order, the order zhang processed the ledger in. The rows of `#balances`,
+//! `#notes`, `#events` and `#commodities` are the `#entries` rows of their kind of directive
+//! ([`directives_where`]), so these tables also have the columns of every directive as `#entries`
+//! has them (`id`, `type`, `filename`, `year`, `month`, `day`, `time`, `timestamp`, `seq`, `metas`).
 //! `#documents` adds, after its directives, the documents that transactions and postings name in
 //! their metadata.
 
@@ -18,6 +21,7 @@ use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{BalanceAssertionDomain, DocumentType, Store};
 
+use super::entries::{DATE, DAY, FILENAME, ID, LINKS, META, METAS, MONTH, SEQ, TAGS, TIME, TIMESTAMP, TYPE, YEAR};
 use super::postings::time_value;
 use super::{ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
 use crate::projector::Projection;
@@ -28,29 +32,26 @@ pub(super) fn date_of(directive: &Directive) -> Option<NaiveDate> {
     directive.datetime().map(|datetime| datetime.date())
 }
 
-/// The dated directives of the ledger in the order zhang processed them, which the `seq` column
-/// numbers: by date, then as the ledger's format orders a day (in a zhang ledger by time, in a
-/// beancount ledger as beancount does). These are the rows of `#entries`, in the order the cache
-/// of the ledger keeps them ([`super::cache::Entries`]), so every directive is there except the
-/// transactions that are no entries: those zhang rejected.
-pub(super) fn ledger_order<'a>(ledger: &'a Ledger, store: &Store) -> impl Iterator<Item = &'a Spanned<Directive>> {
+/// One [`Record::Entry`] per `#entries` row whose directive `keep` selects, in the order zhang processed the ledger (the
+/// `seq` order); `keep` only selects directives that are not transactions.
+pub(super) fn directives_where<'a>(ledger: &'a Ledger, store: &'a Store, keep: impl Fn(&Directive) -> bool) -> Vec<Record<'a>> {
     let entries = LedgerCache::of(ledger, store).entries(ledger, store);
-    entries.rows.iter().map(|entry| &ledger.directives[entry.directive as usize])
-}
-
-/// One [`Record::Directive`] per directive that `keep` selects, in [`ledger_order`]; `keep`
-/// only selects directives that are not transactions.
-pub(super) fn directives_where<'a>(ledger: &'a Ledger, store: &Store, keep: impl Fn(&Directive) -> bool) -> Vec<Record<'a>> {
-    ledger_order(ledger, store)
-        .filter(|directive| keep(&directive.data))
-        .map(Record::Directive)
+    entries
+        .rows
+        .iter()
+        .filter(|info| keep(&ledger.directives[info.directive as usize].data))
+        .map(|info| Record::Entry {
+            directive: &ledger.directives[info.directive as usize],
+            info,
+            txn: None,
+        })
         .collect()
 }
 
-/// The directive of a [`Record::Directive`] or [`Record::Balance`] row.
+/// The directive of a [`Record::Entry`] row.
 pub(super) fn directive<'r>(record: &'r Record<'_>) -> Option<&'r Spanned<Directive>> {
     match record {
-        Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => Some(directive),
+        Record::Entry { directive, .. } => Some(directive),
         _ => None,
     }
 }
@@ -102,7 +103,7 @@ pub(super) static BALANCES: Table = Table {
                   true balance at the assertion and whether the assertion holds.",
     columns: BALANCE_COLUMNS,
     wildcard: &["date", "account", "amount", "tolerance", "discrepancy"],
-    rows: Rows::Records(balance_rows),
+    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| assertion(it).is_some())),
 };
 
 /// The account, asserted amount and tolerance of a balance assertion.
@@ -114,71 +115,25 @@ fn assertion(directive: &Directive) -> Option<(&Account, &Amount, Option<&BigDec
     }
 }
 
-/// The balance assertions. Only when the projection reads `actual`, `passed` or
-/// `discrepancy` are the checks zhang made looked up ([`AssertionCheck`]).
-fn balance_rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
-    let wanted = ["actual", "passed", "discrepancy"]
-        .into_iter()
-        .any(|name| BALANCES.column(name).is_some_and(|column| projection.contains(column)));
-    let entries = LedgerCache::of(ledger, store).entries(ledger, store);
-    entries
-        .rows
-        .iter()
-        .map(|entry| (&ledger.directives[entry.directive as usize], entry))
-        .filter(|(directive, _)| assertion(&directive.data).is_some())
-        .map(|(directive, entry)| Record::Balance {
-            directive,
-            seq: entry.seq,
-            check: entry
-                .assertion
-                .filter(|_| wanted)
-                .map(|assertion| AssertionCheck::of(&store.balance_assertions[assertion as usize])),
-        })
-        .collect()
-}
-
-/// What zhang's balance check found for an assertion while loading the ledger.
-pub(crate) struct AssertionCheck {
-    /// the account's balance in the asserted currency where the assertion stands
-    actual: Amount,
-    /// whether the assertion holds; a failed one is an `AccountBalanceCheckError`
-    passed: bool,
-}
-
-impl AssertionCheck {
-    /// The check zhang made of an assertion while loading the ledger (`Store::balance_assertions`),
-    /// which the cache matched with its directive: the balance of the asserted account and its
-    /// sub-accounts in the asserted currency, summed from the postings before the assertion (for a
-    /// `balance ... with pad`, once the balance entries of its time are booked), and whether it is
-    /// within the tolerance of the asserted amount. The same check reports an
-    /// `AccountBalanceCheckError` when it fails. Assertions never move a balance.
-    fn of(check: &BalanceAssertionDomain) -> AssertionCheck {
-        AssertionCheck {
-            actual: check.balance.clone(),
-            passed: check.passed,
-        }
-    }
-}
-
 fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&BigDecimal>) -> Value) -> Value {
     directive(record)
         .and_then(|it| assertion(&it.data))
         .map_or(Value::Null, |(account, amount, tolerance)| get(account, amount, tolerance))
 }
 
-/// The asserted amount of an assertion row and what zhang's check of it found, if looked up.
-fn balance_check<'r>(record: &'r Record<'_>) -> Option<(&'r Amount, &'r AssertionCheck)> {
-    let Record::Balance {
-        directive, check: Some(check), ..
-    } = record
-    else {
+/// The asserted amount of an assertion row and what zhang's balance check of it found while loading the ledger
+/// (`Store::balance_assertions`): the balance of the asserted account and its sub-accounts in the asserted currency where
+/// the assertion stands, and whether it holds (a failed one is an `AccountBalanceCheckError`).
+fn balance_check<'r>(data: &'r Dataset<'_>, record: &'r Record<'_>) -> Option<(&'r Amount, &'r BalanceAssertionDomain)> {
+    let Record::Entry { directive, info, .. } = record else {
         return None;
     };
+    let check = &data.store.balance_assertions[info.assertion? as usize];
     assertion(&directive.data).map(|(_, amount, _)| (amount, check))
 }
 
 static BALANCE_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record("date", DataType::Date, "Date of the assertion.", |_, record| date_value(record)),
+    DATE,
     ColumnDef::record("account", DataType::Str, "The account whose balance is asserted.", |_, record| {
         balance_field(record, |account, _, _| Value::Str(account.name().to_owned()))
     }),
@@ -198,28 +153,26 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         "discrepancy",
         DataType::Amount,
         "When the assertion fails, the true balance minus the asserted amount (actual - amount); NULL when it holds.",
-        |_, record| match balance_check(record) {
-            Some((amount, check)) if !check.passed => Value::Amount(Amount::new(&check.actual.number - &amount.number, amount.commodity.clone())),
+        |data, record| match balance_check(data, record) {
+            Some((amount, check)) if !check.passed => Value::Amount(Amount::new(&check.balance.number - &amount.number, amount.commodity.clone())),
             _ => Value::Null,
         },
     ),
-    ColumnDef::record("meta", DataType::Str, "Metadata of the assertion, as `key: \"value\"` pairs.", |_, record| {
-        meta_value(record)
-    }),
+    META,
     ColumnDef::record(
         "actual",
         DataType::Amount,
         "The account's true balance in the asserted currency at the assertion: the units of every earlier posting to the \
          account and its sub-accounts, as zhang checks it; a balance with pad is checked once the pads of its time are \
          booked. A zhang extension.",
-        |_, record| balance_check(record).map_or(Value::Null, |(_, check)| Value::Amount(check.actual.clone())),
+        |data, record| balance_check(data, record).map_or(Value::Null, |(_, check)| Value::Amount(check.balance.clone())),
     ),
     ColumnDef::record(
         "passed",
         DataType::Bool,
         "Whether the assertion holds, as zhang's balance check decided it (a failing one is an AccountBalanceCheckError): \
          actual is within the tolerance of the asserted amount, or equal to it without a tolerance. A zhang extension.",
-        |_, record| balance_check(record).map_or(Value::Null, |(_, check)| Value::Bool(check.passed)),
+        |data, record| balance_check(data, record).map_or(Value::Null, |(_, check)| Value::Bool(check.passed)),
     ),
     ColumnDef::record(
         "pad",
@@ -230,39 +183,16 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
             _ => Value::Null,
         },
     ),
-    ColumnDef::record(
-        "id",
-        DataType::Str,
-        "The id zhang stored the check of the assertion with, which /api/journals lists it with: the id of its row in \
-         #entries. A zhang extension.",
-        |data, record| match record {
-            Record::Balance { seq, .. } => Value::Str(data.entry_id(*seq).to_owned()),
-            _ => Value::Null,
-        },
-    ),
-    ColumnDef::record(
-        "seq",
-        DataType::Int,
-        "Position of the assertion in the order zhang processes the ledger, as seq in #entries: where zhang checks it, so \
-         it comes right after the postings its actual balance includes. A zhang extension.",
-        |_, record| match record {
-            Record::Balance { seq, .. } => Value::Int((*seq).into()),
-            _ => Value::Null,
-        },
-    ),
-    ColumnDef::record(
-        "time",
-        DataType::Str,
-        "Time of day of the assertion in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
-         extension.",
-        |data, record| directive(record).map_or(Value::Null, |it| directive_time(data, it)),
-    ),
-    ColumnDef::record(
-        "timestamp",
-        DataType::Int,
-        "Unix time, in seconds, of the assertion's date and time. A zhang extension.",
-        |data, record| directive(record).map_or(Value::Null, |it| directive_timestamp(data, it)),
-    ),
+    ID,
+    SEQ,
+    TIME,
+    TIMESTAMP,
+    TYPE,
+    FILENAME,
+    YEAR,
+    MONTH,
+    DAY,
+    METAS,
 ];
 
 // ---------------------------------------------------------------------------------------
@@ -284,22 +214,26 @@ fn note<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Note> {
 }
 
 static NOTE_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record("date", DataType::Date, "Date of the note.", |_, record| date_value(record)),
+    DATE,
     ColumnDef::record("account", DataType::Str, "The account the note is about.", |_, record| {
         str_value(note(record).map(|it| it.account.name()))
     }),
     ColumnDef::record("comment", DataType::Str, "The text of the note.", |_, record| {
         str_value(note(record).map(|it| it.comment.as_str()))
     }),
-    ColumnDef::record("tags", DataType::Set, "Tags of the note.", |_, record| {
-        note(record).map_or(Value::Null, |it| set_value(it.tags.iter().flatten()))
-    }),
-    ColumnDef::record("links", DataType::Set, "Links of the note.", |_, record| {
-        note(record).map_or(Value::Null, |it| set_value(it.links.iter().flatten()))
-    }),
-    ColumnDef::record("meta", DataType::Str, "Metadata of the note, as `key: \"value\"` pairs.", |_, record| {
-        meta_value(record)
-    }),
+    TAGS,
+    LINKS,
+    META,
+    ID,
+    TYPE,
+    FILENAME,
+    YEAR,
+    MONTH,
+    DAY,
+    TIME,
+    TIMESTAMP,
+    SEQ,
+    METAS,
 ];
 
 // ---------------------------------------------------------------------------------------
@@ -321,16 +255,23 @@ fn event<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Event> {
 }
 
 static EVENT_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record("date", DataType::Date, "Date of the event.", |_, record| date_value(record)),
+    DATE,
     ColumnDef::record("type", DataType::Str, "The kind of event, e.g. 'location'.", |_, record| {
         str_value(event(record).map(|it| it.event_type.as_str()))
     }),
     ColumnDef::record("description", DataType::Str, "The value of the event, e.g. a city.", |_, record| {
         str_value(event(record).map(|it| it.description.as_str()))
     }),
-    ColumnDef::record("meta", DataType::Str, "Metadata of the event, as `key: \"value\"` pairs.", |_, record| {
-        meta_value(record)
-    }),
+    META,
+    ID,
+    FILENAME,
+    YEAR,
+    MONTH,
+    DAY,
+    TIME,
+    TIMESTAMP,
+    SEQ,
+    METAS,
 ];
 
 // ---------------------------------------------------------------------------------------
@@ -640,13 +581,21 @@ fn commodity<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Commodity> {
 }
 
 static COMMODITY_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record("meta", DataType::Str, "Metadata of the commodity, as `key: \"value\"` pairs.", |_, record| {
-        meta_value(record)
-    }),
-    ColumnDef::record("date", DataType::Date, "Date of the commodity directive.", |_, record| date_value(record)),
+    META,
+    DATE,
     ColumnDef::record("name", DataType::Str, "The currency or commodity, e.g. 'USD'.", |_, record| {
         str_value(commodity(record).map(|it| it.currency.as_str()))
     }),
+    ID,
+    TYPE,
+    FILENAME,
+    YEAR,
+    MONTH,
+    DAY,
+    TIME,
+    TIMESTAMP,
+    SEQ,
+    METAS,
 ];
 
 #[cfg(test)]

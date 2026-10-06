@@ -87,7 +87,7 @@ pub use crate::error::{Error, HostError, HostErrorKind};
 pub type Stream = Vec<Spanned<Directive>>;
 
 /// the plugin ABI version this SDK speaks; see [`Config::abi`](config::Config::abi)
-pub const ABI_VERSION: u32 = 1;
+pub use zhang_shared::plugin_abi::ABI_VERSION;
 
 /// The common imports of a plugin.
 pub mod prelude {

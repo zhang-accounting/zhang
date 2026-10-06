@@ -38,11 +38,16 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use base64::Engine;
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions};
 use log::warn;
-use serde::Serialize;
+#[cfg(test)]
+use zhang_shared::plugin_abi::json_escaped_len;
+// what the file host functions answer, as plugin ABI v1 defines it; a failed call is a `FileError`,
+// `{"kind": "...", "message": "..."}`
+pub use zhang_shared::plugin_abi::{
+    DirEntry as ListedEntry, DirListing, Encoding, EntryKind, FileContent, HostError as FileError, HostErrorKind as FileErrorKind,
+};
 
 use crate::data_source::{normalize_relative, DataSource, SourceEntry};
 use crate::inputs::ExtraInput;
@@ -107,132 +112,32 @@ pub fn clean_path(raw: &str) -> Result<PathBuf, PathError> {
     normalize_relative(path).ok_or(PathError::Absolute)
 }
 
-/// the kind of a failed file call, as the plugin receives it
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FileErrorKind {
-    /// the plugin may not read the path: it is not granted, leads outside the grant or the ledger root, or the
-    /// operating system refused it
-    Denied,
-    /// the path does not exist, or the source failed to read it
-    NotFound,
-    /// the file is larger than [`MAX_FILE_SIZE`], or the directory has more than [`MAX_DIR_ENTRIES`] entries
-    TooLarge,
-    /// the ledger's source cannot do this, e.g. list a directory
-    Unsupported,
-    /// the request is not well-formed: an unreadable path, a directory to read, a file to list
-    Invalid,
+/// the error of a local file call on `path` that failed with `error`
+fn io_error(path: &str, error: std::io::Error) -> FileError {
+    use std::io::ErrorKind;
+    let kind = match error.kind() {
+        // cap-std reports a path leading outside its handle as permission denied
+        ErrorKind::PermissionDenied => FileErrorKind::Denied,
+        ErrorKind::IsADirectory => FileErrorKind::Invalid,
+        _ => FileErrorKind::NotFound,
+    };
+    FileError::new(kind, format!("{path}: {error}"))
 }
 
-/// a failed file call: `{"kind": "...", "message": "..."}`
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct FileError {
-    pub kind: FileErrorKind,
-    pub message: String,
-}
-
-impl FileError {
-    pub fn new(kind: FileErrorKind, message: impl Into<String>) -> Self {
-        Self { kind, message: message.into() }
-    }
-
-    fn io(path: &str, error: std::io::Error) -> Self {
-        use std::io::ErrorKind;
-        let kind = match error.kind() {
-            // cap-std reports a path leading outside its handle as permission denied
-            ErrorKind::PermissionDenied => FileErrorKind::Denied,
-            ErrorKind::IsADirectory => FileErrorKind::Invalid,
-            _ => FileErrorKind::NotFound,
-        };
-        FileError::new(kind, format!("{path}: {error}"))
-    }
-
-    /// a remote source's failure. Its own message can name the bucket, the endpoint or response headers, so the
-    /// plugin gets a generic one and the host logs the details
-    fn remote(path: &str, error: ZhangError) -> Self {
-        use std::io::ErrorKind;
-        let (kind, message) = match &error {
-            ZhangError::Unsupported(_) => (FileErrorKind::Unsupported, "the ledger's source cannot list directories"),
-            ZhangError::FileNotFound => (FileErrorKind::NotFound, "no such file or directory"),
-            ZhangError::IoError(e) | ZhangError::FileError { e, .. } if e.kind() == ErrorKind::NotFound => {
-                (FileErrorKind::NotFound, "no such file or directory")
-            }
-            _ => {
-                warn!("a plugin could not read {path} from the ledger's source: {error}");
-                (FileErrorKind::NotFound, "the ledger's source could not read it")
-            }
-        };
-        FileError::new(kind, format!("{path}: {message}"))
-    }
-}
-
-/// how [`FileContent::content`] is encoded
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Encoding {
-    /// the file's bytes, which are valid UTF-8
-    Utf8,
-    /// the file's bytes in standard base64 with padding, for a file that is not valid UTF-8, or one whose JSON
-    /// escaping would more than double it (mostly control characters)
-    Base64,
-}
-
-/// a file a plugin read: `{"content": "...", "encoding": "utf8" | "base64"}`
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct FileContent {
-    pub content: String,
-    pub encoding: Encoding,
-}
-
-impl FileContent {
-    fn from_bytes(bytes: Vec<u8>) -> Self {
-        let bytes = match String::from_utf8(bytes) {
-            Ok(content) if json_escaped_len(&content) <= 2 * content.len() => {
-                return FileContent {
-                    content,
-                    encoding: Encoding::Utf8,
-                }
-            }
-            Ok(content) => content.into_bytes(),
-            Err(e) => e.into_bytes(),
-        };
-        FileContent {
-            content: base64::engine::general_purpose::STANDARD.encode(bytes),
-            encoding: Encoding::Base64,
+/// the error of a remote file call on `path` that the source failed with `error`. The source's own message can name
+/// the bucket, the endpoint or response headers, so the plugin gets a generic one and the host logs the details
+fn remote_error(path: &str, error: ZhangError) -> FileError {
+    use std::io::ErrorKind;
+    let (kind, message) = match &error {
+        ZhangError::Unsupported(_) => (FileErrorKind::Unsupported, "the ledger's source cannot list directories"),
+        ZhangError::FileNotFound => (FileErrorKind::NotFound, "no such file or directory"),
+        ZhangError::IoError(e) | ZhangError::FileError { e, .. } if e.kind() == ErrorKind::NotFound => (FileErrorKind::NotFound, "no such file or directory"),
+        _ => {
+            warn!("a plugin could not read {path} from the ledger's source: {error}");
+            (FileErrorKind::NotFound, "the ledger's source could not read it")
         }
-    }
-}
-
-/// the length of `text` escaped as a JSON string, without the quotes: a control character takes up to 6 bytes
-fn json_escaped_len(text: &str) -> usize {
-    text.bytes()
-        .map(|byte| match byte {
-            b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0c => 2,
-            0x00..=0x1f => 6,
-            _ => 1,
-        })
-        .sum()
-}
-
-/// the kind of a listed entry
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EntryKind {
-    File,
-    Dir,
-}
-
-/// an entry of a listed directory: `{"name": "...", "kind": "file" | "dir"}`
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ListedEntry {
-    pub name: String,
-    pub kind: EntryKind,
-}
-
-/// a directory a plugin listed: `{"entries": [...]}`, sorted by name
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DirListing {
-    pub entries: Vec<ListedEntry>,
+    };
+    FileError::new(kind, format!("{path}: {message}"))
 }
 
 /// the outcome of one file call and the input it recorded, if the path was granted
@@ -379,7 +284,7 @@ fn display(path: &Path) -> String {
 
 /// the handle a path in `grant` is opened through, and the path inside it (rule 3)
 fn open_grant(root: &Path, grant: &Path, path: &Path, name: &str) -> Result<(Dir, PathBuf), FileError> {
-    let io = |e| FileError::io(name, e);
+    let io = |e| io_error(name, e);
     let root_dir = Dir::open_ambient_dir(root, ambient_authority()).map_err(io)?;
     if grant.as_os_str().is_empty() {
         return Ok((root_dir, path.to_path_buf()));
@@ -401,7 +306,7 @@ fn open_grant(root: &Path, grant: &Path, path: &Path, name: &str) -> Result<(Dir
 }
 
 fn read_local(root: &Path, grant: &Path, path: &Path, name: &str, limits: Limits) -> Result<Vec<u8>, FileError> {
-    let io = |e| FileError::io(name, e);
+    let io = |e| io_error(name, e);
     let (dir, inside) = open_grant(root, grant, path, name)?;
     if inside.as_os_str().is_empty() {
         return Err(FileError::new(FileErrorKind::Invalid, format!("{name} is a directory; list it instead")));
@@ -441,7 +346,7 @@ fn read_options() -> OpenOptions {
 }
 
 fn list_local(root: &Path, grant: &Path, path: &Path, name: &str, limits: Limits) -> Result<Vec<SourceEntry>, FileError> {
-    let io = |e| FileError::io(name, e);
+    let io = |e| io_error(name, e);
     let (dir, inside) = open_grant(root, grant, path, name)?;
     let entries = if inside.as_os_str().is_empty() {
         dir.entries().map_err(io)?
@@ -489,7 +394,7 @@ fn read_remote(source: &dyn DataSource, name: &str, limits: Limits) -> Result<Ve
     let bytes = match source.get_limited(name.to_owned(), limits.file_size) {
         Ok(bytes) => bytes,
         Err(ZhangError::TooLarge(_)) => return Err(too_large_file(name, limits)),
-        Err(error) => return Err(FileError::remote(name, error)),
+        Err(error) => return Err(remote_error(name, error)),
     };
     // checked again, whatever the source did
     if bytes.len() as u64 > limits.file_size {
@@ -503,7 +408,7 @@ fn list_remote(source: &dyn DataSource, name: &str, limits: Limits) -> Result<Ve
     let entries = match source.list(path, limits.dir_entries) {
         Ok(entries) => entries,
         Err(ZhangError::TooLarge(_)) => return Err(too_large_dir(name, limits)),
-        Err(error) => return Err(FileError::remote(name, error)),
+        Err(error) => return Err(remote_error(name, error)),
     };
     if entries.len() > limits.dir_entries {
         return Err(too_large_dir(name, limits));

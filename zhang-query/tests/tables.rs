@@ -161,7 +161,8 @@ fn columns_belong_to_their_table() {
     assert_eq!((err.kind, err.column), (QueryErrorKind::Compile, Some(8)));
     assert_eq!(
         err.message,
-        "unknown column 'account' in #prices (its columns are date, currency, amount, meta, time, timestamp)"
+        "unknown column 'account' in #prices (its columns are date, currency, amount, meta, time, timestamp, id, type, filename, year, \
+         month, day, seq, metas)"
     );
     let err = error("SELECT * FROM #prices WHERE balance IS NULL");
     assert!(err.message.contains("unknown column 'balance' in #prices"), "{}", err.message);
@@ -182,7 +183,7 @@ fn explain_names_the_table_and_projects_its_columns() {
          agg#0: count(*)\n\
          filter: (year(date) = 2024)\n\
          group by: [0]\n\
-         project: [currency, date] (2 of 6 columns)\n"
+         project: [currency, date] (2 of 14 columns)\n"
     );
     // the default table is not named
     let postings = Query::compile("SELECT count(*) FROM #postings").unwrap();
@@ -230,7 +231,15 @@ fn the_schema_describes_every_table() {
             ("amount", DataType::Amount),
             ("meta", DataType::Str),
             ("time", DataType::Str),
-            ("timestamp", DataType::Int)
+            ("timestamp", DataType::Int),
+            ("id", DataType::Str),
+            ("type", DataType::Str),
+            ("filename", DataType::Str),
+            ("year", DataType::Int),
+            ("month", DataType::Int),
+            ("day", DataType::Int),
+            ("seq", DataType::Int),
+            ("metas", DataType::Metas)
         ]
     );
     let names = schema.tables.iter().map(|table| table.name).collect::<Vec<_>>();
@@ -507,6 +516,46 @@ fn a_balance_with_pad_reports_the_discrepancy_a_later_pad_of_its_time_leaves() {
         .map(|row| row.iter().map(Value::to_string).collect())
         .collect::<Vec<Vec<String>>>();
     assert_eq!(rows_of, rows(&[&["Assets:Bank", "45 CNY"], &["Assets:Bank:Checking", "NULL"]]));
+}
+
+/// The tables of one kind of directive are views of `#entries`: they have the columns every directive has there, with the
+/// same values.
+#[test]
+fn directive_tables_have_the_columns_of_their_entries() {
+    let ledger = common::load_text(
+        r#"
+1970-01-01 commodity USD
+  name: "US Dollar"
+1970-01-01 open Assets:Bank
+2024-01-01 price EUR 1.10 USD
+  source: "ecb"
+2024-01-02 note Assets:Bank "hi"
+  by: "me"
+2024-01-03 event "location" "Berlin"
+2024-01-04 balance Assets:Bank 0 USD
+"#,
+    );
+    let run = |sql: &str| -> Vec<Vec<String>> {
+        let result = Query::compile(sql)
+            .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+            .unwrap_or_else(|err| panic!("{}: {}", sql, err));
+        result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
+    };
+    let shared = "id, filename, date, year, month, day, time, timestamp, seq, meta, metas";
+    for (table, kind) in [
+        ("prices", "price"),
+        ("balances", "balance"),
+        ("notes", "note"),
+        ("events", "event"),
+        ("commodities", "commodity"),
+    ] {
+        let rows = run(&format!("SELECT {shared} FROM #{table}"));
+        assert_eq!(rows.len(), 1, "{table}");
+        assert_eq!(rows, run(&format!("SELECT {shared} FROM #entries WHERE type = '{kind}'")), "{table}");
+    }
+    // `type` is the kind of directive, except on #events, where it is the kind of event
+    assert_eq!(run("SELECT type FROM #prices"), rows(&[&["price"]]));
+    assert_eq!(run("SELECT type FROM #events"), rows(&[&["location"]]));
 }
 
 #[test]

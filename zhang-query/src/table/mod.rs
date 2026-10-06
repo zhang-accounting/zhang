@@ -275,22 +275,12 @@ pub(crate) enum Borrow {
 /// One row of a record table. It only borrows the ledger and the store; the table's columns
 /// compute their values from it on access.
 pub(crate) enum Record<'a> {
-    /// a dated directive of the processed ledger
-    Directive(&'a Spanned<Directive>),
-    /// a row of `#entries` or `#transactions`: a directive with its place in the ledger
+    /// a row of `#entries`, or of a table of one kind of directive: a directive with its place in the ledger
     Entry {
         directive: &'a Spanned<Directive>,
         info: &'a cache::EntryInfo,
         /// for a transaction, what zhang stored of it, which its columns read
         txn: Option<&'a TransactionDomain>,
-    },
-    /// a balance assertion (`balance`, or `balance ... with pad`) and, when the projection
-    /// reads it, what zhang's check of it found
-    Balance {
-        directive: &'a Spanned<Directive>,
-        /// the index of the assertion's row in `#entries`
-        seq: u32,
-        check: Option<directives::AssertionCheck>,
     },
     /// a document: a `document` directive, or a `document` metadata value
     Document(directives::DocumentRow<'a>),
@@ -318,7 +308,7 @@ impl<'a> Record<'a> {
     /// record table (an account reads the metadata of its `open`, else of its `close`).
     fn metadata(&self) -> Option<&'a Meta> {
         match self {
-            Record::Directive(directive) | Record::Balance { directive, .. } | Record::Entry { directive, .. } => directive.data.meta(),
+            Record::Entry { directive, .. } => directive.data.meta(),
             Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive.data.meta()),
             Record::Document(document) => Some(document.metadata()),
             Record::Budget(month) => month.metadata(),

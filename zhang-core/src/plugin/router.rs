@@ -44,20 +44,16 @@ use std::sync::{Arc, PoisonError};
 use extism::{CurrentPlugin, Function, Plugin as WasmPlugin, UserData, Val, EXTISM_USER_MODULE, PTR};
 use log::{debug, warn};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
+pub use zhang_shared::plugin_abi::export::ROUTER as ROUTER_EXPORT;
+pub use zhang_shared::plugin_abi::import::{LEDGER_INFO as LEDGER_INFO_FUNCTION, QUERY as QUERY_FUNCTION};
+use zhang_shared::plugin_abi::{HostError, HostErrorKind, LedgerInfo};
 
 use crate::clock::LoadClock;
 use crate::ledger::Ledger;
 use crate::plugin::host::{read_input_str, MESSAGE_META};
 use crate::plugin::http::{PluginRequest, PluginResponse};
 use crate::plugin::store::{PluginStore, RegisteredPlugin};
-
-/// the export handling a router plugin's requests
-pub const ROUTER_EXPORT: &str = "router";
-/// the host function running a BQL query over the ledger being served
-pub const QUERY_FUNCTION: &str = "zhang_query";
-/// the host function describing the ledger being served
-pub const LEDGER_INFO_FUNCTION: &str = "zhang_ledger_info";
 
 /// the most bytes `zhang_query` will read for a plugin's BQL text. A query is human-written SQL-like
 /// text, so one mebibyte is far beyond any real query while capping what a single call can read.
@@ -111,28 +107,11 @@ impl Display for RouterError {
 
 impl std::error::Error for RouterError {}
 
-/// an error a host function returns as a value, as `{"kind": "...", "message": "...", ...}`
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum HostError {
-    Query {
-        message: String,
-        line: Option<usize>,
-        column: Option<usize>,
-    },
-    InvalidInput {
-        message: String,
-    },
-    Unavailable {
-        message: String,
-    },
-}
-
 /// what the host functions of one instance can reach; nothing outside a router call
 #[derive(Default)]
 struct RouterCall {
     host: Option<Arc<dyn RouterHost>>,
-    ledger_info: Option<Value>,
+    ledger_info: Option<LedgerInfo>,
 }
 
 /// the router host functions bound to `call`
@@ -152,13 +131,14 @@ pub fn unavailable_host_functions() -> Vec<Function> {
 }
 
 fn unavailable(function: &str) -> HostError {
-    HostError::Unavailable {
-        message: format!("{function} is only available while the plugin handles a request as a router"),
-    }
+    HostError::new(
+        HostErrorKind::Unavailable,
+        format!("{function} is only available while the plugin handles a request as a router"),
+    )
 }
 
 /// write `result` into a new memory block as `{"Ok": ...}` or `{"Err": ...}` and return its offset
-fn answer(plugin: &mut CurrentPlugin, outputs: &mut [Val], result: Result<Value, HostError>) -> Result<(), extism::Error> {
+fn answer<T: Serialize>(plugin: &mut CurrentPlugin, outputs: &mut [Val], result: Result<T, HostError>) -> Result<(), extism::Error> {
     let handle = plugin.memory_new(serde_json::to_string(&result)?)?;
     outputs[0] = plugin.memory_to_val(handle);
     Ok(())
@@ -183,8 +163,9 @@ fn zhang_query(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], 
 /// text the plugin passed, or why it could not be read
 fn query_answer(host: Option<&dyn RouterHost>, bql: Result<&str, &str>) -> Result<Value, HostError> {
     let host = host.ok_or_else(|| unavailable(QUERY_FUNCTION))?;
-    let bql = bql.map_err(|message| HostError::InvalidInput { message: message.to_owned() })?;
-    host.query(bql).map_err(|failure| HostError::Query {
+    let bql = bql.map_err(|message| HostError::new(HostErrorKind::InvalidInput, message))?;
+    host.query(bql).map_err(|failure| HostError {
+        kind: HostErrorKind::Query,
         message: failure.message,
         line: failure.line,
         column: failure.column,
@@ -198,13 +179,12 @@ fn zhang_ledger_info(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut 
 }
 
 /// what `zhang_ledger_info` answers for `ledger`
-fn ledger_info(ledger: &Ledger) -> Value {
-    let title = ledger.operations().option::<String>("title").ok().flatten();
-    json!({
-        "title": title,
-        "operating_currency": ledger.options.operating_currency,
-        "timezone": ledger.options.timezone.name(),
-    })
+fn ledger_info(ledger: &Ledger) -> LedgerInfo {
+    LedgerInfo {
+        title: ledger.operations().option::<String>("title").ok().flatten(),
+        operating_currency: ledger.options.operating_currency.clone(),
+        timezone: ledger.options.timezone.name().to_owned(),
+    }
 }
 
 impl PluginStore {

@@ -40,14 +40,14 @@ use log::warn;
 use serde::{Deserialize, Serialize};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::SpanInfo;
+pub use zhang_shared::plugin_abi::import::{EMIT_ERROR, LIST_DIR, NOW, READ_FILE};
+// `zhang_now` cannot fail, so it always answers `HostOk::Ok`
+use zhang_shared::plugin_abi::{HostResult as HostOk, Now as NowPayload};
 
 use crate::clock::LoadClock;
 use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
-
-/// name of the host function a plugin reports a problem with
-pub const EMIT_ERROR: &str = "zhang_emit_error";
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
 pub const PLUGIN_META: &str = "plugin";
@@ -354,43 +354,9 @@ fn well_formed_span(plugin: &str, span: serde_json::Value) -> Option<SpanInfo> {
 // `zhang_now`: the current time of the load
 // ---------------------------------------------------------------------------------------------------------------
 
-/// name of the host function a plugin reads the current time with.
-///
-/// `zhang_now() -> i64` returns the offset of a kernel memory block holding the JSON
-///
-/// ```json
-/// {"Ok": {"now": "2024-03-16T00:30:00+08:00", "today": "2024-03-16", "timezone": "Asia/Shanghai"}}
-/// ```
-///
-/// - `now`: the current time of the load as RFC 3339, with the offset of the ledger timezone
-/// - `today`: the date of `now` in the ledger timezone, `YYYY-MM-DD`
-/// - `timezone`: the ledger timezone, an IANA name
-///
-/// The host reads its clock once per load, on the first call from any plugin, so every call of a load returns the
-/// same value and all plugins agree on "today". A call from a processor or mapper makes the ledger depend on the
-/// date ([`ExtraInput::Clock`]), so a server reloads it when the date changes; a call while the plugin registers
-/// (`name`, `version`, `supported_type`) does not. Like every zhang host function that returns a value, the result
-/// is `{"Ok": value}` or `{"Err": {"kind": "...", "message": "..."}}`; `zhang_now` has no error today, but a plugin
-/// should still handle `Err`.
-///
-/// A plugin targeting WASI can also read the host's real clock, and OS entropy, through WASI: extism links them in,
-/// and a host function cannot intercept them. Reproducible plugins read the time with `zhang_now` only, and derive
-/// randomness from the `zhang.seed` config ([`plugin_seed`](crate::plugin::capabilities::plugin_seed)).
-pub const NOW: &str = "zhang_now";
-
-/// what `zhang_now` returns inside `Ok`. This shape is part of plugin ABI v1: fields may be added, never removed
-#[derive(Debug, PartialEq, Eq, Serialize)]
-struct NowPayload {
-    now: String,
-    today: String,
-    timezone: String,
-}
-
-/// a host function result that cannot fail
-#[derive(Serialize)]
-enum HostOk<T> {
-    Ok(T),
-}
+// The host reads its clock once per load, on the first call from any plugin, so every call of a load returns the same
+// value. A call from a processor or mapper records `ExtraInput::Clock`; a call while the plugin registers does not.
+// `NOW` documents the ABI.
 
 /// the state `zhang_now` of one plugin instance keeps
 struct ClockState {
@@ -451,11 +417,6 @@ fn now_payload(now: &DateTime<Tz>) -> NowPayload {
 // ---------------------------------------------------------------------------------------------------------------
 // File access: `zhang_read_file` and `zhang_list_dir`, the `allowed_paths` capability
 // ---------------------------------------------------------------------------------------------------------------
-
-/// name of the host function a plugin reads a granted file with
-pub const READ_FILE: &str = "zhang_read_file";
-/// name of the host function a plugin lists a granted directory with
-pub const LIST_DIR: &str = "zhang_list_dir";
 
 /// the most bytes [`read_input_str`] will read for the path a plugin passes to `zhang_read_file` or
 /// `zhang_list_dir`: 4 KiB, Linux's `PATH_MAX`. A path relative to the ledger root is far shorter.

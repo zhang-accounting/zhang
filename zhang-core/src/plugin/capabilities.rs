@@ -54,7 +54,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use log::warn;
-use serde::{Deserialize, Serialize};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::Plugin;
 
@@ -84,21 +83,13 @@ const SEED_KEY: &str = "seed";
 /// meta key on a `plugin` directive choosing the stream its processor or mapper runs on, a [`PluginStage`]
 const STAGE_KEY: &str = "stage";
 
-/// prefix of the config keys reserved for values the host sets
-pub const RESERVED_CONFIG_PREFIX: &str = "zhang.";
-
-/// config key holding the version of the plugin ABI the host speaks, [`ABI_VERSION`]
-pub const ABI_CONFIG_KEY: &str = "zhang.abi";
-
-/// the plugin ABI version this host speaks, a decimal integer as a string. Additions a plugin can
-/// ignore (a new config key, a new host function) keep the version
-pub const ABI_VERSION: &str = "1";
-
-/// config key holding the plugin's directive as written, a [`PluginDirectiveConfig`] as JSON
-pub const PLUGIN_CONFIG_KEY: &str = "zhang.plugin";
-
-/// config key holding the plugin's seed, a decimal `u64` (see [`plugin_seed`])
-pub const SEED_CONFIG_KEY: &str = "zhang.seed";
+pub use zhang_shared::plugin_abi::config::{
+    ABI as ABI_CONFIG_KEY, PLUGIN as PLUGIN_CONFIG_KEY, RESERVED_PREFIX as RESERVED_CONFIG_PREFIX, SEED as SEED_CONFIG_KEY,
+};
+/// The plugin's directive as written, which the plugin receives as JSON under the config key
+/// [`PLUGIN_CONFIG_KEY`] (`zhang.plugin`): its positional arguments and every value of its meta keys.
+pub use zhang_shared::plugin_abi::PluginDirective as PluginDirectiveConfig;
+pub use zhang_shared::plugin_abi::ABI_VERSION;
 
 /// the domain separating [`plugin_seed`] hashes from any other use of SHA-256; the `v1` is part of the derivation
 const SEED_DOMAIN: &[u8] = b"zhang/plugin-seed/v1";
@@ -136,45 +127,6 @@ impl Default for PluginCapabilities {
 pub struct DeclarationError {
     pub kind: ErrorKind,
     pub metas: HashMap<String, String>,
-}
-
-/// The plugin's directive as written, which the plugin receives as JSON under the config key
-/// [`PLUGIN_CONFIG_KEY`] (`zhang.plugin`). It carries what the flat config cannot: the positional
-/// arguments, and every value of a repeated meta key.
-///
-/// This shape is part of plugin ABI v1 ([`ABI_VERSION`]): fields may be added, never removed or
-/// changed. The directive
-///
-/// ```zhang
-/// plugin "fx-rate.wasm" "USD" "strict"
-///   allowed_hosts: "api.frankfurter.dev"
-///   tag: "first"
-///   tag: "second"
-/// ```
-///
-/// reaches the plugin as (compact JSON, wrapped here for reading)
-///
-/// ```json
-/// {"module":"fx-rate.wasm","args":["USD","strict"],
-///  "meta":{"allowed_hosts":["api.frankfurter.dev"],"tag":["first","second"]}}
-/// ```
-///
-/// - `module` (string): the module as written in the directive.
-/// - `args` (array of strings): the positional values after the module, in order; empty when there
-///   are none. Beancount's `plugin "module" "config"` passes its config string here.
-/// - `meta` (object of string arrays): every meta key of the directive with all its values in
-///   source order; the keys are sorted. Unlike the flat config it keeps every value of a repeated
-///   key, and it includes the capability keys such as `allowed_hosts` (a grant is not secret, and
-///   a plugin can inspect what it was granted) as well as meta keys starting with
-///   [`RESERVED_CONFIG_PREFIX`].
-///
-/// Every value is a string, exactly as written; parsing amounts, dates or numbers is up to the
-/// plugin.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PluginDirectiveConfig {
-    pub module: String,
-    pub args: Vec<String>,
-    pub meta: BTreeMap<String, Vec<String>>,
 }
 
 /// a parsed `plugin` directive: its capabilities and the config it hands to the plugin
@@ -272,7 +224,7 @@ impl PluginDeclaration {
         let directive = serde_json::to_string(&self.directive).expect("strings, arrays and maps of strings always serialize to JSON");
         let seed = plugin_seed(&self.directive.module, occurrence, self.capabilities.seed.as_deref());
         vec![
-            (ABI_CONFIG_KEY.to_owned(), ABI_VERSION.to_owned()),
+            (ABI_CONFIG_KEY.to_owned(), ABI_VERSION.to_string()),
             (PLUGIN_CONFIG_KEY.to_owned(), directive),
             (SEED_CONFIG_KEY.to_owned(), seed.to_string()),
         ]
