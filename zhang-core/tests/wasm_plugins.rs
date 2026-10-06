@@ -124,7 +124,7 @@ fn written(txn: &Transaction) -> Vec<(String, Amount)> {
         .collect()
 }
 
-/// what the store holds: accounts, the postings of every transaction, and the reported errors
+/// what the ledger holds: accounts, the postings of every transaction, and the reported errors
 fn store_summary(ledger: &Ledger) -> (Vec<String>, Vec<String>, Vec<String>) {
     let txns = ledger.transactions();
     let postings = txns
@@ -133,8 +133,12 @@ fn store_summary(ledger: &Ledger) -> (Vec<String>, Vec<String>, Vec<String>) {
         .map(|(account, units)| format!("{account} {units}"))
         .sorted()
         .collect();
+    let opens = ledger.directives.iter().filter_map(|it| match &it.data {
+        Directive::Open(open) => Some(open.account.name().to_owned()),
+        _ => None,
+    });
+    let accounts = opens.unique().sorted().collect();
     let store = ledger.store.read().unwrap();
-    let accounts = store.accounts.keys().cloned().sorted().collect();
     let errors = store.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
     (accounts, postings, errors)
 }

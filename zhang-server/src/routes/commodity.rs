@@ -1,5 +1,5 @@
 //! The commodity pages. What a commodity is (precision, prefix, suffix, rounding, group) is read
-//! from the store; its holdings, lots and prices come from [built-in queries](crate::builtin)
+//! from the options and the `commodity` directives; its holdings, lots and prices come from [built-in queries](crate::builtin)
 //! (`commodities.*`).
 
 use std::collections::HashMap;
@@ -7,10 +7,8 @@ use std::collections::HashMap;
 use axum::extract::{Path, State};
 use bigdecimal::BigDecimal;
 use gotcha::api;
-use itertools::Itertools;
 use zhang_ast::amount::Amount;
-use zhang_core::constants::COMMODITY_GROUP;
-use zhang_core::domains::schemas::{CommodityDomain, MetaType};
+use zhang_core::domains::schemas::CommodityDomain;
 use zhang_core::ledger::Ledger;
 use zhang_query::{Params, QueryResult};
 
@@ -21,7 +19,7 @@ use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
 use crate::{ApiResult, ServerResult};
 
-/// A commodity of the list, from the store's commodity, its group, its total and its latest
+/// A commodity of the list, from the ledger's commodity, its group, its total and its latest
 /// price: a row of `commodities.latest_price(s)`, the engine's rate of one unit in `currency` as
 /// of today and the date and time of the quote it comes from.
 fn commodity_item(
@@ -46,23 +44,12 @@ fn commodity_item(
     })
 }
 
-/// The commodities of the store (all of them, or the one named `name`), in the store's order,
-/// with their groups.
+/// The commodities of the ledger (all of them, or the one named `name`), in the order they were first defined, with
+/// their groups ([`Ledger::commodities`]).
 fn stored_commodities(ledger: &Ledger, name: Option<&str>) -> Vec<(CommodityDomain, Option<String>)> {
-    let store = ledger.store.read().expect("poison lock detect");
-    let group = |commodity: &str| {
-        store
-            .metas
-            .iter()
-            .find(|meta| meta.meta_type == MetaType::CommodityMeta.as_ref() && meta.type_identifier == commodity && meta.key == COMMODITY_GROUP)
-            .map(|meta| meta.value.clone())
-    };
-    store
-        .commodities
-        .values()
-        .filter(|commodity| name.is_none_or(|name| commodity.name == name))
-        .map(|commodity| (commodity.clone(), group(&commodity.name)))
-        .collect_vec()
+    let mut commodities = ledger.commodities();
+    commodities.retain(|(commodity, _)| name.is_none_or(|name| commodity.name == name));
+    commodities
 }
 
 /// The rows of the result of `query` by their `currency`.

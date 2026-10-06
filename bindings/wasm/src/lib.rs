@@ -40,7 +40,6 @@ impl PlayGroundParse {
 pub struct ParseResult {
     is_pass: bool,
     msg: Option<String>,
-    store: Option<JsValue>,
     lots: Option<JsValue>,
 }
 
@@ -52,9 +51,6 @@ impl ParseResult {
 
     pub fn msg(&self) -> Option<String> {
         self.msg.clone()
-    }
-    pub fn store(&self) -> JsValue {
-        self.store.clone().unwrap_or_default()
     }
 
     /// the lots every account holds, as the query engine lists them
@@ -97,7 +93,7 @@ pub fn parse(content: &str) -> PlayGroundParse {
     }
 }
 
-/// the playground result of one data type: the store of the directives `parsed` in the format `dialect`, processed as a
+/// the playground result of one data type: the lots of the directives `parsed` in the format `dialect`, processed as a
 /// ledger in that format, or the parse error
 fn parse_result(parsed: ZhangResult<Vec<Spanned<Directive>>>, dialect: Dialect, source: &Arc<InMemoryDataSource>) -> ParseResult {
     match parsed {
@@ -112,19 +108,15 @@ fn parse_result(parsed: ZhangResult<Vec<Spanned<Directive>>>, dialect: Dialect, 
                 clock: Clock::System,
             })
             .unwrap();
-            let lots = lots(&ledger);
-            let store = ledger.store.read().unwrap();
             ParseResult {
                 is_pass: true,
                 msg: None,
-                store: Some(serde_wasm_bindgen::to_value(&*store).unwrap()),
-                lots: Some(serde_wasm_bindgen::to_value(&lots).unwrap()),
+                lots: Some(serde_wasm_bindgen::to_value(&lots(&ledger)).unwrap()),
             }
         }
         Err(e) => ParseResult {
             is_pass: false,
             msg: Some(e.to_string()),
-            store: None,
             lots: None,
         },
     }

@@ -448,8 +448,7 @@ impl AuthState {
 
     async fn ledger_title(&self) -> Option<String> {
         let ledger = self.ledger.read().await;
-        let operations = ledger.operations();
-        operations.option::<String>("title").ok().flatten()
+        ledger.options.option::<String>("title").ok().flatten()
     }
 
     /// The `GET /api/auth/status` body for `principal`.

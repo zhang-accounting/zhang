@@ -34,7 +34,7 @@ fn load(content: &str) -> Ledger {
 fn parity(content: &str, commodities: &[&str], from: &str, to: &str) -> PriceMap {
     let ledger = load(content);
     let sdk = PriceMap::from_stream(&ledger.directives);
-    let zhang = zhang_query::PriceMap::from_prices(&ledger.store.read().unwrap().prices);
+    let zhang = zhang_query::PriceMap::for_ledger(&ledger);
     let mut date = day(from);
     let mut compared = 0;
     while date <= day(to) {

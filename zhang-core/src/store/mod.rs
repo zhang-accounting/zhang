@@ -3,98 +3,27 @@ use std::collections::{HashMap, HashSet};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate};
 use chrono_tz::Tz;
-use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, SpanInfo};
 
-use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain, QueryDomain};
+use crate::domains::schemas::ErrorDomain;
 
-#[derive(Default, serde::Serialize)]
+/// What the load decides about the ledger's directives that they do not carry themselves: the id and place of each
+/// transaction it accepted, the outcome of each balance assertion, the path of each document, and the errors
+#[derive(Default)]
 pub struct Store {
-    pub options: HashMap<String, String>,
-    pub accounts: HashMap<String, AccountDomain>,
-    pub commodities: IndexMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionDomain>,
 
     /// the `balance` assertions, in ledger order. They are not transactions and have no postings:
     /// an assertion changes no balance
     pub balance_assertions: Vec<BalanceAssertionDomain>,
     /// the ids of [`Store::balance_assertions`], which an id given to a transaction or an assertion avoids
-    #[serde(skip)]
     pub(crate) balance_assertion_ids: HashSet<Uuid>,
-
-    pub prices: Vec<PriceDomain>,
 
     pub documents: Vec<DocumentDomain>,
 
-    /// saved queries from `query` directives, in ledger order (by date, then source order)
-    pub queries: Vec<QueryDomain>,
-
-    /// in insertion order. `Operations::insert_meta` appends with [`Store::push_meta`], which keeps the index of
-    /// [`Store::metas_of`] in step; a meta pushed to `metas` directly is found by a scan of the entries after the
-    /// indexed ones. Nothing removes, reorders or clears a meta
-    pub metas: Vec<MetaDomain>,
-    /// per meta type and type identifier, the positions in [`Store::metas`] of the first `indexed_metas` entries,
-    /// in store order
-    #[serde(skip)]
-    meta_index: HashMap<String, HashMap<String, Vec<usize>>>,
-    /// how many leading entries of [`Store::metas`] are in `meta_index`
-    #[serde(skip)]
-    indexed_metas: usize,
-
     pub errors: Vec<ErrorDomain>,
-}
-
-impl Store {
-    /// append a meta to [`Store::metas`] and index it, with any meta pushed to `metas` directly since the last one
-    pub(crate) fn push_meta(&mut self, meta: MetaDomain) {
-        self.metas.push(meta);
-        self.index_metas();
-    }
-
-    /// index the entries of [`Store::metas`] after the indexed ones. Their positions are higher than every indexed
-    /// position, so each per-owner vector stays in store order
-    fn index_metas(&mut self) {
-        for position in self.indexed_metas..self.metas.len() {
-            let meta = &self.metas[position];
-            self.meta_index
-                .entry(meta.meta_type.clone())
-                .or_default()
-                .entry(meta.type_identifier.clone())
-                .or_default()
-                .push(position);
-        }
-        self.indexed_metas = self.metas.len();
-    }
-
-    /// the positions in [`Store::metas`] of the metas of `type_identifier` of `meta_type`, in store order: the
-    /// indexed ones, then those pushed directly after the last indexing
-    fn meta_positions<'a>(&'a self, meta_type: &'a str, type_identifier: &'a str) -> impl Iterator<Item = usize> + 'a {
-        let indexed = self
-            .meta_index
-            .get(meta_type)
-            .and_then(|by_identifier| by_identifier.get(type_identifier))
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let unindexed = (self.indexed_metas..self.metas.len()).filter(move |&position| {
-            let meta = &self.metas[position];
-            meta.meta_type == meta_type && meta.type_identifier == type_identifier
-        });
-        indexed.iter().copied().chain(unindexed)
-    }
-
-    /// the metas of `type_identifier` of `meta_type`, in store order: what a scan of [`Store::metas`] filtered by
-    /// type and identifier yields
-    pub(crate) fn metas_of<'a>(&'a self, meta_type: &'a str, type_identifier: &'a str) -> impl Iterator<Item = &'a MetaDomain> + 'a {
-        self.meta_positions(meta_type, type_identifier).map(|position| &self.metas[position])
-    }
-
-    /// the position in [`Store::metas`] of the first meta of `type_identifier` of `meta_type` with `key`
-    pub(crate) fn meta_position(&self, meta_type: &str, type_identifier: &str, key: &str) -> Option<usize> {
-        self.meta_positions(meta_type, type_identifier)
-            .find(|&position| self.metas[position].key == key)
-    }
 }
 
 /// A transaction zhang accepted: its id and its place. Everything else (flag, payee, narration, tags, links, the
@@ -209,174 +138,5 @@ mod test {
     fn should_return_account() {
         let account_type = DocumentType::Account(Account::from_str("Assets:A").unwrap());
         assert_eq!(account_type.as_account(), Some("Assets:A".to_owned()));
-    }
-}
-
-#[cfg(test)]
-mod meta_index_test {
-    use chrono_tz::Tz;
-    use itertools::Itertools;
-    use zhang_ast::{Meta, ZhangString};
-
-    use crate::domains::schemas::{MetaDomain, MetaType};
-    use crate::domains::Operations;
-
-    /// the fields of a meta, to compare metas and to tell which entry a lookup found
-    fn fields(meta: &MetaDomain) -> (String, String, String, String) {
-        (meta.meta_type.clone(), meta.type_identifier.clone(), meta.key.clone(), meta.value.clone())
-    }
-
-    /// the metas of an owner as `metas` found them before the metas were indexed: scan every meta, keep the owner's,
-    /// in store order
-    fn scan<'a>(metas: &'a [MetaDomain], type_: &'a MetaType, type_identifier: &'a str) -> impl Iterator<Item = &'a MetaDomain> + 'a {
-        metas
-            .iter()
-            .filter(move |meta| meta.meta_type == type_.as_ref())
-            .filter(move |meta| meta.type_identifier == type_identifier)
-    }
-
-    /// `insert_meta` of one entry as it was before the metas were indexed: scan every meta for the owner's key and
-    /// update the first in place, or append. Tells whether it updated
-    fn scan_insert(metas: &mut Vec<MetaDomain>, type_: &MetaType, type_identifier: &str, key: &str, value: &str) -> bool {
-        let found = metas
-            .iter_mut()
-            .filter(|it| it.type_identifier == type_identifier)
-            .filter(|it| it.meta_type == type_.as_ref())
-            .find(|it| it.key == key);
-        match found {
-            Some(meta) => {
-                meta.value = value.to_owned();
-                true
-            }
-            None => {
-                metas.push(MetaDomain {
-                    meta_type: type_.as_ref().to_owned(),
-                    type_identifier: type_identifier.to_owned(),
-                    key: key.to_owned(),
-                    value: value.to_owned(),
-                });
-                false
-            }
-        }
-    }
-
-    /// After every step, `Operations::metas` and `Operations::meta` find what a scan of every meta finds, for every
-    /// owner and key, and the store holds what the scanning `insert_meta` built, entry by entry. The steps interleave
-    /// inserts and updates of several keys over owners of the three meta types, some sharing an identifier across
-    /// types. A step may repeat a key in one meta (the last value wins), update every key of an owner at once, or
-    /// push to `Store::metas` directly, as tests of other crates do: a lookup still finds the entry, and a later
-    /// `insert_meta` of a key the owner then has twice updates the first entry, as the scan did
-    #[test]
-    fn the_meta_lookups_find_what_a_scan_of_every_meta_finds() {
-        let mut operations = Operations {
-            timezone: Tz::UTC,
-            store: Default::default(),
-        };
-        let types = [MetaType::AccountMeta, MetaType::CommodityMeta, MetaType::TransactionMeta];
-        // identifiers used with every type: `CNY` as an account too, `budget` as an identifier and as a key
-        let identifiers = ["Assets:Bank", "Assets:Bank:Card", "CNY", "a3f1c2d4", "budget"];
-        let keys = ["budget", "note", "document", "rate"];
-        // what the scanning `insert_meta` builds; the store must be this after every step
-        let mut scanned: Vec<MetaDomain> = vec![];
-        let (mut updates, mut repeated, mut whole_owner, mut direct) = (0, 0, 0, 0);
-
-        // xorshift: the same sequence on every run
-        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
-        let mut below = |bound: usize| {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            (state % bound as u64) as usize
-        };
-        for step in 0..400 {
-            let type_ = &types[below(types.len())];
-            let identifier = identifiers[below(identifiers.len())];
-            let value = format!("v{step}");
-            let mut meta = Meta::default();
-            match below(10) {
-                0 => {
-                    // the same key twice in one meta: the first value is inserted, the second replaces it
-                    let key = keys[below(keys.len())];
-                    meta.insert(key.to_owned(), ZhangString::quote(format!("{value}-first")));
-                    meta.insert(key.to_owned(), ZhangString::unquote(value.clone()));
-                    scan_insert(&mut scanned, type_, identifier, key, &format!("{value}-first"));
-                    updates += usize::from(scan_insert(&mut scanned, type_, identifier, key, &value));
-                    repeated += 1;
-                }
-                1 => {
-                    // every key the owner has, in one meta: all updates in place, so the order of the keys does not
-                    // matter
-                    let existing = scan(&scanned, type_, identifier).map(|it| it.key.clone()).unique().collect_vec();
-                    for key in &existing {
-                        meta.insert(key.clone(), ZhangString::quote(format!("{value}-{key}")));
-                        updates += usize::from(scan_insert(&mut scanned, type_, identifier, key, &format!("{value}-{key}")));
-                    }
-                    whole_owner += usize::from(existing.len() > 1);
-                }
-                2 => {
-                    // pushed to `Store::metas` directly, past `insert_meta`
-                    let key = keys[below(keys.len())];
-                    let pushed = MetaDomain {
-                        meta_type: type_.as_ref().to_owned(),
-                        type_identifier: identifier.to_owned(),
-                        key: key.to_owned(),
-                        value: value.clone(),
-                    };
-                    operations.write().metas.push(pushed.clone());
-                    scanned.push(pushed);
-                    direct += 1;
-                }
-                _ => {
-                    let key = keys[below(keys.len())];
-                    meta.insert(key.to_owned(), ZhangString::quote(value.clone()));
-                    updates += usize::from(scan_insert(&mut scanned, type_, identifier, key, &value));
-                }
-            }
-            operations.insert_meta(type_.clone(), identifier, meta).unwrap();
-
-            assert_eq!(
-                operations.read().metas.iter().map(fields).collect_vec(),
-                scanned.iter().map(fields).collect_vec(),
-                "the store after step {step}"
-            );
-            for type_ in &types {
-                for identifier in identifiers.into_iter().chain(["Expenses:Food"]) {
-                    let found = operations.metas(type_.clone(), identifier).unwrap();
-                    assert_eq!(
-                        found.iter().map(fields).collect_vec(),
-                        scan(&scanned, type_, identifier).map(fields).collect_vec(),
-                        "the metas of {identifier} of {} after step {step}",
-                        type_.as_ref()
-                    );
-                    for key in keys.into_iter().chain(["payee"]) {
-                        let found = operations.meta(type_.clone(), identifier, key).unwrap();
-                        assert_eq!(
-                            found.as_ref().map(fields),
-                            scan(&scanned, type_, identifier).find(|meta| meta.key == key).map(fields),
-                            "the meta {key} of {identifier} of {} after step {step}",
-                            type_.as_ref()
-                        );
-                    }
-                }
-            }
-        }
-
-        assert!(updates > 0, "some steps update a key in place");
-        assert!(repeated > 0 && whole_owner > 0 && direct > 0, "every kind of step occurs");
-        let owners_with_several_keys = types
-            .iter()
-            .cartesian_product(identifiers)
-            .filter(|(type_, identifier)| scan(&scanned, type_, identifier).map(|it| &it.key).unique().count() > 1)
-            .count();
-        assert!(owners_with_several_keys > 0, "some owners have several keys");
-        let repeated_keys = scanned
-            .iter()
-            .map(|meta| (&meta.meta_type, &meta.type_identifier, &meta.key))
-            .duplicates()
-            .count();
-        assert!(
-            repeated_keys > 0,
-            "some owner has a key twice after a direct push, so a lookup has to take the first"
-        );
     }
 }

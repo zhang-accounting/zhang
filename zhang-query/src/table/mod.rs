@@ -446,7 +446,7 @@ impl<'a> Dataset<'a> {
 
     /// The ledger's price map, built once per loaded ledger.
     pub fn prices(&self) -> &PriceMap {
-        self.cache.prices(self.store)
+        self.cache.prices(self.ledger)
     }
 
     /// The budgets of the ledger, folded once per query.

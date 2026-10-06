@@ -15,7 +15,6 @@ pub(crate) mod open;
 pub(crate) mod options;
 pub(crate) mod plugin;
 pub(crate) mod price;
-pub(crate) mod query;
 pub(crate) mod transaction;
 /// Directive Process is used to handle how a directive be validated, how we process directives and store the result into [Store]
 pub(crate) trait DirectiveProcess: std::fmt::Debug {
@@ -42,10 +41,10 @@ pub(crate) trait DirectiveProcess: std::fmt::Debug {
 }
 
 fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-    let mut operations = ledger.operations();
-    let existed = operations.exist_commodity(commodity_name)?;
-    if !existed {
-        operations.new_error(
+    // the commodities the options define, and those of the `commodity` directives processed so far
+    let defined = ledger.options.commodities().any(|it| it.name == commodity_name) || ledger.defined_commodities.contains(commodity_name);
+    if !defined {
+        ledger.operations().new_error(
             ErrorKind::CommodityDoesNotDefine,
             span,
             HashMap::of("commodity_name", commodity_name.to_string()),

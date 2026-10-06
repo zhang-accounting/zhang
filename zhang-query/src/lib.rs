@@ -317,7 +317,7 @@ impl Query {
                 table::Dataset::build(ledger, &store, today, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
             }
             Some(period) => {
-                equity = period::EquityAccounts::from_options(&store.options);
+                equity = period::EquityAccounts::from_options(&ledger.options.values);
                 let data = table::Dataset::postings(ledger, &store, cache, today, self.projection, &table::Scope::All);
                 period.apply(data, ledger, &equity)
             }

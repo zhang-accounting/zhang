@@ -1,20 +1,18 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use bigdecimal::BigDecimal;
-use chrono::{DateTime, NaiveDate};
+use chrono::DateTime;
 use chrono_tz::Tz;
 use itertools::Itertools;
 use log::debug;
 use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Meta, Rounding, SpanInfo};
+use zhang_ast::SpanInfo;
 
-use crate::domains::schemas::{AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain};
+use crate::domains::schemas::ErrorDomain;
 use crate::store::{BalanceAssertionDomain, DocumentDomain, DocumentType, Store, TransactionDomain};
 use crate::utils::id::FromSpan;
-use crate::{ZhangError, ZhangResult};
+use crate::ZhangResult;
 
 pub mod schemas;
 
@@ -33,20 +31,6 @@ impl Operations {
 }
 
 impl Operations {
-    /// insert an account at its first `open`; a later `open` changes nothing. Its status is the account
-    /// lifecycle's, set once the ledger is processed ([`crate::ledger::Ledger::account_status`])
-    pub(crate) fn insert_account(&mut self, datetime: DateTime<Tz>, account: Account, alias: Option<&str>) -> ZhangResult<()> {
-        let mut store = self.write();
-        store.accounts.entry(account.name().to_owned()).or_insert_with(|| AccountDomain {
-            date: datetime.naive_local(),
-            r#type: account.account_type.to_string(),
-            name: account.name().to_owned(),
-            status: AccountStatus::Open,
-            alias: alias.map(|it| it.to_owned()),
-        });
-        Ok(())
-    }
-
     /// insert new transaction, folded from the directive with index `directive` in the ledger's directives
     pub(crate) fn insert_transaction(&mut self, id: &Uuid, sequence: i32, directive: usize, datetime: DateTime<Tz>) -> ZhangResult<()> {
         let mut store = self.write();
@@ -99,93 +83,12 @@ impl Operations {
 
         Ok(())
     }
-
-    /// insert single price
-    pub(crate) fn insert_price(&mut self, datetime: DateTime<Tz>, commodity: &str, amount: &BigDecimal, target_commodity: &str) -> ZhangResult<()> {
-        let mut store = self.write();
-        store.prices.push(PriceDomain {
-            datetime: datetime.naive_local(),
-            commodity: commodity.to_owned(),
-            amount: amount.clone(),
-            target_commodity: target_commodity.to_owned(),
-        });
-        Ok(())
-    }
-
-    /// insert a saved query; queries with the same name are all kept
-    pub(crate) fn insert_query(&mut self, date: NaiveDate, name: String, query: String) -> ZhangResult<()> {
-        let mut store = self.write();
-        store.queries.push(QueryDomain { date, name, query });
-        Ok(())
-    }
-
-    /// all saved queries, in ledger order (by date, then source order)
-    pub fn queries(&self) -> ZhangResult<Vec<QueryDomain>> {
-        let store = self.read();
-        Ok(store.queries.clone())
-    }
 }
 
 impl Operations {
-    pub fn options(&mut self) -> ZhangResult<Vec<OptionDomain>> {
-        let store = self.read();
-
-        Ok(store.options.clone().into_iter().map(|(key, value)| OptionDomain { key, value }).collect_vec())
-    }
-
-    /// fetch option's value given option key,
-    /// the [T] means the type of option's value
-    pub fn option<T>(&self, key: impl AsRef<str>) -> ZhangResult<Option<T>>
-    where
-        T: FromStr,
-    {
-        let store = self.read();
-
-        store
-            .options
-            .get(key.as_ref())
-            .map(|value| T::from_str(value).map_err(|_| ZhangError::InvalidOptionValue))
-            .transpose()
-    }
-
-    /// the metas of `type_identifier` of `type_`, in store order
-    pub fn metas(&self, type_: MetaType, type_identifier: impl AsRef<str>) -> ZhangResult<Vec<MetaDomain>> {
-        let store = self.read();
-        Ok(store.metas_of(type_.as_ref(), type_identifier.as_ref()).cloned().collect_vec())
-    }
-
-    /// the first meta of `type_identifier` of `type_` with `key`
-    pub fn meta(&self, type_: MetaType, type_identifier: impl AsRef<str>, key: impl AsRef<str>) -> ZhangResult<Option<MetaDomain>> {
-        let store = self.read();
-        let meta = store
-            .metas_of(type_.as_ref(), type_identifier.as_ref())
-            .find(|meta| meta.key.eq(key.as_ref()))
-            .cloned();
-        Ok(meta)
-    }
-
-    pub fn commodity(&self, name: &str) -> ZhangResult<Option<CommodityDomain>> {
-        let store = self.read();
-        Ok(store.commodities.get(name).cloned())
-    }
-
-    pub fn exist_commodity(&mut self, name: &str) -> ZhangResult<bool> {
-        Ok(self.commodity(name)?.is_some())
-    }
-
-    pub fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
-        Ok(self.account(name)?.is_some())
-    }
-
     pub fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {
         let store = self.read();
         Ok(store.errors.iter().cloned().collect_vec())
-    }
-
-    pub fn account(&mut self, account_name: &str) -> ZhangResult<Option<AccountDomain>> {
-        let store = self.read();
-
-        Ok(store.accounts.get(account_name).cloned())
     }
 }
 
@@ -200,47 +103,6 @@ impl Operations {
             span: Some(span.clone()),
             metas,
         });
-        Ok(())
-    }
-
-    pub fn insert_or_update_options(&mut self, key: &str, value: &str) -> ZhangResult<()> {
-        let mut store = self.write();
-
-        store.options.insert(key.to_owned(), value.to_owned());
-        Ok(())
-    }
-
-    pub fn insert_meta(&mut self, type_: MetaType, type_identifier: impl AsRef<str>, meta: Meta) -> ZhangResult<()> {
-        let mut store = self.write();
-
-        // a key the owner already has is updated in place (its first entry, as the scan found it); a new one is
-        // appended
-        for (meta_key, meta_value) in meta.get_flatten() {
-            match store.meta_position(type_.as_ref(), type_identifier.as_ref(), &meta_key) {
-                Some(position) => store.metas[position].value = meta_value.to_plain_string(),
-                None => store.push_meta(MetaDomain {
-                    meta_type: type_.as_ref().to_string(),
-                    type_identifier: type_identifier.as_ref().to_owned(),
-                    key: meta_key,
-                    value: meta_value.to_plain_string(),
-                }),
-            }
-        }
-        Ok(())
-    }
-
-    pub fn insert_commodity(&mut self, name: &String, precision: i32, prefix: Option<String>, suffix: Option<String>, rounding: Rounding) -> ZhangResult<()> {
-        let mut store = self.write();
-        store.commodities.insert(
-            name.to_owned(),
-            CommodityDomain {
-                name: name.to_owned(),
-                precision,
-                prefix,
-                suffix,
-                rounding,
-            },
-        );
         Ok(())
     }
 }

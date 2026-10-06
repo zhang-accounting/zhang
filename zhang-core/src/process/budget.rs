@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Budget, BudgetAdd, BudgetClose, BudgetTransfer, Date, SpanInfo};
+use zhang_ast::{Budget, BudgetAdd, BudgetClose, BudgetTransfer, Date, Directive, SpanInfo, Spanned};
 
-use crate::domains::schemas::PriceDomain;
+use crate::domains::schemas::price_map;
 use crate::ledger::Ledger;
 use crate::process::DirectiveProcess;
 use crate::utils::hashmap::HashMapOfExt;
@@ -141,14 +141,14 @@ pub(super) fn keep_foreign_amount(
 /// Report the amounts [`keep_foreign_amount`] kept that no price converts to their budget's
 /// commodity at their date, as the query engine converts them
 /// ([`zhang_shared::prices::PriceMap::conversion`]): the engine leaves them out of the budget instead of adding them
-/// as numbers of another commodity.
-pub(crate) fn report_unconverted_amounts(ledger: &mut Ledger) -> ZhangResult<()> {
+/// as numbers of another commodity. `directives` are those of the stream being folded, every price among them.
+pub(crate) fn report_unconverted_amounts(ledger: &mut Ledger, directives: &[Spanned<Directive>]) -> ZhangResult<()> {
     let amounts = std::mem::take(&mut ledger.foreign_budget_amounts);
     if amounts.is_empty() {
         return Ok(());
     }
     let mut operations = ledger.operations();
-    let prices = PriceDomain::price_map(&operations.read().prices);
+    let prices = price_map(directives, &ledger.options.timezone);
     for amount in amounts {
         if prices
             .conversion(&amount.commodity, &amount.budget_commodity, amount.via.as_deref(), Some(amount.date))

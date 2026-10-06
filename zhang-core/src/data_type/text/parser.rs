@@ -2704,7 +2704,7 @@ mod test {
             .unwrap();
             let source = LocalFileSystemDataSource::new(ZhangDataType {});
             let ledger = Ledger::load_with_data_source(temp_dir.path().to_path_buf(), "main.zhang".to_string(), Arc::new(source)).unwrap();
-            let queries = ledger.operations().queries().unwrap();
+            let queries = ledger.queries();
             assert_eq!(queries.len(), 1);
             assert_eq!(queries[0].query, r"SELECT narration WHERE narration ~ '\d+'");
         }

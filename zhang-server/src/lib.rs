@@ -721,9 +721,13 @@ mod reload_test {
     /// the accounts of the ledger served, sorted
     async fn accounts(ledger: &RwLock<Ledger>) -> Vec<String> {
         let ledger = ledger.read().await;
-        let store = ledger.store.read().unwrap();
-        let mut accounts: Vec<String> = store.accounts.keys().cloned().collect();
+        let opens = ledger.directives.iter().filter_map(|it| match &it.data {
+            zhang_ast::Directive::Open(open) => Some(open.account.name().to_owned()),
+            _ => None,
+        });
+        let mut accounts: Vec<String> = opens.collect();
         accounts.sort();
+        accounts.dedup();
         accounts
     }
 

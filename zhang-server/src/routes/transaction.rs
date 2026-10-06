@@ -506,7 +506,6 @@ mod string_round_trip_test {
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
-    use zhang_core::domains::schemas::MetaType;
     use zhang_core::ledger::Ledger;
     use zhang_core::utils::string_::escape_with_quote;
 
@@ -650,14 +649,20 @@ mod string_round_trip_test {
             tags: written.tags.iter().cloned().collect(),
             links: written.links.iter().cloned().collect(),
         };
-        let note = operations
-            .metas(MetaType::TransactionMeta, transaction.id.to_string())
-            .unwrap()
+        let note = transaction_metas(ledger, &transaction.id.to_string())
             .into_iter()
-            .find(|meta| meta.key == "note")
+            .find(|(key, _)| key == "note")
             .expect("note meta")
-            .value;
+            .1;
         (transaction, note)
+    }
+
+    /// The metadata of the stored transaction `id`, as `(key, value)` pairs sorted by key.
+    fn transaction_metas(ledger: &Ledger, id: &str) -> Vec<(String, String)> {
+        match ledger.transaction_directive(&Uuid::from_str(id).unwrap()).map(|it| &it.data) {
+            Some(Directive::Transaction(transaction)) => transaction.meta.clone().sorted_pairs(),
+            _ => vec![],
+        }
     }
 
     /// The paths of the documents the transaction `id` names, as `#documents` lists them.
@@ -792,9 +797,9 @@ mod string_round_trip_test {
         assert_eq!(created.flag.to_string(), "!");
         assert_eq!(created.tags, vec!["trip-2024", "旅行", "a#b"]);
         assert_eq!(created.links, vec!["inv-1"]);
-        let receipt = reloaded.operations().metas(MetaType::TransactionMeta, created.id.to_string()).unwrap();
-        assert!(receipt.iter().any(|meta| meta.key == "receipt-no" && meta.value == "1"), "{receipt:?}");
-        assert!(receipt.iter().any(|meta| meta.key == "receipt no" && meta.value == "2"), "{receipt:?}");
+        let receipt = transaction_metas(&reloaded, &created.id.to_string());
+        assert!(receipt.iter().any(|(key, value)| key == "receipt-no" && value == "1"), "{receipt:?}");
+        assert!(receipt.iter().any(|(key, value)| key == "receipt no" && value == "2"), "{receipt:?}");
 
         std::fs::remove_dir_all(dir).ok();
     }
@@ -1051,13 +1056,7 @@ mod string_round_trip_test {
         let reloaded = load(&dir).await;
         let (created, _) = transaction(&reloaded);
         let keys = |ledger: &Ledger, id: String| {
-            let mut metas = ledger
-                .operations()
-                .metas(MetaType::TransactionMeta, id)
-                .unwrap()
-                .into_iter()
-                .map(|meta| (meta.key, meta.value))
-                .collect::<Vec<_>>();
+            let mut metas = transaction_metas(ledger, &id);
             metas.sort();
             metas
         };
@@ -1251,8 +1250,11 @@ mod string_round_trip_test {
                     transaction.postings.iter().all(|posting| posting.meta.clone().get_flatten().is_empty()),
                     "{main}"
                 );
-                let metas = store.metas.iter().filter(|it| it.type_identifier == id.to_string()).count();
-                assert_eq!(metas, 1, "the document is transaction metadata");
+                let metas = transaction_metas(&reloaded, &id.to_string())
+                    .into_iter()
+                    .map(|(key, _)| key)
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(metas.len(), 1, "the document is transaction metadata");
                 let id = id.to_string();
                 drop(store);
                 assert_eq!(transaction_documents(&reloaded, &id), vec!["attachments/a.pdf"], "{main} {strings}");

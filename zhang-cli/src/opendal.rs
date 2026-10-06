@@ -431,6 +431,15 @@ mod test {
         Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap())
     }
 
+    /// the accounts the `open` directives of `ledger` open
+    fn opened(ledger: &Ledger) -> std::collections::BTreeSet<String> {
+        let opens = ledger.directives.iter().filter_map(|it| match &it.data {
+            zhang_ast::Directive::Open(open) => Some(open.account.name().to_owned()),
+            _ => None,
+        });
+        opens.collect()
+    }
+
     /// the errors of `ledger`, by the text of their directive: the kind, the metas as `key=value` in order, and the text
     fn errors_of(ledger: &Ledger) -> Vec<(zhang_ast::error::ErrorKind, Vec<String>, String)> {
         let store = ledger.store.read().unwrap();
@@ -537,9 +546,8 @@ mod test {
         let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).expect("the rest of the ledger loads");
 
         assert_eq!(errors_of(&ledger), vec![include_not_found(&outside_file)]);
-        let store = ledger.store.read().unwrap();
-        assert!(store.accounts.contains_key("Assets:Cash"));
-        assert!(!store.accounts.contains_key("Assets:Outside"));
+        assert!(opened(&ledger).contains("Assets:Cash"));
+        assert!(!opened(&ledger).contains("Assets:Outside"));
         assert!(ledger.extra_inputs.is_empty(), "a file outside the ledger's directory is not watched");
     }
 
@@ -578,7 +586,7 @@ mod test {
 
         let loaded = |ledger: &Ledger| {
             let spans: Vec<_> = ledger.directives.iter().chain(&ledger.metas).map(|it| it.span.filename.clone()).collect();
-            let accounts: std::collections::BTreeSet<_> = ledger.store.read().unwrap().accounts.keys().cloned().collect();
+            let accounts = opened(ledger);
             (ledger.visited_files.clone(), spans, errors_of(ledger), accounts)
         };
         assert_eq!(loaded(&tested), loaded(&served));
@@ -834,7 +842,7 @@ mod test {
             failure.message,
             "the file bad.zhang is not UTF-8 text: line 1 holds a byte that is not UTF-8. Save the file with the UTF-8 encoding"
         );
-        assert!(ledger.store.read().unwrap().accounts.contains_key("Assets:Bank"), "the ledger stays as loaded");
+        assert!(opened(&ledger).contains("Assets:Bank"), "the ledger stays as loaded");
     }
 
     #[tokio::test]

@@ -527,7 +527,7 @@ fn rows<'a>(
     } else {
         HashMap::new()
     };
-    let prices = (wants_activity || wants_added).then(|| LedgerCache::of(ledger, store).prices(store));
+    let prices = (wants_activity || wants_added).then(|| LedgerCache::of(ledger, store).prices(ledger));
     let mut activity = match &prices {
         Some(prices) if wants_activity => activity(ledger, store, &budgets, &accounts, prices),
         _ => HashMap::new(),

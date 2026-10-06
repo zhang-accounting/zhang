@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use chrono::NaiveDate;
 use common::{fava_demo_ledger, load_text};
 use zhang_core::ast::Directive;
-use zhang_core::domains::schemas::{MetaDomain, PriceDomain};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{DocumentDomain, DocumentType, TransactionDomain};
 use zhang_query::{DataType, ExecuteOptions, Inventory, ParamTypes, Params, PriceMap, Query, QueryErrorKind, Value};
@@ -481,7 +480,6 @@ fn a_reload_replaces_the_cache() {
 fn a_ledger_changed_after_its_first_query_is_an_error() {
     let ledger = load_text(LEDGER);
     assert_eq!(table(&ledger, "SELECT count(*)"), "14");
-    ledger.store.write().unwrap().prices.clear();
     let mut store = ledger.store.write().unwrap();
     let payee = |txn: &TransactionDomain| match &ledger.directives[txn.directive].data {
         Directive::Transaction(it) => it.payee.as_ref().map(|it| it.as_str().to_owned()),
@@ -497,22 +495,14 @@ fn a_ledger_changed_after_its_first_query_is_an_error() {
 }
 
 /// Every count the cache's fingerprint keeps catches a change on its own, with the number of
-/// transactions unchanged: a price, a document, an error, a metadata entry or a directive more.
+/// transactions unchanged: a document, an error or a directive more.
 /// (The fingerprint counts these, so a change that keeps every count, such as an edited posting
 /// amount, is not caught; zhang never changes a loaded ledger, it replaces it.)
 #[test]
 fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
     /// what is added, and how
     type Change = (&'static str, fn(&mut Ledger));
-    let changes: [Change; 5] = [
-        ("a price", |ledger| {
-            ledger.store.write().unwrap().prices.push(PriceDomain {
-                datetime: NaiveDate::from_ymd_opt(2024, 2, 1).unwrap().and_hms_opt(0, 0, 0).unwrap(),
-                commodity: "AAPL".to_owned(),
-                amount: 120.into(),
-                target_commodity: "USD".to_owned(),
-            })
-        }),
+    let changes: [Change; 3] = [
         ("a document", |ledger| {
             let mut store = ledger.store.write().unwrap();
             let txn = store.transactions.values().next().unwrap();
@@ -532,14 +522,6 @@ fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
             let mut store = ledger.store.write().unwrap();
             let error = store.errors[0].clone();
             store.errors.push(error);
-        }),
-        ("a metadata entry", |ledger| {
-            ledger.store.write().unwrap().metas.push(MetaDomain {
-                meta_type: "AccountMeta".to_owned(),
-                type_identifier: "Assets:Bank".to_owned(),
-                key: "note".to_owned(),
-                value: "added".to_owned(),
-            })
         }),
         ("a directive", |ledger| {
             let directive = ledger.directives[0].clone();

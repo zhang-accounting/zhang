@@ -26,7 +26,6 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
-use zhang_core::domains::schemas::MetaType;
 use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::QuoteStyle;
 
@@ -395,15 +394,10 @@ fn a_loaded_ledger_keeps_posting_metadata_apart_from_transaction_metadata() {
         "{:?}",
         store.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>()
     );
-    let ids: Vec<String> = store.transactions.values().map(|it| it.id.to_string()).collect();
     drop(store);
-    assert_eq!(ids.len(), 1);
-    let keys: Vec<(String, String)> = operations
-        .metas(MetaType::TransactionMeta, &ids[0])
-        .unwrap()
-        .into_iter()
-        .map(|it| (it.key, it.value))
-        .collect();
+    let transactions = ledger.transactions();
+    assert_eq!(transactions.len(), 1);
+    let keys: Vec<(String, String)> = transactions[0].1.meta.clone().sorted_pairs();
     for key in ["note", "legacy"] {
         assert!(keys.iter().any(|(k, _)| k == key), "transaction meta {key} is in the store: {keys:?}");
     }

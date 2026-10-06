@@ -29,7 +29,6 @@ pub type ZhangResult<T> = Result<T, ZhangError>;
 
 #[cfg(test)]
 mod test {
-    use std::ops::Deref;
     use std::sync::Arc;
 
     use serde_json_path::JsonPath;
@@ -37,7 +36,13 @@ mod test {
 
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
+    use crate::domains::schemas::CommodityDomain;
     use crate::ledger::Ledger;
+
+    /// the commodity `name` of the ledger ([`Ledger::commodities`])
+    fn commodity(ledger: &Ledger, name: &str) -> Option<CommodityDomain> {
+        ledger.commodities().into_iter().map(|(commodity, _)| commodity).find(|it| it.name == name)
+    }
 
     fn load_from_text(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().keep();
@@ -61,11 +66,9 @@ mod test {
     }
 
     impl StoreTest {
+        /// assert the value at `path` of the ledger's options as JSON, `{"options": {key: value}}`
         pub fn assert_string(self, path: &str, expected_data: &str, msg: &str) -> Self {
-            let operations = self.ledger.operations();
-            let guard = operations.store.read().unwrap();
-            let x = guard.deref();
-            let value = serde_json::to_value(x).unwrap();
+            let value = serde_json::json!({ "options": self.ledger.options.values });
             let json_path = JsonPath::parse(path).unwrap();
             let node = json_path.query(&value).exactly_one().unwrap().as_str().unwrap();
             assert_eq!(node, expected_data, "{}", msg);
@@ -117,9 +120,8 @@ mod test {
             let ledger = load_from_text(indoc! {r#"
                  option "operating_currency" "USD"
             "#});
-            let operations = ledger.operations();
 
-            assert_eq!(operations.option::<String>("operating_currency").unwrap().unwrap(), "USD");
+            assert_eq!(ledger.options.option::<String>("operating_currency").unwrap().unwrap(), "USD");
             Ok(())
         }
 
@@ -130,9 +132,7 @@ mod test {
                  option "title" "Example2"
                  option "url" "url here"
             "#});
-            let mut operations = ledger.operations();
-
-            let options = operations.options().unwrap();
+            let options = ledger.options.all();
             assert_eq!(BuiltinOption::iter().count() + 2, options.len());
             assert_eq!(1, options.iter().filter(|it| it.key.eq("title")).count());
             assert_eq!(1, options.iter().filter(|it| it.key.eq("url")).count());
@@ -142,8 +142,8 @@ mod test {
 
     mod meta {
         use indoc::indoc;
+        use zhang_ast::Directive;
 
-        use crate::domains::schemas::MetaType;
         use crate::test::load_from_text;
 
         #[test]
@@ -152,14 +152,17 @@ mod test {
                 1970-01-01 open Assets:MyCard
                   a: "b"
             "#});
-            let operations = ledger.operations();
-
-            let mut vec = operations.metas(MetaType::AccountMeta, "Assets:MyCard")?;
+            let open = ledger.directives.iter().find_map(|it| match &it.data {
+                Directive::Open(open) => Some(open),
+                _ => None,
+            });
+            let open = open.unwrap();
+            let mut vec = open.meta.clone().sorted_pairs();
             assert_eq!(1, vec.len());
-            let meta = vec.pop().unwrap();
-            assert_eq!(meta.key, "a");
-            assert_eq!(meta.value, "b");
-            assert_eq!(meta.type_identifier, "Assets:MyCard");
+            let (key, value) = vec.pop().unwrap();
+            assert_eq!(key, "a");
+            assert_eq!(value, "b");
+            assert_eq!(open.account.name(), "Assets:MyCard");
             Ok(())
         }
 
@@ -187,7 +190,7 @@ mod test {
             let store = operations.read();
             assert!(store.errors.is_empty(), "{:?}", store.errors);
             drop(store);
-            let (id, txn) = ledger.transactions().into_iter().next().unwrap();
+            let (_, txn) = ledger.transactions().into_iter().next().unwrap();
             let pairs = |posting: &zhang_ast::Posting| {
                 posting
                     .meta
@@ -202,17 +205,22 @@ mod test {
             assert_eq!(postings, vec![vec!["receipt=r1"], vec!["a=1", "a=0", "b=2", "document=receipts/posting.pdf"]]);
 
             // the transaction's own metadata is unchanged
-            let mut metas = operations
-                .metas(MetaType::TransactionMeta, id.to_string())?
+            let mut metas = txn
+                .meta
+                .clone()
+                .sorted_pairs()
                 .into_iter()
-                .map(|meta| format!("{}={}", meta.key, meta.value))
+                .map(|(key, value)| format!("{key}={value}"))
                 .collect::<Vec<_>>();
             metas.sort();
             assert_eq!(metas, vec!["document=receipts/transaction.pdf", "memo=m"]);
 
             // Budget ownership remains account metadata; figures are computed by zhang-query.
-            let budgets = operations.metas(MetaType::AccountMeta, "Expenses:Food")?;
-            assert_eq!(budgets.iter().find(|meta| meta.key == "budget").unwrap().value, "food");
+            let food = ledger.directives.iter().find_map(|it| match &it.data {
+                Directive::Open(open) if open.account.name() == "Expenses:Food" => Some(open),
+                _ => None,
+            });
+            assert_eq!(food.unwrap().meta.get_one("budget").unwrap().as_str(), "food");
             Ok(())
         }
 
@@ -251,10 +259,22 @@ mod test {
         }
     }
     mod account {
+        use chrono::NaiveDateTime;
         use indoc::indoc;
+        use zhang_ast::Directive;
 
         use crate::domains::schemas::AccountStatus;
+        use crate::ledger::Ledger;
         use crate::test::{load_from_text, load_store};
+
+        /// the alias the `alias` metadata of the first `open` of `account` gives it
+        fn alias(ledger: &Ledger, account: &str) -> Option<String> {
+            let open = ledger.directives.iter().find_map(|it| match &it.data {
+                Directive::Open(open) if open.account.name() == account => Some(open),
+                _ => None,
+            });
+            open?.meta.get_one("alias").map(|it| it.as_str().to_owned())
+        }
 
         #[test]
         fn should_closed_account() -> Result<(), Box<dyn std::error::Error>> {
@@ -263,10 +283,9 @@ mod test {
                 1970-01-02 close Assets:MyCard
             "#});
 
-            let mut operations = ledger.operations();
-            let account = operations.account("Assets:MyCard")?.unwrap();
-            assert_eq!(account.status, AccountStatus::Close);
-            assert_eq!(account.alias, None);
+            // its status after every directive, and the alias of its `open`
+            assert_eq!(ledger.account_status("Assets:MyCard", NaiveDateTime::MAX), Some(AccountStatus::Close));
+            assert_eq!(alias(&ledger, "Assets:MyCard"), None);
             Ok(())
         }
 
@@ -277,9 +296,7 @@ mod test {
                   alias: "MyCardAliasName"
             "#});
 
-            let mut operations = ledger.operations();
-            let account = operations.account("Assets:MyCard")?.unwrap();
-            assert_eq!(account.alias.unwrap(), "MyCardAliasName");
+            assert_eq!(alias(&ledger, "Assets:MyCard").unwrap(), "MyCardAliasName");
             Ok(())
         }
 
@@ -299,8 +316,14 @@ mod test {
                   Expenses:A
             "#})
             .ledger;
-            let store = ledger.store.read().unwrap();
-            let result = store.accounts.keys().cloned().collect::<Vec<_>>();
+            let result = ledger
+                .directives
+                .iter()
+                .filter_map(|it| match &it.data {
+                    Directive::Open(open) => Some(open.account.name().to_owned()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
             assert!(result.contains(&"Assets:A".to_owned()));
             assert!(result.contains(&"Expenses:A".to_owned()));
         }
@@ -385,8 +408,7 @@ mod test {
                 1970-01-01 commodity CNY
             "#});
 
-            let operations = ledger.operations();
-            let commodity = operations.commodity("CNY")?.unwrap();
+            let commodity = crate::test::commodity(&ledger, "CNY").unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(2, commodity.precision);
             assert_eq!(None, commodity.prefix);
@@ -400,8 +422,7 @@ mod test {
                 1970-01-01 commodity CNY
             "#});
 
-            let operations = ledger.operations();
-            let commodity = operations.commodity("USD")?;
+            let commodity = crate::test::commodity(&ledger, "USD");
             assert!(commodity.is_none());
             Ok(())
         }
@@ -413,8 +434,7 @@ mod test {
                 1970-01-01 commodity CNY
             "#});
 
-            let operations = ledger.operations();
-            let commodity = operations.commodity("CNY")?.unwrap();
+            let commodity = crate::test::commodity(&ledger, "CNY").unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(3, commodity.precision);
             assert_eq!(None, commodity.prefix);
@@ -431,8 +451,7 @@ mod test {
                   suffix: "CNY"
             "#});
 
-            let operations = ledger.operations();
-            let commodity = operations.commodity("CNY")?.unwrap();
+            let commodity = crate::test::commodity(&ledger, "CNY").unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(3, commodity.precision);
             assert_eq!("¥", commodity.prefix.unwrap());
@@ -447,8 +466,7 @@ mod test {
                   precision: "4"
             "#});
 
-            let operations = ledger.operations();
-            let commodity = operations.commodity("CNY")?.unwrap();
+            let commodity = crate::test::commodity(&ledger, "CNY").unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(4, commodity.precision);
             assert_eq!(None, commodity.prefix);
@@ -464,8 +482,7 @@ mod test {
                   precision: "4"
             "#});
 
-            let operations = ledger.operations();
-            let commodity = operations.commodity("CNY")?.unwrap();
+            let commodity = crate::test::commodity(&ledger, "CNY").unwrap();
             assert_eq!("CNY", commodity.name);
             assert_eq!(4, commodity.precision);
             assert_eq!(None, commodity.prefix);
@@ -545,8 +562,7 @@ mod test {
                     1970-01-01 open Assets:MyCard CNY
                 "#});
 
-            let operations = ledger.operations();
-            let timezone: String = operations.option("timezone")?.unwrap();
+            let timezone: String = ledger.options.option("timezone")?.unwrap();
             assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone);
             Ok(())
         }
@@ -557,8 +573,7 @@ mod test {
                     option "timezone" "MYZone"
                 "#});
 
-            let operations = ledger.operations();
-            let timezone: String = operations.option("timezone")?.unwrap();
+            let timezone: String = ledger.options.option("timezone")?.unwrap();
             assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone);
             Ok(())
         }
@@ -568,8 +583,7 @@ mod test {
                     option "timezone" "Antarctica/South_Pole"
                 "#});
 
-            let operations = ledger.operations();
-            let timezone: String = operations.option("timezone")?.unwrap();
+            let timezone: String = ledger.options.option("timezone")?.unwrap();
             assert_eq!("Antarctica/South_Pole", timezone);
             assert_eq!(ledger.options.timezone, "Antarctica/South_Pole".parse().unwrap());
             Ok(())
