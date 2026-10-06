@@ -6,7 +6,8 @@ import { createAccountBalance } from '@/api/requests';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { apiErrorMessage } from '@/lib/api-error';
 import { replacedBalancesText } from '@/utils/balance-check';
-import { accountFetcher, accountSelectItemsAtom } from '../states/account';
+import { accountSelectItemsAtom } from '../states/account';
+import { ledgerChangedAtom } from '../states/ledger';
 import Amount from './Amount';
 import { Button } from './ui/button';
 import { Field, FieldLabel } from './ui/field';
@@ -20,21 +21,19 @@ interface Props {
   includesSubAccounts?: boolean;
   commodity: string;
   accountName: string;
-  /** Called after the balance directive was written. */
-  onSaved?: () => void;
 }
 
 /**
  * Balance assertion / pad form for one commodity of an account. Stacked on mobile, one row on desktop.
  * With a pad account it writes a `pad` + `balance`, otherwise a plain `balance` check.
  */
-export default function AccountBalanceCheckLine({ currentAmount, includesSubAccounts, commodity, accountName, onSaved }: Props) {
+export default function AccountBalanceCheckLine({ currentAmount, includesSubAccounts, commodity, accountName }: Props) {
   const { t } = useTranslation();
   const id = useId();
   const [amount, setAmount] = useState('');
   const [padAccount, setPadAccount] = useState<string>('');
   const [saving, setSaving] = useState(false);
-  const refreshAccounts = useSetAtom(accountFetcher);
+  const ledgerChanged = useSetAtom(ledgerChangedAtom);
   const accountItems = useAtomValue(accountSelectItemsAtom);
 
   const onSave = async () => {
@@ -51,8 +50,7 @@ export default function AccountBalanceCheckLine({ currentAmount, includesSubAcco
       toast.success(t('ledger.balance.saved'), replaced ? { description: replaced, duration: 10000 } : undefined);
       setAmount('');
       setPadAccount('');
-      refreshAccounts();
-      onSaved?.();
+      ledgerChanged();
     } catch (e: unknown) {
       toast.error(t('ledger.balance.failed'), { description: await apiErrorMessage(e), duration: 10000 });
     } finally {

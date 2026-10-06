@@ -7,8 +7,8 @@ import { toast } from 'sonner';
 import { updateTransaction } from '@/api/requests';
 import { JournalTransactionItem } from '@/api/types';
 import { apiErrorMessage } from '@/lib/api-error';
-import { accountFetcher } from '../../states/account';
-import { editTransactionAtom, journalFetcher } from '../../states/journals';
+import { editTransactionAtom } from '../../states/journals';
+import { ledgerChangedAtom } from '../../states/ledger';
 import { rewriteWarning } from '../journalLines/journal-utils';
 import TransactionEditForm, { TransactionFormValue } from '../TransactionEditForm';
 import { AutoDrawer } from '../ui/auto-drawer';
@@ -27,8 +27,7 @@ export const TransactionEditModal = () => {
   const { t } = useTranslation();
   const { pathname } = useLocation();
   const [editTransaction, setEditTransaction] = useAtom(editTransactionAtom);
-  const refreshJournals = useSetAtom(journalFetcher);
-  const refreshAccounts = useSetAtom(accountFetcher);
+  const ledgerChanged = useSetAtom(ledgerChangedAtom);
   const [shown, setShown] = useState<JournalTransactionItem | undefined>(editTransaction);
   const [data, setData] = useState<TransactionFormValue | undefined>(undefined);
   const [isValid, setIsValid] = useState<boolean>(false);
@@ -54,8 +53,7 @@ export const TransactionEditModal = () => {
       await updateTransaction({ ...data, transaction_id: shown.id });
       toast.success(t('ledger.txn.updated'));
       setEditTransaction(undefined);
-      refreshJournals();
-      refreshAccounts();
+      ledgerChanged();
     } catch (error) {
       toast.error(t('ledger.txn.update_failed'), { description: await apiErrorMessage(error) });
     } finally {

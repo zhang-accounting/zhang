@@ -7,7 +7,8 @@ import CommodityBox, { CommodityLatestPrice, CommoditySymbol, type CommodityBoxP
 import { EmptyState, LoadFailedState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { Badge } from '@/components/ui/badge';
-import { commoditiesAtom, commoditiesFetcher, FRONTEND_DEFAULT_GROUP, groupedCommoditiesAtom } from '@/states/commodity';
+import { commoditiesAtom, FRONTEND_DEFAULT_GROUP, groupedCommoditiesAtom } from '@/states/commodity';
+import { ledgerChangedAtom } from '@/states/ledger';
 import { operatingCurrencyAtom } from '@/states/options';
 
 type CommodityRow = CommodityBoxProps;
@@ -16,7 +17,7 @@ export default function Commodities() {
   const { t } = useTranslation();
 
   const commodities = useAtomValue(commoditiesAtom);
-  const refreshCommodities = useSetAtom(commoditiesFetcher);
+  const refreshCommodities = useSetAtom(ledgerChangedAtom);
   const groupedCommodities = useAtomValue(groupedCommoditiesAtom);
   const operatingCurrency = useAtomValue(operatingCurrencyAtom);
 

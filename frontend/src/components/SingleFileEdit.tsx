@@ -3,6 +3,7 @@ import { Check, RefreshCw, RotateCcw, Save, TriangleAlert } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+// eslint-disable-next-line no-restricted-imports -- the file content must not follow ledger reloads: one would overwrite unsaved text
 import { useAsync } from 'react-use';
 import { toast } from 'sonner';
 import { base64Path, retrieveFile, updateFile } from '@/api/requests';

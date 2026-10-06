@@ -6,20 +6,21 @@ import { toast } from 'sonner';
 import { uploadDocuments } from '@/api/requests';
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
+import { ledgerChangedAtom } from '@/states/ledger';
+import { useSetAtom } from 'jotai';
 import { Spinner } from './ui/spinner';
 
 interface Props {
   type: 'transaction' | 'account';
   id: string;
-  /** Called after a successful upload (e.g. to reload the document list). */
-  onUploaded?: () => void;
   className?: string;
 }
 
 /** Square drop zone tile that uploads documents to an account or a transaction. */
-export default function AccountDocumentUpload({ type, id, onUploaded, className }: Props) {
+export default function AccountDocumentUpload({ type, id, className }: Props) {
   const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
+  const ledgerChanged = useSetAtom(ledgerChangedAtom);
 
   const onDrop = useCallback(
     async (files: FileWithPath[]) => {
@@ -28,14 +29,14 @@ export default function AccountDocumentUpload({ type, id, onUploaded, className 
       try {
         await uploadDocuments(type === 'transaction' ? 'transactions' : 'accounts', id, files);
         toast.success(t('ledger.documents.uploaded', { count: files.length }));
-        onUploaded?.();
+        ledgerChanged();
       } catch (error) {
         toast.error(t('ledger.documents.upload_failed'), { description: await apiErrorMessage(error) });
       } finally {
         setUploading(false);
       }
     },
-    [type, id, onUploaded, t],
+    [type, id, ledgerChanged, t],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, disabled: uploading });

@@ -2,7 +2,6 @@ import { useAtomValue } from 'jotai';
 import { CalendarIcon, Plus, TableProperties, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
 import { previewNewTransaction, previewTransactionUpdate, retrieveNewTransactionInfo } from '@/api/requests';
 import { JournalTransactionItem, MetaEntry } from '@/api/types';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
@@ -10,6 +9,7 @@ import { useDateFormat, useDateLocale } from '@/components/layout/use-date-forma
 import { useListState } from '@/hooks/use-list-state';
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
+import { useLedgerQuery } from '@/states/ledger';
 import { operatingCurrencyAtom } from '@/states/options';
 import { accountOptions } from '@/utils/account-options';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
@@ -108,7 +108,7 @@ export default function TransactionEditForm(props: Props) {
   // the ledger's options, fetched once for every page that uses one
   const operatingCurrency = useAtomValue(operatingCurrencyAtom);
   // the payees, and the accounts open at the transaction's date and time, by the rule the ledger checks it with
-  const { value: info } = useAsync(async () => (await retrieveNewTransactionInfo({ datetime: datetime ?? null })).data.data, [datetime]);
+  const { value: info } = useLedgerQuery(() => retrieveNewTransactionInfo({ datetime: datetime ?? null }), [datetime]);
   useEffect(() => {
     if (datetime === undefined && info) setDatetime(info.now);
   }, [datetime, info]);

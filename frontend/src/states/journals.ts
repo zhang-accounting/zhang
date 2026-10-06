@@ -1,18 +1,20 @@
 import { JournalItem, JournalTransactionItem } from '@/api/types';
 import { format } from 'date-fns';
 import { atom } from 'jotai';
-import { atomWithRefresh, loadable } from 'jotai/utils';
+import { loadable } from 'jotai/utils';
 import { groupBy } from 'lodash-es';
 import { retrieveJournals } from '../api/requests';
 import { loadable_unwrap } from './index';
 import { JOURNAL_PAGE_SIZE } from '@/components/journalLines/journal-utils';
+import { ledgerRevisionAtom } from './ledger';
 
 export const journalKeywordAtom = atom('');
 export const journalPageAtom = atom(1);
 export const journalTagsAtom = atom<string[]>([]);
 export const journalLinksAtom = atom<string[]>([]);
 
-export const journalFetcher = atomWithRefresh(async (get) => {
+export const journalFetcher = atom(async (get) => {
+  get(ledgerRevisionAtom);
   const page = get(journalPageAtom);
   const keyword = get(journalKeywordAtom);
   const tags = get(journalTagsAtom);

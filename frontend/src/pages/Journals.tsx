@@ -16,7 +16,8 @@ import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { useDebouncedValue } from '@/hooks/use-debounced';
 import { cn } from '@/lib/utils';
-import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom } from '../states/journals';
+import { groupedJournalsAtom, journalAtom, journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom } from '../states/journals';
+import { ledgerChangedAtom } from '../states/ledger';
 
 function Journals() {
   const { t } = useTranslation();
@@ -27,7 +28,7 @@ function Journals() {
   const [journalPage, setJournalPage] = useAtom(journalPageAtom);
   const [journalTags, setJournalTags] = useAtom(journalTagsAtom);
   const [journalLinks, setJournalLinks] = useAtom(journalLinksAtom);
-  const refreshJournals = useSetAtom(journalFetcher);
+  const refreshJournals = useSetAtom(ledgerChangedAtom);
   const journalItems = useAtomValue(journalAtom);
 
   const data = journalItems.state === 'hasData' ? journalItems.data : undefined;

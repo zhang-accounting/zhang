@@ -1,11 +1,8 @@
 import { atom } from 'jotai';
 import { AUTH_DISABLED, AuthRequestError, fetchAuthStatus, type AuthStatus } from '@/api/auth';
 import { apiErrorMessage } from '@/lib/api-error';
-import { accountFetcher } from './account';
-import { basicInfoFetcher, onlineAtom } from './basic';
-import { commoditiesFetcher } from './commodity';
-import { errorsFetcher } from './errors';
-import { journalFetcher } from './journals';
+import { onlineAtom } from './basic';
+import { ledgerChangedAtom } from './ledger';
 
 /** Why the login page is showing: `expired` adds a "session expired" note, `signed-out` drops the return path. */
 export type LockReason = 'expired' | 'signed-out';
@@ -84,13 +81,9 @@ export const signedOutAtom = atom(null, (get, set, reason: LockReason) => {
 
 /**
  * Drops the cached ledger data (and the SSE online flag) so nothing from the previous session is shown after the next
- * sign-in. Run once the app shell has unmounted: refreshing a mounted `atomWithRefresh` would refetch (and 401) right away.
+ * sign-in. Run once the app shell has unmounted: a new ledger revision makes every mounted read refetch (and 401) right away.
  */
 export const resetLedgerStateAtom = atom(null, (_get, set) => {
-  set(basicInfoFetcher);
-  set(accountFetcher);
-  set(commoditiesFetcher);
-  set(errorsFetcher);
-  set(journalFetcher);
+  set(ledgerChangedAtom);
   set(onlineAtom, false);
 });

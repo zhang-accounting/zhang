@@ -24,6 +24,19 @@ export default tseslint.config(
         { allowConstantExport: true },
       ],
       'max-len': ['error', { code: 160, tabWidth: 2 }],
+      // A page that fetches by itself keeps showing what it loaded first after a ledger reload or a write.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react-use',
+              importNames: ['useAsync', 'useAsyncRetry', 'useAsyncFn'],
+              message: 'Read ledger data with `useLedgerQuery` (states/ledger.ts), so the page follows ledger reloads and writes.',
+            },
+          ],
+        },
+      ],
     },
   },
   {

@@ -5,8 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { createNewTransaction } from '@/api/requests';
 import { apiErrorMessage } from '@/lib/api-error';
-import { accountFetcher } from '@/states/account';
-import { journalFetcher } from '@/states/journals';
+import { ledgerChangedAtom } from '@/states/ledger';
 import TransactionEditForm, { TransactionFormValue } from './TransactionEditForm';
 import { AutoDrawer, AutoDrawerTrigger } from './ui/auto-drawer';
 import { Button } from './ui/button';
@@ -37,8 +36,7 @@ export default function NewTransactionButton({ variant = 'icon' }: { variant?: k
   const [data, setData] = useState<TransactionFormValue | undefined>(undefined);
   const [isValid, setIsValid] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
-  const refreshJournals = useSetAtom(journalFetcher);
-  const refreshAccounts = useSetAtom(accountFetcher);
+  const ledgerChanged = useSetAtom(ledgerChangedAtom);
 
   const onOpenChange = (open: boolean) => {
     if (open) setFormKey((key) => key + 1);
@@ -52,8 +50,7 @@ export default function NewTransactionButton({ variant = 'icon' }: { variant?: k
       await createNewTransaction(data);
       setIsOpen(false);
       toast.success(t('ledger.txn.created'));
-      refreshJournals();
-      refreshAccounts();
+      ledgerChanged();
     } catch (error) {
       toast.error(t('ledger.txn.create_failed'), { description: await apiErrorMessage(error) });
     } finally {
