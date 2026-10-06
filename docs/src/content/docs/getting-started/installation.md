@@ -117,7 +117,7 @@ When the ledger cannot be loaded at startup, for example because of a syntax err
 ## Other commands
 
 - `zhang update` replaces the binary with the latest release for your platform, see [Upgrading](/deployment/upgrading/#release-binaries).
-- `zhang parse` and `zhang export` are placeholders: they do not read the ledger yet. To check a ledger, start `zhang serve` and look at the error list in the web UI.
+- There is no separate command to check a ledger: start `zhang serve` and look at the error list in the web UI.
 
 ## Next steps
 

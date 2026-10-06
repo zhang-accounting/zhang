@@ -55,7 +55,6 @@ pub mod request;
 pub mod response;
 pub mod routes;
 pub mod state;
-pub mod tasks;
 pub mod util;
 mod validate;
 mod watch;

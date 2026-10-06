@@ -63,7 +63,7 @@ jobs:
         run: pnpm build
         working-directory: ./frontend
   # the tests run in three parallel jobs: zhang-query, zhang-server, and `others` (every other package, today zhang-core,
-  # zhang-ast, beancount, zhang, zhang-plugin-sdk and its examples and zhang-python, and any crate added later, plus the
+  # zhang-ast, beancount, zhang, zhang-plugin-sdk and its examples, and any crate added later, plus the
   # doctests and the zhang-core build without the plugin runtime). Every job builds the test binaries of all the default
   # members, exactly as `cargo test` at the root would, so the features are unified the same way (zhang-server turns
   # on `plugin_runtime` of zhang-core) and every job builds the same artifacts. Each job then runs only its own tests,
@@ -93,9 +93,6 @@ jobs:
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
       # nextest runs the tests of all test binaries in parallel, where `cargo test` runs the binaries one after another
       - uses: taiki-e/install-action@v2
         with:

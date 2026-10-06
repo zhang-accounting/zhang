@@ -8,7 +8,6 @@ members = [
     "zhang-server",
     "zhang-cli",
     "extensions/*",
-    "bindings/python",
     "bindings/wasm",
     "zhang-plugin-sdk",
     "zhang-plugin-sdk/examples/*",
@@ -24,7 +23,6 @@ default-members = [
     "zhang-server",
     "zhang-cli",
     "extensions/*",
-    "bindings/python",
     "zhang-plugin-sdk",
     "zhang-plugin-sdk/examples/*",
 ]
