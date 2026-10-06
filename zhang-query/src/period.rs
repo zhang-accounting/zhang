@@ -309,18 +309,15 @@ struct Posting<'a> {
 }
 
 impl ResolvedPeriod {
-    /// Rewrite the rows of `data`. Its rows must carry the cost of their lots
-    /// ([`crate::projector::Projection::with_cost`]). The account balances are summed over the
-    /// rewritten rows, as the executor sums them over the rows of the table.
+    /// Rewrite the rows of `data`. The account balances are summed over the rewritten rows, as
+    /// the executor sums them over the rows of the table.
     pub fn apply<'a>(&self, mut data: Dataset<'a>, ledger: &'a Ledger, equity: &'a EquityAccounts) -> Dataset<'a> {
-        let keep_price = data.projection.keeps_price();
         let rows = std::mem::take(&mut data.rows);
         let mut transform = Transform {
             entries: &mut data.entries,
             rows,
             ledger,
             equity,
-            keep_price,
         };
         if let Some(open) = self.open {
             transform.open(open);
@@ -343,8 +340,6 @@ struct Transform<'d, 'a> {
     rows: Vec<Row<'a>>,
     ledger: &'a Ledger,
     equity: &'a EquityAccounts,
-    /// whether rows keep their price annotation (the zero price of conversion postings)
-    keep_price: bool,
 }
 
 impl<'a> Transform<'_, 'a> {
@@ -569,7 +564,7 @@ impl<'a> Transform<'_, 'a> {
                 account: posting.name,
                 units: MaybeOwned::owned(posting.units),
                 cost: posting.cost.map(MaybeOwned::owned),
-                price: posting.price.filter(|_| self.keep_price).map(MaybeOwned::owned),
+                price: posting.price.map(MaybeOwned::owned),
             });
         }
         self.entries.push(Entry {
@@ -616,7 +611,7 @@ mod tests {
         let equity = EquityAccounts::from_options(&store.options);
         let period = query.plan.period.as_ref().expect("a period query").resolve(&Params::new()).unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let data = Dataset::new(ledger, &store, today, projection.unwrap_or(query.projection).with_cost());
+        let data = Dataset::new(ledger, &store, today, projection.unwrap_or(query.projection));
         let data = period.apply(data, ledger, &equity);
         let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
         // the Debug form keeps decimal scales, so equal strings are identical results

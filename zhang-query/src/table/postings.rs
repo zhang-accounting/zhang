@@ -26,7 +26,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
 
 use super::cache::{Accounts, CachedRow, LedgerCache, Lot, Postings};
-use super::{render_pairs, Borrow, ColumnDef, Dataset, Get, Reads, POSTINGS};
+use super::{render_pairs, Borrow, ColumnDef, Dataset, POSTINGS};
 use crate::decimal;
 use crate::functions::is_under;
 use crate::projector::Projection;
@@ -84,11 +84,9 @@ pub(crate) struct Row<'a> {
     pub posting_index: usize,
     pub account: &'a str,
     pub units: MaybeOwned<'a, Amount>,
-    /// the cost of the booked lot; only kept when the projection reads it
-    /// ([`Projection::keeps_cost`]), otherwise always `None`
+    /// the cost of the booked lot
     pub cost: Option<MaybeOwned<'a, Cost>>,
-    /// per-unit price annotation; only kept when the projection reads it
-    /// ([`Projection::keeps_price`]), otherwise always `None`
+    /// per-unit price annotation
     pub price: Option<MaybeOwned<'a, Amount>>,
 }
 
@@ -165,7 +163,6 @@ impl<'a> Dataset<'a> {
             None => store.transactions.get(&postings.entries[idx].id),
         };
 
-        let (keep_cost, keep_price) = (projection.keeps_cost(), projection.keeps_price());
         let count = selected.as_ref().map_or(postings.rows.len(), |rows| rows.len());
         let mut entries: Vec<Entry<'a>> = Vec::with_capacity(if selected.is_none() { postings.entries.len() } else { 0 });
         let mut rows = Vec::with_capacity(count);
@@ -206,8 +203,8 @@ impl<'a> Dataset<'a> {
                 posting_index: cached.posting_index as usize,
                 account: postings.account_name(cached.account),
                 units: MaybeOwned::Borrowed(&cached.units),
-                cost: lot.and_then(|lot| lot.cost.as_ref()).filter(|_| keep_cost).map(MaybeOwned::Borrowed),
-                price: lot.and_then(|lot| lot.price.as_ref()).filter(|_| keep_price).map(MaybeOwned::Borrowed),
+                cost: lot.and_then(|lot| lot.cost.as_ref()).map(MaybeOwned::Borrowed),
+                price: lot.and_then(|lot| lot.price.as_ref()).map(MaybeOwned::Borrowed),
             });
         }
 
@@ -464,311 +461,189 @@ fn other_accounts<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> impl Iterator<
 
 /// The `postings` table columns.
 pub static COLUMNS: &[ColumnDef] = &[
-    ColumnDef {
-        name: "date",
-        ty: DataType::Date,
-        description: "Date of the transaction.",
-        get: Get::Posting(|data, row| Value::Date(data.entry(row).date)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "year",
-        ty: DataType::Int,
-        description: "Year of the transaction date.",
-        get: Get::Posting(|data, row| Value::Int(data.entry(row).date.year() as i64)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "month",
-        ty: DataType::Int,
-        description: "Month (1-12) of the transaction date.",
-        get: Get::Posting(|data, row| Value::Int(data.entry(row).date.month() as i64)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "day",
-        ty: DataType::Int,
-        description: "Day of month of the transaction date.",
-        get: Get::Posting(|data, row| Value::Int(data.entry(row).date.day() as i64)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "flag",
-        ty: DataType::Str,
-        description: "Flag of the transaction: '*', '!', or 'P' for padding.",
-        get: Get::Posting(|data, row| txn_flag(&data.entry(row).txn)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "payee",
-        ty: DataType::Str,
-        description: "Payee of the transaction.",
-        get: Get::Posting(|data, row| opt_str(payee(data, row))),
-        reads: Reads::POSTING,
-        borrow: Borrow::Str(payee),
-    },
-    ColumnDef {
-        name: "narration",
-        ty: DataType::Str,
-        description: "Narration of the transaction; '' when absent (as in beancount).",
-        get: Get::Posting(|data, row| opt_str(narration(data, row))),
-        reads: Reads::POSTING,
-        borrow: Borrow::Str(narration),
-    },
-    ColumnDef {
-        name: "description",
-        ty: DataType::Str,
-        description: "Payee and narration joined with ' | ' (whichever are present).",
-        get: Get::Posting(|data, row| txn_description(&data.entry(row).txn)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "tags",
-        ty: DataType::Set,
-        description: "Tags of the transaction.",
-        get: Get::Posting(|data, row| set_of(&data.entry(row).txn.tags)),
-        reads: Reads::POSTING,
-        borrow: Borrow::Contains(|data, row, tag| data.entry(row).txn.tags.iter().any(|it| it == tag)),
-    },
-    ColumnDef {
-        name: "links",
-        ty: DataType::Set,
-        description: "Links of the transaction.",
-        get: Get::Posting(|data, row| set_of(&data.entry(row).txn.links)),
-        reads: Reads::POSTING,
-        borrow: Borrow::Contains(|data, row, link| data.entry(row).txn.links.iter().any(|it| it == link)),
-    },
-    ColumnDef {
-        name: "id",
-        ty: DataType::Str,
-        description: "Unique id of the transaction.",
-        get: Get::Posting(|data, row| Value::Str(data.entry(row).txn.id.to_string())),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "posting_flag",
-        ty: DataType::Str,
-        description: "Flag of the posting itself, such as '!'; NULL when the posting has none (as in beanquery).",
-        get: Get::Posting(|data, row| {
+    ColumnDef::posting("date", DataType::Date, "Date of the transaction.", |data, row| {
+        Value::Date(data.entry(row).date)
+    }),
+    ColumnDef::posting("year", DataType::Int, "Year of the transaction date.", |data, row| {
+        Value::Int(data.entry(row).date.year() as i64)
+    }),
+    ColumnDef::posting("month", DataType::Int, "Month (1-12) of the transaction date.", |data, row| {
+        Value::Int(data.entry(row).date.month() as i64)
+    }),
+    ColumnDef::posting("day", DataType::Int, "Day of month of the transaction date.", |data, row| {
+        Value::Int(data.entry(row).date.day() as i64)
+    }),
+    ColumnDef::posting("flag", DataType::Str, "Flag of the transaction: '*', '!', or 'P' for padding.", |data, row| {
+        txn_flag(&data.entry(row).txn)
+    }),
+    ColumnDef::posting("payee", DataType::Str, "Payee of the transaction.", |data, row| opt_str(payee(data, row))).borrowing(Borrow::Str(payee)),
+    ColumnDef::posting(
+        "narration",
+        DataType::Str,
+        "Narration of the transaction; '' when absent (as in beancount).",
+        |data, row| opt_str(narration(data, row)),
+    )
+    .borrowing(Borrow::Str(narration)),
+    ColumnDef::posting(
+        "description",
+        DataType::Str,
+        "Payee and narration joined with ' | ' (whichever are present).",
+        |data, row| txn_description(&data.entry(row).txn),
+    ),
+    ColumnDef::posting("tags", DataType::Set, "Tags of the transaction.", |data, row| set_of(&data.entry(row).txn.tags))
+        .borrowing(Borrow::Contains(|data, row, tag| data.entry(row).txn.tags.iter().any(|it| it == tag))),
+    ColumnDef::posting("links", DataType::Set, "Links of the transaction.", |data, row| {
+        set_of(&data.entry(row).txn.links)
+    })
+    .borrowing(Borrow::Contains(|data, row, link| data.entry(row).txn.links.iter().any(|it| it == link))),
+    ColumnDef::posting("id", DataType::Str, "Unique id of the transaction.", |data, row| {
+        Value::Str(data.entry(row).txn.id.to_string())
+    }),
+    ColumnDef::posting(
+        "posting_flag",
+        DataType::Str,
+        "Flag of the posting itself, such as '!'; NULL when the posting has none (as in beanquery).",
+        |data, row| {
             let posting = data.entry(row).txn.postings.get(row.posting_index);
             posting.and_then(|it| it.flag.as_ref()).map_or(Value::Null, |flag| Value::Str(flag.to_string()))
-        }),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "account",
-        ty: DataType::Str,
-        description: "Account of the posting.",
-        get: Get::Posting(|data, row| opt_str(account(data, row))),
-        reads: Reads::POSTING,
-        borrow: Borrow::Str(account),
-    },
-    ColumnDef {
-        name: "number",
-        ty: DataType::Decimal,
-        description: "Number of units of the posting.",
-        get: Get::Posting(|_, row| Value::Decimal(row.units.number.clone())),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "currency",
-        ty: DataType::Str,
-        description: "Currency of the units of the posting.",
-        get: Get::Posting(|data, row| opt_str(currency(data, row))),
-        reads: Reads::POSTING,
-        borrow: Borrow::Str(currency),
-    },
-    ColumnDef {
-        name: "position",
-        ty: DataType::Position,
-        description: "Units and cost of the posting.",
-        get: Get::Posting(|_, row| Value::Position(position(row))),
-        reads: Reads::COST,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "cost_number",
-        ty: DataType::Decimal,
-        description: "Per-unit cost number of the posting's lot.",
-        get: Get::Posting(|_, row| row.cost.as_ref().map(|cost| Value::Decimal(cost.number.clone())).unwrap_or(Value::Null)),
-        reads: Reads::COST,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "cost_currency",
-        ty: DataType::Str,
-        description: "Cost currency of the posting's lot.",
-        get: Get::Posting(|data, row| opt_str(cost_currency(data, row))),
-        reads: Reads::COST,
-        borrow: Borrow::Str(cost_currency),
-    },
-    ColumnDef {
-        name: "cost_date",
-        ty: DataType::Date,
-        description: "Acquisition date of the posting's lot.",
-        get: Get::Posting(|_, row| row.cost.as_ref().and_then(|cost| cost.date).map(Value::Date).unwrap_or(Value::Null)),
-        reads: Reads::COST,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "cost_label",
-        ty: DataType::Str,
-        description: "Label of the posting's lot; '' when the posting has no cost (as in beanquery).",
-        get: Get::Posting(|data, row| opt_str(cost_label(data, row))),
-        reads: Reads::COST,
-        borrow: Borrow::Str(cost_label),
-    },
-    ColumnDef {
-        name: "price",
-        ty: DataType::Amount,
-        description: "Per-unit price annotation (@ or @@) of the posting.",
-        get: Get::Posting(|_, row| row.price.as_ref().map(|price| Value::Amount(price.as_ref().clone())).unwrap_or(Value::Null)),
-        reads: Reads::PRICE,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "weight",
-        ty: DataType::Amount,
-        description: "Amount the posting contributes to the transaction balance: units × cost, else units × price, else units.",
-        get: Get::Posting(|_, row| Value::Amount(weight(row))),
-        reads: Reads::COST_AND_PRICE,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "other_accounts",
-        ty: DataType::Set,
-        description: "Accounts of the other postings of the transaction.",
-        get: Get::Posting(|data, row| Value::Set(other_accounts(data, row).map(str::to_owned).collect())),
-        reads: Reads::POSTING,
-        borrow: Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account)),
-    },
-    ColumnDef {
-        name: "meta",
-        ty: DataType::Str,
-        description: "Metadata of the posting, as `key: \"value\"` pairs.",
-        get: Get::Posting(|data, row| render_pairs(data.posting_metas(row).iter().map(|meta| (meta.key.as_str(), meta.value.as_str())))),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "metas",
-        ty: DataType::Metas,
-        description: "Metadata of the posting as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang extension.",
-        get: Get::Posting(|data, row| Value::Metas(data.posting_metas(row).iter().map(|meta| (meta.key.clone(), meta.value.clone())).collect())),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "entry_metas",
-        ty: DataType::Metas,
-        description: "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order. A \
-                      zhang extension.",
-        get: Get::Posting(|data, row| Value::Metas(data.entry_metas(row))),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: BALANCE_COLUMN,
-        ty: DataType::Inventory,
-        description: "Running balance: the sum of the positions of the rows produced so far, in ledger order after FROM and WHERE, \
-                      including this one; not allowed in FROM or WHERE.",
-        get: Get::Posting(|_, row| Value::Inventory(Inventory::from_iter([position(row)]))),
-        reads: Reads::COST,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "time",
-        ty: DataType::Str,
-        description: "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. \
-                      A zhang extension.",
-        get: Get::Posting(|data, row| txn_time(&data.entry(row).txn)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "timestamp",
-        ty: DataType::Int,
-        description: "Unix time, in seconds, of the transaction's date and time. A zhang extension.",
-        get: Get::Posting(|data, row| txn_timestamp(&data.entry(row).txn)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "seq",
-        ty: DataType::Int,
-        description: "Position of the transaction, from 0, in the order zhang processes the ledger, as in #entries, shared by all \
-                      its postings: ORDER BY seq DESC lists the newest first. NULL for the synthetic transactions of OPEN, CLOSE \
-                      and CLEAR. A zhang extension.",
-        get: Get::Posting(|data, row| data.entry(row).seq.map_or(Value::Null, |seq| Value::Int(seq.into()))),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "posting_index",
-        ty: DataType::Int,
-        description: "Index of the posting in its transaction as written, from 0; the rows of a posting that booking splits across \
-                      lots share it. A zhang extension.",
-        get: Get::Posting(|_, row| Value::Int(row.posting_index as i64)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: ACCOUNT_BALANCE_COLUMN,
-        ty: DataType::Inventory,
-        description: "Balance of the posting's account right after this posting: the sum of every posting of the account in ledger \
-                      order, whatever FROM, WHERE and LIMIT select (unlike balance); with OPEN, CLOSE or CLEAR, of the rows they \
-                      produce. A zhang extension.",
-        get: Get::Posting(|_, row| Value::Inventory(Inventory::from_iter([position(row)]))),
-        reads: Reads::COST,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "balanced",
-        ty: DataType::Bool,
-        description: "FALSE when zhang recorded that the transaction does not balance (an UnbalancedTransaction error), else TRUE. \
-                      A zhang extension.",
-        get: Get::Posting(|data, row| balanced(data.entry(row).errors)),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "errors",
-        ty: DataType::Set,
-        description: "Kinds of the errors zhang recorded for the transaction, as #errors names them in kind; empty when there are \
-                      none. A zhang extension.",
-        get: Get::Posting(|data, row| error_kinds(data.entry(row).errors)),
-        reads: Reads::POSTING,
-        borrow: Borrow::Contains(|data, row, kind| data.entry(row).errors.is_some_and(|errors| errors.contains(kind))),
-    },
-    ColumnDef {
-        name: "automatic",
-        ty: DataType::Bool,
-        description: "TRUE when the posting was written without an amount and zhang inferred its units to balance the transaction \
-                      (beancount's automatic postings); FALSE when its amount is written. A zhang extension.",
-        get: Get::Posting(|data, row| Value::Bool(automatic(data, row))),
-        reads: Reads::POSTING,
-        borrow: Borrow::No,
-    },
-    ColumnDef {
-        name: "budgets",
-        ty: DataType::Set,
-        description: "The budgets the posting counts toward, as the budget pages count it: those the budget metadata of its \
-                      account's open in effect at its date and time names, defined before it and not closed by then, into \
-                      whose commodity a price converts it. The postings of a budget in a month add up to its activity in \
-                      #budgets. A zhang extension.",
-        get: Get::Posting(|data, row| Value::Set(super::budgets::posting_budgets(data, row))),
-        reads: Reads::COST,
-        borrow: Borrow::No,
-    },
+        },
+    ),
+    ColumnDef::posting("account", DataType::Str, "Account of the posting.", |data, row| opt_str(account(data, row))).borrowing(Borrow::Str(account)),
+    ColumnDef::posting("number", DataType::Decimal, "Number of units of the posting.", |_, row| {
+        Value::Decimal(row.units.number.clone())
+    }),
+    ColumnDef::posting("currency", DataType::Str, "Currency of the units of the posting.", |data, row| {
+        opt_str(currency(data, row))
+    })
+    .borrowing(Borrow::Str(currency)),
+    ColumnDef::posting("position", DataType::Position, "Units and cost of the posting.", |_, row| {
+        Value::Position(position(row))
+    }),
+    ColumnDef::posting("cost_number", DataType::Decimal, "Per-unit cost number of the posting's lot.", |_, row| {
+        row.cost.as_ref().map(|cost| Value::Decimal(cost.number.clone())).unwrap_or(Value::Null)
+    }),
+    ColumnDef::posting("cost_currency", DataType::Str, "Cost currency of the posting's lot.", |data, row| {
+        opt_str(cost_currency(data, row))
+    })
+    .borrowing(Borrow::Str(cost_currency)),
+    ColumnDef::posting("cost_date", DataType::Date, "Acquisition date of the posting's lot.", |_, row| {
+        row.cost.as_ref().and_then(|cost| cost.date).map(Value::Date).unwrap_or(Value::Null)
+    }),
+    ColumnDef::posting(
+        "cost_label",
+        DataType::Str,
+        "Label of the posting's lot; '' when the posting has no cost (as in beanquery).",
+        |data, row| opt_str(cost_label(data, row)),
+    )
+    .borrowing(Borrow::Str(cost_label)),
+    ColumnDef::posting("price", DataType::Amount, "Per-unit price annotation (@ or @@) of the posting.", |_, row| {
+        row.price.as_ref().map(|price| Value::Amount(price.as_ref().clone())).unwrap_or(Value::Null)
+    }),
+    ColumnDef::posting(
+        "weight",
+        DataType::Amount,
+        "Amount the posting contributes to the transaction balance: units × cost, else units × price, else units.",
+        |_, row| Value::Amount(weight(row)),
+    ),
+    ColumnDef::posting(
+        "other_accounts",
+        DataType::Set,
+        "Accounts of the other postings of the transaction.",
+        |data, row| Value::Set(other_accounts(data, row).map(str::to_owned).collect()),
+    )
+    .borrowing(Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account))),
+    ColumnDef::posting("meta", DataType::Str, "Metadata of the posting, as `key: \"value\"` pairs.", |data, row| {
+        render_pairs(data.posting_metas(row).iter().map(|meta| (meta.key.as_str(), meta.value.as_str())))
+    }),
+    ColumnDef::posting(
+        "metas",
+        DataType::Metas,
+        "Metadata of the posting as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang extension.",
+        |data, row| Value::Metas(data.posting_metas(row).iter().map(|meta| (meta.key.clone(), meta.value.clone())).collect()),
+    ),
+    ColumnDef::posting(
+        "entry_metas",
+        DataType::Metas,
+        "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order. A \
+        zhang extension.",
+        |data, row| Value::Metas(data.entry_metas(row)),
+    ),
+    ColumnDef::posting(
+        BALANCE_COLUMN,
+        DataType::Inventory,
+        "Running balance: the sum of the positions of the rows produced so far, in ledger order after FROM and WHERE, \
+        including this one; not allowed in FROM or WHERE.",
+        |_, row| Value::Inventory(Inventory::from_iter([position(row)])),
+    ),
+    ColumnDef::posting(
+        "time",
+        DataType::Str,
+        "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, \
+        moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang extension.",
+        |data, row| txn_time(&data.entry(row).txn),
+    ),
+    ColumnDef::posting(
+        "timestamp",
+        DataType::Int,
+        "Unix time, in seconds, of the transaction's date and time. A zhang extension.",
+        |data, row| txn_timestamp(&data.entry(row).txn),
+    ),
+    ColumnDef::posting(
+        "seq",
+        DataType::Int,
+        "Position of the transaction, from 0, in the order zhang processes the ledger, as in #entries, shared by all \
+        its postings: ORDER BY seq DESC lists the newest first. NULL for the synthetic transactions of OPEN, CLOSE \
+        and CLEAR. A zhang extension.",
+        |data, row| data.entry(row).seq.map_or(Value::Null, |seq| Value::Int(seq.into())),
+    ),
+    ColumnDef::posting(
+        "posting_index",
+        DataType::Int,
+        "Index of the posting in its transaction as written, from 0; the rows of a posting that booking splits across \
+        lots share it. A zhang extension.",
+        |_, row| Value::Int(row.posting_index as i64),
+    ),
+    ColumnDef::posting(
+        ACCOUNT_BALANCE_COLUMN,
+        DataType::Inventory,
+        "Balance of the posting's account right after this posting: the sum of every posting of the account in ledger \
+        order, whatever FROM, WHERE and LIMIT select (unlike balance); with OPEN, CLOSE or CLEAR, of the rows they \
+        produce. A zhang extension.",
+        |_, row| Value::Inventory(Inventory::from_iter([position(row)])),
+    ),
+    ColumnDef::posting(
+        "balanced",
+        DataType::Bool,
+        "FALSE when zhang recorded that the transaction does not balance (an UnbalancedTransaction error), else TRUE. \
+        A zhang extension.",
+        |data, row| balanced(data.entry(row).errors),
+    ),
+    ColumnDef::posting(
+        "errors",
+        DataType::Set,
+        "Kinds of the errors zhang recorded for the transaction, as #errors names them in kind; empty when there are \
+        none. A zhang extension.",
+        |data, row| error_kinds(data.entry(row).errors),
+    )
+    .borrowing(Borrow::Contains(|data, row, kind| {
+        data.entry(row).errors.is_some_and(|errors| errors.contains(kind))
+    })),
+    ColumnDef::posting(
+        "automatic",
+        DataType::Bool,
+        "TRUE when the posting was written without an amount and zhang inferred its units to balance the transaction \
+        (beancount's automatic postings); FALSE when its amount is written. A zhang extension.",
+        |data, row| Value::Bool(automatic(data, row)),
+    ),
+    ColumnDef::posting(
+        "budgets",
+        DataType::Set,
+        "The budgets the posting counts toward, as the budget pages count it: those the budget metadata of its \
+        account's open in effect at its date and time names, defined before it and not closed by then, into \
+        whose commodity a price converts it. The postings of a budget in a month add up to its activity in \
+        #budgets. A zhang extension.",
+        |data, row| Value::Set(super::budgets::posting_budgets(data, row)),
+    ),
 ];
 
 /// Whether the row's posting was written without an amount, which zhang inferred. The leg of
