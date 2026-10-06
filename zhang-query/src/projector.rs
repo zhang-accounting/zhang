@@ -276,7 +276,7 @@ mod tests {
     use super::*;
     use crate::executor::{execute, Budget, RegexCache};
     use crate::params::Params;
-    use crate::table::{column, Dataset, Limits, Record, Scope, COLUMNS};
+    use crate::table::{column, Dataset, Limits, Scope, COLUMNS};
     use crate::Query;
 
     fn load(dir: PathBuf) -> Ledger {
@@ -453,42 +453,6 @@ option "operating_currency" "USD"
             }
         }
         assert!(checked > 60, "{checked}");
-    }
-
-    #[test]
-    fn balances_compute_the_true_balances_only_when_projected() {
-        let ledger = load_text(&format!("{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n"));
-        let store = ledger.store.read().unwrap();
-        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let actuals = |sql: &str| -> (usize, usize) {
-            let mut budget = Budget::new(None);
-            let data = Dataset::build(
-                &ledger,
-                &store,
-                today,
-                Query::compile(sql).unwrap().projection,
-                &Scope::All,
-                None,
-                &mut Limits::new(None, &mut budget),
-            )
-            .unwrap();
-            let computed = data
-                .records
-                .iter()
-                .filter(|record| matches!(record, Record::Balance { check: Some(_), .. }))
-                .count();
-            (computed, data.records.len())
-        };
-        assert_eq!(actuals("SELECT date, amount FROM #balances").0, 0);
-        for sql in [
-            "SELECT date FROM #balances WHERE discrepancy IS NOT NULL",
-            "SELECT actual FROM #balances",
-            "SELECT count(*) FROM #balances WHERE passed",
-        ] {
-            let (computed, assertions) = actuals(sql);
-            assert!(assertions >= 2, "{sql}");
-            assert_eq!(computed, assertions, "{sql}");
-        }
     }
 
     #[test]

@@ -710,15 +710,15 @@ GROUP BY currency
 ORDER BY currency
 ```
 
-- **Columns are per table.** A table has only the columns listed for it, and none of the `postings` columns. `year`, `month` and `day` exist only on `#entries` and `postings`; elsewhere use [`year(date)`](#date-functions) and the other date functions. All functions, aggregates, `GROUP BY`, `HAVING`, `ORDER BY`, `PIVOT BY`, `DISTINCT` and `LIMIT` work on every table.
+- **Columns are per table.** A table has only the columns listed for it, and none of the `postings` columns. `year`, `month` and `day` exist on `postings`, `#entries` and the tables of one kind of directive (`#prices`, `#balances`, `#notes`, `#events` and `#commodities`); elsewhere use [`year(date)`](#date-functions) and the other date functions. All functions, aggregates, `GROUP BY`, `HAVING`, `ORDER BY`, `PIVOT BY`, `DISTINCT` and `LIMIT` work on every table.
 - **Row order.** Without `ORDER BY`, rows come in ledger order, the [processing order](#processing-order) that `seq` numbers: by date, then by time in a zhang ledger, as beancount orders a day in a beancount ledger.
-- **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries` and `#transactions` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
+- **Metadata.** Every directive table has a `meta` column, the directive's metadata as text: `key: "value"` pairs sorted by key and separated by `, `, or `''` without metadata. `#entries`, `#transactions`, `#prices`, `#balances`, `#notes`, `#events` and `#commodities` also have `metas`, the same metadata as [structured pairs](#structured-metadata). `meta(key)`, `entry_meta(key)` and `any_meta(key)` read one key of the row's directive (in `#accounts`, of its `open` directive), and `meta_values(key)` and `entry_meta_values(key)` every value of it.
 - **Balance assertions are not transactions.** An assertion books nothing; it is a `balance` entry in `#entries` and a row of `#balances`. Transactions that Zhang rejected while loading the ledger are not rows either. The padding transactions of `pad` and `balance ... with pad` (flag `P`) are transactions, as in beancount.
-- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `time` and `timestamp` on `#prices`; `actual`, `passed`, `pad`, `id`, `seq`, `time` and `timestamp` on `#balances`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_definitions`, `#budget_events` and `#errors` are Zhang's own tables.
+- **Zhang extensions.** Some tables have columns that beanquery does not have, marked *Zhang extension* below: `seq`, `time`, `timestamp` and `metas` on `#entries`; `id`, `seq`, `time`, `timestamp`, `balanced`, `errors` and `metas` on `#transactions`; `actual`, `passed` and `pad` on `#balances`; the [columns of `#entries`](#columns-of-every-directive) that `#prices`, `#balances`, `#notes`, `#events` and `#commodities` share, other than `date` and `meta`; and `source`, `path`, `transaction_id`, `seq`, `time` and `timestamp` on `#documents`. They come after beanquery's columns and are not part of `SELECT *`, so `SELECT *` gives the same columns as in beanquery. The [postings table](#columns) has extensions of its own, and `#budgets`, `#budget_definitions`, `#budget_events` and `#errors` are Zhang's own tables.
 
 ### Processing order
 
-The `seq` column of `#entries`, `#transactions`, `#balances`, `#documents` and the [postings](#columns) is the position of an entry in the order Zhang processes the ledger, counting from 0. Zhang checks and books the ledger in this order, and every table lists its rows in it:
+The `seq` column of `#entries`, of the other directive tables (`#transactions`, `#prices`, `#balances`, `#notes`, `#events`, `#commodities` and `#documents`) and of the [postings](#columns) is the position of an entry in the order Zhang processes the ledger, counting from 0. Zhang checks and books the ledger in this order, and every table lists its rows in it:
 
 1. by date;
 2. within a day, in a zhang ledger, by the time written, and within one time by kind; in a beancount ledger, as beancount orders a day, by kind, and within one kind by the time written (a transaction's `time` metadata). A directive written without a time is at midnight, but a `close` with only a date takes effect at the end of its day, so it comes after everything else of that day;
@@ -768,6 +768,18 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `metas` | `metas` | Metadata of the transaction as `(key, value)` pairs, see [Structured metadata](#structured-metadata). Zhang extension, not part of `SELECT *`. |
 
 ### #prices, #balances, #notes, #events, #documents and #commodities
+
+#### Columns of every directive
+
+The rows of `#prices`, `#balances`, `#notes`, `#events` and `#commodities` are the rows of [`#entries`](#entries) of their kind of directive. Besides their own columns below, each of them has the columns of `#entries` that every directive has, with the same values: `id`, `type`, `filename`, `date`, `year`, `month`, `day`, `time`, `timestamp`, `seq`, `meta` and `metas`. On `#events`, `type` is the kind of event instead (see below). Except for `date` and `meta`, they are Zhang extensions, so they are not part of `SELECT *`.
+
+```sql
+SELECT seq, date, time, account, comment, metas
+FROM #notes
+ORDER BY seq DESC
+```
+
+#### Columns of each table
 
 | Table | Column | Type | Description |
 |-------|--------|------|-------------|

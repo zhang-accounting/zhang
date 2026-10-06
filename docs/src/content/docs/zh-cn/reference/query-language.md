@@ -710,15 +710,15 @@ GROUP BY currency
 ORDER BY currency
 ```
 
-- **每个表有自己的列**。一个表只有为它列出的列，没有 `postings` 的列。`year`、`month` 和 `day` 只存在于 `#entries` 和 `postings` 中，其他表请使用 [`year(date)`](#日期函数) 等日期函数。所有函数、聚合函数，以及 `GROUP BY`、`HAVING`、`ORDER BY`、`PIVOT BY`、`DISTINCT` 和 `LIMIT` 都可以用于每个表。
+- **每个表有自己的列**。一个表只有为它列出的列，没有 `postings` 的列。`year`、`month` 和 `day` 存在于 `postings`、`#entries` 和单一种类指令的表（`#prices`、`#balances`、`#notes`、`#events` 和 `#commodities`）中，其他表请使用 [`year(date)`](#日期函数) 等日期函数。所有函数、聚合函数，以及 `GROUP BY`、`HAVING`、`ORDER BY`、`PIVOT BY`、`DISTINCT` 和 `LIMIT` 都可以用于每个表。
 - **行的顺序**。没有 `ORDER BY` 时，各行按账本顺序排列，也就是 `seq` 编号的[处理顺序](#处理顺序)：先按日期，在张记账账本中再按时刻，在 beancount 账本中按 beancount 对同一天指令的排序。
-- **元数据**。每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries` 和 `#transactions` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
+- **元数据**。每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries`、`#transactions`、`#prices`、`#balances`、`#notes`、`#events` 和 `#commodities` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
 - **余额断言不是交易**。断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`pad` 和 `balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
-- **张记账扩展**。有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#prices` 的 `time` 和 `timestamp`；`#balances` 的 `actual`、`passed`、`pad`、`id`、`seq`、`time` 和 `timestamp`；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_definitions`、`#budget_events` 和 `#errors` 是张记账自己的表。
+- **张记账扩展**。有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual`、`passed` 和 `pad`；`#prices`、`#balances`、`#notes`、`#events` 和 `#commodities` 共有的 [`#entries` 的列](#每条指令都有的列)中除 `date` 和 `meta` 以外的列；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_definitions`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
 ### 处理顺序
 
-`#entries`、`#transactions`、`#balances`、`#documents` 和 [postings 表](#列)的 `seq` 列是记录在张记账处理账本的顺序中的位置，从 0 开始。张记账按这个顺序检查和记账，每张表也按这个顺序列出它的行：
+`#entries`、其他指令表（`#transactions`、`#prices`、`#balances`、`#notes`、`#events`、`#commodities` 和 `#documents`）以及 [postings 表](#列)的 `seq` 列是记录在张记账处理账本的顺序中的位置，从 0 开始。张记账按这个顺序检查和记账，每张表也按这个顺序列出它的行：
 
 1. 先按日期；
 2. 同一天之内，张记账账本先按写下的时刻，同一时刻内再按种类；beancount 账本像 beancount 那样先按种类，同一种类内再按写下的时刻（交易的 `time` 元数据）。没有写时刻的指令在午夜，但只有日期的 `close` 在当天结束时生效，所以排在当天所有其他条目之后；
@@ -768,6 +768,18 @@ SELECT seq, date, time, type FROM #entries WHERE date = 2024-01-05 ORDER BY seq
 | `metas` | `metas` | 交易的元数据，以 `(key, value)` 对给出，见[结构化元数据](#结构化元数据)。张记账扩展，不包含在 `SELECT *` 中。 |
 
 ### #prices、#balances、#notes、#events、#documents 和 #commodities
+
+#### 每条指令都有的列
+
+`#prices`、`#balances`、`#notes`、`#events` 和 `#commodities` 的行就是 [`#entries`](#entries) 中对应种类指令的行。除了下面列出的各自的列，它们还都有 `#entries` 中每条指令都有的列，取值相同：`id`、`type`、`filename`、`date`、`year`、`month`、`day`、`time`、`timestamp`、`seq`、`meta` 和 `metas`。在 `#events` 中，`type` 是事件的种类（见下文）。除 `date` 和 `meta` 以外，这些列都是张记账扩展，不包含在 `SELECT *` 中。
+
+```sql
+SELECT seq, date, time, account, comment, metas
+FROM #notes
+ORDER BY seq DESC
+```
+
+#### 各表的列
 
 | 表 | 列 | 类型 | 说明 |
 |----|----|------|------|
