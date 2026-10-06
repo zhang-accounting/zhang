@@ -1,96 +1,108 @@
 [
   {
-    "uri": "/api/budgets?year=2023&month=12",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2023-12-01"
+      }
+    },
     "validations": [
       [
-        "$.data[?(@.name=='game_expense')].assigned_amount.number",
+        "$.data[?(@.name=='game_expense')].assigned.number",
         "200.1"
       ],
       [
-        "$.data[?(@.name=='game_expense')].activity_amount.number",
+        "$.data[?(@.name=='game_expense')].activity",
         "0"
       ],
       [
-        "$.data[?(@.name=='game_expense')].available_amount.number",
+        "$.data[?(@.name=='game_expense')].available.number",
         "200.1"
       ],
       [
-        "$.data[?(@.name=='food')].assigned_amount.number",
+        "$.data[?(@.name=='food')].assigned.number",
         "1000"
       ],
       [
-        "$.data[?(@.name=='food')].activity_amount.number",
+        "$.data[?(@.name=='food')].activity",
         "50"
       ],
       [
-        "$.data[?(@.name=='food')].available_amount.number",
+        "$.data[?(@.name=='food')].available.number",
         "950"
       ]
     ]
   },
   {
-    "uri": "/api/budgets?year=2024&month=1",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2024-01-01"
+      }
+    },
     "validations": [
       [
-        "$.data[?(@.name=='game_expense')].assigned_amount.number",
+        "$.data[?(@.name=='game_expense')].assigned.number",
         "200.1"
       ],
       [
-        "$.data[?(@.name=='game_expense')].activity_amount.number",
+        "$.data[?(@.name=='game_expense')].activity",
         "0"
       ],
       [
-        "$.data[?(@.name=='game_expense')].available_amount.number",
+        "$.data[?(@.name=='game_expense')].available.number",
         "200.1"
       ],
       [
-        "$.data[?(@.name=='food')].assigned_amount.number",
+        "$.data[?(@.name=='food')].assigned.number",
         "950"
       ],
       [
-        "$.data[?(@.name=='food')].activity_amount.number",
+        "$.data[?(@.name=='food')].activity",
         "0"
       ],
       [
-        "$.data[?(@.name=='food')].available_amount.number",
+        "$.data[?(@.name=='food')].available.number",
         "950"
       ]
     ]
   },
   {
-    "uri": "/api/budgets?year=2023&month=11",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2023-11-01"
+      }
+    },
     "validations": [
       [
         "$.data.length()",
         1
       ],
       [
-        "$.data[?(@.name=='3C_Devices')].assigned_amount.number",
+        "$.data[?(@.name=='3C_Devices')].assigned.number",
         "0"
       ]
     ]
   },
   {
-    "uri": "/api/budgets/food?year=2023&month=12",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.budget",
+    "body": {
+      "params": {
+        "name": "food"
+      }
+    },
     "validations": [
       [
-        "$.data.name",
+        "$.data[0].name",
         "food"
       ],
       [
-        "$.data.assigned_amount.number",
-        "1000"
-      ],
-      [
-        "$.data.activity_amount.number",
-        "50"
-      ],
-      [
-        "$.data.available_amount.number",
-        "950"
-      ],
-      [
-        "$.data.related_accounts",
+        "$.data[0].accounts",
         [
           "Expenses:Food"
         ]
@@ -98,10 +110,40 @@
     ]
   },
   {
-    "uri": "/api/budgets/game_expense",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.budget_month",
+    "body": {
+      "params": {
+        "name": "food",
+        "month": "2023-12-01"
+      }
+    },
     "validations": [
       [
-        "$.data.related_accounts.length()",
+        "$.data[0].assigned.number",
+        "1000"
+      ],
+      [
+        "$.data[0].activity",
+        "50"
+      ],
+      [
+        "$.data[0].available.number",
+        "950"
+      ]
+    ]
+  },
+  {
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.budget",
+    "body": {
+      "params": {
+        "name": "game_expense"
+      }
+    },
+    "validations": [
+      [
+        "$.data[0].accounts.length()",
         0
       ]
     ]
