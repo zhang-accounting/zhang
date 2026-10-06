@@ -287,7 +287,8 @@ pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     let first = budget_dates.iter().min().copied();
     let last_detail = budget_dates.iter().max().copied();
     let mut months = BTreeSet::new();
-    let last_posting = store.postings.iter().map(|it| it.trx_datetime.date_naive()).max();
+    let has_postings = |txn: &&zhang_core::store::TransactionDomain| matches!(&ledger.directives[txn.directive].data, zhang_ast::Directive::Transaction(it) if !it.postings.is_empty());
+    let last_posting = store.transactions.values().filter(has_postings).map(|it| it.datetime.date_naive()).max();
     if let (Some(first), Some(last)) = (first, last_detail) {
         let first = first.with_day(1).unwrap();
         let last = last.with_day(1).unwrap();

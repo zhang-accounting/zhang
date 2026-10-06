@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
-use itertools::Itertools;
 use log::trace;
 use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Flag, SpanInfo, Transaction};
+use zhang_ast::{SpanInfo, Transaction};
 
 use crate::booking::{group_units, written_groups};
 use crate::domains::schemas::MetaType;
@@ -30,44 +29,15 @@ pub(crate) fn fold(txn: &Transaction, ledger: &mut Ledger, span: &SpanInfo, dire
 
     let sequence = ledger.trx_counter.fetch_add(1, Ordering::Relaxed);
     let datetime = txn.date.to_timezone_datetime(&ledger.options.timezone);
-    operations.insert_transaction(
-        &id,
-        sequence,
-        directive,
-        datetime,
-        txn.flag.clone().unwrap_or(Flag::Okay),
-        txn.payee.as_ref().map(|it| it.as_str()),
-        txn.narration.as_ref().map(|it| it.as_str()),
-        txn.tags.iter().cloned().collect_vec(),
-        txn.links.iter().cloned().collect_vec(),
-        span,
-    )?;
+    operations.insert_transaction(&id, sequence, directive, datetime)?;
 
-    // one row per posting as written: the legs booking split from it, adjacent and sharing
-    // `written.index`, are summed into it, so the rows, their ids and the balances are those
-    // of the written postings. A split a stage broke apart (`written_groups`) is one row per
-    // leg, as booked, like the exporter shows it
-    for (posting_idx, group) in written_groups(&txn.postings).into_iter().enumerate() {
+    // the budgets of each posting as written: the legs booking split from it are summed into it
+    for group in written_groups(&txn.postings) {
         let legs = group.legs;
         let posting = &legs[0];
-        let inferred_amount = group_units(legs);
-        let (unit, cost) = match group.written {
-            Some(written) => (written.units.clone(), written.cost.clone()),
-            None => (posting.units.clone(), posting.cost.clone()),
-        };
+        let units = group_units(legs);
         // the cost currency of the booked lot, through which a budget may convert the units
         let via = posting.cost.as_ref().and_then(|cost| cost.base.as_ref()).map(|cost| cost.commodity.clone());
-        let units = inferred_amount.clone();
-        operations.insert_transaction_posting(
-            &id,
-            posting_idx,
-            posting.flag.clone(),
-            &posting.account,
-            unit,
-            cost,
-            inferred_amount,
-            posting.meta.clone(),
-        )?;
 
         // budget related: the posting belongs to the budgets of the account's `open` in effect
         // at its date and time as stored, the rule the query engine counts and lists it with

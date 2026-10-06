@@ -11,9 +11,10 @@ use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
 use common::{fava_demo_ledger, load_text};
+use zhang_core::ast::Directive;
 use zhang_core::domains::schemas::{MetaDomain, PriceDomain};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{DocumentDomain, DocumentType};
+use zhang_core::store::{DocumentDomain, DocumentType, TransactionDomain};
 use zhang_query::{DataType, ExecuteOptions, Inventory, ParamTypes, Params, PriceMap, Query, QueryErrorKind, Value};
 
 /// A cafe lunch at 10:30 in Shanghai, an unbalanced transaction, one posting to an account
@@ -482,7 +483,11 @@ fn a_ledger_changed_after_its_first_query_is_an_error() {
     assert_eq!(table(&ledger, "SELECT count(*)"), "14");
     ledger.store.write().unwrap().prices.clear();
     let mut store = ledger.store.write().unwrap();
-    store.transactions.retain(|_, txn| txn.payee.as_deref() != Some("Cafe"));
+    let payee = |txn: &TransactionDomain| match &ledger.directives[txn.directive].data {
+        Directive::Transaction(it) => it.payee.as_ref().map(|it| it.as_str().to_owned()),
+        _ => None,
+    };
+    store.transactions.retain(|_, txn| payee(txn).as_deref() != Some("Cafe"));
     drop(store);
     let error = Query::compile("SELECT count(*)")
         .unwrap()
@@ -492,15 +497,14 @@ fn a_ledger_changed_after_its_first_query_is_an_error() {
 }
 
 /// Every count the cache's fingerprint keeps catches a change on its own, with the number of
-/// transactions unchanged: a price, a posting, a document, an error, a metadata entry or a
-/// directive more.
+/// transactions unchanged: a price, a document, an error, a metadata entry or a directive more.
 /// (The fingerprint counts these, so a change that keeps every count, such as an edited posting
 /// amount, is not caught; zhang never changes a loaded ledger, it replaces it.)
 #[test]
 fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
     /// what is added, and how
     type Change = (&'static str, fn(&mut Ledger));
-    let changes: [Change; 6] = [
+    let changes: [Change; 5] = [
         ("a price", |ledger| {
             ledger.store.write().unwrap().prices.push(PriceDomain {
                 datetime: NaiveDate::from_ymd_opt(2024, 2, 1).unwrap().and_hms_opt(0, 0, 0).unwrap(),
@@ -509,17 +513,15 @@ fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
                 target_commodity: "USD".to_owned(),
             })
         }),
-        ("a posting", |ledger| {
-            let mut store = ledger.store.write().unwrap();
-            let posting = store.postings[0].clone();
-            store.postings.push(posting);
-        }),
         ("a document", |ledger| {
             let mut store = ledger.store.write().unwrap();
             let txn = store.transactions.values().next().unwrap();
+            let Directive::Transaction(booked) = &ledger.directives[txn.directive].data else {
+                unreachable!("a stored transaction is a transaction directive")
+            };
             let document = DocumentDomain {
                 datetime: txn.datetime,
-                document_type: DocumentType::Account(txn.postings[0].account.clone()),
+                document_type: DocumentType::Account(booked.postings[0].account.clone()),
                 filename: Some("receipt.pdf".to_owned()),
                 path: "receipts/receipt.pdf".to_owned(),
                 alternate: None,

@@ -53,12 +53,15 @@ fn not_allowed(span: &str, account: &str, commodity: &str) -> (ErrorKind, String
 
 /// the units of `commodity` the postings of `account` alone add up to
 fn balance(ledger: &Ledger, account: &str, commodity: &str) -> BigDecimal {
-    let store = ledger.store.read().unwrap();
-    store
-        .postings
+    let txns = ledger.transactions();
+    let units = txns
         .iter()
-        .filter(|posting| posting.account.name() == account && posting.inferred_amount.commodity == commodity)
-        .map(|posting| posting.inferred_amount.number.clone())
+        .flat_map(|(_, txn)| &txn.postings)
+        .filter(|posting| posting.account.name() == account);
+    units
+        .filter_map(|posting| posting.units.as_ref())
+        .filter(|units| units.commodity == commodity)
+        .map(|units| units.number.clone())
         .sum()
 }
 

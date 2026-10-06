@@ -65,8 +65,7 @@ pub(crate) struct LedgerCache {
     lookups: OnceLock<Lookups>,
 }
 
-/// How many directives, transactions, postings, prices, documents, errors and metadata a ledger
-/// holds: a cheap check that the ledger did not change since its cache was made.
+/// How many directives, transactions, prices, documents, errors and metadata a ledger holds: a cheap check that the ledger did not change since its cache was made.
 ///
 /// It only counts, so it catches what is added to or removed from the ledger, not an edit that
 /// keeps every count (a posting whose amount changed, a price replaced by another). That is
@@ -74,14 +73,13 @@ pub(crate) struct LedgerCache {
 /// its files and read by a reload, which starts a new cache. Hashing the contents would cost
 /// every query more than the check is worth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Fingerprint([usize; 7]);
+struct Fingerprint([usize; 6]);
 
 impl Fingerprint {
     fn of(ledger: &Ledger, store: &Store) -> Fingerprint {
         Fingerprint([
             ledger.directives.len(),
             store.transactions.len(),
-            store.postings.len(),
             store.prices.len(),
             store.documents.len(),
             store.errors.len(),
@@ -405,6 +403,16 @@ impl Accounts {
     }
 }
 
+/// A posting as written of a transaction: the first of the legs booking split it into
+/// ([`zhang_ast::written_groups`]).
+#[derive(Clone, Copy)]
+pub(crate) struct Head {
+    /// its index in the transaction's booked postings
+    pub leg: u32,
+    /// whether it was written without units, which zhang inferred
+    pub automatic: bool,
+}
+
 /// A transaction of the `postings` table.
 pub(crate) struct CachedEntry {
     pub id: Uuid,
@@ -417,6 +425,8 @@ pub(crate) struct CachedEntry {
     pub parsed: u32,
     /// its row of `#entries` (an index into [`Entries::rows`]): its `seq` and errors
     pub entry: Option<u32>,
+    /// its postings as written, by `posting_index`
+    pub heads: Box<[Head]>,
 }
 
 /// One booked row of the `postings` table.
@@ -451,7 +461,7 @@ impl Postings {
         let mut entry_of_sequence = vec![NONE; usize::try_from(max_sequence).unwrap_or_default() + 1];
         let mut cached = Vec::with_capacity(transactions.len());
         let mut accounts = Accounts::default();
-        let mut rows = Vec::with_capacity(store.postings.len());
+        let mut rows = Vec::new();
         for (_, txn) in transactions {
             // the directive the transaction was stored from, which the store records: its booked
             // postings, grouped by the posting they were written as, are the stored ones
@@ -463,14 +473,27 @@ impl Postings {
             if let Ok(sequence) = usize::try_from(txn.sequence) {
                 entry_of_sequence[sequence] = entry as u32;
             }
+            let groups = written_groups(&parsed.postings);
+            let mut leg = 0;
+            let heads = groups
+                .iter()
+                .map(|group| {
+                    // as written, or as booking left it
+                    let automatic = group.written.map_or(group.legs[0].units.is_none(), |written| written.units.is_none());
+                    let head = Head { leg, automatic };
+                    leg += group.legs.len() as u32;
+                    head
+                })
+                .collect();
             cached.push(CachedEntry {
                 id: txn.id,
                 date: txn.datetime.date_naive(),
                 time: txn.datetime.time(),
                 parsed: txn.directive as u32,
                 entry: entries.of_directive(txn.directive).map(|it| it.seq),
+                heads,
             });
-            rows.extend(postings::booked_rows(entry, &written_groups(&parsed.postings), &mut accounts));
+            rows.extend(postings::booked_rows(entry, &groups, &mut accounts));
         }
 
         let mut account_rows = vec![vec![]; accounts.names.len()];

@@ -266,12 +266,17 @@ fn reduction_by_label_alone_reduces_that_lot_in_the_store_and_in_queries() {
   Income:Gains
 "#;
     let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    let txns = loaded.transactions();
+    let gains = txns
+        .iter()
+        .flat_map(|(_, txn)| &txn.postings)
+        .find(|it| it.account.name() == "Income:Gains")
+        .unwrap();
     let store = loaded.store.read().unwrap();
     assert_eq!(store.errors.len(), 0);
     let lots = lots(ledger, "Assets:Broker");
     assert_eq!(lots, vec!["10 AAPL {100 USD, \"a\"}", "9 AAPL {110 USD, \"b\"}"]);
-    let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
-    assert_eq!(gains.inferred_amount.to_string(), "-10 USD");
+    assert_eq!(gains.units.as_ref().unwrap().to_string(), "-10 USD");
     drop(store);
 
     // beanquery: the sale's row carries lot b, and its weights sum to zero
@@ -309,13 +314,18 @@ fn unlabelled_reduction_books_labelled_lots_in_the_store_and_in_queries() {
   Income:Gains
 "#;
     let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    let txns = loaded.transactions();
+    let gains = txns
+        .iter()
+        .flat_map(|(_, txn)| &txn.postings)
+        .find(|it| it.account.name() == "Income:Gains")
+        .unwrap();
     let store = loaded.store.read().unwrap();
     assert_eq!(store.errors.len(), 0);
     let lots = lots(ledger, "Assets:Broker");
     assert_eq!(lots, vec!["5 AAPL {110 USD, \"b\"}"]);
-    let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
     // 10 × 100 + 5 × 110 = 1550 at cost, sold for 1800
-    assert_eq!(gains.inferred_amount.to_string(), "-250 USD");
+    assert_eq!(gains.units.as_ref().unwrap().to_string(), "-250 USD");
     drop(store);
 
     assert_eq!(

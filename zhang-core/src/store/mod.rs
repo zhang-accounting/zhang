@@ -6,7 +6,7 @@ use chrono_tz::Tz;
 use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, Flag, Meta, SpanInfo};
+use zhang_ast::{Account, SpanInfo};
 
 use crate::domains::schemas::{AccountDomain, CommodityDomain, ErrorDomain, MetaDomain, PriceDomain, QueryDomain};
 
@@ -16,8 +16,6 @@ pub struct Store {
     pub accounts: HashMap<String, AccountDomain>,
     pub commodities: IndexMap<String, CommodityDomain>,
     pub transactions: HashMap<Uuid, TransactionDomain>,
-    /// Booked postings in store order; running balances are computed by the query engine.
-    pub postings: Vec<PostingDomain>,
 
     /// the `balance` assertions, in ledger order. They are not transactions and have no postings:
     /// an assertion changes no balance
@@ -99,6 +97,8 @@ impl Store {
     }
 }
 
+/// A transaction zhang accepted: its id and its place. Everything else (flag, payee, narration, tags, links, the
+/// booked postings and their metadata) is its directive's, `Ledger::directives[directive]`
 #[derive(Clone, serde::Serialize, Debug)]
 pub struct TransactionDomain {
     pub id: Uuid,
@@ -106,13 +106,6 @@ pub struct TransactionDomain {
     /// the index in [`Ledger::directives`](crate::ledger::Ledger::directives) of the directive it was folded from
     pub directive: usize,
     pub datetime: DateTime<Tz>,
-    pub flag: Flag,
-    pub payee: Option<String>,
-    pub narration: Option<String>,
-    pub span: SpanInfo,
-    pub tags: Vec<String>,
-    pub links: Vec<String>,
-    pub postings: Vec<PostingDomain>,
 }
 
 /// A `balance` assertion as the load checked it: the asserted amount next to the account's balance
@@ -143,37 +136,6 @@ pub struct BalanceAssertionDomain {
     /// whether `balance` is within `tolerance` of `amount`
     pub passed: bool,
     pub span: SpanInfo,
-}
-
-#[derive(Clone, serde::Serialize, Debug)]
-pub struct PostingDomain {
-    pub id: Uuid,
-    pub trx_id: Uuid,
-    pub trx_sequence: i32,
-    pub trx_datetime: DateTime<Tz>,
-    /// the posting's own flag, such as the `!` of `! Assets:Cash -10 CNY`; `None` when it has none
-    pub flag: Option<Flag>,
-    pub account: Account,
-    pub unit: Option<Amount>,
-    pub cost: Option<Amount>,
-    pub inferred_amount: Amount,
-    /// metadata of the posting, sorted by key (the values of a repeated key in ledger
-    /// order). The transaction's own metadata is in [`Store::metas`].
-    pub metas: Vec<PostingMetaDomain>,
-}
-
-/// One metadata entry of a posting, its value as plain text like [`MetaDomain`]'s.
-#[derive(Clone, serde::Serialize, Debug, PartialEq, Eq)]
-pub struct PostingMetaDomain {
-    pub key: String,
-    pub value: String,
-}
-
-impl PostingMetaDomain {
-    /// The entries of `meta`, sorted by key; the values of a repeated key keep their order.
-    pub fn of(meta: Meta) -> Vec<PostingMetaDomain> {
-        meta.sorted_pairs().into_iter().map(|(key, value)| PostingMetaDomain { key, value }).collect()
-    }
 }
 
 /// What a stored document belongs to. The store keeps the `document` directives only, with the path each was resolved

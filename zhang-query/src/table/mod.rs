@@ -53,7 +53,7 @@ use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{Store, TransactionDomain};
 
-pub(crate) use self::cache::LedgerCache;
+pub(crate) use self::cache::{Head, LedgerCache};
 pub use self::postings::COLUMNS;
 pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
 use crate::error::LocatedError;
@@ -506,12 +506,7 @@ impl<'a> Dataset<'a> {
     /// the first.
     pub fn row_meta_values(&self, row: RowRef<'_, '_>, key: &str) -> Vec<String> {
         match row {
-            RowRef::Posting(row) => self
-                .posting_metas(row)
-                .iter()
-                .filter(|meta| meta.key == key)
-                .map(|meta| meta.value.clone())
-                .collect(),
+            RowRef::Posting(row) => self.posting_meta_values(row, key),
             RowRef::Record(record) => record.meta_values(key),
         }
     }

@@ -21,18 +21,16 @@
 use std::cell::OnceCell;
 use std::collections::HashSet;
 use std::str::FromStr;
-use std::sync::RwLock;
 
 use axum::response::{IntoResponse, Response};
 use zhang_ast::amount::Amount;
-use zhang_ast::{Account, PostingCost, SingleTotalPrice};
+use zhang_ast::{booked_group_units, written_groups, Account, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
     is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
     read_posting_price,
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
 
 use crate::error::ServerError;
 use crate::response::InvalidKind;
@@ -49,7 +47,7 @@ impl<'a> Rules<'a> {
     /// The rules for `ledger`, by its format ([`Ledger::dialect`]).
     pub fn of(ledger: &'a Ledger) -> Rules<'a> {
         match ledger.dialect {
-            Dialect::Beancount => Rules::Beancount(KnownNames::of(&ledger.store)),
+            Dialect::Beancount => Rules::Beancount(KnownNames::of(ledger)),
             Dialect::Zhang => Rules::Zhang,
         }
     }
@@ -64,21 +62,24 @@ impl<'a> Rules<'a> {
     }
 }
 
-/// The names a ledger's store already has, collected in one pass over the store
-/// the first time a name fails beancount's rules, so a request with only names
-/// beancount accepts never scans the store.
+/// The names a ledger already has, collected in one pass over its store and the
+/// transactions it keeps the first time a name fails beancount's rules, so a
+/// request with only names beancount accepts never scans the ledger.
 pub struct KnownNames<'a> {
-    store: &'a RwLock<Store>,
+    ledger: &'a Ledger,
     names: OnceCell<Names>,
 }
 
 impl<'a> KnownNames<'a> {
-    pub fn of(store: &'a RwLock<Store>) -> Self {
-        KnownNames { store, names: OnceCell::new() }
+    pub fn of(ledger: &'a Ledger) -> Self {
+        KnownNames {
+            ledger,
+            names: OnceCell::new(),
+        }
     }
 
     fn get(&self) -> &Names {
-        self.names.get_or_init(|| Names::of(&self.store.read().expect("poison lock detect")))
+        self.names.get_or_init(|| Names::of(self.ledger))
     }
 }
 
@@ -92,25 +93,33 @@ struct Names {
 }
 
 impl Names {
-    fn of(store: &Store) -> Names {
+    fn of(ledger: &Ledger) -> Names {
         let mut names = Names::default();
+        for (_, transaction) in ledger.transactions() {
+            names.tags.extend(transaction.tags.iter().cloned());
+            names.links.extend(transaction.links.iter().cloned());
+            // each posting as written: its units and cost as written, the units booking gave it, its metadata
+            for group in written_groups(&transaction.postings) {
+                let posting = &group.legs[0];
+                let (units, cost) = match group.written {
+                    Some(written) => (written.units.as_ref(), written.cost.as_ref()),
+                    None => (posting.units.as_ref(), posting.cost.as_ref()),
+                };
+                let booked = booked_group_units(group.legs);
+                let amounts = [units, cost.and_then(|cost| cost.base.as_ref()), booked.as_ref()];
+                names.commodities.extend(amounts.into_iter().flatten().map(|amount| amount.commodity.clone()));
+                names.meta_keys.extend(posting.meta.clone().get_flatten().into_iter().map(|(key, _)| key));
+            }
+        }
+        let store = ledger.store.read().expect("poison lock detect");
         names.accounts.extend(store.accounts.keys().cloned());
         names.commodities.extend(store.commodities.keys().cloned());
-        for posting in &store.postings {
-            let amounts = [posting.unit.as_ref(), posting.cost.as_ref(), Some(&posting.inferred_amount)];
-            names.commodities.extend(amounts.into_iter().flatten().map(|amount| amount.commodity.clone()));
-            names.meta_keys.extend(posting.metas.iter().map(|meta| meta.key.clone()));
-        }
         for price in &store.prices {
             names.commodities.extend([price.commodity.clone(), price.target_commodity.clone()]);
         }
         names
             .commodities
             .extend(store.balance_assertions.iter().map(|assertion| assertion.amount.commodity.clone()));
-        for transaction in store.transactions.values() {
-            names.tags.extend(transaction.tags.iter().cloned());
-            names.links.extend(transaction.links.iter().cloned());
-        }
         names.meta_keys.extend(store.metas.iter().map(|meta| meta.key.clone()));
         names
     }
@@ -385,10 +394,30 @@ mod test {
 
     use super::*;
 
+    /// The ledger of the zhang text `content`.
+    fn ledger(content: &str) -> Ledger {
+        use std::sync::Arc;
+
+        use zhang_core::data_source::LocalFileSystemDataSource;
+        use zhang_core::data_type::text::ZhangDataType;
+        use zhang_core::data_type::DataType;
+        use zhang_core::ledger::LedgerProcessContext;
+
+        Ledger::process(LedgerProcessContext {
+            directives: ZhangDataType {}.transform(content.to_owned(), None).unwrap(),
+            entry: (std::path::PathBuf::from("."), "main.zhang".to_owned()),
+            dialect: Dialect::Zhang,
+            visited_files: vec![],
+            data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: zhang_core::clock::Clock::System,
+        })
+        .unwrap()
+    }
+
     /// Beancount rules for a ledger with an empty store, so every name is new.
     fn with_empty_store(check: impl FnOnce(&Rules)) {
-        let store = RwLock::new(Store::default());
-        check(&Rules::Beancount(KnownNames::of(&store)));
+        let ledger = ledger("");
+        check(&Rules::Beancount(KnownNames::of(&ledger)));
     }
 
     #[tokio::test]
@@ -554,15 +583,14 @@ mod test {
 
     #[test]
     fn names_the_ledger_already_has_pass_with_zhang_rules() {
-        let mut store = Store::default();
-        store.metas.push(zhang_core::domains::schemas::MetaDomain {
+        let ledger = ledger("");
+        ledger.store.write().unwrap().metas.push(zhang_core::domains::schemas::MetaDomain {
             meta_type: "TransactionMeta".to_owned(),
             type_identifier: "id".to_owned(),
             key: "Receipt".to_owned(),
             value: "1".to_owned(),
         });
-        let store = RwLock::new(store);
-        let rules = Rules::Beancount(KnownNames::of(&store));
+        let rules = Rules::Beancount(KnownNames::of(&ledger));
         assert!(meta_key("Receipt", &rules).is_ok(), "an existing key passes");
         assert!(meta_key("Other", &rules).is_err(), "a new key must be one beancount accepts");
         assert!(tag("two words", &rules).is_err(), "zhang's rules still apply");
@@ -576,9 +604,9 @@ mod test {
         use chrono::TimeZone;
         use zhang_core::store::BalanceAssertionDomain;
 
-        let mut store = Store::default();
+        let ledger = ledger("");
         let usd = Amount::new(BigDecimal::from(1), "Usd");
-        store.balance_assertions.push(BalanceAssertionDomain {
+        ledger.store.write().unwrap().balance_assertions.push(BalanceAssertionDomain {
             id: uuid::Uuid::nil(),
             sequence: 1,
             directive: 0,
@@ -590,8 +618,7 @@ mod test {
             passed: true,
             span: Default::default(),
         });
-        let store = RwLock::new(store);
-        let rules = Rules::Beancount(KnownNames::of(&store));
+        let rules = Rules::Beancount(KnownNames::of(&ledger));
         assert!(amount(&usd, &rules).is_ok(), "a commodity of an assertion is one the ledger has");
         assert!(
             amount(&Amount::new(BigDecimal::from(1), "Eur"), &rules).is_err(),

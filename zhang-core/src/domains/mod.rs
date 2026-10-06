@@ -8,14 +8,11 @@ use chrono_tz::Tz;
 use itertools::Itertools;
 use log::debug;
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Flag, Meta, PostingCost, Rounding, SpanInfo};
+use zhang_ast::{Account, Meta, Rounding, SpanInfo};
 
-use crate::domains::schemas::{
-    AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain, TransactionInfoDomain,
-};
-use crate::store::{BalanceAssertionDomain, DocumentDomain, DocumentType, PostingDomain, PostingMetaDomain, Store, TransactionDomain};
+use crate::domains::schemas::{AccountDomain, AccountStatus, CommodityDomain, ErrorDomain, MetaDomain, MetaType, OptionDomain, PriceDomain, QueryDomain};
+use crate::store::{BalanceAssertionDomain, DocumentDomain, DocumentType, Store, TransactionDomain};
 use crate::utils::id::FromSpan;
 use crate::{ZhangError, ZhangResult};
 
@@ -51,13 +48,8 @@ impl Operations {
     }
 
     /// insert new transaction, folded from the directive with index `directive` in the ledger's directives
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn insert_transaction(
-        &mut self, id: &Uuid, sequence: i32, directive: usize, datetime: DateTime<Tz>, flag: Flag, payee: Option<&str>, narration: Option<&str>,
-        tags: Vec<String>, links: Vec<String>, span: &SpanInfo,
-    ) -> ZhangResult<()> {
+    pub(crate) fn insert_transaction(&mut self, id: &Uuid, sequence: i32, directive: usize, datetime: DateTime<Tz>) -> ZhangResult<()> {
         let mut store = self.write();
-
         store.transactions.insert(
             *id,
             TransactionDomain {
@@ -65,68 +57,21 @@ impl Operations {
                 sequence,
                 directive,
                 datetime,
-                flag,
-                payee: payee.map(|it| it.to_owned()),
-                narration: narration.map(|it| it.to_owned()),
-                span: span.clone(),
-                tags,
-                links,
-                postings: vec![],
             },
         );
-
         Ok(())
     }
 
-    /// insert transaction postings
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn insert_transaction_posting(
-        &mut self, trx_id: &Uuid, posting_idx: usize, flag: Option<Flag>, account: &Account, unit: Option<Amount>, cost: Option<PostingCost>,
-        inferred_amount: Amount, meta: Meta,
-    ) -> ZhangResult<()> {
-        let mut store = self.write();
-
-        let (trx_sequence, trx_datetime) = store
-            .transactions
-            .get(trx_id)
-            .map(|trx| (trx.sequence, trx.datetime))
-            .expect("invalid context: cannot find txn header when inserting postings");
-        let posting = PostingDomain {
-            id: Uuid::from_txn_posting(trx_id, posting_idx),
-            trx_id: *trx_id,
-            trx_sequence,
-            trx_datetime,
-            flag,
-            account: account.clone(),
-            unit,
-            cost: cost.and_then(|it| it.base),
-            inferred_amount,
-            metas: PostingMetaDomain::of(meta),
-        };
-        store.postings.push(posting.clone());
-        let txn_header = store
-            .transactions
-            .get_mut(trx_id)
-            .expect("invalid context: cannot find txn header when inserting postings");
-        txn_header.postings.push(posting);
-        Ok(())
-    }
-
-    /// `id`, or if a transaction, one of its postings or a balance assertion has it already, the first id derived
-    /// from it ([`FromSpan::derived`]) that none has. Directives can share a span, which ids are derived from: the
-    /// padding transactions of a `pad` serving several currencies, a `balance ... with pad`, whose check is kept, and
-    /// its padding transaction, and the directives a plugin emits for one of the ledger. A derived id lives apart from
-    /// posting ids, so only the postings of the transaction with `id` itself could share one
+    /// `id`, or if a transaction or a balance assertion has it already, the first id derived from it
+    /// ([`FromSpan::derived`]) that none has. Directives can share a span, which ids are derived from: the padding
+    /// transactions of a `pad` serving several currencies, a `balance ... with pad`, whose check is kept, and its
+    /// padding transaction, and the directives a plugin emits for one of the ledger. A derived id lives apart from
+    /// posting ids ([`FromSpan::from_txn_posting`]), and so does `id`, which is no posting id of its own transaction
     pub(crate) fn unused_id(&self, id: Uuid) -> Uuid {
         let store = self.read();
-        let postings = store.transactions.get(&id).map(|txn| txn.postings.as_slice()).unwrap_or_default();
         (0..)
             .map(|n| if n == 0 { id } else { Uuid::derived(&id, n) })
-            .find(|candidate| {
-                !store.transactions.contains_key(candidate)
-                    && !store.balance_assertion_ids.contains(candidate)
-                    && postings.iter().all(|posting| posting.id != *candidate)
-            })
+            .find(|candidate| !store.transactions.contains_key(candidate) && !store.balance_assertion_ids.contains(candidate))
             .expect("an id is free")
     }
 
@@ -230,17 +175,6 @@ impl Operations {
 
     pub fn exist_account(&mut self, name: &str) -> ZhangResult<bool> {
         Ok(self.account(name)?.is_some())
-    }
-
-    pub fn transaction_span(&mut self, id: &Uuid) -> ZhangResult<Option<TransactionInfoDomain>> {
-        let store = self.read();
-        Ok(store.transactions.get(id).map(|it| TransactionInfoDomain {
-            id: it.id.to_string(),
-            source_file: it.span.filename.clone().unwrap_or_default(),
-            span_start: it.span.start,
-            span_end: it.span.end,
-            span: it.span.clone(),
-        }))
     }
 
     pub fn errors(&mut self) -> ZhangResult<Vec<ErrorDomain>> {

@@ -13,14 +13,14 @@ use log::{error, info};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, SpanInfo, Spanned};
+use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, SpanInfo, Spanned, Transaction};
 
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
 use crate::data_source::{DataSource, MissingInclude};
 use crate::data_type::Dialect;
 use crate::derived::Derived;
-use crate::domains::schemas::AccountStatus;
+use crate::domains::schemas::{AccountStatus, TransactionInfoDomain};
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
@@ -421,6 +421,36 @@ impl Ledger {
             }
         }
         booker.into_methods()
+    }
+
+    /// The transactions zhang stored, each with its id, booked, in the order zhang processed them.
+    pub fn transactions(&self) -> Vec<(Uuid, &Transaction)> {
+        let store = self.store.read().expect("poison lock detect");
+        let stored = store.transactions.values().sorted_by_key(|txn| txn.sequence);
+        stored
+            .filter_map(|txn| match &self.directives.get(txn.directive)?.data {
+                Directive::Transaction(transaction) => Some((txn.id, transaction)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The directive of the transaction `id` zhang stored: its booked postings, its header and where it is written.
+    pub fn transaction_directive(&self, id: &Uuid) -> Option<&Spanned<Directive>> {
+        let store = self.store.read().expect("poison lock detect");
+        self.directives.get(store.transactions.get(id)?.directive)
+    }
+
+    /// Where the transaction `id` zhang stored is written: the span of its directive.
+    pub fn transaction_span(&self, id: &Uuid) -> Option<TransactionInfoDomain> {
+        let span = &self.transaction_directive(id)?.span;
+        Some(TransactionInfoDomain {
+            id: id.to_string(),
+            source_file: span.filename.clone().unwrap_or_default(),
+            span_start: span.start,
+            span_end: span.end,
+            span: span.clone(),
+        })
     }
 
     pub fn operations(&self) -> Operations {
@@ -827,25 +857,32 @@ mod test {
     }
 
     /// the store's rows of the transaction `narration`: `account unit-as-written = inferred`
+    /// the postings as written of the stored transactions with `narration`, in the order zhang processed them, as
+    /// `account units = booked units`
     fn rows(ledger: &Ledger, narration: &str) -> Vec<String> {
-        let store = ledger.store.read().unwrap();
-        let mut txns = store
-            .transactions
-            .values()
-            .filter(|it| it.narration.as_deref() == Some(narration))
-            .collect::<Vec<_>>();
-        txns.sort_by_key(|it| it.sequence);
-        txns.iter()
-            .flat_map(|txn| &txn.postings)
-            .map(|row| {
+        let txns = ledger.transactions();
+        let txns = txns.iter().filter(|(_, txn)| txn.narration.as_ref().map(|it| it.as_str()) == Some(narration));
+        txns.flat_map(|(_, txn)| zhang_ast::written_groups(&txn.postings))
+            .map(|group| {
+                let units = group.written.map_or(group.legs[0].units.as_ref(), |written| written.units.as_ref());
                 format!(
                     "{} {} = {}",
-                    row.account.name(),
-                    row.unit.as_ref().map_or("?".to_owned(), ToString::to_string),
-                    row.inferred_amount
+                    group.legs[0].account.name(),
+                    units.map_or("?".to_owned(), ToString::to_string),
+                    zhang_ast::group_units(group.legs)
                 )
             })
             .collect()
+    }
+
+    /// the ids of the postings as written of the stored transactions: derived from the id of their transaction and
+    /// their index in it
+    fn posting_ids(ledger: &Ledger) -> Vec<uuid::Uuid> {
+        let txns = ledger.transactions();
+        let ids = txns
+            .iter()
+            .flat_map(|(id, txn)| (0..zhang_ast::written_groups(&txn.postings).len()).map(|idx| uuid::Uuid::from_txn_posting(id, idx)));
+        ids.collect()
     }
 
     fn error_kinds(ledger: &Ledger) -> Vec<ErrorKind> {
@@ -1034,6 +1071,7 @@ mod test {
                 }),
             )],
         );
+        let postings = posting_ids(&ledger);
         let store = ledger.store.read().unwrap();
         let base = store.balance_assertions[0].id;
         let first = uuid::Uuid::derived(&base, 1);
@@ -1042,7 +1080,7 @@ mod test {
         assert_eq!(store.transactions.len(), 2);
         assert!(store.transactions.contains_key(&first));
         assert!(store.transactions.contains_key(&second));
-        assert_eq!(store.postings.len(), 4);
+        assert_eq!(postings.len(), 4);
         assert_eq!(
             store
                 .errors
@@ -1261,14 +1299,13 @@ mod test {
             clock: crate::clock::Clock::System,
         })
         .unwrap();
+        let postings = posting_ids(&ledger);
         let store = ledger.store.read().unwrap();
         let ids = store.balance_assertions.iter().map(|it| it.id).collect::<Vec<_>>();
         assert_eq!(ids.len(), 2);
         assert_ne!(ids[0], ids[1]);
         // and none is the id of a transaction or a posting
-        assert!(ids
-            .iter()
-            .all(|id| !store.transactions.contains_key(id) && store.postings.iter().all(|posting| posting.id != *id)));
+        assert!(ids.iter().all(|id| !store.transactions.contains_key(id) && !postings.contains(id)));
     }
 
     mod write_back {
@@ -1822,23 +1859,22 @@ mod test {
         type BookedPosting = (String, BigDecimal, BigDecimal);
 
         fn journal(ledger: &Ledger) -> Vec<(Flag, Vec<BookedPosting>)> {
-            let store = ledger.store.read().unwrap();
             let mut balances: std::collections::HashMap<(String, String), BigDecimal> = std::collections::HashMap::new();
-            store
-                .transactions
-                .values()
-                .sorted_by_key(|it| it.sequence)
-                .map(|it| {
-                    let postings = it
-                        .postings
-                        .iter()
-                        .map(|p| {
-                            let amount = balances.entry((p.account.name().to_owned(), p.inferred_amount.commodity.clone())).or_default();
-                            *amount += &p.inferred_amount.number;
-                            (p.account.name().to_owned(), p.inferred_amount.number.clone(), amount.clone())
+            ledger
+                .transactions()
+                .into_iter()
+                .map(|(_, it)| {
+                    // the postings as written, each the legs booking split it into, summed
+                    let postings = zhang_ast::written_groups(&it.postings)
+                        .into_iter()
+                        .map(|group| {
+                            let (account, inferred) = (group.legs[0].account.name().to_owned(), zhang_ast::group_units(group.legs));
+                            let amount = balances.entry((account.clone(), inferred.commodity.clone())).or_default();
+                            *amount += &inferred.number;
+                            (account, inferred.number, amount.clone())
                         })
                         .collect_vec();
-                    (it.flag.clone(), postings)
+                    (it.flag.clone().unwrap_or(Flag::Okay), postings)
                 })
                 .collect_vec()
         }
@@ -2042,6 +2078,7 @@ mod test {
             "#});
 
             assert_eq!(errors(&ledger), vec![(ErrorKind::AccountBalanceCheckError, Some("Assets:Bank".to_owned()))]);
+            let postings = super::posting_ids(&ledger);
             let store = ledger.store.read().unwrap();
             let checks = store
                 .balance_assertions
@@ -2059,7 +2096,7 @@ mod test {
             let mut ids = store
                 .transactions
                 .keys()
-                .chain(store.postings.iter().map(|it| &it.id))
+                .chain(&postings)
                 .chain(store.balance_assertions.iter().map(|it| &it.id))
                 .collect_vec();
             let all = ids.len();
@@ -2803,13 +2840,11 @@ mod test {
 
         /// balance of `account` after the ledger, in CNY
         fn balance(ledger: &Ledger, account: &str) -> BigDecimal {
-            let store = ledger.store.read().unwrap();
-            store
-                .transactions
-                .values()
-                .flat_map(|txn| txn.postings.iter())
+            let txns = ledger.transactions();
+            txns.iter()
+                .flat_map(|(_, txn)| txn.postings.iter())
                 .filter(|posting| posting.account.name() == account)
-                .map(|posting| posting.inferred_amount.number.clone())
+                .filter_map(|posting| posting.units.as_ref().map(|units| units.number.clone()))
                 .sum()
         }
 

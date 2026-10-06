@@ -19,7 +19,7 @@ use bigdecimal::{BigDecimal, Zero};
 use serde_json::Value;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Directive, Flag};
+use zhang_ast::{group_units, written_groups, Directive, Flag, Transaction};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::ledger::Ledger;
 
@@ -48,6 +48,15 @@ fn amount(value: &Value) -> (BigDecimal, String) {
 
 fn of(amount: &Amount) -> (BigDecimal, String) {
     (amount.number.normalized(), amount.commodity.clone())
+}
+
+/// the postings of the booked transaction `txn` as written: the account, and the units booking gave it
+fn written(txn: &Transaction) -> Vec<(String, Amount)> {
+    let groups = written_groups(&txn.postings);
+    groups
+        .into_iter()
+        .map(|group| (group.legs[0].account.name().to_owned(), group_units(group.legs)))
+        .collect()
 }
 
 fn text(value: &Value) -> String {
@@ -148,15 +157,16 @@ fn zhang(case: &str) -> Outcome {
     for lot in &lots.rows {
         *lots_held.entry(lot[0].to_string()).or_default().entry(lot[1].to_string()).or_default() += lot[2].as_decimal().unwrap();
     }
-    let store = ledger.store.read().unwrap();
-
     // the sums of the postings, which is what the balances shown are
     let mut balances = Balances::new();
-    for posting in &store.postings {
-        let held = balances.entry(posting.account.name().to_owned()).or_default();
-        let units = held.entry(posting.inferred_amount.commodity.clone()).or_insert_with(BigDecimal::zero);
-        *units += &posting.inferred_amount.number;
+    for (_, txn) in ledger.transactions() {
+        for (account, inferred) in written(txn) {
+            let held = balances.entry(account).or_default();
+            let units = held.entry(inferred.commodity.clone()).or_insert_with(BigDecimal::zero);
+            *units += &inferred.number;
+        }
     }
+    let store = ledger.store.read().unwrap();
     for (account, held) in balances.iter_mut() {
         let booked = lots_held.get(account).cloned().unwrap_or_default();
         let shown = booked
@@ -175,17 +185,15 @@ fn zhang(case: &str) -> Outcome {
     let mut pads = store
         .transactions
         .values()
-        .filter(|txn| txn.flag == Flag::BalancePad)
-        .map(|txn| {
-            let [padded, from] = &txn.postings[..] else {
+        .filter_map(|txn| match &ledger.directives[txn.directive].data {
+            Directive::Transaction(booked) if booked.flag == Some(Flag::BalancePad) => Some((txn, written(booked))),
+            _ => None,
+        })
+        .map(|(txn, postings)| {
+            let [padded, from] = &postings[..] else {
                 panic!("{case}: a padding transaction has two postings");
             };
-            (
-                txn.datetime.date_naive().to_string(),
-                padded.account.name().to_owned(),
-                of(&padded.inferred_amount),
-                from.account.name().to_owned(),
-            )
+            (txn.datetime.date_naive().to_string(), padded.0.clone(), of(&padded.1), from.0.clone())
         })
         .collect::<Vec<_>>();
     pads.sort();

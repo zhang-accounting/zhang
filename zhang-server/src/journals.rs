@@ -158,26 +158,21 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
         Dialect::Beancount => QuoteStyle::Beancount,
         Dialect::Zhang => QuoteStyle::Zhang,
     };
-    let written: HashMap<String, Written> = {
-        let store = ledger
-            .store
-            .read()
-            .map_err(|_| ServerError::InvalidInput("the ledger store is not readable".to_owned()))?;
-        transaction_ids
-            .iter()
-            .filter_map(|id| {
-                let transaction = store.transactions.get(&Uuid::from_str(id).ok()?)?;
-                let written = Written {
-                    narration: transaction.narration.clone(),
-                    tags: transaction.tags.clone(),
-                    links: transaction.links.clone(),
-                    postings: written_transaction(ledger, &transaction.span).map(|directive| written_postings(directive, style)),
-                    edit_drops_text: transaction_has_unexported_text(&transaction.span.content),
-                };
-                Some((id.clone(), written))
-            })
-            .collect()
-    };
+    let written: HashMap<String, Written> = transaction_ids
+        .iter()
+        .filter_map(|id| {
+            let directive = ledger.transaction_directive(&Uuid::from_str(id).ok()?)?;
+            let Directive::Transaction(transaction) = &directive.data else { return None };
+            let written = Written {
+                narration: transaction.narration.as_ref().map(|it| it.as_str().to_owned()),
+                tags: transaction.tags.iter().cloned().collect(),
+                links: transaction.links.iter().cloned().collect(),
+                postings: written_transaction(ledger, &directive.span).map(|directive| written_postings(directive, style)),
+                edit_drops_text: transaction_has_unexported_text(&directive.span.content),
+            };
+            Some((id.clone(), written))
+        })
+        .collect();
     let mut postings: HashMap<String, Vec<PostingRow>> = HashMap::new();
     if !transaction_ids.is_empty() {
         let result = execute(ledger, JOURNAL_POSTINGS, &Params::new().bind("ids", transaction_ids), false)?;

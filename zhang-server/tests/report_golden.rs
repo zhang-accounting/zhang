@@ -526,16 +526,9 @@ fn ranking_of_the_hand_ledger() {
         (plain(&rent.account_after.number), rent.account_after.commodity.as_str()),
         ("1670".to_owned(), "CNY")
     );
-    let trx_id = ledger
-        .store
-        .read()
-        .unwrap()
-        .transactions
-        .values()
-        .find(|trx| trx.narration.as_deref() == Some("rent on the first"))
-        .unwrap()
-        .id
-        .to_string();
+    let transactions = ledger.transactions();
+    let rent_on_the_first = |trx: &zhang_ast::Transaction| trx.narration.as_ref().map(|it| it.as_str()) == Some("rent on the first");
+    let trx_id = transactions.into_iter().find(|(_, trx)| rent_on_the_first(trx)).unwrap().0.to_string();
     assert_eq!(rent.trx_id, trx_id);
 
     // the query as "Open query" runs it: its value column is each posting at the prices of `to`
@@ -660,13 +653,17 @@ fn summary_differences(ledger: &Ledger, range: &LedgerDateRange) -> Vec<String> 
         }
     }
     let timezone = ledger.options.timezone;
+    let padding = |trx: &zhang_core::store::TransactionDomain| match &ledger.directives[trx.directive].data {
+        zhang_ast::Directive::Transaction(booked) => booked.flag == Some(Flag::BalancePad),
+        _ => false,
+    };
     let transactions = ledger
         .store
         .read()
         .unwrap()
         .transactions
         .values()
-        .filter(|trx| trx.flag != Flag::BalancePad)
+        .filter(|trx| !padding(trx))
         .filter(|trx| {
             let date = trx.datetime.with_timezone(&timezone).date_naive();
             range.from <= date && date <= range.to
