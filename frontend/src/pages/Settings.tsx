@@ -1,7 +1,6 @@
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtomValue } from 'jotai';
 import { ArrowUpRight, ExternalLink, Puzzle, RotateCw } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { serverBaseUrl } from '@/api/fetcher';
@@ -15,15 +14,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useLanguage } from '@/hooks/use-language';
-import { GITHUB_REPO_URL, SETTINGS_LINK, UPGRADE_GUIDE_URL } from '@/layout/nav-links';
+import { GITHUB_REPO_URL, UPGRADE_GUIDE_URL } from '@/layout/nav-links';
 import { THEMES } from '@/layout/themes';
 import { useReloadLedger } from '@/layout/use-reload-ledger';
 import { LANGUAGES } from '@/lib/languages';
 import { cn } from '@/lib/utils';
 import { loadable_unwrap } from '@/states';
-import { basicInfoAtom, breadcrumbAtom, titleAtom, updatableVersionAtom, versionAtom } from '@/states/basic';
+import { basicInfoAtom, titleAtom, updatableVersionAtom, versionAtom } from '@/states/basic';
 import { operatingCurrencyAtom, optionsAtom } from '@/states/options';
 
 const API_DOCS = [
@@ -34,7 +32,6 @@ const API_DOCS = [
 
 export default function Settings() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const [lang, setLang] = useLanguage();
   const { theme, setTheme } = useTheme();
   const reloadLedger = useReloadLedger();
@@ -53,11 +50,6 @@ export default function Settings() {
   const basicInfo = useAtomValue(basicInfoAtom);
   const updatableVersion = useAtomValue(updatableVersionAtom);
   const buildDate = basicInfo.state === 'hasData' ? basicInfo.data.build_date : undefined;
-
-  useDocumentTitle(`${t('settings.title')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([SETTINGS_LINK]);
-  }, [setBreadcrumb]);
 
   return (
     <PageShell width="narrow">

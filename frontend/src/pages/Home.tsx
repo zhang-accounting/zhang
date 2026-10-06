@@ -1,6 +1,6 @@
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtomValue } from 'jotai';
 import { ChartColumn, CircleAlert, NotebookText } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useAsync } from 'react-use';
@@ -19,15 +19,12 @@ import { JournalRowsSkeleton } from '@/components/skeletons/journalListSkeleton'
 import { buttonVariants } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { DASHBOARD_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import ErrorBox from '../components/ErrorBox';
 import { BalanceTrendChart, CashFlowChart } from '../components/ReportGraph';
 import Section from '../components/Section';
 import StatisticBar from '../components/StatisticBar';
 import StatisticBox from '../components/StatisticBox';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { errorCountAtom } from '../states/errors';
 
 const CHART_HEIGHT = 'h-48 md:h-56';
@@ -73,13 +70,6 @@ function Home() {
   const { t } = useTranslation();
   const fmt = useDateFormat();
   const isMobile = useIsMobile();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_DASHBOARD')} - ${ledgerTitle}`);
-
-  useEffect(() => {
-    setBreadcrumb([DASHBOARD_LINK]);
-  }, [setBreadcrumb]);
 
   const recent = useRecentJournals(6);
   const latest = recent.records[0];
