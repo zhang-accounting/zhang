@@ -41,6 +41,10 @@ pub enum ServerError {
     #[error("there is no built-in query named {0}")]
     UnknownBuiltinQuery(String),
 
+    /// a request named a built-in query that does not exist (`/api/query/builtins/{name}`); answered with HTTP 404
+    #[error("there is no built-in query {0}")]
+    NoSuchBuiltinQuery(String),
+
     /// the mapping of a built-in query read a column the query does not select, a bug; answered with HTTP 500
     #[error("the built-in query {query} has no column {column}")]
     MissingColumn { query: String, column: String },
@@ -102,7 +106,11 @@ impl IntoResponse for ServerError {
         };
 
         let status = match self {
-            ServerError::NotFound | ServerError::NoSuchTransaction(_) | ServerError::NoSuchDocument(_) | ServerError::NoSuchFile(_) => StatusCode::NOT_FOUND,
+            ServerError::NotFound
+            | ServerError::NoSuchTransaction(_)
+            | ServerError::NoSuchDocument(_)
+            | ServerError::NoSuchFile(_)
+            | ServerError::NoSuchBuiltinQuery(_) => StatusCode::NOT_FOUND,
             // the storage refused the access, whatever the storage and whichever route met it
             ServerError::OutsideLedger(_) | ServerError::CoreError(ZhangError::ReadRefused(_) | ZhangError::WriteRefused(_)) => StatusCode::FORBIDDEN,
             ServerError::InvalidInput(_) | ServerError::PluginTransaction(_) => StatusCode::BAD_REQUEST,

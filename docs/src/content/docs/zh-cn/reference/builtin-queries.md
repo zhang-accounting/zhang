@@ -1,6 +1,6 @@
 ---
 title: 内置查询
-description: 张记账所显示的各项数字背后有文档说明的 BQL 查询，如何在查询页面打开并修改它们，以及列出这些查询、填入参数值的 HTTP 接口。
+description: 张记账所显示的各项数字背后有文档说明的 BQL 查询，如何在查询页面打开并修改它们，以及列出这些查询、执行它们、填入参数值的 HTTP 接口。
 ---
 
 张记账的读取端点通过*内置查询*计算各项数字（[#479](https://github.com/zhang-accounting/zhang/issues/479)）。内置查询是用张记账的[查询语言](/zh-cn/reference/query-language/)写成的具名查询，页面带着几个参数（例如报表的日期）在你的账本上执行它。页面只负责排列查询结果，所以每个数字背后的逻辑都是一个可以在本页读到的查询。
@@ -41,11 +41,11 @@ Rust 的 `PostingDomain` 不再存储 `previous_amount` 和 `after_amount`，Pyt
 
 ## HTTP API
 
-这两个接口与其他 API 一样受[身份认证](/zh-cn/deployment/authentication/)保护。
+这些接口与其他 API 一样受[身份认证](/zh-cn/deployment/authentication/)保护。脚本通过它们得到的，正是页面用来计算各项数字的那些行。
 
 ### 列出内置查询
 
-`GET /api/query/builtins` 列出所有内置查询，包括名称、说明、BQL 以及参数及其[类型](/zh-cn/reference/query-language/#类型)：
+`GET /api/query/builtins` 列出所有内置查询，包括名称、说明、BQL、参数及其[类型](/zh-cn/reference/query-language/#类型)，以及它返回的行的各列：
 
 ```json
 {
@@ -57,10 +57,74 @@ Rust 的 `PostingDomain` 不再存储 `previous_amount` 和 `after_amount`，Pyt
       "params": [
         { "name": "from", "type": "date" },
         { "name": "to", "type": "date" }
+      ],
+      "columns": [
+        { "name": "date", "type": "date" },
+        { "name": "flag", "type": "str" },
+        { "name": "payee", "type": "str" },
+        { "name": "narration", "type": "str" },
+        { "name": "account", "type": "str" },
+        { "name": "position", "type": "position" }
       ]
     }
   ]
 }
+```
+
+### 参数值
+
+下面的每个接口都接受查询的 `params`：按名称给出查询的每一个参数，且不能有多余的参数，每个值是对应类型的 JSON 值：
+
+| 类型 | JSON 值 |
+|------|---------|
+| `date` | 字符串 `YYYY-MM-DD`，读法与 [`date(str)`](/zh-cn/reference/query-language/#日期函数) 相同 |
+| `str` | 字符串 |
+| `set` | 字符串列表 |
+| `int` | 整数 |
+| `decimal` | 数字，或者 `"12.50"` 这样的字符串，以保留小数位 |
+| `bool` | `true` 或 `false` |
+| 任意类型 | `null` |
+
+查询名称不存在时返回 HTTP 404。参数缺失、多余或类型不对时返回 HTTP 400。`message` 中会指出是哪个查询或哪个参数。
+
+### 执行内置查询
+
+`POST /api/query/builtins/{name}` 把 `params` 中的值绑定到参数上执行名为 `name` 的查询，响应与 [`POST /api/query`](/zh-cn/reference/query-language/#执行查询) 相同：`columns` 就是上面列表中该查询的各列，`rows` 中每一行是按列顺序排列的单元格列表，编码见[单元格编码](/zh-cn/reference/query-language/#单元格编码)。请求中带 `"count_total": true` 时，结果还包含 `total`，即 `LIMIT` 和 `OFFSET` 之前的行数。`POST /api/query` 的[限制](/zh-cn/reference/query-language/#限制)同样适用。
+
+```shell
+curl -X POST http://localhost:8000/api/query/builtins/postings.between \
+  -H 'Content-Type: application/json' \
+  -d '{"params": {"from": "2024-01-01", "to": "2024-01-31"}}'
+```
+
+```json
+{
+  "data": {
+    "columns": [
+      { "name": "date", "type": "date" },
+      { "name": "flag", "type": "str" },
+      { "name": "payee", "type": "str" },
+      { "name": "narration", "type": "str" },
+      { "name": "account", "type": "str" },
+      { "name": "position", "type": "position" }
+    ],
+    "rows": [
+      ["2024-01-31", "*", "Shop", "Lunch", "Expenses:Food", { "units": { "number": "12.50", "currency": "USD" }, "cost": null }],
+      ["2024-01-31", "*", "Shop", "Lunch", "Assets:Cash", { "units": { "number": "-12.50", "currency": "USD" }, "cost": null }]
+    ]
+  }
+}
+```
+
+### 一次执行多个查询
+
+`POST /api/query/builtins` 执行一组查询，每一项都是上面那样的 `{"name", "params", "count_total"}`，整组在账本的同一次读取中执行，因此即使账本正在重新加载，同一页面上的各项数字也彼此一致。响应是各查询结果的列表，顺序与请求相同。如果其中某个查询不存在或参数有误，整组请求都会被拒绝，返回该查询的 404 或 400。
+
+```shell
+curl -X POST http://localhost:8000/api/query/builtins \
+  -H 'Content-Type: application/json' \
+  -d '[{"name": "journals.payees", "params": {}},
+       {"name": "postings.between", "params": {"from": "2024-01-01", "to": "2024-01-31"}, "count_total": true}]'
 ```
 
 ### 写出带参数值的查询
@@ -81,19 +145,7 @@ curl -X POST http://localhost:8000/api/query/builtins/postings.between/text \
 }
 ```
 
-把这段文本发送到 [`POST /api/query`](/zh-cn/reference/query-language/#执行查询) 即可执行。`params` 必须给出查询的每一个参数，且不能有多余的参数，每个值是对应类型的 JSON 值：
-
-| 类型 | JSON 值 |
-|------|---------|
-| `date` | 字符串 `YYYY-MM-DD`，读法与 [`date(str)`](/zh-cn/reference/query-language/#日期函数) 相同 |
-| `str` | 字符串 |
-| `set` | 字符串列表 |
-| `int` | 整数 |
-| `decimal` | 数字，或者 `"12.50"` 这样的字符串，以保留小数位 |
-| `bool` | `true` 或 `false` |
-| 任意类型 | `null` |
-
-查询名称不存在时返回 HTTP 404。参数缺失、多余或类型不对时返回 HTTP 400，`message` 中会指出是哪个参数。
+把这段文本发送到 [`POST /api/query`](/zh-cn/reference/query-language/#执行查询) 即可执行，得到的行与按名称执行该查询相同。
 
 ## 查询列表
 

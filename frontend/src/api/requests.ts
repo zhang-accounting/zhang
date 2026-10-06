@@ -1,6 +1,8 @@
 import { Buffer } from 'buffer';
 import { ApiError } from 'openapi-typescript-fetch';
 import { responseError } from '@/lib/api-error';
+import { rowsByColumn } from './builtin-rows';
+import type { Builtins } from './builtins';
 import { apiBaseUrl, openAPIFetcher, reportUnauthorized } from './fetcher';
 
 export const retrieveJournals = openAPIFetcher.path('/api/journals').method('get').create();
@@ -76,6 +78,45 @@ export const retrieveQuerySchema = openAPIFetcher.path('/api/query/schema').meth
 export const retrieveSavedQueries = openAPIFetcher.path('/api/query/saved').method('get').create();
 
 export const retrieveBuiltinQueryText = openAPIFetcher.path('/api/query/builtins/{name}/text').method('post').create();
+
+const postBuiltinQuery = openAPIFetcher.path('/api/query/builtins/{name}').method('post').create();
+const postBuiltinQueries = openAPIFetcher.path('/api/query/builtins').method('post').create();
+
+/** The rows of the built-in query `N`, each by column name, as `builtins.ts` types them; any cell may be `null`. */
+export type BuiltinRows<N extends keyof Builtins> = Builtins[N]['row'][];
+
+/** A built-in query to run in a batch (`runBuiltins`): its name and the value of every parameter. */
+export type BuiltinRun<N extends keyof Builtins = keyof Builtins> = { [K in N]: { name: K; params: Builtins[K]['params']; count_total?: boolean } }[N];
+
+/** The rows of each query of a batch, in the order of the batch. */
+export type BuiltinBatchRows<R extends readonly BuiltinRun[]> = {
+  -readonly [I in keyof R]: R[I] extends { name: infer N extends keyof Builtins } ? BuiltinRows<N> : never;
+};
+
+/**
+ * Runs the built-in query `name` (`POST /api/query/builtins/{name}`) with `params` bound, and returns its rows by column
+ * name. Pass the same `name` and `params` to `OpenInExplore`, so what the page shows and what opens on the Query page
+ * never disagree.
+ */
+export async function runBuiltin<N extends keyof Builtins>(name: N, params: Builtins[N]['params']): Promise<BuiltinRows<N>> {
+  const { columns, rows } = (await postBuiltinQuery({ name, params })).data.data;
+  return rowsByColumn<Builtins[N]['row']>(columns, rows);
+}
+
+/** `runBuiltin`, also counting the rows before `LIMIT` and `OFFSET` into `total`, for a page of a query. */
+export async function runBuiltinWithTotal<N extends keyof Builtins>(name: N, params: Builtins[N]['params']): Promise<{ rows: BuiltinRows<N>; total: number }> {
+  const { columns, rows, total } = (await postBuiltinQuery({ name, params, count_total: true })).data.data;
+  return { rows: rowsByColumn<Builtins[N]['row']>(columns, rows), total: total ?? rows.length };
+}
+
+/**
+ * Runs several built-in queries under one read of the ledger (`POST /api/query/builtins`), so the figures of one page agree
+ * with each other: the rows of each query, in the order given.
+ */
+export async function runBuiltins<const R extends readonly BuiltinRun[]>(runs: R): Promise<BuiltinBatchRows<R>> {
+  const results = (await postBuiltinQueries([...runs])).data.data;
+  return results.map(({ columns, rows }) => rowsByColumn(columns, rows)) as BuiltinBatchRows<R>;
+}
 
 /**
  * Uploads `files` as documents of an account or a transaction (`POST /api/{accounts|transactions}/{id}/documents`). Plain

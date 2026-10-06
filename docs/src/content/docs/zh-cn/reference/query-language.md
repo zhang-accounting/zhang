@@ -78,7 +78,7 @@ SELECT yearmonth(date) AS month, sum(position) WHERE account ~ '^Expenses' GROUP
 
 ### 通过 HTTP
 
-将查询发送到 `POST /api/query`；发送到 `POST /api/query/csv` 则得到 CSV 格式的结果。`GET /api/query/saved` 列出保存的查询，`GET /api/query/builtins` 列出应用中各项数字背后的[内置查询](/zh-cn/reference/builtin-queries/)。请求和响应格式见 [HTTP API](#http-api)。
+将查询发送到 `POST /api/query`；发送到 `POST /api/query/csv` 则得到 CSV 格式的结果。`GET /api/query/saved` 列出保存的查询，`GET /api/query/builtins` 列出应用中各项数字背后的[内置查询](/zh-cn/reference/builtin-queries/)，`POST /api/query/builtins/{name}` 按名称执行其中一个。请求和响应格式见 [HTTP API](#http-api)。
 
 ## 第一个查询
 
@@ -276,7 +276,7 @@ PIVOT BY category, year
 
 ### 参数
 
-张记账在自己的代码中（通过 `zhang-query` crate 的 Rust API）执行查询时，查询中凡是可以写值的地方都可以写参数 `$1`、`$2`、... 或 `:name`，参数的值另行绑定。`JOURNAL` 的模式、`OPEN ON` 和 `CLOSE ON` 的日期，以及 `LIMIT` 和 `OFFSET` 的行数也可以是参数。HTTP API 不绑定参数，所以通过 HTTP 发送的查询中如果含有参数，会报错 `parameter $1 is not bound`。[内置查询](/zh-cn/reference/builtin-queries/)可以把参数值写进查询文本，得到一个能通过 HTTP 执行的查询。
+张记账在自己的代码中（通过 `zhang-query` crate 的 Rust API）执行查询时，查询中凡是可以写值的地方都可以写参数 `$1`、`$2`、... 或 `:name`，参数的值另行绑定。`JOURNAL` 的模式、`OPEN ON` 和 `CLOSE ON` 的日期，以及 `LIMIT` 和 `OFFSET` 的行数也可以是参数。`POST /api/query` 不绑定参数，所以发送给它的查询中如果含有参数，会报错 `parameter $1 is not bound`。[内置查询](/zh-cn/reference/builtin-queries/)可以通过 HTTP 按名称执行并绑定参数，也可以把参数值写进查询文本，得到一个能通过 `POST /api/query` 执行的查询。
 
 参数是一次执行中的常量：读取任何行之前，每个参数都会被替换成它的值，查询再被简化一次，就像值直接写在查询里一样。作为参数给出的正则表达式（`payee ~ :keyword`）只编译一次；作为参数给出的集合（`account IN :accounts`）和值的列表（`IN ('a', 'b', :c)`）用哈希表查找；[`icontains`](#搜索函数) 的查找文本只转换一次小写。所以带参数的查询与把值写成字面量的同一查询一样快。作为参数给出的无效正则表达式仍与以前一样，在某一行与它匹配时于匹配处报错。
 
@@ -1436,7 +1436,7 @@ Assets:Broker:GLD,,17
 
 ### 内置查询
 
-`GET /api/query/builtins` 列出应用中各项数字背后的查询，`POST /api/query/builtins/{name}/text` 把其中一个查询连同填好的参数值写成查询文本。见[内置查询](/zh-cn/reference/builtin-queries/)。
+`GET /api/query/builtins` 列出应用中各项数字背后的查询及其参数和各列，`POST /api/query/builtins/{name}` 绑定参数执行其中一个（`POST /api/query/builtins` 在账本的同一次读取中执行多个），`POST /api/query/builtins/{name}/text` 把一个查询连同填好的参数值写成查询文本。见[内置查询](/zh-cn/reference/builtin-queries/#http-api)。
 
 ### Schema
 

@@ -1,10 +1,13 @@
 //! Built-in queries: the named, documented BQL behind the figures the app shows (#479).
 //!
-//! A read endpoint computes its figures with one or more of these queries and only maps the
-//! result into its response, so the business logic lives in the query engine and every figure
-//! can be opened, and adapted, on the Query page (`/explore`): `GET /api/query/builtins` lists the
-//! queries, `POST /api/query/builtins/{name}/text` writes one out with its parameters filled
-//! in, and the "Built-in queries" page of the docs lists them with their BQL.
+//! The app computes its figures with these queries, so the business logic lives in the query
+//! engine and every figure can be opened, and adapted, on the Query page (`/explore`):
+//! `GET /api/query/builtins` lists the queries with their parameters and columns,
+//! `POST /api/query/builtins/{name}` runs one with its parameters bound (and
+//! `POST /api/query/builtins` several under one read lock), `POST /api/query/builtins/{name}/text`
+//! writes one out with its parameters filled in, and the "Built-in queries" page of the docs
+//! lists them with their BQL. A read endpoint that still maps a result into its own response
+//! runs them with [`run`] or [`execute`].
 //!
 //! # Adding a query
 //!
@@ -12,16 +15,18 @@
 //!    unique dotted lower-case name (`report.summary`), a one-sentence description, the BQL,
 //!    and every parameter it uses with its type. Parameters are named (`:from`), and their
 //!    types are those a JSON value can give (see [`json_params`]).
-//! 2. Run it with [`run`], or with [`execute`] inside [`crate::routes::query::with_ledger`] to
-//!    run several under one read lock. User input is only ever bound as a parameter, never
-//!    formatted into the BQL.
-//! 3. Map the [`QueryResult`] into the endpoint's response; [`calculated_amount`] and
-//!    [`LedgerDateRange`] are the shared pieces of that mapping.
-//! 4. List the query, with its BQL as it is here, on the "Built-in queries" page of the docs
+//! 2. The frontend runs it with `runBuiltin(name, params)` and gets typed rows: regenerate its
+//!    types, `frontend/src/api/builtins.ts`, with
+//!    `ZHANG_WRITE_BUILTINS_TS=1 cargo test -p zhang-server the_frontend_types_of_the_builtins_are_up_to_date`.
+//!    On the server, run it with [`run`], or with [`execute`] inside [`crate::routes::query::with_ledger`]
+//!    to run several under one read lock, and map the [`QueryResult`] into the endpoint's response;
+//!    [`calculated_amount`] and [`LedgerDateRange`] are the shared pieces of that mapping. User
+//!    input is only ever bound as a parameter, never formatted into the BQL.
+//! 3. List the query, with its BQL as it is here, on the "Built-in queries" page of the docs
 //!    (`docs/src/content/docs/reference/builtin-queries.md` and its `zh-cn` twin).
 //!
 //! The tests check that every query compiles, declares exactly the parameters its BQL uses,
-//! can be written out as BQL and is documented.
+//! can be written out as BQL, is documented, and has its frontend types up to date.
 
 mod amount;
 mod date_range;
@@ -667,6 +672,104 @@ mod test {
                 );
             }
         }
+    }
+
+    /// `frontend/src/api/builtins.ts`, as prettier formats it: the `params` and `row` types of every built-in query,
+    /// for the frontend's `runBuiltin`. Every cell may be `null` (the engine has no NOT NULL), and so may a parameter.
+    fn frontend_types() -> String {
+        /// a cell of the type, as `POST /api/query` encodes it (`QueryCell`)
+        fn ts(ty: DataType) -> &'static str {
+            match ty {
+                DataType::Null => "null",
+                DataType::Bool => "boolean",
+                DataType::Int => "number",
+                // decimals, dates and intervals are strings on the wire
+                DataType::Decimal | DataType::Str | DataType::Date | DataType::Interval => "string",
+                DataType::Set => "string[]",
+                DataType::Amount => "QueryAmount",
+                DataType::Position => "QueryPosition",
+                DataType::Inventory => "QueryInventory",
+                DataType::Metas => "QueryMeta[]",
+            }
+        }
+        /// a parameter's JSON value of the type (`json_params`): a decimal may also be a number
+        fn ts_param(ty: DataType) -> &'static str {
+            match ty {
+                DataType::Decimal => "number | string",
+                other => ts(other),
+            }
+        }
+        /// a property name, quoted unless it is an identifier
+        fn key(name: &str) -> String {
+            let identifier = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+            if identifier {
+                name.to_owned()
+            } else {
+                format!("'{}'", name.replace('\\', "\\\\").replace('\'', "\\'"))
+            }
+        }
+        /// an object type, a property per line, or `Record<string, never>` for none
+        fn object(fields: Vec<(String, &str)>) -> String {
+            if fields.is_empty() {
+                return "Record<string, never>".to_owned();
+            }
+            let fields = fields
+                .into_iter()
+                .map(|(name, ty)| format!("      {}: {} | null;\n", name, ty))
+                .collect::<String>();
+            format!("{{\n{}    }}", fields)
+        }
+        let mut out = String::new();
+        let mut imports = BTreeSet::new();
+        for builtin in BUILTINS {
+            let columns = compiled(builtin.name).unwrap().columns();
+            let names = columns.iter().map(|column| column.name.as_str()).collect::<BTreeSet<_>>();
+            assert_eq!(
+                names.len(),
+                columns.len(),
+                "{} selects a column twice, so its rows cannot be read by name",
+                builtin.name
+            );
+            for ty in builtin.params.iter().map(|(_, ty)| *ty).chain(columns.iter().map(|column| column.ty)) {
+                if let Some(entity) = ts(ty).strip_suffix("[]").or(Some(ts(ty))).filter(|it| it.starts_with("Query")) {
+                    imports.insert(entity);
+                }
+            }
+            let params = object(builtin.params.iter().map(|(name, ty)| (key(name), ts_param(*ty))).collect());
+            let row = object(columns.iter().map(|column| (key(&column.name), ts(column.ty))).collect());
+            out.push_str(&format!("  '{}': {{\n    params: {};\n    row: {};\n  }};\n", builtin.name, params, row));
+        }
+        format!(
+            "// Generated from the built-in queries (zhang-server/src/builtin.rs) by their tests; do not edit.\n\
+             // Regenerate with `ZHANG_WRITE_BUILTINS_TS=1 cargo test -p zhang-server the_frontend_types_of_the_builtins_are_up_to_date`.\n\
+             import type {{ {} }} from './types';\n\n\
+             /**\n \
+             * Every built-in query (`GET /api/query/builtins`): the `params` that `POST /api/query/builtins/{{name}}` takes, and\n \
+             * the `row` it returns, by column name (`runBuiltin` in requests.ts). Any cell may be `null`.\n \
+             */\n\
+             export interface Builtins {{\n{}}}\n",
+            imports.into_iter().collect::<Vec<_>>().join(", "),
+            out
+        )
+    }
+
+    /// The TypeScript types of every built-in query's parameters and rows, `frontend/src/api/builtins.ts`: written
+    /// with `ZHANG_WRITE_BUILTINS_TS=1`, and otherwise checked to be up to date, so a change of a query's columns
+    /// fails here first, and then in the frontend's type check wherever a page reads a column that went.
+    #[test]
+    fn the_frontend_types_of_the_builtins_are_up_to_date() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/src/api/builtins.ts");
+        let generated = frontend_types();
+        if std::env::var_os("ZHANG_WRITE_BUILTINS_TS").is_some() {
+            std::fs::write(&path, &generated).unwrap();
+        }
+        let current = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            current == generated,
+            "frontend/src/api/builtins.ts is out of date: run \
+             `ZHANG_WRITE_BUILTINS_TS=1 cargo test -p zhang-server the_frontend_types_of_the_builtins_are_up_to_date`"
+        );
     }
 
     #[test]

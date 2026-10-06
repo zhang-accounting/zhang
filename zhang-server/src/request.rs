@@ -332,6 +332,26 @@ pub struct BuiltinQueryTextRequest {
     pub params: HashMap<String, Option<BuiltinParamValue>>,
 }
 
+/// `POST /api/query/builtins/{name}`: run a built-in query with its parameters bound.
+#[derive(Schematic, Deserialize)]
+pub struct BuiltinQueryRunRequest {
+    /// the value of every parameter of the query, by name (`from` for `:from`)
+    pub params: HashMap<String, Option<BuiltinParamValue>>,
+    /// also count the rows before `LIMIT` and `OFFSET` into the result's `total`, as `POST /api/query` does
+    pub count_total: Option<bool>,
+}
+
+/// One query of `POST /api/query/builtins`: the name and the body of `POST /api/query/builtins/{name}`.
+#[derive(Schematic, Deserialize)]
+pub struct BuiltinQueryBatchItem {
+    /// the name of the built-in query, as `GET /api/query/builtins` lists it
+    pub name: String,
+    /// the value of every parameter of the query, by name (`from` for `:from`)
+    pub params: HashMap<String, Option<BuiltinParamValue>>,
+    /// also count the rows before `LIMIT` and `OFFSET` into this result's `total`
+    pub count_total: Option<bool>,
+}
+
 #[derive(Schematic, Deserialize)]
 pub struct LoginRequest {
     pub username: String,

@@ -10,7 +10,7 @@ use zhang_query::{ExecuteOptions, Params, Query, QueryResult, DEFAULT_MAX_RESULT
 
 use crate::builtin::{self, BUILTINS};
 use crate::error::ServerError;
-use crate::request::{BuiltinQueryTextRequest, QueryRequest};
+use crate::request::{BuiltinQueryBatchItem, BuiltinQueryRunRequest, BuiltinQueryTextRequest, QueryRequest};
 use crate::response::{
     BuiltinQueryEntity, BuiltinQueryTextEntity, QueryApiResult, QueryCsvResult, QueryResultEntity, QuerySchemaEntity, ResponseWrapper, SavedQueryEntity,
 };
@@ -141,12 +141,67 @@ pub async fn get_builtin_queries() -> ApiResult<Vec<BuiltinQueryEntity>> {
 /// mistyped parameter a 400.
 #[api(group = "query")]
 pub async fn get_builtin_query_text(paths: Path<(String,)>, Json(payload): Json<BuiltinQueryTextRequest>) -> ApiResult<BuiltinQueryTextEntity> {
-    let (name,) = paths.0;
-    let builtin = builtin::get(&name).ok_or(ServerError::NotFound)?;
+    let builtin = lookup(&paths.0 .0)?;
     let params = builtin::json_params(builtin, payload.params)?;
     ResponseWrapper::json(BuiltinQueryTextEntity {
         query: builtin::text(builtin, &params)?,
     })
+}
+
+/// The built-in query a request names, or the 404 that names it.
+fn lookup(name: &str) -> ServerResult<&'static builtin::BuiltinQuery> {
+    builtin::get(name).ok_or_else(|| ServerError::NoSuchBuiltinQuery(name.to_owned()))
+}
+
+/// Run a built-in query with its parameters bound: the rows the app computes its figures from,
+/// with the columns `GET /api/query/builtins` lists for the query, as `POST /api/query` returns
+/// a result.
+///
+/// `params` gives every parameter by name, as `POST /api/query/builtins/{name}/text` takes
+/// them; with `count_total` the result also has `total`, the number of rows before `LIMIT`
+/// and `OFFSET`. An unknown query is a 404; a missing, unknown or mistyped parameter a 400,
+/// each naming the query or the parameter.
+#[api(group = "query")]
+pub async fn run_builtin_query(
+    ledger: State<SharedLedger>, paths: Path<(String,)>, Json(payload): Json<BuiltinQueryRunRequest>,
+) -> QueryApiResult<QueryResultEntity> {
+    QueryApiResult(run_builtin(&ledger, &paths.0 .0, payload).await)
+}
+
+async fn run_builtin(ledger: &LedgerState, name: &str, payload: BuiltinQueryRunRequest) -> ServerResult<ResponseWrapper<QueryResultEntity>> {
+    let builtin = lookup(name)?;
+    let params = builtin::json_params(builtin, payload.params)?;
+    let count_total = payload.count_total.unwrap_or(false);
+    let result = with_ledger(ledger, move |ledger| builtin::execute(ledger, builtin.name, &params, count_total)).await?;
+    ResponseWrapper::json(tokio::task::spawn_blocking(move || QueryResultEntity::from(result)).await?)
+}
+
+/// Run several built-in queries, each as `POST /api/query/builtins/{name}` runs it, under one
+/// read lock of the ledger, so the figures of one page agree with each other: the results in
+/// the order of the requests. The whole batch is refused, with the same 404 or 400, when one
+/// of its queries would be.
+#[api(group = "query")]
+pub async fn run_builtin_queries(ledger: State<SharedLedger>, Json(payload): Json<Vec<BuiltinQueryBatchItem>>) -> QueryApiResult<Vec<QueryResultEntity>> {
+    QueryApiResult(run_builtins(&ledger, payload).await)
+}
+
+async fn run_builtins(ledger: &LedgerState, payload: Vec<BuiltinQueryBatchItem>) -> ServerResult<ResponseWrapper<Vec<QueryResultEntity>>> {
+    // every name and parameter is checked before the lock is taken
+    let runs = payload
+        .into_iter()
+        .map(|item| {
+            let builtin = lookup(&item.name)?;
+            Ok((builtin.name, builtin::json_params(builtin, item.params)?, item.count_total.unwrap_or(false)))
+        })
+        .collect::<ServerResult<Vec<_>>>()?;
+    let results = with_ledger(ledger, move |ledger| {
+        runs.into_iter()
+            .map(|(name, params, count_total)| builtin::execute(ledger, name, &params, count_total))
+            .collect::<ServerResult<Vec<_>>>()
+    })
+    .await?;
+    // converting the cells is CPU-bound too, so it stays off the async workers, and off the lock
+    ResponseWrapper::json(tokio::task::spawn_blocking(move || results.into_iter().map(QueryResultEntity::from).collect()).await?)
 }
 
 /// The columns and functions available to queries.
@@ -541,9 +596,9 @@ mod builtin_test {
     use zhang_core::ledger::Ledger;
     use zhang_query::{Params, Value};
 
-    use super::{get_builtin_queries, get_builtin_query_text, run_query};
+    use super::{get_builtin_queries, get_builtin_query_text, run_builtin_queries, run_builtin_query, run_query};
     use crate::builtin::{self, BUILTINS};
-    use crate::request::{BuiltinParamValue, BuiltinQueryTextRequest, QueryRequest};
+    use crate::request::{BuiltinParamValue, BuiltinQueryBatchItem, BuiltinQueryRunRequest, BuiltinQueryTextRequest, QueryRequest};
     use crate::response::QueryResultEntity;
     use crate::state::SharedLedger;
 
@@ -599,8 +654,26 @@ mod builtin_test {
         body(run_query(State(ledger.clone()), Json(request)).await.into_response()).await
     }
 
+    /// `POST /api/query/builtins/{name}`
+    async fn run_of(ledger: &SharedLedger, name: &str, params: serde_json::Value, count_total: Option<bool>) -> (StatusCode, serde_json::Value) {
+        let params: HashMap<String, Option<BuiltinParamValue>> = serde_json::from_value(params).unwrap();
+        let request = BuiltinQueryRunRequest { params, count_total };
+        body(
+            run_builtin_query(State(ledger.clone()), Path((name.to_owned(),)), Json(request))
+                .await
+                .into_response(),
+        )
+        .await
+    }
+
+    /// `POST /api/query/builtins` with `[{name, params, count_total}]`
+    async fn batch_of(ledger: &SharedLedger, items: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let items: Vec<BuiltinQueryBatchItem> = serde_json::from_value(items).unwrap();
+        body(run_builtin_queries(State(ledger.clone()), Json(items)).await.into_response()).await
+    }
+
     #[tokio::test]
-    async fn builtins_are_listed_with_their_bql_and_typed_params() {
+    async fn builtins_are_listed_with_their_bql_typed_params_and_columns() {
         let (status, body) = body(get_builtin_queries().await.into_response()).await;
         assert_eq!(status, StatusCode::OK);
         let listed = body["data"].as_array().unwrap();
@@ -613,10 +686,127 @@ mod builtin_test {
                 "description": builtin::get("postings.between").unwrap().description,
                 "bql": builtin::get("postings.between").unwrap().bql,
                 "params": [{"name": "from", "type": "date"}, {"name": "to", "type": "date"}],
+                "columns": [
+                    {"name": "date", "type": "date"},
+                    {"name": "flag", "type": "str"},
+                    {"name": "payee", "type": "str"},
+                    {"name": "narration", "type": "str"},
+                    {"name": "account", "type": "str"},
+                    {"name": "position", "type": "position"},
+                ],
             })
         );
         let matching = listed.iter().find(|it| it["name"] == "postings.matching").unwrap();
         assert_eq!(matching["params"], json!([{"name": "payee", "type": "str"}, {"name": "tags", "type": "set"}]));
+        // every query has columns, and they are those of its result
+        let ledger = ledger().await;
+        for builtin in listed {
+            let name = builtin["name"].as_str().unwrap();
+            assert!(!builtin["columns"].as_array().unwrap().is_empty(), "{}", name);
+            let result = crate::builtin::compiled(name).unwrap().columns();
+            let expected = result.iter().map(|c| json!({"name": c.name, "type": c.ty.to_string()})).collect::<Vec<_>>();
+            assert_eq!(builtin["columns"], json!(expected), "{}", name);
+        }
+        // the listed columns are those a run returns
+        let (status, run) = run_of(&ledger, "postings.between", json!({"from": "2024-01-01", "to": "2024-12-31"}), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(run["data"]["columns"], between["columns"]);
+    }
+
+    /// `POST /api/query/builtins/{name}` returns what the app gets by binding the parameters:
+    /// the result of `POST /api/query` for the query's text, and its `total` on request.
+    #[tokio::test]
+    async fn a_builtin_runs_by_name_to_the_bound_result() {
+        let ledger = ledger().await;
+        let cases = [
+            ("postings.between", json!({"from": "2024-02-01", "to": "2024-02-29"}), 4),
+            ("postings.matching", json!({"payee": "it's \"quoted\"", "tags": ["it's", "trip"]}), 2),
+            ("postings.matching", json!({"payee": null, "tags": []}), 0),
+            ("postings.matching", json!({"payee": null, "tags": null}), 6),
+        ];
+        for (name, params, rows) in cases {
+            let (status, run) = run_of(&ledger, name, params.clone(), None).await;
+            assert_eq!(status, StatusCode::OK, "{} {}: {}", name, params, run);
+            assert_eq!(run["data"]["rows"].as_array().unwrap().len(), rows, "{} {}", name, params);
+            assert_eq!(run["data"].as_object().unwrap().keys().collect::<Vec<_>>(), ["columns", "rows"]);
+
+            let (_, written) = text_of(name, params.clone()).await;
+            let (_, inlined) = query(&ledger, written["data"]["query"].as_str().unwrap(), None).await;
+            assert_eq!(run["data"], inlined["data"], "{} {}", name, params);
+
+            let (status, counted) = run_of(&ledger, name, params.clone(), Some(true)).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(counted["data"]["total"], rows, "{} {}", name, params);
+            assert_eq!(counted["data"]["rows"], run["data"]["rows"]);
+        }
+    }
+
+    /// `POST /api/query/builtins` runs each query as the single endpoint does, in the order of
+    /// the requests, each with its own `count_total`.
+    #[tokio::test]
+    async fn a_batch_of_builtins_runs_each_in_order() {
+        let ledger = ledger().await;
+        let (status, batch) = batch_of(
+            &ledger,
+            json!([
+                {"name": "postings.between", "params": {"from": "2024-02-01", "to": "2024-02-29"}},
+                {"name": "postings.matching", "params": {"payee": null, "tags": ["trip"]}, "count_total": true},
+                {"name": "journals.payees", "params": {}, "count_total": false},
+            ]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", batch);
+        let results = batch["data"].as_array().unwrap();
+        assert_eq!(results.len(), 3);
+
+        let (_, between) = run_of(&ledger, "postings.between", json!({"from": "2024-02-01", "to": "2024-02-29"}), None).await;
+        assert_eq!(results[0], between["data"]);
+        let (_, matching) = run_of(&ledger, "postings.matching", json!({"payee": null, "tags": ["trip"]}), Some(true)).await;
+        assert_eq!(results[1], matching["data"]);
+        assert_eq!(results[1]["total"], 4);
+        let (_, payees) = run_of(&ledger, "journals.payees", json!({}), None).await;
+        assert_eq!(results[2], payees["data"]);
+        assert_eq!(results[2]["rows"], json!([["C:\\temp\\"], ["O'Brien"], ["it's \"quoted\""]]));
+
+        let (status, empty) = batch_of(&ledger, json!([])).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(empty, json!({"data": []}));
+    }
+
+    /// An unknown query is a 404 and a bad parameter a 400, each naming the problem; a batch
+    /// with one such query is refused as a whole.
+    #[tokio::test]
+    async fn running_an_unknown_builtin_or_bad_params_is_a_named_error() {
+        let ledger = ledger().await;
+        let (status, body) = run_of(&ledger, "no.such.query", json!({}), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["message"], "there is no built-in query no.such.query");
+        let bad_params = [
+            (json!({"from": "2024-02-01"}), "parameter :to of postings.between is missing"),
+            (
+                json!({"from": "2024-02-01", "to": "2024-02-29", "account": "x"}),
+                "postings.between has no parameter :account",
+            ),
+            (
+                json!({"from": "2024-02-01", "to": 20240229}),
+                "parameter :to must be a date string YYYY-MM-DD or null",
+            ),
+        ];
+        for (params, message) in &bad_params {
+            let (status, body) = run_of(&ledger, "postings.between", params.clone(), None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(body["message"], *message);
+        }
+
+        let good = json!({"name": "postings.matching", "params": {"payee": null, "tags": null}});
+        let (status, body) = batch_of(&ledger, json!([good, {"name": "no.such.query", "params": {}}])).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["message"], "there is no built-in query no.such.query");
+        for (params, message) in &bad_params {
+            let (status, body) = batch_of(&ledger, json!([good, {"name": "postings.between", "params": params}])).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(body["message"], *message);
+        }
     }
 
     /// The text of a built-in query runs over `POST /api/query` to the result the app gets
@@ -679,8 +869,9 @@ mod builtin_test {
 
     #[tokio::test]
     async fn builtin_text_of_an_unknown_query_or_bad_params_is_an_error() {
-        let (status, _) = text_of("no.such.query", json!({})).await;
+        let (status, body) = text_of("no.such.query", json!({})).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["message"], "there is no built-in query no.such.query");
         for (params, message) in [
             (json!({"from": "2024-02-01"}), "parameter :to of postings.between is missing"),
             (
