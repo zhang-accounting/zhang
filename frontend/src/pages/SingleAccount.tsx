@@ -1,4 +1,3 @@
-import { useAtomValue, useSetAtom } from 'jotai';
 import { ChartLine, CircleAlert, Cog, FileStack, NotebookText, WalletMinimal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,8 +14,6 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { ACCOUNTS_LINK } from '@/layout/nav-links';
 import AccountBalanceCheckLine from '../components/AccountBalanceCheckLine';
 import { balanceCheckRows } from '../utils/balance-check';
 import { canPreview } from '../utils/documents';
@@ -29,14 +26,12 @@ import { AssertionAmount } from '../components/journalLines/BalanceAssertion';
 import { ImageLightBox } from '../components/ImageLightBox';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import Section from '../components/Section';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
 
 const TABS = ['journals', 'documents', 'history', 'settings'] as const;
 type TabKey = (typeof TABS)[number];
 
 function SingleAccount() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { accountName } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') as TabKey | null;
@@ -44,13 +39,6 @@ function SingleAccount() {
   const [reloadKey, setReloadKey] = useState(0);
   const tabsScroller = useRef<HTMLDivElement>(null);
   const reload = () => setReloadKey((key) => key + 1);
-
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${accountName} | ${t('NAV_ACCOUNTS')} - ${ledgerTitle}`);
-
-  useEffect(() => {
-    setBreadcrumb([ACCOUNTS_LINK, { label: accountName ?? '', uri: `/accounts/${accountName}`, noTranslate: true }]);
-  }, [accountName, setBreadcrumb]);
 
   const info = useAsync(async () => {
     if (!accountName) return undefined;

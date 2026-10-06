@@ -1,14 +1,10 @@
-import { useAtomValue, useSetAtom } from 'jotai';
 import { ArrowRight, FilePenLine, SearchCode, SquareStack } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { PageHeader, PageShell } from '@/components/layout';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { QUERY_LINK, RAW_EDITING_LINK, TOOLS_LINK } from '@/layout/nav-links';
+import { QUERY_LINK, RAW_EDITING_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
 interface ToolItem {
   /** i18n keys */
@@ -26,12 +22,6 @@ const toolItems: ToolItem[] = [
 
 export default function ToolList() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_TOOLS')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([TOOLS_LINK]);
-  }, [setBreadcrumb]);
 
   return (
     <PageShell>

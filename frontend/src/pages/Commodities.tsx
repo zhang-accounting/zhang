@@ -1,16 +1,12 @@
 import { format } from 'date-fns';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ChevronRight, Coins } from 'lucide-react';
-import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Amount from '@/components/Amount';
 import CommodityBox, { CommodityLatestPrice, CommoditySymbol, type CommodityBoxProps } from '@/components/CommodityBox';
 import { EmptyState, LoadFailedState, PageHeader, PageShell, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { Badge } from '@/components/ui/badge';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { COMMODITIES_LINK } from '@/layout/nav-links';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 import { commoditiesAtom, commoditiesFetcher, FRONTEND_DEFAULT_GROUP, groupedCommoditiesAtom } from '@/states/commodity';
 import { operatingCurrencyAtom } from '@/states/options';
 
@@ -18,12 +14,6 @@ type CommodityRow = CommodityBoxProps;
 
 export default function Commodities() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_COMMODITIES')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([COMMODITIES_LINK]);
-  }, [setBreadcrumb]);
 
   const commodities = useAtomValue(commoditiesAtom);
   const refreshCommodities = useSetAtom(commoditiesFetcher);

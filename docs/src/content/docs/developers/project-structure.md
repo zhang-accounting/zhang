@@ -19,7 +19,6 @@ Zhang is a Rust workspace, a React web UI and this documentation site, all in th
 | `zhang-cli/` | `zhang` | The `zhang` binary (`src/main.rs`) and the data source for the local file system, S3, WebDAV and GitHub, built on [Apache OpenDAL](https://opendal.apache.org/) (`src/opendal.rs`). |
 | `zhang-plugin-sdk/` | `zhang-plugin-sdk` | The Rust SDK for WASM plugins, with two example plugins in `examples/`. See [Writing Plugins](/developers/writing-plugins/). |
 | `bindings/wasm/` | `zhang-wasm` | The parsers compiled to WebAssembly with wasm-pack, for the online playground. |
-| `bindings/python/` | `zhang-python` | Experimental Python bindings (PyO3, built with maturin). |
 | `frontend/` | | The web UI: React, TypeScript, Vite and Tailwind CSS. |
 | `docs/` | | This site, built with Astro and Starlight. See `docs/README.md`. |
 | `integration-tests/` | | End-to-end test cases: one folder per case, with a ledger and the API responses it must produce. |
@@ -38,7 +37,7 @@ Writes go the other way: a route builds a directive, the data type exports it as
 
 ## Building and running locally
 
-You need a stable Rust toolchain, Node.js 22.22 or newer with [pnpm](https://pnpm.io/) 9, and Python 3 for the tests of the Python bindings. The plugin SDK tests also need the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`); without it they are skipped locally.
+You need a stable Rust toolchain and Node.js 22.22 or newer with [pnpm](https://pnpm.io/) 9. The plugin SDK tests also need the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`); without it they are skipped locally.
 
 The `frontend` feature of `zhang-server` embeds `frontend/dist`, which must exist when the feature is on. Like CI, create an empty folder if you have not built the web UI:
 

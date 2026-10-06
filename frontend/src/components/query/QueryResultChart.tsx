@@ -7,9 +7,6 @@ import type { NameType, ValueType } from 'recharts/types/component/DefaultToolti
 import { QueryResult } from '@/api/types';
 import { useIsMobile } from '@/components/layout';
 import {
-  BarDatum,
-  buildBars,
-  buildLine,
   buildSeriesBars,
   buildSeriesLines,
   buildTreemap,
@@ -18,7 +15,6 @@ import {
   collectSeries,
   currenciesOf,
   defaultCurrency,
-  LineDatum,
   MAX_SERIES,
   NO_CURRENCY,
   QueryChartKind,
@@ -123,8 +119,28 @@ function LegendItem({ color, label }: { color: string; label: string }) {
   );
 }
 
-/** A tooltip listing the value of every series that has one, in series order. */
-function SeriesTooltipBox({ title, series, datum, currency }: { title: string; series: Series[]; datum: SeriesDatum; currency: string }) {
+/**
+ * A tooltip listing the value of every series that has one, in series order. A single series shows just its value, in
+ * the negative colour when `markNegative` is set and the value is below zero (as the bar is drawn).
+ */
+function SeriesTooltipBox({
+  title,
+  series,
+  datum,
+  currency,
+  markNegative = false,
+}: {
+  title: string;
+  series: Series[];
+  datum: SeriesDatum;
+  currency: string;
+  markNegative?: boolean;
+}) {
+  if (series.length === 1) {
+    const signed = datum.signed[0];
+    if (signed === null) return null;
+    return <TooltipBox title={title} value={formatExact(signed, currency)} negative={markNegative && (datum.values[0] ?? 0) < 0} />;
+  }
   return (
     <div className="grid max-w-xs min-w-32 gap-1 rounded-lg bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-xl ring-1 ring-foreground/10">
       <div className="font-medium break-all">{title}</div>
@@ -143,13 +159,16 @@ function SeriesTooltipBox({ title, series, datum, currency }: { title: string; s
   );
 }
 
-/** The legend of a multi-series chart (two series or more), plus the notes on what was left out. */
-function SeriesLegend({ series, notes }: { series: Series[]; notes: (string | false)[] }) {
+/** The legend of a multi-series chart (two series or more), or the signs of a one-series bar chart, plus the notes on what was left out. */
+function SeriesLegend({ series, notes, signs }: { series: Series[]; notes: (string | false)[]; signs?: { hasPositive: boolean } }) {
+  const { t } = useTranslation();
   const shownNotes = notes.filter((note): note is string => note !== false);
-  if (series.length < 2 && shownNotes.length === 0) return null;
+  if (series.length < 2 && !signs && shownNotes.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       {series.length >= 2 && series.map((item) => <LegendItem key={item.index} color={seriesColor(item)} label={item.name || '—'} />)}
+      {signs?.hasPositive && <LegendItem color="var(--color-value)" label={t('query.chart.positive')} />}
+      {signs && <LegendItem color="var(--color-negative)" label={t('query.chart.negative')} />}
       {shownNotes.map((note) => (
         <span key={note}>{note}</span>
       ))}
@@ -240,70 +259,7 @@ function QueryTreemap({ points, currency }: { points: ChartPoint[]; currency: st
   );
 }
 
-// ---- bar chart ----
-
-function QueryBarChart({ points, currency }: { points: ChartPoint[]; currency: string }) {
-  const { t } = useTranslation();
-  const isMobile = useIsMobile();
-  const compactNumber = useCompactNumber();
-  const bars = useMemo(() => buildBars(points, currency), [points, currency]);
-  if (bars.length === 0) return <NothingToPlot />;
-
-  const shown = bars.slice(0, MAX_BARS);
-  const hasNegative = shown.some((bar) => bar.value < 0);
-  const hasPositive = shown.some((bar) => bar.value > 0);
-  const { valueDomain, labelWidth, labelSpace } = barAxes(shown, hasNegative, hasPositive, isMobile);
-
-  const tooltip = ({ active, payload }: ChartTooltipProps) => {
-    const datum = payload?.[0]?.payload as BarDatum | undefined;
-    if (!active || !datum) return null;
-    return <TooltipBox title={datum.label || '—'} value={formatExact(datum.signed, currency)} negative={datum.value < 0} />;
-  };
-
-  return (
-    <div className="flex flex-col gap-2">
-      <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: shown.length * BAR_HEIGHT + 40 }}>
-        <BarChart data={shown} layout="vertical" margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-          <CartesianGrid horizontal={false} />
-          <XAxis
-            type="number"
-            domain={valueDomain}
-            tickFormatter={(value: number) => compactNumber.format(value)}
-            tickLine={false}
-            axisLine={false}
-            tickMargin={4}
-          />
-          <YAxis
-            type="category"
-            dataKey="label"
-            width={labelWidth}
-            interval={0}
-            tickLine={false}
-            axisLine={false}
-            // non-breaking spaces: recharts would wrap the (already fitted) label onto two lines
-            tickFormatter={(label: string) => truncate(label || '—', labelSpace).replace(/ /g, '\u00a0')}
-          />
-          <ChartTooltip cursor={{ fill: 'var(--muted)', opacity: 0.6 }} content={tooltip} isAnimationActive={false} />
-          {hasNegative && hasPositive && <ReferenceLine x={0} stroke="var(--border)" />}
-          <Bar dataKey="value" radius={2} maxBarSize={20} isAnimationActive={false}>
-            {shown.map((bar, index) => (
-              <Cell key={index} fill={bar.value < 0 ? 'var(--color-negative)' : 'var(--color-value)'} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ChartContainer>
-      {(hasNegative || bars.length > shown.length) && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {hasNegative && hasPositive && <LegendItem color="var(--color-value)" label={t('query.chart.positive')} />}
-          {hasNegative && <LegendItem color="var(--color-negative)" label={t('query.chart.negative')} />}
-          {bars.length > shown.length && <span>{t('query.chart.bars_truncated', { shown: shown.length, total: bars.length })}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---- line chart ----
+// ---- time axis ----
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -335,66 +291,9 @@ function timeAxis(first: number, last: number, isMobile: boolean) {
   return { domain, ...timeTicks(domain[0], domain[1], isMobile ? 4 : 8) };
 }
 
-function QueryLineChart({ points, currency }: { points: ChartPoint[]; currency: string }) {
-  const isMobile = useIsMobile();
-  const compactNumber = useCompactNumber();
-  const data = useMemo(() => buildLine(points, currency), [points, currency]);
-  if (data.length === 0) return <NothingToPlot />;
+// ---- bar chart (one series per value column; grouped bars for several) ----
 
-  const { domain, ticks, pattern } = timeAxis(data[0].time, data[data.length - 1].time, isMobile);
-  const values = data.map((datum) => datum.value);
-  const crossesZero = Math.min(...values) < 0 && Math.max(...values) > 0;
-
-  const tooltip = ({ active, payload }: ChartTooltipProps) => {
-    const datum = payload?.[0]?.payload as LineDatum | undefined;
-    if (!active || !datum) return null;
-    return <TooltipBox title={datum.date} value={formatExact(datum.signed, currency)} />;
-  };
-
-  return (
-    <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: isMobile ? 240 : 320 }}>
-      <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-        <CartesianGrid vertical={false} />
-        <XAxis
-          dataKey="time"
-          type="number"
-          scale="time"
-          domain={domain}
-          ticks={ticks}
-          tickFormatter={(time: number) => format(time, pattern)}
-          tickLine={false}
-          axisLine={false}
-          tickMargin={8}
-          minTickGap={16}
-        />
-        {/* a line needs no zero baseline: 'auto' fits the data range, negative or not, with rounded ticks */}
-        <YAxis
-          domain={['auto', 'auto']}
-          tickFormatter={(value: number) => compactNumber.format(value)}
-          width={56}
-          tickLine={false}
-          axisLine={false}
-          tickMargin={4}
-        />
-        <ChartTooltip cursor={{ stroke: 'var(--border)' }} content={tooltip} isAnimationActive={false} />
-        {crossesZero && <ReferenceLine y={0} stroke="var(--border)" />}
-        <Line
-          dataKey="value"
-          type="linear"
-          stroke="var(--color-value)"
-          strokeWidth={2}
-          dot={data.length <= 40 ? { r: 3, fill: 'var(--color-value)', strokeWidth: 0 } : false}
-          activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--background)' }}
-          isAnimationActive={false}
-        />
-      </LineChart>
-    </ChartContainer>
-  );
-}
-
-// ---- grouped bar chart (one series per value column) ----
-
-function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: string }) {
+function QueryBarChart({ set, currency }: { set: SeriesSet; currency: string }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const compactNumber = useCompactNumber();
@@ -413,7 +312,7 @@ function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: str
   const tooltip = ({ active, payload }: ChartTooltipProps) => {
     const datum = payload?.[0]?.payload as SeriesDatum | undefined;
     if (!active || !datum) return null;
-    return <SeriesTooltipBox title={datum.label || '—'} series={series} datum={datum} currency={currency} />;
+    return <SeriesTooltipBox title={datum.label || '—'} series={series} datum={datum} currency={currency} markNegative />;
   };
 
   return (
@@ -436,6 +335,7 @@ function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: str
             interval={0}
             tickLine={false}
             axisLine={false}
+            // non-breaking spaces: recharts would wrap the (already fitted) label onto two lines
             tickFormatter={(label: string) => truncate(label || '—', labelSpace).replace(/ /g, '\u00a0')}
           />
           <ChartTooltip cursor={{ fill: 'var(--muted)', opacity: 0.6 }} content={tooltip} isAnimationActive={false} />
@@ -446,21 +346,30 @@ function QueryGroupedBarChart({ set, currency }: { set: SeriesSet; currency: str
               dataKey={(datum: SeriesDatum) => datum.values[index]}
               name={item.name}
               fill={seriesColor(item)}
-              barSize={barSize}
+              barSize={series.length > 1 ? barSize : undefined}
+              maxBarSize={20}
               radius={2}
               isAnimationActive={false}
-            />
+            >
+              {/* one series: a bar's colour carries its sign, as in the treemap */}
+              {series.length === 1 &&
+                shown.map((datum, row) => <Cell key={row} fill={(datum.values[0] ?? 0) < 0 ? 'var(--color-negative)' : seriesColor(item)} />)}
+            </Bar>
           ))}
         </BarChart>
       </ChartContainer>
-      <SeriesLegend series={series} notes={[data.length > shown.length && t('query.chart.bars_truncated', { shown: shown.length, total: data.length })]} />
+      <SeriesLegend
+        series={series}
+        notes={[data.length > shown.length && t('query.chart.bars_truncated', { shown: shown.length, total: data.length })]}
+        signs={series.length === 1 && hasNegative ? { hasPositive } : undefined}
+      />
     </div>
   );
 }
 
-// ---- multi-series line chart (one series per value column) ----
+// ---- line chart (one series per value column) ----
 
-function QueryMultiLineChart({ set, currency }: { set: SeriesSet; currency: string }) {
+function QueryLineChart({ set, currency }: { set: SeriesSet; currency: string }) {
   const isMobile = useIsMobile();
   const compactNumber = useCompactNumber();
   const { series, data } = useMemo(() => buildSeriesLines(set, currency), [set, currency]);
@@ -493,6 +402,7 @@ function QueryMultiLineChart({ set, currency }: { set: SeriesSet; currency: stri
             tickMargin={8}
             minTickGap={16}
           />
+          {/* a line needs no zero baseline: 'auto' fits the data range, negative or not, with rounded ticks */}
           <YAxis
             domain={['auto', 'auto']}
             tickFormatter={(value: number) => compactNumber.format(value)}
@@ -544,20 +454,17 @@ export default function QueryResultChart({ result, kind, operatingCurrency, pick
   const { t } = useTranslation();
   // the colour variables are also defined on the panel, for the legends rendered outside the chart containers
   const panelId = `query-chart-${useId().replace(/:/g, '')}`;
-  const multiSeries = kind === 'grouped_bar' || kind === 'multi_line';
-  const set = useMemo(() => (multiSeries ? collectSeries(result) : null), [result, multiSeries]);
-  const points = useMemo(() => (multiSeries ? [] : collectPoints(result)), [result, multiSeries]);
+  const set = useMemo(() => (kind === 'treemap' ? null : collectSeries(result)), [result, kind]);
+  const points = useMemo(() => (kind === 'treemap' ? collectPoints(result) : []), [result, kind]);
   const currencies = useMemo(() => (set ? seriesCurrencies(set) : currenciesOf(points)), [set, points]);
   // the picked currency is kept across runs and used again whenever the new result has it
   const currency = picked !== undefined && currencies.includes(picked) ? picked : defaultCurrency(currencies, operatingCurrency);
 
   let chart: ReactNode;
   if (currency === undefined) chart = <NothingToPlot />;
-  else if (set && kind === 'grouped_bar') chart = <QueryGroupedBarChart set={set} currency={currency} />;
-  else if (set) chart = <QueryMultiLineChart set={set} currency={currency} />;
-  else if (kind === 'treemap') chart = <QueryTreemap points={points} currency={currency} />;
-  else if (kind === 'bar') chart = <QueryBarChart points={points} currency={currency} />;
-  else chart = <QueryLineChart points={points} currency={currency} />;
+  else if (!set) chart = <QueryTreemap points={points} currency={currency} />;
+  else if (kind === 'bar' || kind === 'grouped_bar') chart = <QueryBarChart set={set} currency={currency} />;
+  else chart = <QueryLineChart set={set} currency={currency} />;
 
   return (
     <div data-chart={panelId} className="flex min-w-0 flex-col gap-3 p-4">

@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ChevronsDownUp, ChevronsUpDown, RefreshCw, Search, WalletMinimal, X } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EmptyState, LoadFailedState, PageHeader, PageShell } from '@/components/layout';
 import { AccountListSkeleton } from '@/components/skeletons/accountListSkeleton';
@@ -9,15 +9,12 @@ import { Card } from '@/components/ui/card';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useInputState } from '@/hooks/use-input-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
-import { ACCOUNTS_LINK } from '@/layout/nav-links';
 import { setAccountsExpanded } from '@/components/layout/account-tree';
 import AccountLine from '../components/AccountLine';
 import Amount from '../components/Amount';
 import { accountAtom, accountFetcher } from '../states/account';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { heldCommodities, treeTotals } from '../utils/account-totals';
 import AccountTrie from '../utils/AccountTrie';
 
@@ -30,19 +27,12 @@ function collectGroupPaths(node: AccountTrie): string[] {
 
 export default function Accounts() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_ACCOUNTS')} - ${ledgerTitle}`);
 
   const [filterKeyword, setFilterKeyword] = useInputState('');
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
   const accounts = useAtomValue(accountAtom);
   const refreshAccounts = useSetAtom(accountFetcher);
   const keyword = filterKeyword.trim().toLowerCase();
-
-  useEffect(() => {
-    setBreadcrumb([ACCOUNTS_LINK]);
-  }, [setBreadcrumb]);
 
   const all = useMemo(() => (accounts.state === 'hasData' ? accounts.data : []), [accounts]);
   const closedCount = all.filter((it) => it.status !== 'Open').length;

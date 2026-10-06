@@ -19,7 +19,6 @@ sidebar:
 | `zhang-cli/` | `zhang` | `zhang` 二进制文件（`src/main.rs`），以及本地文件系统、S3、WebDAV 和 GitHub 的数据源，基于 [Apache OpenDAL](https://opendal.apache.org/)（`src/opendal.rs`）。 |
 | `zhang-plugin-sdk/` | `zhang-plugin-sdk` | WASM 插件的 Rust SDK，`examples/` 中有两个示例插件。见[编写插件](/zh-cn/developers/writing-plugins/)。 |
 | `bindings/wasm/` | `zhang-wasm` | 用 wasm-pack 编译为 WebAssembly 的解析器，供在线 Playground 使用。 |
-| `bindings/python/` | `zhang-python` | 实验性的 Python 绑定（PyO3，用 maturin 构建）。 |
 | `frontend/` | | 网页界面：React、TypeScript、Vite 和 Tailwind CSS。 |
 | `docs/` | | 本站点，用 Astro 和 Starlight 构建。见 `docs/README.md`。 |
 | `integration-tests/` | | 端到端测试用例：每个用例一个文件夹，包含一个账本以及它必须产生的 API 响应。 |
@@ -38,7 +37,7 @@ sidebar:
 
 ## 在本地构建和运行
 
-你需要稳定版 Rust 工具链、Node.js 22.22 或更高版本和 [pnpm](https://pnpm.io/) 9，运行 Python 绑定的测试还需要 Python 3。插件 SDK 的测试还需要 `wasm32-unknown-unknown` target（`rustup target add wasm32-unknown-unknown`）；没有它时，这些测试在本地会被跳过。
+你需要稳定版 Rust 工具链，以及 Node.js 22.22 或更高版本和 [pnpm](https://pnpm.io/) 9。插件 SDK 的测试还需要 `wasm32-unknown-unknown` target（`rustup target add wasm32-unknown-unknown`）；没有它时，这些测试在本地会被跳过。
 
 `zhang-server` 的 `frontend` feature 会嵌入 `frontend/dist`，启用这个 feature 时该文件夹必须存在。如果你还没有构建网页界面，可以像 CI 一样创建一个空文件夹：
 
