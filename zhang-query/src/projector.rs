@@ -44,7 +44,7 @@ use std::fmt;
 
 use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
-use crate::functions::{AggregateKind, ParamType};
+use crate::functions::AggregateKind;
 use crate::table::{Borrow, ColumnDef, Reads, RowRef, Table};
 use crate::value::Value;
 
@@ -144,32 +144,6 @@ fn picks_a_row(aggregate: &AggregateCall) -> bool {
     matches!(aggregate.function.kind, AggregateKind::First | AggregateKind::Last)
 }
 
-/// Functions that return a value, never NULL or an error, for arguments of their types,
-/// as long as they take no integer (`abs` and `neg` can overflow one).
-const TOTAL_FUNCTIONS: &[&str] = &[
-    "units",
-    "cost",
-    "value",
-    "convert",
-    "str",
-    "only",
-    "filter_currency",
-    "possign",
-    "abs",
-    "neg",
-    "icontains",
-    "any_icontains",
-    "intersects",
-    "under",
-];
-
-fn total_function(expr: &CExpr) -> bool {
-    match expr {
-        CExpr::Scalar { function, .. } => TOTAL_FUNCTIONS.contains(&function.name) && !function.params.contains(&ParamType::Exact(crate::value::DataType::Int)),
-        _ => false,
-    }
-}
-
 /// Whether evaluating the expression can never fail, so evaluating it for fewer rows
 /// changes nothing but the work done.
 pub(crate) fn infallible(expr: &CExpr) -> bool {
@@ -177,7 +151,7 @@ pub(crate) fn infallible(expr: &CExpr) -> bool {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
         CExpr::InConst { .. } | CExpr::StrTest { .. } | CExpr::Case { .. } => true,
-        CExpr::Scalar { .. } => total_function(expr),
+        CExpr::Scalar { function, .. } => function.total,
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
     };
     node && expr.children().into_iter().all(infallible)
@@ -189,7 +163,7 @@ fn never_null(expr: &CExpr) -> bool {
     match expr {
         CExpr::Running(_) => true,
         CExpr::Const(value) => !value.is_null(),
-        CExpr::Scalar { args, .. } => total_function(expr) && args.iter().all(never_null),
+        CExpr::Scalar { function, args, .. } => function.total && args.iter().all(never_null),
         _ => false,
     }
 }
@@ -585,7 +559,6 @@ option "operating_currency" "USD"
         let data = Dataset::new(&ledger, &store, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(), Projection::all());
         let params = Params::new();
         let regexes = RegexCache::default();
-        let impure = std::cell::Cell::new(false);
         let needles = ["food", "travel", "receipt-1", "Assets:Bank", "Income:Gains", "Expenses:Food", "x"];
         let mut checked = 0;
         for row in &data.rows {
@@ -597,7 +570,6 @@ option "operating_currency" "USD"
                 running: None,
                 params: &params,
                 regexes: &regexes,
-                impure: &impure,
             };
             for column in COLUMNS {
                 let expr = CExpr::Column(column);

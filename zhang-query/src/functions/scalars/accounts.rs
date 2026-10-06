@@ -5,12 +5,11 @@ use std::str::FromStr;
 
 use zhang_ast::AccountType;
 
-use crate::functions::FunctionContext;
 use crate::value::Value;
 
 /// beancount `account.parent`: drop the last component. A top-level account has the empty
 /// string as its parent; the empty account name has no parent (NULL).
-pub(super) fn parent(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn parent(args: &[Value]) -> Result<Value, String> {
     let account = args[0].as_str().ok_or("parent() expects an account name")?;
     if account.is_empty() {
         return Ok(Value::Null);
@@ -20,7 +19,7 @@ pub(super) fn parent(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value
 }
 
 /// beancount `account.leaf`: the last component; NULL for the empty account name.
-pub(super) fn leaf(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn leaf(args: &[Value]) -> Result<Value, String> {
     let account = args[0].as_str().ok_or("leaf() expects an account name")?;
     if account.is_empty() {
         return Ok(Value::Null);
@@ -33,7 +32,7 @@ pub(super) fn leaf(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, 
 /// account types in the order Assets, Liabilities, Equity, Income, Expenses, so the keys sort
 /// accounts by type, then by name (BALANCES orders by it). A name whose first component is
 /// not an account type gets index 5 and sorts after them (beanquery raises an error).
-pub(super) fn account_sortkey(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn account_sortkey(args: &[Value]) -> Result<Value, String> {
     let account = args[0].as_str().ok_or("account_sortkey() expects an account name")?;
     let root = account.split(':').next().unwrap_or_default();
     let index = match AccountType::from_str(root) {
@@ -52,7 +51,7 @@ pub(crate) use zhang_ast::account::is_under;
 /// `under(account, ancestor)`, a zhang extension: whether the account is the ancestor or
 /// below it (`under('Assets:Bank:Cash', 'Assets:Bank')`), never a sibling with a longer name
 /// (`Assets:Banking`).
-pub(super) fn under(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn under(args: &[Value]) -> Result<Value, String> {
     let account = args[0].as_str().ok_or("under() expects an account name")?;
     let ancestor = args[1].as_str().ok_or("under() expects an ancestor account name")?;
     Ok(Value::Bool(is_under(account, ancestor)))

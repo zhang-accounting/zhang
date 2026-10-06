@@ -2,34 +2,42 @@
 //! then transaction), as in beanquery, and the zhang extensions `meta_values` and
 //! `entry_meta_values`, which return every value of a repeated key. Values are strings.
 
-use crate::functions::FunctionContext;
+use crate::table::{Dataset, RowRef};
 use crate::value::Value;
 
 fn key_arg<'a>(args: &'a [Value], function: &str) -> Result<&'a str, String> {
     args[0].as_str().ok_or_else(|| format!("{}() expects a metadata key", function))
 }
 
-pub(super) fn meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(ctx.posting_meta(key_arg(args, "meta")?).into())
+pub(super) fn meta(args: &[Value], data: &Dataset<'_>, row: Option<RowRef<'_, '_>>) -> Result<Value, String> {
+    let key = key_arg(args, "meta")?;
+    Ok(row.and_then(|row| data.row_meta(row, key)).into())
 }
 
-pub(super) fn entry_meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(ctx.entry_meta(key_arg(args, "entry_meta")?).into())
+pub(super) fn entry_meta(args: &[Value], data: &Dataset<'_>, row: Option<RowRef<'_, '_>>) -> Result<Value, String> {
+    let key = key_arg(args, "entry_meta")?;
+    Ok(row.and_then(|row| data.row_entry_meta(row, key)).into())
 }
 
-pub(super) fn any_meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn any_meta(args: &[Value], data: &Dataset<'_>, row: Option<RowRef<'_, '_>>) -> Result<Value, String> {
     let key = key_arg(args, "any_meta")?;
-    Ok(ctx.posting_meta(key).or_else(|| ctx.entry_meta(key)).into())
+    Ok(row.and_then(|row| data.row_meta(row, key).or_else(|| data.row_entry_meta(row, key))).into())
 }
 
 /// `meta_values(key)`: the set of every value of the posting's metadata `key`.
-pub(super) fn meta_values(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(Value::Set(ctx.posting_meta_values(key_arg(args, "meta_values")?).into_iter().collect()))
+pub(super) fn meta_values(args: &[Value], data: &Dataset<'_>, row: Option<RowRef<'_, '_>>) -> Result<Value, String> {
+    let key = key_arg(args, "meta_values")?;
+    Ok(Value::Set(
+        row.map(|row| data.row_meta_values(row, key)).unwrap_or_default().into_iter().collect(),
+    ))
 }
 
 /// `entry_meta_values(key)`: the set of every value of the transaction's metadata `key`.
-pub(super) fn entry_meta_values(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(Value::Set(ctx.entry_meta_values(key_arg(args, "entry_meta_values")?).into_iter().collect()))
+pub(super) fn entry_meta_values(args: &[Value], data: &Dataset<'_>, row: Option<RowRef<'_, '_>>) -> Result<Value, String> {
+    let key = key_arg(args, "entry_meta_values")?;
+    Ok(Value::Set(
+        row.map(|row| data.row_entry_meta_values(row, key)).unwrap_or_default().into_iter().collect(),
+    ))
 }
 
 #[cfg(test)]

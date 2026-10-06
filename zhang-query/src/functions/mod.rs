@@ -8,23 +8,26 @@
 //!
 //! # Adding a scalar function
 //!
-//! Add an entry to [`scalars::SCALAR_FUNCTIONS`] (one entry per overload) and an
-//! implementation with the [`ScalarImpl`] signature:
+//! Add a row to [`scalars::SCALAR_FUNCTIONS`] (one row per overload) and an implementation:
 //!
 //! ```ignore
-//! ScalarFunction {
-//!     name: "year",
-//!     params: &[ParamType::Exact(DataType::Date)],
-//!     returns: ReturnType::Exact(DataType::Int),
-//!     description: "The year of a date.",
-//!     eval: year,
-//! },
+//! year(Date) -> Int = year, "The year of a date.";
 //!
-//! fn year(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+//! fn year(args: &[Value]) -> Result<Value, String> {
 //!     let date = args[0].as_date().ok_or("year() expects a date")?;
 //!     Ok(Value::Int(date.year() as i64))
 //! }
 //! ```
+//!
+//! A row starts with its flags when the function reads more than its arguments or is total:
+//! - `#[execution]`: it also reads the execution, its date ("today") and the ledger's prices and
+//!   `open`, `close` and `commodity` directives, and takes the execution's rows and lookups
+//!   (`fn(&[Value], &Dataset) -> ...`). It is never folded into a constant.
+//! - `#[row]`: it also reads the row being evaluated, its metadata, and takes the row as well
+//!   (`fn(&[Value], &Dataset, Option<RowRef>) -> ...`, no row over finished aggregates). Like a
+//!   column, it must be grouped or aggregated in a grouped query, and it is never folded.
+//! - `#[total]`: it returns a value, never NULL or an error, for any arguments of its types, so
+//!   the executor may evaluate it for fewer rows.
 //!
 //! Contract for implementations:
 //! - Arguments arrive already type-checked against `params`: an `Exact(Decimal)` parameter
@@ -35,23 +38,38 @@
 //! - The returned value must have the declared return type (or be `Value::Null`).
 //! - Return `Err(message)` for runtime failures; the evaluator attaches the source position
 //!   of the call.
-//! - Use the [`FunctionContext`] for anything outside the arguments: today's date, the
-//!   price map, the `open`, `close` and `commodity` directives of the ledger, and metadata
-//!   of the row being evaluated.
+
+/// The parameters of a registry row, as [`ParamType`]s: a type, `any`, `type...` for a variadic
+/// last parameter, or `*` (none) for `count(*)`.
+macro_rules! params {
+    ([] *) => { &[] };
+    ([$($done:expr),*]) => { &[$($done),*] };
+    ([$($done:expr),*] any $(, $($rest:tt)*)?) => { params!([$($done,)* ParamType::Any] $($($rest)*)?) };
+    ([$($done:expr),*] $ty:ident ... $(, $($rest:tt)*)?) => { params!([$($done,)* ParamType::Variadic($ty)] $($($rest)*)?) };
+    ([$($done:expr),*] $ty:ident $(, $($rest:tt)*)?) => { params!([$($done,)* ParamType::Exact($ty)] $($($rest)*)?) };
+}
+
+/// The return type of a registry row, as a [`ReturnType`]: a type, or `SameAsArg(i)`.
+macro_rules! returns {
+    (SameAsArg($idx:literal)) => {
+        ReturnType::SameAsArg($idx)
+    };
+    ($ty:ident) => {
+        ReturnType::Exact($ty)
+    };
+}
 
 pub mod aggregates;
 pub mod scalars;
 
-use std::collections::BTreeSet;
-
-use chrono::{NaiveDate, NaiveDateTime};
-use zhang_ast::{Close, Commodity, Open};
-use zhang_core::domains::schemas::AccountStatus;
+use zhang_ast::{Close, Open};
 
 pub use self::aggregates::{AggregateFunction, AggregateKind};
-pub(crate) use self::scalars::is_under;
+#[cfg(test)]
+pub(crate) use self::scalars::TestContext;
 pub use self::scalars::SCALAR_FUNCTIONS;
-use crate::prices::PriceMap;
+pub(crate) use self::scalars::{is_under, reads_the_row};
+use crate::table::{Dataset, RowRef};
 use crate::value::{DataType, Value};
 
 /// A parameter of a function signature.
@@ -124,70 +142,27 @@ impl ReturnType {
     }
 }
 
-/// What a scalar function can see besides its arguments.
-pub trait FunctionContext {
-    /// "Today" for `today()`: the current date in the ledger's timezone, unless the caller
-    /// pinned it (see [`crate::Query::execute_at`]).
-    fn today(&self) -> NaiveDate;
-
-    /// The ledger's price map (built lazily on first use).
-    fn prices(&self) -> &PriceMap;
-
-    /// Metadata `key` of the transaction of the row being evaluated, as a string.
-    /// `None` when absent or when there is no current row.
-    fn entry_meta(&self, key: &str) -> Option<String>;
-
-    /// Metadata `key` of the posting being evaluated.
-    fn posting_meta(&self, key: &str) -> Option<String>;
-
-    /// Every value of the posting metadata `key` of the row being evaluated, in written order
-    /// (a repeated key has several). Defaults to [`FunctionContext::posting_meta`].
-    fn posting_meta_values(&self, key: &str) -> Vec<String> {
-        self.posting_meta(key).into_iter().collect()
-    }
-
-    /// Every value of the transaction metadata `key` of the row being evaluated, in written
-    /// order. Defaults to [`FunctionContext::entry_meta`].
-    fn entry_meta_values(&self, key: &str) -> Vec<String> {
-        self.entry_meta(key).into_iter().collect()
-    }
-
-    /// The `open` and `close` directives of an account (the earliest of each, as beancount
-    /// keeps them); `None` when the account has neither.
-    fn account_directives(&self, _account: &str) -> Option<AccountDirectives<'_>> {
-        None
-    }
-
-    /// The `commodity` directive of a currency (the last one, as beancount keeps it).
-    fn commodity_directive(&self, _currency: &str) -> Option<&Commodity> {
-        None
-    }
-
-    /// The budgets a posting of an account at a wall-clock date and time counts in, by the ledger's one rule of budget
-    /// membership ([`zhang_core::ledger::Ledger::account_budgets`]): those the `budget` metadata of the account's
-    /// latest `open` at or before then names; `None` before the account's first `open`.
-    fn account_budgets(&self, _account: &str, _at: NaiveDateTime) -> Option<BTreeSet<String>> {
-        None
-    }
-
-    /// The status of an account at a wall-clock date and time, by the ledger's account lifecycle
-    /// ([`zhang_core::ledger::Ledger::account_status`]); `None` when neither an `open` nor a `close` of it is in
-    /// effect then.
-    fn account_status(&self, _account: &str, _at: NaiveDateTime) -> Option<AccountStatus> {
-        None
-    }
-}
-
-/// The `open` and `close` directives of an account, as [`FunctionContext::account_directives`]
-/// finds them.
+/// The `open` and `close` directives of an account, as [`Dataset::account_directives`] finds them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AccountDirectives<'a> {
     pub open: Option<&'a Open>,
     pub close: Option<&'a Close>,
 }
 
-/// Implementation of a scalar function, see the module docs for the contract.
-pub type ScalarImpl = fn(&[Value], &dyn FunctionContext) -> Result<Value, String>;
+/// The implementation of a scalar function, which says what it reads besides its arguments; see the
+/// module docs for the contract.
+#[derive(Clone, Copy)]
+pub(crate) enum Eval {
+    /// only its arguments: a call whose arguments are constants is folded when the query compiles
+    Args(fn(&[Value]) -> Outcome),
+    /// the execution as well (`#[execution]`): its date and the ledger's prices and directives
+    Execution(fn(&[Value], &Dataset<'_>) -> Outcome),
+    /// the row being evaluated as well (`#[row]`), `None` over finished aggregates
+    Row(fn(&[Value], &Dataset<'_>, Option<RowRef<'_, '_>>) -> Outcome),
+}
+
+/// What an implementation returns: the value, or the message of a runtime failure.
+pub(crate) type Outcome = Result<Value, String>;
 
 /// One overload of a scalar (row-level) function.
 pub struct ScalarFunction {
@@ -195,13 +170,20 @@ pub struct ScalarFunction {
     pub params: &'static [ParamType],
     pub returns: ReturnType,
     pub description: &'static str,
-    pub eval: ScalarImpl,
+    pub(crate) eval: Eval,
+    /// it returns a value, never NULL or an error, for any arguments of its types (`#[total]`)
+    pub(crate) total: bool,
 }
 
 impl ScalarFunction {
     /// e.g. `root(str, int) -> str`
     pub fn signature(&self) -> String {
         format!("{}({}) -> {}", self.name, params_signature(self.params), self.returns.describe(self.params))
+    }
+
+    /// Whether it reads nothing but its arguments, so that a call with constant arguments can be folded.
+    pub(crate) fn reads_only_its_arguments(&self) -> bool {
+        matches!(self.eval, Eval::Args(_))
     }
 }
 
@@ -254,39 +236,4 @@ pub(crate) fn resolve<T: 'static>(
         args.iter().map(DataType::name).collect::<Vec<_>>().join(", "),
         candidates.iter().map(|it| signature_of(it)).collect::<Vec<_>>().join(", ")
     ))
-}
-
-/// A [`FunctionContext`] for unit-testing functions without a ledger.
-#[cfg(test)]
-pub(crate) struct TestContext {
-    pub today: NaiveDate,
-    pub prices: PriceMap,
-    pub meta: std::collections::HashMap<String, String>,
-}
-
-#[cfg(test)]
-impl Default for TestContext {
-    fn default() -> Self {
-        TestContext {
-            today: NaiveDate::from_ymd_opt(2024, 6, 30).expect("valid date"),
-            prices: PriceMap::default(),
-            meta: Default::default(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl FunctionContext for TestContext {
-    fn today(&self) -> NaiveDate {
-        self.today
-    }
-    fn prices(&self) -> &PriceMap {
-        &self.prices
-    }
-    fn entry_meta(&self, key: &str) -> Option<String> {
-        self.meta.get(key).cloned()
-    }
-    fn posting_meta(&self, _key: &str) -> Option<String> {
-        None
-    }
 }

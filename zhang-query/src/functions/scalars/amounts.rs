@@ -3,11 +3,10 @@
 
 use bigdecimal::{BigDecimal, Zero};
 
-use crate::functions::FunctionContext;
 use crate::value::{Inventory, Position, Value};
 use crate::Amount;
 
-pub(super) fn abs(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn abs(args: &[Value]) -> Result<Value, String> {
     match &args[0] {
         Value::Int(number) => number
             .checked_abs()
@@ -40,7 +39,7 @@ fn negate(value: &Value, function: &str) -> Result<Value, String> {
     }
 }
 
-pub(super) fn neg(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn neg(args: &[Value]) -> Result<Value, String> {
     negate(&args[0], "neg")
 }
 
@@ -50,7 +49,7 @@ fn is_debit_normal(account: &str) -> bool {
     matches!(account.split(':').next(), Some("Assets" | "Expenses"))
 }
 
-pub(super) fn possign(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn possign(args: &[Value]) -> Result<Value, String> {
     let account = args[1].as_str().ok_or("possign() expects an account name")?;
     if is_debit_normal(account) {
         Ok(args[0].clone())
@@ -59,17 +58,17 @@ pub(super) fn possign(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Valu
     }
 }
 
-pub(super) fn number(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn number(args: &[Value]) -> Result<Value, String> {
     let amount = args[0].as_amount().ok_or("number() expects an amount")?;
     Ok(Value::Decimal(amount.number.clone()))
 }
 
-pub(super) fn currency(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn currency(args: &[Value]) -> Result<Value, String> {
     let amount = args[0].as_amount().ok_or("currency() expects an amount")?;
     Ok(Value::Str(amount.commodity.clone()))
 }
 
-pub(super) fn only(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn only(args: &[Value]) -> Result<Value, String> {
     let currency = args[0].as_str().ok_or("only() expects a currency")?;
     let inventory = args[1].as_inventory().ok_or("only() expects an inventory")?;
     let total = inventory
@@ -79,7 +78,7 @@ pub(super) fn only(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, 
     Ok(Value::Amount(Amount::new(total, currency)))
 }
 
-pub(super) fn filter_currency(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn filter_currency(args: &[Value]) -> Result<Value, String> {
     let currency = args[1].as_str().ok_or("filter_currency() expects a currency")?;
     match &args[0] {
         Value::Position(position) if position.units.commodity == currency => Ok(Value::Position(position.clone())),

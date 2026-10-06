@@ -10,8 +10,7 @@
 use chrono::{NaiveDate, NaiveTime};
 use zhang_core::domains::schemas::AccountStatus;
 
-use crate::functions::FunctionContext;
-use crate::table::meta_pairs;
+use crate::table::{meta_pairs, Dataset};
 use crate::value::Value;
 
 fn name_arg<'a>(args: &'a [Value], function: &str) -> Result<&'a str, String> {
@@ -23,44 +22,46 @@ fn date_value(date: Option<NaiveDate>) -> Value {
 }
 
 /// `open_date(account)`: the date of the account's `open` directive.
-pub(super) fn open_date(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn open_date(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let account = name_arg(args, "open_date")?;
     Ok(date_value(
-        ctx.account_directives(account).and_then(|it| it.open).map(|open| open.date.naive_date()),
+        data.account_directives(account).and_then(|it| it.open).map(|open| open.date.naive_date()),
     ))
 }
 
 /// `close_date(account)`: the date of the account's `close` directive.
-pub(super) fn close_date(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn close_date(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let account = name_arg(args, "close_date")?;
     Ok(date_value(
-        ctx.account_directives(account).and_then(|it| it.close).map(|close| close.date.naive_date()),
+        data.account_directives(account).and_then(|it| it.close).map(|close| close.date.naive_date()),
     ))
 }
 
 /// `open_meta(account)`: the metadata of the account's `open` directive, and
 /// `open_meta(account, key)`: one value of it.
-pub(super) fn open_meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn open_meta(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let account = name_arg(args, "open_meta")?;
-    let meta = ctx.account_directives(account).and_then(|it| it.open).map(|open| &open.meta);
+    let meta = data.account_directives(account).and_then(|it| it.open).map(|open| &open.meta);
     meta_result(meta, args.get(1), "open_meta")
 }
 
 /// `account_budgets(account, date)`: the budgets a posting of the account at the start of the date
 /// counts in (a zhang extension), as a posting of that date without a time sees them: those of its
 /// latest `open` at or before then, by the ledger's one rule of budget membership.
-pub(super) fn account_budgets(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn account_budgets(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let account = name_arg(args, "account_budgets")?;
     let Value::Date(date) = args[1] else {
         return Err("account_budgets() expects a date".to_owned());
     };
-    Ok(Value::Set(ctx.account_budgets(account, date.and_time(NaiveTime::MIN)).unwrap_or_default()))
+    Ok(Value::Set(
+        data.account_budgets(account, date.and_time(NaiveTime::MIN)).cloned().unwrap_or_default(),
+    ))
 }
 
 /// `account_status(account, date)` and `account_status(account, date, time)`: whether the account is `'open'` or
 /// `'closed'` at the start of the date, or at its time of day (a zhang extension), by the ledger's account lifecycle,
 /// the rule every directive is checked with; NULL when neither an `open` nor a `close` of it is in effect then.
-pub(super) fn account_status(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn account_status(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let account = name_arg(args, "account_status")?;
     let Value::Date(date) = args[1] else {
         return Err("account_status() expects a date".to_owned());
@@ -74,7 +75,7 @@ pub(super) fn account_status(args: &[Value], ctx: &dyn FunctionContext) -> Resul
                 .map_err(|_| format!("account_status() expects a time as HH:MM:SS or HH:MM, not '{}'", text))?
         }
     };
-    Ok(match ctx.account_status(account, date.and_time(time)) {
+    Ok(match data.account_status(account, date.and_time(time)) {
         Some(AccountStatus::Open) => Value::Str("open".to_owned()),
         Some(AccountStatus::Close) => Value::Str("closed".to_owned()),
         None => Value::Null,
@@ -83,9 +84,9 @@ pub(super) fn account_status(args: &[Value], ctx: &dyn FunctionContext) -> Resul
 
 /// `commodity_meta(currency)`: the metadata of the currency's `commodity` directive, and
 /// `commodity_meta(currency, key)`: one value of it.
-pub(super) fn commodity_meta(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn commodity_meta(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let currency = name_arg(args, "commodity_meta")?;
-    let meta = ctx.commodity_directive(currency).map(|commodity| &commodity.meta);
+    let meta = data.commodity_directive(currency).map(|commodity| &commodity.meta);
     meta_result(meta, args.get(1), "commodity_meta")
 }
 

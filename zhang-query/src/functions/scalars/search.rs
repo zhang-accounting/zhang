@@ -6,25 +6,24 @@
 //! prepares the lower-cased needle once ([`crate::compiler::StrTestKind`]); these
 //! implementations are the reference it must agree with.
 
-use crate::functions::FunctionContext;
 use crate::value::Value;
 
 /// `icontains(text, needle)`: whether `text` contains `needle`, ignoring case.
-pub(super) fn icontains(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn icontains(args: &[Value]) -> Result<Value, String> {
     let text = args[0].as_str().ok_or("icontains() expects a string")?;
     let needle = args[1].as_str().ok_or("icontains() expects a string needle")?;
     Ok(Value::Bool(text.to_lowercase().contains(&needle.to_lowercase())))
 }
 
 /// `any_icontains(set, needle)`: whether an element of `set` contains `needle`, ignoring case.
-pub(super) fn any_icontains(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn any_icontains(args: &[Value]) -> Result<Value, String> {
     let set = args[0].as_set().ok_or("any_icontains() expects a set")?;
     let needle = args[1].as_str().ok_or("any_icontains() expects a string needle")?.to_lowercase();
     Ok(Value::Bool(set.iter().any(|item| item.to_lowercase().contains(&needle))))
 }
 
 /// `intersects(a, b)`: whether the two sets share an element.
-pub(super) fn intersects(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn intersects(args: &[Value]) -> Result<Value, String> {
     let a = args[0].as_set().ok_or("intersects() expects sets")?;
     let b = args[1].as_set().ok_or("intersects() expects sets")?;
     let (small, large) = if a.len() <= b.len() { (a, b) } else { (b, a) };
@@ -32,7 +31,7 @@ pub(super) fn intersects(args: &[Value], _ctx: &dyn FunctionContext) -> Result<V
 }
 
 /// `set(a, b, ...)`: the set of the given strings.
-pub(super) fn set(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn set(args: &[Value]) -> Result<Value, String> {
     args.iter()
         .map(|arg| arg.as_str().map(str::to_owned).ok_or_else(|| "set() expects strings".to_owned()))
         .collect::<Result<_, _>>()

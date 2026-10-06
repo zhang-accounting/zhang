@@ -17,8 +17,8 @@
 use chrono::NaiveDate;
 
 use crate::decimal::mul_in_context as mul;
-use crate::functions::FunctionContext;
 use crate::prices::{convert_units, PriceMap};
+use crate::table::Dataset;
 use crate::value::{Position, Value};
 use crate::Amount;
 
@@ -44,7 +44,7 @@ fn position_value(position: &Position, prices: &PriceMap, date: Option<NaiveDate
     position.units.clone()
 }
 
-pub(super) fn units(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn units(args: &[Value]) -> Result<Value, String> {
     match &args[0] {
         Value::Position(position) => Ok(Value::Amount(position.units.clone())),
         Value::Inventory(inventory) => Ok(Value::Inventory(inventory.units())),
@@ -52,7 +52,7 @@ pub(super) fn units(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value,
     }
 }
 
-pub(super) fn cost(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn cost(args: &[Value]) -> Result<Value, String> {
     match &args[0] {
         Value::Position(position) => Ok(Value::Amount(position_cost(position))),
         Value::Inventory(inventory) => Ok(Value::Inventory(inventory.reduce(position_cost))),
@@ -60,10 +60,10 @@ pub(super) fn cost(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, 
     }
 }
 
-pub(super) fn convert(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn convert(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let target = args[1].as_str().ok_or("convert() expects a target currency")?;
     let date = date_arg(args, 2, "convert")?;
-    let prices = ctx.prices();
+    let prices = data.prices();
     match &args[0] {
         Value::Amount(amount) => Ok(Value::Amount(convert_units(amount, target, None, prices, date))),
         Value::Position(position) => Ok(Value::Amount(position.convert(target, prices, date))),
@@ -72,9 +72,9 @@ pub(super) fn convert(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value
     }
 }
 
-pub(super) fn value(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn value(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let date = date_arg(args, 1, "value")?;
-    let prices = ctx.prices();
+    let prices = data.prices();
     match &args[0] {
         Value::Position(position) => Ok(Value::Amount(position_value(position, prices, date))),
         Value::Inventory(inventory) => Ok(Value::Inventory(inventory.reduce(|position| position_value(position, prices, date)))),
@@ -82,11 +82,11 @@ pub(super) fn value(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, 
     }
 }
 
-pub(super) fn getprice(args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn getprice(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let base = args[0].as_str().ok_or("getprice() expects a base currency")?;
     let quote = args[1].as_str().ok_or("getprice() expects a quote currency")?;
     let date = date_arg(args, 2, "getprice")?;
-    Ok(ctx.prices().rate(&base.to_uppercase(), &quote.to_uppercase(), date).into())
+    Ok(data.prices().rate(&base.to_uppercase(), &quote.to_uppercase(), date).into())
 }
 
 #[cfg(test)]

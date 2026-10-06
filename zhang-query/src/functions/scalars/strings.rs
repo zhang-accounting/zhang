@@ -4,7 +4,6 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
-use crate::functions::FunctionContext;
 use crate::value::{position_sort_cmp, Inventory, Value};
 
 /// beancount's `Inventory.__str__`: the positions in position sort order (common currencies
@@ -19,14 +18,14 @@ pub(crate) fn inventory_to_string(inventory: &Inventory) -> String {
 /// (`10.00 USD`), positions (`10 AAPL {100 USD, 2024-01-01, "lot"}`) and inventories
 /// (`(10.00 USD, 10 AAPL {100 USD, 2024-01-01})`). Numbers never use exponent notation
 /// and sets are comma separated.
-pub(super) fn str_(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn str_(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Str(match &args[0] {
         Value::Inventory(inventory) => inventory_to_string(inventory),
         other => other.to_string(),
     }))
 }
 
-pub(super) fn length(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn length(args: &[Value]) -> Result<Value, String> {
     let length = match &args[0] {
         Value::Str(string) => string.chars().count(),
         Value::Set(set) => set.len(),
@@ -44,7 +43,7 @@ const PLACEHOLDER: &str = " [...]";
 /// whitespace becomes one space and the ends are trimmed; a text still longer than `width`
 /// characters keeps as many leading chunks as fit together with `" [...]"`. The width must
 /// leave room for the placeholder (at least 5), as in Python.
-pub(super) fn maxwidth(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn maxwidth(args: &[Value]) -> Result<Value, String> {
     let text = args[0].as_str().ok_or("maxwidth() expects a string")?;
     let width = args[1].as_int().ok_or("maxwidth() expects an integer width")?;
     let min = PLACEHOLDER.trim_start().chars().count();
