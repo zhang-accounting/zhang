@@ -69,27 +69,6 @@ use crate::projector::infallible;
 use crate::table::Rows;
 use crate::value::{DataType, Value};
 
-/// Scalar functions that depend on the execution (its date, the ledger's prices and
-/// directives, the current row) and are therefore never folded, even with constant arguments.
-const NOT_FOLDABLE: &[&str] = &[
-    "today",
-    "meta",
-    "entry_meta",
-    "any_meta",
-    "meta_values",
-    "entry_meta_values",
-    "convert",
-    "value",
-    "getprice",
-    "open_date",
-    "close_date",
-    "open_meta",
-    "account_budgets",
-    "account_status",
-    "commodity_meta",
-    "currency_meta",
-];
-
 /// Which expression rules run.
 #[derive(Clone, Copy)]
 struct Rules<'p> {
@@ -608,14 +587,14 @@ pub(crate) fn simplify_logic(expr: CExpr) -> CExpr {
 pub(crate) fn fold_constants(expr: CExpr) -> CExpr {
     let foldable = match &expr {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) | CExpr::Target(_) => false,
-        CExpr::Scalar { function, .. } if NOT_FOLDABLE.contains(&function.name) => false,
+        // a function that reads the execution or the row is never folded, even with constant arguments
+        CExpr::Scalar { function, .. } if !function.reads_only_its_arguments() => false,
         node => node.children().iter().all(|child| matches!(child, CExpr::Const(_))),
     };
     if !foldable {
         return expr;
     }
-    // `eval_constant` also refuses anything that touched the execution context, and leaves
-    // failing expressions to report their error when they run
+    // `eval_constant` leaves failing expressions to report their error when they run
     match eval_constant(&expr) {
         Some(value) => CExpr::Const(value),
         None => expr,

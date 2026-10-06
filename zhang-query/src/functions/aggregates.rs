@@ -47,97 +47,44 @@ impl AggregateFunction {
 }
 
 use DataType::*;
-use ParamType::{Any, Exact};
 
-pub static AGGREGATE_FUNCTIONS: &[AggregateFunction] = &[
-    AggregateFunction {
-        name: "count",
-        params: &[],
-        star: true,
-        returns: ReturnType::Exact(Int),
-        description: "Number of rows.",
-        kind: AggregateKind::CountRows,
-    },
-    AggregateFunction {
-        name: "count",
-        params: &[Any],
-        star: false,
-        returns: ReturnType::Exact(Int),
-        description: "Number of non-NULL values.",
-        kind: AggregateKind::Count,
-    },
-    AggregateFunction {
-        name: "sum",
-        params: &[Exact(Int)],
-        star: false,
-        returns: ReturnType::Exact(Int),
-        description: "Sum of integers.",
-        kind: AggregateKind::SumInt,
-    },
-    AggregateFunction {
-        name: "sum",
-        params: &[Exact(Decimal)],
-        star: false,
-        returns: ReturnType::Exact(Decimal),
-        description: "Sum of decimals.",
-        kind: AggregateKind::SumDecimal,
-    },
-    AggregateFunction {
-        name: "sum",
-        params: &[Exact(Amount)],
-        star: false,
-        returns: ReturnType::Exact(Inventory),
-        description: "Sum of amounts into an inventory (one position per currency).",
-        kind: AggregateKind::SumInventory,
-    },
-    AggregateFunction {
-        name: "sum",
-        params: &[Exact(Position)],
-        star: false,
-        returns: ReturnType::Exact(Inventory),
-        description: "Sum of positions into an inventory, keeping lots (cost) apart.",
-        kind: AggregateKind::SumInventory,
-    },
-    AggregateFunction {
-        name: "sum",
-        params: &[Exact(Inventory)],
-        star: false,
-        returns: ReturnType::Exact(Inventory),
-        description: "Sum of inventories.",
-        kind: AggregateKind::SumInventory,
-    },
-    AggregateFunction {
-        name: "first",
-        params: &[Any],
-        star: false,
-        returns: ReturnType::SameAsArg(0),
-        description: "The first non-NULL value of the group, in row order.",
-        kind: AggregateKind::First,
-    },
-    AggregateFunction {
-        name: "last",
-        params: &[Any],
-        star: false,
-        returns: ReturnType::SameAsArg(0),
-        description: "The last non-NULL value of the group, in row order.",
-        kind: AggregateKind::Last,
-    },
-    AggregateFunction {
-        name: "min",
-        params: &[Any],
-        star: false,
-        returns: ReturnType::SameAsArg(0),
-        description: "The smallest non-NULL value of the group.",
-        kind: AggregateKind::Min,
-    },
-    AggregateFunction {
-        name: "max",
-        params: &[Any],
-        star: false,
-        returns: ReturnType::SameAsArg(0),
-        description: "The largest non-NULL value of the group.",
-        kind: AggregateKind::Max,
-    },
+/// The registry rows: `name(param) -> returns = kind, "description";`, one per overload, `name(*)` for `count(*)`.
+macro_rules! aggregates {
+    ($($name:ident($($param:tt)*) -> $returns:ident $(($arg:literal))? = $kind:ident, $description:literal;)*) => {
+        &[$(AggregateFunction {
+            name: stringify!($name),
+            params: params!([] $($param)*),
+            star: star!($($param)*),
+            returns: returns!($returns $(($arg))?),
+            description: $description,
+            kind: AggregateKind::$kind,
+        }),*]
+    };
+}
+
+/// Whether a row's parameters are `*`.
+macro_rules! star {
+    (*) => {
+        true
+    };
+    ($($param:tt)*) => {
+        false
+    };
+}
+
+/// The aggregate function registry: one row per overload.
+pub static AGGREGATE_FUNCTIONS: &[AggregateFunction] = aggregates![
+    count(*) -> Int = CountRows, "Number of rows.";
+    count(any) -> Int = Count, "Number of non-NULL values.";
+    sum(Int) -> Int = SumInt, "Sum of integers.";
+    sum(Decimal) -> Decimal = SumDecimal, "Sum of decimals.";
+    sum(Amount) -> Inventory = SumInventory, "Sum of amounts into an inventory (one position per currency).";
+    sum(Position) -> Inventory = SumInventory, "Sum of positions into an inventory, keeping lots (cost) apart.";
+    sum(Inventory) -> Inventory = SumInventory, "Sum of inventories.";
+    first(any) -> SameAsArg(0) = First, "The first non-NULL value of the group, in row order.";
+    last(any) -> SameAsArg(0) = Last, "The last non-NULL value of the group, in row order.";
+    min(any) -> SameAsArg(0) = Min, "The smallest non-NULL value of the group.";
+    max(any) -> SameAsArg(0) = Max, "The largest non-NULL value of the group.";
 ];
 
 pub(crate) fn is_aggregate(name: &str) -> bool {

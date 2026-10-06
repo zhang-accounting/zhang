@@ -1,25 +1,21 @@
 //! Evaluation of a [`Plan`] over a [`Dataset`].
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap, HashSet};
-use std::sync::OnceLock;
 use std::time::{Duration as StdDuration, Instant};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{Duration, NaiveDate, NaiveDateTime};
+use chrono::Duration;
 use indexmap::map::Entry;
 use indexmap::IndexMap;
 use regex::Regex;
 use zhang_ast::amount::Amount;
-use zhang_ast::Commodity;
-use zhang_core::domains::schemas::AccountStatus;
 
 use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, ConstSet, LimitMode, Plan, RegexPattern, StrTest, StrTestKind, Window};
 use crate::error::{LocatedError, QueryErrorKind, Span};
-use crate::functions::{AccountDirectives, AggregateKind, FunctionContext, ScalarFunction};
+use crate::functions::{AggregateKind, Eval, ScalarFunction};
 use crate::params::Params;
-use crate::prices::PriceMap;
 use crate::projector::{borrowed_str, set_membership};
 use crate::running::RunningState;
 use crate::table::{Dataset, RowRef};
@@ -70,86 +66,13 @@ pub(crate) struct Env<'e, 'a> {
     pub running: Option<&'e RunningState>,
     pub params: &'e Params,
     pub regexes: &'e RegexCache,
-    /// set when an expression reads the execution context; folding then gives up
-    pub impure: &'e Cell<bool>,
 }
 
-fn empty_prices() -> &'static PriceMap {
-    static EMPTY: OnceLock<PriceMap> = OnceLock::new();
-    EMPTY.get_or_init(PriceMap::default)
-}
-
-impl FunctionContext for Env<'_, '_> {
-    fn today(&self) -> NaiveDate {
-        match self.data {
-            Some(data) => data.today,
-            None => {
-                self.impure.set(true);
-                NaiveDate::default()
-            }
-        }
-    }
-
-    fn prices(&self) -> &PriceMap {
-        match self.data {
-            Some(data) => data.prices(),
-            None => {
-                self.impure.set(true);
-                empty_prices()
-            }
-        }
-    }
-
-    fn entry_meta(&self, key: &str) -> Option<String> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data.zip(self.row).and_then(|(data, row)| data.row_entry_meta(row, key))
-    }
-
-    fn posting_meta(&self, key: &str) -> Option<String> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data.zip(self.row).and_then(|(data, row)| data.row_meta(row, key))
-    }
-
-    fn posting_meta_values(&self, key: &str) -> Vec<String> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data.zip(self.row).map(|(data, row)| data.row_meta_values(row, key)).unwrap_or_default()
-    }
-
-    fn entry_meta_values(&self, key: &str) -> Vec<String> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data
-            .zip(self.row)
-            .map(|(data, row)| data.row_entry_meta_values(row, key))
-            .unwrap_or_default()
-    }
-
-    fn account_directives(&self, account: &str) -> Option<AccountDirectives<'_>> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data?.account_directives(account)
-    }
-
-    fn commodity_directive(&self, currency: &str) -> Option<&Commodity> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data?.commodity_directive(currency)
-    }
-
-    fn account_budgets(&self, account: &str, at: NaiveDateTime) -> Option<BTreeSet<String>> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data?.account_budgets(account, at).cloned()
-    }
-
-    fn account_status(&self, account: &str, at: NaiveDateTime) -> Option<AccountStatus> {
-        self.impure.set(self.impure.get() || self.data.is_none());
-        self.data?.account_status(account, at)
-    }
-}
-
-/// Evaluate a constant expression at compile time; `None` when it reads the execution
-/// context (today, prices, metadata) or fails (the error is then raised when it runs).
+/// Evaluate a constant expression at compile time, without an execution; `None` when it fails
+/// (the error is then raised when it runs), as anything that reads the execution does.
 pub(crate) fn eval_constant(expr: &CExpr) -> Option<Value> {
     let params = Params::new();
     let regexes = RegexCache::default();
-    let impure = Cell::new(false);
     let env = Env {
         data: None,
         row: None,
@@ -158,14 +81,8 @@ pub(crate) fn eval_constant(expr: &CExpr) -> Option<Value> {
         running: None,
         params: &params,
         regexes: &regexes,
-        impure: &impure,
     };
-    let value = expr.eval(&env).ok()?;
-    if impure.get() {
-        None
-    } else {
-        Some(value)
-    }
+    expr.eval(&env).ok()
 }
 
 impl CExpr {
@@ -183,22 +100,14 @@ impl CExpr {
             },
             CExpr::Running(total) => match env.running {
                 Some(running) => Ok(Value::Inventory(running.value(*total, env.row))),
-                None => {
-                    // never constant: folding gives up on it
-                    env.impure.set(true);
-                    Err(LocatedError::eval(format!("{} is not available here", total.column()), None))
-                }
+                None => Err(LocatedError::eval(format!("{} is not available here", total.column()), None)),
             },
             CExpr::Param(param) => Ok(env.params.get(param).cloned().unwrap_or(Value::Null)),
             CExpr::Scalar { function, args, span } => eval_scalar(function, args, *span, env),
             CExpr::Aggregate(idx) => Ok(env.aggregates.get(*idx).cloned().unwrap_or(Value::Null)),
             CExpr::Target(idx) => match env.cells.get(*idx) {
                 Some(value) => Ok(value.clone()),
-                None => {
-                    // never constant: folding gives up on it
-                    env.impure.set(true);
-                    Err(LocatedError::eval("a target is not available here", None))
-                }
+                None => Err(LocatedError::eval("a target is not available here", None)),
             },
             CExpr::WidenInt(inner) => Ok(widen_int(inner.eval(env)?)),
             CExpr::Neg(inner, span) => negate(inner.eval(env)?, *span),
@@ -324,7 +233,14 @@ fn eval_scalar(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<
         }
         values.push(value);
     }
-    (function.eval)(&values, env).map_err(|message| LocatedError::eval(format!("{}(): {}", function.name, message), Some(span)))
+    let value = match (function.eval, env.data) {
+        (Eval::Args(eval), _) => eval(&values),
+        (Eval::Execution(eval), Some(data)) => eval(&values, data),
+        (Eval::Row(eval), Some(data)) => eval(&values, data, env.row),
+        // without an execution, as when folding constants, which leaves these calls alone
+        (Eval::Execution(_) | Eval::Row(_), None) => return Err(LocatedError::eval(format!("{}() is not available here", function.name), Some(span))),
+    };
+    value.map_err(|message| LocatedError::eval(format!("{}(): {}", function.name, message), Some(span)))
 }
 
 fn widen_int(value: Value) -> Value {
@@ -1146,7 +1062,6 @@ pub(crate) fn execute_within(
     plan: &Plan, data: &Dataset<'_>, params: &Params, deadline: Option<Deadline>, mut budget: Budget, run: Run,
 ) -> Result<Output, LocatedError> {
     let regexes = RegexCache::default();
-    let impure = Cell::new(false);
     let base = Env {
         data: Some(data),
         row: None,
@@ -1155,7 +1070,6 @@ pub(crate) fn execute_within(
         running: None,
         params,
         regexes: &regexes,
-        impure: &impure,
     };
     let execution = Execution {
         plan,

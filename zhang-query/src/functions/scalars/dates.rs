@@ -16,25 +16,25 @@
 
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
-use crate::functions::FunctionContext;
+use crate::table::Dataset;
 use crate::value::{calendar_value, first_of_month, in_calendar, month_index, parse_date, python_date, Interval, Value};
 
-pub(super) fn month(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn month(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Int(date_of(&args[0], "month")?.month() as i64))
 }
 
-pub(super) fn day(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn day(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Int(date_of(&args[0], "day")?.day() as i64))
 }
 
 /// beanquery `quarter`: `YYYY-Qn`, e.g. `2024-Q1`.
-pub(super) fn quarter(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn quarter(args: &[Value]) -> Result<Value, String> {
     let date = date_of(&args[0], "quarter")?;
     Ok(Value::Str(format!("{:04}-Q{}", date.year(), (date.month() - 1) / 3 + 1)))
 }
 
 /// beanquery `weekday`: the three-letter English day name (`strftime('%a')` in the C locale).
-pub(super) fn weekday(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn weekday(args: &[Value]) -> Result<Value, String> {
     let name = match date_of(&args[0], "weekday")?.weekday() {
         Weekday::Mon => "Mon",
         Weekday::Tue => "Tue",
@@ -48,13 +48,13 @@ pub(super) fn weekday(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Valu
 }
 
 /// beanquery `yearmonth`: the first day of the date's month.
-pub(super) fn yearmonth(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn yearmonth(args: &[Value]) -> Result<Value, String> {
     let date = date_of(&args[0], "yearmonth")?;
     Ok(Value::Date(first_of_month(date)))
 }
 
-pub(super) fn today(_args: &[Value], ctx: &dyn FunctionContext) -> Result<Value, String> {
-    Ok(Value::Date(ctx.today()))
+pub(super) fn today(_args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
+    Ok(Value::Date(data.today))
 }
 
 fn int_arg(value: &Value, function: &str) -> Result<i64, String> {
@@ -71,26 +71,26 @@ fn date_of(value: &Value, function: &str) -> Result<NaiveDate, String> {
 
 /// beanquery `date(year, month, day)`: NULL when there is no such day (or the year is outside
 /// 1 to 9999, Python's calendar).
-pub(super) fn date_from_ymd(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn date_from_ymd(args: &[Value]) -> Result<Value, String> {
     let [year, month, day] = [&args[0], &args[1], &args[2]].map(|it| int_arg(it, "date"));
     Ok(python_date(year?, month?, day?).map_or(Value::Null, Value::Date))
 }
 
 /// beanquery `date(text)`: the date the text names by the one text-to-date rule,
 /// [`parse_date`], NULL when it names none.
-pub(super) fn date_from_str(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn date_from_str(args: &[Value]) -> Result<Value, String> {
     Ok(parse_date(str_arg(&args[0], "date")?).map_or(Value::Null, Value::Date))
 }
 
 /// beanquery `date_add(date, days)`; NULL when the result is outside the calendar.
-pub(super) fn date_add(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn date_add(args: &[Value]) -> Result<Value, String> {
     let date = date_of(&args[0], "date_add")?;
     let days = int_arg(&args[1], "date_add")?;
     Ok(calendar_value(Duration::try_days(days).and_then(|days| date.checked_add_signed(days))))
 }
 
 /// beanquery `date_diff(a, b)`: the days from `b` to `a`.
-pub(super) fn date_diff(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn date_diff(args: &[Value]) -> Result<Value, String> {
     let (a, b) = (date_of(&args[0], "date_diff")?, date_of(&args[1], "date_diff")?);
     Ok(Value::Int((a - b).num_days()))
 }
@@ -98,7 +98,7 @@ pub(super) fn date_diff(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Va
 /// beanquery `date_trunc(field, date)`: the first day of the date's week (Monday), month,
 /// quarter, year, decade, century (years 1901, 2001, ...) or millennium (1001, 2001, ...);
 /// NULL for any other field (fields are lower-case).
-pub(super) fn date_trunc(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn date_trunc(args: &[Value]) -> Result<Value, String> {
     let field = str_arg(&args[0], "date_trunc")?;
     let date = date_of(&args[1], "date_trunc")?;
     let (year, month) = (date.year(), date.month());
@@ -120,7 +120,7 @@ pub(super) fn date_trunc(args: &[Value], _ctx: &dyn FunctionContext) -> Result<V
 /// `isoweekday`/`isodow` (Monday 1 to Sunday 7), `week` (the ISO week), `month`, `quarter`,
 /// `year`, `isoyear`, `decade`, `century`, `millennium` or `epoch` (seconds since
 /// 1970-01-01); NULL for any other field.
-pub(super) fn date_part(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn date_part(args: &[Value]) -> Result<Value, String> {
     let field = str_arg(&args[0], "date_part")?;
     let date = date_of(&args[1], "date_part")?;
     let year = date.year() as i64;
@@ -145,7 +145,7 @@ pub(super) fn date_part(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Va
 /// each), `<n> month[s]` or `<n> year[s]`, with an optional sign and whitespace between
 /// number and unit; NULL for anything else (other units, leading or trailing spaces, upper
 /// case, a number out of range).
-pub(super) fn interval(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn interval(args: &[Value]) -> Result<Value, String> {
     Ok(parse_interval(str_arg(&args[0], "interval")?).map_or(Value::Null, Value::Interval))
 }
 
@@ -173,7 +173,7 @@ pub(crate) fn parse_interval(text: &str) -> Option<Interval> {
 
 /// `date_bin(stride, source, origin)`: the start of the bin of `source` among the bins of
 /// `stride` laid from `origin` (see [`bin`]).
-pub(super) fn date_bin(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn date_bin(args: &[Value]) -> Result<Value, String> {
     let stride = match &args[0] {
         Value::Interval(stride) => *stride,
         Value::Str(text) => match parse_interval(text) {
