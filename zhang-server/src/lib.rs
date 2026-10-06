@@ -152,7 +152,8 @@ impl GotchaApp for ServerApp {
             .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024 /* 250mb */));
 
-        // the frontend (static assets and the SPA fallback below) stays reachable, it shows the login page
+        // the frontend (static assets and the SPA fallback below) stays reachable, it shows the login page; an `/api`
+        // path no route takes is a JSON 404 there too
         let router = if self.auth.enabled() {
             router.layer(axum::middleware::from_fn_with_state(
                 SharedAuth(self.auth.clone()),
@@ -161,14 +162,7 @@ impl GotchaApp for ServerApp {
         } else {
             router
         };
-        #[cfg(feature = "frontend")]
-        {
-            router.fallback(routes::frontend::serve_frontend)
-        }
-        #[cfg(not(feature = "frontend"))]
-        {
-            router.fallback(routes::common::backend_only_info)
-        }
+        router.fallback(routes::common::fallback)
     }
 
     async fn state(&self, _config: &gotcha::ConfigWrapper<Self::Config>) -> Result<Self::State, Box<dyn std::error::Error>> {
