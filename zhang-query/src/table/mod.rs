@@ -10,9 +10,9 @@
 //! There are three kinds of row sources:
 //!
 //! - [`Rows::Postings`]: the `postings` table ([`postings`]), the default when a query names
-//!   no table. Its rows are booked postings ([`Row`]), assembled for the query's projection
-//!   from the rows booked once per loaded ledger ([`LedgerCache`]), and only those of the
-//!   accounts the query is scoped to ([`Scope`]).
+//!   no table. Its rows are booked postings ([`Row`]), assembled from the rows booked once
+//!   per loaded ledger ([`LedgerCache`]), and only those of the accounts the query is scoped
+//!   to ([`Scope`]).
 //! - [`Rows::Records`]: every other table. A builder walks the ledger once and returns one
 //!   [`Record`] per row, which only borrows the ledger and the store; its columns are computed
 //!   when an expression reads them. A builder may skip work that only unprojected columns
@@ -203,10 +203,6 @@ pub struct ColumnDef {
     pub ty: DataType,
     pub description: &'static str,
     pub(crate) get: Get,
-    /// the parts of a booked posting row the column reads besides its posting and
-    /// transaction, so the projector builds them only for plans that use the column
-    /// (postings only)
-    pub(crate) reads: Reads,
     /// how predicates can read the column in place, without copying it into a [`Value`]
     /// (postings only)
     pub(crate) borrow: Borrow,
@@ -226,9 +222,24 @@ impl ColumnDef {
             ty,
             description,
             get: Get::Record(get),
-            reads: Reads::POSTING,
             borrow: Borrow::No,
         }
+    }
+
+    /// A column of the `postings` table.
+    pub(crate) const fn posting(name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Row<'_>) -> Value) -> ColumnDef {
+        ColumnDef {
+            name,
+            ty,
+            description,
+            get: Get::Posting(get),
+            borrow: Borrow::No,
+        }
+    }
+
+    /// The column, read in place by predicates through `borrow`.
+    pub(crate) const fn borrowing(self, borrow: Borrow) -> ColumnDef {
+        ColumnDef { borrow, ..self }
     }
 
     /// The value of the column at `row`. A column only reads rows of its own table (the
@@ -248,23 +259,6 @@ pub(crate) enum Get {
     Posting(fn(&Dataset<'_>, &Row<'_>) -> Value),
     /// a column of a record table
     Record(fn(&Dataset<'_>, &Record<'_>) -> Value),
-}
-
-/// The parts of a booked row that only some columns read (see [`Row::cost`], [`Row::price`]).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Reads {
-    /// the cost of the posting's lot
-    pub cost: bool,
-    /// the price annotation of the posting
-    pub price: bool,
-}
-
-impl Reads {
-    /// only the posting and its transaction (and every column of a record table)
-    pub(crate) const POSTING: Reads = Reads { cost: false, price: false };
-    pub(crate) const COST: Reads = Reads { cost: true, price: false };
-    pub(crate) const PRICE: Reads = Reads { cost: false, price: true };
-    pub(crate) const COST_AND_PRICE: Reads = Reads { cost: true, price: true };
 }
 
 /// In-place access to a column, for predicates that only inspect the value.
@@ -394,9 +388,6 @@ pub(crate) enum RowRef<'r, 'a> {
 }
 
 /// The rows of one query execution plus lazily built lookup structures.
-///
-/// The rows only carry what [`Dataset::projection`] reads: evaluating a column outside of
-/// it would see a pruned (empty) cost or price.
 pub(crate) struct Dataset<'a> {
     /// the table the rows belong to
     pub table: &'static Table,
