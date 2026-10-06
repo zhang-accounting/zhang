@@ -14,66 +14,11 @@
 //! The host functions behind this module, `zhang_read_file` and `zhang_list_dir`, work on every ledger source
 //! (local disk, S3, WebDAV, GitHub), since zhang reads the files, not the plugin.
 
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
-use serde::Deserialize;
+pub use zhang_shared::plugin_abi::{DirEntry, EntryKind};
+use zhang_shared::plugin_abi::{DirListing, FileContent};
 
 use crate::abi;
 use crate::error::{host_result, HostError, HostErrorKind};
-
-/// an entry of a listed directory
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct DirEntry {
-    /// the entry's name, without its directory
-    pub name: String,
-    pub kind: EntryKind,
-}
-
-/// what a listed entry is
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum EntryKind {
-    File,
-    Dir,
-    /// a kind this SDK does not know, from a newer zhang
-    #[serde(other)]
-    Other,
-}
-
-/// how the host encodes a file's content in JSON
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Encoding {
-    #[default]
-    Utf8,
-    Base64,
-}
-
-/// what `zhang_read_file` answers inside `Ok`
-#[derive(Debug, Deserialize)]
-struct FileContent {
-    content: String,
-    #[serde(default)]
-    encoding: Encoding,
-}
-
-/// what `zhang_list_dir` answers inside `Ok`
-#[derive(Debug, Deserialize)]
-struct DirListing {
-    entries: Vec<DirEntry>,
-}
-
-impl FileContent {
-    fn into_bytes(self) -> Result<Vec<u8>, HostError> {
-        match self.encoding {
-            Encoding::Utf8 => Ok(self.content.into_bytes()),
-            Encoding::Base64 => BASE64
-                .decode(self.content)
-                .map_err(|e| HostError::new(HostErrorKind::Other, format!("zhang_read_file answered content that is not base64: {e}"))),
-        }
-    }
-}
 
 /// the bytes of the file at `path`, relative to the ledger root
 pub fn read_file(path: &str) -> Result<Vec<u8>, HostError> {
@@ -94,7 +39,9 @@ pub fn list_dir(path: &str) -> Result<Vec<DirEntry>, HostError> {
 }
 
 fn file_bytes(answer: &[u8]) -> Result<Vec<u8>, HostError> {
-    host_result::<FileContent>(abi::READ_FILE, answer)?.into_bytes()
+    host_result::<FileContent>(abi::READ_FILE, answer)?
+        .into_bytes()
+        .map_err(|e| HostError::new(HostErrorKind::Other, format!("zhang_read_file answered content that is not base64: {e}")))
 }
 
 #[cfg(test)]

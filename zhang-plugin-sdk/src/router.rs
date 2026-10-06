@@ -11,143 +11,11 @@
 //! **Security:** a router's pages are served from zhang's own address, so a script on such a page can call
 //! zhang's whole API with the user's session. Never echo untrusted input into HTML unescaped.
 
-use std::collections::BTreeMap;
-
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+pub use zhang_shared::plugin_abi::{Encoding as BodyEncoding, LedgerInfo, Request, Response};
 
 use crate::abi;
-use crate::error::{host_result, Error, HostError};
-
-/// how a body travels in a JSON string
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BodyEncoding {
-    /// the body is the string itself
-    #[default]
-    Utf8,
-    /// the body is the standard base64 (with padding) of the bytes, for a body that is not UTF-8
-    Base64,
-}
-
-/// the HTTP request a router handles
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Request {
-    /// the method, upper case, e.g. `GET`
-    #[serde(default)]
-    pub method: String,
-    /// the path below the plugin's route, starting with `/`, percent-encoded as sent: `/api/plugins/{name}/by-month`
-    /// gives `/by-month`, and `/api/plugins/{name}` gives `/`
-    #[serde(default)]
-    pub path: String,
-    /// the decoded query string: every key with all its values, in order
-    #[serde(default)]
-    pub query: BTreeMap<String, Vec<String>>,
-    /// the headers, names lower case, the values of a repeated header joined with `, `. zhang never passes the
-    /// credential headers `authorization`, `proxy-authorization` and `cookie`
-    #[serde(default)]
-    pub headers: BTreeMap<String, String>,
-    /// the body, encoded as [`Request::body_encoding`] says; empty when there is none
-    #[serde(default)]
-    pub body: String,
-    #[serde(default)]
-    pub body_encoding: BodyEncoding,
-}
-
-impl Request {
-    /// the first value of the query parameter `key`
-    pub fn query_param(&self, key: &str) -> Option<&str> {
-        self.query.get(key).and_then(|values| values.first()).map(String::as_str)
-    }
-
-    /// the header `name`, in any case
-    pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.get(&name.to_ascii_lowercase()).map(String::as_str)
-    }
-
-    /// the body as bytes
-    pub fn body_bytes(&self) -> Result<Vec<u8>, Error> {
-        match self.body_encoding {
-            BodyEncoding::Utf8 => Ok(self.body.clone().into_bytes()),
-            BodyEncoding::Base64 => Ok(BASE64.decode(&self.body)?),
-        }
-    }
-
-    /// the body parsed as JSON
-    pub fn json<T: DeserializeOwned>(&self) -> Result<T, Error> {
-        Ok(serde_json::from_slice(&self.body_bytes()?)?)
-    }
-}
-
-/// The HTTP response a router returns. zhang sets `content-length`, `transfer-encoding` and `connection` itself;
-/// without a `content-type` header the response is `text/plain; charset=utf-8`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Response {
-    /// the HTTP status
-    pub status: u16,
-    /// the headers, one value per name
-    pub headers: BTreeMap<String, String>,
-    /// the body, encoded as [`Response::body_encoding`] says
-    pub body: String,
-    pub body_encoding: BodyEncoding,
-}
-
-impl Default for Response {
-    /// an empty `200 OK`
-    fn default() -> Self {
-        Response {
-            status: 200,
-            headers: BTreeMap::new(),
-            body: String::new(),
-            body_encoding: BodyEncoding::Utf8,
-        }
-    }
-}
-
-impl Response {
-    fn with_content(content_type: &str, body: String, body_encoding: BodyEncoding) -> Response {
-        Response {
-            body,
-            body_encoding,
-            ..Response::default()
-        }
-        .with_header("content-type", content_type)
-    }
-
-    /// a `200 OK` plain text response
-    pub fn text(body: impl Into<String>) -> Response {
-        Response::with_content("text/plain; charset=utf-8", body.into(), BodyEncoding::Utf8)
-    }
-
-    /// a `200 OK` HTML page
-    pub fn html(body: impl Into<String>) -> Response {
-        Response::with_content("text/html; charset=utf-8", body.into(), BodyEncoding::Utf8)
-    }
-
-    /// a `200 OK` JSON response
-    pub fn json<T: Serialize + ?Sized>(value: &T) -> Result<Response, Error> {
-        Ok(Response::with_content("application/json", serde_json::to_string(value)?, BodyEncoding::Utf8))
-    }
-
-    /// a `200 OK` response with any bytes, e.g. an image
-    pub fn bytes(content_type: &str, body: impl AsRef<[u8]>) -> Response {
-        Response::with_content(content_type, BASE64.encode(body), BodyEncoding::Base64)
-    }
-
-    /// this response with the HTTP status `status`
-    pub fn with_status(mut self, status: u16) -> Response {
-        self.status = status;
-        self
-    }
-
-    /// this response with the header `name` set to `value`; names are lower-cased
-    pub fn with_header(mut self, name: &str, value: impl Into<String>) -> Response {
-        self.headers.insert(name.to_ascii_lowercase(), value.into());
-        self
-    }
-}
+use crate::error::{host_result, HostError};
 
 /// the result of a query: what `POST /api/query` answers in `data`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -172,17 +40,6 @@ impl QueryResult {
     pub fn column(&self, name: &str) -> Option<usize> {
         self.columns.iter().position(|column| column.name == name)
     }
-}
-
-/// what [`ledger_info`] answers
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LedgerInfo {
-    /// the `title` option
-    pub title: Option<String>,
-    /// the `operating_currency` option
-    pub operating_currency: String,
-    /// the ledger's timezone, an IANA name
-    pub timezone: String,
 }
 
 /// Run a read-only BQL query (see the query language page of zhang's user guide) over the ledger, with the time

@@ -8,6 +8,7 @@ use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use log::{info, warn};
 use sha256::digest;
 use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
+use zhang_shared::plugin_abi::export;
 
 use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
@@ -51,16 +52,16 @@ impl PluginStore {
         let functions = host.functions().into_iter().chain(unavailable_host_functions());
         let mut plugin = WasmPlugin::new(manifest, functions, true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
-            .call::<(), WasmJson<String>>("name", ())
-            .map_err(|e| call_error(&plugin_name, "name", timeout, e))?
+            .call::<(), WasmJson<String>>(export::NAME, ())
+            .map_err(|e| call_error(&plugin_name, export::NAME, timeout, e))?
             .0;
         let version = plugin
-            .call::<(), WasmJson<String>>("version", ())
-            .map_err(|e| call_error(&plugin_name, "version", timeout, e))?
+            .call::<(), WasmJson<String>>(export::VERSION, ())
+            .map_err(|e| call_error(&plugin_name, export::VERSION, timeout, e))?
             .0;
         let declared_types = plugin
-            .call::<(), WasmJson<Vec<serde_json::Value>>>("supported_type", ())
-            .map_err(|e| call_error(&plugin_name, "supported_type", timeout, e))?
+            .call::<(), WasmJson<Vec<serde_json::Value>>>(export::SUPPORTED_TYPE, ())
+            .map_err(|e| call_error(&plugin_name, export::SUPPORTED_TYPE, timeout, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
         let ignored_errors = host.take_errors().len();
@@ -207,8 +208,8 @@ impl RegisteredPlugin {
         let host = self.host(ctx);
         let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let ret = plugin
-            .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>("processor", WasmJson(directive))
-            .map_err(|e| call_error(&self.name, "processor", self.declaration.capabilities.timeout, e))?
+            .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>(export::PROCESSOR, WasmJson(directive))
+            .map_err(|e| call_error(&self.name, export::PROCESSOR, self.declaration.capabilities.timeout, e))?
             .0;
         host.forward_to(ctx);
         Ok(ret)
@@ -222,8 +223,8 @@ impl RegisteredPlugin {
         let mut ret = vec![];
         for directive in directives {
             let mapped = plugin
-                .call::<WasmJson<Spanned<Directive>>, WasmJson<Vec<Spanned<Directive>>>>("mapper", WasmJson(directive))
-                .map_err(|e| call_error(&self.name, "mapper", self.declaration.capabilities.timeout, e))?
+                .call::<WasmJson<Spanned<Directive>>, WasmJson<Vec<Spanned<Directive>>>>(export::MAPPER, WasmJson(directive))
+                .map_err(|e| call_error(&self.name, export::MAPPER, self.declaration.capabilities.timeout, e))?
                 .0;
             ret.extend(mapped);
         }

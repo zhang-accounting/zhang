@@ -4,7 +4,14 @@ version = "0.1.0"
 edition = "2021"
 description = "Portable logic shared by zhang crates"
 
+[features]
+# `plugin_abi::Response::into_http`, for the plugin host
+http = ["dep:http"]
+
 [dependencies]
 bigdecimal = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+http = { workspace = true, optional = true }

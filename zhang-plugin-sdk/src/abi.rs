@@ -6,18 +6,9 @@
 //! functions answer [`HostErrorKind::Unavailable`](crate::HostErrorKind::Unavailable), so plugin logic can be
 //! unit tested natively.
 
-use crate::error::HostError;
+pub(crate) use zhang_shared::plugin_abi::import::{LEDGER_INFO, LIST_DIR, NOW, QUERY, READ_FILE};
 
-/// the host function a plugin reads the current time with
-pub(crate) const NOW: &str = "zhang_now";
-/// the host function a plugin reads a granted file with
-pub(crate) const READ_FILE: &str = "zhang_read_file";
-/// the host function a plugin lists a granted directory with
-pub(crate) const LIST_DIR: &str = "zhang_list_dir";
-/// the host function a router plugin runs a BQL query with
-pub(crate) const QUERY: &str = "zhang_query";
-/// the host function a router plugin reads the ledger's title, currency and timezone with
-pub(crate) const LEDGER_INFO: &str = "zhang_ledger_info";
+use crate::error::HostError;
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
@@ -92,7 +83,7 @@ mod imp {
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, READ_FILE};
-    use crate::error::HostError;
+    use crate::error::{outside_zhang, HostError};
 
     pub(crate) fn config_get(_key: &str) -> Option<String> {
         None
@@ -101,23 +92,23 @@ mod imp {
     pub(crate) fn emit_error(_payload: &[u8]) {}
 
     pub(crate) fn now() -> Result<Vec<u8>, HostError> {
-        Err(HostError::outside_zhang(NOW))
+        Err(outside_zhang(NOW))
     }
 
     pub(crate) fn read_file(_path: &str) -> Result<Vec<u8>, HostError> {
-        Err(HostError::outside_zhang(READ_FILE))
+        Err(outside_zhang(READ_FILE))
     }
 
     pub(crate) fn list_dir(_path: &str) -> Result<Vec<u8>, HostError> {
-        Err(HostError::outside_zhang(LIST_DIR))
+        Err(outside_zhang(LIST_DIR))
     }
 
     pub(crate) fn query(_bql: &str) -> Result<Vec<u8>, HostError> {
-        Err(HostError::outside_zhang(QUERY))
+        Err(outside_zhang(QUERY))
     }
 
     pub(crate) fn ledger_info() -> Result<Vec<u8>, HostError> {
-        Err(HostError::outside_zhang(LEDGER_INFO))
+        Err(outside_zhang(LEDGER_INFO))
     }
 }
 
