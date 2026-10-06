@@ -1,8 +1,7 @@
 import BigNumber from 'bignumber.js';
-import { useAtomValue, useSetAtom } from 'jotai';
 import { ArrowDownLeft, ArrowUpRight, CircleAlert, Hash, Landmark, ReceiptText } from 'lucide-react';
 import { OpReturnType } from 'openapi-typescript-fetch';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAsync } from 'react-use';
 import { retrieveStatisticByAccountType, retrieveStatisticGraph, retrieveStatisticSummary } from '@/api/requests';
@@ -13,8 +12,6 @@ import { useDateFormat } from '@/components/layout/use-date-format';
 import { activityAnchor, monthOf, useRecentJournals } from '@/components/layout/use-ledger-activity';
 import StatisticBox from '@/components/StatisticBox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { REPORT_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
@@ -23,20 +20,12 @@ import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { ledgerDate } from '@/components/query/explore-link';
 import { BalanceTrendChart, CashFlowChart } from '../components/ReportGraph';
 import Section from '../components/Section';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
 
 type AccountTypeStatistic = OpReturnType<operations['get_statistic_rank_detail_by_account_type']>['data'];
 type TopTransaction = AccountTypeStatistic['top_transactions'][number];
 
 export default function Report() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_REPORT')} - ${ledgerTitle}`);
-
-  useEffect(() => {
-    setBreadcrumb([REPORT_LINK]);
-  }, [setBreadcrumb]);
 
   // Default to the month of the latest activity (the current month for a ledger that is kept up to date).
   const recent = useRecentJournals(1);

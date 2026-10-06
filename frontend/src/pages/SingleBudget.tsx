@@ -1,7 +1,6 @@
-import { useAtomValue, useSetAtom } from 'jotai';
 import { ArrowLeft, ListX, TriangleAlert } from 'lucide-react';
 import { OpReturnType } from 'openapi-typescript-fetch';
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useAsync, useAsyncRetry } from 'react-use';
@@ -21,10 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { BUDGETS_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
 type BudgetEvent = OpReturnType<operations['get_budget_interval_detail']>['data'][number];
 
@@ -42,22 +38,12 @@ function toneClass(value: string | undefined) {
 function SingleBudget() {
   const { t } = useTranslation();
   const fmt = useDateFormat();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { budgetName } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const date = useMemo(() => monthFromSearchParams(searchParams), [searchParams]);
   const setDate = (next: Date) => setSearchParams(monthSearchParams(next), { replace: true });
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${budgetName} | ${t('NAV_BUDGETS')} - ${ledgerTitle}`);
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
-
-  useEffect(() => {
-    setBreadcrumb([
-      { ...BUDGETS_LINK, uri: `/budgets?year=${year}&month=${month}` },
-      { label: budgetName ?? '', uri: `/budgets/${budgetName}`, noTranslate: true },
-    ]);
-  }, [budgetName, year, month, setBreadcrumb]);
 
   const {
     value: budgetInfo,

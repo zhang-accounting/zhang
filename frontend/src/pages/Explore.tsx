@@ -1,5 +1,5 @@
 import { EditorView } from '@uiw/react-codemirror';
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtomValue } from 'jotai';
 import { CircleAlert, Crosshair, DatabaseZap, Download, Play } from 'lucide-react';
 import { ApiError } from 'openapi-typescript-fetch';
 import { useEffect, useRef, useState } from 'react';
@@ -19,11 +19,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
-import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useLocalStorage } from '@/hooks/use-local-storage';
-import { QUERY_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 import { operatingCurrencyAtom } from '@/states/options';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -89,13 +86,6 @@ function QueryErrorAlert({ title, error, onJump }: { title: string; error: Query
 
 export default function Explore() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-
-  useDocumentTitle(`${t('NAV_QUERY')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([QUERY_LINK]);
-  }, [setBreadcrumb]);
 
   const [query, setQuery] = useLocalStorage({ key: 'query-explore-query', defaultValue: DEFAULT_QUERY });
   const [running, setRunning] = useState(false);
