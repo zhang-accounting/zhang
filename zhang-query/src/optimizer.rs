@@ -907,6 +907,7 @@ mod tests {
         );
         // functions of the execution are never folded
         assert_eq!(show(&fold_constants(scalar("today", vec![]))), "today()");
+        assert_eq!(show(&fold_constants(scalar("now", vec![]))), "now()");
         assert_eq!(show(&fold_constants(scalar("entry_meta", vec![str_("x")]))), "entry_meta('x')");
         // nodes reading a column are not constant
         assert_eq!(show(&fold_constants(is_null(col("payee")))), "(payee IS NULL)");

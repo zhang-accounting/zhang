@@ -608,7 +608,7 @@ mod tests {
         let equity = EquityAccounts::from_options(&ledger.options.values);
         let period = query.plan.period.as_ref().expect("a period query").resolve(&Params::new()).unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let data = Dataset::new(ledger, today, projection.unwrap_or(query.projection));
+        let data = Dataset::new(ledger, today.and_time(NaiveTime::MIN), projection.unwrap_or(query.projection));
         let data = period.apply(data, ledger, &equity);
         let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
         // the Debug form keeps decimal scales, so equal strings are identical results

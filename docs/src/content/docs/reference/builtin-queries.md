@@ -199,6 +199,14 @@ WHERE (:payee IS NULL OR payee = :payee) AND (:tags IS NULL OR intersects(tags, 
 ORDER BY seq
 ```
 
+#### `ledger.now`
+
+The ledger's current date and time of day by its clock in its timezone, what [`today()`](/reference/query-language/#date-functions) and `now()` give, as one row. The forms take the default date and time of what they write from it, and bind them to `journals.accounts`, so the accounts they offer are those open at that very instant. A ledger without any account yields no row, and the app falls back to the browser's clock; that is harmless, because without accounts neither form can submit anything.
+
+```sql
+SELECT today() AS date, now() AS time FROM #accounts LIMIT 1
+```
+
 ### Report
 
 The **Report** page and the dashboard (the summary and the ranks through these queries, the graph through `GET /api/statistic/graph`). Their range is two ledger dates, `from` and `to`, both included; the endpoints also accept an instant, which stands for its day in the ledger's timezone. All three answer with the range they report on as `from` and `to`, in the same form: the first and the last second of those dates on the ledger's clock, without a timezone, such as `2024-06-01T00:00:00` and `2024-06-30T23:59:59`. `currency` is the ledger's operating currency.

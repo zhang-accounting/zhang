@@ -35,6 +35,13 @@ export interface Builtins {
       position: QueryPosition | null;
     };
   };
+  'ledger.now': {
+    params: Record<string, never>;
+    row: {
+      date: string | null;
+      time: string | null;
+    };
+  };
   'report.net_worth': {
     params: {
       to: string | null;

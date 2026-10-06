@@ -1183,6 +1183,7 @@ WHERE file = 'data/2024.zhang'
 | `weekday(date) -> str` | 星期几的三字母英文缩写。 | `weekday(2024-01-05)` 为 `'Fri'` |
 | `yearmonth(date) -> date` | 该日期所在月份的第一天。 | `yearmonth(2024-05-17)` 为 `2024-05-01` |
 | `today() -> date` | 账本时区（`timezone` 选项）中的当前日期。 | |
+| `now() -> str` | 账本时区中的当前时刻（一天中的时间），格式 `HH:MM:SS`，与 `time` 列相同；其日期是 `today()`，二者描述账本时钟的同一瞬间。给 `today()` 指定固定日期时（Rust API）它为午夜。张记账扩展。 | `account_status(account, today(), now())` 表示账户现在是否开立 |
 | `date(int, int, int) -> date` | 由年、月、日构成的日期；没有这一天或年份不在 1 到 9999 之间时为 `NULL`。 | `date(2024, 2, 29)` 为 `2024-02-29`，`date(2023, 2, 29)` 为 `NULL` |
 | `date(str) -> date` | 文本中按 `YYYY-MM-DD` 写的日期，月和日可以只有一位；不是日期时为 `NULL`。 | `date('2024-2-9')` 为 `2024-02-09` |
 | `date_add(date, int) -> date` | 把日期移动若干天，负数表示往回移动。 | `date_add(2024-02-28, 1)` 为 `2024-02-29` |

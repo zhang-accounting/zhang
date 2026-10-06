@@ -385,6 +385,8 @@ pub(crate) struct Dataset<'a> {
     /// the rows of a record table
     pub records: Vec<Record<'a>>,
     pub today: NaiveDate,
+    /// `now()` of the execution: the instant of the ledger's clock in its timezone, whose date is `today`
+    pub now: NaiveDateTime,
     pub projection: Projection,
     ledger: &'a Ledger,
     /// what every query of the ledger shares (see [`LedgerCache`])
@@ -397,11 +399,12 @@ impl<'a> Dataset<'a> {
     /// The rows of the projection's table (of the `postings` table, those in `scope`);
     /// generated rows count against `limits`.
     pub fn build(
-        ledger: &'a Ledger, today: NaiveDate, projection: Projection, scope: &Scope, until: Option<NaiveDate>, limits: &mut Limits<'_>,
+        ledger: &'a Ledger, now: NaiveDateTime, projection: Projection, scope: &Scope, until: Option<NaiveDate>, limits: &mut Limits<'_>,
     ) -> Result<Self, LocatedError> {
         let cache = LedgerCache::of(ledger);
+        let today = now.date();
         let records = match projection.table().rows {
-            Rows::Postings => return Ok(Dataset::postings(ledger, cache, today, projection, scope)),
+            Rows::Postings => return Ok(Dataset::postings(ledger, cache, now, projection, scope)),
             Rows::Records(source) => source(ledger, projection),
             Rows::Generated(source) => source(ledger, Generation { today, until }, projection, limits)?,
         };
@@ -411,6 +414,7 @@ impl<'a> Dataset<'a> {
             rows: vec![],
             records,
             today,
+            now,
             projection,
             ledger,
             cache,

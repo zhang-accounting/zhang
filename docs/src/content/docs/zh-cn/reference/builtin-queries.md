@@ -199,6 +199,14 @@ WHERE (:payee IS NULL OR payee = :payee) AND (:tags IS NULL OR intersects(tags, 
 ORDER BY seq
 ```
 
+#### `ledger.now`
+
+账本时钟在账本时区中的当前日期和时刻，即 [`today()`](/zh-cn/reference/query-language/#日期函数) 和 `now()` 的值，一行。各表单以此作为所写内容的默认日期和时间，并把它们绑定到 `journals.accounts`，因此表单提供的账户正是该瞬间开立的账户。没有任何账户的账本不返回行，此时应用改用浏览器的时钟；这并无影响，因为没有账户时两个表单都无法提交任何内容。
+
+```sql
+SELECT today() AS date, now() AS time FROM #accounts LIMIT 1
+```
+
 ### 报表
 
 **报表**页和首页（汇总与排行通过这些查询，图表通过 `GET /api/statistic/graph`）。范围是两个账本日期 `from` 和 `to`，含首尾两天；这些接口也接受时间点，表示该时间点在账本时区中所在的那一天。三个接口都以相同的形式在 `from` 和 `to` 中返回所报告的范围：这些日期在账本时钟上的第一秒和最后一秒，不带时区，例如 `2024-06-01T00:00:00` 和 `2024-06-30T23:59:59`。`currency` 是账本的运营货币。

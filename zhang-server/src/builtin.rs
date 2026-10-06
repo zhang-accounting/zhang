@@ -159,6 +159,12 @@ pub static BUILTINS: &[BuiltinQuery] = &[
               ORDER BY seq",
         params: &[("payee", DataType::Str), ("tags", DataType::Set)],
     },
+    BuiltinQuery {
+        name: "ledger.now",
+        description: "The ledger's current date and time of day by its clock in its timezone, what today() and now() give, as one row; the forms take the default date and time of what they write from it.",
+        bql: "SELECT today() AS date, now() AS time FROM #accounts LIMIT 1",
+        params: &[],
+    },
     // ---- report: /api/statistic/* ----
     crate::report::NET_WORTH,
     crate::report::LIABILITIES,

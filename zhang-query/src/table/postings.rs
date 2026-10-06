@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveTime, Timelike};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{booked_group_units, Directive, Flag, Posting, PostingCost, SingleTotalPrice, Transaction, WrittenGroup};
@@ -140,13 +140,14 @@ impl Scope {
 impl<'a> Dataset<'a> {
     /// Every row of the `postings` table, for `projection`.
     #[cfg(test)]
-    pub fn new(ledger: &'a Ledger, today: NaiveDate, projection: Projection) -> Self {
-        Dataset::postings(ledger, LedgerCache::of(ledger), today, projection, &Scope::All)
+    pub fn new(ledger: &'a Ledger, now: NaiveDateTime, projection: Projection) -> Self {
+        Dataset::postings(ledger, LedgerCache::of(ledger), now, projection, &Scope::All)
     }
 
     /// The rows of the `postings` table in `scope`, for `projection`, assembled from the booked
     /// rows of `cache` (the cache of `ledger`).
-    pub fn postings(ledger: &'a Ledger, cache: &'a LedgerCache, today: NaiveDate, projection: Projection, scope: &Scope) -> Self {
+    pub fn postings(ledger: &'a Ledger, cache: &'a LedgerCache, now: NaiveDateTime, projection: Projection, scope: &Scope) -> Self {
+        let today = now.date();
         let postings = cache.postings(ledger);
         let table = cache.entries(ledger);
         let selected = scope.rows(postings);
@@ -193,6 +194,7 @@ impl<'a> Dataset<'a> {
             rows,
             records: vec![],
             today,
+            now,
             projection,
             ledger,
             cache,

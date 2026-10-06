@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
@@ -17,10 +17,11 @@ use crate::table::{Dataset, RowRef};
 use crate::value::{Cost, Inventory, Position, Value};
 use crate::Amount;
 
-/// A ledger to unit-test functions with: "today", the `price` directives of `prices`, and one
-/// transaction with the metadata `meta`, whose first posting is the row being evaluated.
+/// A ledger to unit-test functions with: "today" and the time of day of "now", the `price` directives of `prices`,
+/// and one transaction with the metadata `meta`, whose first posting is the row being evaluated.
 pub(crate) struct TestContext {
     pub today: NaiveDate,
+    pub time: NaiveTime,
     /// `(date, base, quote, rate)` points, in ledger order
     pub prices: Vec<(String, String, String, String)>,
     pub meta: HashMap<String, String>,
@@ -30,6 +31,7 @@ impl Default for TestContext {
     fn default() -> Self {
         TestContext {
             today: NaiveDate::from_ymd_opt(2024, 6, 30).expect("valid date"),
+            time: NaiveTime::MIN,
             prices: vec![],
             meta: Default::default(),
         }
@@ -105,7 +107,7 @@ impl Fixture<'_> {
         std::fs::write(dir.path().join("main.zhang"), self.ledger()).expect("write ledger");
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source)).expect("cannot load ledger");
-        let data = Dataset::new(&ledger, self.context.today, Projection::all());
+        let data = Dataset::new(&ledger, self.context.today.and_time(self.context.time), Projection::all());
         f(&data, data.rows.first().map(RowRef::Posting))
     }
 }
