@@ -161,6 +161,8 @@ Web 界面以前使用的各类型化读取接口正在按组逐个版本移除�
 | `GET /api/accounts/{account}/balances` | `accounts.balance_history`，参数 `account`；原接口按 `currency` 把行分组 |
 | `GET /api/statistic/summary?from=&to=` | `report.net_worth` 和 `report.liabilities`（参数 `to`、`currency`，即运营货币），`report.flows`（`from`、`to`、`currency`），`report.transaction_count`（`from`、`to`）；原接口的 `calculated` 是行的 `value` 库存中 `currency` 的部分，`detail` 是 `units` 库存按货币的数量 |
 | `GET /api/statistic/{type}?from=&to=` | `report.account_totals` 和 `report.top_postings`（参数 `type`、`from`、`to`、`currency`）；最大分录行的 `date`、`time`、`timestamp`、`account`、`id`、`payee`、`narration`、`units`、`account_balance` 对应原接口的 `datetime`、`trx_id`、`inferred_unit`、`account_after` |
+| `GET /api/for-new-transaction?datetime=` | `ledger.now` 给出默认日期和时间（原接口的 `now`），`journals.payees`，以及 `journals.accounts`（参数 `date`、`time`，取自 `datetime` 或 `ledger.now`） |
+| `GET /api/for-new-document` | `ledger.now`，然后 `accounts.opened`（参数为其 `date`、`time`） |
 | `GET /api/errors?page=&size=` | `journals.errors`，参数 `size` 和 `offset = (page - 1) * size`，加 `count_total` 以计算页数；行的 `kind`、`file`、`line`、`column`、`span_start`、`span_end`、`source` 和 `metas`（`{key, value}` 列表）对应原接口的 `error_type`、`span.filename`、`span.line`、`span.column`、`span.start`、`span.end`、`span.content` 和 `metas` |
 
 原接口的金额形如 `{number, commodity}`；查询的单元格形如 `{number, currency}`，预算的 `activity` 是以该预算 `currency` 计的数字。
@@ -381,6 +383,22 @@ GROUP BY currency
 ```sql
 SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
+ORDER BY account
+```
+
+#### `accounts.opened`
+
+在某个日期和时间之前已经开立过的账户，包括已销户的，按名称排序：即当时写下的 `document` 或余额断言可以引用的账户，因为对账户的记录可以在销户之后。这正是账本检查这类指令的规则：账户的 `open` 不晚于该时刻，先比日期，再比 [`open.time`](/zh-cn/reference/query-language/#accounts)。不包括之后才开立的账户（哪怕是同一天稍晚开立的），也不包括从未开立却有 `close` 的账户；只用 [`account_status`](/zh-cn/reference/query-language/#账户与商品指令) 会对后者给出 `'closed'`。上传文档时查询的是账本的当前时刻（`ledger.now`）。
+
+| 参数 | 类型 | 值 |
+|------|------|----|
+| `date` | `date` | 日期，按账本时区 |
+| `time` | `str` | 一天中的时间，`HH:MM:SS` |
+
+```sql
+SELECT account
+FROM #accounts
+WHERE open.date < :date OR (open.date = :date AND open.time <= :time)
 ORDER BY account
 ```
 

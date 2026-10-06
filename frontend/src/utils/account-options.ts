@@ -6,7 +6,7 @@ export interface AccountOptionGroup {
 
 /**
  * The options of an account picker, grouped by account type and sorted by name: the accounts the server lists as open
- * (`GET /api/for-new-transaction`, by the rule the ledger checks its directives with), and the accounts in `keep`,
+ * (`journals.accounts`, by the rule the ledger checks its directives with), and the accounts in `keep`,
  * such as those the postings of an edited transaction already use, so a value already chosen still shows when its
  * account is not open.
  */

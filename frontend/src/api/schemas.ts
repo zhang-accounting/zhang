@@ -150,23 +150,6 @@ export interface paths {
     /** Update File Content */
     put: operations['update_file_content'];
   };
-  '/api/for-new-document': {
-    /**
-     * Get Info For New Document
-     * @description The accounts the document upload may name: every account opened by now, closed ones included, as a document only
-     * records and may follow the close; not one opened later or never.
-     */
-    get: operations['get_info_for_new_document'];
-  };
-  '/api/for-new-transaction': {
-    /**
-     * Get Info For New Transactions
-     * @description The payees and the accounts the new-transaction form suggests: the built-in queries `journals.payees` and
-     * `journals.accounts`. The accounts are those open at `datetime`, the transaction's date and time as the form submits
-     * it, by the rule the ledger checks the transaction with; those open now without it.
-     */
-    get: operations['get_info_for_new_transactions'];
-  };
   '/api/info': {
     /** Get Basic Info */
     get: operations['get_basic_info'];
@@ -1157,58 +1140,6 @@ export interface operations {
       /** @description no content */
       204: {
         content: never;
-      };
-    };
-  };
-  /**
-   * Get Info For New Document
-   * @description The accounts the document upload may name: every account opened by now, closed ones included, as a document only
-   * records and may follow the close; not one opened later or never.
-   */
-  get_info_for_new_document: {
-    responses: {
-      /** @description default return */
-      200: {
-        content: {
-          'application/json': {
-            data: {
-              /** @description every account opened by now, closed ones included, by name: a document only records, and may follow the close */
-              account_name: string[];
-            };
-          };
-        };
-      };
-    };
-  };
-  /**
-   * Get Info For New Transactions
-   * @description The payees and the accounts the new-transaction form suggests: the built-in queries `journals.payees` and
-   * `journals.accounts`. The accounts are those open at `datetime`, the transaction's date and time as the form submits
-   * it, by the rule the ledger checks the transaction with; those open now without it.
-   */
-  get_info_for_new_transactions: {
-    parameters: {
-      query?: {
-        datetime?: string | null;
-      };
-    };
-    responses: {
-      /** @description default return */
-      200: {
-        content: {
-          'application/json': {
-            data: {
-              account_name: string[];
-              /**
-               * Format: date-time
-               * @description the ledger's current wall-clock time in its timezone, by its clock, to the second: when a new transaction is, by
-               * default
-               */
-              now: string;
-              payee: string[];
-            };
-          };
-        };
       };
     };
   };

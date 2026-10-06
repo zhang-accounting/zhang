@@ -2,7 +2,7 @@ import { loadable_unwrap } from '.';
 import { loadable } from 'jotai/utils';
 import { atom } from 'jotai';
 import { openAPIFetcher } from '../api/fetcher';
-import { retrieveNewDocumentInfo, retrieveNewTransactionInfo } from '../api/requests';
+import { retrieveDocumentAccounts, retrieveOpenAccounts } from '../components/form-accounts';
 import { accountOptions } from '../utils/account-options';
 import { ledgerRevisionAtom } from './ledger';
 
@@ -16,13 +16,13 @@ export const accountFetcher = atom(async (get) => {
 export const accountAtom = loadable(accountFetcher);
 
 /**
- * The accounts open now, as the server lists them (`GET /api/for-new-transaction`) by the rule the ledger checks its
+ * The accounts open now (`journals.accounts` at the ledger's current instant) by the rule the ledger checks its
  * directives with: not a closed account, nor one opened later. Read again with every ledger revision, as the account
  * list is: on a ledger reload and after a write.
  */
 const openAccountsFetcher = atom(async (get) => {
   get(ledgerRevisionAtom);
-  return (await retrieveNewTransactionInfo({ datetime: null })).data.data.account_name;
+  return retrieveOpenAccounts();
 });
 
 const openAccountsAtom = loadable(openAccountsFetcher);
@@ -31,13 +31,13 @@ const openAccountsAtom = loadable(openAccountsFetcher);
 export const accountSelectItemsAtom = atom((get) => loadable_unwrap(get(openAccountsAtom), [], (names) => accountOptions(names)));
 
 /**
- * The accounts a document written now may name, as the server lists them (`GET /api/for-new-document`): every account
+ * The accounts a document written now may name (`accounts.opened` at the ledger's current instant): every account
  * opened by now, closed ones included, as a document only records and may follow the close. Read again with every
  * ledger revision.
  */
 const documentAccountsFetcher = atom(async (get) => {
   get(ledgerRevisionAtom);
-  return (await retrieveNewDocumentInfo({})).data.data.account_name;
+  return retrieveDocumentAccounts();
 });
 
 const documentAccountsAtom = loadable(documentAccountsFetcher);

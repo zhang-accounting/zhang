@@ -23,13 +23,15 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
+use zhang_ast::Account;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{BuiltinQueryRunRequest, JournalRequest, NewTransactionInfoRequest};
-use zhang_server::routes::document::{download_document, get_info_for_new_document};
+use zhang_core::pipeline::AccountUse;
+use zhang_server::request::{BuiltinQueryRunRequest, JournalRequest};
+use zhang_server::routes::document::download_document;
 use zhang_server::routes::query::run_builtin_query;
-use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, update_single_transaction};
+use zhang_server::routes::transaction::{get_journals, update_single_transaction};
 use zhang_server::routes::{Base64Path, Query as UrlQuery};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
@@ -119,6 +121,22 @@ async fn respond(response: impl IntoResponse) -> (StatusCode, Value) {
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+/// The first column of the rows of the built-in query `name` with `params`, as strings: the lists of the forms.
+async fn names(ledger: &SharedLedger, name: &str, params: Value) -> Vec<String> {
+    let (status, rows) = builtin(ledger, name, params).await;
+    assert_eq!(status, StatusCode::OK);
+    rows.iter()
+        .map(|row| row.as_object().unwrap().values().next().unwrap().as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The ledger's current date and time (`ledger.now`), the instant the forms ask the accounts at.
+async fn ledger_now(ledger: &SharedLedger) -> (String, String) {
+    let (status, rows) = builtin(ledger, "ledger.now", json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    (rows[0]["date"].as_str().unwrap().to_owned(), rows[0]["time"].as_str().unwrap().to_owned())
 }
 
 /// The rows of the built-in query `name` with `params` (JSON values by name), as objects keyed by column name: what the
@@ -629,24 +647,23 @@ async fn tags_and_links_keep_their_written_order_through_a_save() {
     assert_eq!(item["links"], json!(["z-link", "a-link"]));
 }
 
+/// The new-transaction form reads `ledger.now` for its default date and time, and `journals.payees` and
+/// `journals.accounts` at that instant for its suggestions (`retrieveNewTransactionInfo` in the frontend).
 #[tokio::test]
 async fn the_new_transaction_form_suggests_sorted_payees_without_pads_and_open_accounts() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
     let ledger = scratch.ledger().await;
-    let (status, mut body) = respond(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
-    assert_eq!(status, StatusCode::OK);
     // the ledger's time now, by the system clock here
-    let now = body["data"].as_object_mut().unwrap().remove("now").unwrap();
-    assert!(
-        chrono::NaiveDateTime::parse_from_str(now.as_str().unwrap(), "%Y-%m-%dT%H:%M:%S").is_ok(),
-        "{now}"
+    let (date, time) = ledger_now(&ledger).await;
+    assert!(chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_ok(), "{date}");
+    assert!(chrono::NaiveTime::parse_from_str(&time, "%H:%M:%S").is_ok(), "{time}");
+    assert_eq!(
+        names(&ledger, "journals.payees", json!({})).await,
+        ["Broker", "Cafe", "Unbalanced", "zz-shop (a)"]
     );
     assert_eq!(
-        body["data"],
-        json!({
-            "payee": ["Broker", "Cafe", "Unbalanced", "zz-shop (a)"],
-            "account_name": ["Assets:Broker", "Assets:Cash", "Equity:Open", "Expenses:Food", "Income:Gains"],
-        })
+        names(&ledger, "journals.accounts", json!({ "date": date, "time": time })).await,
+        ["Assets:Broker", "Assets:Cash", "Equity:Open", "Expenses:Food", "Income:Gains"]
     );
 }
 
@@ -711,9 +728,11 @@ async fn the_new_transaction_form_offers_the_accounts_open_today() {
         ),
     )]);
     let ledger = scratch.ledger().await;
-    let (status, body) = respond(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["account_name"], json!(["Assets:Again", "Assets:Today"]));
+    let (date, time) = ledger_now(&ledger).await;
+    assert_eq!(
+        names(&ledger, "journals.accounts", json!({ "date": date, "time": time })).await,
+        ["Assets:Again", "Assets:Today"]
+    );
 }
 
 /// The form asks for the accounts open at the transaction's date and time, which it submits as an instant read in the
@@ -733,15 +752,17 @@ async fn the_new_transaction_form_offers_the_accounts_open_at_the_date_of_the_tr
 "#,
     )]);
     let ledger = scratch.ledger().await;
+    // the form sends the transaction's wall-clock date and time in the ledger's timezone, which the endpoint read from an
+    // instant before; here as the ledger's wall-clock time of each instant
     let accounts = |at: &str| {
         let ledger = ledger.clone();
-        let request = NewTransactionInfoRequest {
-            datetime: Some(at.parse().unwrap()),
-        };
+        let at = chrono::DateTime::parse_from_rfc3339(at)
+            .unwrap()
+            .with_timezone(&chrono_tz::Asia::Shanghai)
+            .naive_local();
         async move {
-            let (status, body) = respond(get_info_for_new_transactions(State(ledger), UrlQuery(request)).await).await;
-            assert_eq!(status, StatusCode::OK, "{body}");
-            body["data"]["account_name"].clone()
+            let params = json!({ "date": at.date().to_string(), "time": at.time().format("%H:%M:%S").to_string() });
+            json!(names(&ledger, "journals.accounts", params).await)
         }
     };
     // 2024-01-04 23:00 in Shanghai
@@ -786,12 +807,91 @@ async fn the_document_upload_offers_every_account_opened_by_now() {
         ),
     )]);
     let ledger = scratch.ledger().await;
-    let (status, body) = respond(get_info_for_new_document(State(ledger.clone())).await).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["data"]["account_name"], json!(["Assets:Again", "Assets:Cash", "Assets:Gone"]));
+    let (date, time) = ledger_now(&ledger).await;
+    let at = json!({ "date": date, "time": time });
+    assert_eq!(
+        names(&ledger, "accounts.opened", at.clone()).await,
+        ["Assets:Again", "Assets:Cash", "Assets:Gone"]
+    );
     // the transaction form, which books, offers the open ones only
-    let (_, body) = respond(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
-    assert_eq!(body["data"]["account_name"], json!(["Assets:Again", "Assets:Cash"]));
+    assert_eq!(names(&ledger, "journals.accounts", at).await, ["Assets:Again", "Assets:Cash"]);
+}
+
+/// `accounts.opened` is the rule the ledger checks a document, a note or a plain balance assertion with
+/// (`AccountUse::Records`): an `open` at or before the instant, by date and then by time. Pinned against the core rule
+/// on a ledger with timed opens and closes: an account opened later the same day, one closed at a time, one closed by a
+/// date, one closed before it is opened, one reopened, one opened only tomorrow and one only ever closed.
+#[tokio::test]
+async fn accounts_opened_is_the_rule_the_ledger_checks_a_record_with() {
+    const ACCOUNTS: [&str; 9] = [
+        "Assets:Afternoon",
+        "Assets:Cash",
+        "Assets:ClosedAtTen",
+        "Assets:ClosedBeforeOpen",
+        "Assets:ClosedThatDay",
+        "Assets:Morning",
+        "Assets:NeverOpened",
+        "Assets:Reopened",
+        "Assets:Tomorrow",
+    ];
+    let scratch = Scratch::new(&[(
+        "main.zhang",
+        r#"option "timezone" "UTC"
+1970-01-01 open Assets:Cash
+2024-01-05 09:00:00 open Assets:Morning
+2024-01-05 15:00:00 open Assets:Afternoon
+2024-01-01 open Assets:ClosedAtTen
+2024-01-05 10:00:00 close Assets:ClosedAtTen
+2024-01-01 open Assets:ClosedThatDay
+2024-01-05 close Assets:ClosedThatDay
+2024-01-01 close Assets:NeverOpened
+2024-01-05 08:00:00 close Assets:ClosedBeforeOpen
+2024-01-05 15:00:00 open Assets:ClosedBeforeOpen
+2024-01-01 open Assets:Reopened
+2024-01-02 close Assets:Reopened
+2024-01-06 open Assets:Reopened
+2024-01-06 open Assets:Tomorrow
+"#,
+    )]);
+    let ledger = scratch.ledger().await;
+    let instants = [
+        "2024-01-04 12:00:00",
+        "2024-01-05 08:00:00",
+        "2024-01-05 08:30:00",
+        "2024-01-05 09:00:00",
+        "2024-01-05 10:00:00",
+        "2024-01-05 10:00:01",
+        "2024-01-05 12:00:00",
+        "2024-01-05 15:00:00",
+        "2024-01-05 23:59:59",
+        "2024-01-06 00:00:00",
+        "2024-01-07 00:00:00",
+    ]
+    .map(|at| chrono::NaiveDateTime::parse_from_str(at, "%Y-%m-%d %H:%M:%S").unwrap());
+    let by_the_rule = {
+        let guard = ledger.read().await;
+        instants.map(|at| {
+            ACCOUNTS
+                .into_iter()
+                .filter(|name| {
+                    guard
+                        .account_reference_error(&name.parse::<Account>().unwrap(), at, AccountUse::Records)
+                        .is_none()
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    // the rule itself is not trivial on this ledger
+    assert_eq!(
+        by_the_rule[6],
+        ["Assets:Cash", "Assets:ClosedAtTen", "Assets:ClosedThatDay", "Assets:Morning", "Assets:Reopened"]
+    );
+    for (at, expected) in instants.iter().zip(by_the_rule) {
+        let params = json!({ "date": at.date().to_string(), "time": at.time().format("%H:%M:%S").to_string() });
+        // every account of the ledger is a row of #accounts, so each one is judged
+        assert_eq!(names(&ledger, "accounts.list", params.clone()).await, ACCOUNTS, "at {at}");
+        assert_eq!(names(&ledger, "accounts.opened", params).await, expected, "at {at}");
+    }
 }
 
 #[tokio::test]

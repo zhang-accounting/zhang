@@ -20,8 +20,9 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::ZhangResult;
+use zhang_query::Params;
 use zhang_server::request::JournalRequest;
-use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals};
+use zhang_server::routes::transaction::get_journals;
 use zhang_server::routes::Query as UrlQuery;
 use zhang_server::state::SharedLedger;
 
@@ -287,13 +288,24 @@ async fn the_journal_and_the_new_transaction_suggestions_hold_on_every_ledger() 
             assert_eq!(records, window, "{} page={} size={}", name, page, size);
         }
 
-        let info = json(get_info_for_new_transactions(State(ledger.clone()), UrlQuery(Default::default())).await).await;
-        for field in ["payee", "account_name"] {
-            let values = info["data"][field]
-                .as_array()
-                .map(|it| it.iter().filter_map(|it| it.as_str()).map(str::to_owned).collect::<Vec<_>>())
-                .unwrap_or_default();
-            assert!(values.windows(2).all(|it| it[0] < it[1]), "{} {}: not sorted: {:?}", name, field, values);
+        // the form's suggestions (`journals.payees`, `journals.accounts` at the ledger's current instant) are sorted. A
+        // ledger without any account has no `ledger.now` row (the query reads `#accounts`), and no account to list.
+        let now = zhang_server::builtin::run(&ledger, "ledger.now", Params::new()).await.unwrap();
+        let accounts_at = match &now.rows[..] {
+            [row] => Some(Params::new().bind("date", row[0].clone()).bind("time", row[1].clone())),
+            [] => None,
+            other => panic!("{}: ledger.now gave {:?}", name, other),
+        };
+        let queries = [("journals.payees", Some(Params::new())), ("journals.accounts", accounts_at)];
+        for (query, params) in queries.into_iter().filter_map(|(query, params)| Some((query, params?))) {
+            let values = zhang_server::builtin::run(&ledger, query, params)
+                .await
+                .unwrap()
+                .rows
+                .into_iter()
+                .filter_map(|row| row[0].as_str().map(str::to_owned))
+                .collect::<Vec<_>>();
+            assert!(values.windows(2).all(|it| it[0] < it[1]), "{} {}: not sorted: {:?}", name, query, values);
         }
     }
 }

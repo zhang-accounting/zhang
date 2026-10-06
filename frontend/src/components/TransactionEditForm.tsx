@@ -2,14 +2,14 @@ import { useAtomValue } from 'jotai';
 import { CalendarIcon, Plus, TableProperties, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { previewNewTransaction, previewTransactionUpdate, retrieveNewTransactionInfo } from '@/api/requests';
+import { previewNewTransaction, previewTransactionUpdate } from '@/api/requests';
 import { JournalTransactionItem, MetaEntry } from '@/api/types';
 import { GroupCombobox } from '@/components/basic/GroupCombobox';
 import { useDateFormat, useDateLocale } from '@/components/layout/use-date-format';
 import { useListState } from '@/hooks/use-list-state';
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
-import { useLedgerQuery } from '@/states/ledger';
+import { useLedgerValue } from '@/states/ledger';
 import { operatingCurrencyAtom } from '@/states/options';
 import { accountOptions } from '@/utils/account-options';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
@@ -18,6 +18,7 @@ import { Calendar } from './ui/calendar';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './ui/field';
 import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { retrieveNewTransactionInfo } from './form-accounts';
 import { calendarDay, LedgerDateTime, timeOfDay, withDay } from './ledger-datetime';
 import { DOCUMENT_KEY, emptyDraft, PostingDraft, toPostingDrafts, toPostingRequest, toRequestMetas, TransactionFormValue } from './transaction-form-utils';
 import { createPreviewer, fieldErrors, fieldErrorText, ledgerErrors, PreviewState, previewKey, refused, unbalancedText } from './transaction-preview';
@@ -93,7 +94,7 @@ export default function TransactionEditForm(props: Props) {
   const payeeListId = useId();
 
   // the ledger's wall-clock time, as the journal shows it and as it is sent: never an instant of the browser's timezone. A new
-  // transaction is now by the ledger's clock, which the server tells
+  // transaction is now by the ledger's clock (`ledger.now`)
   const [datetime, setDatetime] = useState<LedgerDateTime | undefined>(props.data?.datetime);
   const date = datetime ? calendarDay(datetime) : undefined;
   const [dateOpen, setDateOpen] = useState(false);
@@ -108,7 +109,7 @@ export default function TransactionEditForm(props: Props) {
   // the ledger's options, fetched once for every page that uses one
   const operatingCurrency = useAtomValue(operatingCurrencyAtom);
   // the payees, and the accounts open at the transaction's date and time, by the rule the ledger checks it with
-  const { value: info } = useLedgerQuery(() => retrieveNewTransactionInfo({ datetime: datetime ?? null }), [datetime]);
+  const { value: info } = useLedgerValue(() => retrieveNewTransactionInfo(datetime), [datetime]);
   useEffect(() => {
     if (datetime === undefined && info) setDatetime(info.now);
   }, [datetime, info]);
