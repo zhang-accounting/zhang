@@ -146,4 +146,4 @@ function CalendarDayButton({ className, day, modifiers, locale, ...props }: Reac
   );
 }
 
-export { Calendar, CalendarDayButton };
+export { Calendar };
