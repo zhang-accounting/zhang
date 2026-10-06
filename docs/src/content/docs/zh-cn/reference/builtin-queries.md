@@ -149,7 +149,7 @@ curl -X POST http://localhost:8000/api/query/builtins/postings.between/text \
 
 ### 已移除的接口
 
-Web 界面以前使用的各类型化读取接口正在按组逐个版本移除，改为按名称执行内置查询：以前调用这些接口的脚本，用接口所执行的查询、绑定接口当时使用的参数，就能得到相同的数字。已移除的接口与其他没有路由的 `/api` 路径一样，返回 HTTP 404 和指明该路径的 JSON `message`（如 `no route GET /api/budgets`），无论构建是否带有 Web 界面。
+Web 界面以前使用的各类型化读取接口正在按组逐个版本移除，改为按名称执行内置查询：以前调用这些接口的脚本，用接口所执行的查询、绑定接口当时使用的参数，就能得到相同的数字。已移除的接口与其他没有路由的 `/api` 路径一样，返回 HTTP 404 和指明该路径的 JSON `message`（如 `no route GET /api/budgets`），无论构建是否带有 Web 界面；路径上仍有其他方法时（如 `GET /api/accounts/{account}/documents`，其 `POST` 用于上传），返回 HTTP 405 和指明该方法与路径的消息。
 
 | 已移除的接口 | 改为执行的内置查询 |
 |--------------|--------------------|

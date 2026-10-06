@@ -100,6 +100,8 @@ async fn every_error_has_one_json_body_with_a_message() {
         // an /api path no route takes: a retired endpoint (#754), or a path that never was one
         (Method::GET, "/api/budgets?year=2024&month=1", None, StatusCode::NOT_FOUND),
         (Method::POST, "/api/no/such/route", Some("{}"), StatusCode::NOT_FOUND),
+        // a retired GET on a path that keeps its POST (#756)
+        (Method::GET, "/api/accounts/Assets:Cash/documents", None, StatusCode::METHOD_NOT_ALLOWED),
     ] {
         let (answered, content_type, body) = call(&router, method.clone(), uri, body).await;
         assert_eq!(answered, status, "{method} {uri}: {body}");
@@ -120,8 +122,9 @@ async fn a_malformed_transaction_id_is_named() {
 }
 
 /// An `/api` path no route takes is a 404 that names the method and the path, in every build, with or without the
-/// frontend: a script that calls an endpoint that is gone gets an error it can read, never a page. A path outside `/api`
-/// is the frontend's (or, in a build without it, a note), not an API error.
+/// frontend, and a method no route takes on a path that has others a 405 naming it: a script that calls an endpoint
+/// that is gone gets an error it can read, never a page or an empty answer. A path outside `/api` is the frontend's
+/// (or, in a build without it, a note), not an API error.
 #[tokio::test]
 async fn an_unknown_api_path_is_a_404_naming_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -137,6 +140,25 @@ async fn an_unknown_api_path_is_a_404_naming_it() {
     ] {
         let (status, content_type, body) = call(&router, method.clone(), uri, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}: {body}");
+        assert!(content_type.starts_with("application/json"), "{method} {uri}: {content_type}");
+        assert_eq!(message_only(&body), message);
+    }
+    // a method no route takes on a path that has others: a 405 naming the method and the path, not axum's empty one
+    for (method, uri, message) in [
+        (
+            Method::GET,
+            "/api/accounts/Assets:Cash/documents",
+            "no route GET /api/accounts/Assets:Cash/documents: the path takes another method",
+        ),
+        (
+            Method::GET,
+            "/api/accounts/Assets:Cash/balances",
+            "no route GET /api/accounts/Assets:Cash/balances: the path takes another method",
+        ),
+        (Method::DELETE, "/api/query", "no route DELETE /api/query: the path takes another method"),
+    ] {
+        let (status, content_type, body) = call(&router, method.clone(), uri, None).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{method} {uri}: {body}");
         assert!(content_type.starts_with("application/json"), "{method} {uri}: {content_type}");
         assert_eq!(message_only(&body), message);
     }

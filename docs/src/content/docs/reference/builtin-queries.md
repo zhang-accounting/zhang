@@ -149,7 +149,7 @@ Send the text to [`POST /api/query`](/reference/query-language/#run-a-query) to 
 
 ### Retired endpoints
 
-The typed read endpoints the web UI used before are being retired, one group per release, in favour of running the built-in queries by name: a script that called one of them gets the same figures from the queries it ran, with the parameters the endpoint bound. A retired endpoint, like any `/api` path no route takes, is answered with HTTP 404 and a JSON `message` naming it (`no route GET /api/budgets`), whether or not the build serves the web UI.
+The typed read endpoints the web UI used before are being retired, one group per release, in favour of running the built-in queries by name: a script that called one of them gets the same figures from the queries it ran, with the parameters the endpoint bound. A retired endpoint, like any `/api` path no route takes, is answered with HTTP 404 and a JSON `message` naming it (`no route GET /api/budgets`), whether or not the build serves the web UI; a retired method on a path that keeps others (`GET /api/accounts/{account}/documents`, whose `POST` uploads) with HTTP 405 and a message naming the method and the path.
 
 | Retired endpoint | Built-in queries to run instead |
 |------------------|----------------------------------|

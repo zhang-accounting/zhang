@@ -141,18 +141,26 @@ const MAX_REJECTION_BYTES: usize = 64 * 1024;
 
 /// Middleware giving the rejections of axum's extractors the one body of an API error ([`error_response`]): a body
 /// that is not the JSON a route takes, a path or a query string that does not read, or an upload that cannot be read
-/// is answered by axum with its status and a `text/plain` reason, which becomes the message. What a router plugin
-/// answers is its own, and stays as it is
+/// is answered by axum with its status and a `text/plain` reason, which becomes the message. A method no route takes
+/// on a path that has other methods (`GET` on an upload path) is answered by axum with an empty 405, which becomes a
+/// message naming the method and the path. What a router plugin answers is its own, and stays as it is
 pub async fn json_rejections(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let from_plugin = request.uri().path().starts_with(PLUGIN_ROUTES);
+    let (method, path) = (request.method().clone(), request.uri().path().to_owned());
     let response = next.run(request).await;
     let status = response.status();
-    let plain_text = response
+    if from_plugin || !(status.is_client_error() || status.is_server_error()) {
+        return response;
+    }
+    let content_type = response
         .headers()
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|it| it.to_str().ok())
-        .is_some_and(|it| it.starts_with("text/plain"));
-    if from_plugin || !plain_text || !(status.is_client_error() || status.is_server_error()) {
+        .map(str::to_owned);
+    if status == StatusCode::METHOD_NOT_ALLOWED && content_type.is_none() {
+        return error_response(status, format!("no route {} {}: the path takes another method", method, path));
+    }
+    if !content_type.is_some_and(|it| it.starts_with("text/plain")) {
         return response;
     }
     let reason = axum::body::to_bytes(response.into_body(), MAX_REJECTION_BYTES).await.unwrap_or_default();
