@@ -27,7 +27,6 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::{BuiltinQueryRunRequest, JournalRequest, NewTransactionInfoRequest};
-use zhang_server::routes::common::get_errors;
 use zhang_server::routes::document::{download_document, get_info_for_new_document};
 use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, update_single_transaction};
@@ -145,6 +144,29 @@ async fn builtin(ledger: &SharedLedger, name: &str, params: Value) -> (StatusCod
         .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
         .collect();
     (status, rows)
+}
+
+/// One page of the error box: the rows of `journals.errors` with `size` and `offset`, counted, and the `total`.
+async fn errors_page(ledger: &SharedLedger, size: i64, offset: i64) -> (Vec<Value>, u64) {
+    let request = BuiltinQueryRunRequest {
+        params: serde_json::from_value(json!({ "size": size, "offset": offset })).unwrap(),
+        count_total: Some(true),
+    };
+    let (status, body) = respond(run_builtin_query(State(ledger.clone()), UrlPath(("journals.errors".to_owned(),)), Json(request)).await).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let columns = body["data"]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let rows = body["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+        .collect();
+    (rows, body["data"]["total"].as_u64().unwrap())
 }
 
 fn request(page: Option<u32>, size: Option<u32>, keyword: Option<&str>, tags: Option<&[&str]>) -> JournalRequest {
@@ -552,13 +574,9 @@ async fn bad_pages_are_bad_requests_and_a_page_past_the_end_is_empty() {
     assert_eq!(summary(&body["data"]), vec!["Transaction Cafe lunch"]);
     assert_eq!(body["data"]["total_page"], 3);
 
-    for size in [0, 1001] {
-        let (status, body) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(1), Some(size), None, None))).await).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["message"], "size must be between 1 and 1000");
-    }
-    let (status, _) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(1), Some(1000), None, None))).await).await;
-    assert_eq!(status, StatusCode::OK);
+    // the error box reads its pages from `journals.errors`, which takes any size
+    let (rows, total) = errors_page(&ledger, 1000, 0).await;
+    assert_eq!((rows.len(), total), (2, 2));
 }
 
 const TAGGED: &str = r#"option "operating_currency" "CNY"
@@ -888,24 +906,23 @@ async fn the_document_of_a_split_sale_is_listed_once() {
 async fn errors_are_listed_by_file_then_position_one_page_at_a_time() {
     let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
     let ledger = scratch.ledger().await;
-    let (status, body) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(1), Some(10), None, None))).await).await;
-    assert_eq!(status, StatusCode::OK);
-    let data = &body["data"];
-    assert_eq!(data["total_count"], 2);
-    let records = data["records"].as_array().unwrap();
+    let (records, total) = errors_page(&ledger, 10, 0).await;
+    assert_eq!(total, 2);
     // main.zhang before more.zhang, whatever the order zhang found them in
-    assert_eq!(records[0]["error_type"], "AccountBalanceCheckError");
-    assert_eq!(records[0]["span"]["filename"], "main.zhang");
-    assert_eq!(records[0]["span"]["content"], "2024-01-06 balance Assets:Cash 50 CNY");
-    assert_eq!(records[0]["metas"], json!({"account_name": "Assets:Cash"}));
+    assert_eq!(records[0]["kind"], "AccountBalanceCheckError");
+    assert_eq!(records[0]["file"], "main.zhang");
+    assert_eq!(records[0]["source"], "2024-01-06 balance Assets:Cash 50 CNY");
+    assert_eq!(records[0]["metas"], json!([{"key": "account_name", "value": "Assets:Cash"}]));
     let start = LEDGER.find("2024-01-06 balance").unwrap();
-    assert_eq!(records[0]["span"]["start"], start);
-    assert_eq!(records[1]["error_type"], "UnbalancedTransaction");
-    assert_eq!(records[1]["span"]["filename"], "more.zhang");
-    assert_eq!(records[1]["span"]["start"], 0);
-    assert!(records[1]["metas"]["txn_id"].is_string());
+    assert_eq!(records[0]["span_start"], start);
+    assert_eq!(records[1]["kind"], "UnbalancedTransaction");
+    assert_eq!(records[1]["file"], "more.zhang");
+    assert_eq!(records[1]["span_start"], 0);
+    let metas = records[1]["metas"].as_array().unwrap();
+    assert!(metas.iter().any(|it| it["key"] == "txn_id" && it["value"].is_string()), "{metas:?}");
 
-    let (_, body) = respond(get_errors(State(ledger.clone()), UrlQuery(request(Some(2), Some(1), None, None))).await).await;
-    assert_eq!(body["data"]["total_page"], 2);
-    assert_eq!(body["data"]["records"][0]["error_type"], "UnbalancedTransaction");
+    // the second page of one: the error box counts 2 pages from the total
+    let (records, total) = errors_page(&ledger, 1, 1).await;
+    assert_eq!((total, records.len()), (2, 1));
+    assert_eq!(records[0]["kind"], "UnbalancedTransaction");
 }

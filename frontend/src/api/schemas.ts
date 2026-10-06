@@ -140,15 +140,6 @@ export interface paths {
      */
     get: operations['get_single_commodity'];
   };
-  '/api/errors': {
-    /**
-     * Get Errors
-     * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-     * query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
-     * default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
-     */
-    get: operations['get_errors'];
-  };
   '/api/files': {
     /** Get Files */
     get: operations['get_files'];
@@ -1119,86 +1110,6 @@ export interface operations {
                 /** Format: date-time */
                 datetime: string;
               }[];
-            };
-          };
-        };
-      };
-    };
-  };
-  /**
-   * Get Errors
-   * @description The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-   * query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
-   * default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
-   */
-  get_errors: {
-    parameters: {
-      query?: {
-        page?: number | null;
-        size?: number | null;
-        keyword?: string | null;
-        tags?: string[] | null;
-        links?: string[] | null;
-      };
-    };
-    responses: {
-      /** @description default return */
-      200: {
-        content: {
-          'application/json': {
-            data: {
-              current_page: number;
-              page_size: number;
-              records: {
-                /** @enum {string} */
-                error_type:
-                  | 'UnbalancedTransaction'
-                  | 'TransactionCannotInferTradeAmount'
-                  | 'TransactionHasMultipleImplicitPosting'
-                  | 'TransactionExplicitPostingHaveMultipleCommodity'
-                  | 'AccountBalanceCheckError'
-                  | 'UnusedPad'
-                  | 'PadWithCost'
-                  | 'BalanceTimeIgnored'
-                  | 'DocumentPathRelativeToRoot'
-                  | 'DocumentNotFound'
-                  | 'IncludeNotFound'
-                  | 'AccountDoesNotExist'
-                  | 'AccountClosed'
-                  | 'CommodityDoesNotDefine'
-                  | 'CommodityNotAllowed'
-                  | 'NoEnoughCommodityLot'
-                  | 'CloseNonZeroAccount'
-                  | 'BudgetDoesNotExist'
-                  | 'DefineDuplicatedBudget'
-                  | 'BudgetCommodityMismatch'
-                  | 'BudgetClosed'
-                  | 'MultipleOperatingCurrencyDetect'
-                  | 'ParseInvalidMeta'
-                  | 'UnsupportedBookingMethod'
-                  | 'AmbiguousLotMatch'
-                  | 'CostMergingNotSupported'
-                  | 'PluginError';
-                id: string;
-                metas: {
-                  [key: string]: string;
-                };
-                span?: {
-                  /** @description 1-based column in its line where the directive starts, counting characters; null when unknown */
-                  column?: number | null;
-                  /** @description the directive's text */
-                  content: string;
-                  /** @description byte offset in the file just after the directive ends */
-                  end: number;
-                  filename?: string | null;
-                  /** @description 1-based line in the file where the directive starts; null when unknown (a directive not read from a file) */
-                  line?: number | null;
-                  /** @description byte offset in the file where the directive starts */
-                  start: number;
-                } | null;
-              }[];
-              total_count: number;
-              total_page: number;
             };
           };
         };

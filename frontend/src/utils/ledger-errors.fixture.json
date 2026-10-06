@@ -1,0 +1,432 @@
+{
+  "_": "Rows of journals.errors (with count_total) and what GET /api/errors answered for the same page, captured on integration-tests/query-zhang-tables (PR #753 build): the adapter must give the GET's records and paging.",
+  "pages": {
+    "page 1 of 50": {
+      "size": 50,
+      "page": 1,
+      "rows": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "kind",
+            "type": "str"
+          },
+          {
+            "name": "file",
+            "type": "str"
+          },
+          {
+            "name": "line",
+            "type": "int"
+          },
+          {
+            "name": "column",
+            "type": "int"
+          },
+          {
+            "name": "span_start",
+            "type": "int"
+          },
+          {
+            "name": "span_end",
+            "type": "int"
+          },
+          {
+            "name": "source",
+            "type": "str"
+          },
+          {
+            "name": "metas",
+            "type": "metas"
+          }
+        ],
+        "rows": [
+          [
+            "4d97771a-3b72-849b-ab41-df1781bcf6f7",
+            "MultipleOperatingCurrencyDetect",
+            "main.zhang",
+            4,
+            1,
+            214,
+            247,
+            "option \"operating_currency\" \"USD\"",
+            []
+          ],
+          ["792c555f-6fc3-c439-e404-8eb21220e7ca", "DefineDuplicatedBudget", "main.zhang", 22, 1, 588, 613, "2024-01-01 budget fun CNY", []],
+          [
+            "565e3b90-d124-162c-b316-09bd2d3b25e3",
+            "AccountDoesNotExist",
+            "more.zhang",
+            1,
+            1,
+            0,
+            63,
+            "2024-02-01 * \"Shop\" \"typo\"\n  Expenses:Fodo 10 CNY\n  Assets:Bank",
+            [
+              {
+                "key": "account_name",
+                "value": "Expenses:Fodo"
+              }
+            ]
+          ],
+          [
+            "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3",
+            "UnbalancedTransaction",
+            "more.zhang",
+            5,
+            1,
+            65,
+            141,
+            "2024-02-02 * \"Shop\" \"unbalanced\"\n  Expenses:Food 10 CNY\n  Assets:Bank -9 CNY",
+            [
+              {
+                "key": "txn_id",
+                "value": "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3"
+              }
+            ]
+          ],
+          [
+            "554bb663-d794-2b62-6af7-55e506b1e947",
+            "AccountBalanceCheckError",
+            "more.zhang",
+            9,
+            1,
+            143,
+            179,
+            "2024-02-03 balance Assets:Bank 0 CNY",
+            [
+              {
+                "key": "account_name",
+                "value": "Assets:Bank"
+              }
+            ]
+          ],
+          [
+            "5d426ef3-d478-5028-adcf-aa247d0837a9",
+            "BudgetDoesNotExist",
+            "more.zhang",
+            11,
+            1,
+            181,
+            216,
+            "2024-02-04 budget-add travel 10 CNY",
+            [
+              {
+                "key": "budget_name",
+                "value": "travel"
+              }
+            ]
+          ]
+        ],
+        "total": 6
+      },
+      "expected": {
+        "current_page": 1,
+        "page_size": 50,
+        "records": [
+          {
+            "error_type": "MultipleOperatingCurrencyDetect",
+            "id": "4d97771a-3b72-849b-ab41-df1781bcf6f7",
+            "metas": {},
+            "span": {
+              "column": 1,
+              "content": "option \"operating_currency\" \"USD\"",
+              "end": 247,
+              "filename": "main.zhang",
+              "line": 4,
+              "start": 214
+            }
+          },
+          {
+            "error_type": "DefineDuplicatedBudget",
+            "id": "792c555f-6fc3-c439-e404-8eb21220e7ca",
+            "metas": {},
+            "span": {
+              "column": 1,
+              "content": "2024-01-01 budget fun CNY",
+              "end": 613,
+              "filename": "main.zhang",
+              "line": 22,
+              "start": 588
+            }
+          },
+          {
+            "error_type": "AccountDoesNotExist",
+            "id": "565e3b90-d124-162c-b316-09bd2d3b25e3",
+            "metas": {
+              "account_name": "Expenses:Fodo"
+            },
+            "span": {
+              "column": 1,
+              "content": "2024-02-01 * \"Shop\" \"typo\"\n  Expenses:Fodo 10 CNY\n  Assets:Bank",
+              "end": 63,
+              "filename": "more.zhang",
+              "line": 1,
+              "start": 0
+            }
+          },
+          {
+            "error_type": "UnbalancedTransaction",
+            "id": "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3",
+            "metas": {
+              "txn_id": "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3"
+            },
+            "span": {
+              "column": 1,
+              "content": "2024-02-02 * \"Shop\" \"unbalanced\"\n  Expenses:Food 10 CNY\n  Assets:Bank -9 CNY",
+              "end": 141,
+              "filename": "more.zhang",
+              "line": 5,
+              "start": 65
+            }
+          },
+          {
+            "error_type": "AccountBalanceCheckError",
+            "id": "554bb663-d794-2b62-6af7-55e506b1e947",
+            "metas": {
+              "account_name": "Assets:Bank"
+            },
+            "span": {
+              "column": 1,
+              "content": "2024-02-03 balance Assets:Bank 0 CNY",
+              "end": 179,
+              "filename": "more.zhang",
+              "line": 9,
+              "start": 143
+            }
+          },
+          {
+            "error_type": "BudgetDoesNotExist",
+            "id": "5d426ef3-d478-5028-adcf-aa247d0837a9",
+            "metas": {
+              "budget_name": "travel"
+            },
+            "span": {
+              "column": 1,
+              "content": "2024-02-04 budget-add travel 10 CNY",
+              "end": 216,
+              "filename": "more.zhang",
+              "line": 11,
+              "start": 181
+            }
+          }
+        ],
+        "total_count": 6,
+        "total_page": 1
+      }
+    },
+    "page 1 of 2": {
+      "size": 2,
+      "page": 1,
+      "rows": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "kind",
+            "type": "str"
+          },
+          {
+            "name": "file",
+            "type": "str"
+          },
+          {
+            "name": "line",
+            "type": "int"
+          },
+          {
+            "name": "column",
+            "type": "int"
+          },
+          {
+            "name": "span_start",
+            "type": "int"
+          },
+          {
+            "name": "span_end",
+            "type": "int"
+          },
+          {
+            "name": "source",
+            "type": "str"
+          },
+          {
+            "name": "metas",
+            "type": "metas"
+          }
+        ],
+        "rows": [
+          [
+            "4d97771a-3b72-849b-ab41-df1781bcf6f7",
+            "MultipleOperatingCurrencyDetect",
+            "main.zhang",
+            4,
+            1,
+            214,
+            247,
+            "option \"operating_currency\" \"USD\"",
+            []
+          ],
+          ["792c555f-6fc3-c439-e404-8eb21220e7ca", "DefineDuplicatedBudget", "main.zhang", 22, 1, 588, 613, "2024-01-01 budget fun CNY", []]
+        ],
+        "total": 6
+      },
+      "expected": {
+        "current_page": 1,
+        "page_size": 2,
+        "records": [
+          {
+            "error_type": "MultipleOperatingCurrencyDetect",
+            "id": "4d97771a-3b72-849b-ab41-df1781bcf6f7",
+            "metas": {},
+            "span": {
+              "column": 1,
+              "content": "option \"operating_currency\" \"USD\"",
+              "end": 247,
+              "filename": "main.zhang",
+              "line": 4,
+              "start": 214
+            }
+          },
+          {
+            "error_type": "DefineDuplicatedBudget",
+            "id": "792c555f-6fc3-c439-e404-8eb21220e7ca",
+            "metas": {},
+            "span": {
+              "column": 1,
+              "content": "2024-01-01 budget fun CNY",
+              "end": 613,
+              "filename": "main.zhang",
+              "line": 22,
+              "start": 588
+            }
+          }
+        ],
+        "total_count": 6,
+        "total_page": 3
+      }
+    },
+    "page 2 of 2": {
+      "size": 2,
+      "page": 2,
+      "rows": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "kind",
+            "type": "str"
+          },
+          {
+            "name": "file",
+            "type": "str"
+          },
+          {
+            "name": "line",
+            "type": "int"
+          },
+          {
+            "name": "column",
+            "type": "int"
+          },
+          {
+            "name": "span_start",
+            "type": "int"
+          },
+          {
+            "name": "span_end",
+            "type": "int"
+          },
+          {
+            "name": "source",
+            "type": "str"
+          },
+          {
+            "name": "metas",
+            "type": "metas"
+          }
+        ],
+        "rows": [
+          [
+            "565e3b90-d124-162c-b316-09bd2d3b25e3",
+            "AccountDoesNotExist",
+            "more.zhang",
+            1,
+            1,
+            0,
+            63,
+            "2024-02-01 * \"Shop\" \"typo\"\n  Expenses:Fodo 10 CNY\n  Assets:Bank",
+            [
+              {
+                "key": "account_name",
+                "value": "Expenses:Fodo"
+              }
+            ]
+          ],
+          [
+            "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3",
+            "UnbalancedTransaction",
+            "more.zhang",
+            5,
+            1,
+            65,
+            141,
+            "2024-02-02 * \"Shop\" \"unbalanced\"\n  Expenses:Food 10 CNY\n  Assets:Bank -9 CNY",
+            [
+              {
+                "key": "txn_id",
+                "value": "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3"
+              }
+            ]
+          ]
+        ],
+        "total": 6
+      },
+      "expected": {
+        "current_page": 2,
+        "page_size": 2,
+        "records": [
+          {
+            "error_type": "AccountDoesNotExist",
+            "id": "565e3b90-d124-162c-b316-09bd2d3b25e3",
+            "metas": {
+              "account_name": "Expenses:Fodo"
+            },
+            "span": {
+              "column": 1,
+              "content": "2024-02-01 * \"Shop\" \"typo\"\n  Expenses:Fodo 10 CNY\n  Assets:Bank",
+              "end": 63,
+              "filename": "more.zhang",
+              "line": 1,
+              "start": 0
+            }
+          },
+          {
+            "error_type": "UnbalancedTransaction",
+            "id": "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3",
+            "metas": {
+              "txn_id": "14edd17b-ff4f-0bb3-3ddd-1dc8274e7fa3"
+            },
+            "span": {
+              "column": 1,
+              "content": "2024-02-02 * \"Shop\" \"unbalanced\"\n  Expenses:Food 10 CNY\n  Assets:Bank -9 CNY",
+              "end": 141,
+              "filename": "more.zhang",
+              "line": 5,
+              "start": 65
+            }
+          }
+        ],
+        "total_count": 6,
+        "total_page": 3
+      }
+    }
+  }
+}

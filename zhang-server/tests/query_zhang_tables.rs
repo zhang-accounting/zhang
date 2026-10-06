@@ -2,7 +2,7 @@
 //! every row of `#budgets` has the amounts the budget pages show for its budget and month (the
 //! built-in queries `budgets.month` and `budgets.budget_month`, run as the pages run them through
 //! `POST /api/query/builtins/{name}`), and its accounts are those of `budgets.budget`; `#errors`
-//! has one row per error of `GET /api/errors`, with its type, file, directive, id and span.
+//! has one row per error the error box lists (`journals.errors`), with its type, file, directive, id and span.
 //! `#documents` has the documents the documents page lists (`journals.documents`) and
 //! `#budget_events` the events the budget page lists (`budgets.events`).
 //!
@@ -10,8 +10,7 @@
 //! agree on every figure, also where the old budget API used to be wrong: it added the numbers of
 //! amounts in different commodities and reported a budget's final `closed` for every month.
 //!
-//! `GET /api/errors` and the documents page read these tables (#479): their tables are compared
-//! with the hand-written endpoints they replaced, kept until those are removed.
+//! The error box and the documents page read these tables (#479) through their built-in queries.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

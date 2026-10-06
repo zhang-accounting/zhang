@@ -118,10 +118,10 @@ mod save_test {
     use zhang_core::ledger::Ledger;
 
     use super::{get_file_content, get_files, update_file_content};
-    use crate::request::{CreateTransactionRequest, FileUpdateRequest, JournalRequest};
-    use crate::routes::common::get_errors;
+    use crate::request::{BuiltinQueryRunRequest, CreateTransactionRequest, FileUpdateRequest};
+    use crate::routes::query::run_builtin_query;
     use crate::routes::transaction::create_new_transaction;
-    use crate::routes::{Base64Path, Query};
+    use crate::routes::Base64Path;
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::util::sha256_hex;
     use crate::ReloadSender;
@@ -385,20 +385,23 @@ mod save_test {
             let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
             let listed = answer_json(get_files(state.clone()).await).await;
             assert_eq!(listed["data"], serde_json::json!(["main.bean", "data/2024.bean"]), "{}", root.display());
-            let request = JournalRequest {
-                page: None,
-                size: None,
-                keyword: None,
-                tags: None,
-                links: None,
+            // the error box's rows (`journals.errors`): an error in each file, named as the file list names it
+            let request = BuiltinQueryRunRequest {
+                params: serde_json::from_value(serde_json::json!({ "size": 100, "offset": 0 })).unwrap(),
+                count_total: None,
             };
-            let errors = answer_json(get_errors(state.clone(), Query(request)).await).await;
-            // an error in each file, named as the file list names it
-            let files = errors["data"]["records"]
+            let errors = answer_json(run_builtin_query(state.clone(), axum::extract::Path(("journals.errors".to_owned(),)), axum::Json(request)).await).await;
+            let file = errors["data"]["columns"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|error| error["span"]["filename"].as_str().unwrap_or("no file").to_owned())
+                .position(|it| it["name"] == "file")
+                .unwrap();
+            let files = errors["data"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row[file].as_str().unwrap_or("no file").to_owned())
                 .collect::<BTreeSet<_>>();
             let listed = listed["data"]
                 .as_array()

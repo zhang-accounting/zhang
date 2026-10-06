@@ -1,4 +1,4 @@
-//! The ledger of #496 through `GET /api/errors`: `open Assets:Bank USD` restricts the account to USD, as in beancount,
+//! The ledger of #496 through the error box's query (`journals.errors`): `open Assets:Bank USD` restricts the account to USD, as in beancount,
 //! so a posting in EUR is reported as `CommodityNotAllowed` on its transaction, line 7, where bean-check reports
 //! `Invalid currency EUR for account 'Assets:Bank'`. Both formats report it the same way, and the transaction is
 //! still booked.
@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path as UrlPath, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::{json, Value};
@@ -14,10 +14,8 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{JournalRequest, QueryRequest};
-use zhang_server::routes::common::get_errors;
-use zhang_server::routes::query::run_query;
-use zhang_server::routes::Query;
+use zhang_server::request::{BuiltinQueryRunRequest, QueryRequest};
+use zhang_server::routes::query::{run_builtin_query, run_query};
 use zhang_server::state::SharedLedger;
 
 /// The ledger of #496, the same in both formats.
@@ -65,19 +63,37 @@ async fn body(response: impl IntoResponse) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-/// The first page of `GET /api/errors`.
+/// The first page of the error box: the rows of `journals.errors`, as objects keyed by column name.
 async fn errors(ledger: &SharedLedger) -> Vec<Value> {
-    let request = JournalRequest {
-        page: None,
-        size: None,
-        keyword: None,
-        tags: None,
-        links: None,
+    let request = BuiltinQueryRunRequest {
+        params: serde_json::from_value(json!({ "size": 100, "offset": 0 })).unwrap(),
+        count_total: None,
     };
-    body(get_errors(State(ledger.clone()), Query(request)).await).await["data"]["records"]
+    let result = body(run_builtin_query(State(ledger.clone()), UrlPath(("journals.errors".to_owned(),)), Json(request)).await).await;
+    let columns = result["data"]["columns"]
         .as_array()
         .unwrap()
-        .clone()
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    result["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+        .collect()
+}
+
+/// The metas of a row, by key.
+fn metas(row: &Value) -> Value {
+    Value::Object(
+        row["metas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| (it["key"].as_str().unwrap().to_owned(), it["value"].clone()))
+            .collect(),
+    )
 }
 
 /// The rows of `POST /api/query`.
@@ -95,13 +111,13 @@ async fn the_posting_in_eur_is_reported_on_its_transaction(main: &str) {
 
     let errors = errors(&ledger).await;
     assert_eq!(errors.len(), 1, "{main}: {errors:?}");
-    assert_eq!(errors[0]["error_type"], "CommodityNotAllowed", "{main}");
-    assert_eq!(errors[0]["metas"], json!({"account_name": "Assets:Bank", "commodity": "EUR"}), "{main}");
-    let span = &errors[0]["span"];
-    assert_eq!(span["filename"], main);
+    assert_eq!(errors[0]["kind"], "CommodityNotAllowed", "{main}");
+    assert_eq!(metas(&errors[0]), json!({"account_name": "Assets:Bank", "commodity": "EUR"}), "{main}");
+    let span = &errors[0];
+    assert_eq!(span["file"], main);
     assert_eq!(span["line"].as_u64(), Some(7), "{main}: {span}");
 
-    // the table the endpoint reads, with the message the UI shows
+    // the table the error box reads, with the message the UI shows
     assert_eq!(
         query(&ledger, "SELECT line, kind, account, meta('commodity'), message FROM #errors").await,
         json!([[

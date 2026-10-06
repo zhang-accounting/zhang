@@ -10,11 +10,9 @@ use gotcha::api;
 use zhang_core::domains::schemas::OptionDomain;
 
 use crate::error::{error_response, ServerError};
-use crate::request::JournalRequest;
-use crate::response::{BasicInfoEntity, ErrorEntity, Pageable, ResponseWrapper};
-use crate::routes::Query;
+use crate::response::{BasicInfoEntity, ResponseWrapper};
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
-use crate::{journals, ApiResult};
+use crate::ApiResult;
 
 /// Every path no route takes. An `/api` path is a JSON 404 that names the method and the path, in every build: a
 /// script that calls an endpoint that is gone (the typed read endpoints retire in favour of the built-in queries, #754)
@@ -67,14 +65,6 @@ pub async fn get_basic_info(ledger: State<SharedLedger>, reload_sender: State<Sh
         format: ledger.dialect.name().to_owned(),
         reload_failure: reload_sender.last_failure(),
     })
-}
-
-/// The ledger's errors, one page at a time, by file and then by position in the file: the built-in
-/// query `journals.errors`. Pages count from 1 (`page`, the first by default) and have 1 to 1000 errors (`size`, 100 by
-/// default), as on every paged endpoint; another page or size is a bad request, and a page past the last one is empty.
-#[api(group = "error")]
-pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalRequest>) -> ApiResult<Pageable<ErrorEntity>> {
-    ResponseWrapper::json(journals::errors(&ledger, params.0).await?)
 }
 
 #[api(group = "common")]

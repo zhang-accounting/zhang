@@ -159,6 +159,7 @@ The typed read endpoints the web UI used before are being retired, one group per
 | `GET /api/documents` | `journals.documents`; the endpoint added the file name, the extension and a MIME type guessed from it, which follow from the row's `path` |
 | `GET /api/accounts/{account}/documents` | `accounts.documents` with `account`, as above |
 | `GET /api/accounts/{account}/balances` | `accounts.balance_history` with `account`; the endpoint grouped the rows by `currency` |
+| `GET /api/errors?page=&size=` | `journals.errors` with `size` and `offset = (page - 1) * size`, with `count_total` for the page count; a row's `kind`, `file`, `line`, `column`, `span_start`, `span_end`, `source` and `metas` (a list of `{key, value}`) are the endpoint's `error_type`, `span.filename`, `span.line`, `span.column`, `span.start`, `span.end`, `span.content` and `metas` |
 
 The endpoints' amounts were `{number, commodity}`; the queries' cells are `{number, currency}`, and a budget's `activity` is a number in the budget's `currency`.
 

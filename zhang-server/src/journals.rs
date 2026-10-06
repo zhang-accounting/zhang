@@ -14,7 +14,6 @@ use chrono::{NaiveDateTime, Timelike};
 use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Directive, Flag, SpanInfo, Transaction};
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
@@ -30,8 +29,8 @@ use crate::cells::{self, Row};
 use crate::error::ServerError;
 use crate::request::{JournalRequest, LedgerDateTime};
 use crate::response::{
-    ErrorEntity, InfoForNewDocument, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
-    JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity, Pageable, SpanInfoEntity, WrittenPostingEntity,
+    InfoForNewDocument, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity, JournalTransactionItemEntity,
+    JournalTransactionPostingEntity, MetaEntity, Pageable, WrittenPostingEntity,
 };
 use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
@@ -45,7 +44,6 @@ pub const PAYEES: &str = "journals.payees";
 pub const OPEN_ACCOUNTS: &str = "journals.accounts";
 /// the accounts with an `open` or `close` directive
 const ACCOUNTS: &str = "accounts.list";
-pub const ERRORS: &str = "journals.errors";
 
 /// A `set` cell as a list, in the set's order.
 fn strings(set: Option<BTreeSet<String>>) -> Vec<String> {
@@ -482,38 +480,6 @@ pub async fn info_for_new_document(ledger: &SharedLedger) -> ServerResult<InfoFo
 }
 // ------------------------------------------------------------------------------------------------
 // errors
-
-/// `GET /api/errors`: one page of the ledger's errors.
-pub async fn errors(ledger: &SharedLedger, params: JournalRequest) -> ServerResult<Pageable<ErrorEntity>> {
-    let (page, size, offset) = page_window(&params)?;
-    with_ledger(&ledger.0, move |ledger| {
-        let result = execute(ledger, ERRORS, &Params::new().bind("size", i64::from(size)).bind("offset", offset), true)?;
-        let records = cells::rows(ERRORS, &result)
-            .map(|row| {
-                let position = |name| -> ServerResult<Option<usize>> { Ok(row.int(name)?.and_then(|it| usize::try_from(it).ok())) };
-                let span = match position("span_start")? {
-                    Some(start) => Some(SpanInfoEntity {
-                        start,
-                        end: position("span_end")?.unwrap_or(start),
-                        content: row.str("source")?.unwrap_or_default(),
-                        filename: row.str("file")?,
-                        line: position("line")?,
-                        column: position("column")?,
-                    }),
-                    None => None,
-                };
-                Ok(ErrorEntity {
-                    id: row.str("id")?.unwrap_or_default(),
-                    span,
-                    error_type: ErrorKind::from_str(row.str("kind")?.as_deref().unwrap_or_default()).unwrap_or(ErrorKind::PluginError),
-                    metas: row.get("metas")?.as_metas().unwrap_or_default().iter().cloned().collect(),
-                })
-            })
-            .collect::<ServerResult<Vec<_>>>()?;
-        Ok(Pageable::new(total(&result), page, size, records))
-    })
-    .await
-}
 
 #[cfg(test)]
 mod test {

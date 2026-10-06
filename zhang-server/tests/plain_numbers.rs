@@ -16,7 +16,6 @@ use zhang_core::ledger::Ledger;
 use zhang_server::request::{AccountJournalRequest, BuiltinQueryRunRequest, JournalRequest};
 use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::commodity::{get_all_commodities, get_single_commodity};
-use zhang_server::routes::common::get_errors;
 use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::get_journals;
 use zhang_server::routes::Query;
@@ -151,8 +150,13 @@ async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
     };
     let budgets = json(run_builtin_query(State(ledger.clone()), Path(("budgets.month".to_owned(),)), Json(budgets)).await).await;
     responses.push(("/api/query/builtins/budgets.month", budgets));
-    let errors = json(get_errors(State(ledger.clone()), Query(journal_request())).await).await;
-    responses.push(("/api/errors", errors));
+    // the error box: the built-in query `journals.errors`, run by name
+    let errors = BuiltinQueryRunRequest {
+        params: serde_json::from_value(serde_json::json!({ "size": 100, "offset": 0 })).unwrap(),
+        count_total: None,
+    };
+    let errors = json(run_builtin_query(State(ledger.clone()), Path(("journals.errors".to_owned(),)), Json(errors)).await).await;
+    responses.push(("/api/query/builtins/journals.errors", errors));
 
     let mut found = vec![];
     for (endpoint, response) in &responses {
@@ -169,22 +173,27 @@ async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
     let posting = find(&journal, "narration", "a tiny amount");
     let check = find(&journals["records"], "type", "BalanceCheck");
     // the rows of a query result, as objects keyed by column name
-    let columns = budgets["columns"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|it| it["name"].as_str().unwrap().to_owned())
-        .collect::<Vec<_>>();
-    let budgets = Value::Array(
-        budgets["rows"]
+    let objects = |result: &Value| {
+        let columns = result["columns"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
-            .collect(),
-    );
+            .map(|it| it["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        Value::Array(
+            result["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+                .collect(),
+        )
+    };
+    let (budgets, errors) = (objects(&budgets), objects(&errors));
     let huge = find(&budgets, "name", "Big");
-    let short = find(&errors["records"], "error_type", "NoEnoughCommodityLot");
+    let short = find(&errors, "kind", "NoEnoughCommodityLot");
+    // an error's metas are `{key, value}` pairs
+    let transaction_amount = short["metas"].as_array().unwrap().iter().find(|it| it["key"] == "transaction_amount").unwrap();
     assert_eq!(
         [
             &find(&list, "name", "Assets:Wallet")["amount"]["detail"]["BTC"],
@@ -198,7 +207,7 @@ async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
             &find(&commodities, "name", "BTC")["latest_price_amount"],
             &detail["prices"][0]["amount"]["number"],
             &huge["activity"],
-            &short["metas"]["transaction_amount"],
+            &transaction_amount["value"],
         ],
         [
             "0.0000001",
