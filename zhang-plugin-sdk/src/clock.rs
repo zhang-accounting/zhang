@@ -17,8 +17,8 @@
 use std::cell::RefCell;
 
 use chrono::{DateTime, FixedOffset, NaiveDate};
-use serde::Deserialize;
 use zhang_ast::{Directive, Spanned};
+use zhang_shared::plugin_abi::Now as NowPayload;
 
 use crate::abi;
 use crate::config::{host_seed, ConfigError};
@@ -33,14 +33,6 @@ pub struct Now {
     pub today: NaiveDate,
     /// the ledger's timezone, an IANA name such as `Asia/Shanghai`
     pub timezone: String,
-}
-
-/// what `zhang_now` answers inside `Ok`
-#[derive(Deserialize)]
-struct NowPayload {
-    now: String,
-    today: String,
-    timezone: String,
 }
 
 impl Now {

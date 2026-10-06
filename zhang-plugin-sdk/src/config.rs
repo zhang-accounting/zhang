@@ -25,47 +25,16 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use serde::{Deserialize, Serialize};
 use zhang_ast::amount::Amount;
 use zhang_ast::{Account, Meta};
+pub use zhang_shared::plugin_abi::config::{ABI as ABI_KEY, PLUGIN as PLUGIN_KEY, SEED as SEED_KEY};
+pub use zhang_shared::plugin_abi::PluginDirective;
 
 use crate::abi;
 use crate::custom::{self, CustomEntry};
 
-/// config key holding the plugin ABI version the host speaks
-pub const ABI_KEY: &str = "zhang.abi";
-/// config key holding the plugin's `plugin` directive as written, a [`PluginDirective`] as JSON
-pub const PLUGIN_KEY: &str = "zhang.plugin";
-/// config key holding the plugin's seed, a decimal `u64`
-pub const SEED_KEY: &str = "zhang.seed";
-
 /// the meta key granting network access, the one meta key that never becomes a flat config key
 const ALLOWED_HOSTS_KEY: &str = "allowed_hosts";
-
-/// The plugin's `plugin` directive as written, from the `zhang.plugin` config key. The directive
-///
-/// ```zhang
-/// plugin "fx-rate.wasm" "USD" "strict"
-///   allowed_hosts: "api.frankfurter.dev"
-///   tag: "first"
-///   tag: "second"
-/// ```
-///
-/// gives `module` `"fx-rate.wasm"`, `args` `["USD", "strict"]` and `meta`
-/// `{"allowed_hosts": ["api.frankfurter.dev"], "tag": ["first", "second"]}`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PluginDirective {
-    /// the module as written in the directive
-    #[serde(default)]
-    pub module: String,
-    /// the positional values after the module, in order; beancount's `plugin "module" "config"` passes its
-    /// config string here
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// every meta key with all its values in source order, including capability keys such as `allowed_hosts`
-    #[serde(default)]
-    pub meta: BTreeMap<String, Vec<String>>,
-}
 
 /// A reserved config key is missing or unreadable.
 #[derive(Debug, Clone, PartialEq, Eq)]

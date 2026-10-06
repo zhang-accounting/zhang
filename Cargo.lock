@@ -6653,7 +6653,6 @@ name = "zhang-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "base64 0.23.1",
  "bigdecimal",
  "cap-std",
  "cfg-if",
@@ -6717,7 +6716,6 @@ dependencies = [
 name = "zhang-plugin-sdk"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "bigdecimal",
  "chrono",
  "extism-pdk",
@@ -6799,9 +6797,12 @@ dependencies = [
 name = "zhang-shared"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "bigdecimal",
  "chrono",
+ "http 1.5.0",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
