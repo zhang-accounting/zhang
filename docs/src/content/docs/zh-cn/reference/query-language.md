@@ -714,7 +714,7 @@ ORDER BY currency
 - **行的顺序**。没有 `ORDER BY` 时，各行按账本顺序排列，也就是 `seq` 编号的[处理顺序](#处理顺序)：先按日期，在张记账账本中再按时刻，在 beancount 账本中按 beancount 对同一天指令的排序。
 - **元数据**。每个指令表都有一列 `meta`，以文本形式给出指令的元数据：按键排序的 `key: "value"` 对，用 `, ` 分隔；没有元数据时为 `''`。`#entries`、`#transactions`、`#prices`、`#balances`、`#notes`、`#events` 和 `#commodities` 还有 `metas` 列，以[结构化的键值对](#结构化元数据)给出同样的元数据。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取该行指令的某个键（在 `#accounts` 中读取其 `open` 指令），`meta_values(key)` 和 `entry_meta_values(key)` 读取该键的所有值。
 - **余额断言不是交易**。断言不记任何账；它在 `#entries` 中是一条 `balance` 记录，在 `#balances` 中是一行。加载账本时被张记账拒绝的交易也不会出现。`pad` 和 `balance ... with pad` 生成的补齐交易（标记为 `P`）与 beancount 一样算作交易。
-- **张记账扩展**。有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual`、`passed` 和 `pad`；`#prices`、`#balances`、`#notes`、`#events` 和 `#commodities` 共有的 [`#entries` 的列](#每条指令都有的列)中除 `date` 和 `meta` 以外的列；以及 `#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_definitions`、`#budget_events` 和 `#errors` 是张记账自己的表。
+- **张记账扩展**。有些表有 beanquery 没有的列，下文标为*张记账扩展*：`#entries` 的 `seq`、`time`、`timestamp` 和 `metas`；`#transactions` 的 `id`、`seq`、`time`、`timestamp`、`balanced`、`errors` 和 `metas`；`#balances` 的 `actual`、`passed` 和 `pad`；`#prices`、`#balances`、`#notes`、`#events` 和 `#commodities` 共有的 [`#entries` 的列](#每条指令都有的列)中除 `date` 和 `meta` 以外的列；`#documents` 的 `source`、`path`、`transaction_id`、`seq`、`time` 和 `timestamp`；以及 `#accounts` 的 `open.time`。它们排在 beanquery 的列之后，不属于 `SELECT *`，因此 `SELECT *` 得到的列与 beanquery 相同。[postings 表](#列)有它自己的扩展列，`#budgets`、`#budget_definitions`、`#budget_events` 和 `#errors` 是张记账自己的表。
 
 ### 处理顺序
 
@@ -838,6 +838,7 @@ ORDER BY date DESC
 | `open.currencies` | `set` | 账户限定的货币；不限定时为 `NULL`。 |
 | `open.booking` | `str` | zhang 为该账户记账时使用的记账方法：带有 `booking_method` 元数据的最近一条 `open` 中的最后一个值。账户使用账本默认方法时为 `NULL`，值不是 zhang 实现的记账方法时也为 `NULL`。 |
 | `open.meta` | `str` | `open` 指令的元数据。 |
+| `open.time` | `str` | *张记账扩展。* `open` 指令中写下的一天中的时间，格式 `HH:MM:SS`，没写时间时为 `00:00:00`：与 `open.date` 一起，就是账户生命周期开始的时刻，也就是 [`account_status`](#账户与商品指令) 用来比较的时刻。`WHERE open.date < 2024-01-05 OR (open.date = 2024-01-05 AND open.time <= '10:00:00')` 列出当天 10:00 之前开立过的账户，即当时写下的 `document` 可以引用的账户。 |
 | `close`、`close.date` | `date` | `close` 指令的日期，账户未关闭时为 `NULL`。单独使用 `close` 时读作这个日期。 |
 | `close.account`、`close.meta` | `str` | `close` 指令的账户和元数据。 |
 

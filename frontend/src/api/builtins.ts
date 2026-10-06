@@ -184,6 +184,15 @@ export interface Builtins {
       status: string | null;
     };
   };
+  'accounts.opened': {
+    params: {
+      date: string | null;
+      time: string | null;
+    };
+    row: {
+      account: string | null;
+    };
+  };
   'accounts.subtree_balances': {
     params: {
       account: string | null;

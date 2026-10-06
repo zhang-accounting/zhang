@@ -4,7 +4,6 @@ use axum::extract::State;
 use axum::http::header;
 use axum::response::{AppendHeaders, IntoResponse};
 use bytes::Bytes;
-use gotcha::api;
 use itertools::Itertools;
 use log::{info, warn};
 use zhang_core::ledger::Ledger;
@@ -12,11 +11,10 @@ use zhang_core::outcome::Detail;
 use zhang_core::{data_source, ZhangError};
 
 use crate::error::ServerError;
-use crate::response::{InfoForNewDocument, ResponseWrapper};
 use crate::routes::Base64Path;
 use crate::state::SharedLedger;
 use crate::util::{cache_document, cached_document, document_cache, document_cache_key};
-use crate::{journals, ApiResult, ServerResult};
+use crate::ServerResult;
 
 /// The document at a path within the ledger, given as its base64, as the documents are listed: the file at that path,
 /// or at its alternate ([`Detail::Document`]) when there is
@@ -129,13 +127,6 @@ async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<V
         }
     }
     Ok(None)
-}
-
-/// The accounts the document upload may name: every account opened by now, closed ones included, as a document only
-/// records and may follow the close; not one opened later or never.
-#[api(group = "document")]
-pub async fn get_info_for_new_document(ledger: State<SharedLedger>) -> ApiResult<InfoForNewDocument> {
-    ResponseWrapper::json(journals::info_for_new_document(&ledger).await?)
 }
 
 #[cfg(test)]

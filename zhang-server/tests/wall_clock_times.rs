@@ -17,9 +17,9 @@ use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{BuiltinParamValue, BuiltinQueryRunRequest, CreateTransactionRequest, NewTransactionInfoRequest};
+use zhang_server::request::{BuiltinParamValue, BuiltinQueryRunRequest, CreateTransactionRequest};
 use zhang_server::routes::query::run_builtin_query;
-use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, preview_new_transaction, update_single_transaction};
+use zhang_server::routes::transaction::{get_journals, preview_new_transaction, update_single_transaction};
 use zhang_server::routes::Query;
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
@@ -128,22 +128,28 @@ async fn the_preview_writes_the_wall_clock_time_it_is_sent() {
     assert!(preview["text"].as_str().unwrap().starts_with("2024-01-02 07:00:00 * \"Shop\""), "{preview}");
 }
 
+/// The new-transaction form takes its default date and time from `ledger.now`, the ledger's clock in its timezone,
+/// and asks `journals.accounts` for the accounts open at the transaction's wall-clock date and time.
 #[tokio::test]
 async fn the_new_transaction_form_gets_the_ledgers_time_and_its_open_accounts_at_a_wall_clock_time() {
     let dir = tempfile::tempdir().unwrap();
     let ledger = ledger(dir.path()).await;
-    let info = |datetime: Option<&str>| {
+    let run = |name: &str, params: Value| {
         let ledger = ledger.clone();
-        let datetime = datetime.map(|it| it.parse().unwrap());
-        async move { data(get_info_for_new_transactions(State(ledger), Query(NewTransactionInfoRequest { datetime })).await).await }
+        let request = BuiltinQueryRunRequest {
+            params: serde_json::from_value(params).unwrap(),
+            count_total: None,
+        };
+        let name = name.to_owned();
+        async move { data(run_builtin_query(State(ledger), UrlPath((name,)), Json(request)).await).await }
     };
-    let now = info(None).await;
     // now by the ledger's clock, in its timezone
-    assert_eq!(now["now"], "2024-01-02T07:00:00");
-    let accounts = |info: &Value| info["account_name"].as_array().unwrap().iter().any(|it| it == "Assets:Old");
+    let now = run("ledger.now", json!({})).await;
+    assert_eq!(now["rows"], json!([["2024-01-02", "07:00:00"]]));
+    let accounts = |result: &Value| result["rows"].as_array().unwrap().iter().any(|row| row[0] == "Assets:Old");
     // Assets:Old is closed at 06:00 on 2024-01-02 in Asia/Shanghai: open at 05:00 there, closed at 07:00
-    assert!(accounts(&info(Some("2024-01-02T05:00:00")).await));
-    assert!(!accounts(&info(Some("2024-01-02T07:00:00")).await));
+    assert!(accounts(&run("journals.accounts", json!({ "date": "2024-01-02", "time": "05:00:00" })).await));
+    assert!(!accounts(&run("journals.accounts", json!({ "date": "2024-01-02", "time": "07:00:00" })).await));
 }
 
 #[tokio::test]

@@ -20,24 +20,15 @@ use zhang_core::ZhangError;
 
 use super::Query;
 use crate::error::ServerError;
-use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest, NewTransactionInfoRequest, UnitRequest};
+use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest, UnitRequest};
 use crate::response::{
-    InfoForNewTransaction, JournalItemEntity, Nullable, Pageable, ResponseWrapper, TransactionField, TransactionFieldErrorEntity, TransactionPreviewEntity,
+    JournalItemEntity, Nullable, Pageable, ResponseWrapper, TransactionField, TransactionFieldErrorEntity, TransactionPreviewEntity,
     TransactionPreviewErrorEntity,
 };
 use crate::routes::query::with_ledger;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::validate::{Checked, Invalid};
 use crate::{journals, validate, ApiResult, ServerResult};
-
-/// The payees and the accounts the new-transaction form suggests: the built-in queries `journals.payees` and
-/// `journals.accounts`. The accounts are those open at `datetime`, the transaction's date and time as the form submits
-/// it, by the rule the ledger checks the transaction with; those open now without it.
-#[api(group = "transaction")]
-// todo rename api
-pub async fn get_info_for_new_transactions(ledger: State<SharedLedger>, params: Query<NewTransactionInfoRequest>) -> ApiResult<InfoForNewTransaction> {
-    ResponseWrapper::json(journals::info_for_new_transaction(&ledger, params.0.datetime).await?)
-}
 
 /// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
 /// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks

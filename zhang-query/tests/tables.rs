@@ -603,6 +603,51 @@ fn accounts_expose_open_and_close_as_structures() {
     assert_eq!(types, [DataType::Date, DataType::Date, DataType::Set, DataType::Str]);
 }
 
+/// `open.time` is the time of day written in the account's first `open`, `00:00:00` without one: with `open.date`,
+/// the instant its lifecycle starts at, the one `account_status` compares with.
+#[test]
+fn open_time_is_the_time_written_in_the_open() {
+    let ledger = common::load_text(
+        r#"
+option "timezone" "Asia/Shanghai"
+1970-01-01 open Assets:Plain
+2024-01-05 09:30:00 open Assets:Timed
+2024-01-05 09:30:00 open Assets:Reopened
+2024-01-06 close Assets:Reopened
+2024-01-07 15:00:00 open Assets:Reopened
+2024-01-01 close Assets:NeverOpened
+"#,
+    );
+    let run = |sql: &str| {
+        let result = Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
+        result
+            .rows
+            .iter()
+            .map(|row| row.iter().map(Value::to_string).collect())
+            .collect::<Vec<Vec<String>>>()
+    };
+    assert_eq!(
+        run("SELECT account, open.date, open.time, account_status(account, 2024-01-05, '09:30:00') FROM #accounts ORDER BY account"),
+        rows(&[
+            &["Assets:NeverOpened", "NULL", "NULL", "closed"],
+            &["Assets:Plain", "1970-01-01", "00:00:00", "open"],
+            &["Assets:Reopened", "2024-01-05", "09:30:00", "open"],
+            &["Assets:Timed", "2024-01-05", "09:30:00", "open"],
+        ])
+    );
+    // the accounts opened by an instant, by date and then by time: those a document dated then may name
+    assert_eq!(
+        run("SELECT account FROM #accounts WHERE open.date < 2024-01-05 OR (open.date = 2024-01-05 AND open.time <= '09:29:59') ORDER BY account"),
+        rows(&[&["Assets:Plain"]])
+    );
+    assert_eq!(
+        run("SELECT account FROM #accounts WHERE open.date < 2024-01-05 OR (open.date = 2024-01-05 AND open.time <= '09:30:00') ORDER BY account"),
+        rows(&[&["Assets:Plain"], &["Assets:Reopened"], &["Assets:Timed"]])
+    );
+    let columns = Query::compile("SELECT open.time FROM #accounts").unwrap().columns();
+    assert_eq!(columns[0].ty, DataType::Str);
+}
+
 /// `open.booking` is the method booking books the account with: the last `booking_method` value
 /// of the latest `open` that has one, and NULL when the account books with the default, also
 /// for a value that is not a method zhang books with.
@@ -672,7 +717,7 @@ fn attribute_errors_point_at_the_attribute() {
         (
             QueryErrorKind::Compile,
             Some(13),
-            "unknown attribute 'datum' of open; its attributes are date, account, currencies, booking, meta".to_owned()
+            "unknown attribute 'datum' of open; its attributes are date, account, currencies, booking, meta, time".to_owned()
         )
     );
     assert_eq!(

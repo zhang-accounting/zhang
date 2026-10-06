@@ -29,13 +29,13 @@ test('no open account gives no options', () => {
 });
 
 test('the document upload offers the closed accounts the server lists as opened', () => {
-  // `GET /api/for-new-document` lists every account opened by now, closed ones included; the options keep them all
+  // `accounts.opened` lists every account opened by now, closed ones included; the options keep them all
   const opened = ['Assets:Cash', 'Assets:OldBank', 'Expenses:Food'];
   assert.deepEqual(names(accountOptions(opened)), [
     ['Assets', ['Assets:Cash', 'Assets:OldBank']],
     ['Expenses', ['Expenses:Food']],
   ]);
-  // while the transaction form, which books, gets the open ones only from `GET /api/for-new-transaction`
+  // while the transaction form, which books, gets the open ones only from `journals.accounts`
   assert.deepEqual(names(accountOptions(['Assets:Cash', 'Expenses:Food'])), [
     ['Assets', ['Assets:Cash']],
     ['Expenses', ['Expenses:Food']],

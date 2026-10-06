@@ -4,13 +4,15 @@
 //! `open` and `close` are the account's directives, as structured values: their fields are
 //! read with attribute access (`open.date`, `open.currencies`, `close.date`, ...). Used on
 //! their own they read as the directive's date, and like their fields they are NULL when the
-//! account has no such directive.
+//! account has no such directive. `open.time`, the time of day the `open` is written at, is a
+//! zhang extension: with `open.date` it is the instant the account's lifecycle starts at.
 
 use zhang_ast::{Close, Directive, Open, Spanned};
 use zhang_core::ledger::Ledger;
 
 use super::cache::LedgerCache;
 use super::directives::{date_of, set_value, str_value};
+use super::postings::time_value;
 use super::{render_meta, ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
@@ -115,6 +117,17 @@ static COLUMNS: &[ColumnDef] = &[
         DataType::Str,
         "Metadata of the open directive, as `key: \"value\"` pairs.",
         |_, record| meta(open(record)),
+    ),
+    ColumnDef::record(
+        "open.time",
+        DataType::Str,
+        "Time of day written in the open directive, as `HH:MM:SS`, or 00:00:00 without one: with open.date, the instant \
+         the account's lifecycle starts at, the one account_status compares with. A zhang extension.",
+        |_, record| {
+            open(record)
+                .and_then(|(it, _)| it.data.datetime())
+                .map_or(Value::Null, |at| time_value(at.time()))
+        },
     ),
     ColumnDef::record("close.date", DataType::Date, "Date the account is closed.", |_, record| date(close(record))),
     ColumnDef::record("close.account", DataType::Str, "The account of the close directive.", |_, record| {

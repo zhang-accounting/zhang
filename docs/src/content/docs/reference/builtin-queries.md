@@ -161,6 +161,8 @@ The typed read endpoints the web UI used before are being retired, one group per
 | `GET /api/accounts/{account}/balances` | `accounts.balance_history` with `account`; the endpoint grouped the rows by `currency` |
 | `GET /api/statistic/summary?from=&to=` | `report.net_worth` and `report.liabilities` with `to` and `currency` (the operating currency), `report.flows` with `from`, `to` and `currency`, `report.transaction_count` with `from` and `to`; the endpoint's `calculated` was the `currency` part of a row's `value` inventory and its `detail` the `units` inventory per currency |
 | `GET /api/statistic/{type}?from=&to=` | `report.account_totals` and `report.top_postings` with `type`, `from`, `to` and `currency`; the top postings carry `date`, `time`, `timestamp`, `account`, `id`, `payee`, `narration`, `units` and `account_balance`, the endpoint's `datetime`, `trx_id`, `inferred_unit` and `account_after` |
+| `GET /api/for-new-transaction?datetime=` | `ledger.now` for the default date and time (`now` of the endpoint), `journals.payees`, and `journals.accounts` with `date` and `time` (those of `datetime`, or of `ledger.now`) |
+| `GET /api/for-new-document` | `ledger.now`, then `accounts.opened` with its `date` and `time` |
 | `GET /api/errors?page=&size=` | `journals.errors` with `size` and `offset = (page - 1) * size`, with `count_total` for the page count; a row's `kind`, `file`, `line`, `column`, `span_start`, `span_end`, `source` and `metas` (a list of `{key, value}`) are the endpoint's `error_type`, `span.filename`, `span.line`, `span.column`, `span.start`, `span.end`, `span.content` and `metas` |
 
 The endpoints' amounts were `{number, commodity}`; the queries' cells are `{number, currency}`, and a budget's `activity` is a number in the budget's `currency`.
@@ -381,6 +383,22 @@ Every account with an `open` or `close` directive, with its open and close dates
 ```sql
 SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
 FROM #accounts
+ORDER BY account
+```
+
+#### `accounts.opened`
+
+The accounts opened by a date and time, closed ones included, by name: those a document or a balance assertion written then may name, as a record of an account may follow its close. This is the rule the ledger checks such directives with: the account's `open` is at or before the instant, compared by date and then by [`open.time`](/reference/query-language/#accounts). Not an account opened only later, also later on the same day, nor one closed without ever being opened; [`account_status`](/reference/query-language/#account-and-commodity-directives) alone would answer `'closed'` for the latter. The document upload asks for the ledger's current instant (`ledger.now`).
+
+| Parameter | Type | Value |
+|-----------|------|-------|
+| `date` | `date` | the date, in the ledger's timezone |
+| `time` | `str` | the time of day, `HH:MM:SS` |
+
+```sql
+SELECT account
+FROM #accounts
+WHERE open.date < :date OR (open.date = :date AND open.time <= :time)
 ORDER BY account
 ```
 

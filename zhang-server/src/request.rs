@@ -47,13 +47,6 @@ pub struct StatisticGraphRequest {
     pub interval: StatisticInterval,
 }
 
-/// What the new-transaction form asks: the accounts open at `datetime`, the transaction's date and time as the form
-/// submits it ([`LedgerDateTime`]); now when it is left out.
-#[derive(Schematic, Deserialize, Debug, Default)]
-pub struct NewTransactionInfoRequest {
-    pub datetime: Option<LedgerDateTime>,
-}
-
 /// A date and time of the ledger in a request: its wall-clock time in the ledger's timezone, written without an offset, such
 /// as `2024-01-02T07:00:00`, as every response gives it. An instant with an offset or `Z`, such as `2024-01-01T23:00:00Z`,
 /// what requests took before, is still read: it is the wall-clock time it is in the ledger's timezone.

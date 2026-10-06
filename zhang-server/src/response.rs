@@ -235,15 +235,6 @@ pub struct JournalBalanceCheckItemEntity {
     pub passed: bool,
 }
 
-#[derive(Serialize, Schematic)]
-pub struct InfoForNewTransaction {
-    /// the ledger's current wall-clock time in its timezone, by its clock, to the second: when a new transaction is, by
-    /// default
-    pub now: NaiveDateTime,
-    pub payee: Vec<String>,
-    pub account_name: Vec<String>,
-}
-
 /// What `POST /api/transactions` or `PUT /api/transactions/{transaction_id}` would write for a request, found without
 /// writing it: `POST /api/transactions/preview` and `POST /api/transactions/{transaction_id}/preview`.
 #[derive(Serialize, Schematic)]
@@ -317,13 +308,6 @@ pub enum TransactionField {
 pub struct TransactionPreviewErrorEntity {
     pub error_type: ErrorKind,
     pub metas: HashMap<String, String>,
-}
-
-/// The accounts a document written now may name.
-#[derive(Serialize, Schematic)]
-pub struct InfoForNewDocument {
-    /// every account opened by now, closed ones included, by name: a document only records, and may follow the close
-    pub account_name: Vec<String>,
 }
 
 #[derive(Serialize, Schematic)]

@@ -1,0 +1,106 @@
+{
+  "ledger": "zhang-server/tests/fixtures/journals/probe",
+  "now": "2026-10-06T15:43:33",
+  "newTransaction": {
+    "rows": {
+      "ledger.now": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          }
+        ],
+        "rows": [["2026-10-06", "15:43:33"]]
+      },
+      "journals.payees": {
+        "columns": [
+          {
+            "name": "payee",
+            "type": "str"
+          }
+        ],
+        "rows": [["Bad"], ["Broker"], ["Doc"], ["Employer"], ["FX"], ["Ghost"], ["Night"], ["Self"], ["Shop A"], ["Shop B"], ["Split"], ["Trip"]]
+      },
+      "journals.accounts": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          }
+        ],
+        "rows": [
+          ["Assets:Bank"],
+          ["Assets:Bank:Checking"],
+          ["Assets:Bank:Savings"],
+          ["Assets:Broker"],
+          ["Assets:Travel"],
+          ["Assets:Wallet"],
+          ["Equity:Open"],
+          ["Expenses:Food"],
+          ["Income:Gains"],
+          ["Income:Salary"]
+        ]
+      }
+    },
+    "expected": {
+      "account_name": [
+        "Assets:Bank",
+        "Assets:Bank:Checking",
+        "Assets:Bank:Savings",
+        "Assets:Broker",
+        "Assets:Travel",
+        "Assets:Wallet",
+        "Equity:Open",
+        "Expenses:Food",
+        "Income:Gains",
+        "Income:Salary"
+      ],
+      "now": "2026-10-06T15:43:33",
+      "payee": ["Bad", "Broker", "Doc", "Employer", "FX", "Ghost", "Night", "Self", "Shop A", "Shop B", "Split", "Trip"]
+    }
+  },
+  "newDocument": {
+    "rows": {
+      "accounts.opened": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          }
+        ],
+        "rows": [
+          ["Assets:Bank"],
+          ["Assets:Bank:Checking"],
+          ["Assets:Bank:Savings"],
+          ["Assets:Broker"],
+          ["Assets:Old"],
+          ["Assets:Travel"],
+          ["Assets:Wallet"],
+          ["Equity:Open"],
+          ["Expenses:Food"],
+          ["Income:Gains"],
+          ["Income:Salary"]
+        ]
+      }
+    },
+    "expected": {
+      "account_name": [
+        "Assets:Bank",
+        "Assets:Bank:Checking",
+        "Assets:Bank:Savings",
+        "Assets:Broker",
+        "Assets:Old",
+        "Assets:Travel",
+        "Assets:Wallet",
+        "Equity:Open",
+        "Expenses:Food",
+        "Income:Gains",
+        "Income:Salary"
+      ]
+    }
+  }
+}

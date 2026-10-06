@@ -198,6 +198,15 @@ pub static BUILTINS: &[BuiltinQuery] = &[
         params: &[("account", DataType::Str), ("date", DataType::Date), ("time", DataType::Str)],
     },
     BuiltinQuery {
+        name: "accounts.opened",
+        description: "The accounts opened by a date and time, closed ones included, by name: those a document or a balance assertion written then may name, as a record of an account may follow its close. The rule the ledger checks such directives with: an open at or before the instant.",
+        bql: "SELECT account \
+              FROM #accounts \
+              WHERE open.date < :date OR (open.date = :date AND open.time <= :time) \
+              ORDER BY account",
+        params: &[("date", DataType::Date), ("time", DataType::Str)],
+    },
+    BuiltinQuery {
         name: "accounts.subtree_balances",
         description: "The balance of an account and of each of its sub-accounts of their own postings per currency: the units, their \
                       value in the operating currency at today's prices, and the date of the first posting.",
@@ -249,7 +258,7 @@ FROM #documents
 WHERE source = 'directive' AND under(account, :account)",
         params: &[("account", DataType::Str)],
     },
-    // ---- journals: /api/journals, /api/for-new-transaction, and the documents and errors pages ----
+    // ---- journals: /api/journals, the new-transaction form, and the documents and errors pages ----
     BuiltinQuery {
         name: "journals.page",
         description: "One page of the journal, newest first: the transactions, padding transactions included, and the balance \

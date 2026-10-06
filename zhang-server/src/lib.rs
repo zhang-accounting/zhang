@@ -109,7 +109,6 @@ impl GotchaApp for ServerApp {
             .route("/api/files/", get(get_file_content).put(update_file_content))
             .route("/api/files/:file_path/", get(get_file_content).put(update_file_content))
             .route("/api/files/:file_path/*rest", get(get_file_content).put(update_file_content))
-            .get("/api/for-new-transaction", get_info_for_new_transactions)
             .get("/api/journals", get_journals)
             .post("/api/transactions", create_new_transaction)
             .post("/api/transactions/preview", preview_new_transaction)
@@ -122,7 +121,6 @@ impl GotchaApp for ServerApp {
             .get("/api/accounts/:account_name/journals", get_account_journals)
             .post("/api/accounts/:account_name/balances", create_account_balance)
             .post("/api/accounts/batch-balances", create_batch_account_balances)
-            .get("/api/for-new-document", get_info_for_new_document)
             // the file path is standard base64, which can contain `/`, see `Base64Path`; an empty one is a 400
             .get("/api/documents/", download_document)
             .get("/api/documents/*file_path", download_document)
