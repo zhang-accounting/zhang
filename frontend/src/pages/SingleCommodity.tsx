@@ -1,9 +1,8 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
-import { useAtomValue, useSetAtom } from 'jotai';
 import { ArrowLeft, ChartLine, Layers, ListX, TriangleAlert } from 'lucide-react';
 import { OpReturnType } from 'openapi-typescript-fetch';
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { useAsync } from 'react-use';
@@ -21,10 +20,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { COMMODITIES_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
 type CommodityDetail = OpReturnType<operations['get_single_commodity']>['data'];
 type Lot = CommodityDetail['lots'][number];
@@ -85,13 +81,7 @@ function PriceHistoryChart({ prices }: { prices: Price[] }) {
 
 export default function SingleCommodity() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const { commodityName } = useParams();
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${commodityName} | ${t('NAV_COMMODITIES')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([COMMODITIES_LINK, { label: commodityName ?? '', uri: `/commodities/${commodityName}`, noTranslate: true }]);
-  }, [commodityName, setBreadcrumb]);
 
   const {
     value: commodity,

@@ -1,7 +1,6 @@
-import { useAtomValue, useSetAtom } from 'jotai';
 import { groupBy, sortBy } from 'lodash-es';
 import { PiggyBank, RotateCw } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { useAsyncRetry } from 'react-use';
@@ -19,11 +18,8 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
-import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useLocalStorage } from '@/hooks/use-local-storage';
-import { BUDGETS_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
 const UNCATEGORIZED = '__ZHANG_UNCATEGORIZED__';
 
@@ -53,18 +49,10 @@ function BudgetsSkeleton() {
 
 export default function Budgets() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const [searchParams, setSearchParams] = useSearchParams();
   const date = useMemo(() => monthFromSearchParams(searchParams), [searchParams]);
   const setDate = (next: Date) => setSearchParams(monthSearchParams(next), { replace: true });
   const [hideZeroAssignBudget, setHideZeroAssignBudget] = useLocalStorage({ key: 'hideZeroAssignBudget', defaultValue: false });
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_BUDGETS')} - ${ledgerTitle}`);
-
-  useEffect(() => {
-    // The month lives in the page's own switcher; a "Budget > Oct 2026" crumb would make the mobile back button point at this page.
-    setBreadcrumb([BUDGETS_LINK]);
-  }, [setBreadcrumb]);
 
   const {
     loading,

@@ -16,16 +16,10 @@ import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { useDebouncedValue } from '@/hooks/use-debounced';
 import { cn } from '@/lib/utils';
-import { useDocumentTitle } from '@/hooks/use-document-title';
-import { JOURNALS_LINK } from '@/layout/nav-links';
-import { breadcrumbAtom, titleAtom } from '../states/basic';
 import { groupedJournalsAtom, journalAtom, journalFetcher, journalKeywordAtom, journalLinksAtom, journalPageAtom, journalTagsAtom } from '../states/journals';
 
 function Journals() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_JOURNALS')} - ${ledgerTitle}`);
 
   const [keyword, setKeyword] = useAtom(journalKeywordAtom);
   const [filter, setFilter] = useState(keyword);
@@ -38,10 +32,6 @@ function Journals() {
 
   const data = journalItems.state === 'hasData' ? journalItems.data : undefined;
   const hasFilters = filter.trim() !== '' || journalTags.length > 0 || journalLinks.length > 0;
-
-  useEffect(() => {
-    setBreadcrumb([JOURNALS_LINK]);
-  }, [setBreadcrumb]);
 
   useEffect(() => {
     if (debouncedFilter === keyword) return;

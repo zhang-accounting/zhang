@@ -18,7 +18,7 @@ export interface PageHeaderProps {
 
 /**
  * Small trail above the `<h1>` on nested pages (>= md only: there is no desktop top bar, and the mobile top bar shows a back
- * link instead). Comes from `breadcrumbAtom`, which every page sets; the last crumb (the page itself) is plain text.
+ * link instead). Comes from `breadcrumbAtom`, which `PageMeta` (router.tsx) sets from the route; the last crumb (the page itself) is plain text.
  */
 function BreadcrumbTrail() {
   const { t } = useTranslation();
