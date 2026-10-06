@@ -381,42 +381,12 @@ pub struct FileDetailEntity {
 }
 
 #[derive(Serialize, Schematic)]
-pub struct StatisticSummaryEntity {
-    /// the first second of the range, in the ledger's timezone, as the graph and the rank echo it
-    pub from: NaiveDateTime,
-    /// the last second of the range, in the ledger's timezone
-    pub to: NaiveDateTime,
-
-    pub balance: CalculatedAmount,
-    pub liability: CalculatedAmount,
-
-    pub income: CalculatedAmount,
-    pub expense: CalculatedAmount,
-    pub transaction_number: i64,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct StatisticRankEntity {
-    pub from: NaiveDateTime,
-    pub to: NaiveDateTime,
-
-    pub detail: Vec<ReportRankItemEntity>,
-    pub top_transactions: Vec<AccountJournalEntity>,
-}
-
-#[derive(Serialize, Schematic)]
 pub struct StatisticGraphEntity {
     pub from: NaiveDateTime,
     pub to: NaiveDateTime,
 
     pub balances: HashMap<NaiveDate, CalculatedAmount>,
     pub changes: HashMap<NaiveDate, HashMap<AccountType, CalculatedAmount>>,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct ReportRankItemEntity {
-    pub account: String,
-    pub amount: CalculatedAmount,
 }
 
 #[derive(Serialize, Schematic)]

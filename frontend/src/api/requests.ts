@@ -11,10 +11,6 @@ export const retrieveStatisticGraph = openAPIFetcher.path('/api/statistic/graph'
 
 export const retrieveFiles = openAPIFetcher.path('/api/files').method('get').create();
 
-export const retrieveStatisticSummary = openAPIFetcher.path('/api/statistic/summary').method('get').create();
-
-export const retrieveStatisticByAccountType = openAPIFetcher.path('/api/statistic/{account_type}').method('get').create();
-
 export const retrieveOptions = openAPIFetcher.path('/api/options').method('get').create();
 
 /** A ledger option from `/api/options`, trimmed; `undefined` when it is unset or blank. The first one wins if it is set twice. */

@@ -94,7 +94,7 @@ async fn every_error_has_one_json_body_with_a_message() {
             StatusCode::BAD_REQUEST,
         ),
         // a query string of axum's extractor missing a field
-        (Method::GET, "/api/statistic/summary?from=2024-01-01", None, StatusCode::BAD_REQUEST),
+        (Method::GET, "/api/statistic/graph?from=2024-01-01", None, StatusCode::BAD_REQUEST),
         // a transaction id that is no id
         (Method::PUT, "/api/transactions/not-an-id", Some("{}"), StatusCode::UNPROCESSABLE_ENTITY),
         // an /api path no route takes: a retired endpoint (#754), or a path that never was one

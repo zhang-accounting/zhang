@@ -1,5 +1,5 @@
-//! The report of the web UI, `GET /api/statistic/summary`, `/api/statistic/graph` and
-//! `/api/statistic/{account_type}`, as built-in queries.
+//! The report of the web UI as built-in queries: `GET /api/statistic/graph` here, the summary and
+//! the ranks run by the pages themselves (`report.*`).
 //!
 //! Every figure is a named BQL query, listed with the other built-in queries and openable in
 //! Explore, so anything the report shows can also be queried, and varied, by hand. The
@@ -21,11 +21,11 @@ use zhang_ast::AccountType;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, Inventory, Params, PriceMap, QueryErrorKind, QueryResult, Value};
 
-use crate::builtin::{calculated_amount, compiled, execute, BuiltinQuery, LedgerDateRange};
+use crate::builtin::{calculated_amount, compiled, BuiltinQuery, LedgerDateRange};
 use crate::cells::{self, Row};
 use crate::error::ServerError;
 use crate::request::StatisticInterval;
-use crate::response::{AccountJournalEntity, ReportRankItemEntity, StatisticGraphEntity, StatisticRankEntity, StatisticSummaryEntity};
+use crate::response::StatisticGraphEntity;
 use crate::routes::query::{execute_options, max_result_values};
 use crate::ServerResult;
 
@@ -137,33 +137,6 @@ LIMIT 10",
         ("currency", DataType::Str),
     ],
 };
-
-/// `GET /api/statistic/summary`: the net worth and the liabilities at the end of the range,
-/// and its income, expenses and number of transactions.
-pub fn summary(ledger: &Ledger, range: &LedgerDateRange) -> ServerResult<StatisticSummaryEntity> {
-    check_calendar(range)?;
-    let currency = ledger.options.operating_currency.as_str();
-    let at_end = Params::new().bind("to", range.to).bind("currency", currency);
-    let net_worth = single(ledger, &NET_WORTH, at_end.clone())?;
-    let liabilities = single(ledger, &LIABILITIES, at_end)?;
-    let flows = by_type(ledger, &FLOWS, range.bind(Params::new().bind("currency", currency)))?;
-    let count = run(ledger, &TRANSACTION_COUNT, range.bind(Params::new()))?;
-
-    let figure = |figures: &HashMap<String, Figure>, account_type: AccountType| figures.get(&account_type.to_string()).cloned().unwrap_or_default();
-    Ok(StatisticSummaryEntity {
-        from: range.from.and_time(NaiveTime::MIN),
-        to: range.to.and_time(END_OF_DAY),
-        balance: net_worth.amount(currency),
-        liability: liabilities.amount(currency),
-        income: figure(&flows, AccountType::Income).amount(currency),
-        expense: figure(&flows, AccountType::Expenses).amount(currency),
-        // an aggregate query without rows has no row, not a zero
-        transaction_number: match cells::first_row(TRANSACTION_COUNT.name, &count) {
-            Some(row) => row.int("transactions")?.unwrap_or(0),
-            None => 0,
-        },
-    })
-}
 
 /// The most points a graph has: about 137 years of days. A longer range by day is a 400 that
 /// suggests weeks or months; no chart draws that many points.
@@ -396,64 +369,6 @@ fn unit(interval: &StatisticInterval) -> &'static str {
     }
 }
 
-/// `GET /api/statistic/{account_type}`: what every account of the type changed by in the
-/// range, and its ten largest postings.
-pub fn rank(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange) -> ServerResult<StatisticRankEntity> {
-    check_calendar(range)?;
-    let currency = ledger.options.operating_currency.as_str();
-    let params = range.bind(Params::new().bind("type", account_type.to_string()).bind("currency", currency));
-
-    let mut detail = vec![];
-    let totals = run(ledger, &ACCOUNT_TOTALS, params.clone())?;
-    for row in cells::rows(ACCOUNT_TOTALS.name, &totals) {
-        if let Some(account) = row.str("account")? {
-            let amount = figure(&row)?.amount(currency);
-            detail.push(ReportRankItemEntity { account, amount });
-        }
-    }
-    let top = run(ledger, &TOP_POSTINGS, params)?;
-    let mut top_transactions = vec![];
-    for row in cells::rows(TOP_POSTINGS.name, &top) {
-        top_transactions.extend(top_posting(&row)?);
-    }
-
-    Ok(StatisticRankEntity {
-        from: range.from.and_time(NaiveTime::MIN),
-        to: range.to.and_time(END_OF_DAY),
-        detail,
-        top_transactions,
-    })
-}
-
-/// A row of `report.top_postings` as a journal item.
-fn top_posting(row: &Row<'_>) -> ServerResult<Option<AccountJournalEntity>> {
-    let (Some(datetime), Some(timestamp), Some(account), Some(id), Some(units), Some(account_balance)) = (
-        row.datetime("date", "time")?,
-        row.int("timestamp")?,
-        row.str("account")?,
-        row.str("id")?,
-        row.amount("units")?,
-        row.amount("account_balance")?,
-    ) else {
-        return Ok(None);
-    };
-    Ok(Some(AccountJournalEntity {
-        datetime,
-        timestamp,
-        account,
-        trx_id: id,
-        payee: row.str("payee")?,
-        narration: row.str("narration")?,
-        inferred_unit: units,
-        account_after: account_balance,
-        asserted: None,
-        checked_balance: None,
-        difference: None,
-        tolerance: None,
-        passed: None,
-    }))
-}
-
 /// The bin width of `report.net_worth_trend` and `report.changes` for an interval.
 pub fn stride(interval: &StatisticInterval) -> &'static str {
     match interval {
@@ -534,11 +449,6 @@ const END_OF_DAY: NaiveTime = match NaiveTime::from_hms_opt(23, 59, 59) {
     None => NaiveTime::MIN,
 };
 
-/// The result of one of the report's queries; its rows are read with [`cells::rows`].
-fn run(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<QueryResult> {
-    execute(ledger, query.name, &params, false)
-}
-
 /// [`run`] within the limits of a graph: its result size limit, and what is left of its time
 /// limit since it `started`.
 fn run_within(ledger: &Ledger, query: &BuiltinQuery, params: Params, limits: &GraphLimits, started: Instant) -> ServerResult<QueryResult> {
@@ -570,27 +480,6 @@ fn figure(row: &Row<'_>) -> ServerResult<Figure> {
         units: inventory(row.get("units")?),
         value: inventory(row.get("value")?),
     })
-}
-
-/// The figure of a query without groups; nothing when it matched no postings.
-fn single(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<Figure> {
-    let result = run(ledger, query, params)?;
-    match cells::first_row(query.name, &result) {
-        Some(row) => figure(&row),
-        None => Ok(Figure::default()),
-    }
-}
-
-/// The figures of a query grouped by account type (`type`, `units`, `value`), by type.
-fn by_type(ledger: &Ledger, query: &BuiltinQuery, params: Params) -> ServerResult<HashMap<String, Figure>> {
-    let result = run(ledger, query, params)?;
-    let mut figures = HashMap::new();
-    for row in cells::rows(query.name, &result) {
-        if let Some(account_type) = row.str("type")? {
-            figures.insert(account_type, figure(&row)?);
-        }
-    }
-    Ok(figures)
 }
 
 /// An inventory, amount or NULL cell as an inventory.
@@ -715,9 +604,11 @@ option "operating_currency" "CNY"
         .unwrap();
         assert_eq!(error.to_string(), "a report covers the years 1 to 9999, not -262143-01-01 to -262143-01-10");
         assert!(matches!(error, crate::error::ServerError::InvalidInput(_)));
-        let error = super::summary(&ledger, &range("2024-01-01", "+10000-01-01")).err().unwrap();
+        let error = graph_rows(&ledger, &range("2024-01-01", "+10000-01-01"), &StatisticInterval::Month, GraphLimits::server())
+            .err()
+            .unwrap();
         assert_eq!(error.to_string(), "a report covers the years 1 to 9999, not 2024-01-01 to +10000-01-01");
-        assert!(super::rank(&ledger, zhang_ast::AccountType::Expenses, &range("0000-12-31", "2024-01-01")).is_err());
+        assert!(graph_rows(&ledger, &range("0000-12-31", "2024-01-01"), &StatisticInterval::Month, GraphLimits::server()).is_err());
         // the first and the last day of the calendar are fine
         assert!(graph_rows(&ledger, &range("0001-01-01", "0001-01-10"), &StatisticInterval::Week, GraphLimits::server()).is_ok());
         assert!(graph_rows(&ledger, &range("9999-12-20", "9999-12-31"), &StatisticInterval::Month, GraphLimits::server()).is_ok());

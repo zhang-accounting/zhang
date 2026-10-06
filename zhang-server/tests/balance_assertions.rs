@@ -871,14 +871,15 @@ option "timezone" "UTC"
             .filter(|it| it["type"] == "BalancePad" && it["narration"] == "pad Assets:A to Equity:Open")
             .count();
         assert_eq!(pads, 2, "{journal}");
-        let request = zhang_server::request::StatisticRequest {
-            from: days_ago(30).to_string(),
-            to: tomorrow().checked_add_days(Days::new(30)).unwrap().to_string(),
+        // the report counts the dinner only: `report.transaction_count`, as the pages run it
+        let range = zhang_server::builtin::LedgerDateRange {
+            from: days_ago(30),
+            to: tomorrow().checked_add_days(Days::new(30)).unwrap(),
         };
-        let (status, summary) =
-            respond(zhang_server::routes::statistics::get_statistic_summary(scratch.state().await, axum::extract::Query(request)).await).await;
-        assert_eq!(status, StatusCode::OK, "{summary}");
-        assert_eq!(summary["data"]["transaction_number"], json!(1), "the dinner only");
+        let count = zhang_server::builtin::run(&scratch.state().await.0 .0, "report.transaction_count", range.bind(zhang_query::Params::new()))
+            .await
+            .unwrap();
+        assert_eq!(count.rows, vec![vec![zhang_query::Value::Int(1)]], "the dinner only");
 
         let (errors, paddings, passed) = reloaded(&scratch).await;
         assert!(errors.is_empty(), "{errors:?}");
