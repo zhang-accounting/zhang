@@ -12,7 +12,7 @@ use zhang_core::outcome::Detail;
 use zhang_core::{data_source, ZhangError};
 
 use crate::error::ServerError;
-use crate::response::{DocumentEntity, InfoForNewDocument, ResponseWrapper};
+use crate::response::{InfoForNewDocument, ResponseWrapper};
 use crate::routes::Base64Path;
 use crate::state::SharedLedger;
 use crate::util::{cache_document, cached_document, document_cache, document_cache_key};
@@ -136,12 +136,6 @@ async fn read_remote(ledger: &Ledger, paths: &[String]) -> ServerResult<Option<V
 #[api(group = "document")]
 pub async fn get_info_for_new_document(ledger: State<SharedLedger>) -> ApiResult<InfoForNewDocument> {
     ResponseWrapper::json(journals::info_for_new_document(&ledger).await?)
-}
-
-/// Every document of the ledger, newest first: the built-in query `journals.documents`.
-#[api(group = "document")]
-pub async fn get_documents(ledger: State<SharedLedger>) -> ApiResult<Vec<DocumentEntity>> {
-    ResponseWrapper::json(journals::documents(&ledger).await?)
 }
 
 #[cfg(test)]

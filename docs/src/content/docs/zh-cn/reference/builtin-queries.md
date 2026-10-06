@@ -156,6 +156,9 @@ Web 界面以前使用的各类型化读取接口正在按组逐个版本移除�
 | `GET /api/budgets?year=&month=` | `budgets.month`，`month` 为该月的第一天 |
 | `GET /api/budgets/{name}?year=&month=` | `budgets.budget`（参数 `name`）和 `budgets.budget_month`（参数 `name`、`month`）；`budgets.budget` 没有行即原来的 404，`budgets.budget_month` 没有行表示预算开始之前的月份（未分配、未支出、未关闭） |
 | `GET /api/budgets/{name}/interval/{year}/{month}` | `budgets.events` 和 `budgets.postings`，参数均为 `name`、`month`；原接口把两个列表按时间从新到旧合并，时间相同时预算自身的条目在前 |
+| `GET /api/documents` | `journals.documents`；原接口附加的文件名、扩展名和据此猜测的 MIME 类型都可以从行的 `path` 得出 |
+| `GET /api/accounts/{account}/documents` | `accounts.documents`，参数 `account`，其余同上 |
+| `GET /api/accounts/{account}/balances` | `accounts.balance_history`，参数 `account`；原接口按 `currency` 把行分组 |
 
 原接口的金额形如 `{number, commodity}`；查询的单元格形如 `{number, currency}`，预算的 `activity` 是以该预算 `currency` 计的数字。
 

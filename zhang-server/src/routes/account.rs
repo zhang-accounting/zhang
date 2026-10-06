@@ -1,5 +1,5 @@
 use axum::extract::{Multipart, Path, State};
-use axum::{debug_handler, Json};
+use axum::Json;
 use gotcha::api;
 use log::info;
 use zhang_ast::amount::Amount;
@@ -8,7 +8,7 @@ use zhang_ast::{Date, Directive, Document, ZhangString};
 use crate::balance_writes::{balance_directives, BalanceRow, BalanceWriteEntity};
 use crate::builtin::ledger_now;
 use crate::request::{AccountBalanceRequest, AccountJournalRequest, BatchAccountBalanceRequest};
-use crate::response::{AccountBalanceHistoryEntity, AccountEntity, AccountInfoEntity, AccountJournalEntity, Created, DocumentEntity, Paged, ResponseWrapper};
+use crate::response::{AccountEntity, AccountInfoEntity, AccountJournalEntity, Created, Paged, ResponseWrapper};
 use crate::routes::Query;
 use crate::state::{wrote, SharedLedger, SharedReloadSender};
 use crate::validate::Rules;
@@ -91,27 +91,6 @@ pub async fn upload_account_document(
     .await;
     wrote(&mut ledger_stage, &reload_sender, written)?;
     Ok(Created)
-}
-
-/// The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
-/// An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
-///
-/// Built-in query `accounts.balance_history`.
-#[api(group = "account")]
-#[debug_handler]
-pub async fn get_account_balance_data(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<AccountBalanceHistoryEntity> {
-    let account_name = params.0 .0;
-    ResponseWrapper::json(account_queries::with_ledger(&ledger, move |ledger| account_queries::account_balance_history(ledger, &account_name)).await?)
-}
-
-/// The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
-/// 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
-///
-/// Built-in query `accounts.documents`.
-#[api(group = "account")]
-pub async fn get_account_documents(ledger: State<SharedLedger>, params: Path<(String,)>) -> ApiResult<Vec<DocumentEntity>> {
-    let account_name = params.0 .0;
-    ResponseWrapper::json(account_queries::with_ledger(&ledger, move |ledger| account_queries::account_documents(ledger, &account_name)).await?)
 }
 
 /// The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts

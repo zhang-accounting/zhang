@@ -1,0 +1,1228 @@
+{
+  "_": "Rows of journals.documents, accounts.documents and accounts.balance_history and what GET /api/documents, /api/accounts/{a}/documents and /api/accounts/{a}/balances answered for the same account, captured on zhang-server/tests/fixtures/journals/probe (PR #753 build): the adapters must give the GETs' values.",
+  "documents": {
+    "rows": {
+      "columns": [
+        {
+          "name": "date",
+          "type": "date"
+        },
+        {
+          "name": "time",
+          "type": "str"
+        },
+        {
+          "name": "path",
+          "type": "str"
+        },
+        {
+          "name": "account",
+          "type": "str"
+        },
+        {
+          "name": "transaction_id",
+          "type": "str"
+        }
+      ],
+      "rows": [
+        ["2024-01-17", "00:00:00", "w.pdf", "Assets:Wallet", null],
+        ["2024-01-16", "00:00:00", "statements/jan.pdf", "Assets:Bank:Checking", null],
+        ["2024-01-16", "00:00:00", "receipts/a.pdf", null, "63e53bc2-5d92-adae-567d-0bbc8aace6a2"],
+        ["2024-01-16", "00:00:00", "receipts/b.pdf", "Assets:Bank:Checking", "63e53bc2-5d92-adae-567d-0bbc8aace6a2"]
+      ]
+    },
+    "expected": [
+      {
+        "account": "Assets:Wallet",
+        "datetime": "2024-01-17T00:00:00",
+        "extension": "pdf",
+        "filename": "w.pdf",
+        "mime_type": "application/pdf",
+        "path": "w.pdf",
+        "trx_id": null
+      },
+      {
+        "account": "Assets:Bank:Checking",
+        "datetime": "2024-01-16T00:00:00",
+        "extension": "pdf",
+        "filename": "jan.pdf",
+        "mime_type": "application/pdf",
+        "path": "statements/jan.pdf",
+        "trx_id": null
+      },
+      {
+        "account": null,
+        "datetime": "2024-01-16T00:00:00",
+        "extension": "pdf",
+        "filename": "a.pdf",
+        "mime_type": "application/pdf",
+        "path": "receipts/a.pdf",
+        "trx_id": "63e53bc2-5d92-adae-567d-0bbc8aace6a2"
+      },
+      {
+        "account": "Assets:Bank:Checking",
+        "datetime": "2024-01-16T00:00:00",
+        "extension": "pdf",
+        "filename": "b.pdf",
+        "mime_type": "application/pdf",
+        "path": "receipts/b.pdf",
+        "trx_id": "63e53bc2-5d92-adae-567d-0bbc8aace6a2"
+      }
+    ]
+  },
+  "accountDocuments": {
+    "Assets:Bank": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": [["2024-01-16", "00:00:00", "Assets:Bank:Checking", "statements/jan.pdf", null]]
+      },
+      "expected": [
+        {
+          "account": "Assets:Bank:Checking",
+          "datetime": "2024-01-16T00:00:00",
+          "extension": "pdf",
+          "filename": "jan.pdf",
+          "mime_type": "application/pdf",
+          "path": "statements/jan.pdf",
+          "trx_id": null
+        }
+      ]
+    },
+    "Assets:Bank:Checking": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": [["2024-01-16", "00:00:00", "Assets:Bank:Checking", "statements/jan.pdf", null]]
+      },
+      "expected": [
+        {
+          "account": "Assets:Bank:Checking",
+          "datetime": "2024-01-16T00:00:00",
+          "extension": "pdf",
+          "filename": "jan.pdf",
+          "mime_type": "application/pdf",
+          "path": "statements/jan.pdf",
+          "trx_id": null
+        }
+      ]
+    },
+    "Assets:Bank:Savings": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Assets:Broker": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Assets:Ghost": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Assets:Old": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Assets:Travel": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Assets:Wallet": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": [["2024-01-17", "00:00:00", "Assets:Wallet", "w.pdf", null]]
+      },
+      "expected": [
+        {
+          "account": "Assets:Wallet",
+          "datetime": "2024-01-17T00:00:00",
+          "extension": "pdf",
+          "filename": "w.pdf",
+          "mime_type": "application/pdf",
+          "path": "w.pdf",
+          "trx_id": null
+        }
+      ]
+    },
+    "Equity:Open": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Expenses:Food": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Income:Gains": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    },
+    "Income:Salary": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "path",
+            "type": "str"
+          },
+          {
+            "name": "transaction_id",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "expected": []
+    }
+  },
+  "balanceHistory": {
+    "Assets:Bank": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "1050"
+            }
+          ],
+          [
+            "2024-01-05",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "1015"
+            }
+          ],
+          [
+            "2024-01-06",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "315"
+            }
+          ],
+          [
+            "2024-01-09",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "215"
+            }
+          ],
+          [
+            "2024-01-12",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "715"
+            }
+          ],
+          [
+            "2024-01-16",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "714"
+            }
+          ],
+          [
+            "2024-01-18",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "707"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "1050"
+            },
+            "date": "2024-01-01"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "1015"
+            },
+            "date": "2024-01-05"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "315"
+            },
+            "date": "2024-01-06"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "215"
+            },
+            "date": "2024-01-09"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "715"
+            },
+            "date": "2024-01-12"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "714"
+            },
+            "date": "2024-01-16"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "707"
+            },
+            "date": "2024-01-18"
+          }
+        ]
+      }
+    },
+    "Assets:Bank:Checking": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "1000"
+            }
+          ],
+          [
+            "2024-01-05",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "965"
+            }
+          ],
+          [
+            "2024-01-06",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "265"
+            }
+          ],
+          [
+            "2024-01-09",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "165"
+            }
+          ],
+          [
+            "2024-01-16",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "164"
+            }
+          ],
+          [
+            "2024-01-18",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "157"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "1000"
+            },
+            "date": "2024-01-01"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "965"
+            },
+            "date": "2024-01-05"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "265"
+            },
+            "date": "2024-01-06"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "165"
+            },
+            "date": "2024-01-09"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "164"
+            },
+            "date": "2024-01-16"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "157"
+            },
+            "date": "2024-01-18"
+          }
+        ]
+      }
+    },
+    "Assets:Bank:Savings": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-12",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "500"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "500"
+            },
+            "date": "2024-01-12"
+          }
+        ]
+      }
+    },
+    "Assets:Broker": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-07",
+            "AAPL",
+            {
+              "currency": "AAPL",
+              "number": "10"
+            }
+          ],
+          [
+            "2024-01-08",
+            "AAPL",
+            {
+              "currency": "AAPL",
+              "number": "6"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "AAPL": [
+          {
+            "balance": {
+              "commodity": "AAPL",
+              "number": "10"
+            },
+            "date": "2024-01-07"
+          },
+          {
+            "balance": {
+              "commodity": "AAPL",
+              "number": "6"
+            },
+            "date": "2024-01-08"
+          }
+        ]
+      }
+    },
+    "Assets:Ghost": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-14",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "7"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "7"
+            },
+            "date": "2024-01-14"
+          }
+        ]
+      }
+    },
+    "Assets:Old": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-02",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "30"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "30"
+            },
+            "date": "2024-01-02"
+          }
+        ]
+      }
+    },
+    "Assets:Travel": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-09",
+            "JPY",
+            {
+              "currency": "JPY",
+              "number": "2000"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "JPY": [
+          {
+            "balance": {
+              "commodity": "JPY",
+              "number": "2000"
+            },
+            "date": "2024-01-09"
+          }
+        ]
+      }
+    },
+    "Assets:Wallet": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-06",
+            "USD",
+            {
+              "currency": "USD",
+              "number": "100"
+            }
+          ],
+          [
+            "2024-01-07",
+            "USD",
+            {
+              "currency": "USD",
+              "number": "0"
+            }
+          ],
+          [
+            "2024-01-08",
+            "USD",
+            {
+              "currency": "USD",
+              "number": "48"
+            }
+          ],
+          [
+            "2024-01-15",
+            "USD",
+            {
+              "currency": "USD",
+              "number": "49"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "USD": [
+          {
+            "balance": {
+              "commodity": "USD",
+              "number": "100"
+            },
+            "date": "2024-01-06"
+          },
+          {
+            "balance": {
+              "commodity": "USD",
+              "number": "0"
+            },
+            "date": "2024-01-07"
+          },
+          {
+            "balance": {
+              "commodity": "USD",
+              "number": "48"
+            },
+            "date": "2024-01-08"
+          },
+          {
+            "balance": {
+              "commodity": "USD",
+              "number": "49"
+            },
+            "date": "2024-01-15"
+          }
+        ]
+      }
+    },
+    "Equity:Open": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "-50"
+            }
+          ],
+          [
+            "2024-01-02",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "-80"
+            }
+          ],
+          [
+            "2024-01-12",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "-580"
+            }
+          ],
+          [
+            "2024-01-14",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "-587"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "-50"
+            },
+            "date": "2024-01-01"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "-80"
+            },
+            "date": "2024-01-02"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "-580"
+            },
+            "date": "2024-01-12"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "-587"
+            },
+            "date": "2024-01-14"
+          }
+        ]
+      }
+    },
+    "Expenses:Food": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-05",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "35"
+            }
+          ],
+          [
+            "2024-01-15",
+            "USD",
+            {
+              "currency": "USD",
+              "number": "2"
+            }
+          ],
+          [
+            "2024-01-16",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "36"
+            }
+          ],
+          [
+            "2024-01-18",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "43"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "35"
+            },
+            "date": "2024-01-05"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "36"
+            },
+            "date": "2024-01-16"
+          },
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "43"
+            },
+            "date": "2024-01-18"
+          }
+        ],
+        "USD": [
+          {
+            "balance": {
+              "commodity": "USD",
+              "number": "2"
+            },
+            "date": "2024-01-15"
+          }
+        ]
+      }
+    },
+    "Income:Gains": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-08",
+            "USD",
+            {
+              "currency": "USD",
+              "number": "-8"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "USD": [
+          {
+            "balance": {
+              "commodity": "USD",
+              "number": "-8"
+            },
+            "date": "2024-01-08"
+          }
+        ]
+      }
+    },
+    "Income:Salary": {
+      "rows": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "CNY",
+            {
+              "currency": "CNY",
+              "number": "-1000"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "CNY": [
+          {
+            "balance": {
+              "commodity": "CNY",
+              "number": "-1000"
+            },
+            "date": "2024-01-01"
+          }
+        ]
+      }
+    }
+  }
+}

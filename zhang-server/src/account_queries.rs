@@ -21,7 +21,7 @@ use zhang_query::{Inventory, Params, QueryResult};
 
 use crate::builtin::{self, calculated_amount};
 use crate::journals::BalanceAssertion;
-use crate::response::{AccountBalanceHistoryEntity, AccountBalanceItemEntity, AccountEntity, AccountInfoEntity, AccountJournalEntity, DocumentEntity};
+use crate::response::{AccountEntity, AccountInfoEntity, AccountJournalEntity};
 use crate::state::SharedLedger;
 use crate::{cells, ServerResult};
 
@@ -33,8 +33,6 @@ const SUBTREE_BALANCES: &str = "accounts.subtree_balances";
 const JOURNAL: &str = "accounts.journal";
 const JOURNAL_PAGE: &str = "accounts.journal_page";
 const BALANCE_ASSERTIONS: &str = "accounts.balance_assertions";
-const BALANCE_HISTORY: &str = "accounts.balance_history";
-const DOCUMENTS: &str = "accounts.documents";
 
 /// Run a built-in query with the limits of every query the server runs.
 fn run(ledger: &Ledger, name: &str, params: &Params) -> ServerResult<QueryResult> {
@@ -433,29 +431,3 @@ fn merge(postings: Vec<PostingRow>, first: u64, assertions: Vec<(i64, AccountJou
 }
 
 // ---------------------------------------------------------------------------------------
-// balance history and documents
-
-/// `GET /api/accounts/{a}/balances`: the balance of the account and its sub-accounts at the end
-/// of every day it changed, per currency, in date order; a 404 or a 400 as for the journal.
-pub fn account_balance_history(ledger: &Ledger, account: &str) -> ServerResult<AccountBalanceHistoryEntity> {
-    require_page(ledger, account)?;
-    let result = run(ledger, BALANCE_HISTORY, &Params::new().bind("account", account))?;
-    let mut balance: HashMap<String, Vec<AccountBalanceItemEntity>> = HashMap::new();
-    for row in cells::rows(BALANCE_HISTORY, &result) {
-        let currency = row.str("currency")?.unwrap_or_default();
-        let item = AccountBalanceItemEntity {
-            date: row.date("date")?.unwrap_or_default(),
-            balance: row.amount("balance")?.unwrap_or_else(|| Amount::new(BigDecimal::zero(), currency.clone())),
-        };
-        balance.entry(currency).or_default().push(item);
-    }
-    Ok(AccountBalanceHistoryEntity { balance })
-}
-
-/// `GET /api/accounts/{a}/documents`: the document directives of the account and its
-/// sub-accounts, in ledger order; a 404 or a 400 as for the journal.
-pub fn account_documents(ledger: &Ledger, account: &str) -> ServerResult<Vec<DocumentEntity>> {
-    require_page(ledger, account)?;
-    let result = run(ledger, DOCUMENTS, &Params::new().bind("account", account))?;
-    cells::rows(DOCUMENTS, &result).map(|row| DocumentEntity::of(&row)).collect()
-}

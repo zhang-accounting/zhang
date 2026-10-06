@@ -2,7 +2,8 @@ import { ChartLine, CircleAlert, Cog, FileStack, NotebookText, WalletMinimal } f
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { retrieveAccountBalance, retrieveAccountDocuments, retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
+import { retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
+import { retrieveAccountBalanceHistory, retrieveAccountDocuments } from '@/components/documentLines/document-api';
 import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/layout';
 import { JOURNAL_PAGE_SIZE } from '@/components/journalLines/journal-utils';
 import { PagePagination } from '@/components/layout/PagePagination';
@@ -25,7 +26,7 @@ import { AssertionAmount } from '../components/journalLines/BalanceAssertion';
 import { ImageLightBox } from '../components/ImageLightBox';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import Section from '../components/Section';
-import { useLedgerQuery } from '../states/ledger';
+import { useLedgerQuery, useLedgerValue } from '../states/ledger';
 
 const TABS = ['journals', 'documents', 'history', 'settings'] as const;
 type TabKey = (typeof TABS)[number];
@@ -307,7 +308,7 @@ function AccountJournals({ accountName }: { accountName: string }) {
 function AccountDocuments({ accountName, subAccounts }: { accountName: string; subAccounts: boolean }) {
   const { t } = useTranslation();
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
-  const documents = useLedgerQuery(() => retrieveAccountDocuments({ account_name: accountName }), [accountName]);
+  const documents = useLedgerValue(() => retrieveAccountDocuments(accountName), [accountName]);
 
   if (documents.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(documents.error)} />;
 
@@ -332,7 +333,7 @@ function AccountDocuments({ accountName, subAccounts }: { accountName: string; s
 
 function AccountHistory({ accountName, subAccounts }: { accountName: string; subAccounts: boolean }) {
   const { t } = useTranslation();
-  const history = useLedgerQuery(() => retrieveAccountBalance({ account_name: accountName }), [accountName]);
+  const history = useLedgerValue(() => retrieveAccountBalanceHistory(accountName), [accountName]);
   return (
     <Section
       title={t('ledger.account.history_title')}
@@ -342,7 +343,7 @@ function AccountHistory({ accountName, subAccounts }: { accountName: string; sub
       {history.error ? (
         <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(history.error)} />
       ) : history.value ? (
-        <AccountBalanceHistoryGraph data={history.value.balance} />
+        <AccountBalanceHistoryGraph data={history.value} />
       ) : (
         <Skeleton className="h-56 w-full md:h-80" />
       )}

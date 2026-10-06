@@ -2,23 +2,21 @@ import BigNumber from 'bignumber.js';
 import { parseISO } from 'date-fns';
 import { sortBy } from 'lodash-es';
 import { LineChartIcon } from 'lucide-react';
-import { OpReturnType } from 'openapi-typescript-fetch';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
-import { operations } from '@/api/schemas';
 import { EmptyState } from '@/components/layout';
 import { spansYears, useDateFormat } from '@/components/layout/use-date-format';
 import { cn } from '@/lib/utils';
+import type { BalancePoint } from '@/utils/account-history';
 import Amount from './Amount';
 import { useAxisFormatter } from '@/components/layout/chart-utils';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from './ui/chart';
 import { Toggle } from './ui/toggle';
 
-type AccountBalanceHistory = OpReturnType<operations['get_account_balance_data']>['data']['balance'];
-
 interface Props {
-  data?: AccountBalanceHistory;
+  /** the balance at the end of every day with a posting, per commodity (`balanceHistoryByCommodity`) */
+  data?: Record<string, BalancePoint[]>;
   /** Height utilities, e.g. `h-56 md:h-80`. */
   className?: string;
 }

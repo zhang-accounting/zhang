@@ -1,9 +1,8 @@
 import { FileText, Link2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { Document } from '@/api/types';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { cn } from '@/lib/utils';
-import { canPreview, documentType } from '../../utils/documents';
+import { type Document, canPreview, documentType } from '../../utils/documents';
 import { documentUrl } from './document-utils';
 
 export interface Props extends Document {

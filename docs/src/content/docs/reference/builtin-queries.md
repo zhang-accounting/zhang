@@ -156,6 +156,9 @@ The typed read endpoints the web UI used before are being retired, one group per
 | `GET /api/budgets?year=&month=` | `budgets.month` with `month` the first day of the month |
 | `GET /api/budgets/{name}?year=&month=` | `budgets.budget` with `name`, and `budgets.budget_month` with `name` and `month`; no row of `budgets.budget` is the old 404, no row of `budgets.budget_month` the month before the budget's first (nothing assigned or spent, not closed) |
 | `GET /api/budgets/{name}/interval/{year}/{month}` | `budgets.events` and `budgets.postings`, both with `name` and `month`; the endpoint merged the two lists newest first, the budget's own entries first at the same time |
+| `GET /api/documents` | `journals.documents`; the endpoint added the file name, the extension and a MIME type guessed from it, which follow from the row's `path` |
+| `GET /api/accounts/{account}/documents` | `accounts.documents` with `account`, as above |
+| `GET /api/accounts/{account}/balances` | `accounts.balance_history` with `account`; the endpoint grouped the rows by `currency` |
 
 The endpoints' amounts were `{number, commodity}`; the queries' cells are `{number, currency}`, and a budget's `activity` is a number in the budget's `currency`.
 

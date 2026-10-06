@@ -4,9 +4,8 @@ import { ExternalLink, FileStack, FileText, ImageIcon, LayoutGrid, List } from '
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { retrieveDocuments } from '@/api/requests';
-import { Document } from '@/api/types';
 import AccountDocumentLine from '@/components/documentLines/AccountDocumentLine';
+import { retrieveDocuments } from '@/components/documentLines/document-api';
 import { documentUrl } from '@/components/documentLines/document-utils';
 import { DocumentUploadDialog } from '@/components/documentLines/DocumentUploadDialog';
 import { ImageLightBox } from '@/components/ImageLightBox';
@@ -18,8 +17,8 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
-import { useLedgerQuery } from '@/states/ledger';
-import { canPreview, documentType } from '@/utils/documents';
+import { useLedgerValue } from '@/states/ledger';
+import { type Document, canPreview, documentType } from '@/utils/documents';
 
 const GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6';
 
@@ -72,7 +71,7 @@ export default function Documents() {
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
 
-  const { error, value: documents, retry, firstLoad } = useLedgerQuery(() => retrieveDocuments({}), []);
+  const { error, value: documents, retry, firstLoad } = useLedgerValue(() => retrieveDocuments(), []);
 
   const sortedDocuments = useMemo(() => sortBy(documents ?? [], (document) => -new Date(document.datetime).getTime()), [documents]);
   const groupedDocuments = useMemo(
