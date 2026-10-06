@@ -112,7 +112,7 @@ impl Scratch {
             }
         };
         let ledger = ledger.unwrap_or_else(|err| panic!("the {:?} ledger should load: {err}", self.format));
-        let errors: Vec<String> = ledger.store.read().unwrap().errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
+        let errors: Vec<String> = ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
         assert!(errors.is_empty(), "the {:?} ledger has errors: {errors:?}", self.format);
         ledger
     }

@@ -12,9 +12,9 @@ sidebar:
 | 路径 | Crate | 作用 |
 | --- | --- | --- |
 | `zhang-ast/` | `zhang-ast` | 所有 crate 共用的指令类型（`Directive`、`Transaction`、`Posting`、`Account`、金额、日期），以及表示账本错误种类的 `ErrorKind`。 |
-| `zhang-core/` | `zhang-core` | 加载账本：张记账文本格式的解析器和导出器（`src/data_type/text/`）、`DataSource` trait、选项、处理流水线（`src/pipeline/`）、记账、内存存储，以及 WASM 插件运行时（`src/plugin/`，feature `plugin_runtime`，基于 [Extism](https://extism.org/)）。 |
+| `zhang-core/` | `zhang-core` | 加载账本：张记账文本格式的解析器和导出器（`src/data_type/text/`）、`DataSource` trait、选项、处理流水线（`src/pipeline/`）、记账、加载对每条指令的判定结果（`src/outcome.rs`），以及 WASM 插件运行时（`src/plugin/`，feature `plugin_runtime`，基于 [Extism](https://extism.org/)）。 |
 | `extensions/beancount/` | `beancount` | Beancount 的解析器和导出器，用于以 `.bean`、`.beancount` 或 `.bc` 结尾的主文件。 |
-| `zhang-query/` | `zhang-query` | 兼容 BQL 的查询引擎，在内存存储上执行查询。 |
+| `zhang-query/` | `zhang-query` | 兼容 BQL 的查询引擎，在内存中已加载的账本上执行查询。 |
 | `zhang-server/` | `zhang-server` | HTTP API（axum 和 gotcha，后者也负责生成 OpenAPI 描述）、身份认证（`src/auth/`）、文件监视和重新加载（`src/watch.rs`），以及网页界面：启用 `frontend` feature 时从 `frontend/dist` 嵌入。 |
 | `zhang-cli/` | `zhang` | `zhang` 二进制文件（`src/main.rs`），以及本地文件系统、S3、WebDAV 和 GitHub 的数据源，基于 [Apache OpenDAL](https://opendal.apache.org/)（`src/opendal.rs`）。 |
 | `zhang-plugin-sdk/` | `zhang-plugin-sdk` | WASM 插件的 Rust SDK，`examples/` 中有两个示例插件。见[编写插件](/zh-cn/developers/writing-plugins/)。 |
@@ -29,8 +29,8 @@ sidebar:
 1. **读取。** `zhang serve` 为所选的后端构建数据源（`zhang-cli/src/opendal.rs`），并在一个阻塞线程上调用 `Ledger::load`（`zhang-core/src/ledger.rs`）。数据源读取主文件，用张记账解析器或 Beancount 解析器解析它，并顺着 `include` 指令（包括通配符）继续读取。结果是一组指令（`zhang-ast`），每条指令都带有它所在的文件和位置。
 2. **选项与插件。** 首先应用选项。然后获取并注册 `plugin` 指令的模块（`zhang-core/src/plugin/`）。
 3. **流水线。** 指令按日期排序，并依次经过 `zhang-core/src/pipeline/` 中的各个阶段：先是按声明顺序执行的 WASM 插件（processor 和 mapper），然后是内置阶段 `ActiveAccounts`、`Pad` 和 `BalanceCheck`。每个阶段都能看到整个指令流，可以修改它，也可以报告错误。
-4. **存储。** 结果被逐条指令地（`zhang-core/src/process/`）合并进内存存储（`zhang-core/src/store/`）。记账器（`zhang-core/src/booking/`）把记账行与批次进行匹配，每个问题都会成为一个带有 `ErrorKind` 的错误。
-5. **查询与服务。** `zhang-query` 在存储上执行查询。`zhang-server` 在 `/api/` 下以 HTTP API 的形式提供账本（处理函数位于 `zhang-server/src/routes/`），在 `/openapi.json` 提供 OpenAPI 描述，把请求路由给 router 插件，并在文件变化时重新加载账本。
+4. **折叠。** 账本把结果折叠一次（`zhang-core/src/ledger.rs` 中的 `Ledger::fold`，检查位于 `zhang-core/src/process/`），记下指令本身没有的信息（`zhang-core/src/outcome.rs`）：每笔交易和每个余额断言的 id、张记账处理指令的顺序、每个余额断言的检查结果，以及每个文档所在的位置。记账器（`zhang-core/src/booking/`）把记账行与批次进行匹配，每个问题都会成为一个带有 `ErrorKind` 的错误。
+5. **查询与服务。** `zhang-query` 在已加载的账本上执行查询。`zhang-server` 在 `/api/` 下以 HTTP API 的形式提供账本（处理函数位于 `zhang-server/src/routes/`），在 `/openapi.json` 提供 OpenAPI 描述，把请求路由给 router 插件，并在文件变化时重新加载账本。
 6. **网页界面。** `frontend/` 中的 React 应用通过根据 OpenAPI 描述生成的类型化客户端（`frontend/src/api/schemas.ts`）调用 API，并监听 `/api/sse`，在重新加载后刷新。
 
 写入则沿相反方向进行：路由构建一条指令，数据类型把它导出为文本（张记账或 Beancount 语法），数据源把它追加到 `directive_output_path` 选项所指定的文件中，然后账本重新加载。

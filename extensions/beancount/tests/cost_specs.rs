@@ -196,8 +196,7 @@ fn the_merge_cost_marker_is_reported_once_as_in_beancount() {
         .map(|txn| text(&txn["narration"]))
         .unwrap();
 
-    let store = ledger.store.read().unwrap();
-    let reported: Vec<(ErrorKind, String)> = store
+    let reported: Vec<(ErrorKind, String)> = ledger
         .errors
         .iter()
         .map(|error| {

@@ -29,7 +29,7 @@ async fn load(name: &str, main: &str) -> SharedLedger {
         Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
     };
     let ledger = Ledger::load(dir, main.to_owned(), source).unwrap_or_else(|error| panic!("{name}/{main} should load: {error}"));
-    assert!(ledger.operations().read().errors.is_empty(), "{name}/{main} has errors");
+    assert!(ledger.errors.is_empty(), "{name}/{main} has errors");
     SharedLedger(Arc::new(RwLock::new(ledger)))
 }
 

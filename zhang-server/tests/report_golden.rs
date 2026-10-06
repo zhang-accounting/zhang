@@ -112,12 +112,9 @@ fn copy_dir(from: &Path, to: &Path) {
 fn ranges(ledger: &Ledger) -> Vec<(&'static str, LedgerDateRange, StatisticInterval)> {
     let timezone = ledger.options.timezone;
     let dates: BTreeSet<NaiveDate> = ledger
-        .store
-        .read()
-        .unwrap()
-        .transactions
-        .values()
-        .map(|trx| trx.datetime.with_timezone(&timezone).date_naive())
+        .transactions()
+        .into_iter()
+        .map(|(_, trx)| trx.date.to_timezone_datetime(&timezone).date_naive())
         .collect();
     let (Some(first), Some(last)) = (dates.first().copied(), dates.last().copied()) else {
         return vec![];
@@ -653,19 +650,13 @@ fn summary_differences(ledger: &Ledger, range: &LedgerDateRange) -> Vec<String> 
         }
     }
     let timezone = ledger.options.timezone;
-    let padding = |trx: &zhang_core::store::TransactionDomain| match &ledger.directives[trx.directive].data {
-        zhang_ast::Directive::Transaction(booked) => booked.flag == Some(Flag::BalancePad),
-        _ => false,
-    };
     let transactions = ledger
-        .store
-        .read()
-        .unwrap()
-        .transactions
-        .values()
-        .filter(|trx| !padding(trx))
+        .transactions()
+        .into_iter()
+        .map(|(_, trx)| trx)
+        .filter(|trx| trx.flag != Some(Flag::BalancePad))
         .filter(|trx| {
-            let date = trx.datetime.with_timezone(&timezone).date_naive();
+            let date = trx.date.to_timezone_datetime(&timezone).date_naive();
             range.from <= date && date <= range.to
         })
         .count() as i64;

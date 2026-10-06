@@ -96,14 +96,7 @@ async fn created_transaction_strings_survive_a_reload() {
     }
 
     let reloaded = load(&dir.0).await;
-    let errors = reloaded
-        .store
-        .read()
-        .unwrap()
-        .errors
-        .iter()
-        .map(|it| format!("{:?}", it.error_type))
-        .collect::<Vec<_>>();
+    let errors = reloaded.errors.iter().map(|it| format!("{:?}", it.error_type)).collect::<Vec<_>>();
     assert_eq!(errors, Vec::<String>::new(), "the reloaded ledger has errors");
     let created: Vec<&Transaction> = reloaded
         .directives

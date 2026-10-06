@@ -263,7 +263,6 @@ fn month_pair(date: NaiveDate) -> (u32, u32) {
 /// typo, is probed up to a few months after the current one, and at its last month.
 pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     let ledger = ledger.read().await;
-    let store = ledger.store.read().unwrap();
     // Discover the probe domain from the fixture's directives, independently of the engine.
     let budgets = ledger
         .directives
@@ -287,8 +286,10 @@ pub(crate) async fn probes(ledger: &SharedLedger) -> Vec<Probe> {
     let first = budget_dates.iter().min().copied();
     let last_detail = budget_dates.iter().max().copied();
     let mut months = BTreeSet::new();
-    let has_postings = |txn: &&zhang_core::store::TransactionDomain| matches!(&ledger.directives[txn.directive].data, zhang_ast::Directive::Transaction(it) if !it.postings.is_empty());
-    let last_posting = store.transactions.values().filter(has_postings).map(|it| it.datetime.date_naive()).max();
+    let transactions = ledger.transactions().into_iter().map(|(_, txn)| txn).filter(|txn| !txn.postings.is_empty());
+    let last_posting = transactions
+        .map(|txn| txn.date.to_timezone_datetime(&ledger.options.timezone).date_naive())
+        .max();
     if let (Some(first), Some(last)) = (first, last_detail) {
         let first = first.with_day(1).unwrap();
         let last = last.with_day(1).unwrap();

@@ -690,8 +690,7 @@ fn load_ledger(content: &str) -> ZhangResult<Ledger> {
 }
 
 fn error_kinds(ledger: &Ledger) -> Vec<String> {
-    let store = ledger.store.read().unwrap();
-    store.errors.iter().map(|it| format!("{:?}", it.error_type)).collect()
+    ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect()
 }
 
 #[test]

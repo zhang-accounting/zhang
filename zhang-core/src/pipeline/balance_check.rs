@@ -43,13 +43,13 @@ impl ProcessStage for BalanceCheckStage {
         let mut ignored_times = IgnoredTimes::of(&directives, ctx.dialect());
         let mut balances = UnitBalances::for_stage(ctx);
         // the `balance ... with pad` directives of the balance entries being applied, checked after the last one
-        let mut pads: Vec<(&BalancePad, &SpanInfo)> = vec![];
+        let mut pads: Vec<(&BalancePad, &SpanInfo, usize)> = vec![];
         let mut pads_at = None;
 
-        for directive in &directives {
+        for (index, directive) in directives.iter().enumerate() {
             if !pads.is_empty() && !(Ledger::is_balance_entry(&directive.data) && directive.datetime() == pads_at) {
-                for (pad, span) in pads.drain(..) {
-                    check(ctx, &balances, &pad.account, &pad.amount, None, span);
+                for (pad, span, index) in pads.drain(..) {
+                    check(ctx, &balances, &pad.account, &pad.amount, None, span, index);
                 }
             }
             match &directive.data {
@@ -67,33 +67,34 @@ impl ProcessStage for BalanceCheckStage {
                         &check_directive.amount,
                         check_directive.tolerance.as_ref(),
                         &directive.span,
+                        index,
                     );
                 }
                 Directive::BalancePad(pad) => {
-                    pads.push((pad, &directive.span));
+                    pads.push((pad, &directive.span, index));
                     pads_at = directive.datetime();
                 }
                 _ => {}
             }
         }
-        for (pad, span) in pads {
-            check(ctx, &balances, &pad.account, &pad.amount, None, span);
+        for (pad, span, index) in pads {
+            check(ctx, &balances, &pad.account, &pad.amount, None, span, index);
         }
         ignored_times.report(ctx, &directives);
         Ok(directives)
     }
 }
 
-/// check the assertion at `span` of `amount` on `account` against the balance now, report it if it fails, and
-/// record what it found
-fn check(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, amount: &Amount, tolerance: Option<&BigDecimal>, span: &SpanInfo) {
+/// check the assertion at `span`, the directive at `index` in the stream, of `amount` on `account` against the balance
+/// now, report it if it fails, and record what it found
+fn check(ctx: &mut StageContext, balances: &UnitBalances, account: &Account, amount: &Amount, tolerance: Option<&BigDecimal>, span: &SpanInfo, index: usize) {
     let distance = balances.distance(account, amount);
     let passed = !exceeds_tolerance(&distance.number, tolerance);
     if !passed {
         ctx.emit_error(ErrorKind::AccountBalanceCheckError, span.clone(), account_name(account));
     }
     let balance = balances.amount(account, &amount.commodity);
-    ctx.record_assertion(span, AssertionOutcome { balance, passed });
+    ctx.record_assertion(index, AssertionOutcome { balance, passed });
 }
 
 /// The balances of a beancount ledger whose `time` zhang ignores ([`ErrorKind::BalanceTimeIgnored`]).

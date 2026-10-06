@@ -272,12 +272,10 @@ fn reduction_by_label_alone_reduces_that_lot_in_the_store_and_in_queries() {
         .flat_map(|(_, txn)| &txn.postings)
         .find(|it| it.account.name() == "Income:Gains")
         .unwrap();
-    let store = loaded.store.read().unwrap();
-    assert_eq!(store.errors.len(), 0);
+    assert_eq!(loaded.errors.len(), 0);
     let lots = lots(ledger, "Assets:Broker");
     assert_eq!(lots, vec!["10 AAPL {100 USD, \"a\"}", "9 AAPL {110 USD, \"b\"}"]);
     assert_eq!(gains.units.as_ref().unwrap().to_string(), "-10 USD");
-    drop(store);
 
     // beanquery: the sale's row carries lot b, and its weights sum to zero
     assert_eq!(postings(ledger, "Assets:Broker")[2], row(&["-1", "110", "2024-01-20", "b", "NULL"]));
@@ -320,13 +318,11 @@ fn unlabelled_reduction_books_labelled_lots_in_the_store_and_in_queries() {
         .flat_map(|(_, txn)| &txn.postings)
         .find(|it| it.account.name() == "Income:Gains")
         .unwrap();
-    let store = loaded.store.read().unwrap();
-    assert_eq!(store.errors.len(), 0);
+    assert_eq!(loaded.errors.len(), 0);
     let lots = lots(ledger, "Assets:Broker");
     assert_eq!(lots, vec!["5 AAPL {110 USD, \"b\"}"]);
     // 10 × 100 + 5 × 110 = 1550 at cost, sold for 1800
     assert_eq!(gains.units.as_ref().unwrap().to_string(), "-250 USD");
-    drop(store);
 
     assert_eq!(
         query(ledger, "SELECT account, number, cost_label, weight WHERE narration = 'sell across both'"),
@@ -460,8 +456,7 @@ fn booked_costs(ledger: &zhang_core::ledger::Ledger, account: &str) -> Vec<Strin
 
 /// The kinds of the errors the ledger reports.
 fn error_kinds(ledger: &zhang_core::ledger::Ledger) -> Vec<String> {
-    let store = ledger.store.read().unwrap();
-    store.errors.iter().map(|error| error.error_type.to_string()).collect()
+    ledger.errors.iter().map(|error| error.error_type.to_string()).collect()
 }
 
 const TOTAL_COST: &str = r#"

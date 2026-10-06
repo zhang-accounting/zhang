@@ -5,11 +5,15 @@ use chrono::NaiveDate;
 use chrono_tz::Tz;
 #[cfg(feature = "openapi")]
 use gotcha_core::Schematic;
+use log::debug;
 use serde::Serialize;
 use strum::{AsRefStr, EnumString};
+use uuid::Uuid;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Rounding, SpanInfo, Spanned};
 use zhang_shared::prices::PriceMap;
+
+use crate::utils::id::FromSpan;
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "openapi", derive(Schematic))]
@@ -62,6 +66,19 @@ pub struct ErrorDomain {
     pub span: Option<SpanInfo>,
     pub error_type: ErrorKind,
     pub metas: HashMap<String, String>,
+}
+
+impl ErrorDomain {
+    /// the error `kind` of the directive at `span`, with what else the load knows of it in `metas`
+    pub fn new(kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) -> ErrorDomain {
+        debug!("insert a new error [{}] [span: {:?}] [meta:{:?}]", kind, span, metas);
+        ErrorDomain {
+            id: Uuid::from_span(span).to_string(),
+            error_type: kind,
+            span: Some(span.clone()),
+            metas,
+        }
+    }
 }
 
 /// The price map of the `price` directives of `directives`, in their order, each at its date in the ledger's timezone

@@ -37,7 +37,7 @@ use crate::ZhangResult;
 ///   right after it. A `pad` before it is served first.
 ///
 /// An account already at the asserted amount gets no padding transaction. The pad directives stay in
-/// the stream (like beancount's `Pad` entry); the store fold books only the padding transactions.
+/// the stream (like beancount's `Pad` entry); the fold books only the padding transactions.
 pub struct PadStage;
 
 /// pairs the `pad` directives of a sorted stream with the balance assertions they serve, the same way for

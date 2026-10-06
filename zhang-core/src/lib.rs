@@ -15,11 +15,11 @@ pub mod inputs;
 pub mod inventory;
 pub mod ledger;
 pub mod options;
+pub mod outcome;
 pub mod pipeline;
 #[cfg(feature = "plugin_runtime")]
 pub mod plugin;
 pub(crate) mod process;
-pub mod store;
 
 pub mod features;
 
@@ -186,10 +186,7 @@ mod test {
                     a: "1"
                     a: "0"
             "#});
-            let operations = ledger.operations();
-            let store = operations.read();
-            assert!(store.errors.is_empty(), "{:?}", store.errors);
-            drop(store);
+            assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
             let (_, txn) = ledger.transactions().into_iter().next().unwrap();
             let pairs = |posting: &zhang_ast::Posting| {
                 posting
@@ -509,8 +506,7 @@ mod test {
                     1970-01-03 close Assets:MyCard
                 "#});
 
-                let mut operations = ledger.operations();
-                let errors = operations.errors()?;
+                let errors = ledger.errors.clone();
                 assert_eq!(errors.len(), 0);
                 Ok(())
             }
@@ -526,8 +522,7 @@ mod test {
                     1970-01-03 close Assets:MyCard
                 "#});
 
-                let mut operations = ledger.operations();
-                let mut errors = operations.errors()?;
+                let mut errors = ledger.errors.clone();
                 assert_eq!(errors.len(), 1);
                 let error = errors.pop().unwrap();
                 assert_eq!(error.error_type, ErrorKind::CloseNonZeroAccount);
@@ -542,8 +537,7 @@ mod test {
                     1970-01-03 balance Assets:MyCard 10 CNY
                 "#});
 
-            let mut operations = ledger.operations();
-            let mut errors = operations.errors()?;
+            let mut errors = ledger.errors.clone();
             assert_eq!(errors.len(), 1);
             let domain = errors.pop().unwrap();
             assert_eq!(domain.error_type, ErrorKind::AccountBalanceCheckError);
@@ -591,13 +585,14 @@ mod test {
 
         /// the instants (in UTC) of the stored transactions, keyed by narration
         fn transaction_instants(ledger: &crate::ledger::Ledger) -> std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> {
-            let operations = ledger.operations();
-            let store = operations.read();
-            let narration = |trx: &crate::store::TransactionDomain| match &ledger.directives[trx.directive].data {
-                zhang_ast::Directive::Transaction(txn) => txn.narration.as_ref().map(|it| it.as_str().to_owned()).unwrap_or_default(),
-                _ => String::new(),
-            };
-            store.transactions.values().map(|trx| (narration(trx), trx.datetime.to_utc())).collect()
+            let timezone = ledger.options.timezone;
+            let transactions = ledger.transactions().into_iter();
+            transactions
+                .map(|(_, txn)| {
+                    let narration = txn.narration.as_ref().map(|it| it.as_str().to_owned()).unwrap_or_default();
+                    (narration, txn.date.to_timezone_datetime(&timezone).to_utc())
+                })
+                .collect()
         }
 
         fn utc(text: &str) -> chrono::DateTime<chrono::Utc> {
@@ -619,16 +614,14 @@ mod test {
                   Expenses:Food
             "#});
 
-            assert!(ledger.operations().errors()?.is_empty());
+            assert!(ledger.errors.is_empty());
             let instants = transaction_instants(&ledger);
             // read with the offset before the transition: 02:30 EST = 07:30 UTC = 03:30 EDT
             assert_eq!(instants["this local time does not exist"], utc("2023-03-12T07:30:00Z"));
 
             let postings: usize = ledger.transactions().iter().map(|(_, txn)| txn.postings.len()).sum();
             assert_eq!(postings, 2);
-            let operations = ledger.operations();
-            let store = operations.read();
-            assert!(store.transactions.values().all(|trx| trx.datetime.to_utc() == utc("2023-03-12T07:30:00Z")));
+            assert!(transaction_instants(&ledger).values().all(|instant| *instant == utc("2023-03-12T07:30:00Z")));
             Ok(())
         }
 
@@ -645,7 +638,7 @@ mod test {
                   Assets:Cash -1 USD
                   Expenses:Food
             "#});
-            assert!(ledger.operations().errors()?.is_empty());
+            assert!(ledger.errors.is_empty());
             // the earlier of 01:30 EDT and 01:30 EST
             assert_eq!(transaction_instants(&ledger)["this local time happens twice"], utc("2023-11-05T05:30:00Z"));
 
@@ -661,7 +654,7 @@ mod test {
                   Assets:Cash -1 CLP
                   Expenses:Food
             "#});
-            assert!(ledger.operations().errors()?.is_empty());
+            assert!(ledger.errors.is_empty());
             // 00:00 -04 = 04:00 UTC = 01:00 -03
             assert_eq!(transaction_instants(&ledger)["this day has no midnight"], utc("2023-09-03T04:00:00Z"));
             Ok(())

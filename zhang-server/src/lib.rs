@@ -683,7 +683,11 @@ mod reload_test {
         let mut assertions = 0;
         for _ in 0..100 {
             let ledger = ledger.read().await;
-            assertions = ledger.store.read().unwrap().balance_assertions.len();
+            assertions = ledger
+                .outcomes
+                .iter()
+                .filter(|it| matches!(it.detail, zhang_core::outcome::Detail::Assertion { .. }))
+                .count();
             if assertions == 1 {
                 assert!(!ledger.stale, "the ledger readers read is the one reloaded");
                 break;

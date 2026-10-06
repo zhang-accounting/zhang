@@ -8,6 +8,7 @@ use gotcha::api;
 use itertools::Itertools;
 use log::{info, warn};
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 use zhang_core::{data_source, ZhangError};
 
 use crate::error::ServerError;
@@ -18,7 +19,7 @@ use crate::util::{cache_document, cached_document, document_cache, document_cach
 use crate::{journals, ApiResult, ServerResult};
 
 /// The document at a path within the ledger, given as its base64, as the documents are listed: the file at that path,
-/// or at its alternate ([`DocumentDomain::alternate`](zhang_core::store::DocumentDomain::alternate)) when there is
+/// or at its alternate ([`Detail::Document`]) when there is
 /// none, never a directory. A path that is not that of a file within the ledger's directory is a 400, or a 403 for one
 /// outside it, also through a link, which a document may name but is not served; a document found nowhere is a 404.
 // #[api(group = "document")]
@@ -26,14 +27,14 @@ pub async fn download_document(ledger: State<SharedLedger>, Base64Path(requested
     let ledger = ledger.read().await;
     let path = path_in_ledger(&ledger, &requested)?;
     let alternate = ledger
-        .store
-        .read()
-        .expect("poison lock detect")
-        .documents
+        .outcomes
         .iter()
-        .find(|it| it.path == requested)
-        .and_then(|it| it.alternate.clone())
-        .and_then(|it| path_in_ledger(&ledger, &it).ok());
+        .find_map(|it| match &it.detail {
+            Detail::Document { path, alternate } if *path == requested => Some(alternate.as_deref()),
+            _ => None,
+        })
+        .flatten()
+        .and_then(|it| path_in_ledger(&ledger, it).ok());
     let file_name = path.rsplit('/').next().unwrap_or_default().to_owned();
     let candidates = std::iter::once(path).chain(alternate).collect_vec();
     let content = match ledger.data_source.local_root(&ledger.entry.0) {

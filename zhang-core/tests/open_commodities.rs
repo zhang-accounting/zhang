@@ -12,6 +12,7 @@ use zhang_core::ast::error::ErrorKind;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 
 const HEADER: &str = indoc! {r#"
     1970-01-01 commodity USD
@@ -34,8 +35,7 @@ fn load(body: &str) -> Ledger {
 
 /// reported errors in store order, with the first line of their span and all their metas
 fn errors(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
-    let store = ledger.store.read().unwrap();
-    store
+    ledger
         .errors
         .iter()
         .map(|it| {
@@ -80,7 +80,7 @@ fn a_posting_in_a_commodity_the_open_does_not_list_is_reported_and_still_booked(
         errors(&ledger),
         vec![not_allowed(r#"2024-01-10 * "Deposit in the wrong currency""#, "Assets:Bank", "EUR")]
     );
-    assert_eq!(ledger.store.read().unwrap().transactions.len(), 2);
+    assert_eq!(ledger.transactions().len(), 2);
     assert_eq!(balance(&ledger, "Assets:Bank", "EUR"), BigDecimal::from(100));
     assert_eq!(balance(&ledger, "Assets:Bank", "USD"), BigDecimal::from(5));
 }
@@ -155,9 +155,13 @@ fn a_balance_assertion_in_a_commodity_the_open_does_not_list_is_reported_and_sti
     "#});
 
     assert_eq!(errors(&ledger), vec![not_allowed("2024-01-01 balance Assets:Bank 0 EUR", "Assets:Bank", "EUR")]);
-    let store = ledger.store.read().unwrap();
-    assert_eq!(store.balance_assertions.len(), 2);
-    assert!(store.balance_assertions.iter().all(|it| it.passed));
+    let checks = ledger.outcomes.iter().filter_map(|it| match it.detail {
+        Detail::Assertion { passed, .. } => Some(passed),
+        _ => None,
+    });
+    let checks = checks.collect::<Vec<_>>();
+    assert_eq!(checks.len(), 2);
+    assert!(checks.iter().all(|passed| *passed));
 }
 
 #[test]

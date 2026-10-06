@@ -1,15 +1,14 @@
 //! The `postings` table: one row per posting, with the columns of its transaction.
 //!
 //! Rows are read from the booked directives of the ledger (units, lots, price annotations, the
-//! header of the transaction, the metadata of the transaction and of its postings) and from its
-//! in-memory [`Store`] (the id of the transaction they belong to, its date and time). The store
-//! records the directive of every transaction it keeps.
+//! header of the transaction, the metadata of the transaction and of its postings), and the id of
+//! the transaction they belong to from what the load decided about it ([`Ledger::outcomes`]).
 //!
 //! Which entries produce rows follows beancount: transactions and padding transactions
 //! (flag `P`) do; balance assertions, which book nothing, do not.
 //!
 //! The rows are the booked postings of the ledger ([`booked_rows`], kept in the [`LedgerCache`]):
-//! zhang books every transaction while it loads (the booking stage and the store fold, see
+//! zhang books every transaction while it loads (the booking stage and final validation, see
 //! `zhang_core::booking`), so a sale across several lots is already one posting per lot, each
 //! naming its lot, and an implicit posting has its units. The table books nothing itself. A query
 //! then assembles its rows from the cached ones: only those of the accounts it is scoped to
@@ -20,11 +19,11 @@ use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::BTreeSet;
 
-use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveTime, Timelike};
+use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{booked_group_units, Directive, Flag, Posting, PostingCost, SingleTotalPrice, Transaction, WrittenGroup};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{Store, TransactionDomain};
 
 use super::cache::{Accounts, CachedRow, Head, LedgerCache, Lot, Postings};
 use super::{render_pairs, Borrow, ColumnDef, Dataset, POSTINGS};
@@ -66,12 +65,13 @@ impl<T> MaybeOwned<'_, T> {
 
 /// The transaction-level part of a row.
 pub(crate) struct Entry<'a> {
-    /// the stored transaction: its id, and its date and time as zhang books it. It is owned
-    /// only for the synthetic entries of the period modifiers (see [`crate::period`]), like
-    /// `parsed` and `heads`.
-    pub txn: MaybeOwned<'a, TransactionDomain>,
+    /// the id of the transaction
+    pub id: Uuid,
+    /// its date and time as zhang books it, in the ledger's timezone
+    pub datetime: DateTime<FixedOffset>,
     /// its directive, booked: the flag, payee, narration, tags, links, postings and metadata
-    /// the columns read when they need them
+    /// the columns read when they need them. It is owned only for the synthetic entries of the
+    /// period modifiers (see [`crate::period`]), like `heads`
     pub parsed: MaybeOwned<'a, Transaction>,
     /// the first leg in `parsed.postings` of each posting as written, by `posting_index`
     pub heads: Cow<'a, [Head]>,
@@ -140,69 +140,41 @@ impl Scope {
 impl<'a> Dataset<'a> {
     /// Every row of the `postings` table, for `projection`.
     #[cfg(test)]
-    pub fn new(ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection) -> Self {
-        Dataset::postings(ledger, store, LedgerCache::of(ledger, store), today, projection, &Scope::All)
+    pub fn new(ledger: &'a Ledger, today: NaiveDate, projection: Projection) -> Self {
+        Dataset::postings(ledger, LedgerCache::of(ledger), today, projection, &Scope::All)
     }
 
     /// The rows of the `postings` table in `scope`, for `projection`, assembled from the booked
     /// rows of `cache` (the cache of `ledger`).
-    pub fn postings(ledger: &'a Ledger, store: &'a Store, cache: &'a LedgerCache, today: NaiveDate, projection: Projection, scope: &Scope) -> Self {
-        let postings = cache.postings(ledger, store);
-        let table = cache.entries(ledger, store);
+    pub fn postings(ledger: &'a Ledger, cache: &'a LedgerCache, today: NaiveDate, projection: Projection, scope: &Scope) -> Self {
+        let postings = cache.postings(ledger);
+        let table = cache.entries(ledger);
         let selected = scope.rows(postings);
-
-        // the stored transactions of the rows: all of them, found in one scan of the store, or
-        // the few of a scope, looked up by id
-        let scanned = selected.is_none().then(|| {
-            let mut transactions: Vec<Option<&'a TransactionDomain>> = vec![None; postings.entries.len()];
-            for txn in store.transactions.values() {
-                if let Some(idx) = postings.entry_of_sequence(txn.sequence).filter(|idx| postings.entries[*idx].id == txn.id) {
-                    transactions[idx] = Some(txn);
-                }
-            }
-            transactions
-        });
-        let transaction = |idx: usize| match &scanned {
-            Some(transactions) => transactions[idx],
-            None => store.transactions.get(&postings.entries[idx].id),
-        };
 
         let count = selected.as_ref().map_or(postings.rows.len(), |rows| rows.len());
         let mut entries: Vec<Entry<'a>> = Vec::with_capacity(if selected.is_none() { postings.entries.len() } else { 0 });
         let mut rows = Vec::with_capacity(count);
-        // (cached entry, its stored transaction and directive) of the last row
-        let mut current: Option<(u32, Option<(&'a TransactionDomain, &'a Transaction)>)> = None;
+        // the cached entry of the last row
+        let mut current: Option<u32> = None;
         let selection = (0..count).map(|idx| selected.as_ref().map_or(idx, |rows| rows[idx] as usize));
         for idx in selection {
             let cached: &'a CachedRow = &postings.rows[idx];
-            let txn = match current {
-                Some((entry, txn)) if entry == cached.entry => txn,
-                _ => {
-                    let cached_entry = &postings.entries[cached.entry as usize];
-                    let txn = transaction(cached.entry as usize);
-                    // the cache was made from this store, so every transaction is there
-                    debug_assert!(txn.is_some(), "a cached transaction is not in the store");
-                    let parsed = match &ledger.directives[cached_entry.parsed as usize].data {
-                        Directive::Transaction(parsed) => Some(parsed),
-                        _ => None,
-                    };
-                    let txn = txn.zip(parsed);
-                    if let Some((txn, parsed)) = txn {
-                        entries.push(Entry {
-                            txn: MaybeOwned::Borrowed(txn),
-                            parsed: MaybeOwned::Borrowed(parsed),
-                            heads: Cow::Borrowed(&cached_entry.heads),
-                            date: cached_entry.date,
-                            seq: cached_entry.entry,
-                            errors: cached_entry.entry.and_then(|seq| table.rows[seq as usize].errors.as_ref()),
-                        });
-                    }
-                    current = Some((cached.entry, txn));
-                    txn
-                }
-            };
-            if txn.is_none() {
-                continue;
+            if current != Some(cached.entry) {
+                let cached_entry = &postings.entries[cached.entry as usize];
+                // the cache keeps transaction directives only
+                let Directive::Transaction(parsed) = &ledger.directives[cached_entry.parsed as usize].data else {
+                    continue;
+                };
+                entries.push(Entry {
+                    id: cached_entry.id,
+                    datetime: cached_entry.datetime,
+                    parsed: MaybeOwned::Borrowed(parsed),
+                    heads: Cow::Borrowed(&cached_entry.heads),
+                    date: cached_entry.date,
+                    seq: cached_entry.entry,
+                    errors: cached_entry.entry.and_then(|seq| table.rows[seq as usize].errors.as_ref()),
+                });
+                current = Some(cached.entry);
             }
             let lot: Option<&'a Lot> = cached.lot.as_deref();
             rows.push(Row {
@@ -223,7 +195,6 @@ impl<'a> Dataset<'a> {
             today,
             projection,
             ledger,
-            store,
             cache,
             budgets: OnceCell::new(),
         }
@@ -285,7 +256,7 @@ impl<'a> Dataset<'a> {
 /// its directive, grouped by the posting they were written as (`groups`, [`zhang_ast::written_groups`]):
 /// one row per booked leg, as beanquery lists a sale across several lots, with the lot the leg
 /// names and its per-unit price. The rows of a posting as written share its index, which is the
-/// store's row.
+/// row of the posting as written.
 pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &mut Accounts) -> Vec<CachedRow> {
     let mut rows = Vec::with_capacity(groups.len());
     for (posting_index, group) in groups.iter().enumerate() {
@@ -401,9 +372,9 @@ fn weight(row: &Row<'_>) -> Amount {
 // The columns of a stored transaction, read the same way by `postings`, `#entries` and `#transactions`: from its
 // directive, at the date and time zhang books the transaction at.
 
-/// The `date` of a stored transaction: its date in the ledger's timezone, as zhang books it.
-pub(super) fn txn_date(txn: &TransactionDomain) -> NaiveDate {
-    txn.datetime.date_naive()
+/// The `date` of a stored transaction booked at `at`: its date in the ledger's timezone.
+pub(super) fn txn_date(at: &DateTime<FixedOffset>) -> NaiveDate {
+    at.date_naive()
 }
 
 /// The `flag` of a stored transaction: `*` when it was written without one.
@@ -431,14 +402,14 @@ pub(super) fn txn_description(txn: &Transaction) -> Value {
     Value::Str(parts.join(" | "))
 }
 
-/// The `time` of a stored transaction: its time of day in the ledger's timezone, as zhang books it.
-pub(super) fn txn_time(txn: &TransactionDomain) -> Value {
-    time_value(txn.datetime.time())
+/// The `time` of a stored transaction booked at `at`: its time of day in the ledger's timezone.
+pub(super) fn txn_time(at: &DateTime<FixedOffset>) -> Value {
+    time_value(at.time())
 }
 
-/// The `timestamp` of a stored transaction: the Unix time zhang books it at.
-pub(super) fn txn_timestamp(txn: &TransactionDomain) -> Value {
-    Value::Int(txn.datetime.timestamp())
+/// The `timestamp` of a stored transaction booked at `at`: its Unix time.
+pub(super) fn txn_timestamp(at: &DateTime<FixedOffset>) -> Value {
+    Value::Int(at.timestamp())
 }
 
 fn payee<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
@@ -520,7 +491,7 @@ pub static COLUMNS: &[ColumnDef] = &[
     })
     .borrowing(Borrow::Contains(|data, row, link| data.entry(row).parsed.links.contains(link))),
     ColumnDef::posting("id", DataType::Str, "Unique id of the transaction.", |data, row| {
-        Value::Str(data.entry(row).txn.id.to_string())
+        Value::Str(data.entry(row).id.to_string())
     }),
     ColumnDef::posting(
         "posting_flag",
@@ -603,13 +574,13 @@ pub static COLUMNS: &[ColumnDef] = &[
         DataType::Str,
         "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, \
         moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang extension.",
-        |data, row| txn_time(&data.entry(row).txn),
+        |data, row| txn_time(&data.entry(row).datetime),
     ),
     ColumnDef::posting(
         "timestamp",
         DataType::Int,
         "Unix time, in seconds, of the transaction's date and time. A zhang extension.",
-        |data, row| txn_timestamp(&data.entry(row).txn),
+        |data, row| txn_timestamp(&data.entry(row).datetime),
     ),
     ColumnDef::posting(
         "seq",

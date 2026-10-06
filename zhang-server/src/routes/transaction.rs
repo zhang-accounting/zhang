@@ -636,8 +636,7 @@ mod string_round_trip_test {
 
     /// The only transaction of the ledger, with its `note` metadata.
     fn transaction(ledger: &Ledger) -> (Stored, String) {
-        let operations = ledger.operations();
-        assert!(operations.read().errors.is_empty(), "ledger errors: {:?}", operations.read().errors);
+        assert!(ledger.errors.is_empty(), "ledger errors: {:?}", ledger.errors);
         let transactions = ledger.transactions();
         assert_eq!(transactions.len(), 1);
         let (id, written) = transactions.into_iter().next().unwrap();
@@ -1153,7 +1152,7 @@ mod string_round_trip_test {
 
         // as in beancount, metadata after a posting is that posting's
         let ledger = load().await;
-        let created = ledger.operations().read().transactions.values().next().cloned().unwrap();
+        let (created, _) = ledger.transactions()[0];
         let items = journals(ledger).await;
         assert_eq!(items[0]["metas"], serde_json::json!([]));
         assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([{"key": "memo", "value": "after"}]));
@@ -1163,7 +1162,7 @@ mod string_round_trip_test {
         update.metas = vec![];
         update.postings[1].metas = Some(vec![meta("memo", "after")]);
         let (ledger, reload) = states(load().await);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((created.to_string(),)), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1232,7 +1231,7 @@ mod string_round_trip_test {
                 };
 
                 let ledger = load().await;
-                let id = ledger.operations().read().transactions.values().next().unwrap().id;
+                let id = ledger.transactions()[0].0;
                 let span = ledger.transaction_span(&id).unwrap();
                 write_transaction_documents(&ledger, &span, &["attachments/a.pdf".to_owned()]).await.unwrap();
 
@@ -1240,9 +1239,7 @@ mod string_round_trip_test {
                 assert_eq!(written, format!("{opens}{header}  document: \"attachments/a.pdf\"\n{postings}"), "{main}");
                 let reloaded = load().await;
                 let (id, transaction) = reloaded.transactions().into_iter().next().unwrap();
-                let operations = reloaded.operations();
-                let store = operations.read();
-                assert!(store.errors.is_empty(), "{main} {:?}: {:?}", strings, store.errors);
+                assert!(reloaded.errors.is_empty(), "{main} {:?}: {:?}", strings, reloaded.errors);
                 assert_eq!(transaction.payee.as_ref().map(|it| it.as_str()), Some(payee), "{main}");
                 assert_eq!(transaction.narration.as_ref().map(|it| it.as_str()), Some(narration), "{main}");
                 assert_eq!(transaction.postings.len(), 2, "{main}");
@@ -1256,7 +1253,6 @@ mod string_round_trip_test {
                     .collect::<std::collections::BTreeSet<_>>();
                 assert_eq!(metas.len(), 1, "the document is transaction metadata");
                 let id = id.to_string();
-                drop(store);
                 assert_eq!(transaction_documents(&reloaded, &id), vec!["attachments/a.pdf"], "{main} {strings}");
                 std::fs::remove_dir_all(dir).ok();
             }
@@ -1280,7 +1276,7 @@ mod string_round_trip_test {
         };
 
         let ledger = load().await;
-        let id = ledger.operations().read().transactions.values().next().unwrap().id;
+        let id = ledger.transactions()[0].0;
         // the client sends every value back as text, a few of them changed
         let mut update = request("coffee", "n");
         update.payee = "Bob".to_owned();
@@ -1311,7 +1307,7 @@ mod string_round_trip_test {
             assert!(written.contains(line), "{line:?} in\n{written}");
         }
         let reloaded = load().await;
-        assert!(reloaded.operations().read().errors.is_empty(), "{written}");
+        assert!(reloaded.errors.is_empty(), "{written}");
         let items = journals(reloaded).await;
         assert_eq!(
             items[0]["postings"][0]["metas"],
@@ -1387,7 +1383,7 @@ mod string_round_trip_test {
         };
         let mut loaded = load().await;
         prepare(&mut loaded);
-        let id = loaded.operations().read().transactions.values().next().unwrap().id;
+        let id = loaded.transactions()[0].0;
         let (state, reload) = states(loaded);
         let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
             .await
@@ -1395,7 +1391,7 @@ mod string_round_trip_test {
         assert_eq!(response.status(), StatusCode::OK);
         let written = std::fs::read_to_string(dir.join(main)).unwrap();
         let reloaded = load().await;
-        assert!(reloaded.operations().read().errors.is_empty(), "{written}");
+        assert!(reloaded.errors.is_empty(), "{written}");
         std::fs::remove_dir_all(dir).ok();
         (written, reloaded)
     }
@@ -1580,7 +1576,7 @@ mod string_round_trip_test {
             };
 
             let ledger = load().await;
-            let id = ledger.operations().read().transactions.values().next().unwrap().id;
+            let id = ledger.transactions()[0].0;
             let span = ledger.transaction_span(&id).unwrap();
             write_transaction_documents(&ledger, &span, &["attachments/a.pdf".to_owned()]).await.unwrap();
 
@@ -1588,13 +1584,10 @@ mod string_round_trip_test {
             assert_eq!(written, format!("{opens}{header}  document: \"attachments/a.pdf\"\n{postings}"), "{main}");
             let reloaded = load().await;
             let (id, transaction) = reloaded.transactions().into_iter().next().unwrap();
-            let operations = reloaded.operations();
-            let store = operations.read();
-            assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
+            assert!(reloaded.errors.is_empty(), "{main}: {:?}", reloaded.errors);
             assert_eq!(transaction.narration.as_ref().map(|it| it.as_str()), Some("coffee"), "{main}");
             assert_eq!(transaction.postings.len(), 2, "{main}");
             let id = id.to_string();
-            drop(store);
             assert_eq!(transaction_documents(&reloaded, &id).len(), 1, "{main}");
             std::fs::remove_dir_all(dir).ok();
         }
@@ -1643,7 +1636,7 @@ mod string_round_trip_test {
             let written = std::fs::read_to_string(dir.join(file)).unwrap();
             assert!(written.contains(written_rate), "{file}: {written}");
         }
-        assert!(load().await.operations().read().errors.is_empty());
+        assert!(load().await.errors.is_empty());
 
         std::fs::remove_dir_all(dir).ok();
     }
@@ -1738,7 +1731,7 @@ mod string_round_trip_test {
                 Ledger::load(dir.clone(), main.to_owned(), source).unwrap_or_else(|e| panic!("{main}: {e}"))
             };
             let loaded = load().await;
-            let id = loaded.operations().read().transactions.values().next().unwrap().id;
+            let id = loaded.transactions()[0].0;
             let (state, reload) = states(loaded);
 
             let update = edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
@@ -1755,8 +1748,8 @@ mod string_round_trip_test {
             assert!(!written.contains("-5 CNY"), "{main}: the transaction is replaced:\n{written}");
             assert!(written.contains("Assets:Cash -6 CNY"), "{main}: {written}");
             let reloaded = load().await;
-            assert!(reloaded.operations().read().errors.is_empty(), "{main}: {written}");
-            assert_eq!(reloaded.operations().read().transactions.len(), 1, "{main}: {written}");
+            assert!(reloaded.errors.is_empty(), "{main}: {written}");
+            assert_eq!(reloaded.transactions().len(), 1, "{main}: {written}");
             std::fs::remove_dir_all(dir).ok();
         }
     }
@@ -1776,7 +1769,7 @@ mod string_round_trip_test {
         std::fs::write(&main, &ledger).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
         let loaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
-        let id = loaded.operations().read().transactions.values().next().unwrap().id;
+        let id = loaded.transactions()[0].0;
         let span = loaded.transaction_span(&id).unwrap();
         // an editor adds a line at the top, which the ledger has not loaded yet
         let edited = format!("; an editor adds this line\n{ledger}");
@@ -1819,7 +1812,7 @@ mod string_round_trip_test {
         assert_eq!(std::fs::read_to_string(&main).unwrap(), edited, "nothing is written");
 
         // with the id of the journal reopened, the update is written in the right place
-        let id = ledger_state.read().await.operations().read().transactions.values().next().unwrap().id;
+        let id = ledger_state.read().await.transactions()[0].0;
         let response = update_single_transaction(ledger_state, reload, Path((id.to_string(),)), Json(update()))
             .await
             .into_response();
@@ -1916,8 +1909,7 @@ mod string_round_trip_test {
             let loaded = load(&dir).await;
             // the plugin's transaction is in the ledger, at the span the plugin gave it
             let id = {
-                let operations = loaded.operations();
-                assert!(operations.read().errors.is_empty(), "{case}: {:?}", operations.read().errors);
+                assert!(loaded.errors.is_empty(), "{case}: {:?}", loaded.errors);
                 let transactions = loaded.transactions();
                 let (id, _) = transactions
                     .into_iter()
@@ -2036,9 +2028,7 @@ mod string_round_trip_test {
         std::fs::write(dir.join(main), format!("{opens}{STOCK_OPENS}{ledger}")).unwrap();
         let loaded = load_main(&dir, main).await;
         {
-            let operations = loaded.operations();
-            let store = operations.read();
-            assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
+            assert!(loaded.errors.is_empty(), "{main}: {:?}", loaded.errors);
         }
         (dir, loaded)
     }
@@ -2069,9 +2059,7 @@ mod string_round_trip_test {
         assert_eq!(status, StatusCode::OK, "{main}: {message}");
         let reloaded = load_main(dir, main).await;
         {
-            let operations = reloaded.operations();
-            let store = operations.read();
-            assert!(store.errors.is_empty(), "{main}: {:?}\n{written}", store.errors);
+            assert!(reloaded.errors.is_empty(), "{main}: {:?}\n{written}", reloaded.errors);
         }
         (postings_of(transaction_text(&written, narration)).to_owned(), reloaded)
     }
@@ -2270,7 +2258,7 @@ mod string_round_trip_test {
                 "{main}: {written}"
             );
             let reloaded = load_main(&dir, main).await;
-            assert!(reloaded.operations().read().errors.is_empty(), "{main}: {written}");
+            assert!(reloaded.errors.is_empty(), "{main}: {written}");
             std::fs::remove_dir_all(dir).ok();
         }
     }

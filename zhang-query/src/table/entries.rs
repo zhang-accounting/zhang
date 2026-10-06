@@ -2,17 +2,16 @@
 //! beanquery.
 //!
 //! A balance assertion is a `balance` entry, not a transaction: it books nothing. Transactions
-//! the ledger rejected are not rows either (they never reach the store). The padding
+//! the ledger rejected are not rows either (the load gives them no place). The padding
 //! transactions of `balance ... with pad` (flag `P`) are transactions, as in beancount.
 //!
 //! Both tables read their rows from the cache of the ledger ([`super::cache::Entries`]), which
 //! also gives zhang's own columns: `seq` (the position in `#entries`), and on `#transactions`
-//! the stored `id` and the errors recorded for the transaction (`balanced`, `errors`).
+//! the transaction's `id` and the errors recorded for it (`balanced`, `errors`).
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate};
 use zhang_ast::{Directive, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{Store, TransactionDomain};
 
 use super::cache::{EntryInfo, LedgerCache};
 use super::directives::{date_value, directive, directive_time, directive_timestamp, meta_value, set_value, str_value, year};
@@ -56,26 +55,21 @@ pub(super) static TRANSACTIONS: Table = Table {
 
 /// The entries, in ledger order: the dated directives without the transactions the ledger
 /// rejected (see [`super::cache::Entries`]).
-fn entry_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    let table = LedgerCache::of(ledger, store).entries(ledger, store);
-    table.rows.iter().map(|info| entry_record(ledger, store, info)).collect()
+fn entry_rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+    let table = LedgerCache::of(ledger).entries(ledger);
+    table.rows.iter().map(|info| entry_record(ledger, info)).collect()
 }
 
 /// The transaction entries, in the order of the ledger's directives.
-fn transaction_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    let table = LedgerCache::of(ledger, store).entries(ledger, store);
-    table
-        .transactions
-        .iter()
-        .map(|idx| entry_record(ledger, store, &table.rows[*idx as usize]))
-        .collect()
+fn transaction_rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+    let table = LedgerCache::of(ledger).entries(ledger);
+    table.transactions.iter().map(|idx| entry_record(ledger, &table.rows[*idx as usize])).collect()
 }
 
-fn entry_record<'a>(ledger: &'a Ledger, store: &'a Store, info: &'a EntryInfo) -> Record<'a> {
+fn entry_record<'a>(ledger: &'a Ledger, info: &'a EntryInfo) -> Record<'a> {
     Record::Entry {
         directive: &ledger.directives[info.directive as usize],
         info,
-        txn: info.txn.and_then(|id| store.transactions.get(&id)),
     }
 }
 
@@ -90,43 +84,48 @@ fn seq(record: &Record<'_>) -> Value {
     entry_info(record).map_or(Value::Null, |info| Value::Int(info.seq.into()))
 }
 
-/// The time of day of the row's directive in the ledger's timezone, as zhang stores the date and
-/// time of a transaction; for a transaction, the time it is stored at.
+/// The time of day of the row's directive in the ledger's timezone, as zhang books the date and
+/// time of a transaction; for a transaction, the time it is booked at.
 pub(super) fn time(data: &Dataset<'_>, record: &Record<'_>) -> Value {
-    match stored(record) {
-        Some(txn) => txn_time(txn),
+    match booked_at(data, record) {
+        Some(at) => txn_time(&at),
         None => directive(record).map_or(Value::Null, |it| directive_time(data, it)),
     }
 }
 
 /// The Unix time of the row's directive, read like [`time`].
 pub(super) fn timestamp(data: &Dataset<'_>, record: &Record<'_>) -> Value {
-    match stored(record) {
-        Some(txn) => txn_timestamp(txn),
+    match booked_at(data, record) {
+        Some(at) => txn_timestamp(&at),
         None => directive(record).map_or(Value::Null, |it| directive_timestamp(data, it)),
     }
 }
 
-/// What zhang stored of the transaction of an `#entries` or `#transactions` row, which its
-/// columns read, as the postings' do.
-fn stored<'r>(record: &'r Record<'_>) -> Option<&'r TransactionDomain> {
-    match record {
-        Record::Entry { txn, .. } => *txn,
+/// Whether the row is that of a transaction the load accepted, whose columns read its directive, as the postings' do.
+fn stored(record: &Record<'_>) -> bool {
+    entry_info(record).is_some_and(|info| info.txn.is_some())
+}
+
+/// The date and time zhang books the transaction of an `#entries` or `#transactions` row at, in the ledger's
+/// timezone; `None` for another row.
+fn booked_at(data: &Dataset<'_>, record: &Record<'_>) -> Option<DateTime<FixedOffset>> {
+    match directive(record).map(|it| &it.data) {
+        Some(Directive::Transaction(txn)) if stored(record) => Some(txn.date.to_timezone_datetime(&data.ledger.options.timezone).fixed_offset()),
         _ => None,
     }
 }
 
-/// The date of the row: a transaction's as zhang stores it, another directive's as written.
-fn date(record: &Record<'_>) -> Value {
-    match stored(record) {
-        Some(txn) => Value::Date(txn_date(txn)),
+/// The date of the row: a transaction's as zhang books it, another directive's as written.
+fn date(data: &Dataset<'_>, record: &Record<'_>) -> Value {
+    match booked_at(data, record) {
+        Some(at) => Value::Date(txn_date(&at)),
         None => date_value(record),
     }
 }
 
 /// The `year`, `month` or `day` of the row's [`date`].
-fn date_part(record: &Record<'_>, part: fn(NaiveDate) -> u32) -> Value {
-    match date(record) {
+fn date_part(data: &Dataset<'_>, record: &Record<'_>, part: fn(NaiveDate) -> u32) -> Value {
+    match date(data, record) {
         Value::Date(date) => Value::Int(part(date) as i64),
         _ => Value::Null,
     }
@@ -184,20 +183,21 @@ fn narration(txn: &Transaction) -> Value {
 }
 
 /// The tags or links of a transaction, note or document; NULL for other directives. A
-/// transaction's are those of a transaction zhang stored.
+/// transaction's are those of a transaction the load accepted.
 fn tags_or_links(record: &Record<'_>, directive: &Directive, links: bool) -> Value {
     match directive {
-        Directive::Transaction(txn) => stored(record).map_or(Value::Null, |_| set_value(if links { &txn.links } else { &txn.tags })),
+        Directive::Transaction(txn) if stored(record) => set_value(if links { &txn.links } else { &txn.tags }),
+        Directive::Transaction(_) => Value::Null,
         Directive::Note(note) => set_value((if links { &note.links } else { &note.tags }).iter().flatten()),
         Directive::Document(document) => set_value((if links { &document.links } else { &document.tags }).iter().flatten()),
         _ => Value::Null,
     }
 }
 
-/// `get` of the directive of a transaction zhang stored; NULL for other rows.
+/// `get` of the directive of a transaction the load accepted; NULL for other rows.
 fn of_transaction(record: &Record<'_>, get: fn(&Transaction) -> Value) -> Value {
     match (stored(record), directive(record).map(|it| &it.data)) {
-        (Some(_), Some(Directive::Transaction(txn))) => get(txn),
+        (true, Some(Directive::Transaction(txn))) => get(txn),
         _ => Value::Null,
     }
 }
@@ -227,18 +227,13 @@ pub(super) const TYPE: ColumnDef = ColumnDef::record(
 pub(super) const FILENAME: ColumnDef = ColumnDef::record("filename", DataType::Str, "The ledger file that holds the directive.", |_, record| {
     of_directive(record, |it| str_value(it.span.filename.as_ref().map(|path| path.to_string_lossy()).as_deref()))
 });
-pub(super) const DATE: ColumnDef = ColumnDef::record(
-    "date",
-    DataType::Date,
-    "Date of the directive; of a transaction, as zhang stores it.",
-    |_, record| date(record),
-);
-pub(super) const YEAR: ColumnDef = ColumnDef::record("year", DataType::Int, "Year of the date.", |_, record| date_part(record, year));
-pub(super) const MONTH: ColumnDef = ColumnDef::record("month", DataType::Int, "Month (1-12) of the date.", |_, record| {
-    date_part(record, |date| date.month())
+pub(super) const DATE: ColumnDef = ColumnDef::record("date", DataType::Date, "Date of the directive; of a transaction, as zhang stores it.", date);
+pub(super) const YEAR: ColumnDef = ColumnDef::record("year", DataType::Int, "Year of the date.", |data, record| date_part(data, record, year));
+pub(super) const MONTH: ColumnDef = ColumnDef::record("month", DataType::Int, "Month (1-12) of the date.", |data, record| {
+    date_part(data, record, |date| date.month())
 });
-pub(super) const DAY: ColumnDef = ColumnDef::record("day", DataType::Int, "Day of month of the date.", |_, record| {
-    date_part(record, |date| date.day())
+pub(super) const DAY: ColumnDef = ColumnDef::record("day", DataType::Int, "Day of month of the date.", |data, record| {
+    date_part(data, record, |date| date.day())
 });
 pub(super) const FLAG: ColumnDef = ColumnDef::record(
     "flag",

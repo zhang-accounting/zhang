@@ -88,11 +88,11 @@ pub(crate) fn stage_booker(ctx: &StageContext) -> Booker {
 }
 
 /// fold a `commodity` directive into `booker`: implicit postings in it are rounded at its precision,
-/// as the store fold defines it from the same options
+/// as the fold defines it from the same options
 pub(crate) fn define_commodity(booker: &mut Booker, commodity: &Commodity, options: &[OptionDomain]) {
     let default_precision = option_value::<i32>(options, KEY_DEFAULT_COMMODITY_PRECISION);
     let default_rounding = option_value::<Rounding>(options, KEY_DEFAULT_ROUNDING);
-    // an invalid `rounding` meta aborts the load in the store fold; nothing to define here
+    // an invalid `rounding` meta aborts the load in the fold; nothing to define here
     if let Ok((precision, rounding)) = commodity_precision(commodity, default_precision, default_rounding) {
         booker.define_commodity(&commodity.currency, precision, rounding);
     }

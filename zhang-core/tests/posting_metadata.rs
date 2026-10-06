@@ -387,14 +387,11 @@ fn a_loaded_ledger_keeps_posting_metadata_apart_from_transaction_metadata() {
         )
     );
 
-    let operations = ledger.operations();
-    let store = operations.read();
     assert!(
-        store.errors.is_empty(),
+        ledger.errors.is_empty(),
         "{:?}",
-        store.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>()
+        ledger.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>()
     );
-    drop(store);
     let transactions = ledger.transactions();
     assert_eq!(transactions.len(), 1);
     let keys: Vec<(String, String)> = transactions[0].1.meta.clone().sorted_pairs();
@@ -667,11 +664,10 @@ mod older_wasm_plugin {
             Shape::new(&[("note", "from plugin")], &[("Assets:Cash", &[]), ("Expenses:Food", &[])])
         );
         let stored: usize = ledger.transactions().iter().map(|(_, txn)| written_groups(&txn.postings).len()).sum();
-        let store = ledger.store.read().unwrap();
         assert!(
-            store.errors.is_empty(),
+            ledger.errors.is_empty(),
             "{:?}",
-            store.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>()
+            ledger.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>()
         );
         assert_eq!(stored, 2, "both postings reach the store");
     }

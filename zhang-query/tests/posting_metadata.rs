@@ -64,7 +64,7 @@ fn expect_table(ledger: &Ledger, query: &str, expected: &str) {
 
 fn ledger() -> Ledger {
     let ledger = common::load_text(LEDGER);
-    let errors: Vec<String> = ledger.store.read().unwrap().errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
+    let errors: Vec<String> = ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
     assert!(errors.is_empty(), "{errors:?}");
     ledger
 }

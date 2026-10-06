@@ -31,6 +31,7 @@ use zhang_core::data_type::text::parser::{
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 
 use crate::error::ServerError;
 use crate::response::InvalidKind;
@@ -128,10 +129,17 @@ impl Names {
                 _ => {}
             }
         }
-        let store = ledger.store.read().expect("poison lock detect");
-        names
-            .commodities
-            .extend(store.balance_assertions.iter().map(|assertion| assertion.amount.commodity.clone()));
+        // the commodities of the balance assertions the load checked
+        for (directive, outcome) in ledger.directives.iter().zip(&ledger.outcomes) {
+            let amount = match &directive.data {
+                Directive::BalanceCheck(check) => &check.amount,
+                Directive::BalancePad(pad) => &pad.amount,
+                _ => continue,
+            };
+            if matches!(outcome.detail, Detail::Assertion { .. }) {
+                names.commodities.insert(amount.commodity.clone());
+            }
+        }
         names
     }
 }
@@ -604,26 +612,11 @@ mod test {
 
     #[test]
     fn a_commodity_only_a_balance_assertion_uses_is_known() {
-        use std::str::FromStr;
-
         use bigdecimal::BigDecimal;
-        use chrono::TimeZone;
-        use zhang_core::store::BalanceAssertionDomain;
 
-        let ledger = ledger("");
+        // a balance assertion in a commodity nothing else of the ledger names
+        let ledger = ledger("1970-01-01 open Assets:Cash\n2024-01-01 balance Assets:Cash 0 Usd\n");
         let usd = Amount::new(BigDecimal::from(1), "Usd");
-        ledger.store.write().unwrap().balance_assertions.push(BalanceAssertionDomain {
-            id: uuid::Uuid::nil(),
-            sequence: 1,
-            directive: 0,
-            datetime: chrono_tz::Tz::UTC.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
-            account: Account::from_str("Assets:Cash").unwrap(),
-            amount: usd.clone(),
-            tolerance: None,
-            balance: usd.clone(),
-            passed: true,
-            span: Default::default(),
-        });
         let rules = Rules::Beancount(KnownNames::of(&ledger));
         assert!(amount(&usd, &rules).is_ok(), "a commodity of an assertion is one the ledger has");
         assert!(

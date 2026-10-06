@@ -14,8 +14,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::constants::*;
-use crate::domains::schemas::{CommodityDomain, OptionDomain};
-use crate::domains::Operations;
+use crate::domains::schemas::{CommodityDomain, ErrorDomain, OptionDomain};
 use crate::features::Features;
 use crate::inventory::BookingMethod;
 use crate::utils::hashmap::HashMapOfExt;
@@ -122,22 +121,23 @@ impl BuiltinOption {
 }
 
 impl InMemoryOptions {
-    /// read the option `key`, and keep its value as resolved ([`InMemoryOptions::option`])
-    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, operation: &mut Operations, span: &SpanInfo) -> ZhangResult<()> {
+    /// read the option `key`, and keep its value as resolved ([`InMemoryOptions::option`]); what is wrong with it is
+    /// reported in `errors`
+    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, errors: &mut Vec<ErrorDomain>, span: &SpanInfo) -> ZhangResult<()> {
         let key = key.into();
-        let value = self.resolve(&key, value.into(), operation, span)?;
+        let value = self.resolve(&key, value.into(), errors, span)?;
         self.values.insert(key, value);
         Ok(())
     }
 
     /// the value of the option `key` as resolved: the value written, or what replaces an invalid one
-    fn resolve(&mut self, key: &str, value: String, operation: &mut Operations, span: &SpanInfo) -> ZhangResult<String> {
+    fn resolve(&mut self, key: &str, value: String, errors: &mut Vec<ErrorDomain>, span: &SpanInfo) -> ZhangResult<String> {
         if let Ok(option) = BuiltinOption::from_str(key) {
             match option {
                 BuiltinOption::OperatingCurrency => {
                     let has_operating_currency = self.values.contains_key(key);
                     if has_operating_currency {
-                        operation.new_error(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default())?;
+                        errors.push(ErrorDomain::new(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default()));
                     }
                     value.clone_into(&mut self.operating_currency);
                     self.operating_currency_read = true;
@@ -180,7 +180,7 @@ impl InMemoryOptions {
                     let (method, error) = BookingMethod::resolve(&value, self.default_booking_method);
                     self.default_booking_method = method;
                     if let Some(kind) = error {
-                        operation.new_error(kind, span, HashMap::of("booking_method", value.clone()))?;
+                        errors.push(ErrorDomain::new(kind, span, HashMap::of("booking_method", value.clone())));
                         return Ok(method.to_string());
                     }
                 }

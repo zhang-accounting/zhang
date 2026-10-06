@@ -17,7 +17,7 @@ use crate::ZhangResult;
 /// pass keeps nothing: the lots it builds are stale as soon as a later stage adds a transaction,
 /// and its errors are those of a stream the plugins have not seen yet. [`ValidateStage`](super::ValidateStage) books the
 /// final stream again (pass 2): it leaves what is booked unchanged, completes what a stage left
-/// unbooked, reports every booking error once, and its lots become the store's.
+/// unbooked, reports every booking error once, and its lots are the ledger's.
 pub struct BookingStage;
 
 impl ProcessStage for BookingStage {

@@ -1,42 +1,38 @@
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
-use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
 use log::{error, info};
 use uuid::Uuid;
-use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, SpanInfo, Spanned, Transaction};
+use zhang_ast::{Account, Date, Directive, Flag, Options, Plugin, SpanInfo, Spanned, Transaction};
 
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
-use crate::constants::COMMODITY_GROUP;
+use crate::constants::{COMMODITY_GROUP, TXN_ID};
 use crate::data_source::{DataSource, MissingInclude};
 use crate::data_type::Dialect;
 use crate::derived::Derived;
-use crate::domains::schemas::{AccountStatus, CommodityDomain, QueryDomain, TransactionInfoDomain};
-use crate::domains::Operations;
+use crate::domains::schemas::{AccountStatus, CommodityDomain, ErrorDomain, QueryDomain, TransactionInfoDomain};
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
 use crate::inventory::BookingMethod;
 use crate::options::{BuiltinOption, InMemoryOptions};
+use crate::outcome::{Detail, Outcome};
 use crate::pipeline::{
     builtin_stages, run_pipeline, AccountLifecycle, AccountUse, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage,
     StageContext,
 };
 use crate::process::budget::{DefinedBudget, ForeignAmount};
 use crate::process::commodity::commodity_precision;
-use crate::process::DirectiveProcess;
-use crate::store::{BalanceAssertionDomain, Store};
 use crate::utils::id::FromSpan;
-use crate::{ZhangError, ZhangResult};
+use crate::{process, ZhangResult};
 
 /// stages with the slot ([`PluginStage`]) they run in, relative to the booking stage
 type SlottedStages = Vec<(PluginStage, Box<dyn ProcessStage>)>;
@@ -107,35 +103,41 @@ pub struct Ledger {
 
     pub options: InMemoryOptions,
 
+    /// the dated directives, processed: in the order zhang checks and books them ([`Ledger::sort_directives_datetime`]),
+    /// booked, with what the plugins and the built-in stages made of them
     pub directives: Vec<Spanned<Directive>>,
     pub metas: Vec<Spanned<Directive>>,
 
-    pub store: Arc<RwLock<Store>>,
+    /// what the load decided about each of [`Ledger::directives`], at the same index: the ids of the transactions and
+    /// of the balance assertions, the order zhang processed them in, what each assertion found, where each document is
+    pub outcomes: Vec<Outcome>,
 
-    pub(crate) trx_counter: AtomicI32,
+    /// the errors of the load, in the order reported: those of reading the ledger and its options and plugins, then
+    /// those of the stages, then those of the fold
+    pub errors: Vec<ErrorDomain>,
 
-    /// Final stage results consumed while materializing the store.
-    validation: Option<FinalValidation>,
+    /// the index in [`Ledger::directives`] of every transaction and balance assertion, by id
+    ids: HashMap<Uuid, usize>,
 
-    /// The budgets defined so far, solely for budget validation during the store fold. The query
+    /// The budgets defined so far, solely for budget validation during the fold. The query
     /// engine computes budget figures from directives and booked postings; no budget totals are
     /// stored.
     pub(crate) defined_budgets: Option<HashMap<String, DefinedBudget>>,
 
-    /// the amounts of budgets in another commodity, checked for a price after the store fold
+    /// the amounts of budgets in another commodity, checked for a price after the fold
     pub(crate) foreign_budget_amounts: Vec<ForeignAmount>,
 
-    /// the (account, budget) pairs whose undefined budget the store fold already reported
+    /// the (account, budget) pairs whose undefined budget the fold already reported
     pub(crate) reported_undefined_budgets: HashSet<(String, String)>,
 
-    /// the (account, budget) pairs whose closed budget the store fold already reported
+    /// the (account, budget) pairs whose closed budget the fold already reported
     pub(crate) reported_closed_budgets: HashSet<(String, String)>,
 
-    /// during the store fold, the date and time of the first `commodity` directive of each commodity: an `open` may
+    /// during the fold, the date and time of the first `commodity` directive of each commodity: an `open` may
     /// name a commodity defined at its own date and time, which sorts after it ([`Ledger::sort_directives_datetime`])
     pub(crate) commodity_dates: HashMap<String, NaiveDateTime>,
 
-    /// during the store fold, the commodities of the `commodity` directives folded so far, which the directives after
+    /// during the fold, the commodities of the `commodity` directives folded so far, which the directives after
     /// them may use
     pub(crate) defined_commodities: HashSet<String>,
 
@@ -310,10 +312,10 @@ impl Ledger {
             extra_inputs: IndexSet::new(),
             directives: vec![],
             metas: vec![],
+            outcomes: vec![],
+            errors: vec![],
+            ids: HashMap::new(),
             data_source: context.data_source,
-            store: Default::default(),
-            trx_counter: AtomicI32::new(1),
-            validation: None,
             defined_budgets: None,
             foreign_budget_amounts: vec![],
             reported_undefined_budgets: HashSet::new(),
@@ -337,60 +339,50 @@ impl Ledger {
 
     /// [`Ledger::process`] of what a data source loaded, with the `include`s it found naming no file
     fn process_loaded(context: LedgerProcessContext, missing_includes: Vec<MissingInclude>) -> ZhangResult<Ledger> {
-        let (mut ret_ledger, mut split) = Ledger::init(context);
-        ret_ledger.report_missing_includes(missing_includes)?;
-        ret_ledger.handle_options(&mut split.options_directives)?;
+        let (mut ret_ledger, split) = Ledger::init(context);
+        ret_ledger.report_missing_includes(missing_includes);
+        ret_ledger.handle_options(&split.options_directives)?;
         ret_ledger.finish_process(split)
     }
 
     /// An `include` that names no file is an error on it, and the rest of the ledger loads (#494): a typo in one path
     /// leaves the other files usable, and the errors page shows it. The file it looks for is an input of the ledger,
     /// so creating it reloads the ledger
-    fn report_missing_includes(&mut self, missing_includes: Vec<MissingInclude>) -> ZhangResult<()> {
-        let mut operations = self.operations();
+    fn report_missing_includes(&mut self, missing_includes: Vec<MissingInclude>) {
         for missing in missing_includes {
-            operations.new_error(ErrorKind::IncludeNotFound, &missing.span, HashMap::from([("path".to_owned(), missing.path)]))?;
+            self.report(ErrorKind::IncludeNotFound, &missing.span, HashMap::from([("path".to_owned(), missing.path)]));
             if let Some(input) = missing.file.and_then(|file| ExtraInput::ledger_file(&self.entry.0, &file)) {
                 self.extra_inputs.insert(input);
             }
         }
-        Ok(())
     }
 
-    /// the rest of [`Ledger::process_loaded`], once the options are handled: the plugins, the stages and the store
+    /// the rest of [`Ledger::process_loaded`], once the options are handled: the plugins, the stages and the fold
     fn finish_process(mut self, split: SplitDirectives) -> ZhangResult<Ledger> {
         let SplitDirectives {
             options_directives: _,
-            mut plugin_directives,
+            plugin_directives,
             full_stream,
         } = split;
-        self.handle_plugins(&mut plugin_directives)?;
+        self.handle_plugins(&plugin_directives)?;
 
-        // the pipeline always runs (built-in stages at least); `directives`/`metas`
-        // reflect its output, so the store and the directive list agree
-        let stage_error_start = self.operations().read().errors.len();
-        let (processed, assertions, validation) = self.run_stages(full_stream)?;
-        self.validation = Some(validation);
-        let (metas, mut dated) = Ledger::partition_processed_directives(processed);
-        // the store fold checks the budgets of postings with it
+        // the pipeline always runs (built-in stages at least); `directives`/`metas` are its output
+        let (processed, assertions, mut validation) = self.run_stages(full_stream)?;
+        let (metas, dated) = Ledger::partition_processed_directives(processed);
+        // the stage errors precede the fold's, which gives those naming a transaction its id
+        let stage_errors = self.errors.len();
+        let reported = validation.errors.drain(..).map(|error| ErrorDomain::new(error.kind, &error.span, error.metas));
+        self.errors.extend(reported.collect_vec());
+        // the fold checks the budgets of postings with it
         self.lifecycle = AccountLifecycle::of(&dated);
-        self.handle_other_directives(&mut dated, assertions)?;
-        let validation = self.validation.take().expect("validation results are consumed during materialization");
-        let stage_error_count = validation.errors.len();
-        let mut operations = self.operations();
-        for error in validation.errors {
-            operations.new_error(error.kind, &error.span, error.metas)?;
-        }
-        // Stage errors precede materialization errors. Delay insertion until transaction IDs have
-        // been bound, then move them before the fold's errors without disturbing either group.
-        operations.write().errors[stage_error_start..].rotate_right(stage_error_count);
+        // the undated directives come first in the pipeline's output
+        self.outcomes = self.fold(&dated, metas.len(), assertions, validation, stage_errors)?;
         self.metas = metas;
         self.directives = dated;
+        self.place_errors();
 
-        let mut operations = self.operations();
-        let errors = operations.errors()?;
-        if !errors.is_empty() {
-            error!("Ledger loaded with {} error", errors.len());
+        if !self.errors.is_empty() {
+            error!("Ledger loaded with {} error", self.errors.len());
         } else {
             info!("Ledger loaded");
         }
@@ -471,22 +463,35 @@ impl Ledger {
         queries.collect()
     }
 
-    /// The transactions zhang stored, each with its id, booked, in the order zhang processed them.
-    pub fn transactions(&self) -> Vec<(Uuid, &Transaction)> {
-        let store = self.store.read().expect("poison lock detect");
-        let stored = store.transactions.values().sorted_by_key(|txn| txn.sequence);
-        stored
-            .filter_map(|txn| match &self.directives.get(txn.directive)?.data {
-                Directive::Transaction(transaction) => Some((txn.id, transaction)),
-                _ => None,
-            })
-            .collect()
+    /// The entries of the ledger, every directive but the transactions the load rejected, each with its index in
+    /// [`Ledger::directives`] and what the load decided about it, in the order zhang processed them ([`Outcome::seq`]).
+    pub fn entries(&self) -> Vec<(usize, &Spanned<Directive>, &Outcome)> {
+        let entries = self.directives.iter().zip(&self.outcomes).enumerate();
+        let entries = entries
+            .filter(|(_, (_, outcome))| outcome.seq.is_some())
+            .map(|(index, (directive, outcome))| (index, directive, outcome));
+        let mut entries = entries.collect_vec();
+        entries.sort_unstable_by_key(|(_, _, outcome)| outcome.seq);
+        entries
     }
 
-    /// The directive of the transaction `id` zhang stored: its booked postings, its header and where it is written.
+    /// The transactions the load accepted, each with its id, booked, in the order zhang processed them.
+    pub fn transactions(&self) -> Vec<(Uuid, &Transaction)> {
+        let accepted = self
+            .directives
+            .iter()
+            .zip(&self.outcomes)
+            .filter_map(|(directive, outcome)| match (&directive.data, &outcome.detail) {
+                (Directive::Transaction(transaction), Detail::Transaction { id, .. }) => Some((*id, transaction)),
+                _ => None,
+            });
+        accepted.collect()
+    }
+
+    /// The directive of the transaction `id` the load accepted: its booked postings, its header and where it is written.
     pub fn transaction_directive(&self, id: &Uuid) -> Option<&Spanned<Directive>> {
-        let store = self.store.read().expect("poison lock detect");
-        self.directives.get(store.transactions.get(id)?.directive)
+        let index = *self.ids.get(id)?;
+        matches!(self.outcomes[index].detail, Detail::Transaction { .. }).then(|| &self.directives[index])
     }
 
     /// Where the transaction `id` zhang stored is written: the span of its directive.
@@ -499,14 +504,6 @@ impl Ledger {
             span_end: span.end,
             span: span.clone(),
         })
-    }
-
-    pub fn operations(&self) -> Operations {
-        let timezone = self.options.timezone;
-        Operations {
-            store: self.store.clone(),
-            timezone,
-        }
     }
 
     /// the clock this ledger was loaded with; a reload reads the same clock again
@@ -617,135 +614,170 @@ impl Ledger {
         }
     }
 
-    fn handle_options(&mut self, options_directives: &mut [(Options, SpanInfo)]) -> ZhangResult<()> {
-        // handle option
-        for (option, span) in options_directives.iter_mut() {
-            option.handler(self, span)?;
+    fn handle_options(&mut self, options_directives: &[(Options, SpanInfo)]) -> ZhangResult<()> {
+        for (option, span) in options_directives {
+            self.options.parse(option.key.as_str(), option.value.as_str(), &mut self.errors, span)?;
         }
         Ok(())
     }
 
-    fn handle_plugins(&mut self, plugin_directives: &mut [(Plugin, SpanInfo)]) -> Result<(), ZhangError> {
-        for (plugin, span) in plugin_directives.iter_mut() {
-            plugin.handler(self, span)?;
+    fn handle_plugins(&mut self, plugin_directives: &[(Plugin, SpanInfo)]) -> ZhangResult<()> {
+        for (plugin, span) in plugin_directives {
+            crate::process::plugin::register(plugin, self, span)?;
         }
         Ok(())
     }
 
-    /// fold the pipeline's output into the store; `assertions` are what the balance-check stage found
-    /// for the `balance` directives
-    fn handle_other_directives(&mut self, directives: &mut [Spanned<Directive>], mut assertions: AssertionOutcomes) -> Result<(), ZhangError> {
+    /// report the error `kind` of the directive at `span`, with what else the load knows of it in `metas`
+    pub(crate) fn report(&mut self, kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) {
+        self.errors.push(ErrorDomain::new(kind, span, metas));
+    }
+
+    /// Fold the pipeline's output `directives`, which become [`Ledger::directives`]: decide what
+    /// [`Ledger::outcomes`] holds for each of them, and check what the stages leave to the fold. The stages' results,
+    /// `assertions` and `validation`, are by the index in the pipeline's output, where `offset` undated directives come
+    /// first. The stage errors begin at `stage_errors` in [`Ledger::errors`]: those naming a transaction get its id.
+    ///
+    /// The directives are numbered in the order zhang processes them (`seq`), which is their order but for the check of
+    /// a `balance ... with pad`: it is checked once every balance entry of its time is applied, its padding included,
+    /// and comes after them.
+    fn fold(
+        &mut self, directives: &[Spanned<Directive>], offset: usize, mut assertions: AssertionOutcomes, mut validation: FinalValidation, stage_errors: usize,
+    ) -> ZhangResult<Vec<Outcome>> {
         self.defined_budgets = Some(HashMap::new());
-        for directive in directives.iter() {
+        for directive in directives {
             if let (Directive::Commodity(commodity), Some(at)) = (&directive.data, directive.datetime()) {
                 let first = self.commodity_dates.entry(commodity.currency.clone()).or_insert(at);
                 *first = (*first).min(at);
             }
         }
-        // the `balance ... with pad` directives of the balance entries being folded: their checks are kept after
-        // the last one, where the balance-check stage checked them, so they follow their padding in the journal
-        let mut pads: Vec<(BalancePad, SpanInfo, usize)> = vec![];
+        let mut outcomes = vec![Outcome::default(); directives.len()];
+        let mut seq = 0..;
+        // the `balance ... with pad` directives of the balance entries being folded, numbered after the last one
+        let mut pads: Vec<usize> = vec![];
         let mut pads_at = None;
-        // the index of a directive here is its index in `Ledger::directives`, which the store records
-        for (index, directive) in directives.iter_mut().enumerate() {
+        for (index, directive) in directives.iter().enumerate() {
             if !pads.is_empty() && !(Ledger::is_balance_entry(&directive.data) && directive.datetime() == pads_at) {
-                self.insert_pad_assertions(&mut pads, &mut assertions)?;
-            }
-            match &mut directive.data {
-                // only dated directives reach the fold: options/plugins were handled
-                // before the pipeline, and the undated arms below are unreachable
-                Directive::Option(_) => {}
-                Directive::Open(open) => open.handler(self, &directive.span)?,
-                // the account lifecycle reads it from the processed stream: `Ledger::account_status`
-                Directive::Close(_) => {}
-                Directive::Commodity(commodity) => commodity.handler(self, &directive.span)?,
-                Directive::Transaction(trx) => crate::process::transaction::fold(trx, self, &directive.span, index)?,
-                // the pad stage materialized it into its padding transactions
-                Directive::Pad(_) => {}
-                // the pad stage materialized its padding into a transaction; its check is kept for the journal
-                Directive::BalancePad(pad) => {
-                    pads.push((pad.clone(), directive.span.clone(), index));
-                    pads_at = directive.datetime();
+                for pad in pads.drain(..) {
+                    outcomes[pad] = self.assertion(&directives[pad].span, pad, assertions.remove(&(offset + pad)), seq.next());
                 }
-                // books nothing: the check is kept for the journal
-                Directive::BalanceCheck(check) => {
-                    if let Some(outcome) = assertions.take(&directive.span) {
-                        self.insert_balance_assertion(
-                            &check.date,
-                            &check.account,
-                            &check.amount,
-                            check.tolerance.clone(),
-                            &directive.span,
-                            index,
-                            outcome,
-                        )?;
+            }
+            let span = &directive.span;
+            let detail = match &directive.data {
+                Directive::Open(open) => {
+                    process::open::check(open, self, span);
+                    Detail::None
+                }
+                Directive::Commodity(commodity) => {
+                    process::commodity::define(commodity, self)?;
+                    Detail::None
+                }
+                Directive::Transaction(txn) => {
+                    // a stage may synthesize several transactions at one place: the paddings of a `pad` serving several
+                    // currencies
+                    let id = self.unused_id(Uuid::from_span(span));
+                    // the stage errors naming the transaction name it by this id, which a rejected one does not keep
+                    let validated = validation.take(offset + index);
+                    for error in validated.error_indices {
+                        self.errors[stage_errors + error].metas.insert(TXN_ID.to_owned(), id.to_string());
                     }
+                    if !validated.accepted {
+                        continue;
+                    }
+                    self.ids.insert(id, index);
+                    process::transaction::check_budgets(txn, self, span);
+                    Detail::Transaction { id, errors: vec![] }
                 }
-                Directive::Note(_) => {}
-                Directive::Document(document) => document.handler(self, &directive.span)?,
-                Directive::Price(price) => price.handler(self, &directive.span)?,
-                Directive::Event(_) => {}
-                Directive::Custom(_) => {}
-                // `Ledger::queries` reads it from the processed stream
-                Directive::Query(_) => {}
-                Directive::Plugin(_) => {}
-                Directive::Include(_) => {}
-                Directive::Comment(_) => {}
-                Directive::Budget(budget) => budget.handler(self, &directive.span)?,
-                Directive::BudgetAdd(budget_add) => budget_add.handler(self, &directive.span)?,
-                Directive::BudgetTransfer(budget_transfer) => budget_transfer.handler(self, &directive.span)?,
-                Directive::BudgetClose(budget_close) => budget_close.handler(self, &directive.span)?,
-            }
+                Directive::BalancePad(_) => {
+                    pads.push(index);
+                    pads_at = directive.datetime();
+                    continue;
+                }
+                Directive::BalanceCheck(_) => {
+                    outcomes[index] = self.assertion(span, index, assertions.remove(&(offset + index)), seq.next());
+                    continue;
+                }
+                Directive::Document(document) => process::document::resolve(document, self, span),
+                Directive::Price(price) => {
+                    process::price::check(price, self, span);
+                    Detail::None
+                }
+                Directive::Budget(budget) => {
+                    process::budget::define(budget, self, span);
+                    Detail::None
+                }
+                Directive::BudgetAdd(add) => {
+                    process::budget::add(add, self, span);
+                    Detail::None
+                }
+                Directive::BudgetTransfer(transfer) => {
+                    process::budget::transfer(transfer, self, span);
+                    Detail::None
+                }
+                Directive::BudgetClose(close) => {
+                    process::budget::close(close, self, span);
+                    Detail::None
+                }
+                // a `close` the account lifecycle reads from the processed stream (`Ledger::account_status`), a `pad`
+                // the pad stage materialized into its padding transactions, a `query` `Ledger::queries` reads
+                _ => Detail::None,
+            };
+            outcomes[index] = Outcome { seq: seq.next(), detail };
         }
-        self.insert_pad_assertions(&mut pads, &mut assertions)?;
+        for pad in pads {
+            outcomes[pad] = self.assertion(&directives[pad].span, pad, assertions.remove(&(offset + pad)), seq.next());
+        }
         // every price is known now
-        crate::process::budget::report_unconverted_amounts(self, directives)?;
+        process::budget::report_unconverted_amounts(self, directives);
         self.defined_budgets = None;
         self.commodity_dates = HashMap::new();
         self.defined_commodities = HashSet::new();
-        Ok(())
+        Ok(outcomes)
     }
 
-    /// keep the checks of the `balance ... with pad` directives in `pads` (with their index in the stream) in the store
-    fn insert_pad_assertions(&mut self, pads: &mut Vec<(BalancePad, SpanInfo, usize)>, assertions: &mut AssertionOutcomes) -> ZhangResult<()> {
-        for (pad, span, index) in pads.drain(..) {
-            if let Some(outcome) = assertions.take(&span) {
-                self.insert_balance_assertion(&pad.date, &pad.account, &pad.amount, None, &span, index, outcome)?;
+    /// the outcome of the `balance` assertion at `span`, the directive at `index`, numbered `seq`: the id of its check
+    /// and what the balance-check stage found (`outcome`)
+    fn assertion(&mut self, span: &SpanInfo, index: usize, outcome: Option<AssertionOutcome>, seq: Option<u32>) -> Outcome {
+        let detail = match outcome {
+            Some(AssertionOutcome { balance, passed }) => {
+                // the padding transaction of a `balance ... with pad` has the id of its span already
+                let id = self.unused_id(Uuid::from_span(span));
+                self.ids.insert(id, index);
+                Detail::Assertion { id, balance, passed }
+            }
+            None => Detail::None,
+        };
+        Outcome { seq, detail }
+    }
+
+    /// `id`, or if a transaction or a balance assertion has it already, the first id derived from it
+    /// ([`FromSpan::derived`]) that none has. Directives can share a span, which ids are derived from: the padding
+    /// transactions of a `pad` serving several currencies, a `balance ... with pad`, whose check is kept, and its
+    /// padding transaction, and the directives a plugin emits for one of the ledger. A derived id lives apart from
+    /// posting ids ([`FromSpan::from_txn_posting`]), and so does `id`, which is no posting id of its own transaction
+    fn unused_id(&self, id: Uuid) -> Uuid {
+        let mut candidates = (0..).map(|n| if n == 0 { id } else { Uuid::derived(&id, n) });
+        candidates.find(|candidate| !self.ids.contains_key(candidate)).expect("an id is free")
+    }
+
+    /// give every transaction the load accepted the errors reported at its place, the file and the offset of its
+    /// directive: the first of the transactions sharing a place takes them, in the order zhang processed the ledger
+    fn place_errors(&mut self) {
+        /// the place of `span`, its file compared as a string, as ids are derived from it
+        fn place(span: &SpanInfo) -> (Option<&OsStr>, usize) {
+            (span.filename.as_deref().map(Path::as_os_str), span.start)
+        }
+        let mut at_place: HashMap<_, Vec<usize>> = HashMap::new();
+        for (index, error) in self.errors.iter().enumerate() {
+            if let Some(span) = &error.span {
+                at_place.entry(place(span)).or_default().push(index);
             }
         }
-        Ok(())
-    }
-
-    /// keep a checked balance assertion in the store, in its place among the transactions; `directive` is the index of
-    /// its directive in the stream being folded
-    #[allow(clippy::too_many_arguments)]
-    fn insert_balance_assertion(
-        &mut self, date: &Date, account: &Account, amount: &Amount, tolerance: Option<BigDecimal>, span: &SpanInfo, directive: usize, outcome: AssertionOutcome,
-    ) -> ZhangResult<()> {
-        let sequence = self.trx_counter.fetch_add(1, Ordering::Relaxed);
-        let mut operations = self.operations();
-        // the padding transaction of a `balance ... with pad` has the id of its span already
-        let id = operations.unused_id(Uuid::from_span(span));
-        operations.insert_balance_assertion(BalanceAssertionDomain {
-            id,
-            sequence,
-            directive,
-            datetime: date.to_timezone_datetime(&self.options.timezone),
-            account: account.clone(),
-            amount: amount.clone(),
-            tolerance,
-            balance: outcome.balance,
-            passed: outcome.passed,
-            span: span.clone(),
-        })
-    }
-
-    /// Consume final validation for the transaction the store is about to materialize.
-    pub(crate) fn take_validated_transaction(&mut self, span: &SpanInfo, id: Uuid) -> bool {
-        self.validation
-            .as_mut()
-            .expect("validation results exist while materializing the store")
-            .take_transaction(span, id)
+        for (directive, outcome) in self.directives.iter().zip(&mut self.outcomes) {
+            if let Detail::Transaction { errors, .. } = &mut outcome.detail {
+                *errors = at_place.remove(&place(&directive.span)).unwrap_or_default();
+            }
+        }
     }
 
     /// split a stage-processed stream back into (`metas`, `directives`) by datedness.
@@ -834,6 +866,7 @@ mod test {
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::ledger::Ledger;
+    use crate::outcome::Detail;
     use crate::pipeline::{PluginStage, ProcessStage, StageContext};
     use crate::utils::id::FromSpan;
     use crate::ZhangResult;
@@ -935,8 +968,51 @@ mod test {
         ids.collect()
     }
 
+    /// A balance assertion the load checked: its number among the transactions and the checks, from 1, in the order
+    /// zhang processed them, the id of its check, the account, amount and tolerance it asserts, and what the check found
+    pub(super) struct Checked<'a> {
+        pub sequence: i32,
+        pub id: uuid::Uuid,
+        pub account: &'a zhang_ast::Account,
+        pub amount: &'a zhang_ast::amount::Amount,
+        pub tolerance: Option<&'a bigdecimal::BigDecimal>,
+        pub balance: &'a zhang_ast::amount::Amount,
+        pub passed: bool,
+    }
+
+    /// the balance assertions the load checked, in the order zhang processed them
+    pub(super) fn checked(ledger: &Ledger) -> Vec<Checked<'_>> {
+        let mut sequence = 0;
+        let mut checked = vec![];
+        for (_, directive, outcome) in ledger.entries() {
+            match (&outcome.detail, &directive.data) {
+                (Detail::Transaction { .. }, _) => sequence += 1,
+                (Detail::Assertion { id, balance, passed }, data) => {
+                    sequence += 1;
+                    let (account, amount, tolerance) = match data {
+                        Directive::BalanceCheck(check) => (&check.account, &check.amount, check.tolerance.as_ref()),
+                        Directive::BalancePad(pad) => (&pad.account, &pad.amount, None),
+                        _ => unreachable!("a check is of a balance assertion"),
+                    };
+                    let (id, passed) = (*id, *passed);
+                    checked.push(Checked {
+                        sequence,
+                        id,
+                        account,
+                        amount,
+                        tolerance,
+                        balance,
+                        passed,
+                    });
+                }
+                _ => {}
+            }
+        }
+        checked
+    }
+
     fn error_kinds(ledger: &Ledger) -> Vec<ErrorKind> {
-        ledger.store.read().unwrap().errors.iter().map(|it| it.error_type.clone()).collect()
+        ledger.errors.iter().map(|it| it.error_type.clone()).collect()
     }
 
     /// the lots of `account` as the query engine lists them (`commodities.lots`), which a unit test cannot run: the
@@ -944,16 +1020,10 @@ mod test {
     /// were opened, as `units commodity cost date`
     fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
         use bigdecimal::{BigDecimal, Zero};
-        let store = ledger.store.read().unwrap();
-        let mut stored = store.transactions.values().collect::<Vec<_>>();
-        stored.sort_by_key(|txn| txn.sequence);
         // commodity, cost, acquisition date and label
         type Lot = (String, Option<String>, Option<chrono::NaiveDate>, Option<String>);
         let mut lots: Vec<(Lot, BigDecimal)> = vec![];
-        for txn in stored {
-            let Directive::Transaction(booked) = &ledger.directives[txn.directive].data else {
-                continue;
-            };
+        for (_, booked) in ledger.transactions() {
             for leg in booked.postings.iter().filter(|leg| leg.account.name() == account) {
                 let Some(units) = &leg.units else { continue };
                 let cost = leg.cost.as_ref().filter(|cost| cost.base.is_some());
@@ -1122,17 +1192,16 @@ mod test {
             )],
         );
         let postings = posting_ids(&ledger);
-        let store = ledger.store.read().unwrap();
-        let base = store.balance_assertions[0].id;
+        let base = checked(&ledger)[0].id;
         let first = uuid::Uuid::derived(&base, 1);
         let second = uuid::Uuid::derived(&base, 2);
         let after = uuid::Uuid::derived(&base, 3);
-        assert_eq!(store.transactions.len(), 2);
-        assert!(store.transactions.contains_key(&first));
-        assert!(store.transactions.contains_key(&second));
+        assert_eq!(ledger.transactions().len(), 2);
+        assert!(ledger.transaction_directive(&first).is_some());
+        assert!(ledger.transaction_directive(&second).is_some());
         assert_eq!(postings.len(), 4);
         assert_eq!(
-            store
+            ledger
                 .errors
                 .iter()
                 .map(|error| (error.error_type.clone(), error.metas[crate::constants::TXN_ID].clone()))
@@ -1145,7 +1214,6 @@ mod test {
             ]
         );
         assert_eq!(ledger.directives.iter().filter(|it| matches!(it.data, Directive::Transaction(_))).count(), 4);
-        assert!(ledger.validation.is_none(), "temporary validation results are dropped after loading");
     }
 
     /// the names of the stages the next load runs, with `stages` in a plugin's place
@@ -1218,11 +1286,10 @@ mod test {
         // 20 bought, 15 sold by hand, 3 by the plugin: 2 left; the plugin's income is 3 × 11 CNY
         assert_eq!(error_kinds(&ledger), vec![]);
         assert_eq!(rows(&ledger, "plugin sale"), vec!["Assets:S -3 USD = -3 USD", "Income:I ? = 33 CNY"]);
-        let store = ledger.store.read().unwrap();
         assert!(
-            store.balance_assertions.iter().all(|it| it.passed),
+            checked(&ledger).iter().all(|it| it.passed),
             "{:?}",
-            store.balance_assertions.iter().map(|it| (&it.account, &it.balance)).collect::<Vec<_>>()
+            checked(&ledger).iter().map(|it| (it.account, it.balance)).collect::<Vec<_>>()
         );
     }
 
@@ -1270,8 +1337,7 @@ mod test {
         // error, and it pads the 5 USD the assertion needs
         assert_eq!(error_kinds(&ledger), vec![]);
         assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD None None"]);
-        let store = ledger.store.read().unwrap();
-        assert!(store.balance_assertions.iter().all(|it| it.passed));
+        assert!(checked(&ledger).iter().all(|it| it.passed));
         let sale = transaction(&ledger.directives, "sell");
         assert_eq!(
             sale.postings[0].cost.as_ref().and_then(|it| it.base.as_ref()).map(ToString::to_string),
@@ -1350,12 +1416,11 @@ mod test {
         })
         .unwrap();
         let postings = posting_ids(&ledger);
-        let store = ledger.store.read().unwrap();
-        let ids = store.balance_assertions.iter().map(|it| it.id).collect::<Vec<_>>();
+        let ids = checked(&ledger).iter().map(|it| it.id).collect::<Vec<_>>();
         assert_eq!(ids.len(), 2);
         assert_ne!(ids[0], ids[1]);
         // and none is the id of a transaction or a posting
-        assert!(ids.iter().all(|id| !store.transactions.contains_key(id) && !postings.contains(id)));
+        assert!(ids.iter().all(|id| ledger.transaction_directive(id).is_none() && !postings.contains(id)));
     }
 
     mod write_back {
@@ -1930,8 +1995,7 @@ mod test {
         }
 
         fn errors(ledger: &Ledger) -> Vec<(ErrorKind, Option<String>)> {
-            let store = ledger.store.read().unwrap();
-            store
+            ledger
                 .errors
                 .iter()
                 .map(|it| (it.error_type.clone(), it.metas.get("account_name").cloned()))
@@ -1946,9 +2010,7 @@ mod test {
         type CheckedAssertion = (i32, String, BigDecimal, BigDecimal, bool);
 
         fn assertions(ledger: &Ledger) -> Vec<CheckedAssertion> {
-            let store = ledger.store.read().unwrap();
-            store
-                .balance_assertions
+            super::checked(ledger)
                 .iter()
                 .map(|it| {
                     assert_eq!(it.amount.commodity, it.balance.commodity);
@@ -2015,8 +2077,7 @@ mod test {
                 ]
             );
             // one `AccountClosed` for the pad, on its own span; the plain check after the close only records
-            let store = ledger.store.read().unwrap();
-            let closed_spans = store
+            let closed_spans = ledger
                 .errors
                 .iter()
                 .filter(|it| it.error_type == ErrorKind::AccountClosed)
@@ -2087,9 +2148,7 @@ mod test {
                 2023-01-03 balance Assets:A 50.004 CNY
             "#});
 
-            let store = ledger.store.read().unwrap();
-            let checks = store
-                .balance_assertions
+            let checks = super::checked(&ledger)
                 .iter()
                 .map(|it| {
                     (
@@ -2107,8 +2166,8 @@ mod test {
                     ("50.004".to_owned(), None, "50.004".to_owned(), true),
                 ]
             );
-            assert!(store.errors.is_empty());
-            assert_eq!(store.transactions.len(), 1);
+            assert!(ledger.errors.is_empty());
+            assert_eq!(ledger.transactions().len(), 1);
         }
 
         #[test]
@@ -2129,9 +2188,7 @@ mod test {
 
             assert_eq!(errors(&ledger), vec![(ErrorKind::AccountBalanceCheckError, Some("Assets:Bank".to_owned()))]);
             let postings = super::posting_ids(&ledger);
-            let store = ledger.store.read().unwrap();
-            let checks = store
-                .balance_assertions
+            let checks = super::checked(&ledger)
                 .iter()
                 .map(|it| (it.account.name().to_owned(), it.balance.number.clone(), it.passed))
                 .collect_vec();
@@ -2143,12 +2200,9 @@ mod test {
                 ]
             );
             // a check kept for a `balance ... with pad` has an id of its own, apart from its padding's and its postings'
-            let mut ids = store
-                .transactions
-                .keys()
-                .chain(&postings)
-                .chain(store.balance_assertions.iter().map(|it| &it.id))
-                .collect_vec();
+            let transactions = ledger.transactions().into_iter().map(|(id, _)| id).collect_vec();
+            let checks = super::checked(&ledger).iter().map(|it| it.id).collect_vec();
+            let mut ids = transactions.iter().chain(&postings).chain(&checks).collect_vec();
             let all = ids.len();
             ids.sort();
             ids.dedup();
@@ -2271,7 +2325,7 @@ mod test {
             }
             assert_eq!(synthesized, 1);
             // four checks and the `balance ... with pad`
-            assert_eq!(ledger.store.read().unwrap().balance_assertions.len(), 5);
+            assert_eq!(super::checked(&ledger).len(), 5);
             // re-sorting the final stream changes nothing
             assert_eq!(
                 ledger.directives.clone(),
@@ -2292,8 +2346,7 @@ mod test {
 
         /// (kind, first line of the span, `account_name` meta) of every error, in store order
         fn errors(ledger: &Ledger) -> Vec<(ErrorKind, String, Option<String>)> {
-            let store = ledger.store.read().unwrap();
-            store
+            ledger
                 .errors
                 .iter()
                 .map(|it| {
@@ -2332,7 +2385,7 @@ mod test {
                 ]
             );
             // report-only: both transactions are still booked
-            assert_eq!(ledger.store.read().unwrap().transactions.len(), 2);
+            assert_eq!(ledger.transactions().len(), 2);
         }
 
         #[test]
@@ -2542,9 +2595,8 @@ mod test {
             );
             // the padding transactions are still booked, and the checks kept for the journal, those of the
             // `balance ... with pad` directives too
-            let store = ledger.store.read().unwrap();
-            assert_eq!(store.transactions.len(), 2);
-            assert_eq!(store.balance_assertions.len(), 4);
+            assert_eq!(ledger.transactions().len(), 2);
+            assert_eq!(super::checked(&ledger).len(), 4);
         }
     }
     mod options {
@@ -2648,7 +2700,7 @@ mod test {
                 ]
             );
             // the text is not validated at load time
-            assert!(ledger.operations().read().errors.is_empty());
+            assert!(ledger.errors.is_empty());
             // the directives stay in the ledger's directive list
             assert_eq!(ledger.directives.iter().filter(|it| matches!(it.data, Directive::Query(_))).count(), 4);
         }
@@ -2738,7 +2790,7 @@ mod test {
 
                 // the plugin ran: its echo of the stream reached the store
                 assert_eq!(ledger.plugins.ordered.len(), 1);
-                assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+                assert_eq!(ledger.transactions().len(), 1);
                 assert_eq!(
                     ledger.extra_inputs.iter().cloned().collect_vec(),
                     vec![ExtraInput::File(PathBuf::from("plugins/echo.wat"))]
@@ -2821,7 +2873,7 @@ mod test {
 
             assert_eq!(ledger.clock(), Clock::Fixed(fixed));
             assert_eq!(ledger.clock_reading(), None, "nothing asked for the time on reload either");
-            assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+            assert_eq!(ledger.transactions().len(), 1);
         }
     }
 
@@ -2874,8 +2926,7 @@ mod test {
 
         /// reported errors in store order, with the first line of their span and their metas
         fn errors(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
-            let store = ledger.store.read().unwrap();
-            store
+            ledger
                 .errors
                 .iter()
                 .map(|it| {
@@ -2910,7 +2961,7 @@ mod test {
             "#});
 
             assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
-            assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+            assert_eq!(ledger.transactions().len(), 1);
             assert_eq!(balance(&ledger, "Assets:Cash"), BigDecimal::from(-10));
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(10));
             assert!(ledger.defined_budgets.is_none(), "validation state is dropped after loading");
@@ -2957,7 +3008,7 @@ mod test {
                     undefined_budget(r#"2023-03-01 "Shop" "snack""#, "Expenses:Snack", "Food"),
                 ]
             );
-            assert_eq!(ledger.store.read().unwrap().transactions.len(), 3);
+            assert_eq!(ledger.transactions().len(), 3);
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
             assert_eq!(balance(&ledger, "Assets:Cash"), BigDecimal::from(-35));
         }
@@ -2992,7 +3043,7 @@ mod test {
             "#});
 
             assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
-            assert_eq!(ledger.store.read().unwrap().transactions.len(), 2);
+            assert_eq!(ledger.transactions().len(), 2);
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
         }
 
@@ -3059,7 +3110,7 @@ mod test {
                 ]
             );
             // reported, and still booked: 100, 10, 30 and 40 CNY, and 20 USD
-            assert_eq!(ledger.store.read().unwrap().transactions.len(), 5);
+            assert_eq!(ledger.transactions().len(), 5);
             assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(180));
             assert_eq!(balance(&ledger, "Expenses:Abroad"), BigDecimal::from(20));
             assert!(ledger.foreign_budget_amounts.is_empty(), "validation state is dropped after loading");

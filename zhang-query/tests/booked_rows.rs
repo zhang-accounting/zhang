@@ -99,9 +99,8 @@ fn an_unbookable_copy_at_the_same_position_is_passed_over() {
     });
 
     let (stored, errors) = {
-        let store = ledger.store.read().unwrap();
-        let errors = store.errors.iter().map(|it| it.error_type.to_string()).collect::<Vec<_>>();
-        (store.transactions.len(), errors)
+        let errors = ledger.errors.iter().map(|it| it.error_type.to_string()).collect::<Vec<_>>();
+        (ledger.transactions().len(), errors)
     };
     assert_eq!(stored, 3, "the copy is not stored");
     assert!(
@@ -175,7 +174,7 @@ fn a_booked_copy_at_the_same_position_has_its_own_rows() {
         directives.insert(at + 1, Spanned::new(Directive::Transaction(copy), span));
         directives
     });
-    assert_eq!(ledger.store.read().unwrap().transactions.len(), 4);
+    assert_eq!(ledger.transactions().len(), 4);
     assert_eq!(sale_rows(&ledger), the_sale_booked());
     // the second sale takes 3 of the 5 AAPL left at 120: a gain of 90
     assert_eq!(

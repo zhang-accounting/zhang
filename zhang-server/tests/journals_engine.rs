@@ -778,8 +778,7 @@ async fn documents_come_from_the_documents_table_newest_first() {
     let ledger = scratch.ledger().await;
     let id = {
         let guard = ledger.read().await;
-        let store = guard.store.read().unwrap();
-        store.transactions.values().next().unwrap().id.to_string()
+        guard.transactions()[0].0.to_string()
     };
     let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
     assert_eq!(status, StatusCode::OK);
@@ -869,7 +868,7 @@ async fn the_document_of_a_split_sale_is_listed_once() {
     let ledger = scratch.ledger().await;
     {
         let guard = ledger.read().await;
-        assert!(guard.store.read().unwrap().errors.is_empty(), "{:?}", guard.store.read().unwrap().errors);
+        assert!(guard.errors.is_empty(), "{:?}", guard.errors);
         // the sale is booked against both lots
         let legs = zhang_query::execute(&guard, "SELECT count(*) FROM postings WHERE narration = 'sell' AND account = 'Assets:Broker'").unwrap();
         assert_eq!(legs.rows, vec![vec![zhang_query::Value::Int(2)]]);

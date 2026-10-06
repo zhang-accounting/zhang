@@ -412,8 +412,7 @@ mod test {
             ]
         );
         assert_eq!(errors_of(&ledger), vec![include_not_found("nothing/*.zhang")]);
-        let store = ledger.store.read().unwrap();
-        assert_eq!(store.transactions.len(), 2);
+        assert_eq!(ledger.transactions().len(), 2);
     }
 
     /// the local source reading the ledger at `dir`, as `zhang serve` builds it
@@ -440,10 +439,18 @@ mod test {
         opens.collect()
     }
 
+    /// the paths the load resolved the `document` directives of `ledger` to, and where else each may be, in ledger order
+    fn documents(ledger: &Ledger) -> Vec<(String, Option<String>)> {
+        let documents = ledger.outcomes.iter().filter_map(|it| match &it.detail {
+            zhang_core::outcome::Detail::Document { path, alternate } => Some((path.clone(), alternate.clone())),
+            _ => None,
+        });
+        documents.collect()
+    }
+
     /// the errors of `ledger`, by the text of their directive: the kind, the metas as `key=value` in order, and the text
     fn errors_of(ledger: &Ledger) -> Vec<(zhang_ast::error::ErrorKind, Vec<String>, String)> {
-        let store = ledger.store.read().unwrap();
-        let mut errors: Vec<_> = store
+        let mut errors: Vec<_> = ledger
             .errors
             .iter()
             .map(|it| {
@@ -493,10 +500,7 @@ mod test {
                 include_not_found("sibling.zhang")
             ]
         );
-        let files: Vec<_> = {
-            let store = ledger.store.read().unwrap();
-            store.errors.iter().map(|it| it.span.as_ref().and_then(|span| span.filename.clone())).collect()
-        };
+        let files: Vec<_> = { ledger.errors.iter().map(|it| it.span.as_ref().and_then(|span| span.filename.clone())).collect() };
         assert_eq!(
             files,
             vec![Some("main.zhang".into()), Some("main.zhang".into()), Some("data/2024.zhang".into())],
@@ -507,7 +511,7 @@ mod test {
             visited,
             vec![Path::new("main.zhang"), Path::new("accounts.zhang"), Path::new("data/2024.zhang")]
         );
-        assert_eq!(ledger.store.read().unwrap().transactions.len(), 1, "the files that are there load");
+        assert_eq!(ledger.transactions().len(), 1, "the files that are there load");
         assert_eq!(
             ledger.extra_inputs.iter().cloned().collect::<Vec<_>>(),
             vec![ExtraInput::File("acounts/typo.zhang".into()), ExtraInput::File("data/sibling.zhang".into())]
@@ -528,7 +532,7 @@ mod test {
         let main = std::fs::read_to_string(dir.path().join("main.zhang")).expect("the main file is written");
         assert_eq!(main.trim(), "include \"data/2024/01.zhang\"");
         assert!(std::fs::read_to_string(dir.path().join("data/2024/01.zhang")).unwrap().contains("Coffee"));
-        assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+        assert_eq!(ledger.transactions().len(), 1);
     }
 
     /// An `include` of an absolute path outside the ledger's directory, which the `Fs` service can never read, names no
@@ -759,9 +763,8 @@ mod test {
         assert!(written.contains("Coffee"), "{}", written);
         let main_content = std::fs::read_to_string(dir.join(main)).unwrap();
         assert!(main_content.contains(&format!("include \"{}\"", data_file)), "{}", main_content);
-        let store = ledger.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
-        assert_eq!(store.transactions.len(), 1);
+        assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
+        assert_eq!(ledger.transactions().len(), 1);
     }
 
     #[tokio::test]
@@ -811,9 +814,8 @@ mod test {
 
             assert_eq!(ledger.directives[0].span.start, 0, "{main}");
             assert_eq!(ledger.directives[0].span.content.trim_end(), "1970-01-01 open Assets:Cash", "{main}");
-            let store = ledger.store.read().unwrap();
-            assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
-            assert_eq!(store.transactions.len(), 1, "{main}");
+            assert!(ledger.errors.is_empty(), "{main}: {:?}", ledger.errors);
+            assert_eq!(ledger.transactions().len(), 1, "{main}");
         }
     }
 
@@ -876,9 +878,8 @@ mod test {
         let main = std::fs::read_to_string(dir.path().join("main.bean")).unwrap();
         assert_eq!(main.matches("include \"data/2024/01.bean\"").count(), 1, "{main}");
         let reloaded = Ledger::load(dir.path().to_path_buf(), "main.bean".to_string(), source).unwrap();
-        let store = reloaded.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
-        assert_eq!(store.transactions.len(), 2);
+        assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
+        assert_eq!(reloaded.transactions().len(), 2);
     }
 
     /// A `document` the server writes into a file of a beancount ledger names its file relative to that file, as
@@ -921,9 +922,8 @@ mod test {
                 data_file
             );
             let reloaded = Ledger::load(dir.path().to_path_buf(), main.to_string(), source).unwrap();
-            let store = reloaded.store.read().unwrap();
-            assert!(store.errors.is_empty(), "{}: {:?}", main, store.errors);
-            let paths = store.documents.iter().map(|it| it.path.as_str()).collect::<Vec<_>>();
+            assert!(reloaded.errors.is_empty(), "{}: {:?}", main, reloaded.errors);
+            let paths = documents(&reloaded).into_iter().map(|(path, _)| path).collect::<Vec<_>>();
             assert_eq!(paths, vec!["attachments/u1/a statement.pdf"], "{}", main);
         }
     }
@@ -954,9 +954,8 @@ mod test {
         use zhang_server::state::SharedLedger;
 
         let (paths, errors) = {
-            let store = ledger.store.read().unwrap();
-            let paths = store.documents.iter().map(|it| it.path.clone()).collect::<Vec<_>>();
-            let mut errors = store
+            let paths = documents(&ledger).into_iter().map(|(path, _)| path).collect::<Vec<_>>();
+            let mut errors = ledger
                 .errors
                 .iter()
                 .map(|it| {
@@ -1216,12 +1215,12 @@ mod test {
         calls.sort();
         assert_eq!(calls, vec!["read data/2024/01.bean", "read main.bean"]);
         {
-            let store = ledger.store.read().unwrap();
-            assert!(store.errors.is_empty(), "{:?}", store.errors);
-            assert_eq!(store.documents.len(), 244);
+            assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
+            let resolved = self::documents(&ledger);
+            assert_eq!(resolved.len(), 244);
             let of = |path: &str| {
-                let document = store.documents.iter().find(|it| it.path == path).unwrap_or_else(|| panic!("{}", path));
-                document.alternate.clone()
+                let document = resolved.iter().find(|it| it.0 == path).unwrap_or_else(|| panic!("{}", path));
+                document.1.clone()
             };
             assert_eq!(of("data/2024/attachments/legacy.pdf"), Some("attachments/legacy.pdf".to_owned()));
             assert_eq!(of("attachments/right.pdf"), None, "the root-relative reading leaves the ledger");

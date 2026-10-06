@@ -7,11 +7,11 @@
 //! later query reads the same part, whichever query built it.
 //!
 //! - [`Entries`]: the rows of `#entries` in the order zhang processed the ledger, which the
-//!   `seq` column numbers, the rows of `#transactions`, and
-//!   for every transaction its stored id and the kinds of the errors recorded for it. The store
-//!   records the directive every transaction and balance check was folded from, so directives
-//!   sharing a source position, such as the padding transactions of a `pad`, one for each
-//!   commodity it pads, or the copies a plugin emits, each find their own.
+//!   `seq` column numbers, the rows of `#transactions`, and for every transaction its id and the
+//!   kinds of the errors recorded for it. The load decides all of it for each directive
+//!   ([`Ledger::outcomes`]), so directives sharing a source position, such as the padding
+//!   transactions of a `pad`, one for each commodity it pads, or the copies a plugin emits, each
+//!   have their own.
 //! - [`Postings`]: the rows of the `postings` table ([`CachedRow`]), one per booked posting of
 //!   the ledger's directives (zhang books while it loads, so a sale across several lots is one
 //!   posting per lot already), the transactions they belong to, and the rows of every account,
@@ -20,38 +20,30 @@
 //! - The [`PriceMap`] of the ledger, the ids of the `#entries` rows, and the transactions that
 //!   name documents in their metadata (`#documents`).
 //!
-//! A query then only does the work its own rows need (see [`super::Dataset`]): it finds the
-//! stored transactions of the rows it reads, and keeps the parts of the rows its projection
-//! reads. The other tables read the same parts: the directive tables list their rows in the
-//! order of [`Entries`], `#balances` and `#budgets` add up the booked rows of their accounts
-//! only, and `#documents` reads the transactions that name documents.
+//! A query then only does the work its own rows need (see [`super::Dataset`]): it keeps the parts
+//! of the rows its projection reads. The other tables read the same parts: the directive tables
+//! list their rows in the order of [`Entries`], `#balances` and `#budgets` add up the booked rows
+//! of their accounts only, and `#documents` reads the transactions that name documents.
 
 use std::collections::{BTreeSet, HashMap};
-use std::ffi::OsStr;
-use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use uuid::Uuid;
-use zhang_ast::{written_groups, Directive, SpanInfo, Transaction};
+use zhang_ast::{written_groups, Directive, Transaction};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{Store, TransactionDomain};
+use zhang_core::outcome::Detail;
 use zhang_core::utils::id::FromSpan;
 
 use super::lookups::Lookups;
 use super::postings;
-use crate::error::LocatedError;
 use crate::prices::PriceMap;
 use crate::value::Cost;
 use crate::Amount;
 
-/// "none" in the index vectors of the cache
-const NONE: u32 = u32::MAX;
-
 /// The cache of one loaded ledger; see the module docs.
+#[derive(Default)]
 pub(crate) struct LedgerCache {
-    /// the size of the ledger the cache was made for
-    fingerprint: Fingerprint,
     entries: OnceLock<Entries>,
     postings: OnceLock<Postings>,
     /// shared, so a caller can keep valuing with it after releasing the ledger
@@ -65,71 +57,28 @@ pub(crate) struct LedgerCache {
     lookups: OnceLock<Lookups>,
 }
 
-/// How many directives, transactions, documents and errors a ledger holds: a cheap check that the ledger did not change since its cache was made.
-///
-/// It only counts, so it catches what is added to or removed from the ledger, not an edit that
-/// keeps every count (a posting whose amount changed, a price replaced by another). That is
-/// enough as a defensive check: nothing changes a loaded ledger, whose changes are written to
-/// its files and read by a reload, which starts a new cache. Hashing the contents would cost
-/// every query more than the check is worth.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Fingerprint([usize; 4]);
-
-impl Fingerprint {
-    fn of(ledger: &Ledger, store: &Store) -> Fingerprint {
-        Fingerprint([ledger.directives.len(), store.transactions.len(), store.documents.len(), store.errors.len()])
-    }
-}
-
 impl LedgerCache {
-    /// An empty cache for the ledger as it is now.
-    pub fn new(ledger: &Ledger, store: &Store) -> LedgerCache {
-        LedgerCache {
-            fingerprint: Fingerprint::of(ledger, store),
-            entries: OnceLock::new(),
-            postings: OnceLock::new(),
-            prices: OnceLock::new(),
-            entry_ids: OnceLock::new(),
-            documented: OnceLock::new(),
-            lookups: OnceLock::new(),
-        }
-    }
-
-    /// The cache kept with `ledger`, made empty on first use; `store` is the ledger's store.
-    pub fn of<'a>(ledger: &'a Ledger, store: &Store) -> &'a LedgerCache {
+    /// The cache kept with `ledger`, made empty on first use.
+    pub fn of(ledger: &Ledger) -> &LedgerCache {
         ledger
             .derived
-            .get_or_init(|| LedgerCache::new(ledger, store))
+            .get_or_init(LedgerCache::default)
             .expect("the query engine is the only reader keeping data with a ledger")
     }
 
-    /// An error when the ledger changed since the cache was made. zhang never changes a loaded
-    /// ledger (a reload replaces it), so this only catches code that writes to the store of a
-    /// ledger it already queried.
-    pub fn check(&self, ledger: &Ledger, store: &Store) -> Result<(), LocatedError> {
-        if self.fingerprint == Fingerprint::of(ledger, store) {
-            Ok(())
-        } else {
-            Err(LocatedError::eval(
-                "the ledger changed after it was first queried; reload it instead of changing it",
-                None,
-            ))
-        }
+    pub fn entries(&self, ledger: &Ledger) -> &Entries {
+        self.entries.get_or_init(|| Entries::build(ledger))
     }
 
-    pub fn entries(&self, ledger: &Ledger, store: &Store) -> &Entries {
-        self.entries.get_or_init(|| Entries::build(ledger, store))
-    }
-
-    pub fn postings(&self, ledger: &Ledger, store: &Store) -> &Postings {
-        self.postings.get_or_init(|| Postings::build(ledger, store, self.entries(ledger, store)))
+    pub fn postings(&self, ledger: &Ledger) -> &Postings {
+        self.postings.get_or_init(|| Postings::build(ledger, self.entries(ledger)))
     }
 
     /// The `#entries` rows (their `seq`) of the transactions whose metadata, or the metadata of
     /// one of their postings, has a `document` key, in the order of `#transactions`.
-    pub fn documented(&self, ledger: &Ledger, store: &Store) -> &[u32] {
+    pub fn documented(&self, ledger: &Ledger) -> &[u32] {
         self.documented.get_or_init(|| {
-            let entries = self.entries(ledger, store);
+            let entries = self.entries(ledger);
             let documented = |txn: &Transaction| {
                 std::iter::once(&txn.meta)
                     .chain(txn.postings.iter().map(|posting| &posting.meta))
@@ -148,8 +97,8 @@ impl LedgerCache {
     }
 
     /// The account and commodity directives of the ledger by name.
-    pub fn lookups(&self, ledger: &Ledger, store: &Store) -> &Lookups {
-        self.lookups.get_or_init(|| Lookups::build(ledger, self.entries(ledger, store)))
+    pub fn lookups(&self, ledger: &Ledger) -> &Lookups {
+        self.lookups.get_or_init(|| Lookups::build(ledger, self.entries(ledger)))
     }
 
     pub fn prices(&self, ledger: &Ledger) -> &PriceMap {
@@ -161,21 +110,19 @@ impl LedgerCache {
         self.prices.get_or_init(|| Arc::new(PriceMap::for_ledger(ledger)))
     }
 
-    /// The `id` of the `#entries` row `seq`: a transaction has its stored id (the `id` of its
-    /// postings), a checked balance assertion the id zhang stored its check with (the id
-    /// `/api/journals` lists it with); another directive an id derived from its source position,
-    /// distinct from the ids of the padding transactions that share the position of a `pad` or a
-    /// `balance ... with pad`. The derivation does not depend on the platform's `usize`.
-    pub fn entry_id(&self, ledger: &Ledger, store: &Store, entries: &Entries, seq: u32) -> &str {
+    /// The `id` of the `#entries` row `seq`: a transaction has its id (the `id` of its postings),
+    /// a checked balance assertion the id of its check (the id `/api/journals` lists it with);
+    /// another directive an id derived from its source position, distinct from the ids of the
+    /// padding transactions that share the position of a `pad` or a `balance ... with pad`. The
+    /// derivation does not depend on the platform's `usize`.
+    pub fn entry_id(&self, ledger: &Ledger, entries: &Entries, seq: u32) -> &str {
         let ids = self.entry_ids.get_or_init(|| {
             entries
                 .rows
                 .iter()
-                .map(|entry| match (entry.txn, entry.assertion) {
-                    (Some(id), _) => id.to_string(),
-                    // a checked assertion has the id of its check, as /api/journals lists it
-                    (None, Some(assertion)) => store.balance_assertions[assertion as usize].id.to_string(),
-                    (None, None) => {
+                .map(|entry| match &ledger.outcomes[entry.directive as usize].detail {
+                    Detail::Transaction { id, .. } | Detail::Assertion { id, .. } => id.to_string(),
+                    _ => {
                         let span = &ledger.directives[entry.directive as usize].span;
                         Uuid::from_txn_posting(&Uuid::from_span(span), u32::MAX as usize).to_string()
                     }
@@ -186,53 +133,13 @@ impl LedgerCache {
     }
 }
 
-/// A source position as two integers (see [`Positions`]).
-type Position = (Option<usize>, usize);
-
-/// Source positions as hashable integers: file names are numbered once, so a position hashes as
-/// two integers instead of a path. Paths are compared as strings, as zhang derives ids from them
-/// (comparing or hashing a `Path` walks its components).
-#[derive(Default)]
-struct Positions<'a> {
-    files: HashMap<&'a OsStr, usize>,
-    /// the file last numbered or looked up, as consecutive spans usually share their file
-    last: Option<(&'a OsStr, usize)>,
-}
-
-impl<'a> Positions<'a> {
-    /// The position of `span`, numbering its file when `add` is set; `None` for a file that
-    /// was never numbered.
-    fn of(&mut self, span: &'a SpanInfo, add: bool) -> Option<Position> {
-        let Some(path) = span.filename.as_deref().map(Path::as_os_str) else {
-            return Some((None, span.start));
-        };
-        if let Some((last, number)) = self.last {
-            if last == path {
-                return Some((Some(number), span.start));
-            }
-        }
-        let number = match self.files.get(path) {
-            Some(number) => *number,
-            None if add => {
-                let number = self.files.len();
-                self.files.insert(path, number);
-                number
-            }
-            None => return None,
-        };
-        self.last = Some((path, number));
-        Some((Some(number), span.start))
-    }
-}
-
 /// The rows of `#entries` and `#transactions`.
 pub(crate) struct Entries {
     /// the rows of `#entries`, in the order zhang processed the ledger: a row's index is its `seq`
     pub rows: Vec<EntryInfo>,
-    /// the rows of `#transactions` (indexes into `rows`), in the order of the ledger's directives
+    /// the rows of `#transactions` (indexes into `rows`), in the order of the ledger's directives, which zhang
+    /// processes the transactions in
     pub transactions: Vec<u32>,
-    /// directive index → index into `rows` ([`NONE`] for a directive that is not an entry)
-    of_directive: Vec<u32>,
 }
 
 /// One `#entries` row.
@@ -240,134 +147,47 @@ pub(crate) struct EntryInfo {
     /// the index of the directive in [`Ledger::directives`]
     pub directive: u32,
     /// the index of the row in `#entries`, its position in the order zhang processed the ledger:
-    /// the `seq` column (see [`processing_order`])
+    /// the `seq` column ([`zhang_core::outcome::Outcome::seq`])
     pub seq: u32,
-    /// for a transaction, its id in the store
+    /// for a transaction, its id
     pub txn: Option<Uuid>,
-    /// for a balance assertion, its check in the store (an index into `Store::balance_assertions`)
-    pub assertion: Option<u32>,
     /// for a transaction, the kinds of the errors zhang recorded for it, when there are any
     pub errors: Option<BTreeSet<String>>,
 }
 
 impl Entries {
-    /// The dated directives in the order zhang processed them ([`processing_order`]), without the
-    /// transactions zhang rejected, which never reached the store.
-    fn build(ledger: &Ledger, store: &Store) -> Entries {
-        let directives = &ledger.directives;
-        let mut positions = Positions::default();
-        for directive in directives {
-            positions.of(&directive.span, true);
-        }
-        let (stored, checked) = stored_records(ledger, store);
-        // what zhang records about a directive, it records at its position
-        let mut errors: HashMap<Position, BTreeSet<String>> = HashMap::new();
-        for error in &store.errors {
-            if let Some(position) = error.span.as_ref().and_then(|span| positions.of(span, false)) {
-                errors.entry(position).or_default().insert(error.error_type.to_string());
+    /// The dated directives in the order zhang processed them, the `seq` the load gave each, without the
+    /// transactions zhang rejected, which are no entries.
+    fn build(ledger: &Ledger) -> Entries {
+        let mut rows = vec![];
+        let mut transactions = vec![];
+        for (idx, directive, outcome) in ledger.entries() {
+            let seq = outcome.seq.expect("an entry has its place");
+            let (txn, errors) = match &outcome.detail {
+                Detail::Transaction { id, errors } => {
+                    let kinds = errors.iter().map(|error| ledger.errors[*error].error_type.to_string());
+                    (Some(*id), Some(kinds.collect::<BTreeSet<_>>()).filter(|kinds| !kinds.is_empty()))
+                }
+                _ => (None, None),
+            };
+            if matches!(directive.data, Directive::Transaction(_)) {
+                transactions.push(seq);
             }
-        }
-
-        let order = processing_order(ledger, store, &stored, &checked);
-        let mut rows = Vec::with_capacity(order.len());
-        let mut of_directive = vec![NONE; directives.len()];
-        for idx in order {
-            let directive = &directives[idx];
-            let position = positions.of(&directive.span, false);
-            let txn = stored[idx].map(|txn| txn.id);
-            let seq = rows.len() as u32;
-            of_directive[idx] = seq;
             rows.push(EntryInfo {
                 directive: idx as u32,
                 seq,
                 txn,
-                assertion: checked[idx],
-                errors: txn.and(position).and_then(|position| errors.remove(&position)),
+                errors,
             });
         }
-        let transactions = (0..directives.len())
-            .filter(|idx| of_directive[*idx] != NONE && matches!(directives[*idx].data, Directive::Transaction(_)))
-            .map(|idx| of_directive[idx])
-            .collect();
-        Entries {
-            rows,
-            transactions,
-            of_directive,
-        }
+        Entries { rows, transactions }
     }
-
-    /// The `#entries` row of the directive with this index.
-    pub fn of_directive(&self, idx: usize) -> Option<&EntryInfo> {
-        self.of_directive.get(idx).filter(|it| **it != NONE).map(|it| &self.rows[*it as usize])
-    }
-}
-
-/// The entries (their indexes in [`Ledger::directives`]) in the order zhang processed the ledger,
-/// which the `seq` column numbers and the rows of `#entries` follow: every dated directive but the
-/// transactions zhang rejected.
-///
-/// zhang folds [`Ledger::directives`] into the store in their order, the order of a day of the
-/// ledger's format (`zhang_core::ledger::Ledger::sort_directives_datetime`): in a zhang ledger by
-/// time, in a beancount ledger as beancount orders a day. Transactions and balance assertions take
-/// a number from one counter as they are folded: their `sequence` in the store. An assertion is
-/// numbered where zhang checked it, which for a `balance ... with pad` is after the other balance
-/// entries of its time, its padding among them. The store's numbers therefore order them, and the
-/// running balance a query adds up is the store's: an assertion comes right after the postings its
-/// balance includes. Every other entry, which takes no number, comes after the numbered entries
-/// folded before it and before those folded after it, in the order of the directives.
-fn processing_order(ledger: &Ledger, store: &Store, stored: &[Option<&TransactionDomain>], checked: &[Option<u32>]) -> Vec<usize> {
-    let mut keys = Vec::with_capacity(ledger.directives.len());
-    // the highest number taken by the directives folded so far
-    let mut folded = i64::MIN;
-    for (idx, directive) in ledger.directives.iter().enumerate() {
-        let number = match &directive.data {
-            Directive::Transaction(_) => match stored[idx] {
-                Some(txn) => Some(i64::from(txn.sequence)),
-                // rejected: no entry
-                None => continue,
-            },
-            _ => checked[idx].map(|assertion| i64::from(store.balance_assertions[assertion as usize].sequence)),
-        };
-        // the number it took, or else the last one taken before it, by a directive folded before it; then the
-        // directive
-        keys.push((number.unwrap_or(folded), idx));
-        if let Some(number) = number {
-            folded = folded.max(number);
-        }
-    }
-    keys.sort_unstable();
-    keys.into_iter().map(|(_, idx)| idx).collect()
-}
-
-/// What zhang stored for each of [`Ledger::directives`]: the transaction of a transaction directive,
-/// and the check of a balance assertion (an index into `Store::balance_assertions`); `None` for a
-/// transaction zhang rejected and an assertion it did not check.
-///
-/// The store records the directive each was folded from, so directives that share a position, as
-/// when a plugin makes them from one directive it read, each have their own record, or none.
-fn stored_records<'s>(ledger: &Ledger, store: &'s Store) -> (Vec<Option<&'s TransactionDomain>>, Vec<Option<u32>>) {
-    let mut stored = vec![None; ledger.directives.len()];
-    for txn in store.transactions.values() {
-        if let Some(slot) = stored.get_mut(txn.directive) {
-            *slot = Some(txn);
-        }
-    }
-    let mut checked = vec![None; ledger.directives.len()];
-    for (index, assertion) in store.balance_assertions.iter().enumerate() {
-        if let Some(slot) = checked.get_mut(assertion.directive) {
-            *slot = Some(index as u32);
-        }
-    }
-    (stored, checked)
 }
 
 /// The booked rows of the `postings` table.
 pub(crate) struct Postings {
-    /// the stored transactions the rows belong to, in ledger order (by their sequence in the
-    /// store)
+    /// the transactions the rows belong to, in ledger order
     pub entries: Vec<CachedEntry>,
-    /// the sequence of a stored transaction → its index in `entries` ([`NONE`] if not there)
-    entry_of_sequence: Vec<u32>,
     /// the booked rows, in ledger order
     pub rows: Vec<CachedRow>,
     /// the accounts of the rows
@@ -411,10 +231,10 @@ pub(crate) struct CachedEntry {
     pub id: Uuid,
     /// its date in the ledger's timezone
     pub date: NaiveDate,
-    /// its time of day in the ledger's timezone
-    pub time: NaiveTime,
-    /// the directive it was stored from (its index in [`Ledger::directives`]): its metadata,
-    /// costs and prices are read from it
+    /// the date and time zhang books it at, in the ledger's timezone
+    pub datetime: DateTime<FixedOffset>,
+    /// its directive (its index in [`Ledger::directives`]): its metadata, costs and prices are
+    /// read from it
     pub parsed: u32,
     /// its row of `#entries` (an index into [`Entries::rows`]): its `seq` and errors
     pub entry: Option<u32>,
@@ -445,27 +265,17 @@ pub(crate) struct Lot {
 }
 
 impl Postings {
-    fn build(ledger: &Ledger, store: &Store, entries: &Entries) -> Postings {
-        // in ledger order; the sequence is copied next to the transaction to sort on it
-        let mut transactions = store.transactions.values().map(|txn| (txn.sequence, txn)).collect::<Vec<_>>();
-        transactions.sort_unstable_by_key(|(sequence, _)| *sequence);
-
-        let max_sequence = transactions.last().map(|(sequence, _)| *sequence).unwrap_or_default();
-        let mut entry_of_sequence = vec![NONE; usize::try_from(max_sequence).unwrap_or_default() + 1];
-        let mut cached = Vec::with_capacity(transactions.len());
+    fn build(ledger: &Ledger, entries: &Entries) -> Postings {
+        let timezone = ledger.options.timezone;
+        let mut cached = vec![];
         let mut accounts = Accounts::default();
         let mut rows = Vec::new();
-        for (_, txn) in transactions {
-            // the directive the transaction was stored from, which the store records: its booked
-            // postings, grouped by the posting they were written as, are the stored ones
-            let Some(Directive::Transaction(parsed)) = ledger.directives.get(txn.directive).map(|it| &it.data) else {
-                debug_assert!(false, "a stored transaction names no transaction directive");
+        // the transactions the load accepted, in the order zhang processed them
+        for info in &entries.rows {
+            let (Some(id), Directive::Transaction(parsed)) = (info.txn, &ledger.directives[info.directive as usize].data) else {
                 continue;
             };
             let entry = cached.len();
-            if let Ok(sequence) = usize::try_from(txn.sequence) {
-                entry_of_sequence[sequence] = entry as u32;
-            }
             let groups = written_groups(&parsed.postings);
             let mut leg = 0;
             let heads = groups
@@ -478,12 +288,13 @@ impl Postings {
                     head
                 })
                 .collect();
+            let datetime = parsed.date.to_timezone_datetime(&timezone).fixed_offset();
             cached.push(CachedEntry {
-                id: txn.id,
-                date: txn.datetime.date_naive(),
-                time: txn.datetime.time(),
-                parsed: txn.directive as u32,
-                entry: entries.of_directive(txn.directive).map(|it| it.seq),
+                id,
+                date: datetime.date_naive(),
+                datetime,
+                parsed: info.directive,
+                entry: Some(info.seq),
                 heads,
             });
             rows.extend(postings::booked_rows(entry, &groups, &mut accounts));
@@ -495,17 +306,10 @@ impl Postings {
         }
         Postings {
             entries: cached,
-            entry_of_sequence,
             rows,
             accounts,
             account_rows,
         }
-    }
-
-    /// The index in [`Postings::entries`] of the stored transaction with this sequence.
-    pub fn entry_of_sequence(&self, sequence: i32) -> Option<usize> {
-        let idx = *self.entry_of_sequence.get(usize::try_from(sequence).ok()?)?;
-        (idx != NONE).then_some(idx as usize)
     }
 
     /// The name of the account with this number.

@@ -1,6 +1,6 @@
 //! Final booking and transaction validation, after plugins and balance stages.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use log::{trace, warn};
 use uuid::Uuid;
@@ -11,13 +11,12 @@ use zhang_ast::{Account, Directive, Flag, Posting, SpanInfo, Spanned};
 use super::balance::{define_commodity, stage_booker, AccountCommodities};
 use super::{ProcessStage, StageContext, StageError};
 use crate::booking::{is_booked, written_groups, BookOutcome};
-use crate::constants::TXN_ID;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 
 /// Books the final stream and reports booking, transaction balance and nonzero close errors
-/// once. Rejected transactions stay in the stream but contribute no postings to the store.
+/// once. Rejected transactions stay in the stream, without an id or a place among the entries.
 /// The store consumes these results without booking again.
 ///
 /// It also enforces the commodities an account was opened with ([`ErrorKind::CommodityNotAllowed`]),
@@ -31,12 +30,13 @@ use crate::ZhangResult;
 /// is in the asserted commodity, so that account is reported once, for the assertion.
 pub struct ValidateStage;
 
-/// Results consumed by the store fold. Transaction IDs are allocated there, alongside balance
-/// assertions and postings; errors are bound to those IDs when their transaction is consumed.
+/// Results the ledger's fold reads. Transaction ids are given there, with those of the balance assertions; the errors
+/// that name a transaction get its id then.
 #[derive(Default)]
 pub(crate) struct FinalValidation {
     pub errors: Vec<StageError>,
-    transactions: HashMap<Uuid, VecDeque<TransactionOutcome>>,
+    /// what the stage decided about each transaction, by its index in the stream, which the pipeline ends with
+    transactions: HashMap<usize, Validated>,
     /// the transaction a dry run checks ([`Ledger::check_transaction`](crate::ledger::Ledger::check_transaction)),
     /// whose residual the stage keeps; none in a load
     pub watched: Option<Watched>,
@@ -50,32 +50,23 @@ pub(crate) struct Watched {
     pub unbalanced: Option<Vec<Amount>>,
 }
 
-struct TransactionOutcome {
-    accepted: bool,
-    /// Positions in the stage error channel of errors that carry `txn_id`.
-    error_indices: Vec<usize>,
+/// what [`ValidateStage`] decided about a transaction
+pub(crate) struct Validated {
+    /// whether it books; a rejected transaction is no entry, and takes no id
+    pub accepted: bool,
+    /// the indexes in [`FinalValidation::errors`] of the errors that name the transaction by its id ([`TXN_ID`](crate::constants::TXN_ID))
+    pub error_indices: Vec<usize>,
 }
 
 impl FinalValidation {
-    fn record(&mut self, span: &SpanInfo, accepted: bool, error_indices: Vec<usize>) {
-        self.transactions
-            .entry(Uuid::from_span(span))
-            .or_default()
-            .push_back(TransactionOutcome { accepted, error_indices });
+    fn record(&mut self, index: usize, accepted: bool, error_indices: Vec<usize>) {
+        self.transactions.insert(index, Validated { accepted, error_indices });
     }
 
-    /// Consume the next transaction at this span, including a rejected one. A rejected transaction
-    /// does not reserve its candidate ID, just as it did when the store booked transactions itself.
-    pub fn take_transaction(&mut self, span: &SpanInfo, id: Uuid) -> bool {
-        let outcome = self
-            .transactions
-            .get_mut(&Uuid::from_span(span))
-            .and_then(VecDeque::pop_front)
-            .expect("every transaction is processed by the final validation stage");
-        for index in outcome.error_indices {
-            self.errors[index].metas.insert(TXN_ID.to_owned(), id.to_string());
-        }
-        outcome.accepted
+    /// what the stage decided about the transaction at `index` in the stream
+    pub fn take(&mut self, index: usize) -> Validated {
+        let validated = self.transactions.remove(&index);
+        validated.expect("every transaction is processed by the final validation stage")
     }
 
     /// keep `unbalanced`, what the booked transaction at `span` is unbalanced by, when it is the one watched
@@ -96,7 +87,7 @@ impl ProcessStage for ValidateStage {
         let mut accounts = AccountCommodities::default();
         // the span and account of the latest `balance ... with pad`: its padding transaction follows it with its span
         let mut asserted_pad: Option<(Uuid, String)> = None;
-        for directive in &mut directives {
+        for (index, directive) in directives.iter_mut().enumerate() {
             let span = &directive.span;
             accounts.apply(&directive.data);
             match &mut directive.data {
@@ -164,7 +155,7 @@ impl ProcessStage for ValidateStage {
                             true
                         }
                     };
-                    ctx.validation.record(span, accepted, error_indices);
+                    ctx.validation.record(index, accepted, error_indices);
                 }
                 Directive::BalanceCheck(check) => report_disallowed_commodity(ctx, &accounts, &check.account, &check.amount.commodity, span),
                 Directive::BalancePad(pad) => {
@@ -253,10 +244,10 @@ mod test {
         );
         let transactions = out.iter().filter(|it| matches!(it.data, Directive::Transaction(_))).collect::<Vec<_>>();
         assert_eq!(transactions[1], &rejected, "a rejected transaction stays in the stream as written");
-        let id = Uuid::from_span(&rejected.span);
-        assert!(!result.take_transaction(&rejected.span, id));
-        assert_eq!(result.errors[1].metas[TXN_ID], id.to_string());
-        assert!(!result.errors[0].metas.contains_key(TXN_ID));
+        // rejected, and named by its id in the second error only
+        let validated = result.take(out.iter().position(|it| *it == rejected).unwrap());
+        assert!(!validated.accepted);
+        assert_eq!(validated.error_indices, vec![1]);
         let Directive::Transaction(sale) = &transactions[2].data else {
             unreachable!()
         };

@@ -31,7 +31,7 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
-use zhang_core::store::DocumentType;
+use zhang_core::outcome::Detail;
 use zhang_server::request::AccountJournalRequest;
 use zhang_server::routes::account::{get_account_balance_data, get_account_documents, get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::Query as UrlQuery;
@@ -346,40 +346,45 @@ struct Stored {
 impl Stored {
     async fn of(ledger: &SharedLedger) -> Stored {
         let guard = ledger.read().await;
-        let store = guard.store.read().unwrap();
-        let mut postings = vec![];
-        for txn in store.transactions.values() {
-            let Directive::Transaction(booked) = &guard.directives[txn.directive].data else {
-                continue;
-            };
-            // each posting as written: the legs booking split it into, summed
-            for group in written_groups(&booked.postings) {
-                let inferred = group_units(group.legs);
-                postings.push(StoredPosting {
-                    account: group.legs[0].account.name().to_owned(),
-                    transaction: txn.id.to_string(),
-                    sequence: txn.sequence,
-                    date: txn.datetime.naive_local().date().to_string(),
-                    number: inferred.number,
-                    currency: inferred.commodity,
-                });
+        let timezone = guard.options.timezone;
+        let (mut postings, mut assertions, mut documents) = (vec![], vec![], vec![]);
+        // in the order zhang processed them
+        for (_, directive, outcome) in guard.entries() {
+            let sequence = outcome.seq.expect("an entry has its place") as i32;
+            match (&directive.data, &outcome.detail) {
+                (Directive::Transaction(booked), Detail::Transaction { id, .. }) => {
+                    // each posting as written: the legs booking split it into, summed
+                    for group in written_groups(&booked.postings) {
+                        let inferred = group_units(group.legs);
+                        postings.push(StoredPosting {
+                            account: group.legs[0].account.name().to_owned(),
+                            transaction: id.to_string(),
+                            sequence,
+                            date: booked.date.to_timezone_datetime(&timezone).naive_local().date().to_string(),
+                            number: inferred.number,
+                            currency: inferred.commodity,
+                        });
+                    }
+                }
+                (Directive::BalanceCheck(_) | Directive::BalancePad(_), Detail::Assertion { id, balance, passed }) => {
+                    let (account, amount) = match &directive.data {
+                        Directive::BalanceCheck(check) => (&check.account, &check.amount),
+                        Directive::BalancePad(pad) => (&pad.account, &pad.amount),
+                        _ => unreachable!(),
+                    };
+                    assertions.push(StoredAssertion {
+                        account: account.name().to_owned(),
+                        id: id.to_string(),
+                        sequence,
+                        asserted: (amount.number.clone(), amount.commodity.clone()),
+                        balance: balance.number.clone(),
+                        passed: *passed,
+                    });
+                }
+                (Directive::Document(document), Detail::Document { path, .. }) => documents.push((document.account.name().to_owned(), path.clone())),
+                _ => {}
             }
         }
-        // stable: the postings of a transaction keep their order
-        postings.sort_by_key(|posting| posting.sequence);
-        let mut assertions = store
-            .balance_assertions
-            .iter()
-            .map(|assertion| StoredAssertion {
-                account: assertion.account.name().to_owned(),
-                id: assertion.id.to_string(),
-                sequence: assertion.sequence,
-                asserted: (assertion.amount.number.clone(), assertion.amount.commodity.clone()),
-                balance: assertion.balance.number.clone(),
-                passed: assertion.passed,
-            })
-            .collect::<Vec<_>>();
-        assertions.sort_by_key(|assertion| assertion.sequence);
         Stored {
             operating_currency: guard.options.operating_currency.clone(),
             opened: guard
@@ -400,14 +405,7 @@ impl Stored {
                 .collect(),
             postings,
             assertions,
-            documents: store
-                .documents
-                .iter()
-                .map(|document| {
-                    let DocumentType::Account(account) = &document.document_type;
-                    (account.name().to_owned(), document.path.clone())
-                })
-                .collect(),
+            documents,
         }
     }
 

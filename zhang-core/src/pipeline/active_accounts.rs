@@ -132,7 +132,7 @@ impl AccountLifecycle {
     /// account's latest `open` at or before `at` names, each once. An account closed and opened again with other budgets
     /// counts in those from the time of its reopening on. `None` before its first `open`.
     ///
-    /// The one rule of which budgets an account's posting belongs to: the store fold reports the budget errors with it,
+    /// The one rule of which budgets an account's posting belongs to: the load's fold reports the budget errors with it,
     /// and the query engine counts the activity and lists the postings of a budget with it
     /// ([`Ledger::account_budgets`](crate::ledger::Ledger::account_budgets)).
     pub fn budgets(&self, account: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {

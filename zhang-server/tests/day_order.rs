@@ -50,7 +50,7 @@ fn day(ledger: &Ledger, day: &str, columns: &str) -> Vec<Vec<String>> {
 }
 
 fn errors(ledger: &Ledger) -> Vec<ErrorKind> {
-    ledger.store.read().unwrap().errors.iter().map(|it| it.error_type.clone()).collect()
+    ledger.errors.iter().map(|it| it.error_type.clone()).collect()
 }
 
 /// A zhang ledger checks a balance at its time: after the transaction of the morning, before the one of the evening.

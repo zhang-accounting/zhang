@@ -24,11 +24,11 @@ use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource}
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
+use zhang_core::outcome::Detail;
 use zhang_core::plugin::capabilities::{plugin_seed, PluginStage};
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_core::plugin::PluginType;
-use zhang_core::store::TransactionDomain;
 use zhang_core::ZhangResult;
 
 const LEDGER: &str = indoc! {r#"
@@ -107,12 +107,13 @@ fn registered(ledger: &Ledger) -> Vec<(String, Vec<PluginType>)> {
         .collect()
 }
 
-/// the directive of the stored transaction `txn` when it is a padding transaction (flag `P`)
-fn padding<'a>(ledger: &'a Ledger, txn: &TransactionDomain) -> Option<&'a Transaction> {
-    match &ledger.directives[txn.directive].data {
-        Directive::Transaction(booked) if booked.flag == Some(zhang_ast::Flag::BalancePad) => Some(booked),
-        _ => None,
-    }
+/// the padding transactions (flag `P`) the load accepted, in the order zhang processed them, with their dates
+fn paddings(ledger: &Ledger) -> Vec<(chrono::NaiveDate, &Transaction)> {
+    let transactions = ledger.transactions().into_iter().map(|(_, txn)| txn);
+    let paddings = transactions.filter(|txn| txn.flag == Some(zhang_ast::Flag::BalancePad));
+    paddings
+        .map(|txn| (txn.date.to_timezone_datetime(&ledger.options.timezone).date_naive(), txn))
+        .collect()
 }
 
 /// the postings of the booked transaction `txn` as written: the account, and the units booking gave it
@@ -138,15 +139,13 @@ fn store_summary(ledger: &Ledger) -> (Vec<String>, Vec<String>, Vec<String>) {
         _ => None,
     });
     let accounts = opens.unique().sorted().collect();
-    let store = ledger.store.read().unwrap();
-    let errors = store.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
+    let errors = ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
     (accounts, postings, errors)
 }
 
 /// the errors in the store with their spans and metas
 fn errors(ledger: &Ledger) -> Vec<(ErrorKind, SpanInfo, HashMap<String, String>)> {
-    let store = ledger.store.read().unwrap();
-    store
+    ledger
         .errors
         .iter()
         .map(|it| (it.error_type.clone(), it.span.clone().expect("a stage error has a span"), it.metas.clone()))
@@ -231,8 +230,7 @@ fn invalid_timeout_is_reported_and_the_plugin_runs_with_the_default() {
     let dir = ledger_dir(&["echo.wat"]);
     let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"soon\"\n", plugin(&dir, "echo.wat"))));
 
-    let store = ledger.store.read().unwrap();
-    let errors = store
+    let errors = ledger
         .errors
         .iter()
         .map(|it| (it.error_type.clone(), it.span.as_ref().map(|span| span.content.clone()), it.metas.clone()))
@@ -246,7 +244,6 @@ fn invalid_timeout_is_reported_and_the_plugin_runs_with_the_default() {
             HashMap::from([("plugin".to_owned(), module), ("timeout".to_owned(), "soon".to_owned())])
         )]
     );
-    drop(store);
     assert_eq!(registered(&ledger), vec![("echo".to_owned(), vec![PluginType::Processor])]);
     assert_eq!(store_summary(&ledger).1.len(), 2, "the echo processor still runs");
 }
@@ -269,8 +266,7 @@ fn invalid_stage_is_reported_and_the_plugin_runs_booked() {
     let dir = ledger_dir(&["echo.wat"]);
     let ledger = load(&dir, &with_plugins(&format!("{}  stage: \"early\"\n", plugin(&dir, "echo.wat"))));
 
-    let store = ledger.store.read().unwrap();
-    let errors = store
+    let errors = ledger
         .errors
         .iter()
         .map(|it| (it.error_type.clone(), it.span.as_ref().map(|span| span.content.clone()), it.metas.clone()))
@@ -284,7 +280,6 @@ fn invalid_stage_is_reported_and_the_plugin_runs_booked() {
             HashMap::from([("plugin".to_owned(), module), ("stage".to_owned(), "early".to_owned())])
         )]
     );
-    drop(store);
     assert_eq!(ledger.plugins.build_stages(PluginStage::Booked).len(), 1);
     assert_eq!(store_summary(&ledger).1.len(), 2, "the echo processor still runs");
 }
@@ -1096,12 +1091,10 @@ fn a_plugin_of_the_oldest_contract_loads_a_ledger_with_a_pad() {
     // the pad still works: it pads the 110 the cash lacks on the day of the pad, and the balance holds
     assert_eq!(store_summary(&ledger), store_summary(&load(&ledger_dir(&[]), PADDED)));
     assert!(errors(&ledger).is_empty(), "{:?}", errors(&ledger));
-    let store = ledger.store.read().unwrap();
-    let (stored, booked) = store.transactions.values().find_map(|it| Some((it, padding(&ledger, it)?))).unwrap();
-    assert_eq!(stored.datetime.date_naive().to_string(), "2024-01-01");
+    let (date, booked) = paddings(&ledger)[0];
+    assert_eq!(date.to_string(), "2024-01-01");
     assert_eq!(written(booked)[0].1.to_string(), "110 CNY");
-    assert!(store.balance_assertions.iter().all(|it| it.passed));
-    drop(store);
+    assert!(ledger.outcomes.iter().all(|it| !matches!(it.detail, Detail::Assertion { passed: false, .. })));
     assert!(
         ledger.directives.iter().any(|it| matches!(it.data, Directive::Pad(_))),
         "the pad is back in the stream"
@@ -1331,13 +1324,10 @@ fn load_served(name: &str, edit: Edit) -> (Vec<String>, Vec<String>, Vec<String>
     let directive = edit_plugin(&dir, name, edit);
     let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{directive}{SERVED}"));
     assert_eq!(registered(&ledger), vec![(name.to_owned(), vec![PluginType::Processor])]);
-    let store = ledger.store.read().unwrap();
-    let paddings = store
-        .transactions
-        .values()
-        .filter_map(|it| Some((it, written(padding(&ledger, it)?))))
-        .sorted_by_key(|(it, _)| it.sequence)
-        .map(|(it, postings)| format!("{} {} {} from {}", it.datetime.date_naive(), postings[0].0, postings[0].1, postings[1].0))
+    let paddings = paddings(&ledger)
+        .into_iter()
+        .map(|(date, txn)| (date, written(txn)))
+        .map(|(date, postings)| format!("{} {} {} from {}", date, postings[0].0, postings[0].1, postings[1].0))
         .collect();
     let pads = ledger
         .directives
@@ -1347,7 +1337,7 @@ fn load_served(name: &str, edit: Edit) -> (Vec<String>, Vec<String>, Vec<String>
             _ => None,
         })
         .collect();
-    let errors = store.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
+    let errors = ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
     (paddings, pads, errors)
 }
 

@@ -22,7 +22,7 @@ const TIMED_BALANCE: &str = "option \"operating_currency\" \"CNY\"\n1970-01-01 c
 
 /// the kinds of the errors of `ledger`
 fn errors(ledger: &Ledger) -> Vec<ErrorKind> {
-    ledger.store.read().unwrap().errors.iter().map(|it| it.error_type.clone()).collect()
+    ledger.errors.iter().map(|it| it.error_type.clone()).collect()
 }
 
 /// The playground reads its text with the beancount grammar and processes it as a beancount ledger, without a main

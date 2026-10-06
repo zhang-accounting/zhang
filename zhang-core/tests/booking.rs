@@ -14,6 +14,7 @@ use zhang_core::ast::{group_units, written_groups, Directive, Transaction};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::{Detail, Outcome};
 use zhang_core::ZhangResult;
 use zhang_query::{DataType, ParamTypes, Params, Query};
 
@@ -44,8 +45,7 @@ fn load(body: &str) -> Ledger {
 
 /// reported errors in store order, with their `transaction_amount` meta
 fn errors(ledger: &Ledger) -> Vec<(ErrorKind, Option<String>)> {
-    let store = ledger.store.read().unwrap();
-    store
+    ledger
         .errors
         .iter()
         .map(|it| (it.error_type.clone(), it.metas.get("transaction_amount").cloned()))
@@ -54,8 +54,7 @@ fn errors(ledger: &Ledger) -> Vec<(ErrorKind, Option<String>)> {
 
 /// reported errors in store order, with the first line of their span and all their metas
 fn error_details(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
-    let store = ledger.store.read().unwrap();
-    store
+    ledger
         .errors
         .iter()
         .map(|it| {
@@ -104,13 +103,14 @@ fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
         .collect()
 }
 
-/// inferred amounts of the transaction with the given sequence, in written order
+/// inferred amounts of the transaction with the given sequence, its number among the transactions and the balance
+/// checks, from 1, in the order zhang processed them; in written order
 fn inferred(ledger: &Ledger, sequence: i32) -> Vec<String> {
-    let store = ledger.store.read().unwrap();
-    let Some(txn) = store.transactions.values().find(|it| it.sequence == sequence) else {
+    let numbered = |(_, _, outcome): &(usize, _, &Outcome)| matches!(outcome.detail, Detail::Transaction { .. } | Detail::Assertion { .. });
+    let Some((_, directive, _)) = ledger.entries().into_iter().filter(numbered).nth(usize::try_from(sequence - 1).unwrap()) else {
         return vec![];
     };
-    let Directive::Transaction(booked) = &ledger.directives[txn.directive].data else {
+    let Directive::Transaction(booked) = &directive.data else {
         return vec![];
     };
     written(booked).into_iter().map(|it| it.inferred.to_string()).collect()
@@ -362,7 +362,7 @@ fn insufficient_empty_cost_sale_with_implicit_posting_is_rejected_after_its_book
             "{method}"
         );
         assert_eq!(lots(&ledger, "Income:I"), vec!["-210 CNY"], "{method}");
-        assert_eq!(ledger.store.read().unwrap().transactions.len(), 2, "{method}");
+        assert_eq!(ledger.transactions().len(), 2, "{method}");
     }
 }
 
@@ -707,7 +707,7 @@ fn zero_gain_empty_cost_sale_books_a_zero_implicit_posting() {
     assert_eq!(lots(&ledger, "Assets:S"), vec!["5 USD {11 CNY, 2024-05-17}"]);
     assert_eq!(lots(&ledger, "Assets:Cash"), vec!["155 CNY"]);
     assert_eq!(lots(&ledger, "Income:Gains"), Vec::<String>::new());
-    assert_eq!(ledger.store.read().unwrap().transactions.len(), 3);
+    assert_eq!(ledger.transactions().len(), 3);
 }
 
 #[test]
@@ -749,7 +749,7 @@ fn implicit_posting_of_a_transaction_balanced_in_several_commodities_cannot_be_i
             (ErrorKind::TransactionCannotInferTradeAmount, None),
         ]
     );
-    assert_eq!(ledger.store.read().unwrap().transactions.len(), 0);
+    assert_eq!(ledger.transactions().len(), 0);
     assert_eq!(lots(&ledger, "Assets:A"), Vec::<String>::new());
 }
 
@@ -938,8 +938,7 @@ fn undefined_commodity_of_a_transaction_is_named() {
     // as for an `open` or a `price`, the error names the commodity: the first undefined one, in commodity order
     for postings in ["Assets:A 10 JPY\n  Income:I -10 EUR", "Assets:A 10 EUR\n  Income:I -10 JPY"] {
         let ledger = load(&format!("2024-05-16 * \"two undefined\"\n  {postings}\n"));
-        let store = ledger.store.read().unwrap();
-        let named = store
+        let named = ledger
             .errors
             .iter()
             .map(|it| (it.error_type.clone(), it.metas.get("commodity_name").cloned()))
@@ -1310,7 +1309,7 @@ fn missing_costs_that_are_not_uniquely_determined_leave_no_lots_or_store_rows() 
         assert_eq!(errors(&ledger), vec![(kind, None)], "{body}");
         assert!(lots(&ledger, "Assets:A").is_empty(), "{body}");
         assert!(lots(&ledger, "Income:I").is_empty(), "{body}");
-        assert!(ledger.store.read().unwrap().transactions.is_empty(), "{body}");
+        assert!(ledger.transactions().is_empty(), "{body}");
     }
 }
 
@@ -1400,7 +1399,7 @@ fn e11_postings_to_missing_or_closed_accounts_are_reported() {
             (ErrorKind::AccountClosed, span.to_owned(), metas([("account_name", "Assets:B")])),
         ]
     );
-    assert_eq!(ledger.store.read().unwrap().transactions.len(), 1);
+    assert_eq!(ledger.transactions().len(), 1);
 }
 
 #[test]
@@ -1815,9 +1814,8 @@ fn a_rejected_transaction_counts_for_no_balance_assertion() {
         vec![(ErrorKind::TransactionExplicitPostingHaveMultipleCommodity, None)],
         "the rejection is the only error: every assertion agrees with the store"
     );
-    let store = ledger.store.read().unwrap();
-    assert!(store.balance_assertions.iter().all(|it| it.passed));
-    assert_eq!(store.transactions.len(), 1);
+    assert!(ledger.outcomes.iter().all(|it| !matches!(it.detail, Detail::Assertion { passed: false, .. })));
+    assert_eq!(ledger.transactions().len(), 1);
 }
 
 /// Final booking errors belong to the stage channel, before materialization errors. Both errors
@@ -1831,16 +1829,16 @@ fn final_validation_errors_precede_undefined_budget_activity() {
           Expenses:Food 10 CNY
           Income:I -9 CNY
     "#});
-    let store = ledger.store.read().unwrap();
     assert_eq!(
-        store.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>(),
+        ledger.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>(),
         [&ErrorKind::UnbalancedTransaction, &ErrorKind::BudgetDoesNotExist]
     );
-    let txn = store.transactions.values().next().unwrap();
-    assert_eq!(store.errors[0].metas["txn_id"], txn.id.to_string());
-    assert_eq!(store.errors[1].metas["budget_name"], "missing");
-    assert_eq!(store.errors[1].metas["account_name"], "Expenses:Food");
-    assert!(store.errors.iter().all(|it| it.span.as_ref() == Some(&ledger.directives[txn.directive].span)));
+    let (id, _) = ledger.transactions()[0];
+    assert_eq!(ledger.errors[0].metas["txn_id"], id.to_string());
+    assert_eq!(ledger.errors[1].metas["budget_name"], "missing");
+    assert_eq!(ledger.errors[1].metas["account_name"], "Expenses:Food");
+    let span = &ledger.transaction_directive(&id).unwrap().span;
+    assert!(ledger.errors.iter().all(|it| it.span.as_ref() == Some(span)));
 }
 
 /// The numbers of the booking errors' metas are written in plain notation, like the queries and the exporter write

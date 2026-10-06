@@ -10,13 +10,12 @@ use indoc::indoc;
 use itertools::Itertools;
 use zhang_ast::{Currency, Directive, Posting, PostingCost, Rounding, Spanned};
 
-use super::{BookOutcome, Booker};
+use super::{BookOutcome, Booker, CommodityLotRecord};
 use crate::data_source::LocalFileSystemDataSource;
 use crate::data_type::text::ZhangDataType;
 use crate::data_type::DataType;
 use crate::inventory::BookingMethod;
 use crate::ledger::Ledger;
-use crate::store::CommodityLotRecord;
 
 /// what booking a stream produced
 struct Booked {

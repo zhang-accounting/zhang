@@ -22,6 +22,7 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 use zhang_server::request::{BatchAccountBalanceRequest, JournalRequest};
 use zhang_server::routes::account::{create_batch_account_balances, get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::transaction::get_journals;
@@ -630,9 +631,8 @@ include "{data_file}"
     let state = scratch.state().await;
     {
         let ledger = state.read().await;
-        let store = ledger.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
-        assert!(store.balance_assertions.iter().all(|it| it.passed));
+        assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
+        assert!(ledger.outcomes.iter().all(|it| !matches!(it.detail, Detail::Assertion { passed: false, .. })));
     }
     let (_, info) = respond(get_account_info(state, UrlPath(("Assets:Bank".to_owned(),))).await).await;
     assert_eq!(number(&info["data"]["balance_with_sub_accounts"]["CNY"]), decimal("500"));
@@ -680,6 +680,7 @@ mod beancount_pads {
     use serde_json::{json, Value};
     use zhang_ast::amount::Amount;
     use zhang_ast::error::ErrorKind;
+    use zhang_core::outcome::Detail;
     use zhang_server::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
     use zhang_server::routes::account::{create_account_balance, create_batch_account_balances};
     use zhang_server::routes::transaction::update_single_transaction;
@@ -763,28 +764,29 @@ mod beancount_pads {
     /// whether each assertion passed
     async fn reloaded(scratch: &Scratch) -> (Vec<ErrorKind>, Vec<String>, Vec<bool>) {
         let ledger = scratch.ledger().await;
-        let store = ledger.store.read().unwrap();
-        let errors = store.errors.iter().map(|it| it.error_type.clone()).collect();
-        let mut paddings = store
-            .transactions
-            .values()
-            .filter_map(|it| match &ledger.directives[it.directive].data {
-                zhang_ast::Directive::Transaction(booked) if booked.flag == Some(zhang_ast::Flag::BalancePad) => Some((it, booked)),
-                _ => None,
-            })
-            .map(|(it, booked)| {
+        let errors = ledger.errors.iter().map(|it| it.error_type.clone()).collect();
+        let mut paddings = ledger
+            .transactions()
+            .into_iter()
+            .map(|(_, booked)| booked)
+            .filter(|booked| booked.flag == Some(zhang_ast::Flag::BalancePad))
+            .map(|booked| {
                 // the postings as written: the legs booking split each into
                 let postings = zhang_ast::written_groups(&booked.postings);
                 format!(
                     "{} {} from {}",
-                    it.datetime.date_naive(),
+                    booked.date.to_timezone_datetime(&ledger.options.timezone).date_naive(),
                     zhang_ast::group_units(postings[0].legs),
                     postings[1].legs[0].account.name()
                 )
             })
             .collect::<Vec<_>>();
         paddings.sort();
-        let passed = store.balance_assertions.iter().map(|it| it.passed).collect();
+        let checks = ledger.entries().into_iter().filter_map(|(_, _, outcome)| match outcome.detail {
+            Detail::Assertion { passed, .. } => Some(passed),
+            _ => None,
+        });
+        let passed = checks.collect();
         (errors, paddings, passed)
     }
 

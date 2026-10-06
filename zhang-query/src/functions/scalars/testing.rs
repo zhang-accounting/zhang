@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::str::FromStr;
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
@@ -105,8 +105,7 @@ impl Fixture<'_> {
         std::fs::write(dir.path().join("main.zhang"), self.ledger()).expect("write ledger");
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source)).expect("cannot load ledger");
-        let store = ledger.store.read().unwrap_or_else(PoisonError::into_inner);
-        let data = Dataset::new(&ledger, &store, self.context.today, Projection::all());
+        let data = Dataset::new(&ledger, self.context.today, Projection::all());
         f(&data, data.rows.first().map(RowRef::Posting))
     }
 }
