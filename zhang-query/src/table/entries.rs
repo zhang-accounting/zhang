@@ -202,152 +202,146 @@ fn of_directive(record: &Record<'_>, get: impl Fn(&Spanned<Directive>) -> Value)
     directive(record).map_or(Value::Null, get)
 }
 
+// The columns of `#entries`. The tables of one kind of directive (`#transactions`, `#prices`, `#balances`, `#notes`,
+// `#events` and `#commodities`) read the same rows and list these columns too: every one of them has `id`, `type`
+// (except `#events`, whose `type` is the event's), `filename`, `date`, `year`, `month`, `day`, `time`, `timestamp`,
+// `seq`, `meta` and `metas`.
+pub(super) const ID: ColumnDef = ColumnDef::record(
+    "id",
+    DataType::Str,
+    "Unique id of the entry: for a transaction its transaction id (the id column of its postings), for a balance \
+     assertion the id zhang stored its check with, which /api/journals lists it with.",
+    |data, record| entry_info(record).map_or(Value::Null, |info| Value::Str(data.entry_id(info.seq).to_owned())),
+);
+pub(super) const TYPE: ColumnDef = ColumnDef::record(
+    "type",
+    DataType::Str,
+    "Kind of the directive, lower-case: 'transaction', 'open', 'close', 'balance', 'price', 'note', 'document', \
+     'event', 'commodity', 'custom', 'query', 'budget', 'budget-add', 'budget-transfer' or 'budget-close'.",
+    |_, record| of_directive(record, |it| Value::Str(entry_type(&it.data).to_owned())),
+);
+pub(super) const FILENAME: ColumnDef = ColumnDef::record("filename", DataType::Str, "The ledger file that holds the directive.", |_, record| {
+    of_directive(record, |it| str_value(it.span.filename.as_ref().map(|path| path.to_string_lossy()).as_deref()))
+});
+pub(super) const DATE: ColumnDef = ColumnDef::record(
+    "date",
+    DataType::Date,
+    "Date of the directive; of a transaction, as zhang stores it.",
+    |_, record| date(record),
+);
+pub(super) const YEAR: ColumnDef = ColumnDef::record("year", DataType::Int, "Year of the date.", |_, record| date_part(record, year));
+pub(super) const MONTH: ColumnDef = ColumnDef::record("month", DataType::Int, "Month (1-12) of the date.", |_, record| {
+    date_part(record, |date| date.month())
+});
+pub(super) const DAY: ColumnDef = ColumnDef::record("day", DataType::Int, "Day of month of the date.", |_, record| {
+    date_part(record, |date| date.day())
+});
+pub(super) const FLAG: ColumnDef = ColumnDef::record(
+    "flag",
+    DataType::Str,
+    "Flag of a transaction: '*', '!', or 'P' for padding; NULL for other directives.",
+    |_, record| of_transaction(record, txn_flag),
+);
+pub(super) const PAYEE: ColumnDef = ColumnDef::record("payee", DataType::Str, "Payee of a transaction; NULL for other directives.", |_, record| {
+    of_transaction(record, payee)
+});
+pub(super) const NARRATION: ColumnDef = ColumnDef::record(
+    "narration",
+    DataType::Str,
+    "Narration of a transaction ('' when absent); NULL for other directives.",
+    |_, record| of_transaction(record, narration),
+);
+pub(super) const DESCRIPTION: ColumnDef = ColumnDef::record(
+    "description",
+    DataType::Str,
+    "Payee and narration of a transaction joined with ' | '; NULL for other directives.",
+    |_, record| of_transaction(record, txn_description),
+);
+pub(super) const TAGS: ColumnDef = ColumnDef::record(
+    "tags",
+    DataType::Set,
+    "Tags of a transaction, note or document; NULL for other directives.",
+    |_, record| of_directive(record, |it| tags_or_links(record, &it.data, false)),
+);
+pub(super) const LINKS: ColumnDef = ColumnDef::record(
+    "links",
+    DataType::Set,
+    "Links of a transaction, note or document; NULL for other directives.",
+    |_, record| of_directive(record, |it| tags_or_links(record, &it.data, true)),
+);
+pub(super) const META: ColumnDef = ColumnDef::record("meta", DataType::Str, "Metadata of the directive, as `key: \"value\"` pairs.", |_, record| {
+    meta_value(record)
+});
+pub(super) const ACCOUNTS: ColumnDef = ColumnDef::record(
+    "accounts",
+    DataType::Set,
+    "The accounts the directive refers to: the posting accounts of a transaction, the account of open, close, \
+     balance, note and document, and the pad account of balance ... with pad; empty for other directives.",
+    |_, record| of_directive(record, |it| entry_accounts(&it.data)),
+);
+pub(super) const SEQ: ColumnDef = ColumnDef::record(
+    "seq",
+    DataType::Int,
+    "Position of the entry, from 0, in the order zhang processes the ledger; ORDER BY seq DESC lists the newest first. A \
+     zhang extension.",
+    |_, record| seq(record),
+);
+pub(super) const TIME: ColumnDef = ColumnDef::record(
+    "time",
+    DataType::Str,
+    "Time of day of the directive in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, \
+     moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang extension.",
+    time,
+);
+pub(super) const TIMESTAMP: ColumnDef = ColumnDef::record(
+    "timestamp",
+    DataType::Int,
+    "Unix time, in seconds, of the directive's date and time. A zhang extension.",
+    timestamp,
+);
+pub(super) const METAS: ColumnDef = ColumnDef::record(
+    "metas",
+    DataType::Metas,
+    "Metadata of the directive as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang \
+     extension.",
+    |_, record| metas_value(record),
+);
+
 static ENTRY_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record(
-        "id",
-        DataType::Str,
-        "Unique id of the entry: for a transaction its transaction id (the id column of its postings), for a balance \
-         assertion the id zhang stored its check with.",
-        |data, record| entry_info(record).map_or(Value::Null, |info| Value::Str(data.entry_id(info.seq).to_owned())),
-    ),
-    ColumnDef::record(
-        "type",
-        DataType::Str,
-        "Kind of the directive, lower-case: 'transaction', 'open', 'close', 'balance', 'price', 'note', 'document', \
-         'event', 'commodity', 'custom', 'query', 'budget', 'budget-add', 'budget-transfer' or 'budget-close'.",
-        |_, record| of_directive(record, |it| Value::Str(entry_type(&it.data).to_owned())),
-    ),
-    ColumnDef::record("filename", DataType::Str, "The ledger file that holds the directive.", |_, record| {
-        of_directive(record, |it| str_value(it.span.filename.as_ref().map(|path| path.to_string_lossy()).as_deref()))
-    }),
-    ColumnDef::record("date", DataType::Date, "Date of the directive; of a transaction, as zhang stores it.", |_, record| {
-        date(record)
-    }),
-    ColumnDef::record("year", DataType::Int, "Year of the date.", |_, record| date_part(record, year)),
-    ColumnDef::record("month", DataType::Int, "Month (1-12) of the date.", |_, record| {
-        date_part(record, |date| date.month())
-    }),
-    ColumnDef::record("day", DataType::Int, "Day of month of the date.", |_, record| {
-        date_part(record, |date| date.day())
-    }),
-    ColumnDef::record("flag", DataType::Str, "Flag of a transaction; NULL for other directives.", |_, record| {
-        of_transaction(record, txn_flag)
-    }),
-    ColumnDef::record("payee", DataType::Str, "Payee of a transaction; NULL for other directives.", |_, record| {
-        of_transaction(record, payee)
-    }),
-    ColumnDef::record(
-        "narration",
-        DataType::Str,
-        "Narration of a transaction ('' when absent); NULL for other directives.",
-        |_, record| of_transaction(record, narration),
-    ),
-    ColumnDef::record(
-        "description",
-        DataType::Str,
-        "Payee and narration of a transaction joined with ' | '; NULL for other directives.",
-        |_, record| of_transaction(record, txn_description),
-    ),
-    ColumnDef::record(
-        "tags",
-        DataType::Set,
-        "Tags of a transaction, note or document; NULL for other directives.",
-        |_, record| of_directive(record, |it| tags_or_links(record, &it.data, false)),
-    ),
-    ColumnDef::record(
-        "links",
-        DataType::Set,
-        "Links of a transaction, note or document; NULL for other directives.",
-        |_, record| of_directive(record, |it| tags_or_links(record, &it.data, true)),
-    ),
-    ColumnDef::record("meta", DataType::Str, "Metadata of the directive, as `key: \"value\"` pairs.", |_, record| {
-        meta_value(record)
-    }),
-    ColumnDef::record(
-        "accounts",
-        DataType::Set,
-        "The accounts the directive refers to: the posting accounts of a transaction, the account of open, close, \
-         balance, note and document, and the pad account of balance ... with pad; empty for other directives.",
-        |_, record| of_directive(record, |it| entry_accounts(&it.data)),
-    ),
-    ColumnDef::record(
-        "seq",
-        DataType::Int,
-        "Position of the entry, from 0, in the order zhang processes the ledger; ORDER BY seq DESC lists the newest first. A \
-         zhang extension.",
-        |_, record| seq(record),
-    ),
-    ColumnDef::record(
-        "time",
-        DataType::Str,
-        "Time of day of the directive in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
-         extension.",
-        time,
-    ),
-    ColumnDef::record(
-        "timestamp",
-        DataType::Int,
-        "Unix time, in seconds, of the directive's date and time. A zhang extension.",
-        timestamp,
-    ),
-    ColumnDef::record(
-        "metas",
-        DataType::Metas,
-        "Metadata of the directive as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang \
-         extension.",
-        |_, record| metas_value(record),
-    ),
+    ID,
+    TYPE,
+    FILENAME,
+    DATE,
+    YEAR,
+    MONTH,
+    DAY,
+    FLAG,
+    PAYEE,
+    NARRATION,
+    DESCRIPTION,
+    TAGS,
+    LINKS,
+    META,
+    ACCOUNTS,
+    SEQ,
+    TIME,
+    TIMESTAMP,
+    METAS,
 ];
 
 static TRANSACTION_COLUMNS: &[ColumnDef] = &[
-    ColumnDef::record("date", DataType::Date, "Date of the transaction, as zhang stores it.", |_, record| {
-        date(record)
-    }),
-    ColumnDef::record("flag", DataType::Str, "Flag of the transaction: '*', '!', or 'P' for padding.", |_, record| {
-        of_transaction(record, txn_flag)
-    }),
-    ColumnDef::record("payee", DataType::Str, "Payee of the transaction.", |_, record| of_transaction(record, payee)),
-    ColumnDef::record("narration", DataType::Str, "Narration of the transaction; '' when absent.", |_, record| {
-        of_transaction(record, narration)
-    }),
-    ColumnDef::record("tags", DataType::Set, "Tags of the transaction.", |_, record| {
-        of_transaction(record, |txn| set_value(&txn.tags))
-    }),
-    ColumnDef::record("links", DataType::Set, "Links of the transaction.", |_, record| {
-        of_transaction(record, |txn| set_value(&txn.links))
-    }),
-    ColumnDef::record("accounts", DataType::Set, "The accounts of the postings of the transaction.", |_, record| {
-        of_directive(record, |it| entry_accounts(&it.data))
-    }),
-    ColumnDef::record("meta", DataType::Str, "Metadata of the transaction, as `key: \"value\"` pairs.", |_, record| {
-        meta_value(record)
-    }),
-    ColumnDef::record(
-        "id",
-        DataType::Str,
-        "Unique id of the transaction: the id column of its postings and of its #entries row. A zhang extension.",
-        |data, record| entry_info(record).map_or(Value::Null, |info| Value::Str(data.entry_id(info.seq).to_owned())),
-    ),
-    ColumnDef::record(
-        "seq",
-        DataType::Int,
-        "Position of the transaction, from 0, in the order zhang processes the ledger, as in #entries; ORDER BY seq DESC \
-         lists the newest first. A zhang extension.",
-        |_, record| seq(record),
-    ),
-    ColumnDef::record(
-        "time",
-        DataType::Str,
-        "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang \
-         extension.",
-        time,
-    ),
-    ColumnDef::record(
-        "timestamp",
-        DataType::Int,
-        "Unix time, in seconds, of the transaction's date and time. A zhang extension.",
-        timestamp,
-    ),
+    DATE,
+    FLAG,
+    PAYEE,
+    NARRATION,
+    TAGS,
+    LINKS,
+    ACCOUNTS,
+    META,
+    ID,
+    SEQ,
+    TIME,
+    TIMESTAMP,
     ColumnDef::record(
         "balanced",
         DataType::Bool,
@@ -362,13 +356,7 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
          zhang extension.",
         |_, record| entry_info(record).map_or(Value::Null, |info| error_kinds(info.errors.as_ref())),
     ),
-    ColumnDef::record(
-        "metas",
-        DataType::Metas,
-        "Metadata of the transaction as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang \
-         extension.",
-        |_, record| metas_value(record),
-    ),
+    METAS,
 ];
 
 /// The `metas` column of an entry.
