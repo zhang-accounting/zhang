@@ -149,13 +149,16 @@ curl -X POST http://localhost:8000/api/query/builtins/postings.between/text \
 
 ### 已移除的接口
 
-Web 界面以前使用的各类型化读取接口正在按组逐个版本移除，改为按名称执行内置查询：以前调用这些接口的脚本，用接口所执行的查询、绑定接口当时使用的参数，就能得到相同的数字。已移除的接口与其他没有路由的 `/api` 路径一样，返回 HTTP 404 和指明该路径的 JSON `message`（如 `no route GET /api/budgets`），无论构建是否带有 Web 界面。
+Web 界面以前使用的各类型化读取接口正在按组逐个版本移除，改为按名称执行内置查询：以前调用这些接口的脚本，用接口所执行的查询、绑定接口当时使用的参数，就能得到相同的数字。已移除的接口与其他没有路由的 `/api` 路径一样，返回 HTTP 404 和指明该路径的 JSON `message`（如 `no route GET /api/budgets`），无论构建是否带有 Web 界面；路径上仍有其他方法时（如 `GET /api/accounts/{account}/documents`，其 `POST` 用于上传），返回 HTTP 405 和指明该方法与路径的消息。
 
 | 已移除的接口 | 改为执行的内置查询 |
 |--------------|--------------------|
 | `GET /api/budgets?year=&month=` | `budgets.month`，`month` 为该月的第一天 |
 | `GET /api/budgets/{name}?year=&month=` | `budgets.budget`（参数 `name`）和 `budgets.budget_month`（参数 `name`、`month`）；`budgets.budget` 没有行即原来的 404，`budgets.budget_month` 没有行表示预算开始之前的月份（未分配、未支出、未关闭） |
 | `GET /api/budgets/{name}/interval/{year}/{month}` | `budgets.events` 和 `budgets.postings`，参数均为 `name`、`month`；原接口把两个列表按时间从新到旧合并，时间相同时预算自身的条目在前 |
+| `GET /api/documents` | `journals.documents`；原接口附加的文件名、扩展名和据此猜测的 MIME 类型都可以从行的 `path` 得出 |
+| `GET /api/accounts/{account}/documents` | `accounts.documents`，参数 `account`，其余同上 |
+| `GET /api/accounts/{account}/balances` | `accounts.balance_history`，参数 `account`；原接口按 `currency` 把行分组 |
 
 原接口的金额形如 `{number, commodity}`；查询的单元格形如 `{number, currency}`，预算的 `activity` 是以该预算 `currency` 计的数字。
 

@@ -35,26 +35,10 @@ export interface paths {
     get: operations['get_account_info'];
   };
   '/api/accounts/{account_name}/balances': {
-    /**
-     * Get Account Balance Data
-     * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
-     * An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
-     *
-     * Built-in query `accounts.balance_history`.
-     */
-    get: operations['get_account_balance_data'];
     /** Create Account Balance */
     post: operations['create_account_balance'];
   };
   '/api/accounts/{account_name}/documents': {
-    /**
-     * Get Account Documents
-     * @description The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
-     * 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
-     *
-     * Built-in query `accounts.documents`.
-     */
-    get: operations['get_account_documents'];
     /** Upload Account Document */
     post: operations['upload_account_document'];
   };
@@ -155,13 +139,6 @@ export interface paths {
      * latest price in the operating currency, and all its prices. An unknown commodity is a 404.
      */
     get: operations['get_single_commodity'];
-  };
-  '/api/documents': {
-    /**
-     * Get Documents
-     * @description Every document of the ledger, newest first: the built-in query `journals.documents`.
-     */
-    get: operations['get_documents'];
   };
   '/api/errors': {
     /**
@@ -574,42 +551,6 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Account Balance Data
-   * @description The balance of the account and its sub-accounts at the end of every day it changed, per currency, in date order.
-   * An account without a page is a 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
-   *
-   * Built-in query `accounts.balance_history`.
-   */
-  get_account_balance_data: {
-    parameters: {
-      path: {
-        account_name: string;
-      };
-    };
-    responses: {
-      /** @description default return */
-      200: {
-        content: {
-          'application/json': {
-            data: {
-              balance: {
-                [key: string]: {
-                  balance: {
-                    commodity: string;
-                    /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-                    number: string;
-                  };
-                  /** Format: date */
-                  date: string;
-                }[];
-              };
-            };
-          };
-        };
-      };
-    };
-  };
   /** Create Account Balance */
   create_account_balance: {
     parameters: {
@@ -668,47 +609,6 @@ export interface operations {
                 tolerance?: string | null;
               }[];
             };
-          };
-        };
-      };
-    };
-  };
-  /**
-   * Get Account Documents
-   * @description The document directives of the account and its sub-accounts, in ledger order. An account without a page is a
-   * 404, and a name that is no account name a 400, as for `GET /api/accounts/{a}`.
-   *
-   * Built-in query `accounts.documents`.
-   */
-  get_account_documents: {
-    parameters: {
-      path: {
-        account_name: string;
-      };
-    };
-    responses: {
-      /** @description default return */
-      200: {
-        content: {
-          'application/json': {
-            data: {
-              account?: string | null;
-              /** Format: date-time */
-              datetime: string;
-              /**
-               * @description the extension of the document's file name, lower case and without the dot, e.g. `pdf`; null for a file name
-               * without one
-               */
-              extension?: string | null;
-              filename: string;
-              /**
-               * @description the MIME type of the document, guessed from the extension of its file name, e.g. `application/pdf`; null when
-               * the extension says nothing
-               */
-              mime_type?: string | null;
-              path: string;
-              trx_id?: string | null;
-            }[];
           };
         };
       };
@@ -1220,39 +1120,6 @@ export interface operations {
                 datetime: string;
               }[];
             };
-          };
-        };
-      };
-    };
-  };
-  /**
-   * Get Documents
-   * @description Every document of the ledger, newest first: the built-in query `journals.documents`.
-   */
-  get_documents: {
-    responses: {
-      /** @description default return */
-      200: {
-        content: {
-          'application/json': {
-            data: {
-              account?: string | null;
-              /** Format: date-time */
-              datetime: string;
-              /**
-               * @description the extension of the document's file name, lower case and without the dot, e.g. `pdf`; null for a file name
-               * without one
-               */
-              extension?: string | null;
-              filename: string;
-              /**
-               * @description the MIME type of the document, guessed from the extension of its file name, e.g. `application/pdf`; null when
-               * the extension says nothing
-               */
-              mime_type?: string | null;
-              path: string;
-              trx_id?: string | null;
-            }[];
           };
         };
       };

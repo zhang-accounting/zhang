@@ -120,12 +120,9 @@ impl GotchaApp for ServerApp {
             .get("/api/accounts", get_account_list)
             .get("/api/accounts/:account_name", get_account_info)
             .post("/api/accounts/:account_name/documents", upload_account_document)
-            .get("/api/accounts/:account_name/documents", get_account_documents)
             .get("/api/accounts/:account_name/journals", get_account_journals)
-            .get("/api/accounts/:account_name/balances", get_account_balance_data)
             .post("/api/accounts/:account_name/balances", create_account_balance)
             .post("/api/accounts/batch-balances", create_batch_account_balances)
-            .get("/api/documents", get_documents)
             .get("/api/for-new-document", get_info_for_new_document)
             // the file path is standard base64, which can contain `/`, see `Base64Path`; an empty one is a 400
             .get("/api/documents/", download_document)

@@ -149,13 +149,16 @@ Send the text to [`POST /api/query`](/reference/query-language/#run-a-query) to 
 
 ### Retired endpoints
 
-The typed read endpoints the web UI used before are being retired, one group per release, in favour of running the built-in queries by name: a script that called one of them gets the same figures from the queries it ran, with the parameters the endpoint bound. A retired endpoint, like any `/api` path no route takes, is answered with HTTP 404 and a JSON `message` naming it (`no route GET /api/budgets`), whether or not the build serves the web UI.
+The typed read endpoints the web UI used before are being retired, one group per release, in favour of running the built-in queries by name: a script that called one of them gets the same figures from the queries it ran, with the parameters the endpoint bound. A retired endpoint, like any `/api` path no route takes, is answered with HTTP 404 and a JSON `message` naming it (`no route GET /api/budgets`), whether or not the build serves the web UI; a retired method on a path that keeps others (`GET /api/accounts/{account}/documents`, whose `POST` uploads) with HTTP 405 and a message naming the method and the path.
 
 | Retired endpoint | Built-in queries to run instead |
 |------------------|----------------------------------|
 | `GET /api/budgets?year=&month=` | `budgets.month` with `month` the first day of the month |
 | `GET /api/budgets/{name}?year=&month=` | `budgets.budget` with `name`, and `budgets.budget_month` with `name` and `month`; no row of `budgets.budget` is the old 404, no row of `budgets.budget_month` the month before the budget's first (nothing assigned or spent, not closed) |
 | `GET /api/budgets/{name}/interval/{year}/{month}` | `budgets.events` and `budgets.postings`, both with `name` and `month`; the endpoint merged the two lists newest first, the budget's own entries first at the same time |
+| `GET /api/documents` | `journals.documents`; the endpoint added the file name, the extension and a MIME type guessed from it, which follow from the row's `path` |
+| `GET /api/accounts/{account}/documents` | `accounts.documents` with `account`, as above |
+| `GET /api/accounts/{account}/balances` | `accounts.balance_history` with `account`; the endpoint grouped the rows by `currency` |
 
 The endpoints' amounts were `{number, commodity}`; the queries' cells are `{number, currency}`, and a budget's `activity` is a number in the budget's `currency`.
 

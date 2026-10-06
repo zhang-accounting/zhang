@@ -218,16 +218,20 @@ async fn a_document_whose_base64_path_has_no_slash_downloads() {
     assert_eq!(reply.headers[header::CONTENT_DISPOSITION], "inline; filename=\"receipt.pdf\"");
 }
 
+/// The documents page lists the document with the path the download route takes, through the built-in query
+/// `journals.documents`, next to the download routes under `/api/documents/`.
 #[tokio::test]
-async fn the_document_list_keeps_its_route() {
+async fn the_document_list_names_the_path_the_download_takes() {
     let dir = ledger_dir();
     let router = server(dir.path()).await;
 
-    let reply = get(&router, "/api/documents").await;
+    let reply = call(&router, Method::POST, "/api/query/builtins/journals.documents", Some(json!({ "params": {} }))).await;
     assert_eq!(reply.status, StatusCode::OK);
-    let documents = reply.json()["data"].as_array().cloned().unwrap();
+    let result = reply.json()["data"].clone();
+    let path = result["columns"].as_array().unwrap().iter().position(|it| it["name"] == "path").unwrap();
+    let documents = result["rows"].as_array().cloned().unwrap();
     assert_eq!(documents.len(), 1, "{documents:?}");
-    assert_eq!(documents[0]["path"], DOCUMENT);
+    assert_eq!(documents[0][path], DOCUMENT);
 }
 
 #[tokio::test]
@@ -331,7 +335,8 @@ async fn the_openapi_document_keeps_the_file_path_parameter() {
         .cloned()
         .collect::<Vec<_>>();
     routes.sort();
-    assert_eq!(routes, ["/api/documents", "/api/files", "/api/files/{file_path}"]);
+    // the download routes under `/api/documents/` take a catch-all the document cannot describe
+    assert_eq!(routes, ["/api/files", "/api/files/{file_path}"]);
 
     let file = &paths["/api/files/{file_path}"];
     for method in ["get", "put"] {

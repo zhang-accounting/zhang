@@ -32,8 +32,9 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::outcome::Detail;
-use zhang_server::request::AccountJournalRequest;
-use zhang_server::routes::account::{get_account_balance_data, get_account_documents, get_account_info, get_account_journals, get_account_list};
+use zhang_server::request::{AccountJournalRequest, BuiltinQueryRunRequest};
+use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
+use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::Query as UrlQuery;
 use zhang_server::state::SharedLedger;
 
@@ -151,6 +152,56 @@ async fn respond_with_total(response: impl IntoResponse) -> (StatusCode, Option<
 async fn respond(response: impl IntoResponse) -> (StatusCode, Value) {
     let (status, _, data) = respond_with_total(response).await;
     (status, data)
+}
+
+/// The rows of the built-in query `name` for `account`, as objects keyed by column name: what the account page reads
+/// through `POST /api/query/builtins/{name}` for its balance history (`accounts.balance_history`) and its documents
+/// (`accounts.documents`).
+async fn builtin_rows(ledger: &SharedLedger, name: &str, account: &str) -> Vec<Value> {
+    let request = BuiltinQueryRunRequest {
+        params: serde_json::from_value(json!({ "account": account })).unwrap(),
+        count_total: None,
+    };
+    let (status, result) = respond(run_builtin_query(State(ledger.clone()), UrlPath((name.to_owned(),)), axum::Json(request)).await).await;
+    assert_eq!(status, StatusCode::OK, "{name} {account}: {result}");
+    let columns = result["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    result["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+        .collect()
+}
+
+/// The balance history as the account page shows it, from the rows of `accounts.balance_history`: per currency, the
+/// balance at the end of every day with a posting (`balanceHistoryByCommodity` in the frontend).
+async fn history(ledger: &SharedLedger, account: &str) -> Value {
+    let mut balance = Map::new();
+    for row in builtin_rows(ledger, "accounts.balance_history", account).await {
+        let currency = row["currency"].as_str().unwrap_or_default().to_owned();
+        let point = json!({"date": row["date"], "balance": {"number": row["balance"]["number"], "commodity": row["balance"]["currency"]}});
+        balance
+            .entry(currency)
+            .or_insert_with(|| Value::Array(vec![]))
+            .as_array_mut()
+            .unwrap()
+            .push(point);
+    }
+    json!({ "balance": balance })
+}
+
+/// The documents of the account page, from the rows of `accounts.documents`: `(account, path)` in ledger order.
+async fn documents(ledger: &SharedLedger, account: &str) -> Vec<Value> {
+    builtin_rows(ledger, "accounts.documents", account)
+        .await
+        .into_iter()
+        .map(|row| json!([row["account"], row["path"]]))
+        .collect()
 }
 
 /// The whole journal of `account`.
@@ -623,19 +674,16 @@ async fn check(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) {
         }
 
         if expected_status != StatusCode::OK {
-            let answers = [
-                whole_journal(ledger, &account).await,
-                respond(get_account_balance_data(State(ledger.clone()), path()).await).await,
-                respond(get_account_documents(State(ledger.clone()), path()).await).await,
-            ];
-            let endpoints = [
+            // the journal answers as the page does; the page's built-in queries (its history and documents) take
+            // any account name and list nothing for one without postings or documents
+            let (status, _) = whole_journal(ledger, &account).await;
+            report.expect(
+                ledger_name,
                 "GET /api/accounts/{a}/journals",
-                "GET /api/accounts/{a}/balances",
-                "GET /api/accounts/{a}/documents",
-            ];
-            for (endpoint, (status, _)) in endpoints.into_iter().zip(answers) {
-                report.expect(ledger_name, endpoint, &account, &json!(expected_status.as_u16()), &json!(status.as_u16()));
-            }
+                &account,
+                &json!(expected_status.as_u16()),
+                &json!(status.as_u16()),
+            );
             continue;
         }
 
@@ -647,19 +695,11 @@ async fn check(report: &mut Report, ledger_name: &str, ledger: &SharedLedger) {
         check_pages(report, ledger_name, ledger, &account, &journal).await;
 
         // the balance history
-        let (status, history) = respond(get_account_balance_data(State(ledger.clone()), path()).await).await;
-        assert_eq!(status, StatusCode::OK, "{ledger_name} {account}");
-        report.expect(ledger_name, "history", &account, &canonical(&stored.history(&account)), &canonical(&history));
+        let shown = history(ledger, &account).await;
+        report.expect(ledger_name, "history", &account, &canonical(&stored.history(&account)), &canonical(&shown));
 
         // the documents
-        let (status, documents) = respond(get_account_documents(State(ledger.clone()), path()).await).await;
-        assert_eq!(status, StatusCode::OK, "{ledger_name} {account}");
-        let listed = json!(canonical(&documents)
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|it| json!([it["account"], it["path"]]))
-            .collect::<Vec<_>>());
+        let listed = json!(documents(ledger, &account).await);
         report.expect(ledger_name, "documents", &account, &stored.documents(&account), &listed);
     }
 }
@@ -862,7 +902,8 @@ async fn the_status_of_an_account_is_the_one_its_directives_are_checked_with() {
 }
 
 /// Every endpoint of an account page answers a name that is no account, such as a parent without an account of its
-/// own, with a 404, as the page does, and a name that is no account name with a 400 that says why.
+/// own, with a 404, as the page does, and a name that is no account name with a 400 that says why. (The page's
+/// history and documents are built-in queries, which take any name and list nothing for such an account.)
 #[tokio::test]
 async fn a_name_that_is_no_account_is_a_404_and_one_that_is_no_account_name_a_400() {
     let (ledger, _dir) = differences().await;
@@ -877,8 +918,6 @@ async fn a_name_that_is_no_account_is_a_404_and_one_that_is_no_account_name_a_40
                     let (status, _, body) = journal_page(&ledger, name, 1, 10).await;
                     (status, body)
                 },
-                respond(get_account_balance_data(State(ledger.clone()), path()).await).await,
-                respond(get_account_documents(State(ledger.clone()), path()).await).await,
             ]
         }
     };
@@ -991,9 +1030,9 @@ async fn a_parent_account_shows_its_subtree() {
     assert_eq!(ids[1], transaction);
 
     // its balance at the end of each day with a posting
-    let (_, history) = respond(get_account_balance_data(State(ledger.clone()), path()).await).await;
+    let shown = history(&ledger, "Assets:Bank").await;
     assert_eq!(
-        canonical(&history),
+        canonical(&shown),
         canonical(&json!({"balance": {"CNY": [
             {"date": "2024-01-01", "balance": {"number": "105", "commodity": "CNY"}},
             {"date": "2024-01-05", "balance": {"number": "98", "commodity": "CNY"}},
@@ -1001,19 +1040,20 @@ async fn a_parent_account_shows_its_subtree() {
     );
 
     // the documents of the subtree, in ledger order: its `document` directives, not the documents a transaction
-    // names in its metadata or in that of a posting to the account
-    let (_, documents) = respond(get_account_documents(State(ledger), path()).await).await;
-    let documents = documents
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|it| (it["account"].as_str().unwrap(), it["filename"].as_str().unwrap(), it["path"].as_str().unwrap()))
+    // names in its metadata or in that of a posting to the account; the page shows the file name of each path
+    let documents = builtin_rows(&ledger, "accounts.documents", "Assets:Bank")
+        .await
+        .into_iter()
+        .map(|row| {
+            let path = row["path"].as_str().unwrap().to_owned();
+            (row["account"].as_str().unwrap().to_owned(), path.rsplit('/').next().unwrap().to_owned(), path)
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         documents,
         vec![
-            ("Assets:Bank:Savings", "savings.pdf", "statements/savings.pdf"),
-            ("Assets:Bank", "bank.pdf", "bank.pdf")
+            ("Assets:Bank:Savings".to_owned(), "savings.pdf".to_owned(), "statements/savings.pdf".to_owned()),
+            ("Assets:Bank".to_owned(), "bank.pdf".to_owned(), "bank.pdf".to_owned())
         ]
     );
 }
@@ -1243,9 +1283,9 @@ async fn a_day_daylight_saving_skips_a_time_on_ends_with_the_posting_written_las
     let path = || UrlPath(("Assets:Cash".to_owned(),));
     let (_, page) = respond(get_account_info(State(ledger.clone()), path()).await).await;
     assert_eq!(page["amount"]["detail"], json!({"CNY": "4"}));
-    let (_, history) = respond(get_account_balance_data(State(ledger.clone()), path()).await).await;
+    let shown = history(&ledger, "Assets:Cash").await;
     assert_eq!(
-        history["balance"]["CNY"][1],
+        shown["balance"]["CNY"][1],
         json!({"date": "2024-03-31", "balance": {"number": "4", "commodity": "CNY"}})
     );
 }

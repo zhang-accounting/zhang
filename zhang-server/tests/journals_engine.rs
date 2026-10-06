@@ -26,10 +26,10 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{JournalRequest, NewTransactionInfoRequest};
-use zhang_server::routes::account::get_account_documents;
+use zhang_server::request::{BuiltinQueryRunRequest, JournalRequest, NewTransactionInfoRequest};
 use zhang_server::routes::common::get_errors;
-use zhang_server::routes::document::{download_document, get_documents, get_info_for_new_document};
+use zhang_server::routes::document::{download_document, get_info_for_new_document};
+use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, update_single_transaction};
 use zhang_server::routes::{Base64Path, Query as UrlQuery};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
@@ -120,6 +120,31 @@ async fn respond(response: impl IntoResponse) -> (StatusCode, Value) {
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+/// The rows of the built-in query `name` with `params` (JSON values by name), as objects keyed by column name: what the
+/// documents lists read through `POST /api/query/builtins/{name}`.
+async fn builtin(ledger: &SharedLedger, name: &str, params: Value) -> (StatusCode, Vec<Value>) {
+    let request = BuiltinQueryRunRequest {
+        params: serde_json::from_value(params).unwrap(),
+        count_total: None,
+    };
+    let (status, body) = respond(run_builtin_query(State(ledger.clone()), UrlPath((name.to_owned(),)), Json(request)).await).await;
+    let columns = body["data"]["columns"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let rows = body["data"]["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+        .collect();
+    (status, rows)
 }
 
 fn request(page: Option<u32>, size: Option<u32>, keyword: Option<&str>, tags: Option<&[&str]>) -> JournalRequest {
@@ -607,10 +632,11 @@ async fn the_new_transaction_form_suggests_sorted_payees_without_pads_and_open_a
     );
 }
 
-/// A document has the same type on the documents page and on its account's page: `extension` is the extension of its
-/// file name, lower case and without the dot, and `mime_type` the MIME type that extension stands for.
+/// A document is the same row on the documents page (`journals.documents`) and on its account's page
+/// (`accounts.documents`): the lists derive its file name, extension and preview from the row's `path`
+/// (`documentOf` in the frontend, `utils/documents.test.ts`).
 #[tokio::test]
-async fn a_document_has_its_extension_and_mime_type_on_both_lists() {
+async fn a_document_is_the_same_row_on_both_lists() {
     let ledger_text = r#"option "operating_currency" "CNY"
 1970-01-01 commodity CNY
 1970-01-01 open Assets:Cash
@@ -621,34 +647,26 @@ async fn a_document_has_its_extension_and_mime_type_on_both_lists() {
 "#;
     let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
     let ledger = scratch.ledger().await;
-    let (status, all) = respond(get_documents(State(ledger.clone())).await).await;
+    let (status, mut all) = builtin(&ledger, "journals.documents", json!({})).await;
     assert_eq!(status, StatusCode::OK);
-    let account = UrlPath(("Assets:Cash".to_owned(),));
-    let (status, of_account) = respond(get_account_documents(State(ledger.clone()), account).await).await;
+    let (status, mut of_account) = builtin(&ledger, "accounts.documents", json!({ "account": "Assets:Cash" })).await;
     assert_eq!(status, StatusCode::OK);
-    let types = |documents: &Value| {
-        let mut types = documents
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|it| (it["path"].clone(), it["extension"].clone(), it["mime_type"].clone()))
-            .collect::<Vec<_>>();
-        types.sort_by_key(|it| it.0.to_string());
-        types
+    let paths = |documents: &[Value]| {
+        let mut paths = documents.iter().map(|it| it["path"].clone()).collect::<Vec<_>>();
+        paths.sort_by_key(|it| it.to_string());
+        paths
     };
-    let expected = vec![
-        (json!("notes/README"), Value::Null, Value::Null),
-        (json!("photos/receipt.webp"), json!("webp"), json!("image/webp")),
-        (json!("statements/Jan.PDF"), json!("pdf"), json!("application/pdf")),
-    ];
-    assert_eq!(types(&all["data"]), expected);
-    assert_eq!(types(&of_account["data"]), expected);
-    // the very same entities
-    let mut all = all["data"].as_array().unwrap().clone();
+    let expected = vec![json!("notes/README"), json!("photos/receipt.webp"), json!("statements/Jan.PDF")];
+    assert_eq!(paths(&all), expected);
+    assert_eq!(paths(&of_account), expected);
+    // the very same rows
     all.sort_by_key(|it| it["path"].to_string());
-    let mut of_account = of_account["data"].as_array().unwrap().clone();
     of_account.sort_by_key(|it| it["path"].to_string());
     assert_eq!(all, of_account);
+    assert_eq!(
+        all[0],
+        json!({"date": "2024-01-03", "time": "00:00:00", "path": "notes/README", "account": "Assets:Cash", "transaction_id": null})
+    );
 }
 
 /// The form offers the accounts open now, by the rule the ledger checks the transaction with: an account closed today
@@ -780,30 +798,19 @@ async fn documents_come_from_the_documents_table_newest_first() {
         let guard = ledger.read().await;
         guard.transactions()[0].0.to_string()
     };
-    let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
+    let (status, rows) = builtin(&ledger, "journals.documents", json!({})).await;
     assert_eq!(status, StatusCode::OK);
-    let document = |datetime: &str, path: &str, (extension, mime_type): (&str, &str), account: Value, trx_id: Value| {
-        json!({
-            "datetime": datetime,
-            "filename": path.rsplit('/').next().unwrap(),
-            "path": path,
-            "extension": extension,
-            "mime_type": mime_type,
-            "account": account,
-            "trx_id": trx_id,
-        })
-    };
-    let pdf = ("pdf", "application/pdf");
+    let document = |date: &str, time: &str, path: &str, account: Value, transaction_id: Value| json!({ "date": date, "time": time, "path": path, "account": account, "transaction_id": transaction_id });
     assert_eq!(
-        body["data"],
-        json!([
+        rows,
+        vec![
             // the documents of a transaction in written order: its own, then its postings'
-            document("2024-01-02T09:00:00", "receipts/a.pdf", pdf, Value::Null, json!(id)),
-            document("2024-01-02T09:00:00", "receipts/b.png", ("png", "image/png"), Value::Null, json!(id)),
+            document("2024-01-02", "09:00:00", "receipts/a.pdf", Value::Null, json!(id)),
+            document("2024-01-02", "09:00:00", "receipts/b.png", Value::Null, json!(id)),
             // a posting's document belongs to the posting's account too
-            document("2024-01-02T09:00:00", "receipts/c.pdf", pdf, json!("Expenses:Food"), json!(id)),
-            document("2024-01-01T00:00:00", "statements/jan.pdf", pdf, json!("Assets:Cash"), Value::Null),
-        ])
+            document("2024-01-02", "09:00:00", "receipts/c.pdf", json!("Expenses:Food"), json!(id)),
+            document("2024-01-01", "00:00:00", "statements/jan.pdf", json!("Assets:Cash"), Value::Null),
+        ]
     );
 }
 
@@ -815,23 +822,21 @@ async fn a_beancount_document_is_listed_with_the_path_the_download_opens() {
     let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
     let ledger = Ledger::load(dir, "document_paths.bean".to_owned(), source).unwrap();
     let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
-    let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
+    let (status, rows) = builtin(&ledger, "journals.documents", json!({})).await;
     assert_eq!(status, StatusCode::OK);
-    let paths = body["data"]
-        .as_array()
-        .unwrap()
+    let paths = rows
         .iter()
-        .map(|it| (it["datetime"].clone(), it["path"].clone()))
+        .map(|it| (it["date"].clone(), it["time"].clone(), it["path"].clone()))
         .collect::<Vec<_>>();
     // the one in the included data/2024.bean is written "../attachments/statement.txt"
     assert_eq!(
         paths,
         vec![
-            (json!("2024-01-03T00:00:00"), json!("document_paths/attachments/statement.txt")),
-            (json!("2024-01-02T00:00:00"), json!("document_paths/attachments/statement.txt")),
+            (json!("2024-01-03"), json!("00:00:00"), json!("document_paths/attachments/statement.txt")),
+            (json!("2024-01-02"), json!("00:00:00"), json!("document_paths/attachments/statement.txt")),
         ]
     );
-    let path = body["data"][0]["path"].as_str().unwrap().to_owned();
+    let path = rows[0]["path"].as_str().unwrap().to_owned();
     let response = download_document(State(ledger.clone()), Base64Path(path)).await.into_response();
     assert_eq!(response.status(), StatusCode::OK);
     let content = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -873,14 +878,9 @@ async fn the_document_of_a_split_sale_is_listed_once() {
         let legs = zhang_query::execute(&guard, "SELECT count(*) FROM postings WHERE narration = 'sell' AND account = 'Assets:Broker'").unwrap();
         assert_eq!(legs.rows, vec![vec![zhang_query::Value::Int(2)]]);
     }
-    let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
+    let (status, rows) = builtin(&ledger, "journals.documents", json!({})).await;
     assert_eq!(status, StatusCode::OK);
-    let paths = body["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|it| (it["path"].clone(), it["account"].clone()))
-        .collect::<Vec<_>>();
+    let paths = rows.iter().map(|it| (it["path"].clone(), it["account"].clone())).collect::<Vec<_>>();
     assert_eq!(paths, vec![(json!("slips/sale.pdf"), json!("Assets:Broker"))]);
 }
 

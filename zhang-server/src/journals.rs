@@ -30,7 +30,7 @@ use crate::cells::{self, Row};
 use crate::error::ServerError;
 use crate::request::{JournalRequest, LedgerDateTime};
 use crate::response::{
-    DocumentEntity, ErrorEntity, InfoForNewDocument, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
+    ErrorEntity, InfoForNewDocument, InfoForNewTransaction, JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity,
     JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity, Pageable, SpanInfoEntity, WrittenPostingEntity,
 };
 use crate::routes::query::with_ledger;
@@ -45,7 +45,6 @@ pub const PAYEES: &str = "journals.payees";
 pub const OPEN_ACCOUNTS: &str = "journals.accounts";
 /// the accounts with an `open` or `close` directive
 const ACCOUNTS: &str = "accounts.list";
-pub const DOCUMENTS: &str = "journals.documents";
 pub const ERRORS: &str = "journals.errors";
 
 /// A `set` cell as a list, in the set's order.
@@ -481,16 +480,6 @@ pub async fn info_for_new_document(ledger: &SharedLedger) -> ServerResult<InfoFo
     })
     .await
 }
-
-/// `GET /api/documents`: every document, newest first.
-pub async fn documents(ledger: &SharedLedger) -> ServerResult<Vec<DocumentEntity>> {
-    with_ledger(&ledger.0, |ledger| {
-        let result = execute(ledger, DOCUMENTS, &Params::new(), false)?;
-        cells::rows(DOCUMENTS, &result).map(|row| DocumentEntity::of(&row)).collect()
-    })
-    .await
-}
-
 // ------------------------------------------------------------------------------------------------
 // errors
 
