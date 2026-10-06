@@ -186,18 +186,24 @@ mod test {
             let operations = ledger.operations();
             let store = operations.read();
             assert!(store.errors.is_empty(), "{:?}", store.errors);
-            let txn = store.transactions.values().next().unwrap().clone();
-            let pairs = |metas: &[crate::store::PostingMetaDomain]| metas.iter().map(|it| format!("{}={}", it.key, it.value)).collect::<Vec<_>>();
-            let postings = txn.postings.iter().map(|posting| pairs(&posting.metas)).collect::<Vec<_>>();
+            drop(store);
+            let (id, txn) = ledger.transactions().into_iter().next().unwrap();
+            let pairs = |posting: &zhang_ast::Posting| {
+                posting
+                    .meta
+                    .clone()
+                    .sorted_pairs()
+                    .into_iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+            };
+            let postings = txn.postings.iter().map(pairs).collect::<Vec<_>>();
             // sorted by key, the values of a repeated key in ledger order
             assert_eq!(postings, vec![vec!["receipt=r1"], vec!["a=1", "a=0", "b=2", "document=receipts/posting.pdf"]]);
-            let stored = store.postings.iter().map(|posting| pairs(&posting.metas)).collect::<Vec<_>>();
-            assert_eq!(stored, postings);
 
             // the transaction's own metadata is unchanged
-            drop(store);
             let mut metas = operations
-                .metas(MetaType::TransactionMeta, txn.id.to_string())?
+                .metas(MetaType::TransactionMeta, id.to_string())?
                 .into_iter()
                 .map(|meta| format!("{}={}", meta.key, meta.value))
                 .collect::<Vec<_>>();
@@ -311,8 +317,15 @@ mod test {
 
         fn balances(ledger: &Ledger, account: &str) -> BTreeMap<String, BigDecimal> {
             let mut amounts = BTreeMap::new();
-            for posting in ledger.store.read().unwrap().postings.iter().filter(|posting| posting.account.name() == account) {
-                *amounts.entry(posting.inferred_amount.commodity.clone()).or_default() += &posting.inferred_amount.number;
+            for (_, txn) in ledger.transactions() {
+                for units in txn
+                    .postings
+                    .iter()
+                    .filter(|posting| posting.account.name() == account)
+                    .filter_map(|posting| posting.units.as_ref())
+                {
+                    *amounts.entry(units.commodity.clone()).or_default() += &units.number;
+                }
             }
             amounts
         }
@@ -566,11 +579,11 @@ mod test {
         fn transaction_instants(ledger: &crate::ledger::Ledger) -> std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> {
             let operations = ledger.operations();
             let store = operations.read();
-            store
-                .transactions
-                .values()
-                .map(|trx| (trx.narration.clone().unwrap_or_default(), trx.datetime.to_utc()))
-                .collect()
+            let narration = |trx: &crate::store::TransactionDomain| match &ledger.directives[trx.directive].data {
+                zhang_ast::Directive::Transaction(txn) => txn.narration.as_ref().map(|it| it.as_str().to_owned()).unwrap_or_default(),
+                _ => String::new(),
+            };
+            store.transactions.values().map(|trx| (narration(trx), trx.datetime.to_utc())).collect()
         }
 
         fn utc(text: &str) -> chrono::DateTime<chrono::Utc> {
@@ -597,13 +610,11 @@ mod test {
             // read with the offset before the transition: 02:30 EST = 07:30 UTC = 03:30 EDT
             assert_eq!(instants["this local time does not exist"], utc("2023-03-12T07:30:00Z"));
 
+            let postings: usize = ledger.transactions().iter().map(|(_, txn)| txn.postings.len()).sum();
+            assert_eq!(postings, 2);
             let operations = ledger.operations();
             let store = operations.read();
-            assert_eq!(store.postings.len(), 2);
-            assert!(store
-                .postings
-                .iter()
-                .all(|posting| posting.trx_datetime.to_utc() == utc("2023-03-12T07:30:00Z")));
+            assert!(store.transactions.values().all(|trx| trx.datetime.to_utc() == utc("2023-03-12T07:30:00Z")));
             Ok(())
         }
 

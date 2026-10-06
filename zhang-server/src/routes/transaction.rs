@@ -314,7 +314,7 @@ pub async fn preview_transaction_update(
     let transaction_id = transaction_id(&path.0 .0)?;
     ResponseWrapper::json(
         with_ledger(&ledger.0, move |ledger| {
-            let span = ledger.operations().transaction_span(&transaction_id)?;
+            let span = ledger.transaction_span(&transaction_id);
             let span = span.ok_or(ServerError::NoSuchTransaction(transaction_id))?;
             // the update refuses a transaction in no file of the ledger
             editable_file(ledger, &span)?;
@@ -371,10 +371,9 @@ pub async fn upload_transaction_document(
     // the files first, then the ledger, held to write
     let files = super::uploaded_files(&mut multipart).await?;
     let mut ledger = ledger.for_writing(&reload_sender).await?;
-    let mut operations = ledger.operations();
     let mut documents = vec![];
 
-    let span_info = operations.transaction_span(&transaction_id)?;
+    let span_info = ledger.transaction_span(&transaction_id);
     let Some(span_info) = span_info else {
         return Err(ServerError::NoSuchTransaction(transaction_id));
     };
@@ -459,9 +458,8 @@ pub async fn update_single_transaction(
 ) -> ApiResult<()> {
     let transaction_id = transaction_id(&path.0 .0)?;
     let mut ledger = ledger.for_writing(&reload_sender).await?;
-    let mut operations = ledger.operations();
 
-    let span_info = operations.transaction_span(&transaction_id)?;
+    let span_info = ledger.transaction_span(&transaction_id);
     let Some(span_info) = span_info else {
         return Err(ServerError::NoSuchTransaction(transaction_id));
     };
@@ -510,7 +508,6 @@ mod string_round_trip_test {
     use zhang_core::data_type::DataType;
     use zhang_core::domains::schemas::MetaType;
     use zhang_core::ledger::Ledger;
-    use zhang_core::store::TransactionDomain;
     use zhang_core::utils::string_::escape_with_quote;
 
     use super::{
@@ -557,6 +554,11 @@ mod string_round_trip_test {
             tags: vec![],
             links: vec![],
         }
+    }
+
+    /// The postings of the transactions the ledger stored, booked, in the order it processed them.
+    fn stored_postings(ledger: &Ledger) -> Vec<Posting> {
+        ledger.transactions().into_iter().flat_map(|(_, txn)| txn.postings.clone()).collect()
     }
 
     fn meta(key: &str, value: &str) -> MetaRequest {
@@ -623,13 +625,31 @@ mod string_round_trip_test {
             .unwrap()
     }
 
+    /// A stored transaction: its id, and its header as written.
+    struct Stored {
+        id: Uuid,
+        flag: Flag,
+        payee: Option<String>,
+        narration: Option<String>,
+        tags: Vec<String>,
+        links: Vec<String>,
+    }
+
     /// The only transaction of the ledger, with its `note` metadata.
-    fn transaction(ledger: &Ledger) -> (TransactionDomain, String) {
+    fn transaction(ledger: &Ledger) -> (Stored, String) {
         let operations = ledger.operations();
         assert!(operations.read().errors.is_empty(), "ledger errors: {:?}", operations.read().errors);
-        let transactions = operations.read().transactions.values().cloned().collect::<Vec<_>>();
+        let transactions = ledger.transactions();
         assert_eq!(transactions.len(), 1);
-        let transaction = transactions.into_iter().next().unwrap();
+        let (id, written) = transactions.into_iter().next().unwrap();
+        let transaction = Stored {
+            id,
+            flag: written.flag.clone().unwrap_or(Flag::Okay),
+            payee: written.payee.as_ref().map(|it| it.as_str().to_owned()),
+            narration: written.narration.as_ref().map(|it| it.as_str().to_owned()),
+            tags: written.tags.iter().cloned().collect(),
+            links: written.links.iter().cloned().collect(),
+        };
         let note = operations
             .metas(MetaType::TransactionMeta, transaction.id.to_string())
             .unwrap()
@@ -1214,23 +1234,26 @@ mod string_round_trip_test {
 
                 let ledger = load().await;
                 let id = ledger.operations().read().transactions.values().next().unwrap().id;
-                let span = ledger.operations().transaction_span(&id).unwrap().unwrap();
+                let span = ledger.transaction_span(&id).unwrap();
                 write_transaction_documents(&ledger, &span, &["attachments/a.pdf".to_owned()]).await.unwrap();
 
                 let written = std::fs::read_to_string(dir.join(main)).unwrap();
                 assert_eq!(written, format!("{opens}{header}  document: \"attachments/a.pdf\"\n{postings}"), "{main}");
                 let reloaded = load().await;
+                let (id, transaction) = reloaded.transactions().into_iter().next().unwrap();
                 let operations = reloaded.operations();
                 let store = operations.read();
                 assert!(store.errors.is_empty(), "{main} {:?}: {:?}", strings, store.errors);
-                let transaction = store.transactions.values().next().unwrap();
-                assert_eq!(transaction.payee.as_deref(), Some(payee), "{main}");
-                assert_eq!(transaction.narration.as_deref(), Some(narration), "{main}");
+                assert_eq!(transaction.payee.as_ref().map(|it| it.as_str()), Some(payee), "{main}");
+                assert_eq!(transaction.narration.as_ref().map(|it| it.as_str()), Some(narration), "{main}");
                 assert_eq!(transaction.postings.len(), 2, "{main}");
-                assert!(transaction.postings.iter().all(|posting| posting.metas.is_empty()), "{main}");
-                let metas = store.metas.iter().filter(|it| it.type_identifier == transaction.id.to_string()).count();
+                assert!(
+                    transaction.postings.iter().all(|posting| posting.meta.clone().get_flatten().is_empty()),
+                    "{main}"
+                );
+                let metas = store.metas.iter().filter(|it| it.type_identifier == id.to_string()).count();
                 assert_eq!(metas, 1, "the document is transaction metadata");
-                let id = transaction.id.to_string();
+                let id = id.to_string();
                 drop(store);
                 assert_eq!(transaction_documents(&reloaded, &id), vec!["attachments/a.pdf"], "{main} {strings}");
                 std::fs::remove_dir_all(dir).ok();
@@ -1389,10 +1412,7 @@ mod string_round_trip_test {
                 postings, "\n  & Expenses:Food 6 CNY\n  ! Assets:Cash -6 CNY\n    rate: 1.5\n",
                 "{main}: {written}"
             );
-            let flags = reloaded
-                .operations()
-                .read()
-                .postings
+            let flags = stored_postings(&reloaded)
                 .iter()
                 .map(|it| (it.account.name().to_owned(), it.flag.clone()))
                 .collect::<Vec<_>>();
@@ -1438,19 +1458,16 @@ mod string_round_trip_test {
         let (written, reloaded) = edit_loaded_ledger("main.zhang", ledger, flag_by_plugin, update()).await;
         let postings = &written[written.find("\n  * Assets:Cash").expect(&written)..];
         assert_eq!(postings, "\n  * Assets:Cash -6 CNY\n  Expenses:Food 6 CNY\n", "{written}");
-        let store = reloaded
-            .operations()
-            .read()
-            .postings
+        let store = stored_postings(&reloaded)
             .iter()
-            .map(|it| (it.flag.clone(), it.inferred_amount.number.to_string()))
+            .map(|it| (it.flag.clone(), it.units.as_ref().unwrap().number.to_string()))
             .collect::<Vec<_>>();
         assert_eq!(store, vec![(Some(Flag::Okay), "-6".to_owned()), (None, "6".to_owned())]);
 
         let (written, reloaded) = edit_loaded_ledger("main.bean", ledger, flag_by_plugin, update()).await;
         let postings = &written[written.find("\n  * Assets:Cash").expect(&written)..];
         assert_eq!(postings, "\n  * Assets:Cash -6 CNY\n  # Expenses:Food 6 CNY\n", "{written}");
-        let flags = reloaded.operations().read().postings.iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
+        let flags = stored_postings(&reloaded).iter().map(|it| it.flag.clone()).collect::<Vec<_>>();
         assert_eq!(flags, vec![Some(Flag::Okay), Some(Flag::Custom("#".to_owned()))]);
     }
 
@@ -1562,19 +1579,19 @@ mod string_round_trip_test {
 
             let ledger = load().await;
             let id = ledger.operations().read().transactions.values().next().unwrap().id;
-            let span = ledger.operations().transaction_span(&id).unwrap().unwrap();
+            let span = ledger.transaction_span(&id).unwrap();
             write_transaction_documents(&ledger, &span, &["attachments/a.pdf".to_owned()]).await.unwrap();
 
             let written = std::fs::read_to_string(dir.join(main)).unwrap();
             assert_eq!(written, format!("{opens}{header}  document: \"attachments/a.pdf\"\n{postings}"), "{main}");
             let reloaded = load().await;
+            let (id, transaction) = reloaded.transactions().into_iter().next().unwrap();
             let operations = reloaded.operations();
             let store = operations.read();
             assert!(store.errors.is_empty(), "{main}: {:?}", store.errors);
-            let transaction = store.transactions.values().next().unwrap();
-            assert_eq!(transaction.narration.as_deref(), Some("coffee"), "{main}");
+            assert_eq!(transaction.narration.as_ref().map(|it| it.as_str()), Some("coffee"), "{main}");
             assert_eq!(transaction.postings.len(), 2, "{main}");
-            let id = transaction.id.to_string();
+            let id = id.to_string();
             drop(store);
             assert_eq!(transaction_documents(&reloaded, &id).len(), 1, "{main}");
             std::fs::remove_dir_all(dir).ok();
@@ -1607,10 +1624,10 @@ mod string_round_trip_test {
         for (payee, file, written_rate) in [("Other", "other.bean", "  rate: \"1.5\"\n"), ("Main", "main.bean", "  rate: 1.5\n")] {
             let ledger = load().await;
             let (id, start) = {
-                let operations = ledger.operations();
-                let store = operations.read();
-                let transaction = store.transactions.values().find(|it| it.payee.as_deref() == Some(payee)).unwrap();
-                (transaction.id, transaction.span.start)
+                let transactions = ledger.transactions();
+                let payee_of = |txn: &Transaction| txn.payee.as_ref().map(|it| it.as_str().to_owned());
+                let (id, _) = transactions.into_iter().find(|(_, it)| payee_of(it).as_deref() == Some(payee)).unwrap();
+                (id, ledger.transaction_span(&id).unwrap().span_start)
             };
             assert_eq!(start, 0, "both transactions start their file");
             let mut update = request("coffee", "n");
@@ -1758,7 +1775,7 @@ mod string_round_trip_test {
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
         let loaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
         let id = loaded.operations().read().transactions.values().next().unwrap().id;
-        let span = loaded.operations().transaction_span(&id).unwrap().unwrap();
+        let span = loaded.transaction_span(&id).unwrap();
         // an editor adds a line at the top, which the ledger has not loaded yet
         let edited = format!("; an editor adds this line\n{ledger}");
         std::fs::write(&main, &edited).unwrap();
@@ -1898,15 +1915,14 @@ mod string_round_trip_test {
             // the plugin's transaction is in the ledger, at the span the plugin gave it
             let id = {
                 let operations = loaded.operations();
-                let store = operations.read();
-                assert!(store.errors.is_empty(), "{case}: {:?}", store.errors);
-                let transaction = store
-                    .transactions
-                    .values()
-                    .find(|it| it.payee.as_deref() == Some("Plugin"))
+                assert!(operations.read().errors.is_empty(), "{case}: {:?}", operations.read().errors);
+                let transactions = loaded.transactions();
+                let (id, _) = transactions
+                    .into_iter()
+                    .find(|(_, it)| it.payee.as_ref().map(|it| it.as_str()) == Some("Plugin"))
                     .unwrap_or_else(|| panic!("{case}: the plugin's transaction is in the ledger"));
-                assert_eq!(transaction.span, span, "{case}");
-                transaction.id
+                assert_eq!(loaded.transaction_span(&id).unwrap().span, span, "{case}");
+                id
             };
             let (state, reload) = states(loaded);
 
@@ -2030,10 +2046,11 @@ mod string_round_trip_test {
     async fn try_stock_edit(dir: &FsPath, main: &str, narration: &str, update: CreateTransactionRequest) -> (StatusCode, String, String) {
         let loaded = load_main(dir, main).await;
         let id = {
-            let operations = loaded.operations();
-            let store = operations.read();
-            let transaction = store.transactions.values().find(|it| it.narration.as_deref() == Some(narration));
-            transaction.unwrap_or_else(|| panic!("{main}: no transaction {narration}")).id
+            let transactions = loaded.transactions();
+            let transaction = transactions
+                .into_iter()
+                .find(|(_, it)| it.narration.as_ref().map(|it| it.as_str()) == Some(narration));
+            transaction.unwrap_or_else(|| panic!("{main}: no transaction {narration}")).0
         };
         let (state, reload) = states(loaded);
         let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
@@ -2082,13 +2099,23 @@ mod string_round_trip_test {
             let (postings, reloaded) = stock_edit(&dir, main, "Buy", update).await;
             assert_eq!(postings, kept, "{main}");
             let (stock, cash) = {
-                let operations = reloaded.operations();
-                let store = operations.read();
-                let of = |account: &str| store.postings.iter().find(|it| it.account.name() == account).cloned().unwrap();
+                let transactions = reloaded.transactions();
+                let groups = transactions
+                    .iter()
+                    .flat_map(|(_, txn)| zhang_ast::written_groups(&txn.postings))
+                    .collect::<Vec<_>>();
+                // the units and the cost as written, and the units booking gave the posting
+                let of = |account: &str| {
+                    let group = groups.iter().find(|it| it.legs[0].account.name() == account).unwrap();
+                    let written = group.written.map_or((group.legs[0].units.clone(), group.legs[0].cost.clone()), |it| {
+                        (it.units.clone(), it.cost.clone())
+                    });
+                    (written.0, written.1.and_then(|cost| cost.base), zhang_ast::group_units(group.legs))
+                };
                 (of("Assets:Stock"), of("Assets:Cash"))
             };
-            assert_eq!((stock.cost, stock.inferred_amount), (Some(amount("5 USD")), amount("10 STK")), "{main}");
-            assert_eq!((cash.unit, cash.inferred_amount), (None, amount("-50 USD")), "{main}");
+            assert_eq!((stock.1, stock.2), (Some(amount("5 USD")), amount("10 STK")), "{main}");
+            assert_eq!((cash.0, cash.2), (None, amount("-50 USD")), "{main}");
 
             // the fields sent as the journal shows them
             let stock = posting_with(

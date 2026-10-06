@@ -50,14 +50,14 @@ use chrono::{NaiveDate, NaiveTime};
 use indexmap::IndexMap;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{resolve_local_datetime, Account, AccountType, Directive, Flag, SpanInfo};
+use zhang_ast::{resolve_local_datetime, Account, AccountType, Date, Directive, Flag, SpanInfo, Transaction, ZhangString};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{PostingDomain, TransactionDomain};
+use zhang_core::store::TransactionDomain;
 use zhang_core::utils::id::FromSpan;
 
 use crate::error::{LocatedError, Span};
 use crate::params::{ParamRef, Params};
-use crate::table::{Dataset, Entry, MaybeOwned, Row};
+use crate::table::{Dataset, Entry, Head, MaybeOwned, Row};
 use crate::value::{position_sort_key_cmp, Cost, Position, Value};
 
 /// A date of the period modifiers: a literal of the query or a parameter bound at execution.
@@ -354,7 +354,9 @@ impl<'a> Transform<'_, 'a> {
             balances
                 .entry(row.account)
                 .or_insert_with(|| Balance {
-                    account: self.entries[row.entry].txn.postings[row.posting_index].account.clone(),
+                    account: self.entries[row.entry].parsed.postings[self.entries[row.entry].heads[row.posting_index].leg as usize]
+                        .account
+                        .clone(),
                     lots: Lots::default(),
                 })
                 .lots
@@ -543,20 +545,18 @@ impl<'a> Transform<'_, 'a> {
             ..SpanInfo::default()
         });
         let datetime = resolve_local_datetime(&self.ledger.options.timezone, &date.and_time(NaiveTime::MIN));
-        let mut stored = Vec::with_capacity(postings.len());
+        let mut parsed = Vec::with_capacity(postings.len());
         for (posting_index, posting) in postings.into_iter().enumerate() {
-            stored.push(PostingDomain {
-                id: Uuid::from_txn_posting(&id, posting_index),
-                trx_id: id,
-                trx_sequence: 0,
-                trx_datetime: datetime,
+            // what its columns read: the account; written with its units, so not automatic
+            parsed.push(zhang_ast::Posting {
                 flag: None,
                 account: posting.account,
-                unit: Some(posting.units.clone()),
-                cost: posting.cost.as_ref().map(|cost| Amount::new(cost.number.clone(), cost.currency.clone())),
-                inferred_amount: posting.units.clone(),
-                // running balances are not tracked for synthetic postings
-                metas: vec![],
+                units: Some(posting.units.clone()),
+                cost: None,
+                price: None,
+                comment: None,
+                meta: Default::default(),
+                written: None,
             });
             rows.push(Row {
                 entry,
@@ -567,6 +567,7 @@ impl<'a> Transform<'_, 'a> {
                 price: posting.price.map(MaybeOwned::owned),
             });
         }
+        let heads = (0..parsed.len() as u32).map(|leg| Head { leg, automatic: false }).collect::<Vec<_>>();
         self.entries.push(Entry {
             txn: MaybeOwned::owned(TransactionDomain {
                 id,
@@ -574,16 +575,19 @@ impl<'a> Transform<'_, 'a> {
                 // folded from no directive of the ledger
                 directive: usize::MAX,
                 datetime,
-                flag: Flag::Custom(kind.flag().to_owned()),
-                payee: None,
-                narration: Some(narration),
-                span: SpanInfo::default(),
-                tags: vec![],
-                links: vec![],
-                postings: stored,
             }),
+            parsed: MaybeOwned::owned(Transaction {
+                date: Date::Date(date),
+                flag: Some(Flag::Custom(kind.flag().to_owned())),
+                payee: None,
+                narration: Some(ZhangString::quote(narration)),
+                tags: Default::default(),
+                links: Default::default(),
+                postings: parsed,
+                meta: Default::default(),
+            }),
+            heads: heads.into(),
             date,
-            meta: None,
             seq: None,
             errors: None,
         });

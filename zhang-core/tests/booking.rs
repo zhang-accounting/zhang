@@ -10,6 +10,7 @@ use std::sync::Arc;
 use indoc::{formatdoc, indoc};
 use zhang_core::ast::amount::Amount;
 use zhang_core::ast::error::ErrorKind;
+use zhang_core::ast::{group_units, written_groups, Directive, Transaction};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
@@ -106,12 +107,48 @@ fn lots(ledger: &Ledger, account: &str) -> Vec<String> {
 /// inferred amounts of the transaction with the given sequence, in written order
 fn inferred(ledger: &Ledger, sequence: i32) -> Vec<String> {
     let store = ledger.store.read().unwrap();
-    store
-        .postings
-        .iter()
-        .filter(|it| it.trx_sequence == sequence)
-        .map(|it| it.inferred_amount.to_string())
-        .collect()
+    let Some(txn) = store.transactions.values().find(|it| it.sequence == sequence) else {
+        return vec![];
+    };
+    let Directive::Transaction(booked) = &ledger.directives[txn.directive].data else {
+        return vec![];
+    };
+    written(booked).into_iter().map(|it| it.inferred.to_string()).collect()
+}
+
+/// A posting of a stored transaction as written: the legs booking split it into, summed.
+struct Written {
+    account: String,
+    /// the units and cost as written
+    unit: Option<Amount>,
+    cost: Option<Amount>,
+    /// the units booking gave it
+    inferred: Amount,
+}
+
+/// the postings of the booked transaction `txn` as written, in written order
+fn written(txn: &Transaction) -> Vec<Written> {
+    let groups = written_groups(&txn.postings);
+    let written = groups.into_iter().map(|group| {
+        let posting = &group.legs[0];
+        let (unit, cost) = match group.written {
+            Some(written) => (written.units.clone(), written.cost.clone()),
+            None => (posting.units.clone(), posting.cost.clone()),
+        };
+        let account = posting.account.name().to_owned();
+        Written {
+            account,
+            unit,
+            cost: cost.and_then(|it| it.base),
+            inferred: group_units(group.legs),
+        }
+    });
+    written.collect()
+}
+
+/// the postings as written of every stored transaction, in the order zhang processed them
+fn stored_postings(ledger: &Ledger) -> Vec<Written> {
+    ledger.transactions().into_iter().flat_map(|(_, txn)| written(txn)).collect()
 }
 
 /// two cost lots of `Assets:S`, bought on consecutive days
@@ -1429,16 +1466,8 @@ fn budget_activity_of_implicit_postings_next_to_cost_postings() {
           Assets:A -5 USD {{}}
           Expenses:Fun
     "#});
-    let store = ledger.store.read().unwrap();
-    let expense = |account: &str| {
-        store
-            .postings
-            .iter()
-            .find(|posting| posting.account.name() == account)
-            .unwrap()
-            .inferred_amount
-            .to_string()
-    };
+    let postings = stored_postings(&ledger);
+    let expense = |account: &str| postings.iter().find(|posting| posting.account == account).unwrap().inferred.to_string();
     assert_eq!(expense("Expenses:Food"), "50 CNY");
     // booking-split design E4, #423: the implicit posting gets the booked cost, 5 × 10 CNY
     assert_eq!(expense("Expenses:Fun"), "50 CNY");
@@ -1525,18 +1554,16 @@ fn legs_a_stage_moved_apart_make_one_row_each_as_booked() {
     assert_eq!(errors(&ledger), vec![]);
     assert_eq!(lots(&ledger, "Assets:A"), vec!["5 USD {11 CNY, 2024-05-17}"]);
 
-    let store = ledger.store.read().unwrap();
-    let rows: Vec<String> = store
-        .postings
+    let rows: Vec<String> = stored_postings(&ledger)
         .iter()
         .skip(4)
         .map(|row| {
             format!(
                 "{} {} {} = {}",
-                row.account.name(),
+                row.account,
                 row.unit.as_ref().map_or("?".to_owned(), ToString::to_string),
                 row.cost.as_ref().map_or("-".to_owned(), ToString::to_string),
-                row.inferred_amount
+                row.inferred
             )
         })
         .collect();
@@ -1734,17 +1761,15 @@ fn the_ledger_keeps_the_booked_postings() {
         ]
     );
 
-    // the store still has one row per written posting, as written
-    let store = ledger.store.read().unwrap();
-    let rows: Vec<String> = store
-        .postings
+    // the stored transactions still have one row per written posting, as written
+    let rows: Vec<String> = stored_postings(&ledger)
         .iter()
         .map(|row| {
             format!(
                 "{} {} = {}",
-                row.account.name(),
+                row.account,
                 row.unit.as_ref().map_or("?".to_owned(), ToString::to_string),
-                row.inferred_amount
+                row.inferred
             )
         })
         .collect();
@@ -1815,7 +1840,7 @@ fn final_validation_errors_precede_undefined_budget_activity() {
     assert_eq!(store.errors[0].metas["txn_id"], txn.id.to_string());
     assert_eq!(store.errors[1].metas["budget_name"], "missing");
     assert_eq!(store.errors[1].metas["account_name"], "Expenses:Food");
-    assert!(store.errors.iter().all(|it| it.span.as_ref() == Some(&txn.span)));
+    assert!(store.errors.iter().all(|it| it.span.as_ref() == Some(&ledger.directives[txn.directive].span)));
 }
 
 /// The numbers of the booking errors' metas are written in plain notation, like the queries and the exporter write

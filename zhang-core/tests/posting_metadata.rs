@@ -672,12 +672,13 @@ mod older_wasm_plugin {
             Shape::of(txns[0]),
             Shape::new(&[("note", "from plugin")], &[("Assets:Cash", &[]), ("Expenses:Food", &[])])
         );
+        let stored: usize = ledger.transactions().iter().map(|(_, txn)| written_groups(&txn.postings).len()).sum();
         let store = ledger.store.read().unwrap();
         assert!(
             store.errors.is_empty(),
             "{:?}",
             store.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>()
         );
-        assert_eq!(store.postings.len(), 2, "both postings reach the store");
+        assert_eq!(stored, 2, "both postings reach the store");
     }
 }

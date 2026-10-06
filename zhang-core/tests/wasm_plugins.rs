@@ -16,8 +16,9 @@ use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use serde_json::json;
 use tempfile::TempDir;
+use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Directive, SpanInfo};
+use zhang_ast::{Directive, SpanInfo, Transaction};
 use zhang_core::clock::Clock;
 use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
@@ -27,6 +28,7 @@ use zhang_core::plugin::capabilities::{plugin_seed, PluginStage};
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_core::plugin::PluginType;
+use zhang_core::store::TransactionDomain;
 use zhang_core::ZhangResult;
 
 const LEDGER: &str = indoc! {r#"
@@ -105,16 +107,34 @@ fn registered(ledger: &Ledger) -> Vec<(String, Vec<PluginType>)> {
         .collect()
 }
 
+/// the directive of the stored transaction `txn` when it is a padding transaction (flag `P`)
+fn padding<'a>(ledger: &'a Ledger, txn: &TransactionDomain) -> Option<&'a Transaction> {
+    match &ledger.directives[txn.directive].data {
+        Directive::Transaction(booked) if booked.flag == Some(zhang_ast::Flag::BalancePad) => Some(booked),
+        _ => None,
+    }
+}
+
+/// the postings of the booked transaction `txn` as written: the account, and the units booking gave it
+fn written(txn: &Transaction) -> Vec<(String, Amount)> {
+    let groups = zhang_ast::written_groups(&txn.postings);
+    groups
+        .into_iter()
+        .map(|group| (group.legs[0].account.name().to_owned(), zhang_ast::group_units(group.legs)))
+        .collect()
+}
+
 /// what the store holds: accounts, the postings of every transaction, and the reported errors
 fn store_summary(ledger: &Ledger) -> (Vec<String>, Vec<String>, Vec<String>) {
-    let store = ledger.store.read().unwrap();
-    let accounts = store.accounts.keys().cloned().sorted().collect();
-    let postings = store
-        .postings
+    let txns = ledger.transactions();
+    let postings = txns
         .iter()
-        .map(|it| format!("{} {}", it.account.name(), it.inferred_amount))
+        .flat_map(|(_, txn)| written(txn))
+        .map(|(account, units)| format!("{account} {units}"))
         .sorted()
         .collect();
+    let store = ledger.store.read().unwrap();
+    let accounts = store.accounts.keys().cloned().sorted().collect();
     let errors = store.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
     (accounts, postings, errors)
 }
@@ -1073,9 +1093,9 @@ fn a_plugin_of_the_oldest_contract_loads_a_ledger_with_a_pad() {
     assert_eq!(store_summary(&ledger), store_summary(&load(&ledger_dir(&[]), PADDED)));
     assert!(errors(&ledger).is_empty(), "{:?}", errors(&ledger));
     let store = ledger.store.read().unwrap();
-    let padding = store.transactions.values().find(|it| it.flag == zhang_ast::Flag::BalancePad).unwrap();
-    assert_eq!(padding.datetime.date_naive().to_string(), "2024-01-01");
-    assert_eq!(padding.postings[0].inferred_amount.to_string(), "110 CNY");
+    let (stored, booked) = store.transactions.values().find_map(|it| Some((it, padding(&ledger, it)?))).unwrap();
+    assert_eq!(stored.datetime.date_naive().to_string(), "2024-01-01");
+    assert_eq!(written(booked)[0].1.to_string(), "110 CNY");
     assert!(store.balance_assertions.iter().all(|it| it.passed));
     drop(store);
     assert!(
@@ -1311,17 +1331,9 @@ fn load_served(name: &str, edit: Edit) -> (Vec<String>, Vec<String>, Vec<String>
     let paddings = store
         .transactions
         .values()
-        .filter(|it| it.flag == zhang_ast::Flag::BalancePad)
-        .sorted_by_key(|it| it.sequence)
-        .map(|it| {
-            format!(
-                "{} {} {} from {}",
-                it.datetime.date_naive(),
-                it.postings[0].account.name(),
-                it.postings[0].inferred_amount,
-                it.postings[1].account.name()
-            )
-        })
+        .filter_map(|it| Some((it, written(padding(&ledger, it)?))))
+        .sorted_by_key(|(it, _)| it.sequence)
+        .map(|(it, postings)| format!("{} {} {} from {}", it.datetime.date_naive(), postings[0].0, postings[0].1, postings[1].0))
         .collect();
     let pads = ledger
         .directives

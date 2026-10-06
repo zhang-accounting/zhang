@@ -1,8 +1,9 @@
 //! The `postings` table: one row per posting, with the columns of its transaction.
 //!
-//! Rows are read from the booked directives of the ledger (units, lots, price annotations,
-//! transaction metadata) and from its in-memory [`Store`] (the transaction they belong to and the
-//! posting metadata). The store records the directive of every transaction it keeps.
+//! Rows are read from the booked directives of the ledger (units, lots, price annotations, the
+//! header of the transaction, the metadata of the transaction and of its postings) and from its
+//! in-memory [`Store`] (the id of the transaction they belong to, its date and time). The store
+//! records the directive of every transaction it keeps.
 //!
 //! Which entries produce rows follows beancount: transactions and padding transactions
 //! (flag `P`) do; balance assertions, which book nothing, do not.
@@ -13,7 +14,7 @@
 //! naming its lot, and an implicit posting has its units. The table books nothing itself. A query
 //! then assembles its rows from the cached ones: only those of the accounts it is scoped to
 //! ([`Scope`]), each keeping only the parts its projected columns read (see [`crate::projector`]).
-//! Columns of the transaction are read from the store on access, never copied up front.
+//! Columns of the transaction are read from its directive on access, never copied up front.
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
@@ -21,11 +22,11 @@ use std::collections::BTreeSet;
 
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 use zhang_ast::amount::Amount;
-use zhang_ast::{booked_group_units, Directive, Meta, Posting, PostingCost, SingleTotalPrice, WrittenGroup};
+use zhang_ast::{booked_group_units, Directive, Flag, Posting, PostingCost, SingleTotalPrice, Transaction, WrittenGroup};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{PostingMetaDomain, Store, TransactionDomain};
+use zhang_core::store::{Store, TransactionDomain};
 
-use super::cache::{Accounts, CachedRow, LedgerCache, Lot, Postings};
+use super::cache::{Accounts, CachedRow, Head, LedgerCache, Lot, Postings};
 use super::{render_pairs, Borrow, ColumnDef, Dataset, POSTINGS};
 use crate::decimal;
 use crate::functions::is_under;
@@ -65,13 +66,16 @@ impl<T> MaybeOwned<'_, T> {
 
 /// The transaction-level part of a row.
 pub(crate) struct Entry<'a> {
-    /// the stored transaction; its id, flag, payee, narration, tags, links and posting
-    /// accounts are read from it when a column needs them. It is owned only for the synthetic
-    /// entries of the period modifiers (see [`crate::period`]).
+    /// the stored transaction: its id, and its date and time as zhang books it. It is owned
+    /// only for the synthetic entries of the period modifiers (see [`crate::period`]), like
+    /// `parsed` and `heads`.
     pub txn: MaybeOwned<'a, TransactionDomain>,
+    /// its directive, booked: the flag, payee, narration, tags, links, postings and metadata
+    /// the columns read when they need them
+    pub parsed: MaybeOwned<'a, Transaction>,
+    /// the first leg in `parsed.postings` of each posting as written, by `posting_index`
+    pub heads: Cow<'a, [Head]>,
     pub date: NaiveDate,
-    /// metadata from the parsed directive, when it could be matched
-    pub meta: Option<&'a Meta>,
     /// the position of the transaction in `#entries`; `None` for a synthetic entry
     pub seq: Option<u32>,
     /// the kinds of the errors zhang recorded for the transaction, when there are any
@@ -166,8 +170,8 @@ impl<'a> Dataset<'a> {
         let count = selected.as_ref().map_or(postings.rows.len(), |rows| rows.len());
         let mut entries: Vec<Entry<'a>> = Vec::with_capacity(if selected.is_none() { postings.entries.len() } else { 0 });
         let mut rows = Vec::with_capacity(count);
-        // (cached entry, its stored transaction) of the last row
-        let mut current: Option<(u32, Option<&'a TransactionDomain>)> = None;
+        // (cached entry, its stored transaction and directive) of the last row
+        let mut current: Option<(u32, Option<(&'a TransactionDomain, &'a Transaction)>)> = None;
         let selection = (0..count).map(|idx| selected.as_ref().map_or(idx, |rows| rows[idx] as usize));
         for idx in selection {
             let cached: &'a CachedRow = &postings.rows[idx];
@@ -178,14 +182,17 @@ impl<'a> Dataset<'a> {
                     let txn = transaction(cached.entry as usize);
                     // the cache was made from this store, so every transaction is there
                     debug_assert!(txn.is_some(), "a cached transaction is not in the store");
-                    if let Some(txn) = txn {
+                    let parsed = match &ledger.directives[cached_entry.parsed as usize].data {
+                        Directive::Transaction(parsed) => Some(parsed),
+                        _ => None,
+                    };
+                    let txn = txn.zip(parsed);
+                    if let Some((txn, parsed)) = txn {
                         entries.push(Entry {
                             txn: MaybeOwned::Borrowed(txn),
+                            parsed: MaybeOwned::Borrowed(parsed),
+                            heads: Cow::Borrowed(&cached_entry.heads),
                             date: cached_entry.date,
-                            meta: match &ledger.directives[cached_entry.parsed as usize].data {
-                                Directive::Transaction(parsed) => Some(&parsed.meta),
-                                _ => None,
-                            },
                             seq: cached_entry.entry,
                             errors: cached_entry.entry.and_then(|seq| table.rows[seq as usize].errors.as_ref()),
                         });
@@ -226,37 +233,51 @@ impl<'a> Dataset<'a> {
         &self.entries[row.entry]
     }
 
-    /// The metadata of the row's posting, as the store keeps it (sorted by key).
-    pub fn posting_metas(&self, row: &Row<'_>) -> &[PostingMetaDomain] {
-        self.entry(row)
-            .txn
-            .postings
-            .get(row.posting_index)
-            .map_or(&[], |posting| posting.metas.as_slice())
+    /// The posting of the row as written: the first leg of its group in the booked directive,
+    /// whose flag and metadata every leg shares.
+    pub fn posting(&self, row: &Row<'_>) -> Option<&Posting> {
+        let entry = self.entry(row);
+        let head = entry.heads.get(row.posting_index)?;
+        entry.parsed.postings.get(head.leg as usize)
+    }
+
+    /// The metadata of the row's posting as `(key, value)` pairs, sorted by key.
+    pub fn posting_metas(&self, row: &Row<'_>) -> Vec<(String, String)> {
+        super::meta_pairs(self.posting(row).map(|posting| &posting.meta))
     }
 
     /// Posting-level metadata `key` of the row, as a string: the first value when the
     /// key is repeated, as for [`Dataset::entry_meta`].
     pub fn posting_meta(&self, row: &Row<'_>, key: &str) -> Option<String> {
-        self.posting_metas(row).iter().find(|meta| meta.key == key).map(|meta| meta.value.clone())
+        self.posting(row)?.meta.get_one(key).map(|value| value.as_str().to_owned())
+    }
+
+    /// Every value of posting metadata `key` of the row, in written order.
+    pub fn posting_meta_values(&self, row: &Row<'_>, key: &str) -> Vec<String> {
+        self.posting(row)
+            .map(|posting| posting.meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect())
+            .unwrap_or_default()
     }
 
     /// Transaction metadata `key` of the row, as a string.
     pub fn entry_meta(&self, row: &Row<'_>, key: &str) -> Option<String> {
-        self.entry(row).meta?.get_one(key).map(|value| value.as_str().to_owned())
+        self.entry(row).parsed.meta.get_one(key).map(|value| value.as_str().to_owned())
     }
 
     /// Every value of transaction metadata `key` of the row, in written order.
     pub fn entry_meta_values(&self, row: &Row<'_>, key: &str) -> Vec<String> {
         self.entry(row)
+            .parsed
             .meta
-            .map(|meta| meta.get_all(key).into_iter().map(|value| value.as_str().to_owned()).collect())
-            .unwrap_or_default()
+            .get_all(key)
+            .into_iter()
+            .map(|value| value.as_str().to_owned())
+            .collect()
     }
 
     /// The transaction metadata of the row as `(key, value)` pairs: the `entry_metas` column.
     pub fn entry_metas(&self, row: &Row<'_>) -> Vec<(String, String)> {
-        super::meta_pairs(self.entry(row).meta)
+        super::meta_pairs(Some(&self.entry(row).parsed.meta))
     }
 }
 
@@ -359,8 +380,8 @@ pub(crate) fn error_kinds(errors: Option<&BTreeSet<String>>) -> Value {
 /// The columns produced by `SELECT *`.
 pub(crate) const WILDCARD_COLUMNS: [&str; 6] = ["date", "flag", "payee", "narration", "account", "position"];
 
-fn set_of(items: &[String]) -> Value {
-    Value::Set(items.iter().cloned().collect::<BTreeSet<_>>())
+fn set_of<'s>(items: impl IntoIterator<Item = &'s String>) -> Value {
+    Value::Set(items.into_iter().cloned().collect::<BTreeSet<_>>())
 }
 
 fn opt_str(value: Option<&str>) -> Value {
@@ -377,8 +398,8 @@ fn weight(row: &Row<'_>) -> Amount {
     }
 }
 
-// The columns of a stored transaction, read the same way by `postings`, `#entries` and `#transactions`: from what
-// zhang stored, at the date and time it books the transaction at.
+// The columns of a stored transaction, read the same way by `postings`, `#entries` and `#transactions`: from its
+// directive, at the date and time zhang books the transaction at.
 
 /// The `date` of a stored transaction: its date in the ledger's timezone, as zhang books it.
 pub(super) fn txn_date(txn: &TransactionDomain) -> NaiveDate {
@@ -386,23 +407,23 @@ pub(super) fn txn_date(txn: &TransactionDomain) -> NaiveDate {
 }
 
 /// The `flag` of a stored transaction: `*` when it was written without one.
-pub(super) fn txn_flag(txn: &TransactionDomain) -> Value {
-    Value::Str(txn.flag.to_string())
+pub(super) fn txn_flag(txn: &Transaction) -> Value {
+    Value::Str(txn.flag.as_ref().unwrap_or(&Flag::Okay).to_string())
 }
 
 /// The `payee` of a stored transaction.
-pub(super) fn txn_payee(txn: &TransactionDomain) -> Option<&str> {
-    txn.payee.as_deref()
+pub(super) fn txn_payee(txn: &Transaction) -> Option<&str> {
+    txn.payee.as_ref().map(|it| it.as_str())
 }
 
 /// The `narration` of a stored transaction: '' when absent, as in beancount.
-pub(super) fn txn_narration(txn: &TransactionDomain) -> &str {
-    txn.narration.as_deref().unwrap_or_default()
+pub(super) fn txn_narration(txn: &Transaction) -> &str {
+    txn.narration.as_ref().map_or("", |it| it.as_str())
 }
 
 /// The `description` of a stored transaction: its payee and narration joined with ' | ', whichever are present.
-pub(super) fn txn_description(txn: &TransactionDomain) -> Value {
-    let parts = [txn.payee.as_deref(), txn.narration.as_deref()]
+pub(super) fn txn_description(txn: &Transaction) -> Value {
+    let parts = [txn_payee(txn), txn.narration.as_ref().map(|it| it.as_str())]
         .into_iter()
         .flatten()
         .filter(|it| !it.is_empty())
@@ -421,11 +442,11 @@ pub(super) fn txn_timestamp(txn: &TransactionDomain) -> Value {
 }
 
 fn payee<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
-    txn_payee(&data.entry(row).txn)
+    txn_payee(&data.entry(row).parsed)
 }
 
 fn narration<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
-    Some(txn_narration(&data.entry(row).txn))
+    Some(txn_narration(&data.entry(row).parsed))
 }
 
 fn account<'r>(_: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
@@ -450,13 +471,13 @@ fn cost_label<'r>(_: &'r Dataset<'_>, row: &'r Row<'_>) -> Option<&'r str> {
 /// The accounts of the other postings of the row's transaction.
 fn other_accounts<'r>(data: &'r Dataset<'_>, row: &'r Row<'_>) -> impl Iterator<Item = &'r str> {
     let posting_index = row.posting_index;
-    data.entry(row)
-        .txn
-        .postings
+    let entry = data.entry(row);
+    entry
+        .heads
         .iter()
         .enumerate()
         .filter(move |(idx, _)| *idx != posting_index)
-        .map(|(_, posting)| posting.account.name())
+        .map(move |(_, head)| entry.parsed.postings[head.leg as usize].account.name())
 }
 
 /// The `postings` table columns.
@@ -474,7 +495,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         Value::Int(data.entry(row).date.day() as i64)
     }),
     ColumnDef::posting("flag", DataType::Str, "Flag of the transaction: '*', '!', or 'P' for padding.", |data, row| {
-        txn_flag(&data.entry(row).txn)
+        txn_flag(&data.entry(row).parsed)
     }),
     ColumnDef::posting("payee", DataType::Str, "Payee of the transaction.", |data, row| opt_str(payee(data, row))).borrowing(Borrow::Str(payee)),
     ColumnDef::posting(
@@ -488,14 +509,16 @@ pub static COLUMNS: &[ColumnDef] = &[
         "description",
         DataType::Str,
         "Payee and narration joined with ' | ' (whichever are present).",
-        |data, row| txn_description(&data.entry(row).txn),
+        |data, row| txn_description(&data.entry(row).parsed),
     ),
-    ColumnDef::posting("tags", DataType::Set, "Tags of the transaction.", |data, row| set_of(&data.entry(row).txn.tags))
-        .borrowing(Borrow::Contains(|data, row, tag| data.entry(row).txn.tags.iter().any(|it| it == tag))),
-    ColumnDef::posting("links", DataType::Set, "Links of the transaction.", |data, row| {
-        set_of(&data.entry(row).txn.links)
+    ColumnDef::posting("tags", DataType::Set, "Tags of the transaction.", |data, row| {
+        set_of(&data.entry(row).parsed.tags)
     })
-    .borrowing(Borrow::Contains(|data, row, link| data.entry(row).txn.links.iter().any(|it| it == link))),
+    .borrowing(Borrow::Contains(|data, row, tag| data.entry(row).parsed.tags.contains(tag))),
+    ColumnDef::posting("links", DataType::Set, "Links of the transaction.", |data, row| {
+        set_of(&data.entry(row).parsed.links)
+    })
+    .borrowing(Borrow::Contains(|data, row, link| data.entry(row).parsed.links.contains(link))),
     ColumnDef::posting("id", DataType::Str, "Unique id of the transaction.", |data, row| {
         Value::Str(data.entry(row).txn.id.to_string())
     }),
@@ -504,7 +527,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         DataType::Str,
         "Flag of the posting itself, such as '!'; NULL when the posting has none (as in beanquery).",
         |data, row| {
-            let posting = data.entry(row).txn.postings.get(row.posting_index);
+            let posting = data.posting(row);
             posting.and_then(|it| it.flag.as_ref()).map_or(Value::Null, |flag| Value::Str(flag.to_string()))
         },
     ),
@@ -553,13 +576,13 @@ pub static COLUMNS: &[ColumnDef] = &[
     )
     .borrowing(Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account))),
     ColumnDef::posting("meta", DataType::Str, "Metadata of the posting, as `key: \"value\"` pairs.", |data, row| {
-        render_pairs(data.posting_metas(row).iter().map(|meta| (meta.key.as_str(), meta.value.as_str())))
+        render_pairs(data.posting_metas(row).iter().map(|(key, value)| (key.as_str(), value.as_str())))
     }),
     ColumnDef::posting(
         "metas",
         DataType::Metas,
         "Metadata of the posting as (key, value) pairs: sorted by key, every value of a repeated key in written order. A zhang extension.",
-        |data, row| Value::Metas(data.posting_metas(row).iter().map(|meta| (meta.key.clone(), meta.value.clone())).collect()),
+        |data, row| Value::Metas(data.posting_metas(row)),
     ),
     ColumnDef::posting(
         "entry_metas",
@@ -649,11 +672,7 @@ pub static COLUMNS: &[ColumnDef] = &[
 /// Whether the row's posting was written without an amount, which zhang inferred. The leg of
 /// the padding account of a padding transaction is such a posting too.
 fn automatic(data: &Dataset<'_>, row: &Row<'_>) -> bool {
-    data.entry(row)
-        .txn
-        .postings
-        .get(row.posting_index)
-        .is_some_and(|posting| posting.unit.is_none())
+    data.entry(row).heads.get(row.posting_index).is_some_and(|head| head.automatic)
 }
 
 #[cfg(test)]

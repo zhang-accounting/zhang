@@ -768,13 +768,18 @@ mod beancount_pads {
         let mut paddings = store
             .transactions
             .values()
-            .filter(|it| it.flag == zhang_ast::Flag::BalancePad)
-            .map(|it| {
+            .filter_map(|it| match &ledger.directives[it.directive].data {
+                zhang_ast::Directive::Transaction(booked) if booked.flag == Some(zhang_ast::Flag::BalancePad) => Some((it, booked)),
+                _ => None,
+            })
+            .map(|(it, booked)| {
+                // the postings as written: the legs booking split each into
+                let postings = zhang_ast::written_groups(&booked.postings);
                 format!(
                     "{} {} from {}",
                     it.datetime.date_naive(),
-                    it.postings[0].inferred_amount,
-                    it.postings[1].account.name()
+                    zhang_ast::group_units(postings[0].legs),
+                    postings[1].legs[0].account.name()
                 )
             })
             .collect::<Vec<_>>();
@@ -1690,13 +1695,9 @@ option "timezone" "UTC"
             let ledger = scratch.state().await;
             let tail = {
                 let ledger = ledger.read().await;
-                let store = ledger.store.read().unwrap();
-                store
-                    .transactions
-                    .values()
-                    .find(|it| it.narration.as_deref() == Some("must survive"))
-                    .unwrap()
-                    .id
+                let transactions = ledger.transactions();
+                let must_survive = |txn: &zhang_ast::Transaction| txn.narration.as_ref().map(|it| it.as_str()) == Some("must survive");
+                transactions.into_iter().find(|(_, it)| must_survive(it)).unwrap().0
             };
             let reconcile = || {
                 let ledger = ledger.clone();

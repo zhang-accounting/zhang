@@ -18,8 +18,9 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
+use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Directive, PluginType};
+use zhang_ast::{group_units, written_groups, Directive, PluginType};
 use zhang_core::clock::Clock;
 use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
@@ -203,6 +204,18 @@ plugin "{module}"
 "#;
 
 /// the narration of every transaction with its `guard-id` meta
+/// the postings as written of the transactions zhang stored: the account, the units as written, and the units booking
+/// gave it
+fn written_postings(ledger: &Ledger) -> Vec<(String, Option<Amount>, Amount)> {
+    let transactions = ledger.transactions();
+    let groups = transactions.iter().flat_map(|(_, txn)| written_groups(&txn.postings));
+    let postings = groups.map(|group| {
+        let units = group.written.map_or(group.legs[0].units.clone(), |it| it.units.clone());
+        (group.legs[0].account.name().to_owned(), units, group_units(group.legs))
+    });
+    postings.collect()
+}
+
 fn guard_ids(ledger: &Ledger) -> Vec<(String, String)> {
     ledger
         .directives
@@ -460,12 +473,13 @@ fn the_lots_processor_sees_booked_postings_by_default_and_written_ones_in_the_ra
         )
         .unwrap();
         let lots = lots.rows.iter().map(|lot| format!("{} {}", lot[0], lot[1])).collect::<Vec<_>>();
+        let postings = written_postings(ledger);
         let store = ledger.store.read().unwrap();
         assert_eq!(store.errors.len(), 0);
-        assert_eq!(store.postings.len(), 7);
-        let gains = store.postings.iter().find(|it| it.account.name() == "Income:Gains").unwrap();
-        assert_eq!(gains.inferred_amount.to_string(), "-250 USD");
-        assert_eq!(gains.unit, None, "the implicit posting stays implicit in its row");
+        assert_eq!(postings.len(), 7);
+        let (_, unit, inferred) = postings.iter().find(|(account, _, _)| account == "Income:Gains").unwrap();
+        assert_eq!(inferred.to_string(), "-250 USD");
+        assert_eq!(*unit, None, "the implicit posting stays implicit in its row");
         assert_eq!(lots, vec!["5 AAPL"]);
     }
 }
@@ -504,9 +518,10 @@ fn the_balances_processor_accumulates_booked_units_and_costs_and_rejects_raw_cos
             })
         );
         assert_eq!(sale.meta.get_one("cost-dates").unwrap().as_str(), "2024-01-10, 2024-01-20");
-        assert_eq!(ledger.store.read().unwrap().postings.len(), 7, "the example only adds metadata");
+        assert_eq!(written_postings(&ledger).len(), 7, "the example only adds metadata");
     }
     let raw = load(&dir, &content.replace("{stage}", &format!("{targets}\n  stage: \"raw\"")));
+    let postings = written_postings(&raw);
     let store = raw.store.read().unwrap();
     assert_eq!(store.errors.len(), 3);
     assert!(store
@@ -517,5 +532,5 @@ fn the_balances_processor_accumulates_booked_units_and_costs_and_rejects_raw_cos
         Directive::Transaction(txn) => txn.meta.get_one("balances").is_none(),
         _ => true,
     }));
-    assert_eq!(store.postings.len(), 7, "reporting unbooked input still lets Zhang book the ledger");
+    assert_eq!(postings.len(), 7, "reporting unbooked input still lets Zhang book the ledger");
 }

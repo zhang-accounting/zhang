@@ -25,7 +25,7 @@ use axum::response::IntoResponse;
 use bigdecimal::{BigDecimal, Zero};
 use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
-use zhang_ast::{Directive, Spanned};
+use zhang_ast::{group_units, written_groups, Directive, Spanned};
 use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
@@ -347,18 +347,24 @@ impl Stored {
     async fn of(ledger: &SharedLedger) -> Stored {
         let guard = ledger.read().await;
         let store = guard.store.read().unwrap();
-        let mut postings = store
-            .postings
-            .iter()
-            .map(|posting| StoredPosting {
-                account: posting.account.name().to_owned(),
-                transaction: posting.trx_id.to_string(),
-                sequence: posting.trx_sequence,
-                date: posting.trx_datetime.naive_local().date().to_string(),
-                number: posting.inferred_amount.number.clone(),
-                currency: posting.inferred_amount.commodity.clone(),
-            })
-            .collect::<Vec<_>>();
+        let mut postings = vec![];
+        for txn in store.transactions.values() {
+            let Directive::Transaction(booked) = &guard.directives[txn.directive].data else {
+                continue;
+            };
+            // each posting as written: the legs booking split it into, summed
+            for group in written_groups(&booked.postings) {
+                let inferred = group_units(group.legs);
+                postings.push(StoredPosting {
+                    account: group.legs[0].account.name().to_owned(),
+                    transaction: txn.id.to_string(),
+                    sequence: txn.sequence,
+                    date: txn.datetime.naive_local().date().to_string(),
+                    number: inferred.number,
+                    currency: inferred.commodity,
+                });
+            }
+        }
         // stable: the postings of a transaction keep their order
         postings.sort_by_key(|posting| posting.sequence);
         let mut assertions = store
@@ -970,14 +976,12 @@ async fn a_parent_account_shows_its_subtree() {
     assert_ne!(ids[1], ids[3]);
     let transaction = {
         let guard = ledger.read().await;
-        let store = guard.store.read().unwrap();
-        store
-            .transactions
-            .values()
-            .find(|it| it.payee.as_deref() == Some("Split"))
-            .unwrap()
-            .id
-            .to_string()
+        let transactions = guard.transactions();
+        let (id, _) = transactions
+            .into_iter()
+            .find(|(_, it)| it.payee.as_ref().map(|it| it.as_str()) == Some("Split"))
+            .unwrap();
+        id.to_string()
     };
     assert_eq!(ids[1], transaction);
 

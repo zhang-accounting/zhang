@@ -10,7 +10,7 @@
 //! the stored `id` and the errors recorded for the transaction (`balanced`, `errors`).
 
 use chrono::{Datelike, NaiveDate};
-use zhang_ast::{Directive, Spanned};
+use zhang_ast::{Directive, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_core::store::{Store, TransactionDomain};
 
@@ -175,27 +175,31 @@ fn entry_accounts(directive: &Directive) -> Value {
     Value::Set(accounts.into_iter().map(str::to_owned).collect())
 }
 
-fn payee(txn: &TransactionDomain) -> Value {
+fn payee(txn: &Transaction) -> Value {
     str_value(txn_payee(txn))
 }
 
-fn narration(txn: &TransactionDomain) -> Value {
+fn narration(txn: &Transaction) -> Value {
     Value::Str(txn_narration(txn).to_owned())
 }
 
 /// The tags or links of a transaction, note or document; NULL for other directives. A
-/// transaction's are those zhang stored.
+/// transaction's are those of a transaction zhang stored.
 fn tags_or_links(record: &Record<'_>, directive: &Directive, links: bool) -> Value {
     match directive {
-        Directive::Transaction(_) => stored(record).map_or(Value::Null, |txn| set_value(if links { &txn.links } else { &txn.tags })),
+        Directive::Transaction(txn) => stored(record).map_or(Value::Null, |_| set_value(if links { &txn.links } else { &txn.tags })),
         Directive::Note(note) => set_value((if links { &note.links } else { &note.tags }).iter().flatten()),
         Directive::Document(document) => set_value((if links { &document.links } else { &document.tags }).iter().flatten()),
         _ => Value::Null,
     }
 }
 
-fn of_transaction(record: &Record<'_>, get: fn(&TransactionDomain) -> Value) -> Value {
-    stored(record).map_or(Value::Null, get)
+/// `get` of the directive of a transaction zhang stored; NULL for other rows.
+fn of_transaction(record: &Record<'_>, get: fn(&Transaction) -> Value) -> Value {
+    match (stored(record), directive(record).map(|it| &it.data)) {
+        (Some(_), Some(Directive::Transaction(txn))) => get(txn),
+        _ => Value::Null,
+    }
 }
 
 fn of_directive(record: &Record<'_>, get: impl Fn(&Spanned<Directive>) -> Value) -> Value {
