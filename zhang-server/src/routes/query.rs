@@ -591,6 +591,7 @@ mod builtin_test {
     use chrono::NaiveDate;
     use serde_json::json;
     use tokio::sync::RwLock;
+    use zhang_core::clock::Clock;
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::ledger::Ledger;
@@ -771,6 +772,28 @@ mod builtin_test {
         let (status, empty) = batch_of(&ledger, json!([])).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(empty, json!({"data": []}));
+    }
+
+    /// `ledger.now` is the ledger's clock in its timezone, to the second, as `today()` and `now()` read it: what the
+    /// forms take the default date and time of a new transaction or document from.
+    #[tokio::test]
+    async fn ledger_now_is_the_ledgers_clock_in_its_timezone() {
+        let dir = std::env::temp_dir().join(format!("zhang-builtin-now-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("main.zhang"), "option \"timezone\" \"Asia/Shanghai\"\n1970-01-01 open Assets:Cash\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        // 23:30:15 UTC is 07:30:15 the next day in Shanghai
+        let clock = Clock::Fixed("2024-01-01T23:30:15Z".parse().unwrap());
+        let ledger = Ledger::load_with_clock(dir.clone(), "main.zhang".to_owned(), source, clock).expect("load ledger");
+        std::fs::remove_dir_all(dir).ok();
+        let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
+        let (status, body) = run_of(&ledger, "ledger.now", json!({}), None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["data"]["columns"],
+            json!([{"name": "date", "type": "date"}, {"name": "time", "type": "str"}])
+        );
+        assert_eq!(body["data"]["rows"], json!([["2024-01-02", "07:30:15"]]));
     }
 
     /// An unknown query is a 404 and a bad parameter a 400, each naming the problem; a batch

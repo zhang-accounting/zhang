@@ -1,4 +1,4 @@
-//! Date functions: `month`, `day`, `quarter`, `weekday`, `yearmonth` and `today`
+//! Date functions: `month`, `day`, `quarter`, `weekday`, `yearmonth`, `today` and `now`
 //! (`year` lives with the registry examples), and beanquery 0.2.0's `date`, `date_add`,
 //! `date_diff`, `date_trunc`, `date_part`, `interval` and `date_bin`.
 //!
@@ -55,6 +55,11 @@ pub(super) fn yearmonth(args: &[Value]) -> Result<Value, String> {
 
 pub(super) fn today(_args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     Ok(Value::Date(data.today))
+}
+
+/// `now()`: the time of day of the execution, by the ledger's clock in its timezone, as the `time` column writes one.
+pub(super) fn now(_args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
+    Ok(Value::from(data.now.time().format("%H:%M:%S").to_string().as_str()))
 }
 
 fn int_arg(value: &Value, function: &str) -> Result<i64, String> {
@@ -504,5 +509,16 @@ mod tests {
             ..TestContext::default()
         };
         assert_eq!(call_with(&ctx, "today", vec![]), on("2025-01-02"));
+    }
+
+    /// `now()` is the time of day of the execution, written as the `time` column is.
+    #[test]
+    fn now_is_the_time_of_day_of_the_context() {
+        assert_eq!(call("now", vec![]), Value::from("00:00:00"));
+        let ctx = TestContext {
+            time: chrono::NaiveTime::from_hms_opt(10, 20, 30).unwrap(),
+            ..TestContext::default()
+        };
+        assert_eq!(call_with(&ctx, "now", vec![]), Value::from("10:20:30"));
     }
 }

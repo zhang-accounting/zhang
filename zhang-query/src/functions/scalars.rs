@@ -102,6 +102,8 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = scalars![
         "The first day of the date's month, e.g. yearmonth(2024-05-17) = 2024-05-01.";
     #[execution] today() -> Date = dates::today,
         "Today's date in the ledger's timezone.";
+    #[execution] now() -> Str = dates::now,
+        "The current time of day in the ledger's timezone as HH:MM:SS, as the time column holds it; today() is its date, so account_status(account, today(), now()) is whether an account is open now. A zhang extension.";
     date(Int, Int, Int) -> Date = dates::date_from_ymd,
         "The date of a year, month and day, e.g. date(2024, 2, 29); NULL if there is no such day.";
     date(Str) -> Date = dates::date_from_str,

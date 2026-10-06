@@ -1183,6 +1183,7 @@ Metadata is not inherited: `open_meta('Assets:Bank:Checking', 'institution')` is
 | `weekday(date) -> str` | Three-letter English name of the day of the week. | `weekday(2024-01-05)` is `'Fri'` |
 | `yearmonth(date) -> date` | First day of the date's month. | `yearmonth(2024-05-17)` is `2024-05-01` |
 | `today() -> date` | The current date in the ledger's timezone (the `timezone` option). | |
+| `now() -> str` | The current time of day in the ledger's timezone, `HH:MM:SS`, as the `time` column holds it; its date is `today()`, so both describe one instant of the ledger's clock. With a fixed date for `today()` (the Rust API) it is midnight. Zhang extension. | `account_status(account, today(), now())` is whether the account is open now |
 | `date(int, int, int) -> date` | The date of a year, month and day, or `NULL` if there is no such day or the year is outside 1 to 9999. | `date(2024, 2, 29)` is `2024-02-29`, `date(2023, 2, 29)` is `NULL` |
 | `date(str) -> date` | The date written in the text as `YYYY-MM-DD`, where the month and the day may have one digit, or `NULL` if it is not one. | `date('2024-2-9')` is `2024-02-09` |
 | `date_add(date, int) -> date` | The date moved by a number of days, backwards for a negative number. | `date_add(2024-02-28, 1)` is `2024-02-29` |

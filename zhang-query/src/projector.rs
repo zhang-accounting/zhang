@@ -377,7 +377,7 @@ option "operating_currency" "USD"
     fn run(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
         let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let data = Dataset::new(ledger, today, projection.unwrap_or(query.projection));
+        let data = Dataset::new(ledger, today.and_time(chrono::NaiveTime::MIN), projection.unwrap_or(query.projection));
         let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
         // the Debug form keeps decimal scales, so equal strings are identical results
         format!("{rows:?}")
@@ -420,7 +420,7 @@ option "operating_currency" "USD"
         let mut budget = Budget::new(None);
         let data = Dataset::build(
             ledger,
-            today,
+            today.and_time(chrono::NaiveTime::MIN),
             projection.unwrap_or(query.projection),
             &Scope::All,
             None,
@@ -469,7 +469,11 @@ option "operating_currency" "USD"
     #[test]
     fn borrowed_columns_agree_with_their_values() {
         let ledger = load_text(LEDGER);
-        let data = Dataset::new(&ledger, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(), Projection::all());
+        let data = Dataset::new(
+            &ledger,
+            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap().and_time(chrono::NaiveTime::MIN),
+            Projection::all(),
+        );
         let params = Params::new();
         let regexes = RegexCache::default();
         let needles = ["food", "travel", "receipt-1", "Assets:Bank", "Income:Gains", "Expenses:Food", "x"];

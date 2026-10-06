@@ -300,7 +300,13 @@ impl Query {
         } else {
             &self.plan
         };
-        let today = options.today.unwrap_or_else(|| ledger.today());
+        // the instant of this execution by the ledger's clock in its timezone: `today()` is its date and `now()` its
+        // time of day; a fixed `today` makes it midnight of that date
+        let now = match options.today {
+            Some(today) => today.and_time(chrono::NaiveTime::MIN),
+            None => ledger.now().with_timezone(&ledger.options.timezone).naive_local(),
+        };
+        let today = now.date();
         let cache = table::LedgerCache::of(ledger);
         let equity;
         let mut budget = executor::Budget::new(options.max_result_values);
@@ -309,11 +315,11 @@ impl Query {
                 let scope = self.plan.execution.scope.as_ref().map(|scope| scope.resolve(params)).unwrap_or_default();
                 let until = self.plan.execution.until.as_ref().map(|until| until.resolve(params, today));
                 let mut limits = table::Limits::new(deadline.as_ref(), &mut budget);
-                table::Dataset::build(ledger, today, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
+                table::Dataset::build(ledger, now, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
             }
             Some(period) => {
                 equity = period::EquityAccounts::from_options(&ledger.options.values);
-                let data = table::Dataset::postings(ledger, cache, today, self.projection, &table::Scope::All);
+                let data = table::Dataset::postings(ledger, cache, now, self.projection, &table::Scope::All);
                 period.apply(data, ledger, &equity)
             }
         };
@@ -347,8 +353,8 @@ pub const DEFAULT_MAX_RESULT_VALUES: u64 = 1_000_000;
 /// Options of one execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecuteOptions {
-    /// the date returned by `today()`; `None` reads the ledger's clock in its timezone
-    /// ([`Ledger::today`])
+    /// the date returned by `today()`, with `now()` the midnight of it; `None` reads the ledger's clock in its
+    /// timezone ([`Ledger::today`]), whose date `today()` and time of day `now()` give
     pub today: Option<NaiveDate>,
     /// stop with a [`QueryErrorKind::Timeout`] error once the execution has run this long
     /// (checked every few hundred rows); `None` for no limit. A limit reads the monotonic
