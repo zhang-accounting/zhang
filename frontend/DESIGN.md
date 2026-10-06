@@ -36,8 +36,9 @@ react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `
   column `max-w-7xl px-4 md:px-7`) + `MobileTabBar` (< md, 4 tabs + "More" sheet) + `NetworkStatus`.
 - **No desktop top bar.** `TopBar` is mobile-only: the otter + ledger title on top-level pages, a back link + page title on
   nested pages (from `breadcrumbAtom`), and the 40px turquoise "+" (`<NewTransactionButton variant="icon">`). On desktop
-  `PageHeader` renders the breadcrumb trail (`Accounts › Assets:WeChat`) above the `<h1>` of nested pages, so every page keeps
-  calling `setBreadcrumb([SOME_LINK, { label, uri, noTranslate: true }])`.
+  `PageHeader` renders the breadcrumb trail (`Accounts › Assets:WeChat`) above the `<h1>` of nested pages. Pages do not set it:
+  `PageMeta` in `router.tsx` sets the trail and the document title from the page's `ROUTES` entry (its section link, then
+  the `:param` or label of the page), so a new page gets both by declaring its route.
 - `AppSidebar` anatomy (top to bottom): header (otter 28px, ledger title, `Zhang <version>` + online dot / label, muted reload
   button) · full-width "New transaction" card button (`variant="sidebar"`, plus in `link`) · primary nav
   (`SIDEBAR_PRIMARY_LINKS`: Overview, Journals, Report, Balance sheet, Budget) + collapsible "More" (`SIDEBAR_MORE_LINKS`,

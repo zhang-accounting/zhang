@@ -1,8 +1,7 @@
 import { format } from 'date-fns';
-import { useAtomValue, useSetAtom } from 'jotai';
 import { groupBy, sortBy } from 'lodash-es';
 import { ExternalLink, FileStack, FileText, ImageIcon, LayoutGrid, List } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useAsyncRetry } from 'react-use';
@@ -18,11 +17,8 @@ import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useLocalStorage } from '@/hooks/use-local-storage';
-import { DOCUMENTS_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 import { canPreview, documentType } from '@/utils/documents';
 
 const GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6';
@@ -73,14 +69,8 @@ function LinkedTo({ document }: { document: Document }) {
 export default function Documents() {
   const { t } = useTranslation();
   const fmt = useDateFormat();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const [layout, setLayout] = useLocalStorage({ key: `document-list-layout`, defaultValue: 'Grid' });
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('NAV_DOCUMENTS')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([DOCUMENTS_LINK]);
-  }, [setBreadcrumb]);
 
   const {
     loading,

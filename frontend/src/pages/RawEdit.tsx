@@ -1,6 +1,6 @@
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtomValue } from 'jotai';
 import { FileText, FolderTree, TriangleAlert } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { useAsync } from 'react-use';
@@ -11,10 +11,9 @@ import { EmptyState, PageHeader, PageShell } from '@/components/layout';
 import SingleFileEdit from '@/components/SingleFileEdit';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { RAW_EDITING_LINK } from '@/layout/nav-links';
 import { lineFromSearch } from '@/lib/raw-edit-link';
 import { cn } from '@/lib/utils';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
+import { titleAtom } from '@/states/basic';
 
 /**
  * The page fills the viewport below the top bar: 100svh - top bar (3.5rem) - shell paddings
@@ -24,7 +23,6 @@ const VIEWPORT_HEIGHT = 'h-[calc(100svh-3.5rem-6rem-env(safe-area-inset-bottom))
 
 function RawEdit() {
   const { t } = useTranslation();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
   const [searchParams, setSearchParams] = useSearchParams();
   const [dirty, setDirty] = useState(false);
   const {
@@ -44,9 +42,6 @@ function RawEdit() {
 
   const ledgerTitle = useAtomValue(titleAtom);
   useDocumentTitle(selectedFile ? `${selectedFile} | ${t('NAV_RAW_EDITING')} - ${ledgerTitle}` : `${t('NAV_RAW_EDITING')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([RAW_EDITING_LINK]);
-  }, [setBreadcrumb]);
 
   const selectFile = (file: string) => {
     if (file === selectedFile) return;

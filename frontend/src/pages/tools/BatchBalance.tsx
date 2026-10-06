@@ -19,16 +19,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useDocumentTitle } from '@/hooks/use-document-title';
 import { batchBalanceRows, replacedBalancesText } from '@/utils/balance-check';
 import { useListState } from '@/hooks/use-list-state';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
-import { TOOLS_LINK } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
 import { loadable_unwrap } from '@/states';
 import { accountAtom, accountFetcher, accountSelectItemsAtom } from '@/states/account';
-import { breadcrumbAtom, titleAtom } from '@/states/basic';
 
 interface BalanceLineItem {
   commodity: string;
@@ -52,12 +49,6 @@ function isMismatch(item: BalanceLineItem) {
 export default function BatchBalance() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
-  const setBreadcrumb = useSetAtom(breadcrumbAtom);
-  const ledgerTitle = useAtomValue(titleAtom);
-  useDocumentTitle(`${t('tools.batch_balance_title')} - ${ledgerTitle}`);
-  useEffect(() => {
-    setBreadcrumb([TOOLS_LINK, { label: 'tools.batch_balance_title', uri: '/tools/batch-balance' }]);
-  }, [setBreadcrumb]);
 
   const stateItems = useAtomValue(
     useMemo(
