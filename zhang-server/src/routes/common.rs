@@ -2,23 +2,40 @@ use std::convert::Infallible;
 
 use async_stream::try_stream;
 use axum::extract::State;
+use axum::http::{Method, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive};
-use axum::response::Sse;
+use axum::response::{IntoResponse, Response, Sse};
 use futures_util::Stream;
 use gotcha::api;
 use zhang_core::domains::schemas::OptionDomain;
 
-use crate::error::ServerError;
+use crate::error::{error_response, ServerError};
 use crate::request::JournalRequest;
 use crate::response::{BasicInfoEntity, ErrorEntity, Pageable, ResponseWrapper};
 use crate::routes::Query;
 use crate::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use crate::{journals, ApiResult};
 
-pub async fn backend_only_info() -> &'static str {
-    "hello zhang,\n\
-    seems you are trying to access the frontend UI, but the feature of frontend is not enable.\n\
-    try to enable the feature and compile again"
+/// Every path no route takes. An `/api` path is a JSON 404 that names the method and the path, in every build: a
+/// script that calls an endpoint that is gone (the typed read endpoints retire in favour of the built-in queries, #754)
+/// gets an error it can read, never a page. Any other path is the frontend's, its single-page app, or in a build
+/// without the frontend a note that says so.
+pub async fn fallback(method: Method, uri: Uri) -> Response {
+    let path = uri.path();
+    if path == "/api" || path.starts_with("/api/") {
+        return error_response(StatusCode::NOT_FOUND, format!("no route {} {}", method, path));
+    }
+    #[cfg(feature = "frontend")]
+    {
+        crate::routes::frontend::serve_frontend(uri).await.into_response()
+    }
+    #[cfg(not(feature = "frontend"))]
+    {
+        "hello zhang,\n\
+         seems you are trying to access the frontend UI, but the feature of frontend is not enable.\n\
+         try to enable the feature and compile again"
+            .into_response()
+    }
 }
 
 pub async fn sse(broadcaster: State<SharedBroadcaster>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {

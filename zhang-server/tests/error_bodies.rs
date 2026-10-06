@@ -97,6 +97,9 @@ async fn every_error_has_one_json_body_with_a_message() {
         (Method::GET, "/api/statistic/summary?from=2024-01-01", None, StatusCode::BAD_REQUEST),
         // a transaction id that is no id
         (Method::PUT, "/api/transactions/not-an-id", Some("{}"), StatusCode::UNPROCESSABLE_ENTITY),
+        // an /api path no route takes: a retired endpoint (#754), or a path that never was one
+        (Method::GET, "/api/budgets?year=2024&month=1", None, StatusCode::NOT_FOUND),
+        (Method::POST, "/api/no/such/route", Some("{}"), StatusCode::NOT_FOUND),
     ] {
         let (answered, content_type, body) = call(&router, method.clone(), uri, body).await;
         assert_eq!(answered, status, "{method} {uri}: {body}");
@@ -114,4 +117,31 @@ async fn a_malformed_transaction_id_is_named() {
     let (status, _, body) = call(&router, Method::PUT, "/api/transactions/not-an-id", Some(request)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(message_only(&body), "\"not-an-id\" is not the id of a transaction");
+}
+
+/// An `/api` path no route takes is a 404 that names the method and the path, in every build, with or without the
+/// frontend: a script that calls an endpoint that is gone gets an error it can read, never a page. A path outside `/api`
+/// is the frontend's (or, in a build without it, a note), not an API error.
+#[tokio::test]
+async fn an_unknown_api_path_is_a_404_naming_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let router = server(dir.path()).await;
+    for (method, uri, message) in [
+        (Method::GET, "/api/budgets?year=2024&month=1", "no route GET /api/budgets"),
+        (Method::DELETE, "/api", "no route DELETE /api"),
+        (
+            Method::POST,
+            "/api/query/builtins/budgets.month/rows",
+            "no route POST /api/query/builtins/budgets.month/rows",
+        ),
+    ] {
+        let (status, content_type, body) = call(&router, method.clone(), uri, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}: {body}");
+        assert!(content_type.starts_with("application/json"), "{method} {uri}: {content_type}");
+        assert_eq!(message_only(&body), message);
+    }
+    // a page of the app, not an API error
+    let (_, content_type, body) = call(&router, Method::GET, "/budgets", None).await;
+    assert!(!content_type.starts_with("application/json"), "{content_type}: {body}");
+    assert_ne!(body["message"], json!("no route GET /budgets"));
 }
