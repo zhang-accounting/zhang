@@ -34,9 +34,7 @@ option "timezone" "UTC"
 async fn ledger(dir: &Path, main: &str) -> SharedLedger {
     std::fs::write(dir.join("main.zhang"), main).unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source)
-        .await
-        .unwrap_or_else(|error| panic!("ledger should load: {error}"));
+    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"));
     SharedLedger(Arc::new(RwLock::new(ledger)))
 }
 
@@ -244,7 +242,7 @@ async fn a_name_beancount_rejects_has_its_own_kind() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.bean"), "1970-01-01 open Assets:Cash\n1970-01-01 commodity CNY\n").unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-    let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_owned(), source).await.unwrap();
+    let ledger = Ledger::load(dir.path().to_path_buf(), "main.bean".to_owned(), source).unwrap();
     let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
     let preview = preview(
         &ledger,

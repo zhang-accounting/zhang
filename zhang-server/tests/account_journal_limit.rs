@@ -40,7 +40,7 @@ async fn a_journal_too_large_to_return_at_once_asks_for_pages() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.zhang"), text).unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).await.unwrap();
+    let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
     let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
     let path = || Path(("Assets:Cash".to_owned(),));
 

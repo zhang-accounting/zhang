@@ -117,7 +117,7 @@ async fn load(dir: &Path, entry: &str) -> SharedLedger {
     } else {
         (Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})), Box::new(ZhangDataType {}))
     };
-    let ledger = match Ledger::async_load(dir.to_path_buf(), entry.to_owned(), source.clone()).await {
+    let ledger = match Ledger::load(dir.to_path_buf(), entry.to_owned(), source.clone()) {
         Ok(ledger) => ledger,
         // the local data source does not expand the wildcards of `include`
         Err(_) => {

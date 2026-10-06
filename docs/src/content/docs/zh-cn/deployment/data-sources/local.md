@@ -79,8 +79,8 @@ Docker 镜像以 `root` 身份运行张记账，所以它在挂载文件夹中�
 
 张记账在它的工作目录中维护一个 `.cache` 文件夹，工作目录不一定是账本文件夹：
 
-- `.cache/plugins/` 存放账本所声明的[插件](/zh-cn/guides/plugins/)的模块。
 - `.cache/documents/` 存放网页界面从远程数据源（[S3](/zh-cn/deployment/data-sources/s3/)、[WebDAV](/zh-cn/deployment/data-sources/webdav/) 或 [GitHub](/zh-cn/deployment/data-sources/github/)）打开过的每个文档的副本，之后会直接从这里提供。本地磁盘上的文档每次都从磁盘读取。早期版本把副本保存在 `.cache/data/` 中，它不再被读取。
+- 早期版本还会在 `.cache/plugins/` 中保存每个[插件](/zh-cn/guides/plugins/)模块的副本。现在每次加载时都从账本的存储中读取插件模块，这个文件夹不再被写入或读取，可以删除。
 
 如果你在账本文件夹内启动 `zhang serve`，`.cache` 会出现在你的文件旁边，张记账会忽略它在其中做出的变化。在 Docker 镜像中，工作目录是 `/application`，所以缓存留在容器内，容器重新创建后缓存为空。
 

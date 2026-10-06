@@ -311,7 +311,7 @@ impl AuthState {
         }
         let content = {
             let ledger = self.ledger.read().await;
-            ledger.data_source.async_get(PASSKEYS_PATH.to_owned()).await
+            ledger.data_source.get(PASSKEYS_PATH.to_owned())
         };
         let content = match content {
             Ok(content) => content,
@@ -327,7 +327,7 @@ impl AuthState {
     async fn save_passkeys(&self, records: &[PasskeyRecord]) -> AuthResult<()> {
         let content = serde_json::to_vec_pretty(records).map_err(|e| AuthError::Internal(format!("cannot serialize the passkeys: {e}")))?;
         let ledger = self.ledger.read().await;
-        ledger.data_source.async_save(&ledger, PASSKEYS_PATH.to_owned(), &content).await.map_err(|e| {
+        ledger.data_source.save(&ledger, PASSKEYS_PATH.to_owned(), &content).map_err(|e| {
             error!("cannot save {PASSKEYS_PATH}: {e}");
             AuthError::Internal(format!("cannot save the passkeys: {e}"))
         })

@@ -31,17 +31,18 @@ pub struct OpendalDataSource {
     local_root: Option<PathBuf>,
 }
 
-#[async_trait::async_trait]
 impl DataSource for OpendalDataSource {
     fn export(&self, directive: Directive) -> ZhangResult<Vec<u8>> {
         Ok(self.data_type.export(Spanned::new(directive, SpanInfo::default())).into_bytes())
     }
 
+    /// [`ZhangError::FileNotFound`] for a file that is not there, never an empty file: a missing `include` or plugin
+    /// module read as empty was loaded as such (#487, #494)
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
         let file = &path;
         self.blocking(None, |operator| async move { operator.read(file).await })
             .map(|data| data.to_vec())
-            .map_err(|e| e.into_zhang_error(&path))
+            .map_err(|e| e.into_zhang_error(&path, Access::Read))
     }
 
     fn local_root(&self, _entry: &Path) -> Option<PathBuf> {
@@ -68,7 +69,7 @@ impl DataSource for OpendalDataSource {
                 }
                 Ok(Some(content))
             })
-            .map_err(|e| e.into_zhang_error(&path))?;
+            .map_err(|e| e.into_zhang_error(&path, Access::Read))?;
         content.ok_or_else(|| ZhangError::TooLarge(format!("the file {path:?} holds more than {max_len} bytes")))
     }
 
@@ -103,69 +104,72 @@ impl DataSource for OpendalDataSource {
                 }
                 Ok(Some(entries))
             })
-            .map_err(|e| e.into_zhang_error(&path))?;
+            .map_err(|e| e.into_zhang_error(&path, Access::Read))?;
         entries.ok_or_else(|| ZhangError::TooLarge(format!("the directory {path:?} has more than {max_entries} entries")))
     }
 
     /// The `Fs` service is jailed to the ledger's directory and a remote service holds nothing outside its root: an
     /// `include` of a path outside names no file this source has, and is reported as missing, never a panic that
-    /// aborts the start or kills the reload task (#492). A pattern lists through the blocking helper, as plugins list
+    /// aborts the start or kills the reload task (#492). The files are read in one blocking session, so a remote
+    /// source reads them all through one http client; a pattern lists through the blocking helper, as plugins list
     /// during a load
-    async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+    fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
         let mut files = LedgerFiles::new(entry, &endpoint);
         let list = |dir: &Path| match self.list(dir.to_string_lossy().into_owned(), usize::MAX) {
             // a directory that is not there holds nothing
             Err(ZhangError::FileNotFound) => Ok(vec![]),
             listed => listed,
         };
-        while let Some(file) = files.next(list)? {
-            let content = self.async_get(file.path()).await;
-            files.read(file, content, &*self.data_type)?;
-        }
-        Ok(files.finish())
-    }
-
-    /// [`ZhangError::FileNotFound`] for a file that is not there, never an empty file: a missing `include` or plugin
-    /// module read as empty was loaded as such, and the module cached empty (#487, #494)
-    async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        self.operator
-            .read(&path)
-            .await
-            .map(|data| data.to_vec())
-            .map_err(|err| storage_error(&path, Access::Read, storage_failure(&err), err))
+        let data_type = &*self.data_type;
+        let loaded = self.blocking(None, |operator| async move {
+            let read_all = async {
+                while let Some(file) = files.next(list)? {
+                    let path = file.path();
+                    let content = operator
+                        .read(&path)
+                        .await
+                        .map(|data| data.to_vec())
+                        .map_err(|err| storage_error(&path, Access::Read, storage_failure(&err), err));
+                    files.read(file, content, data_type)?;
+                }
+                ZhangResult::Ok(files.finish())
+            };
+            Ok(read_all.await)
+        });
+        loaded.map_err(|e| e.into_zhang_error(&endpoint, Access::Read))?
     }
 
     /// a file only, with one stat before the read: what the stat tells a directory, which a WebDAV service reads as a
     /// page listing it, or another kind of entry, is not read. A stat that fails otherwise than for a missing entry,
     /// as on a WebDAV service without a working PROPFIND, leaves the read to tell: its error decides. A refusal, as a
     /// scoped access policy or an expired token makes, is [`ZhangError::ReadRefused`], not a missing file
-    async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
-        match self.operator.stat(&path).await {
-            Ok(metadata) if metadata.is_file() => {}
-            Ok(_) => return Ok(None),
-            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(err) => debug!("[opendal] cannot stat {}, reading it: {}", path, err),
-        }
-        match self.operator.read(&path).await {
-            Ok(data) => Ok(Some(data.to_vec())),
-            // what turned out to be no file is none here
-            Err(err) if matches!(err.kind(), ErrorKind::IsADirectory | ErrorKind::NotADirectory) => Ok(None),
-            Err(err) => match storage_error(&path, Access::Read, storage_failure(&err), err) {
-                ZhangError::FileNotFound => Ok(None),
-                error => Err(error),
-            },
+    fn get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        let file = &path;
+        let read = self.blocking(None, |operator| async move {
+            match operator.stat(file).await {
+                Ok(metadata) if metadata.is_file() => {}
+                Ok(_) => return Ok(None),
+                Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+                Err(err) => debug!("[opendal] cannot stat {}, reading it: {}", file, err),
+            }
+            match operator.read(file).await {
+                Ok(data) => Ok(Some(data.to_vec())),
+                // what turned out to be no file is none here
+                Err(err) if matches!(err.kind(), ErrorKind::IsADirectory | ErrorKind::NotADirectory) => Ok(None),
+                Err(err) => Err(err),
+            }
+        });
+        match read.map_err(|e| e.into_zhang_error(&path, Access::Read)) {
+            Err(ZhangError::FileNotFound) => Ok(None),
+            read => read,
         }
     }
 
-    async fn async_save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+    fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         info!("[opendal] save content path={}", path);
-        let vec = content.to_vec();
-
-        self.operator
-            .write(&path, vec)
-            .await
-            .map_err(|e| storage_error(&path, Access::Write, storage_failure(&e), e))?;
-        Ok(())
+        let (file, content) = (&path, content.to_vec());
+        self.blocking(None, |operator| async move { operator.write(file, content).await.map(drop) })
+            .map_err(|e| e.into_zhang_error(&path, Access::Write))
     }
 }
 
@@ -188,15 +192,15 @@ impl Display for BlockingError {
 }
 
 impl BlockingError {
-    /// the error of reading `path`, by the one mapping of storage errors ([`storage_error`]): a missing file is
-    /// [`ZhangError::FileNotFound`], a refusal [`ZhangError::ReadRefused`]; the rest keeps opendal's details, which only
-    /// the host logs
-    fn into_zhang_error(self, path: &str) -> ZhangError {
+    /// the error of the `access` to `path`, by the one mapping of storage errors ([`storage_error`]): a missing file is
+    /// [`ZhangError::FileNotFound`], a refusal [`ZhangError::ReadRefused`] or [`ZhangError::WriteRefused`]; the rest
+    /// keeps opendal's details, which only the host logs
+    fn into_zhang_error(self, path: &str, access: Access) -> ZhangError {
         let failure = match &self {
             BlockingError::Opendal(e) => storage_failure(e),
             BlockingError::TimedOut(_) | BlockingError::Runtime(_) => StorageFailure::Other,
         };
-        storage_error(path, Access::Read, failure, self)
+        storage_error(path, access, failure, self)
     }
 }
 
@@ -365,9 +369,7 @@ mod test {
             data_type: Box::new(ZhangDataType {}),
             local_root: None,
         };
-        Ledger::async_load(std::path::PathBuf::from("/ledger"), "main.zhang".to_owned(), Arc::new(source))
-            .await
-            .unwrap()
+        Ledger::load(std::path::PathBuf::from("/ledger"), "main.zhang".to_owned(), Arc::new(source)).unwrap()
     }
 
     /// A pattern names the files that exist, whole names only, in any part of the path (#494): `*.zhang` at the root
@@ -532,9 +534,7 @@ mod test {
         std::fs::write(dir.path().join("main.zhang"), format!("{OPENS}include \"{}\"\n", outside_file)).unwrap();
         let source = local_source(dir.path(), "main.zhang").await;
 
-        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
-            .await
-            .expect("the rest of the ledger loads");
+        let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).expect("the rest of the ledger loads");
 
         assert_eq!(errors_of(&ledger), vec![include_not_found(&outside_file)]);
         let store = ledger.store.read().unwrap();
@@ -572,11 +572,9 @@ mod test {
         );
         write("data/sibling.zhang", "2024-01-02 * \"shop\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n");
 
-        let served = Ledger::async_load(root.clone(), "main.zhang".to_owned(), local_source(&root, "main.zhang").await)
-            .await
-            .unwrap();
+        let served = Ledger::load(root.clone(), "main.zhang".to_owned(), local_source(&root, "main.zhang").await).unwrap();
         let local = Arc::new(zhang_core::data_source::LocalFileSystemDataSource::new(ZhangDataType {}));
-        let tested = Ledger::async_load(root.clone(), "main.zhang".to_owned(), local.clone()).await.unwrap();
+        let tested = Ledger::load(root.clone(), "main.zhang".to_owned(), local.clone()).unwrap();
 
         let loaded = |ledger: &Ledger| {
             let spans: Vec<_> = ledger.directives.iter().chain(&ledger.metas).map(|it| it.span.filename.clone()).collect();
@@ -602,7 +600,7 @@ mod test {
         assert!(!accounts.contains("Assets:Outside"));
 
         let empty = tempdir().unwrap();
-        let tested = Ledger::async_load(empty.path().to_path_buf(), "main.zhang".to_owned(), local).await;
+        let tested = Ledger::load(empty.path().to_path_buf(), "main.zhang".to_owned(), local);
         assert!(errors_of(&tested.expect("a ledger without its main file is empty")).is_empty());
     }
 
@@ -634,7 +632,7 @@ mod test {
             )
             .unwrap();
 
-            let loaded = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).await;
+            let loaded = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone());
 
             let Err(error) = loaded else { panic!("{} loaded", module) };
             assert!(error.to_string().contains(&format!("plugin module not found: {}", module)), "{}", error);
@@ -655,9 +653,7 @@ mod test {
 
         let dir = tempdir().unwrap();
         let source = local_source(dir.path(), "main.zhang").await;
-        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
-            .await
-            .expect("an empty ledger");
+        let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).expect("an empty ledger");
         let state = State(SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
 
         for (path, status, content) in [("accounts.zhang", 404, None), ("main.zhang", 200, Some(""))] {
@@ -741,15 +737,13 @@ mod test {
             no_report: true,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
-        let ledger = Ledger::async_load(dir.to_path_buf(), main.to_string(), source.clone())
-            .await
-            .expect("load ledger");
+        let ledger = Ledger::load(dir.to_path_buf(), main.to_string(), source.clone()).expect("load ledger");
         let coffee = zhang_parse("2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n", None)
             .expect("parse transaction")
             .remove(0)
             .data;
-        ledger.data_source.async_append(&ledger, vec![coffee]).await.expect("append transaction");
-        Ledger::async_load(dir.to_path_buf(), main.to_string(), source).await.expect("reload ledger")
+        ledger.data_source.append(&ledger, vec![coffee]).expect("append transaction");
+        Ledger::load(dir.to_path_buf(), main.to_string(), source).expect("reload ledger")
     }
 
     fn assert_coffee_written_to(dir: &Path, main: &str, ledger: &Ledger, data_file: &str) {
@@ -805,9 +799,7 @@ mod test {
             };
             let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
 
-            let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source)
-                .await
-                .unwrap_or_else(|e| panic!("{}: {}", main, e));
+            let ledger = Ledger::load(dir.path().to_path_buf(), main.to_string(), source).unwrap_or_else(|e| panic!("{}: {}", main, e));
 
             assert_eq!(ledger.directives[0].span.start, 0, "{main}");
             assert_eq!(ledger.directives[0].span.content.trim_end(), "1970-01-01 open Assets:Cash", "{main}");
@@ -827,18 +819,15 @@ mod test {
         std::fs::write(dir.path().join("bad.zhang"), b"1970-01-01 open Assets:Bank\n; \xe9t\xe9\n").unwrap();
         let source = local_source(dir.path(), "main.zhang").await;
 
-        let error = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone())
-            .await
+        let error = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone())
             .err()
             .expect("the ledger does not load");
         assert!(matches!(&error, ZhangError::InvalidUtf8 { path, line: 2 } if path == "bad.zhang"), "{}", error);
 
         std::fs::write(dir.path().join("bad.zhang"), "1970-01-01 open Assets:Bank\n; été\n").unwrap();
-        let mut ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_owned(), source)
-            .await
-            .expect("the file fixed loads");
+        let mut ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).expect("the file fixed loads");
         std::fs::write(dir.path().join("bad.zhang"), b"; \xe9t\xe9\n1970-01-01 open Assets:Bank\n").unwrap();
-        let error = ledger.async_reload().await.expect_err("the reload fails");
+        let error = ledger.reload().expect_err("the reload fails");
         let failure = zhang_server::state::ReloadFailure::from(&error);
         assert_eq!(failure.file.as_deref(), Some("bad.zhang"));
         assert_eq!(
@@ -864,9 +853,7 @@ mod test {
             no_report: true,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
-        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_string(), source.clone())
-            .await
-            .unwrap();
+        let ledger = Ledger::load(dir.path().to_path_buf(), "main.bean".to_string(), source.clone()).unwrap();
         let directives = zhang_parse(
             "2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n2024-01-16 * \"Shop\" \"Tea\"\n  Assets:Cash -3 CNY\n  Expenses:Food 3 CNY\n",
             None,
@@ -876,11 +863,11 @@ mod test {
         .map(|it| it.data)
         .collect();
 
-        ledger.data_source.async_append(&ledger, directives).await.unwrap();
+        ledger.data_source.append(&ledger, directives).unwrap();
 
         let main = std::fs::read_to_string(dir.path().join("main.bean")).unwrap();
         assert_eq!(main.matches("include \"data/2024/01.bean\"").count(), 1, "{main}");
-        let reloaded = Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_string(), source).await.unwrap();
+        let reloaded = Ledger::load(dir.path().to_path_buf(), "main.bean".to_string(), source).unwrap();
         let store = reloaded.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 2);
@@ -910,12 +897,12 @@ mod test {
                 no_report: true,
             };
             let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
-            let ledger = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source.clone()).await.unwrap();
+            let ledger = Ledger::load(dir.path().to_path_buf(), main.to_string(), source.clone()).unwrap();
             let document = zhang_parse("2024-01-15 document Assets:Cash \"attachments/u1/a statement.pdf\"\n", None)
                 .unwrap()
                 .remove(0)
                 .data;
-            ledger.data_source.async_append(&ledger, vec![document]).await.unwrap();
+            ledger.data_source.append(&ledger, vec![document]).unwrap();
 
             let ext = main.trim_start_matches("main.");
             let data_file = std::fs::read_to_string(dir.path().join(format!("data/2024/01.{ext}"))).unwrap();
@@ -925,7 +912,7 @@ mod test {
                 main,
                 data_file
             );
-            let reloaded = Ledger::async_load(dir.path().to_path_buf(), main.to_string(), source).await.unwrap();
+            let reloaded = Ledger::load(dir.path().to_path_buf(), main.to_string(), source).unwrap();
             let store = reloaded.store.read().unwrap();
             assert!(store.errors.is_empty(), "{}: {:?}", main, store.errors);
             let paths = store.documents.iter().map(|it| it.path.as_str()).collect::<Vec<_>>();
@@ -1040,7 +1027,7 @@ mod test {
             no_report: true,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
-        assert_documents(Ledger::async_load(dir.path().to_path_buf(), "main.bean".to_owned(), source).await.unwrap()).await;
+        assert_documents(Ledger::load(dir.path().to_path_buf(), "main.bean".to_owned(), source).unwrap()).await;
     }
 
     /// counts the calls an operator makes to its service, which a remote service answers each with a request at least,
@@ -1215,7 +1202,7 @@ mod test {
         // a ledger of its own, for the cache of downloads
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let entry = std::path::PathBuf::from(format!("/ledger-{}", nanos));
-        let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
+        let ledger = Ledger::load(entry, "main.bean".to_owned(), Arc::new(source)).unwrap();
 
         let mut calls = counting.calls();
         calls.sort();
@@ -1367,9 +1354,7 @@ mod test {
             local_root: None,
         });
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let ledger = Ledger::async_load(std::path::PathBuf::from(format!("/refused-{}", nanos)), "main.zhang".to_owned(), source.clone())
-            .await
-            .unwrap();
+        let ledger = Ledger::load(std::path::PathBuf::from(format!("/refused-{}", nanos)), "main.zhang".to_owned(), source.clone()).unwrap();
         counting
             .failing_reads
             .lock()
@@ -1384,10 +1369,10 @@ mod test {
         let read_refused = |result: ZhangResult<()>| matches!(result, Err(ZhangError::ReadRefused(path)) if path == "more.zhang");
         assert!(read_refused(source.get("more.zhang".to_owned()).map(drop)));
         assert!(read_refused(source.get_limited("more.zhang".to_owned(), 1024).map(drop)));
-        assert!(read_refused(source.async_get("more.zhang".to_owned()).await.map(drop)));
-        assert!(read_refused(source.async_get_existing("more.zhang".to_owned()).await.map(drop)));
-        assert!(read_refused(source.async_get_unchanged("more.zhang".to_owned(), &[]).await.map(drop)));
-        let saved = source.async_save(&ledger, "more.zhang".to_owned(), b"".as_slice()).await;
+        assert!(read_refused(source.get("more.zhang".to_owned()).map(drop)));
+        assert!(read_refused(source.get_existing("more.zhang".to_owned()).map(drop)));
+        assert!(read_refused(source.get_unchanged("more.zhang".to_owned(), &[]).map(drop)));
+        let saved = source.save(&ledger, "more.zhang".to_owned(), b"".as_slice());
         assert!(matches!(&saved, Err(ZhangError::WriteRefused(path)) if path == "more.zhang"), "{:?}", saved);
 
         // the file editor, reading and saving it
@@ -1442,7 +1427,7 @@ mod test {
         };
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let entry = std::path::PathBuf::from(format!("/no-stat-{}", nanos));
-        let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
+        let ledger = Ledger::load(entry, "main.bean".to_owned(), Arc::new(source)).unwrap();
         let state = axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
         for (file, status) in [("gone.pdf", 404), ("refused.pdf", 403), ("broken.pdf", 500)] {
             let path = format!("attachments/{}", file);
@@ -1475,7 +1460,7 @@ mod test {
                 local_root: None,
             };
             let entry = std::path::PathBuf::from(format!("/{}-{}", name, nanos));
-            let ledger = Ledger::async_load(entry, "main.bean".to_owned(), Arc::new(source)).await.unwrap();
+            let ledger = Ledger::load(entry, "main.bean".to_owned(), Arc::new(source)).unwrap();
             states.push(axum::extract::State(zhang_server::state::SharedLedger(Arc::new(tokio::sync::RwLock::new(
                 ledger,
             )))));
@@ -1526,9 +1511,7 @@ mod test {
             no_report: true,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
-        let ledger = Ledger::async_load(dir.path().to_path_buf(), "main.zhang".to_string(), source.clone())
-            .await
-            .unwrap();
+        let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_string(), source.clone()).unwrap();
         let coffee = zhang_parse("2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n", None)
             .unwrap()
             .remove(0)
@@ -1538,8 +1521,8 @@ mod test {
         set_mode(&main, 0o444);
         set_mode(dir.path(), 0o555);
 
-        let saved = source.async_save(&ledger, "main.zhang".to_owned(), b"1970-01-01 open Assets:Cash\n").await;
-        let appended = source.async_append(&ledger, vec![coffee]).await;
+        let saved = source.save(&ledger, "main.zhang".to_owned(), b"1970-01-01 open Assets:Cash\n");
+        let appended = source.append(&ledger, vec![coffee]);
         let state = State(SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger))));
         let (sender, _receiver) = tokio::sync::mpsc::channel(8);
         let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
@@ -1616,7 +1599,7 @@ mod test {
             "the files loaded are listed canonically"
         );
         assert!(
-            ledger.data_source.async_get("main.zhang".to_owned()).await.is_ok(),
+            ledger.data_source.get("main.zhang".to_owned()).is_ok(),
             "the files are still read relative to the root"
         );
     }

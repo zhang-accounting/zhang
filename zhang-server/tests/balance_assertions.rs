@@ -83,9 +83,7 @@ impl Scratch {
         } else {
             Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
         };
-        Ledger::async_load(self.dir.clone(), self.main.to_owned(), source)
-            .await
-            .expect("the ledger loads")
+        Ledger::load(self.dir.clone(), self.main.to_owned(), source).expect("the ledger loads")
     }
 
     async fn state(&self) -> State<SharedLedger> {

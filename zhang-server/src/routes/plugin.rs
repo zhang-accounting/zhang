@@ -91,9 +91,7 @@ mod test {
         );
         std::fs::write(dir.0.join("main.zhang"), content).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(dir.0.clone(), "main.zhang".to_owned(), source)
-            .await
-            .unwrap_or_else(|error| panic!("ledger should load: {error}"));
+        let ledger = Ledger::load(dir.0.clone(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"));
 
         let response = plugin_list(State(SharedLedger(Arc::new(RwLock::new(ledger))))).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);

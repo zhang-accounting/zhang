@@ -16,7 +16,9 @@ use crate::{ZhangError, ZhangResult};
 /// The Data Source have two capabilities:
 /// - given the endpoint, `DataSource` need to retrieve the raw data from source and feed it to associated `DataType` and get the directives from `DataType` processor.
 /// - given the directive, `DataSource` need to update or insert the given directive into source, which is the place where the raw data is stored.
-#[async_trait::async_trait]
+///
+/// Every method is blocking: a load reads files and runs plugins, whose host functions read files too, all
+/// synchronously. An async caller runs a load on a blocking thread.
 pub trait DataSource
 where
     Self: Send + Sync,
@@ -80,19 +82,11 @@ where
         Ok(())
     }
 
-    async fn async_load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
-        self.load(entry, endpoint)
-    }
-
-    async fn async_get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        self.get(path)
-    }
-
     /// The content of the file at `path`, relative to the ledger root and written with `/`, or `None` when there is
     /// no file there. [`ZhangError::ReadRefused`] when the source refuses to read it, which tells nothing of whether it
-    /// is there. [`DataSource::async_get`] errs on a missing file instead ([`ZhangError::is_file_not_found`]).
-    async fn async_get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
-        let error = match self.async_get(path.clone()).await {
+    /// is there. [`DataSource::get`] errs on a missing file instead ([`ZhangError::is_file_not_found`]).
+    fn get_existing(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        let error = match self.get(path.clone()) {
             Ok(content) => return Ok(Some(content)),
             // an io error a source passed on as it is: read by the one mapping of storage errors
             Err(ZhangError::IoError(error)) => storage_error(&path, Access::Read, error.kind().into(), error),
@@ -108,8 +102,8 @@ where
     /// what the ledger loaded there ([`SpanInfo::content`]). [`ZhangError::FileChanged`] when one is not, the file
     /// having changed since the ledger was loaded: the ledger must be reloaded for places that are not stale. A
     /// writer holds the ledger exclusively from this read until it saved the file, so no other write comes between
-    async fn async_get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<FileText> {
-        let content = match self.async_get(path.clone()).await {
+    fn get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<FileText> {
+        let content = match self.get(path.clone()) {
             Ok(content) => FileText::decode(content, &path)?,
             // a file removed since the ledger was loaded changed too
             Err(error) if error.is_file_not_found() => return Err(ZhangError::FileChanged(path)),
@@ -117,18 +111,6 @@ where
         };
         unchanged(&path, &content.text, spans)?;
         Ok(content)
-    }
-    /// [`DataSource::append`], reading and writing with [`DataSource::async_get`] and [`DataSource::async_save`]
-    async fn async_append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        for (path, directive) in append_plan(ledger, directives)? {
-            let content = appended(self.async_get(path.clone()).await, &path, &self.export(directive)?)?;
-            self.async_save(ledger, path, &content).await?;
-        }
-        Ok(())
-    }
-
-    async fn async_save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-        self.save(ledger, path, content)
     }
 }
 
@@ -387,12 +369,12 @@ pub fn unchanged(path: &str, content: &str, spans: &[SpanInfo]) -> ZhangResult<(
     }
 }
 
-/// The file of `ledger` the directive at `span` was read from, named as [`DataSource::async_get`] takes it: where
+/// The file of `ledger` the directive at `span` was read from, named as [`DataSource::get`] takes it: where
 /// the directive is edited in place. `None` when `span` is no place in a file of the ledger: it names no file, or
 /// one the ledger did not load, or it holds no text. That is the span of a directive a plugin made, which is in no
 /// file; the text at its span, if there is any there, is some other directive's, and must not be edited as it.
 ///
-/// Whether the text there is still what the ledger loaded is [`DataSource::async_get_unchanged`]'s to check.
+/// Whether the text there is still what the ledger loaded is [`DataSource::get_unchanged`]'s to check.
 pub fn loaded_file(ledger: &Ledger, span: &SpanInfo) -> Option<String> {
     let file = span.filename.as_ref()?;
     if span.start >= span.end || span.content.is_empty() {
@@ -676,7 +658,6 @@ impl LocalFileSystemDataSource {
     }
 }
 
-#[async_trait::async_trait]
 impl DataSource for LocalFileSystemDataSource {
     fn export(&self, directive: Directive) -> ZhangResult<Vec<u8>> {
         Ok(self.data_type.export(Spanned::new(directive, SpanInfo::default())).into_bytes())
@@ -753,20 +734,11 @@ mod get_existing_test {
         }
     }
 
-    /// the output of `future`, which is ready at once
-    fn ready<F: std::future::Future>(future: F) -> F::Output {
-        let mut future = std::pin::pin!(future);
-        match future.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
-            std::task::Poll::Ready(output) => output,
-            std::task::Poll::Pending => panic!("the future is not ready"),
-        }
-    }
-
     /// A file is missing only when the source says it is not there; a refusal to read it is a refusal, and any other
     /// error stays an error.
     #[test]
     fn a_file_is_missing_only_when_the_source_says_so() {
-        let get = |path: &str| ready(Answering.async_get_existing(path.to_owned()));
+        let get = |path: &str| Answering.get_existing(path.to_owned());
         assert_eq!(get("here.pdf").unwrap(), Some(b"content".to_vec()));
         assert_eq!(get("empty.pdf").unwrap(), Some(vec![]));
         assert_eq!(get("gone.pdf").unwrap(), None);

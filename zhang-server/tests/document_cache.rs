@@ -82,9 +82,7 @@ async fn a_remote_document_is_served_when_its_cache_cannot_be_written() {
         return;
     }
     std::env::set_current_dir(cwd.path()).unwrap();
-    let ledger = Ledger::async_load(PathBuf::from("/bucket/ledger"), "main.zhang".to_owned(), Arc::new(Remote))
-        .await
-        .unwrap();
+    let ledger = Ledger::load(PathBuf::from("/bucket/ledger"), "main.zhang".to_owned(), Arc::new(Remote)).unwrap();
     let state = State(SharedLedger(Arc::new(RwLock::new(ledger))));
     WARNINGS.0.lock().unwrap().clear();
 

@@ -1,80 +1,15 @@
 use zhang_ast::{Plugin, SpanInfo};
 
 use crate::ledger::Ledger;
-use crate::process::{DirectivePreProcess, DirectiveProcess};
+use crate::process::DirectiveProcess;
 use crate::ZhangResult;
 
-/// save the plugin's data into cache folder
-#[cfg(feature = "plugin_runtime")]
-pub(crate) fn save_plugin_content_into_cache_folder(plugin_hash: String, module_bytes: Vec<u8>) -> ZhangResult<()> {
-    use log::info;
-
-    use crate::error::IoErrorIntoZhangError;
-
-    let plugin_cache_folder = crate::constants::plugin_cache_dir();
-
-    // create plugin folder if not exist
-    std::fs::create_dir_all(&plugin_cache_folder).with_path(plugin_cache_folder.as_path())?;
-
-    // save the file into cache folder
-    let wasm_cache_file = plugin_cache_folder.join(format!("{}.wasm", plugin_hash));
-    // an unchanged module is not written again: a write is a change a watcher sees, and a plugin listing a
-    // directory holding the cache would make every load trigger the next one
-    if std::fs::read(&wasm_cache_file).is_ok_and(|cached| cached == module_bytes) {
-        return Ok(());
-    }
-    info!("saving the plugin into cache folder: {}", wasm_cache_file.display());
-    std::fs::write(&wasm_cache_file, module_bytes).with_path(wasm_cache_file.as_path())?;
-    Ok(())
-}
-
-/// the error of reading the module `module`: a module that is not there stops the load naming it, before anything is
-/// cached (#487)
+/// the error of reading the module `module`: a module that is not there stops the load naming it (#487)
 #[cfg(feature = "plugin_runtime")]
 fn module_error(module: &str, error: crate::ZhangError) -> crate::ZhangError {
     match error.is_file_not_found() {
         true => crate::ZhangError::CustomError(format!("plugin module not found: {module}")),
         false => error,
-    }
-}
-
-/// mainly for fetch the plugin data from remote and save it into local cache folder
-#[async_trait::async_trait]
-impl DirectivePreProcess for Plugin {
-    fn pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()> {
-        feature_enable!(ledger.options.features.plugins, {
-            #[cfg(feature = "plugin_runtime")]
-            {
-                use sha256::digest;
-
-                let plugin_name = self.module.as_str().to_string();
-                let plugin_hash = digest(&plugin_name);
-                let module_bytes = ledger.data_source.get(plugin_name.clone()).map_err(|error| module_error(&plugin_name, error))?;
-
-                save_plugin_content_into_cache_folder(plugin_hash, module_bytes)?;
-            }
-        });
-        Ok(())
-    }
-
-    async fn async_pre_process(&self, ledger: &mut Ledger) -> ZhangResult<()> {
-        feature_enable!(ledger.options.features.plugins, {
-            #[cfg(feature = "plugin_runtime")]
-            {
-                use sha256::digest;
-
-                let plugin_name = self.module.as_str().to_string();
-                let plugin_hash = digest(&plugin_name);
-                let module_bytes = ledger
-                    .data_source
-                    .async_get(plugin_name.clone())
-                    .await
-                    .map_err(|error| module_error(&plugin_name, error))?;
-
-                save_plugin_content_into_cache_folder(plugin_hash, module_bytes)?;
-            }
-        });
-        Ok(())
     }
 }
 
@@ -90,6 +25,9 @@ impl DirectiveProcess for Plugin {
         feature_enable!(ledger.options.features.plugins, {
             #[cfg(feature = "plugin_runtime")]
             {
+                // the module is read from the ledger's source on every load, and handed to the runtime as it is
+                let module = self.module.as_str();
+                let module_bytes = ledger.data_source.get(module.to_owned()).map_err(|error| module_error(module, error))?;
                 let declaration = crate::plugin::capabilities::PluginDeclaration::parse(self);
                 // a meta value the host cannot use is reported on the directive, and the plugin runs with the default
                 let mut operations = ledger.operations();
@@ -98,7 +36,7 @@ impl DirectiveProcess for Plugin {
                 }
                 let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
                 let files = crate::plugin::files::FileAccess::new(declaration.capabilities.allowed_paths.clone(), ledger.data_source.clone(), &ledger.entry.0);
-                ledger.plugins.insert_plugin(self, declaration, span, &clock, timezone, files)?;
+                ledger.plugins.insert_plugin(self, module_bytes, declaration, span, &clock, timezone, files)?;
                 // a rebuilt local module makes the ledger stale
                 if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, self.module.as_str()) {
                     ledger.extra_inputs.insert(input);

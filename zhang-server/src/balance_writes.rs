@@ -104,7 +104,7 @@ impl BalanceWrites {
         let mut edited = vec![];
         for (file, mut replacements) in files {
             let spans = replacements.iter().map(|(span, _)| span.clone()).collect::<Vec<_>>();
-            let mut content = ledger.data_source.async_get_unchanged(file.clone(), &spans).await?;
+            let mut content = ledger.data_source.get_unchanged(file.clone(), &spans)?;
             replacements.sort_by_key(|(span, _)| std::cmp::Reverse(span.start));
             for (span, directive) in replacements {
                 let text = match (&directive, with_amount_of(&span.content, &directive)) {
@@ -116,10 +116,10 @@ impl BalanceWrites {
             edited.push((file, content));
         }
         for (file, content) in edited {
-            ledger.data_source.async_save(ledger, file, &content.into_bytes()).await?;
+            ledger.data_source.save(ledger, file, &content.into_bytes())?;
         }
         if !append.is_empty() {
-            ledger.data_source.async_append(ledger, append).await?;
+            ledger.data_source.append(ledger, append)?;
         }
         Ok(BalanceWriteEntity { replaced })
     }

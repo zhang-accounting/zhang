@@ -79,8 +79,8 @@ The Docker image runs Zhang as `root`, so the files and folders it creates in th
 
 Zhang keeps a `.cache` folder in its working directory, which is not necessarily the ledger folder:
 
-- `.cache/plugins/` holds the modules of the [plugins](/guides/plugins/) the ledger declares.
 - `.cache/documents/` holds a copy of every document the web UI has opened from a remote data source ([S3](/deployment/data-sources/s3/), [WebDAV](/deployment/data-sources/webdav/) or [GitHub](/deployment/data-sources/github/)), which is served from there afterwards. Documents on the local disk are read from the disk each time. Earlier versions kept copies in `.cache/data/`, which is no longer read.
+- Earlier versions also kept a copy of every [plugin](/guides/plugins/) module in `.cache/plugins/`. Plugin modules are now read from the ledger's storage on every load, and that folder is no longer written or read: you can delete it.
 
 When you start `zhang serve` from inside the ledger folder, `.cache` appears next to your files, and Zhang ignores the changes it makes there. In the Docker image, the working directory is `/application`, so the cache stays inside the container and starts empty when the container is re-created.
 

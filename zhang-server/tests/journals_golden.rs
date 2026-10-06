@@ -131,7 +131,6 @@ impl GlobSource {
     }
 }
 
-#[async_trait::async_trait]
 impl DataSource for GlobSource {
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
         Ok(std::fs::read(path)?)
@@ -172,8 +171,7 @@ async fn load(fixture: &Fixture) -> SharedLedger {
     } else {
         Box::new(ZhangDataType {})
     };
-    let ledger = Ledger::async_load(fixture.dir.clone(), fixture.entry.clone(), Arc::new(GlobSource { data_type }))
-        .await
+    let ledger = Ledger::load(fixture.dir.clone(), fixture.entry.clone(), Arc::new(GlobSource { data_type }))
         .unwrap_or_else(|error| panic!("{}: {:?}", fixture.name, error));
     SharedLedger(Arc::new(RwLock::new(ledger)))
 }

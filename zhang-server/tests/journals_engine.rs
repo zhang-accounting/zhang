@@ -104,9 +104,7 @@ impl Scratch {
 
     async fn ledger(&self) -> SharedLedger {
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(self.dir.clone(), "main.zhang".to_owned(), source)
-            .await
-            .expect("the ledger loads");
+        let ledger = Ledger::load(self.dir.clone(), "main.zhang".to_owned(), source).expect("the ledger loads");
         SharedLedger(Arc::new(RwLock::new(ledger)))
     }
 }
@@ -816,7 +814,7 @@ async fn documents_come_from_the_documents_table_newest_first() {
 async fn a_beancount_document_is_listed_with_the_path_the_download_opens() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../extensions/beancount/tests/balance_assertions");
     let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-    let ledger = Ledger::async_load(dir, "document_paths.bean".to_owned(), source).await.unwrap();
+    let ledger = Ledger::load(dir, "document_paths.bean".to_owned(), source).unwrap();
     let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
     let (status, body) = respond(get_documents(State(ledger.clone())).await).await;
     assert_eq!(status, StatusCode::OK);

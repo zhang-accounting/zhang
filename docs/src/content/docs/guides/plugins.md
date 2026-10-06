@@ -34,7 +34,7 @@ plugin "plugins/large_expense.wasm"
 - Values after the module are arguments for the plugin, and the metadata lines hold its settings (here `threshold`). Which ones a plugin understands is up to its author. The plugin also receives the ledger's options.
 - Some metadata keys are not settings but **capabilities** you grant the plugin, described [below](#grant-capabilities).
 - Plugins run in the order they are declared. A module declared twice runs twice.
-- Zhang copies each module to `.cache/plugins/` in the directory it runs in, and loads it from there. When a module on the local disk changes, `zhang serve` reloads the ledger.
+- Zhang reads each module from the ledger's storage every time the ledger loads, and keeps no copy of it. When a module on the local disk changes, `zhang serve` reloads the ledger.
 
 ## What plugins do
 

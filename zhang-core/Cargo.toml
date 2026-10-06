@@ -27,7 +27,6 @@ strum = { workspace = true }
 chrono-tz = { workspace = true }
 indexmap = { workspace = true }
 http = { workspace = true }
-async-trait = { workspace = true }
 
 nom = "7"
 

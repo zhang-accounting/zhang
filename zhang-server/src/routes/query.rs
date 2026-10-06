@@ -281,7 +281,7 @@ mod csv_test {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        let ledger = Ledger::load(dir.clone(), "main.zhang".to_owned(), source).expect("load ledger");
         // queries only read the in-memory store
         std::fs::remove_dir_all(dir).ok();
         SharedLedger(Arc::new(RwLock::new(ledger)))
@@ -411,7 +411,7 @@ mod result_limit_test {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("main.zhang"), content).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        let ledger = Ledger::load(dir.clone(), "main.zhang".to_owned(), source).expect("load ledger");
         std::fs::remove_dir_all(dir).ok();
         Arc::new(RwLock::new(ledger))
     }
@@ -570,7 +570,7 @@ mod builtin_test {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        let ledger = Ledger::load(dir.clone(), "main.zhang".to_owned(), source).expect("load ledger");
         std::fs::remove_dir_all(dir).ok();
         SharedLedger(Arc::new(RwLock::new(ledger)))
     }

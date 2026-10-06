@@ -210,9 +210,7 @@ mod test {
         );
         std::fs::write(dir.0.join("main.zhang"), content).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(dir.0.clone(), "main.zhang".to_owned(), source)
-            .await
-            .unwrap_or_else(|error| panic!("ledger should load: {error}"));
+        let ledger = Ledger::load(dir.0.clone(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"));
         let router = Router::new()
             .route("/api/plugins", get(plugin_list))
             .route(ROUTE, any(route_to_plugin))

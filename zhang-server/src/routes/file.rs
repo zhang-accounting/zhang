@@ -36,7 +36,7 @@ fn fingerprint(file: &[u8]) -> String {
 pub async fn get_file_content(ledger: State<SharedLedger>, Base64Path(filename): Base64Path) -> ApiResult<FileDetailEntity> {
     let ledger = ledger.read().await;
 
-    let content = match ledger.data_source.async_get(filename.to_owned()).await {
+    let content = match ledger.data_source.get(filename.to_owned()) {
         Ok(content) => content,
         Err(error) if error.is_file_not_found() => {
             let (root, main) = &ledger.entry;
@@ -75,7 +75,7 @@ pub async fn update_file_content(
     // the file as it is now, read once: for the fingerprint the editor loaded it with, and for the byte order mark it
     // may start with. A file that cannot be read is written as sent: the save, which may fix it, is never held up by
     // the read (#505), unless the save is to be checked against the fingerprint, which nothing stands in for
-    let existing = match ledger.data_source.async_get_existing(filename.clone()).await {
+    let existing = match ledger.data_source.get_existing(filename.clone()) {
         Ok(existing) => existing,
         Err(error) if payload.expected_sha256.is_some() => return Err(error.into()),
         Err(_) => None,
@@ -98,7 +98,7 @@ pub async fn update_file_content(
     let had_bom = existing.is_some_and(|existing| existing.starts_with(BOM.as_bytes()));
     let mut content = FileText::new(payload.content);
     content.bom |= had_bom;
-    let saved = ledger.data_source.async_save(&ledger, filename, &content.into_bytes()).await;
+    let saved = ledger.data_source.save(&ledger, filename, &content.into_bytes());
     wrote(&mut ledger, &reload_sender, saved.map_err(ServerError::from))?;
     Ok(Created)
 }
@@ -137,7 +137,7 @@ mod save_test {
         let main = dir.join("main.bean");
         std::fs::write(&main, ledger).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-        let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let loaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
         let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
         let (sender, _receiver) = mpsc::channel(8);
         let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
@@ -324,7 +324,7 @@ mod save_test {
         std::os::unix::fs::symlink(&real, &link).unwrap();
         std::fs::write(real.join("main.bean"), LEDGER).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-        let loaded = Ledger::async_load(link.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let loaded = Ledger::load(link.clone(), "main.bean".to_owned(), source).expect("load ledger");
         let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
         let (sender, _receiver) = mpsc::channel(8);
         let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
@@ -381,7 +381,7 @@ mod save_test {
 
         for root in [real.clone(), link, relative] {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            let loaded = Ledger::async_load(root.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+            let loaded = Ledger::load(root.clone(), "main.bean".to_owned(), source).expect("load ledger");
             let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
             let listed = answer_json(get_files(state.clone()).await).await;
             assert_eq!(listed["data"], serde_json::json!(["main.bean", "data/2024.bean"]), "{}", root.display());
@@ -437,7 +437,7 @@ mod save_test {
         let opens = "1970-01-01 open Assets:Cash\n";
         std::fs::write(&main, format!("\u{feff}{opens}")).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(zhang_core::data_type::text::ZhangDataType {}));
-        let loaded = Ledger::async_load(dir.clone(), "main.zhang".to_owned(), source).await.expect("load ledger");
+        let loaded = Ledger::load(dir.clone(), "main.zhang".to_owned(), source).expect("load ledger");
         let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
         let (sender, _receiver) = mpsc::channel(8);
         let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
@@ -487,7 +487,7 @@ mod save_test {
         let ledger = "option \"operating_currency\" \"CNY\"\n2020-01-01 commodity CNY\n2024-01-01 open Assets:A\n2024-01-01 open Income:X\n";
         std::fs::write(&main, ledger).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-        let loaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let loaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
         let state = State(SharedLedger(Arc::new(RwLock::new(loaded))));
         let (sender, _receiver) = mpsc::channel(8);
         let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
@@ -541,7 +541,7 @@ mod save_test {
         let (status, message) = answer(create().await).await;
         assert_eq!(status, StatusCode::OK, "{message}");
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-        let reloaded = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.expect("load ledger");
+        let reloaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
         let store = reloaded.store.read().unwrap();
         assert!(store.errors.is_empty(), "{:?}", store.errors);
         assert_eq!(store.transactions.len(), 1);

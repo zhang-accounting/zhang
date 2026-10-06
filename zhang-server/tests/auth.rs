@@ -154,9 +154,7 @@ async fn app_and_ledger(dir: &Path, settings: &Settings) -> (ServerApp, Arc<RwLo
         root: dir.to_path_buf(),
         inner: LocalFileSystemDataSource::new(ZhangDataType {}),
     });
-    let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone())
-        .await
-        .unwrap_or_else(|error| panic!("ledger should load: {error}"));
+    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap_or_else(|error| panic!("ledger should load: {error}"));
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);
     let ledger = Arc::new(RwLock::new(ledger));
     let app = create_server_app(
@@ -1121,7 +1119,7 @@ async fn the_passkeys_file_is_not_part_of_the_ledger() {
     for reload in [false, true] {
         let mut ledger = ledger.write().await;
         if reload {
-            ledger.async_reload().await.unwrap();
+            ledger.reload().unwrap();
         }
         assert!(
             !ledger.visited_files.iter().any(|path| path.components().any(|it| it.as_os_str() == ".zhang")),

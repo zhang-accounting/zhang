@@ -104,11 +104,11 @@ impl Scratch {
         let ledger = match self.format {
             Format::Zhang => {
                 let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-                Ledger::async_load(self.dir.clone(), self.main_name().to_owned(), source).await
+                Ledger::load(self.dir.clone(), self.main_name().to_owned(), source)
             }
             Format::Beancount => {
                 let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-                Ledger::async_load(self.dir.clone(), self.main_name().to_owned(), source).await
+                Ledger::load(self.dir.clone(), self.main_name().to_owned(), source)
             }
         };
         let ledger = ledger.unwrap_or_else(|err| panic!("the {:?} ledger should load: {err}", self.format));

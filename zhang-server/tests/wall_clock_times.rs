@@ -46,9 +46,7 @@ fn breakfast_time() -> Clock {
 async fn ledger(dir: &Path) -> SharedLedger {
     std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load_with_clock(dir.to_path_buf(), "main.zhang".to_owned(), source, breakfast_time())
-        .await
-        .unwrap();
+    let ledger = Ledger::load_with_clock(dir.to_path_buf(), "main.zhang".to_owned(), source, breakfast_time()).unwrap();
     SharedLedger(Arc::new(RwLock::new(ledger)))
 }
 

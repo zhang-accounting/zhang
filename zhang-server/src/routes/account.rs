@@ -74,10 +74,7 @@ pub async fn upload_account_document(
             let (v4, striped_path_string) = super::attachment_path(&file_name);
             info!("uploading document `{}`(id={}) to account {}", file_name, v4, account_name);
 
-            ledger_stage
-                .data_source
-                .async_save(&ledger_stage, striped_path_string.to_owned(), &content_buf)
-                .await?;
+            ledger_stage.data_source.save(&ledger_stage, striped_path_string.to_owned(), &content_buf)?;
 
             documents.push(Directive::Document(Document {
                 date: Date::Datetime(now),
@@ -88,7 +85,7 @@ pub async fn upload_account_document(
                 meta: Default::default(),
             }));
         }
-        ledger_stage.data_source.async_append(&ledger_stage, documents).await?;
+        ledger_stage.data_source.append(&ledger_stage, documents)?;
         ServerResult::Ok(())
     }
     .await;
@@ -214,7 +211,7 @@ mod name_validation_test {
 
     async fn states(dir: &std::path::Path) -> (State<SharedLedger>, State<SharedReloadSender>) {
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source).await.unwrap();
+        let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap();
         let (sender, _) = mpsc::channel(1);
         (
             State(SharedLedger(Arc::new(RwLock::new(ledger)))),
@@ -297,7 +294,7 @@ mod name_validation_test {
         std::fs::write(dir.join("main.bean"), MAIN).unwrap();
         let load = || async {
             let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-            let ledger = Ledger::async_load(dir.clone(), "main.bean".to_owned(), source).await.unwrap();
+            let ledger = Ledger::load(dir.clone(), "main.bean".to_owned(), source).unwrap();
             let (sender, _) = mpsc::channel(1);
             (
                 State(SharedLedger(Arc::new(RwLock::new(ledger)))),
@@ -368,9 +365,7 @@ mod clock_test {
         std::fs::write(dir.join("main.zhang"), MAIN).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
         let clock = Clock::Fixed(DateTime::parse_from_rfc3339(NOW).unwrap().to_utc());
-        let ledger = Ledger::async_load_with_clock(dir.clone(), "main.zhang".to_owned(), source, clock)
-            .await
-            .unwrap();
+        let ledger = Ledger::load_with_clock(dir.clone(), "main.zhang".to_owned(), source, clock).unwrap();
         let (sender, _) = mpsc::channel(1);
         (
             dir,

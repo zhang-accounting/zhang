@@ -26,7 +26,7 @@ Zhang is a Rust workspace, a React web UI and this documentation site, all in th
 
 ## How a ledger flows through the code
 
-1. **Read.** `zhang serve` builds the data source for the chosen backend (`zhang-cli/src/opendal.rs`) and calls `Ledger::async_load` (`zhang-core/src/ledger.rs`). The data source reads the main file, parses it with the Zhang parser or the beancount parser, and follows the `include` directives, wildcards included. The result is a list of directives (`zhang-ast`) with the file and position each one comes from.
+1. **Read.** `zhang serve` builds the data source for the chosen backend (`zhang-cli/src/opendal.rs`) and calls `Ledger::load` (`zhang-core/src/ledger.rs`) on a blocking thread. The data source reads the main file, parses it with the Zhang parser or the beancount parser, and follows the `include` directives, wildcards included. The result is a list of directives (`zhang-ast`) with the file and position each one comes from.
 2. **Options and plugins.** The options are applied first. Then the modules of the `plugin` directives are fetched and registered (`zhang-core/src/plugin/`).
 3. **Pipeline.** The directives are sorted by date and go through the stages of `zhang-core/src/pipeline/`, in order: the WASM plugins (processors and mappers) in the order they are declared, then the built-in stages `ActiveAccounts`, `Pad` and `BalanceCheck`. Every stage sees the whole stream, may change it, and may report errors.
 4. **Store.** The result is folded into the in-memory store (`zhang-core/src/store/`), directive by directive (`zhang-core/src/process/`). Postings are booked against lots by the booker (`zhang-core/src/booking/`), and every problem becomes an error with an `ErrorKind`.

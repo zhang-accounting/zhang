@@ -34,7 +34,7 @@ const LEDGER: &str = r#"option "operating_currency" "CNY"
 async fn ledger(dir: &Path) -> State<SharedLedger> {
     std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::async_load(dir.to_path_buf(), "main.zhang".to_owned(), source).await.unwrap();
+    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap();
     State(SharedLedger(Arc::new(RwLock::new(ledger))))
 }
 

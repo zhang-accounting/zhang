@@ -6,7 +6,6 @@ use extism::convert::Json as WasmJson;
 #[cfg(feature = "plugin_runtime")]
 use extism::{Manifest, Plugin as WasmPlugin, Wasm};
 use log::{info, warn};
-use sha256::digest;
 use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
 use zhang_shared::plugin_abi::export;
 
@@ -30,16 +29,14 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    /// register the plugin `_plugin` declares, as parsed into `declaration`; `span` is the directive's span.
-    /// `clock` is the clock of the load, which the plugin reads in the ledger timezone `timezone`, and `files`
-    /// what the plugin may read once it runs as a processor or mapper
+    /// register the plugin `_plugin` declares, whose module is `module_bytes`, as parsed into `declaration`; `span` is
+    /// the directive's span. `clock` is the clock of the load, which the plugin reads in the ledger timezone
+    /// `timezone`, and `files` what the plugin may read once it runs as a processor or mapper
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_plugin(
-        &mut self, _plugin: &Plugin, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+        &mut self, _plugin: &Plugin, module_bytes: Vec<u8>, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
     ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
-        let plugin_hash = digest(&plugin_name);
-        let plugin_cache_file = crate::constants::plugin_cache_dir().join(format!("{}.wasm", plugin_hash));
-        let module_bytes = std::fs::read(&plugin_cache_file)?;
 
         let wasm = Wasm::data(module_bytes.clone());
         let timeout = declaration.capabilities.timeout;
