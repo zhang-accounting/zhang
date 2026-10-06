@@ -1,15 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use gotcha::Schematic;
 use serde::Deserialize;
 use zhang_ast::amount::Amount;
 use zhang_ast::Flag;
-
-use crate::error::ServerError;
-use crate::ServerResult;
 
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
@@ -268,40 +265,6 @@ where
 pub struct MetaRequest {
     pub key: String,
     pub value: String,
-}
-
-#[derive(Schematic, Deserialize)]
-pub struct BudgetListRequest {
-    pub month: Option<u32>,
-    pub year: Option<u32>,
-}
-impl BudgetListRequest {
-    /// the old handlers' month, `year * 100 + month`, by default the server's current one
-    #[cfg(test)]
-    pub fn as_interval(&self) -> u32 {
-        let time = chrono::Local::now();
-        self.year.unwrap_or(time.year() as u32) * 100 + self.month.unwrap_or(time.month())
-    }
-
-    /// the first day of the requested month; the year and the month default to those of `today`
-    pub fn month_or(&self, today: NaiveDate) -> ServerResult<NaiveDate> {
-        BudgetListRequest::month_of(self.year.unwrap_or(today.year() as u32), self.month.unwrap_or(today.month()))
-    }
-
-    /// the first day of a month; a 400 if there is no such month
-    pub fn month_of(year: u32, month: u32) -> ServerResult<NaiveDate> {
-        i32::try_from(year)
-            .ok()
-            .and_then(|year| NaiveDate::from_ymd_opt(year, month, 1))
-            .ok_or_else(|| ServerError::InvalidInput(format!("there is no month {} in the year {}", month, year)))
-    }
-}
-
-#[derive(Schematic, Deserialize)]
-pub struct BudgetIntervalDetailRequest {
-    pub budget_name: String,
-    pub year: u32,
-    pub month: u32,
 }
 
 #[derive(Schematic, Deserialize)]

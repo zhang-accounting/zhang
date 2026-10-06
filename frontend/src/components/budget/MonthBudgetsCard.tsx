@@ -2,9 +2,9 @@ import { ArrowUpRight } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { retrieveBudgets } from '@/api/requests';
 import { BudgetListItem } from '@/api/types';
 import Amount from '@/components/Amount';
+import { retrieveBudgets } from '@/components/budget/budget-api';
 import { budgetUsage, monthSearchParams } from '@/components/budget/budget-utils';
 import { countsInMonth, monthTotals } from '@/components/budget/month-totals';
 import { useDateFormat } from '@/components/layout/use-date-format';
@@ -12,7 +12,7 @@ import Section from '@/components/Section';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BUDGET_DOCS_URL } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
-import { useLedgerQuery } from '@/states/ledger';
+import { useLedgerValue } from '@/states/ledger';
 
 const MAX_ROWS = 5;
 
@@ -75,7 +75,7 @@ export function MonthBudgetsCard({ month, className }: { month: Date; className?
   const fmt = useDateFormat();
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
-  const { value, loading, error } = useLedgerQuery(() => retrieveBudgets({ year, month: monthIndex + 1 }), [year, monthIndex]);
+  const { value, loading, error } = useLedgerValue(() => retrieveBudgets(month), [year, monthIndex]);
 
   const open = useMemo(() => (value ?? []).filter(countsInMonth), [value]);
   const rows = useMemo(() => [...open].sort((a, b) => Number(b.activity_amount.number) - Number(a.activity_amount.number)).slice(0, MAX_ROWS), [open]);

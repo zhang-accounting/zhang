@@ -3,7 +3,7 @@ title: 内置查询
 description: 张记账所显示的各项数字背后有文档说明的 BQL 查询，如何在查询页面打开并修改它们，以及列出这些查询、执行它们、填入参数值的 HTTP 接口。
 ---
 
-张记账的读取端点通过*内置查询*计算各项数字（[#479](https://github.com/zhang-accounting/zhang/issues/479)）。内置查询是用张记账的[查询语言](/zh-cn/reference/query-language/)写成的具名查询，页面带着几个参数（例如报表的日期）在你的账本上执行它。页面只负责排列查询结果，所以每个数字背后的逻辑都是一个可以在本页读到的查询。
+张记账的页面通过*内置查询*计算各项数字（[#479](https://github.com/zhang-accounting/zhang/issues/479)）。内置查询是用张记账的[查询语言](/zh-cn/reference/query-language/)写成的具名查询，页面通过下面的 [HTTP API](#http-api)，带着几个参数（例如报表的日期）在你的账本上执行它。页面只负责排列查询结果，所以每个数字背后的逻辑都是一个可以在本页读到的查询。
 
 你可以在**查询**页面打开某个数字背后的查询，页面当时使用的参数值已经填好，然后修改它：换一个日期范围、加入更多账户、换一种分组方式、画成图表。应用能显示的任何内容，你都可以自己查询并加以变化，无需等待新版本。
 
@@ -146,6 +146,18 @@ curl -X POST http://localhost:8000/api/query/builtins/postings.between/text \
 ```
 
 把这段文本发送到 [`POST /api/query`](/zh-cn/reference/query-language/#执行查询) 即可执行，得到的行与按名称执行该查询相同。
+
+### 已移除的接口
+
+Web 界面以前使用的各类型化读取接口正在按组逐个版本移除，改为按名称执行内置查询：以前调用这些接口的脚本，用接口所执行的查询、绑定接口当时使用的参数，就能得到相同的数字。
+
+| 已移除的接口 | 改为执行的内置查询 |
+|--------------|--------------------|
+| `GET /api/budgets?year=&month=` | `budgets.month`，`month` 为该月的第一天 |
+| `GET /api/budgets/{name}?year=&month=` | `budgets.budget`（参数 `name`）和 `budgets.budget_month`（参数 `name`、`month`）；`budgets.budget` 没有行即原来的 404，`budgets.budget_month` 没有行表示预算开始之前的月份（未分配、未支出、未关闭） |
+| `GET /api/budgets/{name}/interval/{year}/{month}` | `budgets.events` 和 `budgets.postings`，参数均为 `name`、`month`；原接口把两个列表按时间从新到旧合并，时间相同时预算自身的条目在前 |
+
+原接口的金额形如 `{number, commodity}`；查询的单元格形如 `{number, currency}`，预算的 `activity` 是以该预算 `currency` 计的数字。
 
 ## 查询列表
 

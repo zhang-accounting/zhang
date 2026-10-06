@@ -1,6 +1,7 @@
-//! Golden tests of the budget endpoints: on every ledger of `integration-tests/` and `examples/`,
-//! in both formats where there are both, every figure and posting the handlers answer is the
-//! independent computation's ([`Reference`]); and small hand-worked ledgers (#479).
+//! Golden tests of the budget pages' built-in queries (`budgets.*`, run as the pages run them, through
+//! `POST /api/query/builtins/{name}`): on every ledger of `integration-tests/` and `examples/`, in both
+//! formats where there are both, every figure and posting the queries answer with the parameters the
+//! pages bind is the independent computation's ([`Reference`]); and small hand-worked ledgers (#479).
 
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -8,7 +9,7 @@ use std::path::{Path as FsPath, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Datelike, Months, NaiveDate};
@@ -19,20 +20,43 @@ use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
+use zhang_query::Params;
 
 use super::budget_reference::{Figures, Reference};
-use crate::request::{BudgetIntervalDetailRequest, BudgetListRequest};
-use crate::response::ResponseWrapper;
-use crate::routes::budget;
+use crate::response::{QueryResultEntity, ResponseWrapper};
 use crate::state::SharedLedger;
 use crate::ServerResult;
 
-/// What an endpoint answered.
+/// What a query or an endpoint answered. For the budget probes, `Json` holds the rows of the built-in
+/// queries as objects by column name, as the budget pages read them (`rowsByColumn` in the frontend).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Outcome {
     Json(Json),
     Status(u16),
     Panic,
+}
+
+/// The rows of the built-in query `name` with `params` bound, as JSON objects by column name, as
+/// `POST /api/query/builtins/{name}` encodes the cells; or the status the query API answers.
+async fn rows_of(ledger: &SharedLedger, name: &'static str, params: Params) -> Result<Vec<Json>, u16> {
+    match crate::builtin::run(ledger, name, params).await {
+        Ok(result) => {
+            let result = serde_json::to_value(QueryResultEntity::from(result)).expect("serializable");
+            let columns = result["columns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|it| it["name"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>();
+            Ok(result["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| Json::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+                .collect())
+        }
+        Err(err) => Err(err.into_response().status().as_u16()),
+    }
 }
 
 /// Run a handler, catching a panic as [`Outcome::Panic`].
@@ -48,7 +72,9 @@ where
     }
 }
 
-/// The endpoints tested, with their arguments.
+/// The budget pages' reads, with their arguments: the Budgets page (every budget as of a month, by
+/// default the current one in the ledger's timezone), a budget's page (one budget as of a month), and
+/// its activity list (what happened to the budget in a month).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum Probe {
@@ -70,27 +96,54 @@ impl Probe {
         }
     }
 
-    fn request(month: &Option<(u32, u32)>) -> Query<BudgetListRequest> {
-        Query(BudgetListRequest {
-            year: month.map(|it| it.0),
-            month: month.map(|it| it.1),
-        })
-    }
-
-    /// the handler's answer
+    /// What the page gets: the rows of its built-in queries, bound as it binds them. The Budgets page is
+    /// the rows of `budgets.month`; a budget's page the row of `budgets.budget` with the fields of its
+    /// `budgets.budget_month` row (none before the budget's first month); its activity list
+    /// `{"events": [budgets.events], "postings": [budgets.postings]}`. A budget without a
+    /// `budgets.budget` row is a 404, as the pages say "not found"; a query the engine refuses is its status.
     pub(crate) async fn run(&self, ledger: &SharedLedger) -> Outcome {
-        let state = State(SharedLedger(ledger.0.clone()));
-        match self.clone() {
-            Probe::BudgetList { month } => call(budget::get_budget_list(state, Probe::request(&month))).await,
-            Probe::BudgetInfo { name, month } => call(budget::get_budget_info(state, Path((name,)), Probe::request(&month))).await,
-            Probe::BudgetInterval { name, year, month } => {
-                let path = Path(BudgetIntervalDetailRequest {
-                    budget_name: name,
-                    year,
-                    month,
-                });
-                call(budget::get_budget_interval_detail(state, path)).await
+        let ledger = SharedLedger(ledger.0.clone());
+        let probe = self.clone();
+        let run = async move {
+            // without a month, the pages show the current one in the ledger's timezone
+            let month = match probe.month() {
+                Some(month) => month,
+                None => ledger.read().await.today().with_day(1).unwrap(),
+            };
+            let outcome = async {
+                match &probe {
+                    Probe::BudgetList { .. } => Ok(Json::Array(rows_of(&ledger, "budgets.month", Params::new().bind("month", month)).await?)),
+                    Probe::BudgetInfo { name, .. } => {
+                        let Some(budget) = rows_of(&ledger, "budgets.budget", Params::new().bind("name", name.as_str())).await?.pop() else {
+                            return Err(404);
+                        };
+                        let params = Params::new().bind("name", name.as_str()).bind("month", month);
+                        let figures = rows_of(&ledger, "budgets.budget_month", params).await?.pop();
+                        let mut info = budget.as_object().unwrap().clone();
+                        if let Some(figures) = figures.as_ref().and_then(Json::as_object) {
+                            info.extend(figures.clone());
+                        }
+                        Ok(Json::Object(info))
+                    }
+                    Probe::BudgetInterval { name, .. } => {
+                        if rows_of(&ledger, "budgets.budget", Params::new().bind("name", name.as_str())).await?.is_empty() {
+                            return Err(404);
+                        }
+                        let params = Params::new().bind("name", name.as_str()).bind("month", month);
+                        let events = rows_of(&ledger, "budgets.events", params.clone()).await?;
+                        let postings = rows_of(&ledger, "budgets.postings", params).await?;
+                        Ok(serde_json::json!({ "events": events, "postings": postings }))
+                    }
+                }
+            };
+            match outcome.await {
+                Ok(json) => Outcome::Json(json),
+                Err(status) => Outcome::Status(status),
             }
+        };
+        match tokio::spawn(run).await {
+            Ok(outcome) => outcome,
+            Err(_) => Outcome::Panic,
         }
     }
 }
@@ -353,17 +406,23 @@ impl Context {
     }
 }
 
-/// The number of an amount of the budget API, as a decimal rounded to 20 places: the reference
-/// divides with more digits than the engine's 28 significant ones.
-fn amount_number(json: &Json) -> Option<BigDecimal> {
-    let number = BigDecimal::from_str(json["number"].as_str()?).ok()?;
+/// A number of a row (a decimal cell, or the `number` of an amount cell), as a decimal rounded to 20
+/// places: the reference divides with more digits than the engine's 28 significant ones. A missing
+/// or `null` cell is zero, as the pages show it.
+fn cell_number(json: &Json) -> Option<BigDecimal> {
+    let text = match json {
+        Json::Null => "0",
+        Json::String(text) => text,
+        other => other["number"].as_str().unwrap_or("0"),
+    };
+    let number = BigDecimal::from_str(text).ok()?;
     Some(number.with_scale_round(20, bigdecimal::RoundingMode::HalfEven))
 }
 
-/// Whether a budget's figures of the handler (an object of `GET /api/budgets` or
-/// `GET /api/budgets/{name}`) are the independent computation's ([`Reference`]): the same
-/// amounts by value and the same `closed`. A month before the budget's first is all zero and
-/// open.
+/// Whether a budget's figures (a row of `budgets.month`, or a budget's page: its `budgets.budget` row
+/// with the fields of its `budgets.budget_month` row) are the independent computation's
+/// ([`Reference`]): the same amounts by value and the same `closed`. A month before the budget's
+/// first has no figures: all zero and open, as the pages show it.
 fn check_reference(new: &Json, name: &str, month: NaiveDate, context: &Context) -> Result<(), String> {
     let reference = context.reference.as_ref().map_err(|why| format!("no reference figures: {}", why))?;
     let expected = reference.figures(name, month).unwrap_or(Figures {
@@ -374,10 +433,10 @@ fn check_reference(new: &Json, name: &str, month: NaiveDate, context: &Context) 
     });
     let round = |number: BigDecimal| number.with_scale_round(20, bigdecimal::RoundingMode::HalfEven);
     let got = (
-        amount_number(&new["assigned_amount"]),
-        amount_number(&new["activity_amount"]),
-        amount_number(&new["available_amount"]),
-        new["closed"].as_bool(),
+        cell_number(&new["assigned"]),
+        cell_number(&new["activity"]),
+        cell_number(&new["available"]),
+        Some(new["closed"].as_bool().unwrap_or(false)),
     );
     let want = (
         Some(round(expected.assigned)),
@@ -398,22 +457,22 @@ fn check_reference(new: &Json, name: &str, month: NaiveDate, context: &Context) 
     }
 }
 
-/// Whether the postings of a month's detail (of the handler) are the reference's postings of
-/// the budget in the month: those of the accounts whose `open` in effect at their date names it,
-/// each with the units it books and its account's balance after it in ledger order.
-fn check_postings(events: &[Json], name: &str, month: NaiveDate, context: &Context) -> Result<(), String> {
+/// Whether the postings of a month's activity list (the rows of `budgets.postings`) are the
+/// reference's postings of the budget in the month: those of the accounts whose `open` in effect at
+/// their date names it, each with the units it books and its account's balance after it in ledger
+/// order. The page shows an empty narration as none.
+fn check_postings(postings: &[Json], name: &str, month: NaiveDate, context: &Context) -> Result<(), String> {
     let reference = context.reference.as_ref().map_err(|why| format!("no reference postings: {}", why))?;
     let number = |json: &Json| json["number"].as_str().and_then(|it| BigDecimal::from_str(it).ok());
-    let mut got = events
+    let mut got = postings
         .iter()
-        .filter(|it| it["type"] == "Posting")
-        .map(|event| {
+        .map(|posting| {
             (
-                event["account"].as_str().unwrap_or_default().to_owned(),
-                event["narration"].as_str().map(str::to_owned),
-                number(&event["inferred_unit"]),
-                event["inferred_unit"]["commodity"].as_str().unwrap_or_default().to_owned(),
-                number(&event["account_after"]),
+                posting["account"].as_str().unwrap_or_default().to_owned(),
+                posting["narration"].as_str().filter(|it| !it.is_empty()).map(str::to_owned),
+                number(&posting["units"]),
+                posting["units"]["currency"].as_str().unwrap_or_default().to_owned(),
+                number(&posting["balance"]),
             )
         })
         .collect::<Vec<_>>();
@@ -445,7 +504,7 @@ fn check_postings(events: &[Json], name: &str, month: NaiveDate, context: &Conte
     }
 }
 
-/// Whether the handler's answer to `probe` is right: its figures and postings are the independent
+/// Whether the queries' answer to `probe` is right: its figures and postings are the independent
 /// computation's, an unknown budget is a 404, and a month so far ahead (a date typo) that the
 /// budgets' months up to it are more than the result size limit is a 400.
 pub(crate) fn check(probe: &Probe, outcome: &Outcome, context: &Context) -> Result<(), String> {
@@ -458,7 +517,9 @@ pub(crate) fn check(probe: &Probe, outcome: &Outcome, context: &Context) -> Resu
             Ok(())
         }
         (Probe::BudgetInfo { name, .. }, Outcome::Json(budget)) if name != UNKNOWN_BUDGET => check_reference(budget, name, month, context),
-        (Probe::BudgetInterval { name, .. }, Outcome::Json(Json::Array(events))) if name != UNKNOWN_BUDGET => check_postings(events, name, month, context),
+        (Probe::BudgetInterval { name, .. }, Outcome::Json(detail)) if name != UNKNOWN_BUDGET => {
+            check_postings(detail["postings"].as_array().map(Vec::as_slice).unwrap_or_default(), name, month, context)
+        }
         (Probe::BudgetInfo { name, .. } | Probe::BudgetInterval { name, .. }, Outcome::Status(404)) if name == UNKNOWN_BUDGET => Ok(()),
         (Probe::BudgetList { .. } | Probe::BudgetInfo { .. }, Outcome::Status(400))
             if context
@@ -493,12 +554,15 @@ mod test {
     }
 }
 
-/// Small ledgers whose figures are worked out by hand, and what the handlers answer.
+/// Small ledgers whose figures are worked out by hand, and what the pages' queries answer.
 #[cfg(test)]
 mod worked_examples {
+    use std::collections::HashMap;
+
     use serde_json::json;
 
     use super::*;
+    use crate::request::{BuiltinParamValue, BuiltinQueryRunRequest};
 
     /// The ledger of `text` on 2025-06-15 (UTC): "this month" is June 2025.
     pub(super) async fn ledger_of(text: &str) -> SharedLedger {
@@ -576,18 +640,34 @@ option "timezone" "Asia/Shanghai"
 2025-05-02 budget-close trip
 "#;
 
-    /// The figures of a budget of the budget API, its numbers by value (`-940.0` is `-940`).
+    /// The figures of a budget as the pages show them, from a row of `budgets.month` or a budget's page
+    /// (its `budgets.budget` row with the fields of its `budgets.budget_month` row): the numbers by value
+    /// (`-940.0` is `-940`). Before the budget's first month there are no figures: zero, and open.
     pub(super) fn figures(json: &Json) -> (String, String, String, bool) {
         let number = |key: &str| {
-            let number = BigDecimal::from_str(json[key]["number"].as_str().unwrap()).unwrap();
-            zhang_query::decimal::to_plain_string(&number.normalized())
+            let text = match &json[key] {
+                Json::Null => "0",
+                Json::String(text) => text.as_str(),
+                amount => amount["number"].as_str().unwrap_or("0"),
+            };
+            zhang_query::decimal::to_plain_string(&BigDecimal::from_str(text).unwrap().normalized())
         };
         (
-            number("assigned_amount"),
-            number("activity_amount"),
-            number("available_amount"),
-            json["closed"].as_bool().unwrap(),
+            number("assigned"),
+            number("activity"),
+            number("available"),
+            json["closed"].as_bool().unwrap_or(false),
         )
+    }
+
+    /// The narrations of the postings of a month's activity list, newest first.
+    pub(super) fn narrations(detail: &Json) -> Vec<String> {
+        detail["postings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|it| it["narration"].as_str().map(str::to_owned))
+            .collect()
     }
 
     pub(super) fn of(assigned: &str, activity: &str, available: &str, closed: bool) -> (String, String, String, bool) {
@@ -613,7 +693,7 @@ option "timezone" "Asia/Shanghai"
         // after the current month (June 2025), the budget carries over
         let new = json_answer(&ledger, info((2026, 1))).await;
         assert_eq!(figures(&new), of("-940", "0", "-940", true));
-        assert_eq!(new["related_accounts"], json!(["Expenses:Travel"]));
+        assert_eq!(new["accounts"], json!(["Expenses:Travel"]));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -638,7 +718,7 @@ option "timezone" "Asia/Shanghai"
             },
         )
         .await;
-        assert_eq!(new["related_accounts"], json!(["Expenses:Dining", "Expenses:Food"]));
+        assert_eq!(new["accounts"], json!(["Expenses:Dining", "Expenses:Food"]));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -650,27 +730,41 @@ option "timezone" "Asia/Shanghai"
             month: 4,
         };
         let new = json_answer(&ledger, probe).await;
-        let summary = |json: &Json| {
-            json.as_array()
+        // the budget's own entries and its postings, each newest first; the page merges the two by time
+        let summary = |items: &Json, what: &dyn Fn(&Json) -> String| {
+            items
+                .as_array()
                 .unwrap()
                 .iter()
-                .map(|it| {
-                    let what = match it["type"].as_str().unwrap() {
-                        "BudgetEvent" => format!("{} {}", it["event_type"].as_str().unwrap(), it["amount"]["number"].as_str().unwrap()),
-                        _ => format!("{} {}", it["narration"].as_str().unwrap(), it["inferred_unit"]["number"].as_str().unwrap()),
-                    };
-                    (it["timestamp"].as_i64().unwrap(), what)
-                })
+                .map(|it| (it["timestamp"].as_i64().unwrap(), what(it)))
                 .collect::<Vec<_>>()
         };
-        let add = (1744214400, "AddAssignedAmount 200".to_owned());
+        let add = (1744214400, "assign 200".to_owned());
         let taxi = (1744200000, "late taxi 40".to_owned());
         let flight = (1743523200, "flight, in dollars 300".to_owned());
-        assert_eq!(summary(&new), vec![add, taxi, flight]);
-        // the posting's local time, and its account's balance in its currency after it
-        assert_eq!(new[1]["datetime"], json!("2025-04-09T20:00:00"));
-        assert_eq!(new[1]["account_after"], json!({"number": "40", "commodity": "CNY"}));
-        assert_eq!(new[2]["account_after"], json!({"number": "300", "commodity": "USD"}));
+        assert_eq!(
+            summary(&new["events"], &|it| format!(
+                "{} {}",
+                it["type"].as_str().unwrap(),
+                it["amount"]["number"].as_str().unwrap()
+            )),
+            vec![add]
+        );
+        assert_eq!(
+            summary(&new["postings"], &|it| format!(
+                "{} {}",
+                it["narration"].as_str().unwrap(),
+                it["units"]["number"].as_str().unwrap()
+            )),
+            vec![taxi, flight]
+        );
+        // the posting's local date and time, and its account's balance in its currency after it
+        assert_eq!(
+            (&new["postings"][0]["date"], &new["postings"][0]["time"]),
+            (&json!("2025-04-09"), &json!("20:00:00"))
+        );
+        assert_eq!(new["postings"][0]["balance"], json!({"number": "40", "currency": "CNY"}));
+        assert_eq!(new["postings"][1]["balance"], json!({"number": "300", "currency": "USD"}));
         // an unknown budget, and a month that does not exist
         let unknown = Probe::BudgetInterval {
             name: "nope".to_owned(),
@@ -678,16 +772,15 @@ option "timezone" "Asia/Shanghai"
             month: 4,
         };
         assert_eq!(unknown.run(&ledger).await, Outcome::Status(404));
-        let response = budget::get_budget_interval_detail(
+        let params: HashMap<String, Option<BuiltinParamValue>> = serde_json::from_value(json!({"name": "trip", "month": "2025-13-01"})).unwrap();
+        let response = crate::routes::query::run_builtin_query(
             State(SharedLedger(ledger.0.clone())),
-            Path(BudgetIntervalDetailRequest {
-                budget_name: "trip".to_owned(),
-                year: 2025,
-                month: 13,
-            }),
+            Path(("budgets.events".to_owned(),)),
+            axum::Json(BuiltinQueryRunRequest { params, count_total: None }),
         )
-        .await;
-        assert_eq!(response.err().map(|err| err.into_response().status().as_u16()), Some(400));
+        .await
+        .into_response();
+        assert_eq!(response.status().as_u16(), 400);
     }
 
     /// The ledger of #499, with a budget-close at a time on another budget.
@@ -744,20 +837,13 @@ option "operating_currency" "CNY"
         for (month, expected) in months {
             let list = json_answer(&ledger, Probe::BudgetList { month: Some((2024, month)) }).await;
             let food = list.as_array().unwrap().iter().find(|it| it["name"] == "Food").unwrap();
-            assert_eq!(food["assigned_amount"]["commodity"], "CNY");
+            assert_eq!(food["assigned"]["currency"], "CNY");
             assert_eq!(figures(food), expected, "month {}", month);
         }
         let detail = |name: &str, month: u32| Probe::BudgetInterval {
             name: name.to_owned(),
             year: 2024,
             month,
-        };
-        let narrations = |json: &Json| {
-            json.as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|it| it["narration"].as_str().map(str::to_owned))
-                .collect::<Vec<_>>()
         };
         assert!(narrations(&json_answer(&ledger, detail("Food", 4)).await).is_empty());
         // the lunch in USD, which no price converts, does not count, so it is not listed either
@@ -919,11 +1005,9 @@ mod fixed_clock {
     use std::collections::HashMap;
 
     use serde_json::json;
-    use zhang_query::{Params, Value};
 
     use super::worked_examples::{figures, json_answer as new_json, ledger_at, ledger_of, of, BUDGETS, CLOSED_499};
     use super::*;
-    use crate::cells::rows;
     use crate::request::{BuiltinParamValue, BuiltinQueryTextRequest, QueryRequest};
     use crate::routes::query;
 
@@ -992,8 +1076,8 @@ option "operating_currency" "CNY"
         .await;
         let june = new_json(&ledger, Probe::BudgetList { month: Some((2025, 6)) }).await;
         assert_eq!(figures(&june[0]), of("700", "0", "700", false));
-        // nothing spent, written as before
-        assert_eq!(june[0]["activity_amount"], json!({"number": "0", "commodity": "CNY"}));
+        // nothing spent, a number in the budget's currency, written as before
+        assert_eq!((&june[0]["activity"], &june[0]["currency"]), (&json!("0"), &json!("CNY")));
         let info = Probe::BudgetInfo {
             name: "food".to_owned(),
             month: Some((2025, 6)),
@@ -1003,86 +1087,9 @@ option "operating_currency" "CNY"
         assert_eq!(figures(&april[0]), of("1000", "300", "700", false));
     }
 
-    /// What a budget page shows is what the query it opens returns: the figures of `budgets.month`
-    /// and `budgets.budget_month` exactly, as the query gives them, in every kind of month: before
-    /// a budget, with entries, closed, without entries, the current one and later ones.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_budget_pages_show_what_their_queries_return() {
-        let ledger = ledger_of(BUDGETS).await;
-        let cell = |value: &Value| match value {
-            Value::Amount(amount) => serde_json::to_value(amount).unwrap(),
-            Value::Bool(it) => json!(it),
-            Value::Str(it) => json!(it),
-            Value::Null => Json::Null,
-            other => panic!("{:?}", other),
-        };
-        // `activity` is a number in the budget's currency
-        let activity = |row: &crate::cells::Row<'_>| match (row.get("activity").unwrap(), row.get("currency").unwrap()) {
-            (Value::Decimal(number), Value::Str(currency)) => json!({"number": number.to_string(), "commodity": currency}),
-            other => panic!("{:?}", other),
-        };
-        for (year, month) in [(2025, 2), (2025, 3), (2025, 4), (2025, 5), (2025, 6), (2025, 9), (2026, 1)] {
-            let date = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
-            let pair = Some((year as u32, month));
-            // what the queries return
-            let (list, infos) = {
-                let ledger = ledger.read().await;
-                let result = crate::builtin::execute(&ledger, "budgets.month", &Params::new().bind("month", date), false).unwrap();
-                let list = rows("budgets.month", &result)
-                    .map(|row| {
-                        json!({
-                            "name": cell(row.get("name").unwrap()), "alias": cell(row.get("alias").unwrap()), "category": cell(row.get("category").unwrap()),
-                            "closed": cell(row.get("closed").unwrap()), "assigned_amount": cell(row.get("assigned").unwrap()),
-                            "activity_amount": activity(&row), "available_amount": cell(row.get("available").unwrap()),
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                let infos = ["food", "trip"].map(|name| {
-                    let params = Params::new().bind("name", name).bind("month", date);
-                    let result = crate::builtin::execute(&ledger, "budgets.budget_month", &params, false).unwrap();
-                    let figures = rows("budgets.budget_month", &result).next().map(|row| {
-                        json!({
-                            "closed": cell(row.get("closed").unwrap()), "assigned_amount": cell(row.get("assigned").unwrap()),
-                            "activity_amount": activity(&row), "available_amount": cell(row.get("available").unwrap()),
-                        })
-                    });
-                    (name, figures)
-                });
-                (list, infos)
-            };
-            // what the pages show
-            assert_eq!(
-                new_json(&ledger, Probe::BudgetList { month: pair }).await,
-                Json::Array(list),
-                "{}-{}",
-                year,
-                month
-            );
-            for (name, query) in infos {
-                let mut page = new_json(
-                    &ledger,
-                    Probe::BudgetInfo {
-                        name: name.to_owned(),
-                        month: pair,
-                    },
-                )
-                .await;
-                match query {
-                    Some(query) => {
-                        let page = page.as_object_mut().unwrap();
-                        page.retain(|key, _| ["closed", "assigned_amount", "activity_amount", "available_amount"].contains(&key.as_str()));
-                        assert_eq!(Json::Object(page.clone()), query, "{} {}-{}", name, year, month);
-                    }
-                    // before the budget's first month the query has no row and the page shows nothing
-                    None => assert_eq!(figures(&page), of("0", "0", "0", false), "{} {}-{}", name, year, month),
-                }
-            }
-        }
-    }
-
     /// The parameters of `budgets.postings` that the budget page's "Open query" on its activity
-    /// sends, from the budget info it shows and its month (`budgetPostingsParams` in
-    /// `frontend/src/components/budget/budget-query.ts`).
+    /// sends: the budget's name and its month, the parameters the page fetched the activity with
+    /// (`budget-api.ts` in the frontend).
     fn postings_params(info: &Json, month: NaiveDate) -> HashMap<String, Option<BuiltinParamValue>> {
         let field = |key: &str| info.get(key).cloned().unwrap_or_else(|| panic!("the budget info has no {}: {}", key, info));
         let params = json!({
@@ -1152,13 +1159,7 @@ option "operating_currency" "CNY"
                 },
             )
             .await;
-            let listed = detail
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|it| it["type"] != "BudgetEvent")
-                .map(|it| it["trx_id"].clone())
-                .collect::<Vec<_>>();
+            let listed = detail["postings"].as_array().unwrap().iter().map(|it| it["id"].clone()).collect::<Vec<_>>();
             assert_eq!(listed.len(), postings, "{}", name);
             assert_eq!(ids, listed, "{}: {}", name, text);
         }
@@ -1196,7 +1197,7 @@ option "operating_currency" "CNY"
             },
         )
         .await;
-        assert_eq!(info["related_accounts"], json!(["Expenses:Food"]));
+        assert_eq!(info["accounts"], json!(["Expenses:Food"]));
         let interval = new_json(
             &ledger,
             Probe::BudgetInterval {
@@ -1206,7 +1207,10 @@ option "operating_currency" "CNY"
             },
         )
         .await;
-        assert_eq!(interval.as_array().unwrap().len(), 2);
+        assert_eq!(
+            (interval["events"].as_array().unwrap().len(), interval["postings"].as_array().unwrap().len()),
+            (1, 1)
+        );
         for probe in [
             Probe::BudgetInfo {
                 name: "nope".to_owned(),
@@ -1220,15 +1224,9 @@ option "operating_currency" "CNY"
         ] {
             assert_eq!(probe.run(&ledger).await, Outcome::Status(404), "{:?}", probe);
         }
-        let response = budget::get_budget_list(
-            State(SharedLedger(ledger.0.clone())),
-            Query(BudgetListRequest {
-                year: Some(9999),
-                month: Some(1),
-            }),
-        )
-        .await;
-        let err = response.err().expect("too large");
+        assert_eq!(Probe::BudgetList { month: Some((9999, 1)) }.run(&ledger).await, Outcome::Status(400));
+        let far = Params::new().bind("month", NaiveDate::from_ymd_opt(9999, 1, 1).unwrap());
+        let err = crate::builtin::run(&ledger, "budgets.month", far).await.expect_err("too large");
         assert!(err.to_string().contains("too many rows"), "{}", err);
         assert_eq!(err.into_response().status().as_u16(), 400);
     }
@@ -1240,18 +1238,8 @@ option "operating_currency" "CNY"
 mod budget_accounts {
     use serde_json::json;
 
-    use super::worked_examples::{figures, json_answer as new_json, ledger_at, of};
+    use super::worked_examples::{figures, json_answer as new_json, ledger_at, narrations, of};
     use super::*;
-
-    fn narrations(detail: &Json) -> Vec<String> {
-        detail
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|it| it["type"] == "Posting")
-            .map(|it| it["narration"].as_str().unwrap().to_owned())
-            .collect()
-    }
 
     /// `Expenses:B` is `b`'s until its close on June 30th, and `a`'s from its reopening on July
     /// 1st: the 5 CNY of March are `b`'s, the 7 CNY of July `a`'s. Each month lists the postings
@@ -1304,7 +1292,7 @@ option "operating_currency" "CNY"
                 },
             )
             .await;
-            assert_eq!(info["related_accounts"], json!(["Expenses:B"]), "{name}");
+            assert_eq!(info["accounts"], json!(["Expenses:B"]), "{name}");
         }
         // the independent computation agrees
         let reference = Reference::of(&*ledger.read().await).unwrap();
@@ -1371,12 +1359,11 @@ option "operating_currency" "CNY"
             )
             .await;
             assert_eq!(narrations(&detail), listed, "{}", name);
-            let sum = detail
+            let sum = detail["postings"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter(|it| it["type"] == "Posting")
-                .map(|it| BigDecimal::from_str(it["inferred_unit"]["number"].as_str().unwrap()).unwrap())
+                .map(|it| BigDecimal::from_str(it["units"]["number"].as_str().unwrap()).unwrap())
                 .sum::<BigDecimal>();
             let info = new_json(
                 &ledger,

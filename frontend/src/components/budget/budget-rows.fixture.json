@@ -1,0 +1,1516 @@
+{
+  "_": "Rows of the budgets.* built-ins and what GET /api/budgets* answered for the same parameters, captured on integration-tests/query-zhang-tables (zhang-server PR #753 build): the adapters must give the GETs' numbers.",
+  "months": {
+    "2024-01-01": {
+      "rows": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "food",
+            null,
+            "Living",
+            "CNY",
+            "2024-01-01",
+            {
+              "currency": "CNY",
+              "number": "500"
+            },
+            "200",
+            {
+              "currency": "CNY",
+              "number": "300"
+            },
+            false
+          ],
+          [
+            "fun",
+            "Fun money",
+            null,
+            "CNY",
+            "2024-01-01",
+            {
+              "currency": "CNY",
+              "number": "100"
+            },
+            "30",
+            {
+              "currency": "CNY",
+              "number": "70"
+            },
+            false
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "200"
+          },
+          "alias": null,
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "500"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "300"
+          },
+          "category": "Living",
+          "closed": false,
+          "name": "food"
+        },
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "30"
+          },
+          "alias": "Fun money",
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "100"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "70"
+          },
+          "category": null,
+          "closed": false,
+          "name": "fun"
+        }
+      ]
+    },
+    "2024-03-01": {
+      "rows": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "food",
+            null,
+            "Living",
+            "CNY",
+            "2024-03-01",
+            {
+              "currency": "CNY",
+              "number": "540"
+            },
+            "650",
+            {
+              "currency": "CNY",
+              "number": "-110"
+            },
+            false
+          ],
+          [
+            "fun",
+            "Fun money",
+            null,
+            "CNY",
+            "2024-03-01",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            "0",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            false
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "650"
+          },
+          "alias": null,
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "540"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "-110"
+          },
+          "category": "Living",
+          "closed": false,
+          "name": "food"
+        },
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "0"
+          },
+          "alias": "Fun money",
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "20"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "20"
+          },
+          "category": null,
+          "closed": false,
+          "name": "fun"
+        }
+      ]
+    },
+    "2024-04-01": {
+      "rows": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "food",
+            null,
+            "Living",
+            "CNY",
+            "2024-04-01",
+            {
+              "currency": "CNY",
+              "number": "-110"
+            },
+            "0",
+            {
+              "currency": "CNY",
+              "number": "-110"
+            },
+            false
+          ],
+          [
+            "fun",
+            "Fun money",
+            null,
+            "CNY",
+            "2024-04-01",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            "0",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            true
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "0"
+          },
+          "alias": null,
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "-110"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "-110"
+          },
+          "category": "Living",
+          "closed": false,
+          "name": "food"
+        },
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "0"
+          },
+          "alias": "Fun money",
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "20"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "20"
+          },
+          "category": null,
+          "closed": true,
+          "name": "fun"
+        }
+      ]
+    },
+    "2024-06-01": {
+      "rows": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "food",
+            null,
+            "Living",
+            "CNY",
+            "2024-06-01",
+            {
+              "currency": "CNY",
+              "number": "-10"
+            },
+            "0",
+            {
+              "currency": "CNY",
+              "number": "-10"
+            },
+            false
+          ],
+          [
+            "fun",
+            "Fun money",
+            null,
+            "CNY",
+            "2024-06-01",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            "0",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            true
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "0"
+          },
+          "alias": null,
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "-10"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "-10"
+          },
+          "category": "Living",
+          "closed": false,
+          "name": "food"
+        },
+        {
+          "activity_amount": {
+            "commodity": "CNY",
+            "number": "0"
+          },
+          "alias": "Fun money",
+          "assigned_amount": {
+            "commodity": "CNY",
+            "number": "20"
+          },
+          "available_amount": {
+            "commodity": "CNY",
+            "number": "20"
+          },
+          "category": null,
+          "closed": true,
+          "name": "fun"
+        }
+      ]
+    }
+  },
+  "info": {
+    "food 2024-03-01": {
+      "budget": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "accounts",
+            "type": "set"
+          },
+          {
+            "name": "close",
+            "type": "date"
+          },
+          {
+            "name": "close_time",
+            "type": "str"
+          }
+        ],
+        "rows": [["food", null, "Living", "CNY", ["Expenses:Dining", "Expenses:Food"], null, null]]
+      },
+      "month": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "food",
+            null,
+            "Living",
+            "CNY",
+            "2024-03-01",
+            {
+              "currency": "CNY",
+              "number": "540"
+            },
+            "650",
+            {
+              "currency": "CNY",
+              "number": "-110"
+            },
+            false
+          ]
+        ]
+      },
+      "expected": {
+        "activity_amount": {
+          "commodity": "CNY",
+          "number": "650"
+        },
+        "alias": null,
+        "assigned_amount": {
+          "commodity": "CNY",
+          "number": "540"
+        },
+        "available_amount": {
+          "commodity": "CNY",
+          "number": "-110"
+        },
+        "category": "Living",
+        "close": null,
+        "close_time": null,
+        "closed": false,
+        "name": "food",
+        "related_accounts": ["Expenses:Dining", "Expenses:Food"]
+      }
+    },
+    "fun 2024-04-01": {
+      "budget": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "accounts",
+            "type": "set"
+          },
+          {
+            "name": "close",
+            "type": "date"
+          },
+          {
+            "name": "close_time",
+            "type": "str"
+          }
+        ],
+        "rows": [["fun", "Fun money", null, "CNY", ["Expenses:Fun"], "2024-04-01", null]]
+      },
+      "month": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "fun",
+            "Fun money",
+            null,
+            "CNY",
+            "2024-04-01",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            "0",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            true
+          ]
+        ]
+      },
+      "expected": {
+        "activity_amount": {
+          "commodity": "CNY",
+          "number": "0"
+        },
+        "alias": "Fun money",
+        "assigned_amount": {
+          "commodity": "CNY",
+          "number": "20"
+        },
+        "available_amount": {
+          "commodity": "CNY",
+          "number": "20"
+        },
+        "category": null,
+        "close": "2024-04-01",
+        "close_time": null,
+        "closed": true,
+        "name": "fun",
+        "related_accounts": ["Expenses:Fun"]
+      }
+    },
+    "food 2024-06-01": {
+      "budget": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "accounts",
+            "type": "set"
+          },
+          {
+            "name": "close",
+            "type": "date"
+          },
+          {
+            "name": "close_time",
+            "type": "str"
+          }
+        ],
+        "rows": [["food", null, "Living", "CNY", ["Expenses:Dining", "Expenses:Food"], null, null]]
+      },
+      "month": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "food",
+            null,
+            "Living",
+            "CNY",
+            "2024-06-01",
+            {
+              "currency": "CNY",
+              "number": "-10"
+            },
+            "0",
+            {
+              "currency": "CNY",
+              "number": "-10"
+            },
+            false
+          ]
+        ]
+      },
+      "expected": {
+        "activity_amount": {
+          "commodity": "CNY",
+          "number": "0"
+        },
+        "alias": null,
+        "assigned_amount": {
+          "commodity": "CNY",
+          "number": "-10"
+        },
+        "available_amount": {
+          "commodity": "CNY",
+          "number": "-10"
+        },
+        "category": "Living",
+        "close": null,
+        "close_time": null,
+        "closed": false,
+        "name": "food",
+        "related_accounts": ["Expenses:Dining", "Expenses:Food"]
+      }
+    },
+    "fun 2024-01-01": {
+      "budget": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "accounts",
+            "type": "set"
+          },
+          {
+            "name": "close",
+            "type": "date"
+          },
+          {
+            "name": "close_time",
+            "type": "str"
+          }
+        ],
+        "rows": [["fun", "Fun money", null, "CNY", ["Expenses:Fun"], "2024-04-01", null]]
+      },
+      "month": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "last_month",
+            "type": "date"
+          },
+          {
+            "name": "assigned",
+            "type": "amount"
+          },
+          {
+            "name": "activity",
+            "type": "decimal"
+          },
+          {
+            "name": "available",
+            "type": "amount"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ],
+        "rows": [
+          [
+            "fun",
+            "Fun money",
+            null,
+            "CNY",
+            "2024-01-01",
+            {
+              "currency": "CNY",
+              "number": "100"
+            },
+            "30",
+            {
+              "currency": "CNY",
+              "number": "70"
+            },
+            false
+          ]
+        ]
+      },
+      "expected": {
+        "activity_amount": {
+          "commodity": "CNY",
+          "number": "30"
+        },
+        "alias": "Fun money",
+        "assigned_amount": {
+          "commodity": "CNY",
+          "number": "100"
+        },
+        "available_amount": {
+          "commodity": "CNY",
+          "number": "70"
+        },
+        "category": null,
+        "close": "2024-04-01",
+        "close_time": null,
+        "closed": false,
+        "name": "fun",
+        "related_accounts": ["Expenses:Fun"]
+      }
+    },
+    "nosuch": {
+      "budget": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "alias",
+            "type": "str"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "accounts",
+            "type": "set"
+          },
+          {
+            "name": "close",
+            "type": "date"
+          },
+          {
+            "name": "close_time",
+            "type": "str"
+          }
+        ],
+        "rows": []
+      },
+      "month": {
+        "columns": [],
+        "rows": []
+      },
+      "expected": null
+    }
+  },
+  "interval": {
+    "food 2024-03-01": {
+      "events": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "type",
+            "type": "str"
+          },
+          {
+            "name": "amount",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-03-02",
+            "00:00:00",
+            1709305200,
+            "transfer_in",
+            {
+              "currency": "CNY",
+              "number": "50"
+            }
+          ],
+          [
+            "2024-03-01",
+            "00:00:00",
+            1709218800,
+            "assign",
+            {
+              "currency": "CNY",
+              "number": "200"
+            }
+          ]
+        ]
+      },
+      "postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-03-10",
+            "00:00:00",
+            1709996400,
+            "Expenses:Food",
+            "2a21525b-52a3-88f8-1f79-b5e4380b4db0",
+            "Market",
+            "groceries",
+            {
+              "currency": "CNY",
+              "number": "650"
+            },
+            {
+              "currency": "CNY",
+              "number": "780"
+            }
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "account": "Expenses:Food",
+          "account_after": {
+            "commodity": "CNY",
+            "number": "780"
+          },
+          "asserted": null,
+          "checked_balance": null,
+          "datetime": "2024-03-10T00:00:00",
+          "difference": null,
+          "inferred_unit": {
+            "commodity": "CNY",
+            "number": "650"
+          },
+          "narration": "groceries",
+          "passed": null,
+          "payee": "Market",
+          "timestamp": 1709996400,
+          "tolerance": null,
+          "trx_id": "2a21525b-52a3-88f8-1f79-b5e4380b4db0",
+          "type": "Posting"
+        },
+        {
+          "amount": {
+            "commodity": "CNY",
+            "number": "50"
+          },
+          "datetime": "2024-03-02T00:00:00",
+          "event_type": "Transfer",
+          "timestamp": 1709305200,
+          "type": "BudgetEvent"
+        },
+        {
+          "amount": {
+            "commodity": "CNY",
+            "number": "200"
+          },
+          "datetime": "2024-03-01T00:00:00",
+          "event_type": "AddAssignedAmount",
+          "timestamp": 1709218800,
+          "type": "BudgetEvent"
+        }
+      ]
+    },
+    "food 2024-01-01": {
+      "events": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "type",
+            "type": "str"
+          },
+          {
+            "name": "amount",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "00:00:00",
+            1704034800,
+            "assign",
+            {
+              "currency": "CNY",
+              "number": "500"
+            }
+          ]
+        ]
+      },
+      "postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-20",
+            "00:00:00",
+            1705676400,
+            "Expenses:Dining",
+            "c4de7c65-6a06-b358-b601-f68913fc64e1",
+            "Bistro",
+            "dinner",
+            {
+              "currency": "CNY",
+              "number": "80"
+            },
+            {
+              "currency": "CNY",
+              "number": "80"
+            }
+          ],
+          [
+            "2024-01-05",
+            "00:00:00",
+            1704380400,
+            "Expenses:Food",
+            "0ab34fde-8ec3-8b85-2255-6c612fddd0ce",
+            "Market",
+            "groceries",
+            {
+              "currency": "CNY",
+              "number": "120"
+            },
+            {
+              "currency": "CNY",
+              "number": "120"
+            }
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "account": "Expenses:Dining",
+          "account_after": {
+            "commodity": "CNY",
+            "number": "80"
+          },
+          "asserted": null,
+          "checked_balance": null,
+          "datetime": "2024-01-20T00:00:00",
+          "difference": null,
+          "inferred_unit": {
+            "commodity": "CNY",
+            "number": "80"
+          },
+          "narration": "dinner",
+          "passed": null,
+          "payee": "Bistro",
+          "timestamp": 1705676400,
+          "tolerance": null,
+          "trx_id": "c4de7c65-6a06-b358-b601-f68913fc64e1",
+          "type": "Posting"
+        },
+        {
+          "account": "Expenses:Food",
+          "account_after": {
+            "commodity": "CNY",
+            "number": "120"
+          },
+          "asserted": null,
+          "checked_balance": null,
+          "datetime": "2024-01-05T00:00:00",
+          "difference": null,
+          "inferred_unit": {
+            "commodity": "CNY",
+            "number": "120"
+          },
+          "narration": "groceries",
+          "passed": null,
+          "payee": "Market",
+          "timestamp": 1704380400,
+          "tolerance": null,
+          "trx_id": "0ab34fde-8ec3-8b85-2255-6c612fddd0ce",
+          "type": "Posting"
+        },
+        {
+          "amount": {
+            "commodity": "CNY",
+            "number": "500"
+          },
+          "datetime": "2024-01-01T00:00:00",
+          "event_type": "AddAssignedAmount",
+          "timestamp": 1704034800,
+          "type": "BudgetEvent"
+        }
+      ]
+    },
+    "fun 2024-03-01": {
+      "events": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "type",
+            "type": "str"
+          },
+          {
+            "name": "amount",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-03-02",
+            "00:00:00",
+            1709305200,
+            "transfer_out",
+            {
+              "currency": "CNY",
+              "number": "-50"
+            }
+          ]
+        ]
+      },
+      "postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": []
+      },
+      "expected": [
+        {
+          "amount": {
+            "commodity": "CNY",
+            "number": "-50"
+          },
+          "datetime": "2024-03-02T00:00:00",
+          "event_type": "Transfer",
+          "timestamp": 1709305200,
+          "type": "BudgetEvent"
+        }
+      ]
+    },
+    "fun 2024-01-01": {
+      "events": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "type",
+            "type": "str"
+          },
+          {
+            "name": "amount",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "00:00:00",
+            1704034800,
+            "assign",
+            {
+              "currency": "CNY",
+              "number": "100"
+            }
+          ]
+        ]
+      },
+      "postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "balance",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-20",
+            "00:00:00",
+            1705676400,
+            "Expenses:Fun",
+            "c4de7c65-6a06-b358-b601-f68913fc64e1",
+            "Bistro",
+            "dinner",
+            {
+              "currency": "CNY",
+              "number": "30"
+            },
+            {
+              "currency": "CNY",
+              "number": "30"
+            }
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "account": "Expenses:Fun",
+          "account_after": {
+            "commodity": "CNY",
+            "number": "30"
+          },
+          "asserted": null,
+          "checked_balance": null,
+          "datetime": "2024-01-20T00:00:00",
+          "difference": null,
+          "inferred_unit": {
+            "commodity": "CNY",
+            "number": "30"
+          },
+          "narration": "dinner",
+          "passed": null,
+          "payee": "Bistro",
+          "timestamp": 1705676400,
+          "tolerance": null,
+          "trx_id": "c4de7c65-6a06-b358-b601-f68913fc64e1",
+          "type": "Posting"
+        },
+        {
+          "amount": {
+            "commodity": "CNY",
+            "number": "100"
+          },
+          "datetime": "2024-01-01T00:00:00",
+          "event_type": "AddAssignedAmount",
+          "timestamp": 1704034800,
+          "type": "BudgetEvent"
+        }
+      ]
+    }
+  }
+}

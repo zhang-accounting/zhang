@@ -1,5 +1,4 @@
 pub mod account;
-pub mod budget;
 #[cfg(test)]
 mod budget_commodity_golden;
 #[cfg(test)]

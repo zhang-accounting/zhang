@@ -3,7 +3,7 @@ title: Built-in Queries
 description: The documented BQL queries behind the figures Zhang shows, how to open one on the Query page and adapt it, and the HTTP endpoints that list them, run them and fill in their parameters.
 ---
 
-Zhang's read endpoints use *built-in queries* ([#479](https://github.com/zhang-accounting/zhang/issues/479)). A built-in query is a named query in Zhang's [query language](/reference/query-language/) that a page runs against your ledger, with a few parameters such as the dates of a report. The page only arranges the result, so the logic behind a figure is a query you can read on this page.
+Zhang's pages compute their figures with *built-in queries* ([#479](https://github.com/zhang-accounting/zhang/issues/479)). A built-in query is a named query in Zhang's [query language](/reference/query-language/) that a page runs against your ledger, through the [HTTP API](#http-api) below, with a few parameters such as the dates of a report. The page only arranges the result, so the logic behind a figure is a query you can read on this page.
 
 You can open the query behind a figure on the **Query** page, with the values the page used filled in, and change it: another date range, more accounts, another grouping, a chart. Anything the app shows, you can also query, and vary, without waiting for a new release.
 
@@ -146,6 +146,18 @@ curl -X POST http://localhost:8000/api/query/builtins/postings.between/text \
 ```
 
 Send the text to [`POST /api/query`](/reference/query-language/#run-a-query) to run it: it returns the same rows as running the query by name.
+
+### Retired endpoints
+
+The typed read endpoints the web UI used before are being retired, one group per release, in favour of running the built-in queries by name: a script that called one of them gets the same figures from the queries it ran, with the parameters the endpoint bound.
+
+| Retired endpoint | Built-in queries to run instead |
+|------------------|----------------------------------|
+| `GET /api/budgets?year=&month=` | `budgets.month` with `month` the first day of the month |
+| `GET /api/budgets/{name}?year=&month=` | `budgets.budget` with `name`, and `budgets.budget_month` with `name` and `month`; no row of `budgets.budget` is the old 404, no row of `budgets.budget_month` the month before the budget's first (nothing assigned or spent, not closed) |
+| `GET /api/budgets/{name}/interval/{year}/{month}` | `budgets.events` and `budgets.postings`, both with `name` and `month`; the endpoint merged the two lists newest first, the budget's own entries first at the same time |
+
+The endpoints' amounts were `{number, commodity}`; the queries' cells are `{number, currency}`, and a budget's `activity` is a number in the budget's `currency`.
 
 ## The queries
 

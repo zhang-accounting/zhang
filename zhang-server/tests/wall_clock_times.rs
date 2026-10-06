@@ -3,6 +3,7 @@
 //! sends it, so an edit that leaves the time as the journal showed it keeps it. An instant with `Z`, what requests took
 //! before, still reads as the wall-clock time it is in the ledger's timezone.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -16,8 +17,8 @@ use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{BudgetIntervalDetailRequest, CreateTransactionRequest, NewTransactionInfoRequest};
-use zhang_server::routes::budget::get_budget_interval_detail;
+use zhang_server::request::{BuiltinParamValue, BuiltinQueryRunRequest, CreateTransactionRequest, NewTransactionInfoRequest};
+use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::{get_info_for_new_transactions, get_journals, preview_new_transaction, update_single_transaction};
 use zhang_server::routes::Query;
 use zhang_server::state::{SharedLedger, SharedReloadSender};
@@ -149,14 +150,24 @@ async fn the_new_transaction_form_gets_the_ledgers_time_and_its_open_accounts_at
 async fn a_budget_event_has_its_wall_clock_time() {
     let dir = tempfile::tempdir().unwrap();
     let ledger = ledger(dir.path()).await;
-    let request = BudgetIntervalDetailRequest {
-        budget_name: "Food".to_owned(),
-        year: 2024,
-        month: 1,
+    // the budget page lists the month's events (`budgets.events`) and postings (`budgets.postings`), newest first,
+    // each with its `date` and `time`: the ledger's wall-clock time in its timezone
+    let params: HashMap<String, Option<BuiltinParamValue>> = serde_json::from_value(json!({ "name": "Food", "month": "2024-01-01" })).unwrap();
+    let run = |name: &str| {
+        let ledger = ledger.clone();
+        let request = BuiltinQueryRunRequest {
+            params: params.clone(),
+            count_total: None,
+        };
+        let name = name.to_owned();
+        async move { data(run_builtin_query(State(ledger), UrlPath((name,)), Json(request)).await).await }
     };
-    let events = data(get_budget_interval_detail(State(ledger), UrlPath(request)).await).await;
-    let assigned = events.as_array().unwrap().iter().find(|it| it["type"] == "BudgetEvent").unwrap();
-    assert_eq!(assigned["datetime"], "2024-01-01T07:30:00");
-    let posting = events.as_array().unwrap().iter().find(|it| it["type"] == "Posting").unwrap();
-    assert_eq!(posting["datetime"], "2024-01-02T07:00:00");
+    let day_time = |result: &Value, row: usize| {
+        let column = |name: &str| result["columns"].as_array().unwrap().iter().position(|it| it["name"] == name).unwrap();
+        (result["rows"][row][column("date")].clone(), result["rows"][row][column("time")].clone())
+    };
+    let events = run("budgets.events").await;
+    assert_eq!(day_time(&events, 0), (json!("2024-01-01"), json!("07:30:00")));
+    let postings = run("budgets.postings").await;
+    assert_eq!(day_time(&postings, 0), (json!("2024-01-02"), json!("07:00:00")));
 }
