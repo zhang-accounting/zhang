@@ -699,7 +699,7 @@ fn query_with_an_unknown_regex_escape_loads_without_errors() {
     let ledger = load_ledger("2014-01-01 query \"x\" \"SELECT narration WHERE narration ~ '\\d+'\"\n")
         .unwrap_or_else(|error| panic!("a query with '\\d+' should load: {error}"));
     assert_eq!(error_kinds(&ledger), Vec::<String>::new());
-    let queries = ledger.operations().queries().unwrap();
+    let queries = ledger.queries();
     let stored = queries.iter().map(|query| (query.name.as_str(), query.query.as_str())).collect::<Vec<_>>();
     assert_eq!(stored, vec![("x", r"SELECT narration WHERE narration ~ '\d+'")]);
 }
@@ -709,7 +709,7 @@ fn both_regex_spellings_store_the_same_query_text() {
     let ledger = load_ledger("2014-01-01 query \"single\" \"narration ~ '\\d+'\"\n2014-01-01 query \"double\" \"narration ~ '\\\\d+'\"\n")
         .unwrap_or_else(|error| panic!("both spellings should load: {error}"));
     assert_eq!(error_kinds(&ledger), Vec::<String>::new());
-    let queries = ledger.operations().queries().unwrap();
+    let queries = ledger.queries();
     let texts = queries.iter().map(|query| query.query.as_str()).collect::<Vec<_>>();
     assert_eq!(texts, vec![r"narration ~ '\d+'", r"narration ~ '\d+'"]);
 }

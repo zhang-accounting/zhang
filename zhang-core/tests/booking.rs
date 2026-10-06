@@ -257,7 +257,7 @@ fn invalid_or_unsupported_default_booking_method_option_reports_error_and_falls_
             vec!["5 USD {10 CNY, 2024-05-16}", "10 USD {11 CNY, 2024-05-17}"],
             "{value}"
         );
-        assert_eq!(ledger.store.read().unwrap().options["default_booking_method"], "FIFO", "{value}");
+        assert_eq!(ledger.options.values["default_booking_method"], "FIFO", "{value}");
     }
 }
 
@@ -388,7 +388,7 @@ fn strict_as_default_booking_method() {
           Income:I
     "#});
     assert_eq!(errors(&ledger), vec![(ErrorKind::AmbiguousLotMatch, Some("-5".to_owned()))]);
-    assert_eq!(ledger.store.read().unwrap().options["default_booking_method"], "STRICT");
+    assert_eq!(ledger.options.values["default_booking_method"], "STRICT");
 }
 
 #[test]

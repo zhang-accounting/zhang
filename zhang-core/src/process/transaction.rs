@@ -7,7 +7,6 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::{SpanInfo, Transaction};
 
 use crate::booking::{group_units, written_groups};
-use crate::domains::schemas::MetaType;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 use crate::utils::id::FromSpan;
@@ -68,7 +67,5 @@ pub(crate) fn fold(txn: &Transaction, ledger: &mut Ledger, span: &SpanInfo, dire
             super::budget::keep_foreign_amount(ledger, &budget, &units, via.as_deref(), datetime.date_naive(), span, Some(&account_name));
         }
     }
-    // the documents its `document` metadata names are the query engine's (`#documents`)
-    operations.insert_meta(MetaType::TransactionMeta, id.to_string(), txn.meta.clone())?;
     Ok(())
 }

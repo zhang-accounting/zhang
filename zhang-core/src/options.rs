@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use cfg_if::cfg_if;
 use chrono_tz::Tz;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use log::{error, warn};
 use minijinja::Environment;
@@ -13,7 +14,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, Options, Rounding, SpanInfo, Spanned, ZhangString};
 
 use crate::constants::*;
-use crate::domains::schemas::CommodityDomain;
+use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::domains::Operations;
 use crate::features::Features;
 use crate::inventory::BookingMethod;
@@ -39,6 +40,12 @@ pub struct InMemoryOptions {
     /// whether an `operating_currency` option was read yet: the options read before it (the defaults come first)
     /// must not define the built-in `CNY` when the ledger names another currency
     operating_currency_read: bool,
+    /// the value of every option, by key, as [`InMemoryOptions::parse`] resolved it: the built-in ones, the ones it
+    /// does not know, and the beancount ones. A key the ledger writes again keeps the last value
+    pub values: HashMap<String, String>,
+    /// the commodities the options define: the operating currency, as the options read last defined it, in the order
+    /// first defined. A ledger that names several operating currencies has them all
+    commodities: IndexMap<String, CommodityDomain>,
 }
 
 #[derive(Debug, AsRefStr, EnumIter, EnumString)]
@@ -115,23 +122,30 @@ impl BuiltinOption {
 }
 
 impl InMemoryOptions {
-    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, operation: &mut Operations, span: &SpanInfo) -> ZhangResult<String> {
-        let value = value.into();
+    /// read the option `key`, and keep its value as resolved ([`InMemoryOptions::option`])
+    pub fn parse(&mut self, key: impl Into<String>, value: impl Into<String>, operation: &mut Operations, span: &SpanInfo) -> ZhangResult<()> {
         let key = key.into();
-        if let Ok(option) = BuiltinOption::from_str(&key) {
+        let value = self.resolve(&key, value.into(), operation, span)?;
+        self.values.insert(key, value);
+        Ok(())
+    }
+
+    /// the value of the option `key` as resolved: the value written, or what replaces an invalid one
+    fn resolve(&mut self, key: &str, value: String, operation: &mut Operations, span: &SpanInfo) -> ZhangResult<String> {
+        if let Ok(option) = BuiltinOption::from_str(key) {
             match option {
                 BuiltinOption::OperatingCurrency => {
-                    let has_operating_currency = operation.option::<String>(&key)?.is_some();
+                    let has_operating_currency = self.values.contains_key(key);
                     if has_operating_currency {
                         operation.new_error(ErrorKind::MultipleOperatingCurrencyDetect, span, HashMap::default())?;
                     }
                     value.clone_into(&mut self.operating_currency);
                     self.operating_currency_read = true;
-                    self.define_operating_currency(operation)?;
+                    self.define_operating_currency();
                 }
                 BuiltinOption::DefaultRounding => {
                     self.default_rounding = Rounding::from_str(&value).map_err(|_| ZhangError::InvalidOptionValue)?;
-                    self.define_operating_currency(operation)?;
+                    self.define_operating_currency();
                 }
                 BuiltinOption::DefaultBalanceTolerancePrecision => {
                     if !BuiltinOption::is_default_directive(span) {
@@ -144,12 +158,12 @@ impl InMemoryOptions {
                     if let Ok(ret) = value.parse::<i32>() {
                         self.default_balance_tolerance_precision = ret
                     }
-                    self.define_operating_currency(operation)?;
+                    self.define_operating_currency();
                 }
                 BuiltinOption::DefaultCommodityPrecision => {
                     self.default_commodity_precision = value.parse::<i32>().map_err(|_| ZhangError::InvalidOptionValue)?;
                     self.commodity_precision_written |= !BuiltinOption::is_default_directive(span);
-                    self.define_operating_currency(operation)?;
+                    self.define_operating_currency();
                 }
                 BuiltinOption::Timezone => match value.parse::<Tz>() {
                     Ok(tz) => {
@@ -180,9 +194,29 @@ impl InMemoryOptions {
                 }
             }
         }
-        self.features.handle_options(&key, &value);
+        self.features.handle_options(key, &value);
 
         Ok(value)
+    }
+
+    /// the value of the option `key`, read as a `T`; `None` when the ledger has no such option
+    pub fn option<T>(&self, key: impl AsRef<str>) -> ZhangResult<Option<T>>
+    where
+        T: FromStr,
+    {
+        let value = self.values.get(key.as_ref());
+        value.map(|value| T::from_str(value).map_err(|_| ZhangError::InvalidOptionValue)).transpose()
+    }
+
+    /// every option with its value as resolved, in no particular order
+    pub fn all(&self) -> Vec<OptionDomain> {
+        let values = self.values.iter().map(|(key, value)| (key.clone(), value.clone()));
+        values.map(|(key, value)| OptionDomain { key, value }).collect_vec()
+    }
+
+    /// the commodities the options define (the operating currency), in the order first defined
+    pub fn commodities(&self) -> impl Iterator<Item = &CommodityDomain> {
+        self.commodities.values()
     }
 
     /// the precision of the commodity `operating_currency` defines: `default_commodity_precision` when the ledger
@@ -198,11 +232,10 @@ impl InMemoryOptions {
     /// (re)define the commodity of the operating currency from the options read so far. Every option it depends on
     /// calls this, so the definition the last option leaves is the same whatever their order; a dated `commodity`
     /// directive for it, processed after every option, replaces it
-    fn define_operating_currency(&self, operation: &mut Operations) -> ZhangResult<()> {
-        let Some(commodity) = self.operating_currency_commodity() else {
-            return Ok(());
-        };
-        operation.insert_commodity(&commodity.name, commodity.precision, commodity.prefix, commodity.suffix, commodity.rounding)
+    fn define_operating_currency(&mut self) {
+        if let Some(commodity) = self.operating_currency_commodity() {
+            self.commodities.insert(commodity.name.clone(), commodity);
+        }
     }
 
     /// the commodity the options define, the operating currency, as the options read so far define it before any
@@ -231,6 +264,8 @@ impl Default for InMemoryOptions {
             directive_output_path: DEFAULT_DIRECTIVE_OUTPUT_PATH.to_string(),
             commodity_precision_written: false,
             operating_currency_read: false,
+            values: HashMap::new(),
+            commodities: IndexMap::new(),
         }
     }
 }

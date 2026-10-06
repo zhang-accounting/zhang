@@ -23,11 +23,12 @@ fn load(content: &str) -> Ledger {
 }
 
 fn commodity(ledger: &Ledger, name: &str) -> CommodityDomain {
-    ledger
-        .operations()
-        .commodity(name)
-        .unwrap()
-        .unwrap_or_else(|| panic!("{name} should be defined"))
+    defined(ledger, name).unwrap_or_else(|| panic!("{name} should be defined"))
+}
+
+/// the commodity `name`, when the ledger defines it
+fn defined(ledger: &Ledger, name: &str) -> Option<CommodityDomain> {
+    ledger.commodities().into_iter().map(|(commodity, _)| commodity).find(|it| it.name == name)
 }
 
 /// the precision of `CNY` once `options` (in the order given) are read
@@ -93,10 +94,10 @@ fn another_operating_currency_is_defined_instead_of_the_built_in_one() {
     // the defaults are read before the ledger's own options: they must not define `CNY` on the way
     let ledger = load(&[COMMODITY_PRECISION_4, r#"option "operating_currency" "USD""#].join("\n"));
     assert_eq!(commodity(&ledger, "USD").precision, 4);
-    assert!(ledger.operations().commodity("CNY").unwrap().is_none(), "CNY should not be defined");
+    assert!(defined(&ledger, "CNY").is_none(), "CNY should not be defined");
     let ledger = load(&[r#"option "operating_currency" "USD""#, COMMODITY_PRECISION_4].join("\n"));
     assert_eq!(commodity(&ledger, "USD").precision, 4);
-    assert!(ledger.operations().commodity("CNY").unwrap().is_none(), "CNY should not be defined");
+    assert!(defined(&ledger, "CNY").is_none(), "CNY should not be defined");
 }
 
 #[test]

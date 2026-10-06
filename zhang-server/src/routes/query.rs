@@ -162,7 +162,7 @@ pub async fn get_query_schema() -> ApiResult<QuerySchemaEntity> {
 /// invalid one is still listed, with its `error`.
 #[api(group = "query")]
 pub async fn get_saved_queries(ledger: State<SharedLedger>) -> ApiResult<Vec<SavedQueryEntity>> {
-    let queries = ledger.read().await.operations().queries()?;
+    let queries = ledger.read().await.queries();
     let saved = tokio::task::spawn_blocking(move || queries.into_iter().map(SavedQueryEntity::from).collect::<Vec<_>>()).await?;
     ResponseWrapper::json(saved)
 }

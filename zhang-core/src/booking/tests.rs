@@ -344,11 +344,9 @@ fn booking_a_booked_stream_again_changes_nothing_on_every_fixture_ledger() {
     let mut rewritten = 0;
     for (name, ledger) in fixture_ledgers() {
         let commodities = ledger
-            .operations()
-            .read()
-            .commodities
-            .values()
-            .map(|it| (it.name.clone(), it.precision, it.rounding))
+            .commodities()
+            .into_iter()
+            .map(|(it, _)| (it.name, it.precision, it.rounding))
             .collect_vec();
         let once = book_stream(ledger.options.default_booking_method, &commodities, &ledger.directives);
         let twice = book_stream(ledger.options.default_booking_method, &commodities, &once.directives);

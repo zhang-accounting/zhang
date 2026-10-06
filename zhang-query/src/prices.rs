@@ -14,7 +14,7 @@ use std::sync::{Arc, PoisonError};
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use zhang_ast::amount::Amount;
-use zhang_core::domains::schemas::PriceDomain;
+use zhang_core::domains::schemas::price_map;
 use zhang_core::ledger::Ledger;
 use zhang_shared::prices::Conversion;
 
@@ -33,11 +33,9 @@ use crate::value::{Inventory, Position};
 pub struct PriceMap(zhang_shared::prices::PriceMap);
 
 impl PriceMap {
-    /// The price map of a loaded ledger: every `price` directive of its store. It takes the
-    /// store's read lock, so do not call it while holding the write lock.
+    /// The price map of a loaded ledger: every `price` directive of it.
     pub fn for_ledger(ledger: &Ledger) -> Self {
-        let store = ledger.store.read().unwrap_or_else(PoisonError::into_inner);
-        Self::from_prices(&store.prices)
+        Self(price_map(&ledger.directives, &ledger.options.timezone))
     }
 
     /// The price map the queries of a loaded ledger value with: built once per ledger, kept in
@@ -46,11 +44,7 @@ impl PriceMap {
     /// while holding the write lock.
     pub fn cached(ledger: &Ledger) -> Arc<PriceMap> {
         let store = ledger.store.read().unwrap_or_else(PoisonError::into_inner);
-        LedgerCache::of(ledger, &store).shared_prices(&store).clone()
-    }
-
-    pub fn from_prices<'a>(prices: impl IntoIterator<Item = &'a PriceDomain>) -> Self {
-        Self(PriceDomain::price_map(prices))
+        LedgerCache::of(ledger, &store).shared_prices(ledger).clone()
     }
 
     /// Build from `(date, base, quote, rate)` points in ledger order.

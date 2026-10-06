@@ -24,7 +24,7 @@ use std::str::FromStr;
 
 use axum::response::{IntoResponse, Response};
 use zhang_ast::amount::Amount;
-use zhang_ast::{booked_group_units, written_groups, Account, PostingCost, SingleTotalPrice};
+use zhang_ast::{booked_group_units, written_groups, Account, Directive, Meta, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
     is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
     read_posting_price,
@@ -62,9 +62,9 @@ impl<'a> Rules<'a> {
     }
 }
 
-/// The names a ledger already has, collected in one pass over its store and the
-/// transactions it keeps the first time a name fails beancount's rules, so a
-/// request with only names beancount accepts never scans the ledger.
+/// The names a ledger already has, collected in one pass over its directives the
+/// first time a name fails beancount's rules, so a request with only names
+/// beancount accepts never scans the ledger.
 pub struct KnownNames<'a> {
     ledger: &'a Ledger,
     names: OnceCell<Names>,
@@ -94,10 +94,12 @@ struct Names {
 
 impl Names {
     fn of(ledger: &Ledger) -> Names {
+        let keys = |meta: &Meta| meta.clone().get_flatten().into_iter().map(|(key, _)| key);
         let mut names = Names::default();
         for (_, transaction) in ledger.transactions() {
             names.tags.extend(transaction.tags.iter().cloned());
             names.links.extend(transaction.links.iter().cloned());
+            names.meta_keys.extend(keys(&transaction.meta));
             // each posting as written: its units and cost as written, the units booking gave it, its metadata
             for group in written_groups(&transaction.postings) {
                 let posting = &group.legs[0];
@@ -108,19 +110,28 @@ impl Names {
                 let booked = booked_group_units(group.legs);
                 let amounts = [units, cost.and_then(|cost| cost.base.as_ref()), booked.as_ref()];
                 names.commodities.extend(amounts.into_iter().flatten().map(|amount| amount.commodity.clone()));
-                names.meta_keys.extend(posting.meta.clone().get_flatten().into_iter().map(|(key, _)| key));
+                names.meta_keys.extend(keys(&posting.meta));
+            }
+        }
+        names.commodities.extend(ledger.options.commodities().map(|commodity| commodity.name.clone()));
+        for directive in &ledger.directives {
+            match &directive.data {
+                Directive::Open(open) => {
+                    names.accounts.insert(open.account.name().to_owned());
+                    names.meta_keys.extend(keys(&open.meta));
+                }
+                Directive::Commodity(commodity) => {
+                    names.commodities.insert(commodity.currency.clone());
+                    names.meta_keys.extend(keys(&commodity.meta));
+                }
+                Directive::Price(price) => names.commodities.extend([price.currency.clone(), price.amount.commodity.clone()]),
+                _ => {}
             }
         }
         let store = ledger.store.read().expect("poison lock detect");
-        names.accounts.extend(store.accounts.keys().cloned());
-        names.commodities.extend(store.commodities.keys().cloned());
-        for price in &store.prices {
-            names.commodities.extend([price.commodity.clone(), price.target_commodity.clone()]);
-        }
         names
             .commodities
             .extend(store.balance_assertions.iter().map(|assertion| assertion.amount.commodity.clone()));
-        names.meta_keys.extend(store.metas.iter().map(|meta| meta.key.clone()));
         names
     }
 }
@@ -583,13 +594,8 @@ mod test {
 
     #[test]
     fn names_the_ledger_already_has_pass_with_zhang_rules() {
-        let ledger = ledger("");
-        ledger.store.write().unwrap().metas.push(zhang_core::domains::schemas::MetaDomain {
-            meta_type: "TransactionMeta".to_owned(),
-            type_identifier: "id".to_owned(),
-            key: "Receipt".to_owned(),
-            value: "1".to_owned(),
-        });
+        // a metadata key of a directive of the ledger
+        let ledger = ledger("1970-01-01 open Assets:Cash\n  Receipt: \"1\"\n");
         let rules = Rules::Beancount(KnownNames::of(&ledger));
         assert!(meta_key("Receipt", &rules).is_ok(), "an existing key passes");
         assert!(meta_key("Other", &rules).is_err(), "a new key must be one beancount accepts");

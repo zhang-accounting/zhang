@@ -612,7 +612,7 @@ mod tests {
     fn run(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
         let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let store = ledger.store.read().unwrap();
-        let equity = EquityAccounts::from_options(&store.options);
+        let equity = EquityAccounts::from_options(&ledger.options.values);
         let period = query.plan.period.as_ref().expect("a period query").resolve(&Params::new()).unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
         let data = Dataset::new(ledger, &store, today, projection.unwrap_or(query.projection));

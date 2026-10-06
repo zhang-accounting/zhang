@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
 use log::{error, info};
 use uuid::Uuid;
@@ -17,10 +17,11 @@ use zhang_ast::{Account, BalancePad, Date, Directive, Flag, Options, Plugin, Spa
 
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
+use crate::constants::COMMODITY_GROUP;
 use crate::data_source::{DataSource, MissingInclude};
 use crate::data_type::Dialect;
 use crate::derived::Derived;
-use crate::domains::schemas::{AccountStatus, TransactionInfoDomain};
+use crate::domains::schemas::{AccountStatus, CommodityDomain, QueryDomain, TransactionInfoDomain};
 use crate::domains::Operations;
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
@@ -31,6 +32,7 @@ use crate::pipeline::{
     StageContext,
 };
 use crate::process::budget::{DefinedBudget, ForeignAmount};
+use crate::process::commodity::commodity_precision;
 use crate::process::DirectiveProcess;
 use crate::store::{BalanceAssertionDomain, Store};
 use crate::utils::id::FromSpan;
@@ -132,6 +134,10 @@ pub struct Ledger {
     /// during the store fold, the date and time of the first `commodity` directive of each commodity: an `open` may
     /// name a commodity defined at its own date and time, which sorts after it ([`Ledger::sort_directives_datetime`])
     pub(crate) commodity_dates: HashMap<String, NaiveDateTime>,
+
+    /// during the store fold, the commodities of the `commodity` directives folded so far, which the directives after
+    /// them may use
+    pub(crate) defined_commodities: HashSet<String>,
 
     /// the clock of this load, read at most once, on first use; a reload starts a new reading of the same [`Clock`]
     pub(crate) clock: LoadClock,
@@ -313,6 +319,7 @@ impl Ledger {
             reported_undefined_budgets: HashSet::new(),
             reported_closed_budgets: HashSet::new(),
             commodity_dates: HashMap::new(),
+            defined_commodities: HashSet::new(),
             clock: LoadClock::new(context.clock),
             lifecycle: AccountLifecycle::default(),
             derived: Derived::default(),
@@ -377,11 +384,6 @@ impl Ledger {
         // Stage errors precede materialization errors. Delay insertion until transaction IDs have
         // been bound, then move them before the fold's errors without disturbing either group.
         operations.write().errors[stage_error_start..].rotate_right(stage_error_count);
-        for account in operations.write().accounts.values_mut() {
-            if let Some(status) = self.lifecycle.final_status(&account.name) {
-                account.status = status;
-            }
-        }
         self.metas = metas;
         self.directives = dated;
 
@@ -421,6 +423,52 @@ impl Ledger {
             }
         }
         booker.into_methods()
+    }
+
+    /// The commodities of the ledger, each with its group (the `group` metadata its `commodity` directives wrote last),
+    /// in the order they were first defined: those the options define (the operating currency), then those of the
+    /// `commodity` directives. A later `commodity` directive of a commodity defines it anew.
+    pub fn commodities(&self) -> Vec<(CommodityDomain, Option<String>)> {
+        let mut commodities = self
+            .options
+            .commodities()
+            .map(|it| (it.name.clone(), (it.clone(), None)))
+            .collect::<IndexMap<_, _>>();
+        let (default_precision, default_rounding) = (Some(self.options.default_commodity_precision), Some(self.options.default_rounding));
+        for directive in &self.directives {
+            let Directive::Commodity(commodity) = &directive.data else { continue };
+            // the load stops on a `commodity` directive whose precision or rounding is invalid
+            let Ok((precision, rounding)) = commodity_precision(commodity, default_precision, default_rounding) else {
+                continue;
+            };
+            let meta = |key: &str| commodity.meta.get_one(key).map(|it| it.as_str().to_owned());
+            let defined = CommodityDomain {
+                name: commodity.currency.clone(),
+                precision,
+                prefix: meta("prefix"),
+                suffix: meta("suffix"),
+                rounding,
+            };
+            let written = commodity.meta.get_all(COMMODITY_GROUP).last().map(|it| it.as_str().to_owned());
+            let group = written.or_else(|| commodities.get(&commodity.currency).and_then(|(_, group)| group.clone()));
+            // in the place it was first defined
+            commodities.insert(commodity.currency.clone(), (defined, group));
+        }
+        commodities.into_values().collect()
+    }
+
+    /// The queries the `query` directives save, in ledger order (by date, then source order). Queries with the same
+    /// name are all kept.
+    pub fn queries(&self) -> Vec<QueryDomain> {
+        let queries = self.directives.iter().filter_map(|directive| match &directive.data {
+            Directive::Query(query) => Some(QueryDomain {
+                date: query.date.naive_date(),
+                name: query.name.as_str().to_owned(),
+                query: query.query_string.as_str().to_owned(),
+            }),
+            _ => None,
+        });
+        queries.collect()
     }
 
     /// The transactions zhang stored, each with its id, booked, in the order zhang processed them.
@@ -638,7 +686,8 @@ impl Ledger {
                 Directive::Price(price) => price.handler(self, &directive.span)?,
                 Directive::Event(_) => {}
                 Directive::Custom(_) => {}
-                Directive::Query(query) => query.handler(self, &directive.span)?,
+                // `Ledger::queries` reads it from the processed stream
+                Directive::Query(_) => {}
                 Directive::Plugin(_) => {}
                 Directive::Include(_) => {}
                 Directive::Comment(_) => {}
@@ -650,9 +699,10 @@ impl Ledger {
         }
         self.insert_pad_assertions(&mut pads, &mut assertions)?;
         // every price is known now
-        crate::process::budget::report_unconverted_amounts(self)?;
+        crate::process::budget::report_unconverted_amounts(self, directives)?;
         self.defined_budgets = None;
         self.commodity_dates = HashMap::new();
+        self.defined_commodities = HashSet::new();
         Ok(())
     }
 
@@ -754,8 +804,8 @@ impl Ledger {
     fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, AssertionOutcomes, FinalValidation)> {
         let directives = Ledger::sort_directives_datetime(directives, self.dialect);
         let stages = self.build_stages();
-        let options = self.operations().options()?;
-        let commodities = self.operations().read().commodities.values().cloned().collect_vec();
+        let options = self.options.all();
+        let commodities = self.options.commodities().cloned().collect_vec();
         let mut ctx = StageContext::new(&options)
             .with_dialect(self.dialect)
             .with_commodities(commodities)
@@ -2371,8 +2421,8 @@ mod test {
             assert_eq!(ledger.account_status("Assets:Card", at("2021-01-01")), Some(AccountStatus::Open));
             assert_eq!(ledger.account_status("Assets:Card", at("2021-06-01")), Some(AccountStatus::Close));
             assert_eq!(ledger.account_status("Assets:Card", at("2022-02-01")), Some(AccountStatus::Open));
-            // and the store: opened again, its latest `open` stands
-            assert_eq!(ledger.store.read().unwrap().accounts["Assets:Card"].status, AccountStatus::Open);
+            // and after every directive: opened again, its latest `open` stands
+            assert_eq!(ledger.account_status("Assets:Card", chrono::NaiveDateTime::MAX), Some(AccountStatus::Open));
         }
 
         #[test]
@@ -2508,17 +2558,16 @@ mod test {
                     option "title" "Example Beancount file"
                     option "operating_currency" "USD"
                 "#});
-            let operations = ledger.operations();
-
-            assert_eq!("Example Beancount file", operations.option::<String>("title")?.unwrap());
-            assert_eq!("USD", operations.option::<String>("operating_currency")?.unwrap());
-            assert!(operations.option::<String>("operating_currency2")?.is_none());
+            assert_eq!("Example Beancount file", ledger.options.option::<String>("title")?.unwrap());
+            assert_eq!("USD", ledger.options.option::<String>("operating_currency")?.unwrap());
+            assert!(ledger.options.option::<String>("operating_currency2")?.is_none());
             Ok(())
         }
     }
 
     mod extract_info {
         use indoc::indoc;
+        use itertools::Itertools;
 
         use crate::domains::schemas::AccountStatus;
         use crate::ledger::test::load_from_temp_str;
@@ -2528,9 +2577,8 @@ mod test {
             let ledger = load_from_temp_str(indoc! {r#"
                     1970-01-01 open Assets:Hello CNY
                 "#});
-            let store = ledger.store.read().unwrap();
-            let account = store.accounts.get("Assets:Hello").unwrap();
-            assert_eq!(account.status, AccountStatus::Open);
+            let status = ledger.account_status("Assets:Hello", chrono::NaiveDateTime::MAX);
+            assert_eq!(status, Some(AccountStatus::Open));
         }
 
         #[test]
@@ -2539,9 +2587,8 @@ mod test {
                     1970-01-01 open Assets:Hello CNY
                     1970-02-01 close Assets:Hello
                 "#});
-            let store = ledger.store.read().unwrap();
-            let account = store.accounts.get("Assets:Hello").unwrap();
-            assert_eq!(account.status, AccountStatus::Close);
+            let status = ledger.account_status("Assets:Hello", chrono::NaiveDateTime::MAX);
+            assert_eq!(status, Some(AccountStatus::Close));
         }
 
         #[test]
@@ -2550,11 +2597,11 @@ mod test {
                     1970-01-01 commodity CNY
                     1970-02-01 commodity HKD
                 "#});
-            let store = ledger.store.read().unwrap();
+            let commodities = ledger.commodities().into_iter().map(|(commodity, _)| commodity.name).collect_vec();
 
-            assert_eq!(2, store.commodities.len(), "should have 2 commodity");
-            assert!(store.commodities.contains_key("CNY"), "should have CNY record");
-            assert!(store.commodities.contains_key("HKD"), "should have HKD record");
+            assert_eq!(2, commodities.len(), "should have 2 commodity");
+            assert!(commodities.contains(&"CNY".to_owned()), "should have CNY record");
+            assert!(commodities.contains(&"HKD".to_owned()), "should have HKD record");
         }
     }
 
@@ -2591,9 +2638,8 @@ mod test {
                 2024-03-01 query "cash" "SELECT date, position"
             "#});
 
-            let operations = ledger.operations();
             assert_eq!(
-                operations.queries().unwrap(),
+                ledger.queries(),
                 vec![
                     saved((2024, 1, 1), "cash", "SELECT account, sum(position) WHERE account ~ 'Cash'"),
                     saved((2024, 1, 1), "future", "BALANCES AT cost"),
@@ -2602,7 +2648,7 @@ mod test {
                 ]
             );
             // the text is not validated at load time
-            assert!(operations.read().errors.is_empty());
+            assert!(ledger.operations().read().errors.is_empty());
             // the directives stay in the ledger's directive list
             assert_eq!(ledger.directives.iter().filter(|it| matches!(it.data, Directive::Query(_))).count(), 4);
         }
@@ -2622,7 +2668,7 @@ mod test {
             let source = LocalFileSystemDataSource::new(ZhangDataType {});
             let ledger = Ledger::load_with_data_source(temp_dir, "main.zhang".to_string(), Arc::new(source)).unwrap();
 
-            let names = ledger.operations().queries().unwrap().into_iter().map(|it| it.name).collect_vec();
+            let names = ledger.queries().into_iter().map(|it| it.name).collect_vec();
             assert_eq!(names, vec!["main", "included"]);
             assert_eq!(ledger.visited_files.len(), 2);
         }
@@ -2781,6 +2827,7 @@ mod test {
 
     mod account {
         use indoc::indoc;
+        use zhang_ast::Directive;
 
         use crate::ledger::test::load_from_temp_str;
 
@@ -2790,9 +2837,14 @@ mod test {
                 1970-01-01 open Assets:Bank
             "#});
 
-            let mut operations = ledger.operations();
-            assert!(operations.exist_account("Assets:Bank")?);
-            assert!(!operations.exist_account("Assets:Bank2")?);
+            let exists = |account: &str| {
+                ledger
+                    .directives
+                    .iter()
+                    .any(|it| matches!(&it.data, Directive::Open(open) if open.account.name() == account))
+            };
+            assert!(exists("Assets:Bank"));
+            assert!(!exists("Assets:Bank2"));
             Ok(())
         }
     }

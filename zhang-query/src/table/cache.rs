@@ -65,7 +65,7 @@ pub(crate) struct LedgerCache {
     lookups: OnceLock<Lookups>,
 }
 
-/// How many directives, transactions, prices, documents, errors and metadata a ledger holds: a cheap check that the ledger did not change since its cache was made.
+/// How many directives, transactions, documents and errors a ledger holds: a cheap check that the ledger did not change since its cache was made.
 ///
 /// It only counts, so it catches what is added to or removed from the ledger, not an edit that
 /// keeps every count (a posting whose amount changed, a price replaced by another). That is
@@ -73,18 +73,11 @@ pub(crate) struct LedgerCache {
 /// its files and read by a reload, which starts a new cache. Hashing the contents would cost
 /// every query more than the check is worth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Fingerprint([usize; 6]);
+struct Fingerprint([usize; 4]);
 
 impl Fingerprint {
     fn of(ledger: &Ledger, store: &Store) -> Fingerprint {
-        Fingerprint([
-            ledger.directives.len(),
-            store.transactions.len(),
-            store.prices.len(),
-            store.documents.len(),
-            store.errors.len(),
-            store.metas.len(),
-        ])
+        Fingerprint([ledger.directives.len(), store.transactions.len(), store.documents.len(), store.errors.len()])
     }
 }
 
@@ -159,13 +152,13 @@ impl LedgerCache {
         self.lookups.get_or_init(|| Lookups::build(ledger, self.entries(ledger, store)))
     }
 
-    pub fn prices(&self, store: &Store) -> &PriceMap {
-        self.shared_prices(store)
+    pub fn prices(&self, ledger: &Ledger) -> &PriceMap {
+        self.shared_prices(ledger)
     }
 
     /// The price map of [`LedgerCache::prices`], to keep beyond the ledger's lock.
-    pub fn shared_prices(&self, store: &Store) -> &Arc<PriceMap> {
-        self.prices.get_or_init(|| Arc::new(PriceMap::from_prices(&store.prices)))
+    pub fn shared_prices(&self, ledger: &Ledger) -> &Arc<PriceMap> {
+        self.prices.get_or_init(|| Arc::new(PriceMap::for_ledger(ledger)))
     }
 
     /// The `id` of the `#entries` row `seq`: a transaction has its stored id (the `id` of its

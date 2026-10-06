@@ -42,10 +42,9 @@ pub async fn reload(State(reload_sender): State<SharedReloadSender>) -> ApiResul
 #[api(group = "common")]
 pub async fn get_basic_info(ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>) -> ApiResult<BasicInfoEntity> {
     let ledger = ledger.read().await;
-    let operations = ledger.operations();
 
     ResponseWrapper::json(BasicInfoEntity {
-        title: operations.option::<String>("title")?,
+        title: ledger.options.option::<String>("title")?,
         version: env!("ZHANG_BUILD_VERSION").to_string(),
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
         format: ledger.dialect.name().to_owned(),
@@ -64,7 +63,5 @@ pub async fn get_errors(ledger: State<SharedLedger>, params: Query<JournalReques
 #[api(group = "common")]
 pub async fn get_all_options(ledger: State<SharedLedger>) -> ApiResult<Vec<OptionDomain>> {
     let ledger = ledger.read().await;
-    let mut operations = ledger.operations();
-    let options = operations.options()?;
-    ResponseWrapper::json(options)
+    ResponseWrapper::json(ledger.options.all())
 }

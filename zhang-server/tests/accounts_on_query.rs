@@ -382,7 +382,14 @@ impl Stored {
         assertions.sort_by_key(|assertion| assertion.sequence);
         Stored {
             operating_currency: guard.options.operating_currency.clone(),
-            opened: store.accounts.keys().cloned().collect(),
+            opened: guard
+                .directives
+                .iter()
+                .filter_map(|it| match &it.data {
+                    Directive::Open(open) => Some(open.account.name().to_owned()),
+                    _ => None,
+                })
+                .collect(),
             closed: guard
                 .directives
                 .iter()

@@ -1,22 +1,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
+use chrono_tz::Tz;
 #[cfg(feature = "openapi")]
 use gotcha_core::Schematic;
 use serde::Serialize;
 use strum::{AsRefStr, EnumString};
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Currency, Rounding, SpanInfo};
+use zhang_ast::{Directive, Rounding, SpanInfo, Spanned};
 use zhang_shared::prices::PriceMap;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, AsRefStr, EnumString)]
-pub enum MetaType {
-    AccountMeta,
-    CommodityMeta,
-    TransactionMeta,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "openapi", derive(Schematic))]
@@ -25,43 +18,11 @@ pub struct OptionDomain {
     pub value: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AccountDomain {
-    pub date: NaiveDateTime,
-    pub r#type: String,
-    pub name: String,
-    /// `Close` when the latest `open` or `close` of the account is a `close`, whatever its date. Whether the account is
-    /// active at a given time is [`Ledger::account_status`](crate::ledger::Ledger::account_status)
-    pub status: AccountStatus,
-    pub alias: Option<String>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Copy, Serialize, AsRefStr, EnumString)]
 #[cfg_attr(feature = "openapi", derive(Schematic))]
 pub enum AccountStatus {
     Open,
     Close,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct PriceDomain {
-    pub datetime: NaiveDateTime,
-    pub commodity: Currency,
-    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize")]
-    pub amount: BigDecimal,
-    pub target_commodity: Currency,
-}
-
-impl PriceDomain {
-    /// The price map of `prices`, the store's `price` directives in ledger order: what the budget check and the query
-    /// engine's valuation convert with.
-    pub fn price_map<'a>(prices: impl IntoIterator<Item = &'a PriceDomain>) -> PriceMap {
-        PriceMap::from_points(
-            prices
-                .into_iter()
-                .map(|it| (it.datetime.date(), &it.commodity, &it.target_commodity, it.amount.clone())),
-        )
-    }
 }
 
 /// a named query saved in the ledger by a `query` directive.
@@ -74,14 +35,6 @@ pub struct QueryDomain {
     pub date: NaiveDate,
     pub name: String,
     pub query: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct MetaDomain {
-    pub meta_type: String,
-    pub type_identifier: String,
-    pub key: String,
-    pub value: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -109,4 +62,18 @@ pub struct ErrorDomain {
     pub span: Option<SpanInfo>,
     pub error_type: ErrorKind,
     pub metas: HashMap<String, String>,
+}
+
+/// The price map of the `price` directives of `directives`, in their order, each at its date in the ledger's timezone
+/// `timezone`: what the budget check and the query engine's valuation convert with.
+pub fn price_map<'a>(directives: impl IntoIterator<Item = &'a Spanned<Directive>>, timezone: &Tz) -> PriceMap {
+    PriceMap::from_points(directives.into_iter().filter_map(|directive| match &directive.data {
+        Directive::Price(price) => Some((
+            price.date.to_timezone_datetime(timezone).date_naive(),
+            &price.currency,
+            &price.amount.commodity,
+            price.amount.number.clone(),
+        )),
+        _ => None,
+    }))
 }

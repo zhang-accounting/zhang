@@ -11,16 +11,9 @@ impl DirectiveProcess for Price {
         Ok(true)
     }
 
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        let mut operations = ledger.operations();
-
-        operations.insert_price(
-            self.date.to_timezone_datetime(&ledger.options.timezone),
-            &self.currency,
-            &self.amount.number,
-            &self.amount.commodity,
-        )?;
-
+    /// the budget check and the query engine read the price from the processed stream
+    /// ([`price_map`](crate::domains::schemas::price_map))
+    fn process(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
         Ok(())
     }
 }

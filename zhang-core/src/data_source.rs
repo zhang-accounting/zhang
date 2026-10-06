@@ -963,8 +963,8 @@ mod test {
                 (absolute.clone(), format!("include \"{absolute}\""))
             ]
         );
-        assert!(store.accounts.contains_key("Assets:Cash"));
-        assert!(!store.accounts.contains_key("Assets:Outside"));
+        assert!(opened(&ledger, "Assets:Cash"));
+        assert!(!opened(&ledger, "Assets:Outside"));
         assert_eq!(ledger.visited_files, vec![root.join("ledger/main.zhang")]);
         assert!(ledger.extra_inputs.is_empty(), "a file outside the ledger's directory is not watched");
     }
@@ -1180,6 +1180,12 @@ mod test {
         assert_eq!(store.transactions.len(), 2);
     }
 
+    /// whether the ledger has an `open` of `account`
+    fn opened(ledger: &Ledger, account: &str) -> bool {
+        let open = |directive: &Directive| matches!(directive, Directive::Open(open) if open.account.name() == account);
+        ledger.directives.iter().any(|it| open(&it.data))
+    }
+
     /// the `IncludeNotFound` errors of a ledger whose `store` this is: the `path` meta and the text of the `include`;
     /// it has no other error
     fn include_errors(store: &Store) -> Vec<(String, String)> {
@@ -1212,7 +1218,7 @@ mod test {
             include_errors(&store),
             vec![("acounts/typo.zhang".to_owned(), "include \"acounts/typo.zhang\"".to_owned())]
         );
-        assert!(store.accounts.contains_key("Assets:Cash"));
+        assert!(opened(&ledger, "Assets:Cash"));
         assert_eq!(ledger.visited_files, vec![root.join("main.zhang"), root.join("accounts.zhang")]);
         assert_eq!(
             ledger.extra_inputs.iter().cloned().collect::<Vec<_>>(),

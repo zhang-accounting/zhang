@@ -181,7 +181,7 @@ fn zhang_ledger_info(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut 
 /// what `zhang_ledger_info` answers for `ledger`
 fn ledger_info(ledger: &Ledger) -> LedgerInfo {
     LedgerInfo {
-        title: ledger.operations().option::<String>("title").ok().flatten(),
+        title: ledger.options.option::<String>("title").ok().flatten(),
         operating_currency: ledger.options.operating_currency.clone(),
         timezone: ledger.options.timezone.name().to_owned(),
     }
@@ -212,7 +212,7 @@ impl RegisteredPlugin {
     /// The response is validated and ready to send (see [`PluginResponse::into_http`]).
     pub fn execute_as_router(&self, request: &PluginRequest, ledger: &Ledger, host: Arc<dyn RouterHost>) -> Result<http::Response<Vec<u8>>, RouterError> {
         debug!("plugin {} {} handles {} {}", self.name, self.version, request.method, request.path);
-        let options = ledger.operations().options().map_err(|e| RouterError::Load(e.to_string()))?;
+        let options = ledger.options.all();
         let call = RouterCall {
             host: Some(host),
             ledger_info: Some(ledger_info(ledger)),

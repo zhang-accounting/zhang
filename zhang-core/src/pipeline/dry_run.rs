@@ -40,7 +40,7 @@ impl Ledger {
             ..SpanInfo::default()
         };
         let stream = self.stream_until(Spanned::new(Directive::Transaction(transaction), span.clone()), replaces);
-        let options = self.operations().options()?;
+        let options = self.options.all();
         let mut ctx = StageContext::new(&options)
             .with_dialect(self.dialect)
             .with_commodities(self.options.operating_currency_commodity().into_iter().collect());
