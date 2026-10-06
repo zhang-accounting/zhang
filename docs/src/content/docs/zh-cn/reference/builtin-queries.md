@@ -159,6 +159,8 @@ Web 界面以前使用的各类型化读取接口正在按组逐个版本移除�
 | `GET /api/documents` | `journals.documents`；原接口附加的文件名、扩展名和据此猜测的 MIME 类型都可以从行的 `path` 得出 |
 | `GET /api/accounts/{account}/documents` | `accounts.documents`，参数 `account`，其余同上 |
 | `GET /api/accounts/{account}/balances` | `accounts.balance_history`，参数 `account`；原接口按 `currency` 把行分组 |
+| `GET /api/statistic/summary?from=&to=` | `report.net_worth` 和 `report.liabilities`（参数 `to`、`currency`，即运营货币），`report.flows`（`from`、`to`、`currency`），`report.transaction_count`（`from`、`to`）；原接口的 `calculated` 是行的 `value` 库存中 `currency` 的部分，`detail` 是 `units` 库存按货币的数量 |
+| `GET /api/statistic/{type}?from=&to=` | `report.account_totals` 和 `report.top_postings`（参数 `type`、`from`、`to`、`currency`）；最大分录行的 `date`、`time`、`timestamp`、`account`、`id`、`payee`、`narration`、`units`、`account_balance` 对应原接口的 `datetime`、`trx_id`、`inferred_unit`、`account_after` |
 | `GET /api/errors?page=&size=` | `journals.errors`，参数 `size` 和 `offset = (page - 1) * size`，加 `count_total` 以计算页数；行的 `kind`、`file`、`line`、`column`、`span_start`、`span_end`、`source` 和 `metas`（`{key, value}` 列表）对应原接口的 `error_type`、`span.filename`、`span.line`、`span.column`、`span.start`、`span.end`、`span.content` 和 `metas` |
 
 原接口的金额形如 `{number, commodity}`；查询的单元格形如 `{number, currency}`，预算的 `activity` 是以该预算 `currency` 计的数字。
@@ -199,7 +201,7 @@ ORDER BY seq
 
 ### 报表
 
-**报表**页和首页（`GET /api/statistic/summary`、`/api/statistic/graph` 和 `/api/statistic/{account_type}`）。范围是两个账本日期 `from` 和 `to`，含首尾两天；这些接口也接受时间点，表示该时间点在账本时区中所在的那一天。三个接口都以相同的形式在 `from` 和 `to` 中返回所报告的范围：这些日期在账本时钟上的第一秒和最后一秒，不带时区，例如 `2024-06-01T00:00:00` 和 `2024-06-30T23:59:59`。`currency` 是账本的运营货币。
+**报表**页和首页（汇总与排行通过这些查询，图表通过 `GET /api/statistic/graph`）。范围是两个账本日期 `from` 和 `to`，含首尾两天；这些接口也接受时间点，表示该时间点在账本时区中所在的那一天。三个接口都以相同的形式在 `from` 和 `to` 中返回所报告的范围：这些日期在账本时钟上的第一秒和最后一秒，不带时区，例如 `2024-06-01T00:00:00` 和 `2024-06-30T23:59:59`。`currency` 是账本的运营货币。
 
 - **估值。**汇总和排行按 `to` 当天的价格估值。图表的每个点按它自己最后一天的价格估值，最后一个点按 `to` 的价格估值。价格可以反向使用；按成本持有、自身没有价格的持仓通过成本货币估值（见 [`convert`](/zh-cn/reference/query-language/#估值函数)）。任何价格都换算不了的金额保留原货币，不计入以运营货币表示的合计。
 - **图表**每天、每周（周一到周日）或每月一个点，以它的第一天命名，因此第一周（月）和最后一周（月）可能超出范围；报表页面用范围的第一天标注第一个点。范围内没有分录的点沿用前一个点的净资产，最前面的点沿用 `from` 前一天的净资产，并按它自己最后一天的价格估值（见 `report.net_worth_trend`）。

@@ -1,17 +1,19 @@
 import BigNumber from 'bignumber.js';
 import { ArrowDownLeft, ArrowUpRight, CircleAlert, Hash, Landmark, ReceiptText } from 'lucide-react';
-import { OpReturnType } from 'openapi-typescript-fetch';
 import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { retrieveStatisticByAccountType, retrieveStatisticGraph, retrieveStatisticSummary } from '@/api/requests';
-import { operations } from '@/api/schemas';
+import { useAtomValue } from 'jotai';
+import { retrieveStatisticGraph } from '@/api/requests';
 import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList } from '@/components/layout';
 import { DateRangePicker, DateRangePreset, DateRangeValue } from '@/components/layout/DateRangePicker';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { activityAnchor, monthOf, useRecentJournals } from '@/components/layout/use-ledger-activity';
 import StatisticBox from '@/components/StatisticBox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useLedgerQuery } from '@/states/ledger';
+import { useLedgerQuery, useLedgerValue } from '@/states/ledger';
+import { operatingCurrencyAtom } from '@/states/options';
+import { type ReportRank, type TopPosting } from '@/utils/report';
+import { retrieveReportRank, retrieveReportSummary } from '@/utils/report-api';
 import { cn } from '@/lib/utils';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
@@ -20,9 +22,6 @@ import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { ledgerDate } from '@/components/query/explore-link';
 import { BalanceTrendChart, CashFlowChart } from '../components/ReportGraph';
 import Section from '../components/Section';
-
-type AccountTypeStatistic = OpReturnType<operations['get_statistic_rank_detail_by_account_type']>['data'];
-type TopTransaction = AccountTypeStatistic['top_transactions'][number];
 
 export default function Report() {
   const { t } = useTranslation();
@@ -36,16 +35,16 @@ export default function Report() {
   const ready = picked !== undefined || !recent.loading;
   // the days picked, as ledger dates: the report covers them whatever the browser's timezone
   const params = { from: ledgerDate(range.from), to: ledgerDate(range.to) };
-  const deps = [ready, params.from, params.to];
+  // the operating currency, which the report's queries value everything in
+  const currency = useAtomValue(operatingCurrencyAtom);
+  const deps = [ready, params.from, params.to, currency];
   const interval = intervalForRange(range.from, range.to);
 
-  const summary = useLedgerQuery(() => (ready ? retrieveStatisticSummary(params) : undefined), deps);
+  const summary = useLedgerValue(() => (ready && currency ? retrieveReportSummary(params, currency) : undefined), deps);
   const graph = useLedgerQuery(() => (ready ? retrieveStatisticGraph({ ...params, interval }) : undefined), deps);
-  const income = useLedgerQuery(() => (ready ? retrieveStatisticByAccountType({ ...params, account_type: 'Income' }) : undefined), deps);
-  const expenses = useLedgerQuery(() => (ready ? retrieveStatisticByAccountType({ ...params, account_type: 'Expenses' }) : undefined), deps);
+  const income = useLedgerValue(() => (ready && currency ? retrieveReportRank('Income', params, currency) : undefined), deps);
+  const expenses = useLedgerValue(() => (ready && currency ? retrieveReportRank('Expenses', params, currency) : undefined), deps);
   const { rows, commodity } = useGraphRows(graph.value, interval);
-  // the operating currency, which the report's queries value everything in
-  const currency = summary.value?.balance.calculated.commodity;
   /** "Open query" for the built-in query behind a card, once the values it ran with are known. */
   const openQuery = (name: string, values: Record<string, string>) =>
     currency ? <OpenInExplore iconOnly name={name} params={{ ...values, currency }} /> : undefined;
@@ -193,8 +192,8 @@ function Breakdown({
   action,
 }: {
   title: string;
-  data?: AccountTypeStatistic;
-  /** The type's total in the range: the summary's figure, which the server values as it values the accounts' rows. */
+  data?: ReportRank;
+  /** The type's total in the range: the summary's figure, valued as the accounts' rows are. */
   total?: { number: string; commodity: string };
   loading: boolean;
   negative?: boolean;
@@ -269,7 +268,7 @@ function TopTransactions({
   action,
 }: {
   title: string;
-  data?: AccountTypeStatistic;
+  data?: ReportRank;
   loading: boolean;
   negative?: boolean;
   action?: ReactNode;
@@ -282,7 +281,7 @@ function TopTransactions({
         <h2 className="text-sm font-medium">{title}</h2>
         {action}
       </div>
-      <ResponsiveList<TopTransaction>
+      <ResponsiveList<TopPosting>
         items={data?.top_transactions ?? []}
         loading={loading}
         getKey={(item, index) => `${item.trx_id}-${item.account}-${index}`}

@@ -1,0 +1,3457 @@
+{
+  "_": "Rows of the report.* built-ins and what GET /api/statistic/summary and /api/statistic/{type} answered for the same range (operating currency CNY), captured on zhang-server/tests/fixtures/journals/probe (PR #753 build): the adapters must give the GETs' figures.",
+  "summary": {
+    "2024-01-01..2024-01-31": {
+      "from": "2024-01-01",
+      "to": "2024-01-31",
+      "net_worth": {
+        "columns": [
+          {
+            "name": "balance",
+            "type": "inventory"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            {
+              "positions": [
+                {
+                  "cost": {
+                    "currency": "USD",
+                    "date": "2024-01-07",
+                    "label": null,
+                    "number": "10"
+                  },
+                  "units": {
+                    "currency": "AAPL",
+                    "number": "6"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "744"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "JPY",
+                    "number": "2000"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "49"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "AAPL",
+                    "number": "6"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "744"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "JPY",
+                    "number": "2000"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "49"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "1703.10"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "liabilities": {
+        "columns": [
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            {
+              "positions": []
+            },
+            {
+              "positions": []
+            }
+          ]
+        ]
+      },
+      "flows": {
+        "columns": [
+          {
+            "name": "type",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Expenses",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "43"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "2"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "57.2"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Income",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-1000"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "-8"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-1056.8"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "transaction_count": {
+        "columns": [
+          {
+            "name": "transactions",
+            "type": "int"
+          }
+        ],
+        "rows": [[14]]
+      },
+      "expected": {
+        "balance": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "1703.10"
+          },
+          "detail": {
+            "AAPL": "6",
+            "CNY": "744",
+            "JPY": "2000",
+            "USD": "49"
+          }
+        },
+        "expense": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "57.2"
+          },
+          "detail": {
+            "CNY": "43",
+            "USD": "2"
+          }
+        },
+        "from": "2024-01-01T00:00:00",
+        "income": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "-1056.8"
+          },
+          "detail": {
+            "CNY": "-1000",
+            "USD": "-8"
+          }
+        },
+        "liability": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "0"
+          },
+          "detail": {}
+        },
+        "to": "2024-01-31T23:59:59",
+        "transaction_number": 14
+      }
+    },
+    "2024-01-05..2024-01-10": {
+      "from": "2024-01-05",
+      "to": "2024-01-10",
+      "net_worth": {
+        "columns": [
+          {
+            "name": "balance",
+            "type": "inventory"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            {
+              "positions": [
+                {
+                  "cost": {
+                    "currency": "USD",
+                    "date": "2024-01-07",
+                    "label": null,
+                    "number": "10"
+                  },
+                  "units": {
+                    "currency": "AAPL",
+                    "number": "6"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "245"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "JPY",
+                    "number": "2000"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "48"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "AAPL",
+                    "number": "6"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "245"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "JPY",
+                    "number": "2000"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "48"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "1197.00"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "liabilities": {
+        "columns": [
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            {
+              "positions": []
+            },
+            {
+              "positions": []
+            }
+          ]
+        ]
+      },
+      "flows": {
+        "columns": [
+          {
+            "name": "type",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Expenses",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "35"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "35"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Income",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "-8"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-56.8"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "transaction_count": {
+        "columns": [
+          {
+            "name": "transactions",
+            "type": "int"
+          }
+        ],
+        "rows": [[7]]
+      },
+      "expected": {
+        "balance": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "1197.00"
+          },
+          "detail": {
+            "AAPL": "6",
+            "CNY": "245",
+            "JPY": "2000",
+            "USD": "48"
+          }
+        },
+        "expense": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "35"
+          },
+          "detail": {
+            "CNY": "35"
+          }
+        },
+        "from": "2024-01-05T00:00:00",
+        "income": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "-56.8"
+          },
+          "detail": {
+            "USD": "-8"
+          }
+        },
+        "liability": {
+          "calculated": {
+            "commodity": "CNY",
+            "number": "0"
+          },
+          "detail": {}
+        },
+        "to": "2024-01-10T23:59:59",
+        "transaction_number": 7
+      }
+    }
+  },
+  "rank": {
+    "Assets 2024-01-01..2024-01-31": {
+      "type": "Assets",
+      "from": "2024-01-01",
+      "to": "2024-01-31",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Assets:Ghost",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "7"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "7"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Old",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "30"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "30"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Bank",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "50"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "50"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Travel",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "JPY",
+                    "number": "2000"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "100.00"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Bank:Checking",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "157"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "157"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Wallet",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "49"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "347.9"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Bank:Savings",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "500"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "500"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Broker",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "AAPL",
+                    "number": "6"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "511.2"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "00:00:00",
+            1704038400,
+            "Assets:Bank:Checking",
+            "67fb4255-ee11-fec5-52eb-da737d07989e",
+            "Employer",
+            "salary",
+            {
+              "currency": "CNY",
+              "number": "1000"
+            },
+            {
+              "currency": "CNY",
+              "number": "1000"
+            },
+            {
+              "currency": "CNY",
+              "number": "1000"
+            }
+          ],
+          [
+            "2024-01-07",
+            "00:00:00",
+            1704556800,
+            "Assets:Broker",
+            "da077dc6-9f09-92d4-4cec-d55dee47764a",
+            "Broker",
+            "buy aapl",
+            {
+              "currency": "AAPL",
+              "number": "10"
+            },
+            {
+              "currency": "AAPL",
+              "number": "10"
+            },
+            {
+              "currency": "CNY",
+              "number": "852.0"
+            }
+          ],
+          [
+            "2024-01-06",
+            "00:00:00",
+            1704470400,
+            "Assets:Wallet",
+            "102a35f8-8aaa-eee7-a32a-3dff55ed1a65",
+            "FX",
+            "buy usd",
+            {
+              "currency": "USD",
+              "number": "100"
+            },
+            {
+              "currency": "USD",
+              "number": "100"
+            },
+            {
+              "currency": "CNY",
+              "number": "710.0"
+            }
+          ],
+          [
+            "2024-01-12",
+            "00:00:00",
+            1704988800,
+            "Assets:Bank:Savings",
+            "ce2641ec-f110-80e7-de88-9e8cb635d9b5",
+            "Balance Pad",
+            "pad Assets:Bank:Savings to Equity:Open",
+            {
+              "currency": "CNY",
+              "number": "500"
+            },
+            {
+              "currency": "CNY",
+              "number": "500"
+            },
+            {
+              "currency": "CNY",
+              "number": "500"
+            }
+          ],
+          [
+            "2024-01-08",
+            "00:00:00",
+            1704643200,
+            "Assets:Wallet",
+            "6b32707c-a352-5e3e-862b-c70bfa678c9b",
+            "Broker",
+            "sell aapl",
+            {
+              "currency": "USD",
+              "number": "48"
+            },
+            {
+              "currency": "USD",
+              "number": "48"
+            },
+            {
+              "currency": "CNY",
+              "number": "340.8"
+            }
+          ],
+          [
+            "2024-01-09",
+            "00:00:00",
+            1704729600,
+            "Assets:Travel",
+            "0b668a10-6f7a-8651-06c6-3ed76ad7e148",
+            "Trip",
+            "jpy",
+            {
+              "currency": "JPY",
+              "number": "2000"
+            },
+            {
+              "currency": "JPY",
+              "number": "2000"
+            },
+            {
+              "currency": "CNY",
+              "number": "100.00"
+            }
+          ],
+          [
+            "2024-01-01",
+            "00:00:00",
+            1704038400,
+            "Assets:Bank",
+            "8769cf6e-8d2e-aa16-96ac-1b5b0d9263fb",
+            "Self",
+            "parent account posting",
+            {
+              "currency": "CNY",
+              "number": "50"
+            },
+            {
+              "currency": "CNY",
+              "number": "50"
+            },
+            {
+              "currency": "CNY",
+              "number": "50"
+            }
+          ],
+          [
+            "2024-01-02",
+            "00:00:00",
+            1704124800,
+            "Assets:Old",
+            "4f331ddf-20d7-19c0-5599-d7f25962b560",
+            "Self",
+            "fund old",
+            {
+              "currency": "CNY",
+              "number": "30"
+            },
+            {
+              "currency": "CNY",
+              "number": "30"
+            },
+            {
+              "currency": "CNY",
+              "number": "30"
+            }
+          ],
+          [
+            "2024-01-15",
+            "00:00:00",
+            1705248000,
+            "Assets:Wallet",
+            "c1d8dd12-d365-b326-031a-ce28f4adb1ad",
+            "Bad",
+            "unbalanced",
+            {
+              "currency": "USD",
+              "number": "1"
+            },
+            {
+              "currency": "USD",
+              "number": "49"
+            },
+            {
+              "currency": "CNY",
+              "number": "7.1"
+            }
+          ],
+          [
+            "2024-01-14",
+            "00:00:00",
+            1705161600,
+            "Assets:Ghost",
+            "813962e1-2cd7-ecb0-eab5-71fcad17fc45",
+            "Ghost",
+            "unknown account",
+            {
+              "currency": "CNY",
+              "number": "7"
+            },
+            {
+              "currency": "CNY",
+              "number": "7"
+            },
+            {
+              "currency": "CNY",
+              "number": "7"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "detail": [
+          {
+            "account": "Assets:Ghost",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "7"
+              },
+              "detail": {
+                "CNY": "7"
+              }
+            }
+          },
+          {
+            "account": "Assets:Old",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "30"
+              },
+              "detail": {
+                "CNY": "30"
+              }
+            }
+          },
+          {
+            "account": "Assets:Bank",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "50"
+              },
+              "detail": {
+                "CNY": "50"
+              }
+            }
+          },
+          {
+            "account": "Assets:Travel",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "100.00"
+              },
+              "detail": {
+                "JPY": "2000"
+              }
+            }
+          },
+          {
+            "account": "Assets:Bank:Checking",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "157"
+              },
+              "detail": {
+                "CNY": "157"
+              }
+            }
+          },
+          {
+            "account": "Assets:Wallet",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "347.9"
+              },
+              "detail": {
+                "USD": "49"
+              }
+            }
+          },
+          {
+            "account": "Assets:Bank:Savings",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "500"
+              },
+              "detail": {
+                "CNY": "500"
+              }
+            }
+          },
+          {
+            "account": "Assets:Broker",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "511.2"
+              },
+              "detail": {
+                "AAPL": "6"
+              }
+            }
+          }
+        ],
+        "from": "2024-01-01T00:00:00",
+        "to": "2024-01-31T23:59:59",
+        "top_transactions": [
+          {
+            "account": "Assets:Bank:Checking",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "1000"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-01T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "1000"
+            },
+            "narration": "salary",
+            "passed": null,
+            "payee": "Employer",
+            "timestamp": 1704038400,
+            "tolerance": null,
+            "trx_id": "67fb4255-ee11-fec5-52eb-da737d07989e"
+          },
+          {
+            "account": "Assets:Broker",
+            "account_after": {
+              "commodity": "AAPL",
+              "number": "10"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-07T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "AAPL",
+              "number": "10"
+            },
+            "narration": "buy aapl",
+            "passed": null,
+            "payee": "Broker",
+            "timestamp": 1704556800,
+            "tolerance": null,
+            "trx_id": "da077dc6-9f09-92d4-4cec-d55dee47764a"
+          },
+          {
+            "account": "Assets:Wallet",
+            "account_after": {
+              "commodity": "USD",
+              "number": "100"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-06T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "100"
+            },
+            "narration": "buy usd",
+            "passed": null,
+            "payee": "FX",
+            "timestamp": 1704470400,
+            "tolerance": null,
+            "trx_id": "102a35f8-8aaa-eee7-a32a-3dff55ed1a65"
+          },
+          {
+            "account": "Assets:Bank:Savings",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "500"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-12T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "500"
+            },
+            "narration": "pad Assets:Bank:Savings to Equity:Open",
+            "passed": null,
+            "payee": "Balance Pad",
+            "timestamp": 1704988800,
+            "tolerance": null,
+            "trx_id": "ce2641ec-f110-80e7-de88-9e8cb635d9b5"
+          },
+          {
+            "account": "Assets:Wallet",
+            "account_after": {
+              "commodity": "USD",
+              "number": "48"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-08T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "48"
+            },
+            "narration": "sell aapl",
+            "passed": null,
+            "payee": "Broker",
+            "timestamp": 1704643200,
+            "tolerance": null,
+            "trx_id": "6b32707c-a352-5e3e-862b-c70bfa678c9b"
+          },
+          {
+            "account": "Assets:Travel",
+            "account_after": {
+              "commodity": "JPY",
+              "number": "2000"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-09T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "JPY",
+              "number": "2000"
+            },
+            "narration": "jpy",
+            "passed": null,
+            "payee": "Trip",
+            "timestamp": 1704729600,
+            "tolerance": null,
+            "trx_id": "0b668a10-6f7a-8651-06c6-3ed76ad7e148"
+          },
+          {
+            "account": "Assets:Bank",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "50"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-01T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "50"
+            },
+            "narration": "parent account posting",
+            "passed": null,
+            "payee": "Self",
+            "timestamp": 1704038400,
+            "tolerance": null,
+            "trx_id": "8769cf6e-8d2e-aa16-96ac-1b5b0d9263fb"
+          },
+          {
+            "account": "Assets:Old",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "30"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-02T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "30"
+            },
+            "narration": "fund old",
+            "passed": null,
+            "payee": "Self",
+            "timestamp": 1704124800,
+            "tolerance": null,
+            "trx_id": "4f331ddf-20d7-19c0-5599-d7f25962b560"
+          },
+          {
+            "account": "Assets:Wallet",
+            "account_after": {
+              "commodity": "USD",
+              "number": "49"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-15T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "1"
+            },
+            "narration": "unbalanced",
+            "passed": null,
+            "payee": "Bad",
+            "timestamp": 1705248000,
+            "tolerance": null,
+            "trx_id": "c1d8dd12-d365-b326-031a-ce28f4adb1ad"
+          },
+          {
+            "account": "Assets:Ghost",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "7"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-14T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "7"
+            },
+            "narration": "unknown account",
+            "passed": null,
+            "payee": "Ghost",
+            "timestamp": 1705161600,
+            "tolerance": null,
+            "trx_id": "813962e1-2cd7-ecb0-eab5-71fcad17fc45"
+          }
+        ]
+      }
+    },
+    "Liabilities 2024-01-01..2024-01-31": {
+      "type": "Liabilities",
+      "from": "2024-01-01",
+      "to": "2024-01-31",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": []
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": []
+      },
+      "expected": {
+        "detail": [],
+        "from": "2024-01-01T00:00:00",
+        "to": "2024-01-31T23:59:59",
+        "top_transactions": []
+      }
+    },
+    "Equity 2024-01-01..2024-01-31": {
+      "type": "Equity",
+      "from": "2024-01-01",
+      "to": "2024-01-31",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Equity:Open",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-587"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-587"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-12",
+            "00:00:00",
+            1704988800,
+            "Equity:Open",
+            "ce2641ec-f110-80e7-de88-9e8cb635d9b5",
+            "Balance Pad",
+            "pad Assets:Bank:Savings to Equity:Open",
+            {
+              "currency": "CNY",
+              "number": "-500"
+            },
+            {
+              "currency": "CNY",
+              "number": "-580"
+            },
+            {
+              "currency": "CNY",
+              "number": "-500"
+            }
+          ],
+          [
+            "2024-01-01",
+            "00:00:00",
+            1704038400,
+            "Equity:Open",
+            "8769cf6e-8d2e-aa16-96ac-1b5b0d9263fb",
+            "Self",
+            "parent account posting",
+            {
+              "currency": "CNY",
+              "number": "-50"
+            },
+            {
+              "currency": "CNY",
+              "number": "-50"
+            },
+            {
+              "currency": "CNY",
+              "number": "-50"
+            }
+          ],
+          [
+            "2024-01-02",
+            "00:00:00",
+            1704124800,
+            "Equity:Open",
+            "4f331ddf-20d7-19c0-5599-d7f25962b560",
+            "Self",
+            "fund old",
+            {
+              "currency": "CNY",
+              "number": "-30"
+            },
+            {
+              "currency": "CNY",
+              "number": "-80"
+            },
+            {
+              "currency": "CNY",
+              "number": "-30"
+            }
+          ],
+          [
+            "2024-01-14",
+            "00:00:00",
+            1705161600,
+            "Equity:Open",
+            "813962e1-2cd7-ecb0-eab5-71fcad17fc45",
+            "Ghost",
+            "unknown account",
+            {
+              "currency": "CNY",
+              "number": "-7"
+            },
+            {
+              "currency": "CNY",
+              "number": "-587"
+            },
+            {
+              "currency": "CNY",
+              "number": "-7"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "detail": [
+          {
+            "account": "Equity:Open",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "-587"
+              },
+              "detail": {
+                "CNY": "-587"
+              }
+            }
+          }
+        ],
+        "from": "2024-01-01T00:00:00",
+        "to": "2024-01-31T23:59:59",
+        "top_transactions": [
+          {
+            "account": "Equity:Open",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "-580"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-12T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-500"
+            },
+            "narration": "pad Assets:Bank:Savings to Equity:Open",
+            "passed": null,
+            "payee": "Balance Pad",
+            "timestamp": 1704988800,
+            "tolerance": null,
+            "trx_id": "ce2641ec-f110-80e7-de88-9e8cb635d9b5"
+          },
+          {
+            "account": "Equity:Open",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "-50"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-01T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-50"
+            },
+            "narration": "parent account posting",
+            "passed": null,
+            "payee": "Self",
+            "timestamp": 1704038400,
+            "tolerance": null,
+            "trx_id": "8769cf6e-8d2e-aa16-96ac-1b5b0d9263fb"
+          },
+          {
+            "account": "Equity:Open",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "-80"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-02T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-30"
+            },
+            "narration": "fund old",
+            "passed": null,
+            "payee": "Self",
+            "timestamp": 1704124800,
+            "tolerance": null,
+            "trx_id": "4f331ddf-20d7-19c0-5599-d7f25962b560"
+          },
+          {
+            "account": "Equity:Open",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "-587"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-14T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-7"
+            },
+            "narration": "unknown account",
+            "passed": null,
+            "payee": "Ghost",
+            "timestamp": 1705161600,
+            "tolerance": null,
+            "trx_id": "813962e1-2cd7-ecb0-eab5-71fcad17fc45"
+          }
+        ]
+      }
+    },
+    "Income 2024-01-01..2024-01-31": {
+      "type": "Income",
+      "from": "2024-01-01",
+      "to": "2024-01-31",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Income:Salary",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-1000"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-1000"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Income:Gains",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "-8"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-56.8"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-01",
+            "00:00:00",
+            1704038400,
+            "Income:Salary",
+            "67fb4255-ee11-fec5-52eb-da737d07989e",
+            "Employer",
+            "salary",
+            {
+              "currency": "CNY",
+              "number": "-1000"
+            },
+            {
+              "currency": "CNY",
+              "number": "-1000"
+            },
+            {
+              "currency": "CNY",
+              "number": "-1000"
+            }
+          ],
+          [
+            "2024-01-08",
+            "00:00:00",
+            1704643200,
+            "Income:Gains",
+            "6b32707c-a352-5e3e-862b-c70bfa678c9b",
+            "Broker",
+            "sell aapl",
+            {
+              "currency": "USD",
+              "number": "-8"
+            },
+            {
+              "currency": "USD",
+              "number": "-8"
+            },
+            {
+              "currency": "CNY",
+              "number": "-56.8"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "detail": [
+          {
+            "account": "Income:Salary",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "-1000"
+              },
+              "detail": {
+                "CNY": "-1000"
+              }
+            }
+          },
+          {
+            "account": "Income:Gains",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "-56.8"
+              },
+              "detail": {
+                "USD": "-8"
+              }
+            }
+          }
+        ],
+        "from": "2024-01-01T00:00:00",
+        "to": "2024-01-31T23:59:59",
+        "top_transactions": [
+          {
+            "account": "Income:Salary",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "-1000"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-01T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-1000"
+            },
+            "narration": "salary",
+            "passed": null,
+            "payee": "Employer",
+            "timestamp": 1704038400,
+            "tolerance": null,
+            "trx_id": "67fb4255-ee11-fec5-52eb-da737d07989e"
+          },
+          {
+            "account": "Income:Gains",
+            "account_after": {
+              "commodity": "USD",
+              "number": "-8"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-08T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "-8"
+            },
+            "narration": "sell aapl",
+            "passed": null,
+            "payee": "Broker",
+            "timestamp": 1704643200,
+            "tolerance": null,
+            "trx_id": "6b32707c-a352-5e3e-862b-c70bfa678c9b"
+          }
+        ]
+      }
+    },
+    "Expenses 2024-01-01..2024-01-31": {
+      "type": "Expenses",
+      "from": "2024-01-01",
+      "to": "2024-01-31",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Expenses:Food",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "43"
+                  }
+                },
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "2"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "57.2"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-05",
+            "00:00:00",
+            1704384000,
+            "Expenses:Food",
+            "b6b164f6-d64e-ec54-3ef3-d6f166802607",
+            "Shop B",
+            "second of the day",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            {
+              "currency": "CNY",
+              "number": "30"
+            },
+            {
+              "currency": "CNY",
+              "number": "20"
+            }
+          ],
+          [
+            "2024-01-15",
+            "00:00:00",
+            1705248000,
+            "Expenses:Food",
+            "c1d8dd12-d365-b326-031a-ce28f4adb1ad",
+            "Bad",
+            "unbalanced",
+            {
+              "currency": "USD",
+              "number": "2"
+            },
+            {
+              "currency": "USD",
+              "number": "2"
+            },
+            {
+              "currency": "CNY",
+              "number": "14.2"
+            }
+          ],
+          [
+            "2024-01-05",
+            "00:00:00",
+            1704384000,
+            "Expenses:Food",
+            "9505963a-22b9-76d7-cb72-0ca327e5003a",
+            "Shop A",
+            "first of the day",
+            {
+              "currency": "CNY",
+              "number": "10"
+            },
+            {
+              "currency": "CNY",
+              "number": "10"
+            },
+            {
+              "currency": "CNY",
+              "number": "10"
+            }
+          ],
+          [
+            "2024-01-18",
+            "00:00:00",
+            1705507200,
+            "Expenses:Food",
+            "72f5901f-8f36-e53f-c7d3-eb5b46e5c79f",
+            "Split",
+            "two postings same account",
+            {
+              "currency": "CNY",
+              "number": "7"
+            },
+            {
+              "currency": "CNY",
+              "number": "43"
+            },
+            {
+              "currency": "CNY",
+              "number": "7"
+            }
+          ],
+          [
+            "2024-01-05",
+            "23:30:00",
+            1704468600,
+            "Expenses:Food",
+            "431cfc92-b802-985b-740b-bad8e2989416",
+            "Night",
+            "late snack",
+            {
+              "currency": "CNY",
+              "number": "5"
+            },
+            {
+              "currency": "CNY",
+              "number": "35"
+            },
+            {
+              "currency": "CNY",
+              "number": "5"
+            }
+          ],
+          [
+            "2024-01-16",
+            "00:00:00",
+            1705334400,
+            "Expenses:Food",
+            "63e53bc2-5d92-adae-567d-0bbc8aace6a2",
+            "Doc",
+            "receipt",
+            {
+              "currency": "CNY",
+              "number": "1"
+            },
+            {
+              "currency": "CNY",
+              "number": "36"
+            },
+            {
+              "currency": "CNY",
+              "number": "1"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "detail": [
+          {
+            "account": "Expenses:Food",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "57.2"
+              },
+              "detail": {
+                "CNY": "43",
+                "USD": "2"
+              }
+            }
+          }
+        ],
+        "from": "2024-01-01T00:00:00",
+        "to": "2024-01-31T23:59:59",
+        "top_transactions": [
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "30"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "20"
+            },
+            "narration": "second of the day",
+            "passed": null,
+            "payee": "Shop B",
+            "timestamp": 1704384000,
+            "tolerance": null,
+            "trx_id": "b6b164f6-d64e-ec54-3ef3-d6f166802607"
+          },
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "USD",
+              "number": "2"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-15T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "2"
+            },
+            "narration": "unbalanced",
+            "passed": null,
+            "payee": "Bad",
+            "timestamp": 1705248000,
+            "tolerance": null,
+            "trx_id": "c1d8dd12-d365-b326-031a-ce28f4adb1ad"
+          },
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "10"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "10"
+            },
+            "narration": "first of the day",
+            "passed": null,
+            "payee": "Shop A",
+            "timestamp": 1704384000,
+            "tolerance": null,
+            "trx_id": "9505963a-22b9-76d7-cb72-0ca327e5003a"
+          },
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "43"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-18T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "7"
+            },
+            "narration": "two postings same account",
+            "passed": null,
+            "payee": "Split",
+            "timestamp": 1705507200,
+            "tolerance": null,
+            "trx_id": "72f5901f-8f36-e53f-c7d3-eb5b46e5c79f"
+          },
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "35"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T23:30:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "5"
+            },
+            "narration": "late snack",
+            "passed": null,
+            "payee": "Night",
+            "timestamp": 1704468600,
+            "tolerance": null,
+            "trx_id": "431cfc92-b802-985b-740b-bad8e2989416"
+          },
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "36"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-16T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "1"
+            },
+            "narration": "receipt",
+            "passed": null,
+            "payee": "Doc",
+            "timestamp": 1705334400,
+            "tolerance": null,
+            "trx_id": "63e53bc2-5d92-adae-567d-0bbc8aace6a2"
+          }
+        ]
+      }
+    },
+    "Assets 2024-01-05..2024-01-10": {
+      "type": "Assets",
+      "from": "2024-01-05",
+      "to": "2024-01-10",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Assets:Bank:Checking",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-835"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-835"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Travel",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "JPY",
+                    "number": "2000"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "100.00"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Wallet",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "48"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "340.8"
+                  }
+                }
+              ]
+            }
+          ],
+          [
+            "Assets:Broker",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "AAPL",
+                    "number": "6"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "511.2"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-07",
+            "00:00:00",
+            1704556800,
+            "Assets:Broker",
+            "da077dc6-9f09-92d4-4cec-d55dee47764a",
+            "Broker",
+            "buy aapl",
+            {
+              "currency": "AAPL",
+              "number": "10"
+            },
+            {
+              "currency": "AAPL",
+              "number": "10"
+            },
+            {
+              "currency": "CNY",
+              "number": "852.0"
+            }
+          ],
+          [
+            "2024-01-06",
+            "00:00:00",
+            1704470400,
+            "Assets:Wallet",
+            "102a35f8-8aaa-eee7-a32a-3dff55ed1a65",
+            "FX",
+            "buy usd",
+            {
+              "currency": "USD",
+              "number": "100"
+            },
+            {
+              "currency": "USD",
+              "number": "100"
+            },
+            {
+              "currency": "CNY",
+              "number": "710.0"
+            }
+          ],
+          [
+            "2024-01-08",
+            "00:00:00",
+            1704643200,
+            "Assets:Wallet",
+            "6b32707c-a352-5e3e-862b-c70bfa678c9b",
+            "Broker",
+            "sell aapl",
+            {
+              "currency": "USD",
+              "number": "48"
+            },
+            {
+              "currency": "USD",
+              "number": "48"
+            },
+            {
+              "currency": "CNY",
+              "number": "340.8"
+            }
+          ],
+          [
+            "2024-01-09",
+            "00:00:00",
+            1704729600,
+            "Assets:Travel",
+            "0b668a10-6f7a-8651-06c6-3ed76ad7e148",
+            "Trip",
+            "jpy",
+            {
+              "currency": "JPY",
+              "number": "2000"
+            },
+            {
+              "currency": "JPY",
+              "number": "2000"
+            },
+            {
+              "currency": "CNY",
+              "number": "100.00"
+            }
+          ],
+          [
+            "2024-01-05",
+            "23:30:00",
+            1704468600,
+            "Assets:Bank:Checking",
+            "431cfc92-b802-985b-740b-bad8e2989416",
+            "Night",
+            "late snack",
+            {
+              "currency": "CNY",
+              "number": "-5"
+            },
+            {
+              "currency": "CNY",
+              "number": "965"
+            },
+            {
+              "currency": "CNY",
+              "number": "-5"
+            }
+          ],
+          [
+            "2024-01-05",
+            "00:00:00",
+            1704384000,
+            "Assets:Bank:Checking",
+            "9505963a-22b9-76d7-cb72-0ca327e5003a",
+            "Shop A",
+            "first of the day",
+            {
+              "currency": "CNY",
+              "number": "-10"
+            },
+            {
+              "currency": "CNY",
+              "number": "990"
+            },
+            {
+              "currency": "CNY",
+              "number": "-10"
+            }
+          ],
+          [
+            "2024-01-05",
+            "00:00:00",
+            1704384000,
+            "Assets:Bank:Checking",
+            "b6b164f6-d64e-ec54-3ef3-d6f166802607",
+            "Shop B",
+            "second of the day",
+            {
+              "currency": "CNY",
+              "number": "-20"
+            },
+            {
+              "currency": "CNY",
+              "number": "970"
+            },
+            {
+              "currency": "CNY",
+              "number": "-20"
+            }
+          ],
+          [
+            "2024-01-09",
+            "00:00:00",
+            1704729600,
+            "Assets:Bank:Checking",
+            "0b668a10-6f7a-8651-06c6-3ed76ad7e148",
+            "Trip",
+            "jpy",
+            {
+              "currency": "CNY",
+              "number": "-100"
+            },
+            {
+              "currency": "CNY",
+              "number": "165"
+            },
+            {
+              "currency": "CNY",
+              "number": "-100"
+            }
+          ],
+          [
+            "2024-01-08",
+            "00:00:00",
+            1704643200,
+            "Assets:Broker",
+            "6b32707c-a352-5e3e-862b-c70bfa678c9b",
+            "Broker",
+            "sell aapl",
+            {
+              "currency": "AAPL",
+              "number": "-4"
+            },
+            {
+              "currency": "AAPL",
+              "number": "6"
+            },
+            {
+              "currency": "CNY",
+              "number": "-340.8"
+            }
+          ],
+          [
+            "2024-01-06",
+            "00:00:00",
+            1704470400,
+            "Assets:Bank:Checking",
+            "102a35f8-8aaa-eee7-a32a-3dff55ed1a65",
+            "FX",
+            "buy usd",
+            {
+              "currency": "CNY",
+              "number": "-700"
+            },
+            {
+              "currency": "CNY",
+              "number": "265"
+            },
+            {
+              "currency": "CNY",
+              "number": "-700"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "detail": [
+          {
+            "account": "Assets:Bank:Checking",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "-835"
+              },
+              "detail": {
+                "CNY": "-835"
+              }
+            }
+          },
+          {
+            "account": "Assets:Travel",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "100.00"
+              },
+              "detail": {
+                "JPY": "2000"
+              }
+            }
+          },
+          {
+            "account": "Assets:Wallet",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "340.8"
+              },
+              "detail": {
+                "USD": "48"
+              }
+            }
+          },
+          {
+            "account": "Assets:Broker",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "511.2"
+              },
+              "detail": {
+                "AAPL": "6"
+              }
+            }
+          }
+        ],
+        "from": "2024-01-05T00:00:00",
+        "to": "2024-01-10T23:59:59",
+        "top_transactions": [
+          {
+            "account": "Assets:Broker",
+            "account_after": {
+              "commodity": "AAPL",
+              "number": "10"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-07T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "AAPL",
+              "number": "10"
+            },
+            "narration": "buy aapl",
+            "passed": null,
+            "payee": "Broker",
+            "timestamp": 1704556800,
+            "tolerance": null,
+            "trx_id": "da077dc6-9f09-92d4-4cec-d55dee47764a"
+          },
+          {
+            "account": "Assets:Wallet",
+            "account_after": {
+              "commodity": "USD",
+              "number": "100"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-06T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "100"
+            },
+            "narration": "buy usd",
+            "passed": null,
+            "payee": "FX",
+            "timestamp": 1704470400,
+            "tolerance": null,
+            "trx_id": "102a35f8-8aaa-eee7-a32a-3dff55ed1a65"
+          },
+          {
+            "account": "Assets:Wallet",
+            "account_after": {
+              "commodity": "USD",
+              "number": "48"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-08T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "48"
+            },
+            "narration": "sell aapl",
+            "passed": null,
+            "payee": "Broker",
+            "timestamp": 1704643200,
+            "tolerance": null,
+            "trx_id": "6b32707c-a352-5e3e-862b-c70bfa678c9b"
+          },
+          {
+            "account": "Assets:Travel",
+            "account_after": {
+              "commodity": "JPY",
+              "number": "2000"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-09T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "JPY",
+              "number": "2000"
+            },
+            "narration": "jpy",
+            "passed": null,
+            "payee": "Trip",
+            "timestamp": 1704729600,
+            "tolerance": null,
+            "trx_id": "0b668a10-6f7a-8651-06c6-3ed76ad7e148"
+          },
+          {
+            "account": "Assets:Bank:Checking",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "965"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T23:30:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-5"
+            },
+            "narration": "late snack",
+            "passed": null,
+            "payee": "Night",
+            "timestamp": 1704468600,
+            "tolerance": null,
+            "trx_id": "431cfc92-b802-985b-740b-bad8e2989416"
+          },
+          {
+            "account": "Assets:Bank:Checking",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "990"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-10"
+            },
+            "narration": "first of the day",
+            "passed": null,
+            "payee": "Shop A",
+            "timestamp": 1704384000,
+            "tolerance": null,
+            "trx_id": "9505963a-22b9-76d7-cb72-0ca327e5003a"
+          },
+          {
+            "account": "Assets:Bank:Checking",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "970"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-20"
+            },
+            "narration": "second of the day",
+            "passed": null,
+            "payee": "Shop B",
+            "timestamp": 1704384000,
+            "tolerance": null,
+            "trx_id": "b6b164f6-d64e-ec54-3ef3-d6f166802607"
+          },
+          {
+            "account": "Assets:Bank:Checking",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "165"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-09T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-100"
+            },
+            "narration": "jpy",
+            "passed": null,
+            "payee": "Trip",
+            "timestamp": 1704729600,
+            "tolerance": null,
+            "trx_id": "0b668a10-6f7a-8651-06c6-3ed76ad7e148"
+          },
+          {
+            "account": "Assets:Broker",
+            "account_after": {
+              "commodity": "AAPL",
+              "number": "6"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-08T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "AAPL",
+              "number": "-4"
+            },
+            "narration": "sell aapl",
+            "passed": null,
+            "payee": "Broker",
+            "timestamp": 1704643200,
+            "tolerance": null,
+            "trx_id": "6b32707c-a352-5e3e-862b-c70bfa678c9b"
+          },
+          {
+            "account": "Assets:Bank:Checking",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "265"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-06T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "-700"
+            },
+            "narration": "buy usd",
+            "passed": null,
+            "payee": "FX",
+            "timestamp": 1704470400,
+            "tolerance": null,
+            "trx_id": "102a35f8-8aaa-eee7-a32a-3dff55ed1a65"
+          }
+        ]
+      }
+    },
+    "Liabilities 2024-01-05..2024-01-10": {
+      "type": "Liabilities",
+      "from": "2024-01-05",
+      "to": "2024-01-10",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": []
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": []
+      },
+      "expected": {
+        "detail": [],
+        "from": "2024-01-05T00:00:00",
+        "to": "2024-01-10T23:59:59",
+        "top_transactions": []
+      }
+    },
+    "Equity 2024-01-05..2024-01-10": {
+      "type": "Equity",
+      "from": "2024-01-05",
+      "to": "2024-01-10",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": []
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": []
+      },
+      "expected": {
+        "detail": [],
+        "from": "2024-01-05T00:00:00",
+        "to": "2024-01-10T23:59:59",
+        "top_transactions": []
+      }
+    },
+    "Income 2024-01-05..2024-01-10": {
+      "type": "Income",
+      "from": "2024-01-05",
+      "to": "2024-01-10",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Income:Gains",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "USD",
+                    "number": "-8"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "-56.8"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-08",
+            "00:00:00",
+            1704643200,
+            "Income:Gains",
+            "6b32707c-a352-5e3e-862b-c70bfa678c9b",
+            "Broker",
+            "sell aapl",
+            {
+              "currency": "USD",
+              "number": "-8"
+            },
+            {
+              "currency": "USD",
+              "number": "-8"
+            },
+            {
+              "currency": "CNY",
+              "number": "-56.8"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "detail": [
+          {
+            "account": "Income:Gains",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "-56.8"
+              },
+              "detail": {
+                "USD": "-8"
+              }
+            }
+          }
+        ],
+        "from": "2024-01-05T00:00:00",
+        "to": "2024-01-10T23:59:59",
+        "top_transactions": [
+          {
+            "account": "Income:Gains",
+            "account_after": {
+              "commodity": "USD",
+              "number": "-8"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-08T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "USD",
+              "number": "-8"
+            },
+            "narration": "sell aapl",
+            "passed": null,
+            "payee": "Broker",
+            "timestamp": 1704643200,
+            "tolerance": null,
+            "trx_id": "6b32707c-a352-5e3e-862b-c70bfa678c9b"
+          }
+        ]
+      }
+    },
+    "Expenses 2024-01-05..2024-01-10": {
+      "type": "Expenses",
+      "from": "2024-01-05",
+      "to": "2024-01-10",
+      "account_totals": {
+        "columns": [
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "inventory"
+          },
+          {
+            "name": "value",
+            "type": "inventory"
+          }
+        ],
+        "rows": [
+          [
+            "Expenses:Food",
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "35"
+                  }
+                }
+              ]
+            },
+            {
+              "positions": [
+                {
+                  "cost": null,
+                  "units": {
+                    "currency": "CNY",
+                    "number": "35"
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "top_postings": {
+        "columns": [
+          {
+            "name": "date",
+            "type": "date"
+          },
+          {
+            "name": "time",
+            "type": "str"
+          },
+          {
+            "name": "timestamp",
+            "type": "int"
+          },
+          {
+            "name": "account",
+            "type": "str"
+          },
+          {
+            "name": "id",
+            "type": "str"
+          },
+          {
+            "name": "payee",
+            "type": "str"
+          },
+          {
+            "name": "narration",
+            "type": "str"
+          },
+          {
+            "name": "units",
+            "type": "amount"
+          },
+          {
+            "name": "account_balance",
+            "type": "amount"
+          },
+          {
+            "name": "value",
+            "type": "amount"
+          }
+        ],
+        "rows": [
+          [
+            "2024-01-05",
+            "00:00:00",
+            1704384000,
+            "Expenses:Food",
+            "b6b164f6-d64e-ec54-3ef3-d6f166802607",
+            "Shop B",
+            "second of the day",
+            {
+              "currency": "CNY",
+              "number": "20"
+            },
+            {
+              "currency": "CNY",
+              "number": "30"
+            },
+            {
+              "currency": "CNY",
+              "number": "20"
+            }
+          ],
+          [
+            "2024-01-05",
+            "00:00:00",
+            1704384000,
+            "Expenses:Food",
+            "9505963a-22b9-76d7-cb72-0ca327e5003a",
+            "Shop A",
+            "first of the day",
+            {
+              "currency": "CNY",
+              "number": "10"
+            },
+            {
+              "currency": "CNY",
+              "number": "10"
+            },
+            {
+              "currency": "CNY",
+              "number": "10"
+            }
+          ],
+          [
+            "2024-01-05",
+            "23:30:00",
+            1704468600,
+            "Expenses:Food",
+            "431cfc92-b802-985b-740b-bad8e2989416",
+            "Night",
+            "late snack",
+            {
+              "currency": "CNY",
+              "number": "5"
+            },
+            {
+              "currency": "CNY",
+              "number": "35"
+            },
+            {
+              "currency": "CNY",
+              "number": "5"
+            }
+          ]
+        ]
+      },
+      "expected": {
+        "detail": [
+          {
+            "account": "Expenses:Food",
+            "amount": {
+              "calculated": {
+                "commodity": "CNY",
+                "number": "35"
+              },
+              "detail": {
+                "CNY": "35"
+              }
+            }
+          }
+        ],
+        "from": "2024-01-05T00:00:00",
+        "to": "2024-01-10T23:59:59",
+        "top_transactions": [
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "30"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "20"
+            },
+            "narration": "second of the day",
+            "passed": null,
+            "payee": "Shop B",
+            "timestamp": 1704384000,
+            "tolerance": null,
+            "trx_id": "b6b164f6-d64e-ec54-3ef3-d6f166802607"
+          },
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "10"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T00:00:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "10"
+            },
+            "narration": "first of the day",
+            "passed": null,
+            "payee": "Shop A",
+            "timestamp": 1704384000,
+            "tolerance": null,
+            "trx_id": "9505963a-22b9-76d7-cb72-0ca327e5003a"
+          },
+          {
+            "account": "Expenses:Food",
+            "account_after": {
+              "commodity": "CNY",
+              "number": "35"
+            },
+            "asserted": null,
+            "checked_balance": null,
+            "datetime": "2024-01-05T23:30:00",
+            "difference": null,
+            "inferred_unit": {
+              "commodity": "CNY",
+              "number": "5"
+            },
+            "narration": "late snack",
+            "passed": null,
+            "payee": "Night",
+            "timestamp": 1704468600,
+            "tolerance": null,
+            "trx_id": "431cfc92-b802-985b-740b-bad8e2989416"
+          }
+        ]
+      }
+    }
+  }
+}

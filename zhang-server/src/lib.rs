@@ -128,9 +128,7 @@ impl GotchaApp for ServerApp {
             .get("/api/documents/*file_path", download_document)
             .get("/api/commodities", get_all_commodities)
             .get("/api/commodities/:commodity_name", get_single_commodity)
-            .get("/api/statistic/summary", get_statistic_summary)
             .get("/api/statistic/graph", get_statistic_graph)
-            .get("/api/statistic/:account_type", get_statistic_rank_detail_by_account_type)
             .get("/api/plugins", routes::plugin::plugin_list)
             // router plugins: any method, behind the same layers (and authentication) as the rest of the API
             .route(routes::plugin_router::ROUTE, any(routes::plugin_router::route_to_plugin))

@@ -1,6 +1,7 @@
-//! Golden tests of the report (`/api/statistic/*`), the built-in queries of `report`: on every
-//! fixture ledger against the query engine's own computation, and on small ledgers checked by
-//! hand.
+//! Golden tests of the report, the built-in queries of `report`, as the pages compute their
+//! figures from them (the summary and the ranks, `reportSummary` and `reportRank` in the frontend) and
+//! as `GET /api/statistic/graph` draws the graph: on every fixture ledger against the query engine's
+//! own computation, and on small ledgers checked by hand.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -8,14 +9,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::{Datelike, Days, Months, NaiveDate, Utc};
+use chrono::{Datelike, Days, Months, NaiveDate, NaiveDateTime, Utc};
 use serde_json::Value;
-use zhang_ast::amount::CalculatedAmount;
+use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::{AccountType, Flag};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, ParamTypes, Params, Query};
+use zhang_query::{DataType, Inventory, ParamTypes, Params, Query, QueryResult, Value as Cell};
 use zhang_server::builtin::{calculated_amount, execute, LedgerDateRange};
 use zhang_server::report;
 use zhang_server::request::StatisticInterval;
@@ -197,10 +198,6 @@ fn engine_figure(ledger: &Ledger, types: &[AccountType], account: Option<&str>, 
         .bind("from", from)
         .bind("to", to);
     let result = query.execute_at(ledger, &params, Utc::now().date_naive()).unwrap();
-    let inventory = |value: &zhang_query::Value| match value {
-        zhang_query::Value::Inventory(inventory) => inventory.clone(),
-        _ => zhang_query::Inventory::new(),
-    };
     match result.rows.first() {
         Some(row) => Fig::of(&calculated_amount(&inventory(&row[0]), &inventory(&row[1]), &currency)),
         None => Fig::of(&CalculatedAmount::new(&currency)),
@@ -210,6 +207,136 @@ fn engine_figure(ledger: &Ledger, types: &[AccountType], account: Option<&str>, 
 /// The first day the engine can date.
 fn day_one() -> NaiveDate {
     NaiveDate::from_ymd_opt(1, 1, 1).unwrap()
+}
+
+/// The cell of column `name` in `row` of `result`.
+fn cell<'a>(result: &QueryResult, row: &'a [Cell], name: &str) -> &'a Cell {
+    let index = result
+        .columns
+        .iter()
+        .position(|column| column.name == name)
+        .unwrap_or_else(|| panic!("no column {}", name));
+    &row[index]
+}
+
+/// An inventory, amount or NULL cell as an inventory.
+fn inventory(value: &Cell) -> Inventory {
+    match value {
+        Cell::Inventory(inventory) => inventory.clone(),
+        Cell::Amount(amount) => {
+            let mut inventory = Inventory::new();
+            inventory.add_amount(amount);
+            inventory
+        }
+        _ => Inventory::new(),
+    }
+}
+
+/// The figure of a row's `units` and `value` cells, as the pages compute it (`calculatedAmount` in the frontend).
+fn row_figure(result: &QueryResult, row: &[Cell], currency: &str) -> CalculatedAmount {
+    calculated_amount(&inventory(cell(result, row, "units")), &inventory(cell(result, row, "value")), currency)
+}
+
+/// The summary of a range as the pages compute it from the rows of `report.net_worth`, `report.liabilities`,
+/// `report.flows` and `report.transaction_count` (`reportSummary` in the frontend), in the operating currency.
+struct Summary {
+    balance: CalculatedAmount,
+    liability: CalculatedAmount,
+    income: CalculatedAmount,
+    expense: CalculatedAmount,
+    transaction_number: i64,
+}
+
+fn summary_of(ledger: &Ledger, range: &LedgerDateRange) -> Summary {
+    let currency = ledger.options.operating_currency.clone();
+    let at_end = Params::new().bind("to", range.to).bind("currency", currency.as_str());
+    let single = |name: &str, params: Params| {
+        let result = execute(ledger, name, &params, false).unwrap();
+        match result.rows.first() {
+            Some(row) => row_figure(&result, row, &currency),
+            None => CalculatedAmount::new(&currency),
+        }
+    };
+    let flows = execute(ledger, "report.flows", &range.bind(Params::new().bind("currency", currency.as_str())), false).unwrap();
+    let flow = |account_type: &str| match flows.rows.iter().find(|row| cell(&flows, row, "type") == &Cell::Str(account_type.to_owned())) {
+        Some(row) => row_figure(&flows, row, &currency),
+        None => CalculatedAmount::new(&currency),
+    };
+    let count = execute(ledger, "report.transaction_count", &range.bind(Params::new()), false).unwrap();
+    Summary {
+        balance: single("report.net_worth", at_end.clone()),
+        liability: single("report.liabilities", at_end),
+        income: flow("Income"),
+        expense: flow("Expenses"),
+        transaction_number: match count.rows.first().map(|row| cell(&count, row, "transactions")) {
+            Some(Cell::Int(transactions)) => *transactions,
+            _ => 0,
+        },
+    }
+}
+
+/// One of the largest postings of a type, as the pages show it from a row of `report.top_postings`.
+struct TopPosting {
+    datetime: NaiveDateTime,
+    timestamp: i64,
+    account: String,
+    trx_id: String,
+    payee: Option<String>,
+    narration: Option<String>,
+    inferred_unit: Amount,
+    account_after: Amount,
+}
+
+/// The rank of a type as the pages compute it from the rows of `report.account_totals` and `report.top_postings`
+/// (`reportRank` in the frontend): every account's figure, and the largest postings; a posting the query cannot
+/// describe in full is left out, as before.
+fn rank_of(ledger: &Ledger, account_type: AccountType, range: &LedgerDateRange) -> (Vec<(String, CalculatedAmount)>, Vec<TopPosting>) {
+    let currency = ledger.options.operating_currency.clone();
+    let params = range.bind(Params::new().bind("type", account_type.to_string()).bind("currency", currency.as_str()));
+    let totals = execute(ledger, "report.account_totals", &params, false).unwrap();
+    let detail = totals
+        .rows
+        .iter()
+        .filter_map(|row| match cell(&totals, row, "account") {
+            Cell::Str(account) => Some((account.clone(), row_figure(&totals, row, &currency))),
+            _ => None,
+        })
+        .collect();
+    let top = execute(ledger, "report.top_postings", &params, false).unwrap();
+    let text = |value: &Cell| match value {
+        Cell::Str(text) => Some(text.clone()),
+        _ => None,
+    };
+    let postings = top
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let (Cell::Date(date), Cell::Int(timestamp), Some(account), Some(id), Cell::Amount(units), Cell::Amount(balance)) = (
+                cell(&top, row, "date"),
+                cell(&top, row, "timestamp"),
+                text(cell(&top, row, "account")),
+                text(cell(&top, row, "id")),
+                cell(&top, row, "units"),
+                cell(&top, row, "account_balance"),
+            ) else {
+                return None;
+            };
+            let time = text(cell(&top, row, "time"))
+                .and_then(|it| chrono::NaiveTime::parse_from_str(&it, "%H:%M:%S").ok())
+                .unwrap_or_default();
+            Some(TopPosting {
+                datetime: date.and_time(time),
+                timestamp: *timestamp,
+                account,
+                trx_id: id,
+                payee: text(cell(&top, row, "payee")),
+                narration: text(cell(&top, row, "narration")),
+                inferred_unit: Amount::new(units.number.clone(), units.commodity.clone()),
+                account_after: Amount::new(balance.number.clone(), balance.commodity.clone()),
+            })
+        })
+        .collect();
+    (detail, postings)
 }
 
 /// The ten largest postings of `account_type` in `range` as the engine values them apart from
@@ -266,9 +393,8 @@ fn wrong_answers(name: &str, ledger: &Ledger) -> Vec<String> {
             }
         }
         for account_type in [AccountType::Expenses, AccountType::Income] {
-            let rank = report::rank(ledger, account_type, &range).unwrap();
-            let rows: Vec<String> = rank
-                .top_transactions
+            let (_, top_transactions) = rank_of(ledger, account_type, &range);
+            let rows: Vec<String> = top_transactions
                 .iter()
                 .map(|it| {
                     format!(
@@ -427,7 +553,7 @@ const APRIL: LedgerDateRange = LedgerDateRange {
 #[test]
 fn summary_of_the_hand_ledger() {
     let ledger = hand_ledger();
-    let summary = report::summary(&ledger, &APRIL).unwrap();
+    let summary = summary_of(&ledger, &APRIL);
     // CNY: 10000 - 40 - 1630 - 100 + 20000 - 60 (bank) + 500 (pad) - 200 (card) + 7 (no open);
     // 250 USD x 7.3 + 3 AAPL x 200 USD x 7.3 + 2000 JPY / 20
     assert_eq!(
@@ -440,30 +566,23 @@ fn summary_of_the_hand_ledger() {
     assert_eq!(Fig::of(&summary.expense), fig("4080", &[("1890", "CNY"), ("300", "USD"), ("8", "HOUR")]));
     // nine transactions in April, without the pad of April 15
     assert_eq!(summary.transaction_number, 9);
-    assert_eq!(summary.from.to_string(), "2025-04-01 00:00:00");
-    assert_eq!(summary.to.to_string(), "2025-04-30 23:59:59");
 }
 
-/// The summary, the graph and the rank of one range echo it alike, as the ledger's dates from their first to their
-/// last second: the summary echoed the UTC instants of those seconds instead, `2025-03-31T16:00:00Z` to
-/// `2025-04-30T15:59:59Z` for April in Shanghai
+/// The graph echoes its range as the ledger's dates from their first to their last second (the summary and the
+/// rank, which did the same, are the pages' queries now, whose parameters are the dates themselves): it echoed the
+/// UTC instants of those seconds instead, `2025-03-31T16:00:00Z` to `2025-04-30T15:59:59Z` for April in Shanghai
 #[test]
-fn every_report_echoes_its_range_as_the_ledgers_dates() {
+fn the_graph_echoes_its_range_as_the_ledgers_dates() {
     let ledger = hand_ledger();
-    let summary = report::summary(&ledger, &APRIL).unwrap();
     let graph = report::graph(&ledger, &APRIL, &StatisticInterval::Day).unwrap();
-    let rank = report::rank(&ledger, AccountType::Expenses, &APRIL).unwrap();
     let echo = |from: chrono::NaiveDateTime, to: chrono::NaiveDateTime| (from.to_string(), to.to_string());
-    let april = ("2025-04-01 00:00:00".to_owned(), "2025-04-30 23:59:59".to_owned());
-    assert_eq!(echo(summary.from, summary.to), april);
-    assert_eq!(echo(graph.from, graph.to), april);
-    assert_eq!(echo(rank.from, rank.to), april);
+    assert_eq!(echo(graph.from, graph.to), ("2025-04-01 00:00:00".to_owned(), "2025-04-30 23:59:59".to_owned()));
     // and in JSON, as the API answers
-    let json = |value: serde_json::Value| (value["from"].clone(), value["to"].clone());
-    let summary = json(serde_json::to_value(&summary).unwrap());
-    assert_eq!(summary, (serde_json::json!("2025-04-01T00:00:00"), serde_json::json!("2025-04-30T23:59:59")));
-    assert_eq!(json(serde_json::to_value(&graph).unwrap()), summary);
-    assert_eq!(json(serde_json::to_value(&rank).unwrap()), summary);
+    let json = serde_json::to_value(&graph).unwrap();
+    assert_eq!(
+        (json["from"].clone(), json["to"].clone()),
+        (serde_json::json!("2025-04-01T00:00:00"), serde_json::json!("2025-04-30T23:59:59"))
+    );
 }
 
 /// A range given as instants is read as the dates of those instants in the ledger's timezone.
@@ -482,8 +601,8 @@ fn ranges_are_ledger_dates() {
 #[test]
 fn ranking_of_the_hand_ledger() {
     let ledger = hand_ledger();
-    let expenses = report::rank(&ledger, AccountType::Expenses, &APRIL).unwrap();
-    let detail: Vec<(String, Fig)> = expenses.detail.iter().map(|it| (it.account.clone(), Fig::of(&it.amount))).collect();
+    let (expenses_detail, expenses_top) = rank_of(&ledger, AccountType::Expenses, &APRIL);
+    let detail: Vec<(String, Fig)> = expenses_detail.iter().map(|(account, amount)| (account.clone(), Fig::of(amount))).collect();
     assert_eq!(
         detail,
         vec![
@@ -492,8 +611,7 @@ fn ranking_of_the_hand_ledger() {
             ("Expenses:Travel".to_owned(), fig("2190", &[("300", "USD")])),
         ]
     );
-    let top: Vec<String> = expenses
-        .top_transactions
+    let top: Vec<String> = expenses_top
         .iter()
         .map(|it| {
             format!(
@@ -516,7 +634,7 @@ fn ranking_of_the_hand_ledger() {
             "2025-04-06 00:00:00 Expenses:Vacation 8 HOUR vacation used",
         ]
     );
-    let rent = &expenses.top_transactions[1];
+    let rent = &expenses_top[1];
     assert_eq!(rent.payee.as_deref(), Some("Landlord"));
     assert_eq!(rent.timestamp, 1743436800);
     assert_eq!(
@@ -536,9 +654,8 @@ fn ranking_of_the_hand_ledger() {
     // 300 USD at 7.3, the price of April 30; hours have no price
     assert_eq!(values, vec!["2190.0 CNY", "1630 CNY", "200 CNY", "60 CNY", "8 HOUR"]);
 
-    let income = report::rank(&ledger, AccountType::Income, &APRIL).unwrap();
-    let top: Vec<String> = income
-        .top_transactions
+    let (_, income_top) = rank_of(&ledger, AccountType::Income, &APRIL);
+    let top: Vec<String> = income_top
         .iter()
         .map(|it| format!("{} {}", it.account, plain(&it.inferred_unit.number)))
         .collect();
@@ -633,9 +750,9 @@ fn the_report_is_the_engines_on_every_ledger() {
 /// ([`engine_figure`]), and the store: the net worth and the liabilities at the end of the range
 /// and the income and the expenses of the range, by units and by value at the prices of its last
 /// day, and the number of the store's transactions dated in the range, padding transactions left
-/// out. What differs from `report::summary`, as `item: expected -> actual`.
+/// out. What differs from the pages' summary ([`summary_of`]), as `item: expected -> actual`.
 fn summary_differences(ledger: &Ledger, range: &LedgerDateRange) -> Vec<String> {
-    let summary = report::summary(ledger, range).unwrap();
+    let summary = summary_of(ledger, range);
     let mut differences = vec![];
     for (item, actual, types, from) in [
         ("balance", &summary.balance, &[AccountType::Assets, AccountType::Liabilities][..], day_one()),
@@ -1078,10 +1195,10 @@ fn weeks_and_months_add_up_the_days() {
 /// that say why.
 #[tokio::test]
 async fn bad_report_requests_are_bad_requests() {
-    use axum::extract::{Path as UrlPath, Query as UrlQuery, State};
+    use axum::extract::{Query as UrlQuery, State};
     use axum::response::IntoResponse;
-    use zhang_server::request::{StatisticGraphRequest, StatisticRequest};
-    use zhang_server::routes::statistics::{get_statistic_graph, get_statistic_rank_detail_by_account_type};
+    use zhang_server::request::StatisticGraphRequest;
+    use zhang_server::routes::statistics::get_statistic_graph;
     use zhang_server::state::SharedLedger;
 
     let ledger = SharedLedger(Arc::new(tokio::sync::RwLock::new(carry_ledger())));
@@ -1126,17 +1243,9 @@ async fn bad_report_requests_are_bad_requests() {
     let (status, _) = answer(get_statistic_graph(State(ledger.clone()), UrlQuery(request)).await.into_response()).await;
     assert_eq!(status, 200);
 
-    let request = StatisticRequest {
-        from: "2025-04-01".to_owned(),
-        to: "2025-04-30".to_owned(),
-    };
-    let response = get_statistic_rank_detail_by_account_type(State(ledger.clone()), UrlPath(("Foo".to_owned(),)), UrlQuery(request))
-        .await
-        .into_response();
-    let (status, message) = answer(response).await;
-    assert_eq!(status, 400);
-    assert_eq!(
-        message,
-        "unknown account type \"Foo\": expected Assets, Liabilities, Equity, Income or Expenses"
-    );
+    // the rank of a type no account has (the endpoint refused it with a 400): nothing to rank
+    let foo = APRIL.bind(Params::new().bind("type", "Foo").bind("currency", "CNY"));
+    let totals = execute(&*ledger.read().await, "report.account_totals", &foo, false).unwrap();
+    let top = execute(&*ledger.read().await, "report.top_postings", &foo, false).unwrap();
+    assert_eq!((totals.rows.len(), top.rows.len()), (0, 0));
 }
