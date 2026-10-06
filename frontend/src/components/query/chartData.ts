@@ -259,31 +259,7 @@ export function buildTreemap(points: ChartPoint[], currency: string): TreemapDat
   return { nodes, hasPositive, hasNegative };
 }
 
-// ---- bar chart ----
-
-export interface BarDatum {
-  label: string;
-  value: number;
-  signed: string;
-}
-
-/** One bar per label that has a value in `currency`, in result order. */
-export function buildBars(points: ChartPoint[], currency: string): BarDatum[] {
-  return points.flatMap((point) => {
-    const value = point.values.get(currency);
-    return value ? [{ label: point.label, value: value.value.toNumber(), signed: exactString(value) }] : [];
-  });
-}
-
-// ---- line chart ----
-
-export interface LineDatum {
-  /** local midnight of `date`, in milliseconds */
-  time: number;
-  date: string;
-  value: number;
-  signed: string;
-}
+// ---- bar and line charts: one series per value column ----
 
 /** Local midnight of a `YYYY-MM-DD` date. `setFullYear` avoids `new Date(y, m, d)` mapping years 0-99 to 1900-1999. */
 export function localTime(date: string): number | null {
@@ -293,20 +269,6 @@ export function localTime(date: string): number | null {
   time.setFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   return time.getTime();
 }
-
-/** One point per date in ascending order. A date without a value in `currency` is plotted as zero. */
-export function buildLine(points: ChartPoint[], currency: string): LineDatum[] {
-  return points
-    .flatMap((point) => {
-      const time = localTime(point.label);
-      if (time === null) return [];
-      const value = point.values.get(currency) ?? ZERO;
-      return [{ time, date: point.label, value: value.value.toNumber(), signed: exactString(value) }];
-    })
-    .sort((a, b) => a.time - b.time);
-}
-
-// ---- multi-series charts (PIVOT BY results) ----
 
 /** The most series a chart draws, one per categorical chart colour (chart-1..5). Further value columns are left to the table. */
 export const MAX_SERIES = 5;
@@ -328,7 +290,10 @@ export interface SeriesSet {
   total: number;
 }
 
-/** One series per value column (every column after the first), each collected like a two-column result. */
+/**
+ * One series per value column (every column after the first), each collected by `collectPoints`. A two-column result is
+ * a set of one series, so bar and line charts draw one value column or several (PIVOT BY results) the same way.
+ */
 export function collectSeries(result: QueryResult): SeriesSet {
   const labelType = result.columns[0].type;
   const labels = new Set<string>();
@@ -385,7 +350,7 @@ export function buildSeriesBars(set: SeriesSet, currency: string): SeriesChartDa
   return { series, data };
 }
 
-/** One point per date in ascending order, for every series. A date without a value in a series is plotted as zero there, as in a line chart. */
+/** One point per date in ascending order, for every series. A date without a value in a series is plotted as zero there. */
 export function buildSeriesLines(set: SeriesSet, currency: string): SeriesChartData<SeriesLineDatum> {
   const { series, byLabel } = seriesIn(set, currency);
   const data = set.labels

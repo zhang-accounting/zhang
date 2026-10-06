@@ -19,12 +19,6 @@ pub mod opendal;
 // the server report; the bare `version` would print the crate version, which stays 0.1.0
 #[clap(about, version = env!("ZHANG_BUILD_VERSION"), author)]
 pub enum Opts {
-    /// zhang parser
-    Parse(ParseOpts),
-
-    /// export to target file
-    Export(ExportOpts),
-
     /// start an internal server with frontend ui
     Serve(ServerOpts),
 
@@ -35,38 +29,6 @@ pub enum Opts {
     },
 }
 
-#[derive(Args, Debug)]
-pub struct ParseOpts {
-    /// base path of zhang project
-    pub path: PathBuf,
-
-    /// the endpoint of main zhang file.
-    #[clap(short, long, default_value = "main.zhang")]
-    pub endpoint: String,
-
-    /// indicate cache database file path, using tempfile if not present
-    #[clap(long)]
-    pub database: Option<PathBuf>,
-}
-#[derive(Args, Debug)]
-pub struct ExportOpts {
-    /// base path of zhang project
-    pub path: PathBuf,
-
-    /// the endpoint of main zhang file.
-    #[clap(short, long, default_value = "main.zhang")]
-    pub endpoint: String,
-
-    /// the endpoint of main zhang file.
-    #[clap(short, long, default_value = "Text")]
-    pub exporter: Exporter,
-}
-
-#[derive(Debug, Clone, clap::ValueEnum)]
-pub enum Exporter {
-    Text,
-    Beancount,
-}
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
 pub enum FileSystem {
     Fs,
@@ -128,13 +90,6 @@ impl Opts {
     /// sees why, and supervisors (systemd, Docker, Railway, ...) see the failure instead of a clean exit
     pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            Opts::Parse(_parse_opts) => {
-                // let format = SupportedFormat::from_path(&parse_opts.endpoint).expect("unsupported file type");
-                // todo: fix parse
-                // Ledger::load_with_database(parse_opts.path, parse_opts.endpoint, format.transformer()).expect("Cannot load ledger");
-                Ok(())
-            }
-            Opts::Export(_) => todo!(),
             Opts::Serve(mut opts) => {
                 let file_system = opts.source.clone().or(FileSystem::from_env()).unwrap_or(FileSystem::Fs);
                 info!("active file system is {:?}", file_system);

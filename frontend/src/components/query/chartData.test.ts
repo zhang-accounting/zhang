@@ -3,9 +3,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { QueryResult } from '@/api/types';
+import type { ChartPoint, SeriesSet } from './chartData.ts';
 import {
-  buildBars,
-  buildLine,
   buildSeriesBars,
   buildSeriesLines,
   buildTreemap,
@@ -27,6 +26,17 @@ function result(label: { name: string; type: string }, value: { name: string; ty
 
 const DATE = { name: 'date', type: 'date' };
 const ACCOUNT = { name: 'account', type: 'str' };
+
+// A two-column result is charted as a set of one series; these read it back as one bar or point per label.
+const oneSeries = (points: ChartPoint[]): SeriesSet => ({
+  labels: points.map((point) => point.label),
+  series: [{ name: 'value', index: 0, points }],
+  total: 1,
+});
+const buildBars = (points: ChartPoint[], currency: string) =>
+  buildSeriesBars(oneSeries(points), currency).data.map((datum) => ({ label: datum.label, value: datum.values[0], signed: datum.signed[0] }));
+const buildLine = (points: ChartPoint[], currency: string) =>
+  buildSeriesLines(oneSeries(points), currency).data.map((datum) => ({ date: datum.label, value: datum.values[0], signed: datum.signed[0] }));
 
 test('rows sharing a label are summed for flows', () => {
   const points = collectPoints(
@@ -176,6 +186,27 @@ test('two-column results keep their chart kinds', () => {
   assert.equal(detectChartKind(result(ACCOUNT, { name: 'total', type: 'amount' }, [['Supermarket', usd('1')]])), 'bar');
   assert.equal(detectChartKind(result(ACCOUNT, { name: 'flag', type: 'str' }, [['a', 'b']])), null);
   assert.equal(detectChartKind({ columns: [ACCOUNT], rows: [['Assets:Bank']] }), null);
+});
+
+test('a two-column result is charted as one series of its points', () => {
+  const rows = result(DATE, { name: 'position', type: 'position' }, [
+    ['2024-01-02', { units: usd('-20'), cost: null }],
+    ['2024-01-01', { units: usd('100.00'), cost: null }],
+    ['2024-01-02', { units: usd('5'), cost: null }],
+  ]);
+  const set = collectSeries(rows);
+  assert.deepEqual(set.labels, ['2024-01-02', '2024-01-01']);
+  assert.equal(set.total, 1);
+  assert.deepEqual(
+    set.series.map((series) => [series.name, series.index]),
+    [['position', 0]],
+  );
+  assert.deepEqual(set.series[0].points, collectPoints(rows));
+  // so the bar and line builders draw the same values as the adapters above
+  assert.deepEqual(
+    buildBars(collectPoints(rows), 'USD').map((bar) => bar.signed),
+    buildSeriesBars(set, 'USD').data.map((datum) => datum.signed[0]),
+  );
 });
 
 test('grouped bars keep the row order and leave missing cells empty', () => {
