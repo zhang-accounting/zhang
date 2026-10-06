@@ -1,4 +1,4 @@
-import { useAtomValue } from 'jotai';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { FileUp, Upload, X } from 'lucide-react';
 import { useId, useState } from 'react';
 import { FileWithPath, useDropzone } from 'react-dropzone';
@@ -12,19 +12,17 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { documentAccountSelectItemsAtom } from '@/states/account';
-
-interface Props {
-  onUploaded?: () => void;
-}
+import { ledgerChangedAtom } from '@/states/ledger';
 
 /** "Upload" action for the documents page: pick an account, drop files, upload them as account documents. */
-export function DocumentUploadDialog({ onUploaded }: Props) {
+export function DocumentUploadDialog() {
   const { t } = useTranslation();
   const id = useId();
   const [open, setOpen] = useState(false);
   const [account, setAccount] = useState<string | undefined>();
   const [files, setFiles] = useState<FileWithPath[]>([]);
   const [uploading, setUploading] = useState(false);
+  const ledgerChanged = useSetAtom(ledgerChangedAtom);
   // a document only records: it may name a closed account, as a final statement does
   const accountItems = useAtomValue(documentAccountSelectItemsAtom);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop: (accepted) => setFiles((current) => [...current, ...accepted]) });
@@ -42,7 +40,7 @@ export function DocumentUploadDialog({ onUploaded }: Props) {
       toast.success(t('documents.upload_success', { count: files.length }));
       reset();
       setOpen(false);
-      onUploaded?.();
+      ledgerChanged();
     } catch (error) {
       toast.error(t('documents.upload_failed'), { description: await apiErrorMessage(error) });
     } finally {

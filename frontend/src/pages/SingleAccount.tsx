@@ -2,7 +2,6 @@ import { ChartLine, CircleAlert, Cog, FileStack, NotebookText, WalletMinimal } f
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { useAsync } from 'react-use';
 import { retrieveAccountBalance, retrieveAccountDocuments, retrieveAccountInfo, retrieveAccountJournals } from '@/api/requests';
 import { EmptyState, PageHeader, PageShell, ResponsiveList } from '@/components/layout';
 import { JOURNAL_PAGE_SIZE } from '@/components/journalLines/journal-utils';
@@ -26,6 +25,7 @@ import { AssertionAmount } from '../components/journalLines/BalanceAssertion';
 import { ImageLightBox } from '../components/ImageLightBox';
 import DocumentPreview from '../components/journalPreview/DocumentPreview';
 import Section from '../components/Section';
+import { useLedgerQuery } from '../states/ledger';
 
 const TABS = ['journals', 'documents', 'history', 'settings'] as const;
 type TabKey = (typeof TABS)[number];
@@ -36,14 +36,9 @@ function SingleAccount() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') as TabKey | null;
   const tab: TabKey = requestedTab && TABS.includes(requestedTab) ? requestedTab : 'journals';
-  const [reloadKey, setReloadKey] = useState(0);
   const tabsScroller = useRef<HTMLDivElement>(null);
-  const reload = () => setReloadKey((key) => key + 1);
 
-  const info = useAsync(async () => {
-    if (!accountName) return undefined;
-    return (await retrieveAccountInfo({ account_name: accountName })).data.data;
-  }, [accountName, reloadKey]);
+  const info = useLedgerQuery(() => (accountName ? retrieveAccountInfo({ account_name: accountName }) : undefined), [accountName]);
   const account = info.value;
 
   // Keep the active tab visible in the horizontally scrolling tab strip on mobile.
@@ -148,13 +143,13 @@ function SingleAccount() {
         </div>
 
         <TabsContent value="journals">
-          <AccountJournals accountName={accountName ?? ''} reloadKey={reloadKey} />
+          <AccountJournals accountName={accountName ?? ''} />
         </TabsContent>
         <TabsContent value="documents">
           <AccountDocuments accountName={accountName ?? ''} subAccounts={subAccounts} />
         </TabsContent>
         <TabsContent value="history">
-          <AccountHistory accountName={accountName ?? ''} subAccounts={subAccounts} reloadKey={reloadKey} />
+          <AccountHistory accountName={accountName ?? ''} subAccounts={subAccounts} />
         </TabsContent>
         <TabsContent value="settings">
           <Section title={t('ledger.balance.title')} description={t('ledger.balance.description')}>
@@ -170,7 +165,6 @@ function SingleAccount() {
                       includesSubAccounts={row.includesSubAccounts}
                       commodity={row.commodity}
                       accountName={account.name}
-                      onSaved={reload}
                     />
                   ))}
                 </div>
@@ -187,18 +181,19 @@ function SingleAccount() {
 
 export default SingleAccount;
 
-function AccountJournals({ accountName, reloadKey }: { accountName: string; reloadKey: number }) {
+function AccountJournals({ accountName }: { accountName: string }) {
   const { t } = useTranslation();
   const fmt = useDateFormat();
   const [page, setPage] = useState(1);
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => setPage(1), [accountName]);
-  const journals = useAsync(async () => {
+  const journals = useLedgerQuery(async () => {
     const response = await retrieveAccountJournals({ account_name: accountName, page, size: JOURNAL_PAGE_SIZE });
     // the number of rows of all the pages
     const total = Number(response.headers.get('X-Total-Count') ?? response.data.data.length);
-    return { rows: response.data.data, totalPages: Math.ceil(total / JOURNAL_PAGE_SIZE) };
-  }, [accountName, reloadKey, page]);
+    // in the shape of an API response, which `useLedgerQuery` unwraps
+    return { data: { data: { rows: response.data.data, totalPages: Math.ceil(total / JOURNAL_PAGE_SIZE) } } };
+  }, [accountName, page]);
   type Row = NonNullable<typeof journals.value>['rows'][number];
   const onPage = (next: number) => {
     setPage(next);
@@ -312,8 +307,7 @@ function AccountJournals({ accountName, reloadKey }: { accountName: string; relo
 function AccountDocuments({ accountName, subAccounts }: { accountName: string; subAccounts: boolean }) {
   const { t } = useTranslation();
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
-  const [reloadKey, setReloadKey] = useState(0);
-  const documents = useAsync(async () => (await retrieveAccountDocuments({ account_name: accountName })).data.data, [accountName, reloadKey]);
+  const documents = useLedgerQuery(() => retrieveAccountDocuments({ account_name: accountName }), [accountName]);
 
   if (documents.error) return <EmptyState icon={CircleAlert} title={t('ledger.common.load_failed')} description={String(documents.error)} />;
 
@@ -325,7 +319,7 @@ function AccountDocuments({ accountName, subAccounts }: { accountName: string; s
     >
       <ImageLightBox src={lightboxSrc} onChange={setLightboxSrc} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:gap-3 lg:grid-cols-5">
-        <AccountDocumentUpload id={accountName} type="account" onUploaded={() => setReloadKey((key) => key + 1)} />
+        <AccountDocumentUpload id={accountName} type="account" />
         {documents.loading && !documents.value
           ? Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="aspect-square rounded-lg" />)
           : (documents.value ?? []).map((document, idx) => (
@@ -336,9 +330,9 @@ function AccountDocuments({ accountName, subAccounts }: { accountName: string; s
   );
 }
 
-function AccountHistory({ accountName, subAccounts, reloadKey }: { accountName: string; subAccounts: boolean; reloadKey: number }) {
+function AccountHistory({ accountName, subAccounts }: { accountName: string; subAccounts: boolean }) {
   const { t } = useTranslation();
-  const history = useAsync(async () => (await retrieveAccountBalance({ account_name: accountName })).data.data, [accountName, reloadKey]);
+  const history = useLedgerQuery(() => retrieveAccountBalance({ account_name: accountName }), [accountName]);
   return (
     <Section
       title={t('ledger.account.history_title')}

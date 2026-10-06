@@ -3,7 +3,6 @@ import { FileText, FolderTree, TriangleAlert } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
-import { useAsync } from 'react-use';
 import { retrieveFiles } from '@/api/requests';
 import { buildFileTree } from '@/components/basic/file-tree';
 import { FileTree, TableOfContentsFloating } from '@/components/basic/TableOfContentsFloating';
@@ -14,6 +13,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { lineFromSearch } from '@/lib/raw-edit-link';
 import { cn } from '@/lib/utils';
 import { titleAtom } from '@/states/basic';
+import { useLedgerQuery } from '@/states/ledger';
 
 /**
  * The page fills the viewport below the top bar: 100svh - top bar (3.5rem) - shell paddings
@@ -25,14 +25,8 @@ function RawEdit() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [dirty, setDirty] = useState(false);
-  const {
-    loading,
-    error,
-    value: files,
-  } = useAsync(async () => {
-    const res = await retrieveFiles({});
-    return (res.data.data ?? []).filter((it): it is string => it !== null);
-  }, []);
+  const { loading, error, value } = useLedgerQuery(() => retrieveFiles({}), []);
+  const files = useMemo(() => value?.filter((it): it is string => it !== null), [value]);
 
   const tree = useMemo(() => buildFileTree(files ?? []), [files]);
   const requested = searchParams.get('file');

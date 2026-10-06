@@ -1,7 +1,8 @@
-import { atomWithRefresh, loadable } from 'jotai/utils';
+import { loadable } from 'jotai/utils';
 import { atom } from 'jotai';
 import { loadable_unwrap } from './index';
 import { openAPIFetcher } from '../api/fetcher';
+import { ledgerRevisionAtom } from './ledger';
 
 const findErrors = openAPIFetcher.path('/api/errors').method('get').create();
 
@@ -10,7 +11,8 @@ const findErrors = openAPIFetcher.path('/api/errors').method('get').create();
  */
 export const errorPageAtom = atom(1);
 
-export const errorsFetcher = atomWithRefresh(async (get) => {
+export const errorsFetcher = atom(async (get) => {
+  get(ledgerRevisionAtom);
   const page = get(errorPageAtom);
   return (await findErrors({ page, size: 10 })).data.data;
 });

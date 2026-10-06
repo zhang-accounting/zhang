@@ -2,7 +2,6 @@ import { ArrowUpRight } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { useAsync } from 'react-use';
 import { retrieveBudgets } from '@/api/requests';
 import { BudgetListItem } from '@/api/types';
 import Amount from '@/components/Amount';
@@ -13,6 +12,7 @@ import Section from '@/components/Section';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BUDGET_DOCS_URL } from '@/layout/nav-links';
 import { cn } from '@/lib/utils';
+import { useLedgerQuery } from '@/states/ledger';
 
 const MAX_ROWS = 5;
 
@@ -75,7 +75,7 @@ export function MonthBudgetsCard({ month, className }: { month: Date; className?
   const fmt = useDateFormat();
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
-  const { value, loading, error } = useAsync(async () => (await retrieveBudgets({ year, month: monthIndex + 1 })).data.data, [year, monthIndex]);
+  const { value, loading, error } = useLedgerQuery(() => retrieveBudgets({ year, month: monthIndex + 1 }), [year, monthIndex]);
 
   const open = useMemo(() => (value ?? []).filter(countsInMonth), [value]);
   const rows = useMemo(() => [...open].sort((a, b) => Number(b.activity_amount.number) - Number(a.activity_amount.number)).slice(0, MAX_ROWS), [open]);

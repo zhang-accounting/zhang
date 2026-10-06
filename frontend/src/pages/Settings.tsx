@@ -2,7 +2,6 @@ import { useAtomValue } from 'jotai';
 import { ArrowUpRight, ExternalLink, Puzzle, RotateCw } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
 import { serverBaseUrl } from '@/api/fetcher';
 import { retrievePlugins } from '@/api/requests';
 import { PasskeySettings } from '@/components/auth/PasskeySettings';
@@ -22,6 +21,7 @@ import { LANGUAGES } from '@/lib/languages';
 import { cn } from '@/lib/utils';
 import { loadable_unwrap } from '@/states';
 import { basicInfoAtom, titleAtom, updatableVersionAtom, versionAtom } from '@/states/basic';
+import { useLedgerQuery } from '@/states/ledger';
 import { operatingCurrencyAtom, optionsAtom } from '@/states/options';
 
 const API_DOCS = [
@@ -40,10 +40,7 @@ export default function Settings() {
   const optionsLoading = optionsLoadable.state === 'loading';
   const options = loadable_unwrap(optionsLoadable, undefined, (data) => data);
   const operatingCurrency = useAtomValue(operatingCurrencyAtom);
-  const { value: plugins, loading: pluginsLoading } = useAsync(async () => {
-    const res = await retrievePlugins({});
-    return res.data.data;
-  }, []);
+  const { value: plugins, loading: pluginsLoading } = useLedgerQuery(() => retrievePlugins({}), []);
 
   const ledgerTitle = useAtomValue(titleAtom);
   const ledgerVersion = useAtomValue(versionAtom);

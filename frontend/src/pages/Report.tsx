@@ -3,7 +3,6 @@ import { ArrowDownLeft, ArrowUpRight, CircleAlert, Hash, Landmark, ReceiptText }
 import { OpReturnType } from 'openapi-typescript-fetch';
 import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
 import { retrieveStatisticByAccountType, retrieveStatisticGraph, retrieveStatisticSummary } from '@/api/requests';
 import { operations } from '@/api/schemas';
 import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList } from '@/components/layout';
@@ -12,6 +11,7 @@ import { useDateFormat } from '@/components/layout/use-date-format';
 import { activityAnchor, monthOf, useRecentJournals } from '@/components/layout/use-ledger-activity';
 import StatisticBox from '@/components/StatisticBox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useLedgerQuery } from '@/states/ledger';
 import { cn } from '@/lib/utils';
 import Amount from '../components/Amount';
 import PayeeNarration from '../components/basic/PayeeNarration';
@@ -39,10 +39,10 @@ export default function Report() {
   const deps = [ready, params.from, params.to];
   const interval = intervalForRange(range.from, range.to);
 
-  const summary = useAsync(async () => (ready ? (await retrieveStatisticSummary(params)).data.data : undefined), deps);
-  const graph = useAsync(async () => (ready ? (await retrieveStatisticGraph({ ...params, interval })).data.data : undefined), deps);
-  const income = useAsync(async () => (ready ? (await retrieveStatisticByAccountType({ ...params, account_type: 'Income' })).data.data : undefined), deps);
-  const expenses = useAsync(async () => (ready ? (await retrieveStatisticByAccountType({ ...params, account_type: 'Expenses' })).data.data : undefined), deps);
+  const summary = useLedgerQuery(() => (ready ? retrieveStatisticSummary(params) : undefined), deps);
+  const graph = useLedgerQuery(() => (ready ? retrieveStatisticGraph({ ...params, interval }) : undefined), deps);
+  const income = useLedgerQuery(() => (ready ? retrieveStatisticByAccountType({ ...params, account_type: 'Income' }) : undefined), deps);
+  const expenses = useLedgerQuery(() => (ready ? retrieveStatisticByAccountType({ ...params, account_type: 'Expenses' }) : undefined), deps);
   const { rows, commodity } = useGraphRows(graph.value, interval);
   // the operating currency, which the report's queries value everything in
   const currency = summary.value?.balance.calculated.commodity;
@@ -60,7 +60,7 @@ export default function Report() {
   const data = summary.value;
   const graphLoading = !graph.value && !graph.error;
   // A new range keeps showing the previous numbers until every request is back: dim them and say so.
-  const refreshing = [summary, graph, income, expenses].some((state) => state.loading && state.value !== undefined);
+  const refreshing = [summary, graph, income, expenses].some((state) => state.refreshing);
 
   return (
     <PageShell>

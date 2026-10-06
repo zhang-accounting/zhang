@@ -3,7 +3,6 @@ import { OpReturnType } from 'openapi-typescript-fetch';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { useAsync, useAsyncRetry } from 'react-use';
 import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests';
 import { operations } from '@/api/schemas';
 import Amount from '@/components/Amount';
@@ -21,6 +20,7 @@ import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { useLedgerQuery } from '@/states/ledger';
 
 type BudgetEvent = OpReturnType<operations['get_budget_interval_detail']>['data'][number];
 
@@ -45,22 +45,9 @@ function SingleBudget() {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
 
-  const {
-    value: budgetInfo,
-    error,
-    loading: infoLoading,
-  } = useAsync(async () => {
-    const res = await retrieveBudgetInfo({ budget_name: budgetName ?? '', year, month });
-    return res.data.data;
-  }, [budgetName, year, month]);
-  const {
-    value: events,
-    loading: eventsLoading,
-    error: eventsError,
-  } = useAsyncRetry(async () => {
-    const res = await retrieveBudgetEvent({ budget_name: budgetName ?? '', year, month });
-    return res.data.data;
-  }, [budgetName, year, month]);
+  const info = useLedgerQuery(() => retrieveBudgetInfo({ budget_name: budgetName ?? '', year, month }), [budgetName, year, month]);
+  const events = useLedgerQuery(() => retrieveBudgetEvent({ budget_name: budgetName ?? '', year, month }), [budgetName, year, month]);
+  const { value: budgetInfo, error, firstLoad } = info;
 
   const columns: ResponsiveColumn<BudgetEvent>[] = [
     {
@@ -146,9 +133,8 @@ function SingleBudget() {
   }
 
   const usage = budgetInfo ? budgetUsage(budgetInfo.activity_amount.number, budgetInfo.assigned_amount.number) : undefined;
-  const firstLoad = infoLoading && budgetInfo === undefined;
   // Switching month keeps the previous month's numbers on screen until the requests are back: dim them and say so.
-  const refreshing = (infoLoading && budgetInfo !== undefined) || (eventsLoading && events !== undefined);
+  const refreshing = info.refreshing || events.refreshing;
 
   return (
     <PageShell>
@@ -217,12 +203,12 @@ function SingleBudget() {
           <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: fmt.month(date) })}</h2>
           {budgetInfo && <OpenInExplore name="budgets.postings" params={budgetPostingsParams(budgetInfo, date)} iconOnly />}
         </div>
-        {eventsError ? (
-          <EmptyState icon={TriangleAlert} title={t('page_state.load_failed')} description={eventsError.message} />
+        {events.error ? (
+          <EmptyState icon={TriangleAlert} title={t('page_state.load_failed')} description={events.error.message} />
         ) : (
           <ResponsiveList
-            items={events ?? []}
-            loading={eventsLoading && events === undefined}
+            items={events.value ?? []}
+            loading={events.firstLoad}
             getKey={(event, index) => `${event.timestamp}-${index}`}
             columns={columns}
             renderCard={renderCard}
