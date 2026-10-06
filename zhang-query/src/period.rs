@@ -52,7 +52,6 @@ use uuid::Uuid;
 use zhang_ast::amount::Amount;
 use zhang_ast::{resolve_local_datetime, Account, AccountType, Date, Directive, Flag, SpanInfo, Transaction, ZhangString};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::TransactionDomain;
 use zhang_core::utils::id::FromSpan;
 
 use crate::error::{LocatedError, Span};
@@ -544,7 +543,7 @@ impl<'a> Transform<'_, 'a> {
             filename: Some(PathBuf::from(kind.source())),
             ..SpanInfo::default()
         });
-        let datetime = resolve_local_datetime(&self.ledger.options.timezone, &date.and_time(NaiveTime::MIN));
+        let datetime = resolve_local_datetime(&self.ledger.options.timezone, &date.and_time(NaiveTime::MIN)).fixed_offset();
         let mut parsed = Vec::with_capacity(postings.len());
         for (posting_index, posting) in postings.into_iter().enumerate() {
             // what its columns read: the account; written with its units, so not automatic
@@ -569,13 +568,8 @@ impl<'a> Transform<'_, 'a> {
         }
         let heads = (0..parsed.len() as u32).map(|leg| Head { leg, automatic: false }).collect::<Vec<_>>();
         self.entries.push(Entry {
-            txn: MaybeOwned::owned(TransactionDomain {
-                id,
-                sequence: 0,
-                // folded from no directive of the ledger
-                directive: usize::MAX,
-                datetime,
-            }),
+            id,
+            datetime,
             parsed: MaybeOwned::owned(Transaction {
                 date: Date::Date(date),
                 flag: Some(Flag::Custom(kind.flag().to_owned())),
@@ -611,11 +605,10 @@ mod tests {
     /// own projection).
     fn run(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
         let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
-        let store = ledger.store.read().unwrap();
         let equity = EquityAccounts::from_options(&ledger.options.values);
         let period = query.plan.period.as_ref().expect("a period query").resolve(&Params::new()).unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let data = Dataset::new(ledger, &store, today, projection.unwrap_or(query.projection));
+        let data = Dataset::new(ledger, today, projection.unwrap_or(query.projection));
         let data = period.apply(data, ledger, &equity);
         let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
         // the Debug form keeps decimal scales, so equal strings are identical results

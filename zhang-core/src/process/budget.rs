@@ -7,73 +7,52 @@ use zhang_ast::{Budget, BudgetAdd, BudgetClose, BudgetTransfer, Date, Directive,
 
 use crate::domains::schemas::price_map;
 use crate::ledger::Ledger;
-use crate::process::DirectiveProcess;
 use crate::utils::hashmap::HashMapOfExt;
-use crate::ZhangResult;
 
-impl DirectiveProcess for Budget {
-    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        if defined(ledger, &self.name).is_some() {
-            ledger.operations().new_error(ErrorKind::DefineDuplicatedBudget, span, HashMap::default())?;
-            Ok(false)
-        } else {
-            Ok(true)
+/// define the budget of `budget`, unless one of its name is defined already
+pub(crate) fn define(budget: &Budget, ledger: &mut Ledger, span: &SpanInfo) {
+    if defined(ledger, &budget.name).is_some() {
+        ledger.report(ErrorKind::DefineDuplicatedBudget, span, HashMap::default());
+        return;
+    }
+    let defined = DefinedBudget {
+        commodity: budget.commodity.clone(),
+        close: None,
+    };
+    ledger
+        .defined_budgets
+        .as_mut()
+        .expect("budget state is set during the fold")
+        .insert(budget.name.clone(), defined);
+}
+
+/// check a `budget-add` of a defined budget
+pub(crate) fn add(add: &BudgetAdd, ledger: &mut Ledger, span: &SpanInfo) {
+    if budget_exists(ledger, &add.name, span) {
+        keep_foreign_amount(ledger, &add.name, &add.amount, None, add.date.naive_date(), span, None);
+    }
+}
+
+/// check a `budget-transfer` between defined budgets
+pub(crate) fn transfer(transfer: &BudgetTransfer, ledger: &mut Ledger, span: &SpanInfo) {
+    if budget_exists(ledger, &transfer.from, span) && budget_exists(ledger, &transfer.to, span) {
+        for name in [&transfer.from, &transfer.to] {
+            keep_foreign_amount(ledger, name, &transfer.amount, None, transfer.date.naive_date(), span, None);
         }
     }
+}
 
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        let budget = DefinedBudget {
-            commodity: self.commodity.clone(),
-            close: None,
-        };
-        ledger
-            .defined_budgets
-            .as_mut()
-            .expect("budget state is set during the store fold")
-            .insert(self.name.clone(), budget);
-        Ok(())
+/// close a defined budget: a budget closes with its first `budget-close`
+pub(crate) fn close(close: &BudgetClose, ledger: &mut Ledger, span: &SpanInfo) {
+    if !budget_exists(ledger, &close.name, span) {
+        return;
+    }
+    if let Some(budget) = ledger.defined_budgets.as_mut().and_then(|budgets| budgets.get_mut(&close.name)) {
+        budget.close.get_or_insert_with(|| close.date.clone());
     }
 }
 
-impl DirectiveProcess for BudgetAdd {
-    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        budget_exists(ledger, &self.name, span)
-    }
-
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        keep_foreign_amount(ledger, &self.name, &self.amount, None, self.date.naive_date(), span, None);
-        Ok(())
-    }
-}
-
-impl DirectiveProcess for BudgetTransfer {
-    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        Ok(budget_exists(ledger, &self.from, span)? && budget_exists(ledger, &self.to, span)?)
-    }
-
-    fn process(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<()> {
-        for name in [&self.from, &self.to] {
-            keep_foreign_amount(ledger, name, &self.amount, None, self.date.naive_date(), span, None);
-        }
-        Ok(())
-    }
-}
-
-impl DirectiveProcess for BudgetClose {
-    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        budget_exists(ledger, &self.name, span)
-    }
-
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        // a budget closes with its first budget-close
-        if let Some(budget) = ledger.defined_budgets.as_mut().and_then(|budgets| budgets.get_mut(&self.name)) {
-            budget.close.get_or_insert_with(|| self.date.clone());
-        }
-        Ok(())
-    }
-}
-
-/// What the store fold knows of a defined budget, solely to validate the stream. Budget figures
+/// What the fold knows of a defined budget, solely to validate the stream. Budget figures
 /// belong to the query engine.
 #[derive(Debug)]
 pub(crate) struct DefinedBudget {
@@ -101,19 +80,16 @@ pub(crate) struct ForeignAmount {
 
 /// The budget `name`, if the stream has defined it so far.
 pub(super) fn defined<'a>(ledger: &'a Ledger, name: &str) -> Option<&'a DefinedBudget> {
-    ledger.defined_budgets.as_ref().expect("budget state is set during the store fold").get(name)
+    ledger.defined_budgets.as_ref().expect("budget state is set during the fold").get(name)
 }
 
 /// A directive using an undefined budget reports an error at its span.
-fn budget_exists(ledger: &mut Ledger, name: &str, span: &SpanInfo) -> ZhangResult<bool> {
-    if defined(ledger, name).is_some() {
-        Ok(true)
-    } else {
-        ledger
-            .operations()
-            .new_error(ErrorKind::BudgetDoesNotExist, span, HashMap::of("budget_name", name))?;
-        Ok(false)
+fn budget_exists(ledger: &mut Ledger, name: &str, span: &SpanInfo) -> bool {
+    let exists = defined(ledger, name).is_some();
+    if !exists {
+        ledger.report(ErrorKind::BudgetDoesNotExist, span, HashMap::of("budget_name", name));
     }
+    exists
 }
 
 /// Keep `amount` of the budget `name` for [`report_unconverted_amounts`] when it is in another
@@ -142,12 +118,11 @@ pub(super) fn keep_foreign_amount(
 /// commodity at their date, as the query engine converts them
 /// ([`zhang_shared::prices::PriceMap::conversion`]): the engine leaves them out of the budget instead of adding them
 /// as numbers of another commodity. `directives` are those of the stream being folded, every price among them.
-pub(crate) fn report_unconverted_amounts(ledger: &mut Ledger, directives: &[Spanned<Directive>]) -> ZhangResult<()> {
+pub(crate) fn report_unconverted_amounts(ledger: &mut Ledger, directives: &[Spanned<Directive>]) {
     let amounts = std::mem::take(&mut ledger.foreign_budget_amounts);
     if amounts.is_empty() {
-        return Ok(());
+        return;
     }
-    let mut operations = ledger.operations();
     let prices = price_map(directives, &ledger.options.timezone);
     for amount in amounts {
         if prices
@@ -164,7 +139,6 @@ pub(crate) fn report_unconverted_amounts(ledger: &mut Ledger, directives: &[Span
         if let Some(account) = amount.account {
             metas.insert("account_name".to_owned(), account);
         }
-        operations.new_error(ErrorKind::BudgetCommodityMismatch, &amount.span, metas)?;
+        ledger.report(ErrorKind::BudgetCommodityMismatch, &amount.span, metas);
     }
-    Ok(())
 }

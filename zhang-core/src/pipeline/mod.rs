@@ -23,7 +23,8 @@
 //! A balance assertion never moves a balance (as in beancount): [`PadStage`] adds the
 //! padding transactions, the only directives that book anything on behalf of an
 //! assertion, and [`BalanceCheckStage`] only checks. It records what it found for each
-//! assertion with [`StageContext::record_assertion`], which the store keeps for the journal.
+//! assertion with [`StageContext::record_assertion`], which the load keeps for the journal
+//! ([`Ledger::outcomes`](crate::ledger::Ledger::outcomes)).
 
 mod active_accounts;
 pub(crate) mod balance;
@@ -34,7 +35,7 @@ mod pad;
 mod plugin_view;
 mod validate;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 pub use active_accounts::{AccountLifecycle, AccountUse, ActiveAccountsStage};
 pub use balance_check::BalanceCheckStage;
@@ -46,7 +47,6 @@ use indexmap::IndexSet;
 use log::debug;
 pub use pad::{serving_pads, PadStage};
 pub use plugin_view::AbiV1View;
-use uuid::Uuid;
 pub(crate) use validate::FinalValidation;
 pub use validate::ValidateStage;
 use zhang_ast::amount::Amount;
@@ -58,7 +58,6 @@ use crate::data_type::Dialect;
 use crate::domains::schemas::{CommodityDomain, OptionDomain};
 use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
-use crate::utils::id::FromSpan;
 use crate::ZhangResult;
 
 /// where a plugin's processor and mapper run in the pipeline, relative to [`BookingStage`]
@@ -87,7 +86,7 @@ impl PluginStage {
 }
 
 /// a problem reported by a stage; collected by the executor and materialized
-/// into the store after the pipeline finishes
+/// into the ledger's errors after the pipeline finishes
 pub struct StageError {
     pub kind: ErrorKind,
     pub span: SpanInfo,
@@ -106,21 +105,9 @@ pub struct AssertionOutcome {
     pub passed: bool,
 }
 
-/// the [`AssertionOutcome`]s of a load, by the id of the assertion's span (the id the store gives it).
-/// Assertions sharing a span, which a plugin may emit, are taken in the order they were recorded
-#[derive(Debug, Default)]
-pub struct AssertionOutcomes(HashMap<Uuid, VecDeque<AssertionOutcome>>);
-
-impl AssertionOutcomes {
-    pub fn record(&mut self, span: &SpanInfo, outcome: AssertionOutcome) {
-        self.0.entry(Uuid::from_span(span)).or_default().push_back(outcome);
-    }
-
-    /// the outcome of the next assertion with this span, `None` if none was recorded
-    pub fn take(&mut self, span: &SpanInfo) -> Option<AssertionOutcome> {
-        self.0.get_mut(&Uuid::from_span(span)).and_then(VecDeque::pop_front)
-    }
-}
+/// the [`AssertionOutcome`]s of a load, by the index of the assertion in the stream the stage checked. The stages after
+/// it add, remove and reorder no directive, so that is its index in the stream the pipeline ends with
+pub type AssertionOutcomes = HashMap<usize, AssertionOutcome>;
 
 /// context handed to every stage
 pub struct StageContext<'a> {
@@ -218,9 +205,9 @@ impl<'a> StageContext<'a> {
         &self.inputs
     }
 
-    /// record what a `balance` assertion, the directive at `span`, was checked against
-    pub fn record_assertion(&mut self, span: &SpanInfo, outcome: AssertionOutcome) {
-        self.assertions.record(span, outcome);
+    /// record what a `balance` assertion, the directive at `index` in the stream, was checked against
+    pub fn record_assertion(&mut self, index: usize, outcome: AssertionOutcome) {
+        self.assertions.insert(index, outcome);
     }
 
     /// consume the context and take the errors stages reported
@@ -250,7 +237,7 @@ pub trait ProcessStage {
 /// the native core stages that run after all plugin stages, in execution order.
 /// [`ActiveAccountsStage`] checks the accounts of every directive before the pad stage adds
 /// its `P` transactions, which therefore are not checked twice.
-/// [`ValidateStage`] runs last, booking and validating the stream the store will consume.
+/// [`ValidateStage`] runs last, booking and validating the stream the load's fold reads.
 /// [`BookingStage`] is not among them: it runs before the plugins
 pub fn builtin_stages() -> Vec<Box<dyn ProcessStage>> {
     vec![
@@ -316,8 +303,9 @@ pub(crate) mod test {
         let (errors, mut assertions) = ctx.into_results();
         let outcomes = out
             .iter()
-            .filter(|it| matches!(it.data, Directive::BalanceCheck(_)))
-            .map(|it| assertions.take(&it.span).expect("every check records its outcome"))
+            .enumerate()
+            .filter(|(_, it)| matches!(it.data, Directive::BalanceCheck(_)))
+            .map(|(index, _)| assertions.remove(&index).expect("every check records its outcome"))
             .collect();
         (
             out.into_iter().map(|it| it.data).collect(),

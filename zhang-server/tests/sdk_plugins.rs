@@ -248,8 +248,7 @@ fn the_guard_processor_reads_config_custom_clock_files_and_prices_and_reports_er
     assert_eq!(registered, vec![("guard".to_owned(), "0.1.0".to_owned(), vec![PluginType::Processor])]);
 
     // each error is on its transaction, with the plugin's metas
-    let store = ledger.store.read().unwrap();
-    let errors: Vec<(String, HashMap<String, String>)> = store
+    let errors: Vec<(String, HashMap<String, String>)> = ledger
         .errors
         .iter()
         .map(|error| {
@@ -258,7 +257,6 @@ fn the_guard_processor_reads_config_custom_clock_files_and_prices_and_reports_er
             (span.content.lines().next().unwrap().to_owned(), error.metas.clone())
         })
         .collect();
-    drop(store);
     let summary: Vec<(&str, &str, &str)> = errors
         .iter()
         .map(|(line, metas)| (line.as_str(), metas["rule"].as_str(), metas["message"].as_str()))
@@ -474,8 +472,7 @@ fn the_lots_processor_sees_booked_postings_by_default_and_written_ones_in_the_ra
         .unwrap();
         let lots = lots.rows.iter().map(|lot| format!("{} {}", lot[0], lot[1])).collect::<Vec<_>>();
         let postings = written_postings(ledger);
-        let store = ledger.store.read().unwrap();
-        assert_eq!(store.errors.len(), 0);
+        assert_eq!(ledger.errors.len(), 0);
         assert_eq!(postings.len(), 7);
         let (_, unit, inferred) = postings.iter().find(|(account, _, _)| account == "Income:Gains").unwrap();
         assert_eq!(inferred.to_string(), "-250 USD");
@@ -498,7 +495,7 @@ fn the_balances_processor_accumulates_booked_units_and_costs_and_rejects_raw_cos
         ("exact", json!({"units": {}, "cost": {}})),
     ] {
         let ledger = load(&dir, &content.replace("{stage}", &format!("{targets}\n  scope: \"{scope}\"")));
-        assert!(ledger.store.read().unwrap().errors.is_empty());
+        assert!(ledger.errors.is_empty());
         let sale = ledger
             .directives
             .iter()
@@ -522,9 +519,8 @@ fn the_balances_processor_accumulates_booked_units_and_costs_and_rejects_raw_cos
     }
     let raw = load(&dir, &content.replace("{stage}", &format!("{targets}\n  stage: \"raw\"")));
     let postings = written_postings(&raw);
-    let store = raw.store.read().unwrap();
-    assert_eq!(store.errors.len(), 3);
-    assert!(store
+    assert_eq!(raw.errors.len(), 3);
+    assert!(raw
         .errors
         .iter()
         .all(|error| error.error_type == ErrorKind::PluginError && error.metas["rule"] == "unbooked"));

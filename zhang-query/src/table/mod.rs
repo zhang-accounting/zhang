@@ -14,7 +14,7 @@
 //!   per loaded ledger ([`LedgerCache`]), and only those of the accounts the query is scoped
 //!   to ([`Scope`]).
 //! - [`Rows::Records`]: every other table. A builder walks the ledger once and returns one
-//!   [`Record`] per row, which only borrows the ledger and the store; its columns are computed
+//!   [`Record`] per row, which only borrows the ledger; its columns are computed
 //!   when an expression reads them. A builder may skip work that only unprojected columns
 //!   need (see [`Projection::contains`]).
 //! - [`Rows::Generated`]: record tables whose rows are not read from the ledger but generated,
@@ -51,7 +51,6 @@ use chrono::{NaiveDate, NaiveDateTime};
 use zhang_ast::{Commodity, Directive, Meta, Spanned};
 use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{Store, TransactionDomain};
 
 pub(crate) use self::cache::{Head, LedgerCache};
 pub use self::postings::COLUMNS;
@@ -114,13 +113,13 @@ pub(crate) enum Rows {
 }
 
 /// Builds the rows of a record table, in the table's row order.
-pub(crate) type RecordSource = for<'a> fn(&'a Ledger, &'a Store, Projection) -> Vec<Record<'a>>;
+pub(crate) type RecordSource = for<'a> fn(&'a Ledger, Projection) -> Vec<Record<'a>>;
 
 /// Builds the generated rows of a record table, in the table's row order, calling
 /// [`Limits::row`] for every row before it builds it.
 /// It gets `today()` of the execution, and the last date a row needs to have (see
 /// [`crate::optimizer::date_bound`]): rows dated after it are not generated.
-pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, &'a Store, Generation, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
+pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, Generation, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
 
 /// What a [`GeneratedSource`] needs to know of the execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,15 +271,13 @@ pub(crate) enum Borrow {
     Contains(fn(&Dataset<'_>, &Row<'_>, &str) -> bool),
 }
 
-/// One row of a record table. It only borrows the ledger and the store; the table's columns
-/// compute their values from it on access.
+/// One row of a record table. It only borrows the ledger; the table's columns compute their
+/// values from it on access.
 pub(crate) enum Record<'a> {
     /// a row of `#entries`, or of a table of one kind of directive: a directive with its place in the ledger
     Entry {
         directive: &'a Spanned<Directive>,
         info: &'a cache::EntryInfo,
-        /// for a transaction, what zhang stored of it, which its columns read
-        txn: Option<&'a TransactionDomain>,
     },
     /// a document: a `document` directive, or a `document` metadata value
     Document(directives::DocumentRow<'a>),
@@ -390,7 +387,6 @@ pub(crate) struct Dataset<'a> {
     pub today: NaiveDate,
     pub projection: Projection,
     ledger: &'a Ledger,
-    store: &'a Store,
     /// what every query of the ledger shares (see [`LedgerCache`])
     cache: &'a LedgerCache,
     /// the budgets of the ledger, folded once for the `budgets` column
@@ -401,13 +397,13 @@ impl<'a> Dataset<'a> {
     /// The rows of the projection's table (of the `postings` table, those in `scope`);
     /// generated rows count against `limits`.
     pub fn build(
-        ledger: &'a Ledger, store: &'a Store, today: NaiveDate, projection: Projection, scope: &Scope, until: Option<NaiveDate>, limits: &mut Limits<'_>,
+        ledger: &'a Ledger, today: NaiveDate, projection: Projection, scope: &Scope, until: Option<NaiveDate>, limits: &mut Limits<'_>,
     ) -> Result<Self, LocatedError> {
-        let cache = LedgerCache::of(ledger, store);
+        let cache = LedgerCache::of(ledger);
         let records = match projection.table().rows {
-            Rows::Postings => return Ok(Dataset::postings(ledger, store, cache, today, projection, scope)),
-            Rows::Records(source) => source(ledger, store, projection),
-            Rows::Generated(source) => source(ledger, store, Generation { today, until }, projection, limits)?,
+            Rows::Postings => return Ok(Dataset::postings(ledger, cache, today, projection, scope)),
+            Rows::Records(source) => source(ledger, projection),
+            Rows::Generated(source) => source(ledger, Generation { today, until }, projection, limits)?,
         };
         Ok(Dataset {
             table: projection.table(),
@@ -417,7 +413,6 @@ impl<'a> Dataset<'a> {
             today,
             projection,
             ledger,
-            store,
             cache,
             budgets: OnceCell::new(),
         })
@@ -456,17 +451,17 @@ impl<'a> Dataset<'a> {
 
     /// The `#entries` / `#transactions` rows of the ledger.
     pub(crate) fn entry_table(&self) -> &'a cache::Entries {
-        self.cache.entries(self.ledger, self.store)
+        self.cache.entries(self.ledger)
     }
 
     /// The `id` of the `#entries` row `seq`.
     pub(crate) fn entry_id(&self, seq: u32) -> &'a str {
-        self.cache.entry_id(self.ledger, self.store, self.entry_table(), seq)
+        self.cache.entry_id(self.ledger, self.entry_table(), seq)
     }
 
     /// The `open` and `close` directives of `account`, for `open_date()`, `open_meta()`, ...
     pub fn account_directives(&self, account: &str) -> Option<AccountDirectives<'a>> {
-        self.cache.lookups(self.ledger, self.store).account(self.ledger, account)
+        self.cache.lookups(self.ledger).account(self.ledger, account)
     }
 
     /// The budgets a posting of `account` at the wall-clock time `at` counts in, for `account_budgets()`: the ledger's
@@ -482,7 +477,7 @@ impl<'a> Dataset<'a> {
 
     /// The `commodity` directive of `currency`, for `commodity_meta()`.
     pub fn commodity_directive(&self, currency: &str) -> Option<&'a Commodity> {
-        self.cache.lookups(self.ledger, self.store).commodity(self.ledger, currency)
+        self.cache.lookups(self.ledger).commodity(self.ledger, currency)
     }
 
     /// What `meta(key)` reads at `row`: the posting's metadata, or a record's own metadata.

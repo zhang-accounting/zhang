@@ -301,12 +301,7 @@ impl Query {
             &self.plan
         };
         let today = options.today.unwrap_or_else(|| ledger.today());
-        let store = ledger
-            .store
-            .read()
-            .map_err(|_| QueryError::new(QueryErrorKind::Eval, "the ledger store is not readable"))?;
-        let cache = table::LedgerCache::of(ledger, &store);
-        cache.check(ledger, &store).map_err(|err| err.resolve(&self.source))?;
+        let cache = table::LedgerCache::of(ledger);
         let equity;
         let mut budget = executor::Budget::new(options.max_result_values);
         let data = match &period {
@@ -314,11 +309,11 @@ impl Query {
                 let scope = self.plan.execution.scope.as_ref().map(|scope| scope.resolve(params)).unwrap_or_default();
                 let until = self.plan.execution.until.as_ref().map(|until| until.resolve(params, today));
                 let mut limits = table::Limits::new(deadline.as_ref(), &mut budget);
-                table::Dataset::build(ledger, &store, today, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
+                table::Dataset::build(ledger, today, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
             }
             Some(period) => {
                 equity = period::EquityAccounts::from_options(&ledger.options.values);
-                let data = table::Dataset::postings(ledger, &store, cache, today, self.projection, &table::Scope::All);
+                let data = table::Dataset::postings(ledger, cache, today, self.projection, &table::Scope::All);
                 period.apply(data, ledger, &equity)
             }
         };

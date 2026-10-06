@@ -877,7 +877,6 @@ mod test {
     use crate::data_type::DataType;
     use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
-    use crate::store::Store;
     use crate::ZhangError;
 
     /// A file is named by its path within the ledger, normalized, whether it is given relative to the root or under
@@ -922,7 +921,7 @@ mod test {
 
         let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source.clone()).expect("an empty ledger");
 
-        assert!(ledger.store.read().unwrap().errors.is_empty());
+        assert!(ledger.errors.is_empty());
         assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
         ledger.data_source.append(&ledger, coffee()).unwrap();
         assert_eq!(
@@ -932,7 +931,7 @@ mod test {
         std::fs::write(root.join("accounts.zhang"), OPENS).unwrap();
         std::fs::write(root.join("main.zhang"), "include \"accounts.zhang\"\ninclude \"data/2024/01.zhang\"\n").unwrap();
         let reloaded = Ledger::load_with_data_source(root, "main.zhang".to_owned(), source).unwrap();
-        assert_eq!(reloaded.store.read().unwrap().transactions.len(), 1);
+        assert_eq!(reloaded.transactions().len(), 1);
     }
 
     /// An `include` of a file outside the ledger's directory, by a relative path climbing out of it or by an absolute
@@ -955,9 +954,8 @@ mod test {
 
         let ledger = Ledger::load_with_data_source(root.join("ledger"), "main.zhang".to_owned(), source).unwrap();
 
-        let store = ledger.store.read().unwrap();
         assert_eq!(
-            include_errors(&store),
+            include_errors(&ledger),
             vec![
                 ("../outside/o.zhang".to_owned(), "include \"../outside/o.zhang\"".to_owned()),
                 (absolute.clone(), format!("include \"{absolute}\""))
@@ -1018,9 +1016,8 @@ mod test {
         let main = std::fs::read_to_string(dir.path().join("main.zhang")).unwrap();
         assert_eq!(main.matches("include \"data/2024/01.zhang\"").count(), 1, "{main}");
         let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
-        let store = reloaded.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
-        assert_eq!(store.transactions.len(), 2);
+        assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
+        assert_eq!(reloaded.transactions().len(), 2);
     }
 
     /// A file starting with a UTF-8 byte order mark, as some Windows editors save it, loads (#505): the mark is
@@ -1035,7 +1032,7 @@ mod test {
 
         let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap();
 
-        assert!(ledger.store.read().unwrap().errors.is_empty(), "{:?}", ledger.store.read().unwrap().errors);
+        assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
         let spans = ledger.directives.iter().map(|it| &it.span).collect::<Vec<_>>();
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].start, 0, "the first directive starts where the text after the mark does");
@@ -1060,9 +1057,8 @@ mod test {
             "a new file gets no mark"
         );
         let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
-        let store = reloaded.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
-        assert_eq!(store.transactions.len(), 1);
+        assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
+        assert_eq!(reloaded.transactions().len(), 1);
     }
 
     /// A file that is not UTF-8 text, such as one holding a latin-1 `é` in a comment, stops the load with an error
@@ -1172,12 +1168,11 @@ mod test {
                 "main.zhang"
             ]
         );
-        let store = ledger.store.read().unwrap();
         assert_eq!(
-            include_errors(&store),
+            include_errors(&ledger),
             vec![("nothing/*.zhang".to_owned(), "include \"nothing/*.zhang\"".to_owned())]
         );
-        assert_eq!(store.transactions.len(), 2);
+        assert_eq!(ledger.transactions().len(), 2);
     }
 
     /// whether the ledger has an `open` of `account`
@@ -1186,14 +1181,14 @@ mod test {
         ledger.directives.iter().any(|it| open(&it.data))
     }
 
-    /// the `IncludeNotFound` errors of a ledger whose `store` this is: the `path` meta and the text of the `include`;
+    /// the `IncludeNotFound` errors of `ledger`: the `path` meta and the text of the `include`;
     /// it has no other error
-    fn include_errors(store: &Store) -> Vec<(String, String)> {
-        store
+    fn include_errors(ledger: &Ledger) -> Vec<(String, String)> {
+        ledger
             .errors
             .iter()
             .map(|it| {
-                assert_eq!(it.error_type, ErrorKind::IncludeNotFound, "{:?}", store.errors);
+                assert_eq!(it.error_type, ErrorKind::IncludeNotFound, "{:?}", ledger.errors);
                 let text = it.span.as_ref().map(|span| span.content.trim().to_owned()).unwrap_or_default();
                 (it.metas["path"].clone(), text)
             })
@@ -1213,9 +1208,8 @@ mod test {
 
         let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
 
-        let store = ledger.store.read().unwrap();
         assert_eq!(
-            include_errors(&store),
+            include_errors(&ledger),
             vec![("acounts/typo.zhang".to_owned(), "include \"acounts/typo.zhang\"".to_owned())]
         );
         assert!(opened(&ledger, "Assets:Cash"));

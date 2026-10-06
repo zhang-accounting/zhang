@@ -1,21 +1,22 @@
 use std::str::FromStr;
 
-use zhang_ast::{Commodity, Rounding, SpanInfo};
+use zhang_ast::{Commodity, Rounding};
 
 use crate::constants::{DEFAULT_COMMODITY_PRECISION, DEFAULT_ROUNDING};
 use crate::ledger::Ledger;
-use crate::process::DirectiveProcess;
 use crate::{ZhangError, ZhangResult};
 
-impl DirectiveProcess for Commodity {
-    /// an invalid `rounding` meta stops the load ([`Ledger::commodities`] reads the rest of the directive); the
-    /// directives after it may use the commodity
-    fn process(&mut self, ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        // the options handler resolved both defaults before any dated directive
-        commodity_precision(self, Some(ledger.options.default_commodity_precision), Some(ledger.options.default_rounding))?;
-        ledger.defined_commodities.insert(self.currency.clone());
-        Ok(())
-    }
+/// define the commodity of `commodity` for the directives after it. An invalid `rounding` meta stops the load
+/// ([`Ledger::commodities`] reads the rest of the directive)
+pub(crate) fn define(commodity: &Commodity, ledger: &mut Ledger) -> ZhangResult<()> {
+    // the options handler resolved both defaults before any dated directive
+    commodity_precision(
+        commodity,
+        Some(ledger.options.default_commodity_precision),
+        Some(ledger.options.default_rounding),
+    )?;
+    ledger.defined_commodities.insert(commodity.currency.clone());
+    Ok(())
 }
 
 /// a commodity's precision and rounding: its `precision` / `rounding` meta, else the ledger's

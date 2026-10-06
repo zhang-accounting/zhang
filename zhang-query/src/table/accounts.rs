@@ -8,7 +8,6 @@
 
 use zhang_ast::{Close, Directive, Open, Spanned};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
 
 use super::cache::LedgerCache;
 use super::directives::{date_of, set_value, str_value};
@@ -25,11 +24,11 @@ pub(super) static ACCOUNTS: Table = Table {
     rows: Rows::Records(rows),
 };
 
-fn rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+fn rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
     let booking = ledger.booking_methods();
     let directive = |idx: Option<usize>| idx.map(|idx| &ledger.directives[idx]);
-    LedgerCache::of(ledger, store)
-        .lookups(ledger, store)
+    LedgerCache::of(ledger)
+        .lookups(ledger)
         .accounts()
         .map(|(name, open, close)| Record::Account {
             name,

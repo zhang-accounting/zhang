@@ -241,8 +241,7 @@ fn real_booking_split_legs_and_implicit_units_agree_with_store_lots() {
          GROUP BY currency, cost_number, cost_currency, cost_date, cost_label HAVING sum(number) != 0",
     )
     .unwrap();
-    let store = ledger.store.read().unwrap();
-    assert!(store.errors.is_empty());
+    assert!(ledger.errors.is_empty());
     let balances = SparseRealization::from_stream(&ledger.directives, ["Assets", "Assets:Broker", "Income:Gains"], AccountScope::Subtree).unwrap();
     let broker = balances.get("Assets:Broker").unwrap();
     assert_eq!(broker.units, amounts(&[("AAPL", "5")]));

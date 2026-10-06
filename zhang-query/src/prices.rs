@@ -9,7 +9,7 @@
 //! (28 significant digits, half-even), so results match beanquery even with inverted rates; see
 //! [`crate::decimal`].
 
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
@@ -40,11 +40,9 @@ impl PriceMap {
 
     /// The price map the queries of a loaded ledger value with: built once per ledger, kept in
     /// its cache and shared, so a caller can keep valuing with it, with the same prices as its
-    /// queries, after releasing the ledger. It takes the store's read lock, so do not call it
-    /// while holding the write lock.
+    /// queries, after releasing the ledger.
     pub fn cached(ledger: &Ledger) -> Arc<PriceMap> {
-        let store = ledger.store.read().unwrap_or_else(PoisonError::into_inner);
-        LedgerCache::of(ledger, &store).shared_prices(ledger).clone()
+        LedgerCache::of(ledger).shared_prices(ledger).clone()
     }
 
     /// Build from `(date, base, quote, rate)` points in ledger order.

@@ -38,7 +38,6 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::SpanInfo;
 use zhang_core::domains::schemas::ErrorDomain;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
 
 use super::{ledger_file, ColumnDef, Record, Rows, Table};
 use crate::projector::Projection;
@@ -131,8 +130,8 @@ pub(crate) fn render_message(kind: &ErrorKind, metas: &HashMap<String, String>) 
     rendered
 }
 
-fn rows<'a>(ledger: &'a Ledger, store: &'a Store, projection: Projection) -> Vec<Record<'a>> {
-    let mut errors = store
+fn rows<'a>(ledger: &'a Ledger, projection: Projection) -> Vec<Record<'a>> {
+    let mut errors = ledger
         .errors
         .iter()
         .map(|error| LedgerError {

@@ -18,7 +18,7 @@ fn load(text: &str) -> Ledger {
 }
 
 fn errors(ledger: &Ledger) -> Vec<ErrorKind> {
-    ledger.store.read().unwrap().errors.iter().map(|error| error.error_type.clone()).collect()
+    ledger.errors.iter().map(|error| error.error_type.clone()).collect()
 }
 
 #[test]
@@ -44,8 +44,7 @@ option "operating_currency" "CNY"
     // Selling a different cost reports a missing lot, but its booked negative lot still
     // cancels the long lot in USD units, so only the FX account fails the close check.
     assert_eq!(errors(&ledger), vec![ErrorKind::NoEnoughCommodityLot, ErrorKind::CloseNonZeroAccount]);
-    let store = ledger.store.read().unwrap();
-    assert_eq!(store.errors[1].span.as_ref().unwrap().content.trim(), "2024-01-04 close Assets:FX");
+    assert_eq!(ledger.errors[1].span.as_ref().unwrap().content.trim(), "2024-01-04 close Assets:FX");
 }
 
 #[test]

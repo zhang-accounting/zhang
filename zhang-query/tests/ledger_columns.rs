@@ -11,9 +11,7 @@ use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
 use common::{fava_demo_ledger, load_text};
-use zhang_core::ast::Directive;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{DocumentDomain, DocumentType, TransactionDomain};
 use zhang_query::{DataType, ExecuteOptions, Inventory, ParamTypes, Params, PriceMap, Query, QueryErrorKind, Value};
 
 /// A cafe lunch at 10:30 in Shanghai, an unbalanced transaction, one posting to an account
@@ -472,73 +470,6 @@ fn a_reload_replaces_the_cache() {
     assert!(!ledger.derived.is_initialized());
     assert_eq!(count(&ledger), "7 | 14");
     assert_eq!(postings(&ledger), "3 | 42.50 USD");
-}
-
-/// zhang never changes a loaded ledger; code that changes its store after querying it gets an
-/// error instead of the rows of the ledger as it was.
-#[test]
-fn a_ledger_changed_after_its_first_query_is_an_error() {
-    let ledger = load_text(LEDGER);
-    assert_eq!(table(&ledger, "SELECT count(*)"), "14");
-    let mut store = ledger.store.write().unwrap();
-    let payee = |txn: &TransactionDomain| match &ledger.directives[txn.directive].data {
-        Directive::Transaction(it) => it.payee.as_ref().map(|it| it.as_str().to_owned()),
-        _ => None,
-    };
-    store.transactions.retain(|_, txn| payee(txn).as_deref() != Some("Cafe"));
-    drop(store);
-    let error = Query::compile("SELECT count(*)")
-        .unwrap()
-        .execute_at(&ledger, &Params::new(), today())
-        .unwrap_err();
-    assert!(error.message.contains("the ledger changed"), "{}", error.message);
-}
-
-/// Every count the cache's fingerprint keeps catches a change on its own, with the number of
-/// transactions unchanged: a document, an error or a directive more.
-/// (The fingerprint counts these, so a change that keeps every count, such as an edited posting
-/// amount, is not caught; zhang never changes a loaded ledger, it replaces it.)
-#[test]
-fn a_ledger_changed_without_changing_its_transactions_is_an_error() {
-    /// what is added, and how
-    type Change = (&'static str, fn(&mut Ledger));
-    let changes: [Change; 3] = [
-        ("a document", |ledger| {
-            let mut store = ledger.store.write().unwrap();
-            let txn = store.transactions.values().next().unwrap();
-            let Directive::Transaction(booked) = &ledger.directives[txn.directive].data else {
-                unreachable!("a stored transaction is a transaction directive")
-            };
-            let document = DocumentDomain {
-                datetime: txn.datetime,
-                document_type: DocumentType::Account(booked.postings[0].account.clone()),
-                filename: Some("receipt.pdf".to_owned()),
-                path: "receipts/receipt.pdf".to_owned(),
-                alternate: None,
-            };
-            store.documents.push(document);
-        }),
-        ("an error", |ledger| {
-            let mut store = ledger.store.write().unwrap();
-            let error = store.errors[0].clone();
-            store.errors.push(error);
-        }),
-        ("a directive", |ledger| {
-            let directive = ledger.directives[0].clone();
-            ledger.directives.push(directive);
-        }),
-    ];
-    for (change, apply) in changes {
-        let mut ledger = load_text(LEDGER);
-        assert_eq!(table(&ledger, "SELECT count(*)"), "14", "{change}");
-        let transactions = ledger.store.read().unwrap().transactions.len();
-        apply(&mut ledger);
-        assert_eq!(ledger.store.read().unwrap().transactions.len(), transactions, "{change}");
-        match Query::compile("SELECT count(*)").unwrap().execute_at(&ledger, &Params::new(), today()) {
-            Ok(_) => panic!("{change} more was not caught"),
-            Err(error) => assert!(error.message.contains("the ledger changed"), "{change}: {}", error.message),
-        }
-    }
 }
 
 /// One account holding `lots` lots at distinct costs, one bought per day, paid from a cash

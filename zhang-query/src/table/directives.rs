@@ -9,7 +9,7 @@
 //! their metadata.
 
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 use bigdecimal::BigDecimal;
@@ -19,7 +19,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::{resolve_local_datetime, written_groups, Account, Directive, Meta, Posting, Spanned, Transaction};
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
-use zhang_core::store::{BalanceAssertionDomain, DocumentType, Store};
+use zhang_core::outcome::Detail;
 
 use super::entries::{DATE, DAY, FILENAME, ID, LINKS, META, METAS, MONTH, SEQ, TAGS, TIME, TIMESTAMP, TYPE, YEAR};
 use super::postings::time_value;
@@ -34,8 +34,8 @@ pub(super) fn date_of(directive: &Directive) -> Option<NaiveDate> {
 
 /// One [`Record::Entry`] per `#entries` row whose directive `keep` selects, in the order zhang processed the ledger (the
 /// `seq` order); `keep` only selects directives that are not transactions.
-pub(super) fn directives_where<'a>(ledger: &'a Ledger, store: &'a Store, keep: impl Fn(&Directive) -> bool) -> Vec<Record<'a>> {
-    let entries = LedgerCache::of(ledger, store).entries(ledger, store);
+pub(super) fn directives_where<'a>(ledger: &'a Ledger, keep: impl Fn(&Directive) -> bool) -> Vec<Record<'a>> {
+    let entries = LedgerCache::of(ledger).entries(ledger);
     entries
         .rows
         .iter()
@@ -43,7 +43,6 @@ pub(super) fn directives_where<'a>(ledger: &'a Ledger, store: &'a Store, keep: i
         .map(|info| Record::Entry {
             directive: &ledger.directives[info.directive as usize],
             info,
-            txn: None,
         })
         .collect()
 }
@@ -103,7 +102,7 @@ pub(super) static BALANCES: Table = Table {
                   true balance at the assertion and whether the assertion holds.",
     columns: BALANCE_COLUMNS,
     wildcard: &["date", "account", "amount", "tolerance", "discrepancy"],
-    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| assertion(it).is_some())),
+    rows: Rows::Records(|ledger, _| directives_where(ledger, |it| assertion(it).is_some())),
 };
 
 /// The account, asserted amount and tolerance of a balance assertion.
@@ -122,14 +121,16 @@ fn balance_field(record: &Record<'_>, get: impl Fn(&Account, &Amount, Option<&Bi
 }
 
 /// The asserted amount of an assertion row and what zhang's balance check of it found while loading the ledger
-/// (`Store::balance_assertions`): the balance of the asserted account and its sub-accounts in the asserted currency where
-/// the assertion stands, and whether it holds (a failed one is an `AccountBalanceCheckError`).
-fn balance_check<'r>(data: &'r Dataset<'_>, record: &'r Record<'_>) -> Option<(&'r Amount, &'r BalanceAssertionDomain)> {
-    let Record::Entry { directive, info, .. } = record else {
+/// ([`Detail::Assertion`]): the balance of the asserted account and its sub-accounts in the asserted currency where the
+/// assertion stands, and whether it holds (a failed one is an `AccountBalanceCheckError`).
+fn balance_check<'r>(data: &'r Dataset<'_>, record: &'r Record<'_>) -> Option<(&'r Amount, &'r Amount, bool)> {
+    let Record::Entry { directive, info } = record else {
         return None;
     };
-    let check = &data.store.balance_assertions[info.assertion? as usize];
-    assertion(&directive.data).map(|(_, amount, _)| (amount, check))
+    let Detail::Assertion { balance, passed, .. } = &data.ledger.outcomes[info.directive as usize].detail else {
+        return None;
+    };
+    assertion(&directive.data).map(|(_, amount, _)| (amount, balance, *passed))
 }
 
 static BALANCE_COLUMNS: &[ColumnDef] = &[
@@ -154,7 +155,7 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         DataType::Amount,
         "When the assertion fails, the true balance minus the asserted amount (actual - amount); NULL when it holds.",
         |data, record| match balance_check(data, record) {
-            Some((amount, check)) if !check.passed => Value::Amount(Amount::new(&check.balance.number - &amount.number, amount.commodity.clone())),
+            Some((amount, balance, false)) => Value::Amount(Amount::new(&balance.number - &amount.number, amount.commodity.clone())),
             _ => Value::Null,
         },
     ),
@@ -165,14 +166,14 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
         "The account's true balance in the asserted currency at the assertion: the units of every earlier posting to the \
          account and its sub-accounts, as zhang checks it; a balance with pad is checked once the pads of its time are \
          booked. A zhang extension.",
-        |data, record| balance_check(data, record).map_or(Value::Null, |(_, check)| Value::Amount(check.balance.clone())),
+        |data, record| balance_check(data, record).map_or(Value::Null, |(_, balance, _)| Value::Amount(balance.clone())),
     ),
     ColumnDef::record(
         "passed",
         DataType::Bool,
         "Whether the assertion holds, as zhang's balance check decided it (a failing one is an AccountBalanceCheckError): \
          actual is within the tolerance of the asserted amount, or equal to it without a tolerance. A zhang extension.",
-        |data, record| balance_check(data, record).map_or(Value::Null, |(_, check)| Value::Bool(check.passed)),
+        |data, record| balance_check(data, record).map_or(Value::Null, |(_, _, passed)| Value::Bool(passed)),
     ),
     ColumnDef::record(
         "pad",
@@ -203,7 +204,7 @@ pub(super) static NOTES: Table = Table {
     description: "One row per note directive, in ledger order.",
     columns: NOTE_COLUMNS,
     wildcard: &["date", "account", "comment", "tags", "links"],
-    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| matches!(it, Directive::Note(_)))),
+    rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Note(_)))),
 };
 
 fn note<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Note> {
@@ -244,7 +245,7 @@ pub(super) static EVENTS: Table = Table {
     description: "One row per event directive, in ledger order.",
     columns: EVENT_COLUMNS,
     wildcard: &["date", "type", "description"],
-    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| matches!(it, Directive::Event(_)))),
+    rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Event(_)))),
 };
 
 fn event<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Event> {
@@ -306,7 +307,7 @@ pub(crate) struct DocumentRow<'a> {
     filename: &'a str,
     /// the path relative to the ledger's directory
     path: Cow<'a, Path>,
-    /// the id of the transaction the store keeps, for a document named in metadata
+    /// the id of the transaction the load accepted, for a document named in metadata
     transaction_id: Option<Uuid>,
     /// the position in `#entries` of the document directive, or of the transaction
     seq: u32,
@@ -325,16 +326,14 @@ impl<'a> DocumentRow<'a> {
 }
 
 /// The document directives in ledger order, then the `document` metadata values of the
-/// transactions the store keeps (those of `#transactions`), in ledger order: a transaction's own
+/// transactions the load accepted (those of `#transactions`), in ledger order: a transaction's own
 /// first, then those of its postings as written, in order. A repeated key gives one row per value.
-/// This is the one list of the ledger's documents: the store keeps only the document directives.
+/// This is the one list of the ledger's documents.
 ///
 /// The path of a document directive of a beancount ledger is the one zhang resolved it to while
-/// loading the ledger (relative to the file of the directive, as beancount reads it, or relative to
-/// the ledger's root where only that names a file): the store keeps it with the directive's account
-/// and date, in the order it read the directives, which is the order of the rows of one account and
-/// day too.
-fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
+/// loading the ledger ([`Detail::Document`]): relative to the file of the directive, as beancount
+/// reads it, or relative to the ledger's root where only that names a file.
+fn document_rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
     let row = |directive, source, filename: &'a str, path: Cow<'a, Path>, transaction_id, seq| {
         Record::Document(DocumentRow {
             directive,
@@ -345,57 +344,28 @@ fn document_rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projecti
             seq,
         })
     };
-    let mut resolved: HashMap<(&str, NaiveDate), VecDeque<&'a str>> = HashMap::new();
-    if ledger.dialect == Dialect::Beancount {
-        for document in &store.documents {
-            let DocumentType::Account(account) = &document.document_type;
-            resolved
-                .entry((account.name(), document.datetime.date_naive()))
-                .or_default()
-                .push_back(document.path.as_str());
-        }
+    let cache = LedgerCache::of(ledger);
+    let entries = cache.entries(ledger);
+    let mut rows = vec![];
+    for entry in &entries.rows {
+        let directive = &ledger.directives[entry.directive as usize];
+        let Directive::Document(document) = &directive.data else {
+            continue;
+        };
+        let path = match (&ledger.outcomes[entry.directive as usize].detail, ledger.dialect) {
+            (Detail::Document { path, .. }, Dialect::Beancount) => Cow::Borrowed(Path::new(path.as_str())),
+            _ => ledger_file(ledger, Path::new(document.filename.as_str())),
+        };
+        rows.push(row(
+            directive,
+            DocumentSource::Directive(document),
+            document.filename.as_str(),
+            path,
+            None,
+            entry.seq,
+        ));
     }
-    let cache = LedgerCache::of(ledger, store);
-    let entries = cache.entries(ledger, store);
-    let mut directives = entries
-        .rows
-        .iter()
-        .filter_map(|entry| {
-            let directive = &ledger.directives[entry.directive as usize];
-            match &directive.data {
-                Directive::Document(document) => Some((entry, directive, document)),
-                _ => None,
-            }
-        })
-        .collect::<Vec<_>>();
-    // the store keeps the directives of a day in the order it read them: by time, then as written
-    let mut by_day = directives.clone();
-    by_day.sort_by_key(|(entry, _, _)| entry.directive);
-    let mut paths: HashMap<u32, Cow<'a, Path>> = HashMap::new();
-    for (entry, directive, document) in by_day {
-        let date = date_of(&directive.data).unwrap_or_default();
-        let path = resolved
-            .get_mut(&(document.account.name(), date))
-            .and_then(VecDeque::pop_front)
-            .map(|path| Cow::Borrowed(Path::new(path)))
-            .unwrap_or_else(|| ledger_file(ledger, Path::new(document.filename.as_str())));
-        paths.insert(entry.seq, path);
-    }
-    let mut rows = directives
-        .drain(..)
-        .map(|(entry, directive, document)| {
-            let path = paths.remove(&entry.seq).expect("every document directive has its path");
-            row(
-                directive,
-                DocumentSource::Directive(document),
-                document.filename.as_str(),
-                path,
-                None,
-                entry.seq,
-            )
-        })
-        .collect::<Vec<_>>();
-    for entry in cache.documented(ledger, store).iter().map(|seq| &entries.rows[*seq as usize]) {
+    for entry in cache.documented(ledger).iter().map(|seq| &entries.rows[*seq as usize]) {
         let directive = &ledger.directives[entry.directive as usize];
         let Directive::Transaction(transaction) = &directive.data else {
             continue;
@@ -570,7 +540,7 @@ pub(super) static COMMODITIES: Table = Table {
     description: "One row per commodity directive, in ledger order.",
     columns: COMMODITY_COLUMNS,
     wildcard: &["meta", "date", "name"],
-    rows: Rows::Records(|ledger, store, _| directives_where(ledger, store, |it| matches!(it, Directive::Commodity(_)))),
+    rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Commodity(_)))),
 };
 
 fn commodity<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Commodity> {

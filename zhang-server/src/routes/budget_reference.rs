@@ -1,5 +1,5 @@
 //! An independent computation of the budget figures, to check the budget endpoints against: it
-//! reads the parsed directives of a ledger, not the store nor the query engine, and follows the
+//! reads the parsed directives of a ledger, not the query engine, and follows the
 //! rules of the budget pages as the docs state them (#479 decision 8):
 //!
 //! - a budget exists from its first `budget` directive on; the directives of a budget that does

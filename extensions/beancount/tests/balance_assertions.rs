@@ -19,9 +19,10 @@ use bigdecimal::{BigDecimal, Zero};
 use serde_json::Value;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{group_units, written_groups, Directive, Flag, Transaction};
+use zhang_ast::{group_units, written_groups, Date, Directive, Flag, Transaction};
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 
 fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/balance_assertions")
@@ -166,7 +167,6 @@ fn zhang(case: &str) -> Outcome {
             *units += &inferred.number;
         }
     }
-    let store = ledger.store.read().unwrap();
     for (account, held) in balances.iter_mut() {
         let booked = lots_held.get(account).cloned().unwrap_or_default();
         let shown = booked
@@ -182,39 +182,41 @@ fn zhang(case: &str) -> Outcome {
     }
     balances.retain(|_, held| !held.is_empty());
 
-    let mut pads = store
-        .transactions
-        .values()
-        .filter_map(|txn| match &ledger.directives[txn.directive].data {
-            Directive::Transaction(booked) if booked.flag == Some(Flag::BalancePad) => Some((txn, written(booked))),
-            _ => None,
-        })
-        .map(|(txn, postings)| {
+    let date = |date: &Date| date.to_timezone_datetime(&ledger.options.timezone).date_naive().to_string();
+    let mut pads = ledger
+        .transactions()
+        .into_iter()
+        .filter(|(_, booked)| booked.flag == Some(Flag::BalancePad))
+        .map(|(_, booked)| {
+            let postings = written(booked);
             let [padded, from] = &postings[..] else {
                 panic!("{case}: a padding transaction has two postings");
             };
-            (txn.datetime.date_naive().to_string(), padded.0.clone(), of(&padded.1), from.0.clone())
+            (date(&booked.date), padded.0.clone(), of(&padded.1), from.0.clone())
         })
         .collect::<Vec<_>>();
     pads.sort();
 
-    let mut assertions = store
-        .balance_assertions
+    let mut assertions = ledger
+        .directives
         .iter()
-        .map(|it| {
-            (
-                it.datetime.date_naive().to_string(),
-                it.account.name().to_owned(),
-                of(&it.amount),
-                of(&it.balance),
-                it.passed,
-            )
+        .zip(&ledger.outcomes)
+        .filter_map(|(directive, outcome)| {
+            let Detail::Assertion { balance, passed, .. } = &outcome.detail else {
+                return None;
+            };
+            let (asserted, account, amount) = match &directive.data {
+                Directive::BalanceCheck(check) => (&check.date, &check.account, &check.amount),
+                Directive::BalancePad(pad) => (&pad.date, &pad.account, &pad.amount),
+                _ => return None,
+            };
+            Some((date(asserted), account.name().to_owned(), of(amount), of(balance), *passed))
         })
         .collect::<Vec<_>>();
     assertions.sort();
 
     // a `pad` reported unused, by the directive at the error's span
-    let mut unused_pads = store
+    let mut unused_pads = ledger
         .errors
         .iter()
         .filter(|error| error.error_type == ErrorKind::UnusedPad)
@@ -233,7 +235,7 @@ fn zhang(case: &str) -> Outcome {
     unused_pads.sort();
 
     // the `balance` a pad of a commodity held at cost serves, by the directive at the error's span
-    let mut pads_with_cost = store
+    let mut pads_with_cost = ledger
         .errors
         .iter()
         .filter(|error| error.error_type == ErrorKind::PadWithCost)
@@ -251,7 +253,7 @@ fn zhang(case: &str) -> Outcome {
         .collect::<Vec<_>>();
     pads_with_cost.sort();
 
-    let other_errors = store
+    let other_errors = ledger
         .errors
         .iter()
         .filter(|error| {
@@ -265,7 +267,7 @@ fn zhang(case: &str) -> Outcome {
         .map(|error| error.error_type.clone())
         .collect::<Vec<_>>();
     assert!(other_errors.is_empty(), "{case}: {other_errors:?}");
-    let failed = store
+    let failed = ledger
         .errors
         .iter()
         .filter(|error| error.error_type == ErrorKind::AccountBalanceCheckError)
@@ -485,8 +487,7 @@ fn zhang_reports_a_pad_with_cost_once_for_its_balance() {
 fn a_balance_whose_time_zhang_ignores_is_reported() {
     // the balance of 2024-03-02 says 20:00, after lunch that day: beancount checks it before lunch, and so does zhang
     let ledger = load("balance_time_after_transactions");
-    let store = ledger.store.read().unwrap();
-    let ignored = store
+    let ignored = ledger
         .errors
         .iter()
         .filter(|it| it.error_type == ErrorKind::BalanceTimeIgnored)
@@ -495,14 +496,13 @@ fn a_balance_whose_time_zhang_ignores_is_reported() {
     assert_eq!(ignored, vec!["2024-03-02 balance Assets:A  100 CNY"]);
     // a balance timed before the transactions of its day, or of an account without any, changes nothing
     let ledger = load("balance_time_on_pad_day");
-    assert!(ledger.store.read().unwrap().errors.is_empty());
+    assert!(ledger.errors.is_empty());
 }
 
 #[test]
 fn only_a_balance_whose_meaning_changed_is_reported_for_its_ignored_time() {
     let ledger = load("balance_times");
-    let store = ledger.store.read().unwrap();
-    let reported = store
+    let reported = ledger
         .errors
         .iter()
         .filter(|it| it.error_type == ErrorKind::BalanceTimeIgnored)
@@ -532,9 +532,15 @@ fn only_a_balance_whose_meaning_changed_is_reported_for_its_ignored_time() {
 fn zhang_reads_a_document_relative_to_its_file() {
     // beancount finds both (the oracle has no error): zhang names them by the same path within the ledger
     let ledger = load("document_paths");
-    let store = ledger.store.read().unwrap();
-    assert!(store.errors.is_empty(), "{:?}", store.errors);
-    let paths = store.documents.iter().map(|it| it.path.clone()).collect::<Vec<_>>();
+    assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
+    let paths = ledger
+        .outcomes
+        .iter()
+        .filter_map(|it| match &it.detail {
+            Detail::Document { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     assert_eq!(paths, vec!["document_paths/attachments/statement.txt"; 2]);
     assert!(dir().join(&paths[0]).is_file());
 }

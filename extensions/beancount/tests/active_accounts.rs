@@ -45,16 +45,15 @@ fn beancount(case: &Value) -> Vec<Located> {
 fn zhang(case: &str) -> Vec<Located> {
     let data_source = Arc::new(LocalFileSystemDataSource::new(Beancount::default()));
     let ledger = Ledger::load_with_data_source(dir(), format!("{case}.bean"), data_source).expect("the ledger loads");
-    let store = ledger.store.read().unwrap();
     let inactive = |kind: &ErrorKind| matches!(kind, ErrorKind::AccountDoesNotExist | ErrorKind::AccountClosed);
-    let other_errors = store
+    let other_errors = ledger
         .errors
         .iter()
         .filter(|error| !inactive(&error.error_type) && error.error_type != ErrorKind::CloseNonZeroAccount)
         .map(|error| error.error_type.clone())
         .collect::<Vec<_>>();
     assert!(other_errors.is_empty(), "{case}: {other_errors:?}");
-    let mut errors = store
+    let mut errors = ledger
         .errors
         .iter()
         .filter(|error| inactive(&error.error_type))
@@ -77,8 +76,7 @@ fn zhang(case: &str) -> Vec<Located> {
 fn kinds(case: &str) -> Vec<ErrorKind> {
     let data_source = Arc::new(LocalFileSystemDataSource::new(Beancount::default()));
     let ledger = Ledger::load_with_data_source(dir(), format!("{case}.bean"), data_source).expect("the ledger loads");
-    let store = ledger.store.read().unwrap();
-    store.errors.iter().map(|error| error.error_type.clone()).collect()
+    ledger.errors.iter().map(|error| error.error_type.clone()).collect()
 }
 
 const DEVIATIONS: &[&str] = &[];

@@ -208,7 +208,7 @@ async fn an_update_preview_keeps_flags_and_bare_metadata_and_writes_nothing() {
         "2024-01-15 12:00:00 * \"Broker\" \"trade\"\n  rate: 1.5\n  ! Assets:Cash -5 CNY\n  Assets:Broker 5 CNY\n"
     );
     let ledger = ledger(dir.path(), &main).await;
-    let id = ledger.read().await.operations().read().transactions.keys().next().unwrap().to_string();
+    let id = ledger.read().await.transactions()[0].0.to_string();
     let mut update = request(json!([{"account": "Assets:Cash", "unit": "-6 CNY"}, {"account": "Assets:Broker", "unit": "6 CNY"}]));
     update.metas = serde_json::from_value(json!([{"key": "rate", "value": "1.5"}])).unwrap();
     let (status, preview) = body(

@@ -542,10 +542,8 @@ mod save_test {
         assert_eq!(status, StatusCode::OK, "{message}");
         let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
         let reloaded = Ledger::load(dir.clone(), "main.bean".to_owned(), source).expect("load ledger");
-        let store = reloaded.store.read().unwrap();
-        assert!(store.errors.is_empty(), "{:?}", store.errors);
-        assert_eq!(store.transactions.len(), 1);
-        drop(store);
+        assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
+        assert_eq!(reloaded.transactions().len(), 1);
         std::fs::remove_dir_all(dir).ok();
     }
 }

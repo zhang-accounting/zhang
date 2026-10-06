@@ -7,7 +7,6 @@
 
 use zhang_ast::{Directive, Price};
 use zhang_core::ledger::Ledger;
-use zhang_core::store::Store;
 
 use super::directives::{directive, directives_where};
 use super::entries::{DATE, DAY, FILENAME, ID, META, METAS, MONTH, SEQ, TIME, TIMESTAMP, TYPE, YEAR};
@@ -23,8 +22,8 @@ pub(super) static PRICES: Table = Table {
     rows: Rows::Records(rows),
 };
 
-fn rows<'a>(ledger: &'a Ledger, store: &'a Store, _projection: Projection) -> Vec<Record<'a>> {
-    directives_where(ledger, store, |it| matches!(it, Directive::Price(_)))
+fn rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+    directives_where(ledger, |it| matches!(it, Directive::Price(_)))
 }
 
 fn price<'r>(record: &'r Record<'_>) -> Option<&'r Price> {

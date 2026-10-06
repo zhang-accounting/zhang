@@ -137,7 +137,7 @@ fn the_deprecated_option_gives_balance_assertions_no_tolerance() {
           Equity:Opening -100.00001 CNY
         2024-01-02 balance Assets:Bank 100.00 CNY
     "#});
-    let errors = ledger.operations().errors().unwrap();
+    let errors = ledger.errors.clone();
     assert!(
         errors.iter().any(|it| it.error_type == ErrorKind::AccountBalanceCheckError),
         "the assertion should fail, got {:?}",

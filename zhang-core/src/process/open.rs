@@ -1,24 +1,17 @@
 use zhang_ast::{Open, SpanInfo};
 
 use crate::ledger::Ledger;
-use crate::process::DirectiveProcess;
-use crate::{process, ZhangResult};
+use crate::process;
 
-impl DirectiveProcess for Open {
-    fn validate(&mut self, ledger: &mut Ledger, span: &SpanInfo) -> ZhangResult<bool> {
-        let at = self.date.naive_datetime();
-        for currency in &self.commodities {
-            // a `commodity` of the same date and time sorts after the `open`, as beancount orders a day, and defines it
-            if ledger.commodity_dates.get(currency).is_some_and(|defined| *defined <= at) {
-                continue;
-            }
-            process::check_commodity_define(currency, ledger, span)?;
+/// report the commodities `open` restricts its account to that are not defined at its date and time. The account
+/// lifecycle reads the `open` from the processed stream: `Ledger::account_status`
+pub(crate) fn check(open: &Open, ledger: &mut Ledger, span: &SpanInfo) {
+    let at = open.date.naive_datetime();
+    for currency in &open.commodities {
+        // a `commodity` of the same date and time sorts after the `open`, as beancount orders a day, and defines it
+        if ledger.commodity_dates.get(currency).is_some_and(|defined| *defined <= at) {
+            continue;
         }
-        Ok(true)
-    }
-
-    /// the account lifecycle reads the `open` from the processed stream: `Ledger::account_status`
-    fn process(&mut self, _ledger: &mut Ledger, _span: &SpanInfo) -> ZhangResult<()> {
-        Ok(())
+        process::check_commodity_define(currency, ledger, span);
     }
 }

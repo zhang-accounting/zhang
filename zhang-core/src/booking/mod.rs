@@ -2,7 +2,7 @@
 //!
 //! [`Booker`] is a pure fold over the directive stream. It sees the `open`s (for the per-account
 //! booking methods) and every transaction, in stream order, and keeps the lots of every account
-//! itself. It never reads or writes the [`Store`](crate::store::Store) and needs no timezone. It
+//! itself. It never reads or writes what the load decided about the directives and needs no timezone. It
 //! runs twice per load (design §2): pass 1 is the [`BookingStage`](crate::pipeline::BookingStage),
 //! before the plugins, whose errors and lots are dropped; pass 2 is the
 //! [`ValidateStage`](crate::pipeline::ValidateStage) over the final stream, which leaves booked postings as they are ([`is_booked`]), completes the ones a stage left
@@ -33,7 +33,7 @@
 //! gets its interpolated units, a cost spec becomes the per-unit cost, acquisition date and label
 //! of the lot, and a reduction spanning several lots becomes one posting per lot, adjacent. A
 //! posting booking changed carries what was written in [`Posting::written`]: the index of the
-//! written posting, which the legs of a split share, its units and its cost spec. The store fold
+//! written posting, which the legs of a split share, its units and its cost spec. The query engine
 //! groups the legs back into one row per written posting ([`written_groups`], the rule the
 //! exporter follows too: a split a stage broke apart is shown as booked). A `{}` reduction no lot
 //! covers rejects the entire transaction without changing its lots (E9). Booking a booked
@@ -73,7 +73,6 @@ use zhang_shared::decimal::{div, mul_in_context, plain_decimal, DIVISION_PRECISI
 
 use crate::constants::DEFAULT_ROUNDING;
 use crate::inventory::{normalise_cost, BookingMethod, TransactionInference, TxnPosting};
-use crate::store::CommodityLotRecord;
 use crate::utils::hashmap::HashMapOfExt;
 
 /// the most decimals a sum of weights has when it comes from written numbers alone. Units, costs
@@ -98,9 +97,28 @@ pub(crate) struct Booker {
     /// lots per account, in creation order. FIFO and LIFO pick lots by acquisition date instead
     /// ([`pick`], E10)
     lots: HashMap<String, Vec<CommodityLotRecord>>,
-    /// precision and rounding of every defined commodity, folded in stream order like the store's
+    /// precision and rounding of every defined commodity, folded in stream order like the ledger's
     /// commodities
     precisions: HashMap<Currency, (i64, RoundingMode)>,
+}
+
+/// a lot of an account: units of a commodity held at a cost, acquired at a date
+#[derive(Default, Clone, Debug, serde::Serialize, PartialEq)]
+pub struct CommodityLotRecord {
+    pub commodity: String,
+    #[serde(serialize_with = "zhang_shared::decimal::plain::serialize")]
+    pub amount: BigDecimal,
+
+    pub cost: Option<Amount>,
+
+    // acquisition date
+    pub acquisition_date: Option<NaiveDate>,
+
+    /// the lot's label, written on the cost that opened it (`{100 USD, "a"}`); lots differing only
+    /// by label are distinct. Left out of the serialized store when the lot has none, so a store
+    /// without labels serializes as before
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// the units of an implicit posting
@@ -207,7 +225,7 @@ impl Booker {
         }
     }
 
-    /// fold a commodity definition: its precision and rounding, as the store keeps them
+    /// fold a commodity definition: its precision and rounding, as the ledger defines them
     pub(crate) fn define_commodity(&mut self, currency: &str, precision: i32, rounding: Rounding) {
         self.precisions.insert(currency.to_owned(), (i64::from(precision), rounding.to_mode()));
     }
@@ -248,7 +266,7 @@ impl Booker {
     }
 
     /// fold an `open`: its `booking_method` meta, if any, becomes the account's booking method.
-    /// Like the account meta in the store, a later `open` of the account overrides the value, and
+    /// Like the account meta, a later `open` of the account overrides the value, and
     /// an `open` without the meta keeps it.
     ///
     /// A value that is not a booking method (`ParseInvalidMeta`, E7) or a method booking does not
@@ -664,7 +682,7 @@ impl Booker {
         self.lots
     }
 
-    /// Whether the account's own booked units are nonzero in any commodity, where the store
+    /// Whether the account's own booked units are nonzero in any commodity, where the ledger
     /// fold stands. Lots at different costs or with different labels can cancel in units.
     pub(crate) fn has_non_zero_balance(&self, account: &str) -> bool {
         let mut units: HashMap<&str, BigDecimal> = HashMap::new();

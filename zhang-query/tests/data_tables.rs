@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use chrono::NaiveDate;
 use zhang_ast::{Date, Directive, Spanned};
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 use zhang_query::{Params, Query, Value};
 
 /// `today()` of the executions: before every entry of the ledgers, so that the current month
@@ -540,16 +541,16 @@ fn balances_have_the_id_of_their_check() {
         .into_iter()
         .map(|row| row[0].clone())
         .collect::<Vec<_>>();
-    let mut stored = ledger
-        .store
-        .read()
-        .unwrap()
-        .balance_assertions
-        .iter()
-        .map(|it| (it.sequence, it.id.to_string()))
+    // the ids of the checks, in the order zhang processed them
+    let stored = ledger
+        .entries()
+        .into_iter()
+        .filter_map(|(_, _, outcome)| match outcome.detail {
+            Detail::Assertion { id, .. } => Some(id.to_string()),
+            _ => None,
+        })
         .collect::<Vec<_>>();
-    stored.sort();
-    assert_eq!(ids, stored.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
+    assert_eq!(ids, stored);
     assert_eq!(
         run(&ledger, "SELECT id FROM #entries WHERE type = 'balance' ORDER BY seq"),
         run(&ledger, "SELECT id FROM #balances ORDER BY seq")
@@ -590,7 +591,7 @@ option "operating_currency" "CNY"
             directives
         },
     );
-    let stored = ledger.store.read().unwrap().transactions.len();
+    let stored = ledger.transactions().len();
     assert_eq!(stored, 3);
     let entries = run(&ledger, "SELECT seq, date, narration, id FROM #entries WHERE type = 'transaction' ORDER BY seq");
     assert_eq!(
@@ -897,7 +898,7 @@ fn the_documents_of_a_split_posting_are_listed_once() {
   Income:Gains
 "#,
     );
-    assert!(ledger.store.read().unwrap().errors.is_empty(), "{:?}", ledger.store.read().unwrap().errors);
+    assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
     // the sale is booked against both lots
     assert_eq!(
         run(
@@ -957,7 +958,14 @@ include "data/2024.bean"
         run(&ledger, "SELECT path FROM #documents"),
         expected.iter().map(|it| vec![it.to_string()]).collect::<Vec<_>>()
     );
-    let stored = ledger.store.read().unwrap().documents.iter().map(|it| it.path.clone()).collect::<Vec<_>>();
+    let stored = ledger
+        .outcomes
+        .iter()
+        .filter_map(|it| match &it.detail {
+            Detail::Document { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     assert_eq!(stored, expected);
     // the same paths in a zhang ledger are relative to its directory
     std::fs::rename(dir.join("main.bean"), dir.join("main.zhang")).unwrap();

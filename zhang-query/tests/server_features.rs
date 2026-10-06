@@ -50,6 +50,7 @@ use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use serde_json::Value as Json;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 use zhang_query::decimal::to_plain_string;
 use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryError, QueryErrorKind, QueryResult, Value};
 
@@ -663,10 +664,8 @@ fn d1_transactions_have_the_id_of_their_postings_and_of_the_store() {
     // the ids are distinct, and they are the store's transaction ids (what /api/journals returns)
     let ids = transactions.iter().map(|row| row[2].clone()).collect::<BTreeSet<_>>();
     assert_eq!(ids.len(), 15);
-    let store = journal().store.read().unwrap();
-    let store_ids = store.transactions.keys().map(|id| id.to_string()).collect::<BTreeSet<_>>();
+    let store_ids = journal().transactions().into_iter().map(|(id, _)| id.to_string()).collect::<BTreeSet<_>>();
     assert!(ids.is_subset(&store_ids), "{:?} is not in the store's {:?}", ids, store_ids);
-    drop(store);
     // the txn_id an error records is the transaction's id
     assert_eq!(
         query(
@@ -977,14 +976,7 @@ fn d1_a_reloaded_ledger_is_queried_afresh() {
         "the transactions table of the reloaded ledger"
     );
     // the ids of the new rows are the reloaded store's transaction ids
-    let store_ids = ledger
-        .store
-        .read()
-        .unwrap()
-        .transactions
-        .keys()
-        .map(|id| id.to_string())
-        .collect::<BTreeSet<_>>();
+    let store_ids = ledger.transactions().into_iter().map(|(id, _)| id.to_string()).collect::<BTreeSet<_>>();
     for row in query(&ledger, "SELECT id FROM #transactions") {
         assert!(store_ids.contains(&row[0]), "{} is not a transaction of the reloaded store", row[0]);
     }
@@ -1216,12 +1208,16 @@ fn d2_documents_paths_are_the_store_document_paths() {
     directives.sort();
     let named = query(documents(), "SELECT transaction_id FROM #documents WHERE source != 'directive'");
     assert!(!named.is_empty());
-    let store = documents().store.read().unwrap();
-    let mut known = store.documents.iter().map(|document| vec![normalize(&document.path)]).collect::<Vec<_>>();
+    let ledger = documents();
+    let paths = ledger.outcomes.iter().filter_map(|it| match &it.detail {
+        Detail::Document { path, .. } => Some(vec![normalize(path)]),
+        _ => None,
+    });
+    let mut known = paths.collect::<Vec<_>>();
     known.sort();
     assert_eq!(directives, known);
     for row in named {
-        assert!(store.transactions.keys().any(|id| id.to_string() == row[0]), "{row:?}");
+        assert!(ledger.transactions().iter().any(|(id, _)| id.to_string() == row[0]), "{row:?}");
     }
 }
 
@@ -1271,11 +1267,11 @@ fn d2_errors_have_the_store_id_and_the_byte_span_of_their_directive() {
             more.find("2024-02-02 * \"Shop\" \"unbalanced\"").unwrap(),
         ),
     ];
-    let store = errors_ledger().store.read().unwrap();
+    let loaded = errors_ledger();
     for (row, (file, kind, text, start)) in result.iter().zip(expected) {
         assert_eq!((row[0].as_str(), row[1].as_str()), (file, kind), "{:?}", row);
         // the store's id of the error of this kind at this position
-        let store_id = store
+        let store_id = loaded
             .errors
             .iter()
             .find(|error| error.error_type.to_string() == kind && error.span.as_ref().map(|span| span.start) == Some(start))
@@ -1287,7 +1283,6 @@ fn d2_errors_have_the_store_id_and_the_byte_span_of_their_directive() {
         assert!(start < end && end <= text.len(), "{}: {}..{} in {} bytes", kind, start, end, text.len());
         assert_eq!(text[start..end].trim_end(), row[5], "the bytes of the span of {}", kind);
     }
-    drop(store);
     // the id of a transaction's error matches what zhang recorded with it
     assert_eq!(
         query(errors_ledger(), "SELECT id = meta('txn_id') FROM #errors WHERE kind = 'UnbalancedTransaction'"),
@@ -1313,11 +1308,11 @@ fn d2_errors_of_one_directive_share_its_span() {
     assert_eq!(rows_.len(), 2, "{:?}", rows_);
     assert_eq!((rows_[0][0].as_str(), rows_[1][0].as_str()), ("AccountClosed", "UnbalancedTransaction"));
     assert_eq!((&rows_[0][2], &rows_[0][3]), (&rows_[1][2], &rows_[1][3]));
-    let store = journal().store.read().unwrap();
+    let loaded = journal();
     for row in &rows_ {
         let start = row[2].parse::<usize>().unwrap();
         assert!(
-            store
+            loaded
                 .errors
                 .iter()
                 .any(|error| error.error_type.to_string() == row[0] && error.id == row[1] && error.span.as_ref().map(|span| span.start) == Some(start)),

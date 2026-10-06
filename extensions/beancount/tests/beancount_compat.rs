@@ -9,6 +9,8 @@ use zhang_ast::{Directive, Flag, SpanInfo, Spanned, Transaction};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::inventory::TransactionInference;
+use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 
 fn txn(content: &str) -> Transaction {
     let d = parse(content, None::<PathBuf>).unwrap().into_iter().find_map(|s| s.data.left()).unwrap();
@@ -16,6 +18,15 @@ fn txn(content: &str) -> Transaction {
         Directive::Transaction(t) => t,
         _ => panic!("expected txn"),
     }
+}
+
+/// the paths the load resolved the `document` directives of `ledger` to, and where else each may be, in ledger order
+fn documents(ledger: &Ledger) -> Vec<(&str, Option<&str>)> {
+    let documents = ledger.outcomes.iter().filter_map(|it| match &it.detail {
+        Detail::Document { path, alternate } => Some((path.as_str(), alternate.as_deref())),
+        _ => None,
+    });
+    documents.collect()
 }
 
 #[test]
@@ -166,7 +177,6 @@ fn a_document_appended_to_a_beancount_file_names_its_file_from_there() {
     use std::sync::Arc;
 
     use zhang_core::data_source::LocalFileSystemDataSource;
-    use zhang_core::ledger::Ledger;
 
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("zhang-document-path-{}-{nanos}", std::process::id()));
@@ -190,11 +200,9 @@ fn a_document_appended_to_a_beancount_file_names_its_file_from_there() {
         "{written}"
     );
     let reloaded = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source).unwrap();
-    let store = reloaded.store.read().unwrap();
-    assert!(store.errors.is_empty(), "{:?}", store.errors);
-    let paths = store.documents.iter().map(|it| it.path.as_str()).collect::<Vec<_>>();
+    assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
+    let paths = documents(&reloaded).into_iter().map(|(path, _)| path).collect::<Vec<_>>();
     assert_eq!(paths, vec!["attachments/u1/a statement.pdf"]);
-    drop(store);
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -208,7 +216,6 @@ fn on_the_local_disk_documents_are_looked_at_not_listed() {
 
     use zhang_ast::error::ErrorKind;
     use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource, SourceEntry};
-    use zhang_core::ledger::Ledger;
     use zhang_core::ZhangResult;
 
     /// the local source, counting what it is asked besides loading the ledger
@@ -250,13 +257,14 @@ fn on_the_local_disk_documents_are_looked_at_not_listed() {
     let ledger = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source.clone()).unwrap();
 
     assert_eq!(source.1.load(Ordering::SeqCst), 0, "nothing is asked of the source for the documents");
-    let store = ledger.store.read().unwrap();
-    let mut errors = store.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
+    let mut errors = ledger.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
     errors.sort_by_key(|it| format!("{it:?}"));
     assert_eq!(errors, vec![ErrorKind::DocumentNotFound, ErrorKind::DocumentPathRelativeToRoot]);
-    let documents = store.documents.iter().map(|it| (it.path.as_str(), it.alternate.clone())).collect::<Vec<_>>();
+    let documents = documents(&ledger)
+        .into_iter()
+        .map(|(path, alternate)| (path, alternate.map(str::to_owned)))
+        .collect::<Vec<_>>();
     assert_eq!(documents, vec![("attachments/legacy.pdf", None), ("data/missing.pdf", None)]);
-    drop(store);
     std::fs::remove_dir_all(dir).ok();
 }
 
