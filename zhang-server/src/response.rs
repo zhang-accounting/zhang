@@ -996,18 +996,20 @@ pub struct QueryResultEntity {
     pub total: Option<u64>,
 }
 
+impl From<zhang_query::ColumnInfo> for QueryColumnEntity {
+    fn from(column: zhang_query::ColumnInfo) -> Self {
+        QueryColumnEntity {
+            name: column.name,
+            column_type: column.ty.into(),
+        }
+    }
+}
+
 impl From<zhang_query::QueryResult> for QueryResultEntity {
     fn from(value: zhang_query::QueryResult) -> Self {
         QueryResultEntity {
             total: value.total,
-            columns: value
-                .columns
-                .into_iter()
-                .map(|column| QueryColumnEntity {
-                    name: column.name,
-                    column_type: column.ty.into(),
-                })
-                .collect(),
+            columns: value.columns.into_iter().map(QueryColumnEntity::from).collect(),
             rows: value.rows.iter().map(|row| row.iter().map(QueryCell::encode).collect()).collect(),
         }
     }
@@ -1023,6 +1025,8 @@ pub struct BuiltinQueryEntity {
     pub bql: String,
     /// every parameter of the query, in the order it declares them
     pub params: Vec<BuiltinQueryParamEntity>,
+    /// the columns of its rows, in order, as `POST /api/query/builtins/{name}` returns them
+    pub columns: Vec<QueryColumnEntity>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -1046,6 +1050,13 @@ impl From<&crate::builtin::BuiltinQuery> for BuiltinQueryEntity {
                     name: (*name).to_owned(),
                     param_type: (*ty).into(),
                 })
+                .collect(),
+            // every registered query compiles (the tests check it), so the columns are always known
+            columns: crate::builtin::compiled(value.name)
+                .map(|query| query.columns())
+                .unwrap_or_default()
+                .into_iter()
+                .map(QueryColumnEntity::from)
                 .collect(),
         }
     }

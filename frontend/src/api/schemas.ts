@@ -274,6 +274,28 @@ export interface paths {
      * (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
      */
     get: operations['get_builtin_queries'];
+    /**
+     * Run Builtin Queries
+     * @description Run several built-in queries, each as `POST /api/query/builtins/{name}` runs it, under one
+     * read lock of the ledger, so the figures of one page agree with each other: the results in
+     * the order of the requests. The whole batch is refused, with the same 404 or 400, when one
+     * of its queries would be.
+     */
+    post: operations['run_builtin_queries'];
+  };
+  '/api/query/builtins/{name}': {
+    /**
+     * Run Builtin Query
+     * @description Run a built-in query with its parameters bound: the rows the app computes its figures from,
+     * with the columns `GET /api/query/builtins` lists for the query, as `POST /api/query` returns
+     * a result.
+     *
+     * `params` gives every parameter by name, as `POST /api/query/builtins/{name}/text` takes
+     * them; with `count_total` the result also has `total`, the number of rows before `LIMIT`
+     * and `OFFSET`. An unknown query is a 404; a missing, unknown or mistyped parameter a 400,
+     * each naming the query or the parameter.
+     */
+    post: operations['run_builtin_query'];
   };
   '/api/query/builtins/{name}/text': {
     /**
@@ -2100,6 +2122,12 @@ export interface operations {
             data: {
               /** @description the query, with its parameters written `:name` */
               bql: string;
+              /** @description the columns of its rows, in order, as `POST /api/query/builtins/{name}` returns them */
+              columns: {
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
+              }[];
               description: string;
               /** @description unique, dotted and lower case, e.g. `report.summary` */
               name: string;
@@ -2111,6 +2139,198 @@ export interface operations {
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
               }[];
             }[];
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Run Builtin Queries
+   * @description Run several built-in queries, each as `POST /api/query/builtins/{name}` runs it, under one
+   * read lock of the ledger, so the figures of one page agree with each other: the results in
+   * the order of the requests. The whole batch is refused, with the same 404 or 400, when one
+   * of its queries would be.
+   */
+  run_builtin_queries: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description also count the rows before `LIMIT` and `OFFSET` into this result's `total` */
+          count_total?: boolean | null;
+          /** @description the name of the built-in query, as `GET /api/query/builtins` lists it */
+          name: string;
+          /** @description the value of every parameter of the query, by name (`from` for `:from`) */
+          params: {
+            [key: string]: boolean | number | string | string[] | null;
+          };
+        }[];
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              columns: {
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
+              }[];
+              rows: (
+                | boolean
+                | number
+                | string
+                | string[]
+                | {
+                    currency: string;
+                    number: string;
+                  }
+                | {
+                    cost: {
+                      currency: string;
+                      date: string | null;
+                      label: string | null;
+                      number: string;
+                    } | null;
+                    units: {
+                      currency: string;
+                      number: string;
+                    };
+                  }
+                | {
+                    positions: {
+                      cost: {
+                        currency: string;
+                        date: string | null;
+                        label: string | null;
+                        number: string;
+                      } | null;
+                      units: {
+                        currency: string;
+                        number: string;
+                      };
+                    }[];
+                  }
+                | {
+                    key: string;
+                    value: string;
+                  }[]
+                | null
+              )[][];
+              /** @description the number of rows before `LIMIT` and `OFFSET`; only when the request sets `count_total` */
+              total?: number | null;
+            }[];
+          };
+        };
+      };
+      /** @description the query cannot be parsed, compiled or run */
+      400: {
+        content: {
+          'application/json': {
+            column: number | null;
+            line: number | null;
+            message: string;
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Run Builtin Query
+   * @description Run a built-in query with its parameters bound: the rows the app computes its figures from,
+   * with the columns `GET /api/query/builtins` lists for the query, as `POST /api/query` returns
+   * a result.
+   *
+   * `params` gives every parameter by name, as `POST /api/query/builtins/{name}/text` takes
+   * them; with `count_total` the result also has `total`, the number of rows before `LIMIT`
+   * and `OFFSET`. An unknown query is a 404; a missing, unknown or mistyped parameter a 400,
+   * each naming the query or the parameter.
+   */
+  run_builtin_query: {
+    parameters: {
+      path: {
+        name: string;
+      };
+    };
+    /** @description `POST /api/query/builtins/{name}`: run a built-in query with its parameters bound. */
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description also count the rows before `LIMIT` and `OFFSET` into the result's `total`, as `POST /api/query` does */
+          count_total?: boolean | null;
+          /** @description the value of every parameter of the query, by name (`from` for `:from`) */
+          params: {
+            [key: string]: boolean | number | string | string[] | null;
+          };
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              columns: {
+                name: string;
+                /** @enum {string} */
+                type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
+              }[];
+              rows: (
+                | boolean
+                | number
+                | string
+                | string[]
+                | {
+                    currency: string;
+                    number: string;
+                  }
+                | {
+                    cost: {
+                      currency: string;
+                      date: string | null;
+                      label: string | null;
+                      number: string;
+                    } | null;
+                    units: {
+                      currency: string;
+                      number: string;
+                    };
+                  }
+                | {
+                    positions: {
+                      cost: {
+                        currency: string;
+                        date: string | null;
+                        label: string | null;
+                        number: string;
+                      } | null;
+                      units: {
+                        currency: string;
+                        number: string;
+                      };
+                    }[];
+                  }
+                | {
+                    key: string;
+                    value: string;
+                  }[]
+                | null
+              )[][];
+              /** @description the number of rows before `LIMIT` and `OFFSET`; only when the request sets `count_total` */
+              total?: number | null;
+            };
+          };
+        };
+      };
+      /** @description the query cannot be parsed, compiled or run */
+      400: {
+        content: {
+          'application/json': {
+            column: number | null;
+            line: number | null;
+            message: string;
           };
         };
       };

@@ -78,7 +78,7 @@ Queries saved in the ledger with the [`query` directive](/reference/directives/q
 
 ### Over HTTP
 
-Send the query to `POST /api/query`, or to `POST /api/query/csv` to get the result as CSV. `GET /api/query/saved` lists the saved queries, and `GET /api/query/builtins` the [built-in queries](/reference/builtin-queries/) behind the app's figures. See [HTTP API](#http-api) for the request and response formats.
+Send the query to `POST /api/query`, or to `POST /api/query/csv` to get the result as CSV. `GET /api/query/saved` lists the saved queries, and `GET /api/query/builtins` the [built-in queries](/reference/builtin-queries/) behind the app's figures, which `POST /api/query/builtins/{name}` runs by name. See [HTTP API](#http-api) for the request and response formats.
 
 ## A first query
 
@@ -276,7 +276,7 @@ PIVOT BY category, year
 
 ### Parameters
 
-When Zhang runs a query from its own code, through the Rust API of the `zhang-query` crate, the query can contain parameters, `$1`, `$2`, ... or `:name`, wherever it would contain a value, and the values are bound separately. The pattern of `JOURNAL`, the dates of `OPEN ON` and `CLOSE ON`, and the counts of `LIMIT` and `OFFSET` can be parameters too. The HTTP API does not bind parameters, so a query sent over HTTP that contains one fails with `parameter $1 is not bound`. A [built-in query](/reference/builtin-queries/) can be written out with its parameters filled in, as a query that runs over HTTP.
+When Zhang runs a query from its own code, through the Rust API of the `zhang-query` crate, the query can contain parameters, `$1`, `$2`, ... or `:name`, wherever it would contain a value, and the values are bound separately. The pattern of `JOURNAL`, the dates of `OPEN ON` and `CLOSE ON`, and the counts of `LIMIT` and `OFFSET` can be parameters too. `POST /api/query` does not bind parameters, so a query sent to it that contains one fails with `parameter $1 is not bound`. A [built-in query](/reference/builtin-queries/) runs over HTTP by name with its parameters bound, or can be written out with its parameters filled in, as a query that runs over `POST /api/query`.
 
 A parameter is a constant of one execution: before the rows are read, every parameter is replaced by its value and the query is simplified again, exactly as if the value had been written in the query. A regular expression given as a parameter (`payee ~ :keyword`) is compiled once, a set given as a parameter (`account IN :accounts`) and a list of values (`IN ('a', 'b', :c)`) are looked up in a hash table, and the needle of [`icontains`](#search-functions) is lower-cased once, so a query with parameters is as fast as the same query written with literals. An invalid regular expression given as a parameter is reported, at the match, when a row is matched against it, as before.
 
@@ -1436,7 +1436,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 
 ### Built-in queries
 
-`GET /api/query/builtins` lists the queries behind the app's figures, and `POST /api/query/builtins/{name}/text` writes one out with its parameters filled in. See [Built-in queries](/reference/builtin-queries/).
+`GET /api/query/builtins` lists the queries behind the app's figures with their parameters and columns, `POST /api/query/builtins/{name}` runs one with its parameters bound (`POST /api/query/builtins` several at once, under one read of the ledger), and `POST /api/query/builtins/{name}/text` writes one out with its parameters filled in. See [Built-in queries](/reference/builtin-queries/#http-api).
 
 ### Schema
 

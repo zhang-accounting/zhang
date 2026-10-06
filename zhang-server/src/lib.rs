@@ -147,6 +147,8 @@ impl GotchaApp for ServerApp {
             .get("/api/query/schema", routes::query::get_query_schema)
             .get("/api/query/saved", routes::query::get_saved_queries)
             .get("/api/query/builtins", routes::query::get_builtin_queries)
+            .post("/api/query/builtins", routes::query::run_builtin_queries)
+            .post("/api/query/builtins/:name", routes::query::run_builtin_query)
             .post("/api/query/builtins/:name/text", routes::query::get_builtin_query_text)
             // every error has the one JSON body, the rejections of the extractors too
             .layer(axum::middleware::from_fn(error::json_rejections))

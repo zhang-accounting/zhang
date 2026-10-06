@@ -1,6 +1,6 @@
 ---
 title: Built-in Queries
-description: The documented BQL queries behind the figures Zhang shows, how to open one on the Query page and adapt it, and the HTTP endpoints that list them and fill in their parameters.
+description: The documented BQL queries behind the figures Zhang shows, how to open one on the Query page and adapt it, and the HTTP endpoints that list them, run them and fill in their parameters.
 ---
 
 Zhang's read endpoints use *built-in queries* ([#479](https://github.com/zhang-accounting/zhang/issues/479)). A built-in query is a named query in Zhang's [query language](/reference/query-language/) that a page runs against your ledger, with a few parameters such as the dates of a report. The page only arranges the result, so the logic behind a figure is a query you can read on this page.
@@ -41,11 +41,11 @@ The query with its values written in returns the same rows as the page got. Only
 
 ## HTTP API
 
-Both endpoints sit behind the same [authentication](/deployment/authentication/) as the rest of the API.
+These endpoints sit behind the same [authentication](/deployment/authentication/) as the rest of the API. A script that calls them gets exactly the rows a page computes its figures from.
 
 ### List the built-in queries
 
-`GET /api/query/builtins` lists every built-in query with its name, a description, its BQL and its parameters with their [types](/reference/query-language/#types):
+`GET /api/query/builtins` lists every built-in query with its name, a description, its BQL, its parameters with their [types](/reference/query-language/#types), and the columns of the rows it returns:
 
 ```json
 {
@@ -57,10 +57,74 @@ Both endpoints sit behind the same [authentication](/deployment/authentication/)
       "params": [
         { "name": "from", "type": "date" },
         { "name": "to", "type": "date" }
+      ],
+      "columns": [
+        { "name": "date", "type": "date" },
+        { "name": "flag", "type": "str" },
+        { "name": "payee", "type": "str" },
+        { "name": "narration", "type": "str" },
+        { "name": "account", "type": "str" },
+        { "name": "position", "type": "position" }
       ]
     }
   ]
 }
+```
+
+### Parameter values
+
+Every endpoint below takes a query's `params`: every parameter of the query, by name, and no other, as a JSON value of its type:
+
+| Type | JSON value |
+|------|------------|
+| `date` | a string `YYYY-MM-DD`, read as [`date(str)`](/reference/query-language/#date-functions) reads it |
+| `str` | a string |
+| `set` | a list of strings |
+| `int` | an integer |
+| `decimal` | a number, or a string such as `"12.50"` to keep the decimal places |
+| `bool` | `true` or `false` |
+| any type | `null` |
+
+An unknown query name is answered with HTTP 404. A missing, unknown or mistyped parameter is answered with HTTP 400. The `message` names the query or the parameter.
+
+### Run a built-in query
+
+`POST /api/query/builtins/{name}` runs the query `name` with the values in `params` bound to its parameters, and answers as [`POST /api/query`](/reference/query-language/#run-a-query) does: the `columns` the list above shows for the query, and `rows`, each a list of cells in the order of the columns, in the [cell encoding](/reference/query-language/#cell-encoding). With `"count_total": true` the result also has `total`, the number of rows before `LIMIT` and `OFFSET`. The [limits](/reference/query-language/#limits) of `POST /api/query` apply.
+
+```shell
+curl -X POST http://localhost:8000/api/query/builtins/postings.between \
+  -H 'Content-Type: application/json' \
+  -d '{"params": {"from": "2024-01-01", "to": "2024-01-31"}}'
+```
+
+```json
+{
+  "data": {
+    "columns": [
+      { "name": "date", "type": "date" },
+      { "name": "flag", "type": "str" },
+      { "name": "payee", "type": "str" },
+      { "name": "narration", "type": "str" },
+      { "name": "account", "type": "str" },
+      { "name": "position", "type": "position" }
+    ],
+    "rows": [
+      ["2024-01-31", "*", "Shop", "Lunch", "Expenses:Food", { "units": { "number": "12.50", "currency": "USD" }, "cost": null }],
+      ["2024-01-31", "*", "Shop", "Lunch", "Assets:Cash", { "units": { "number": "-12.50", "currency": "USD" }, "cost": null }]
+    ]
+  }
+}
+```
+
+### Run several at once
+
+`POST /api/query/builtins` runs a list of queries, each `{"name", "params", "count_total"}` as above, under one read of the ledger, so the figures of one page agree with each other even while the ledger is reloading. It answers with the list of their results, in the order of the requests. When one query of the list is unknown or has a bad parameter, the whole list is refused with that query's 404 or 400.
+
+```shell
+curl -X POST http://localhost:8000/api/query/builtins \
+  -H 'Content-Type: application/json' \
+  -d '[{"name": "journals.payees", "params": {}},
+       {"name": "postings.between", "params": {"from": "2024-01-01", "to": "2024-01-31"}, "count_total": true}]'
 ```
 
 ### Write a query out with its values
@@ -81,19 +145,7 @@ curl -X POST http://localhost:8000/api/query/builtins/postings.between/text \
 }
 ```
 
-Send the text to [`POST /api/query`](/reference/query-language/#run-a-query) to run it. `params` must give every parameter of the query, and no other, as a JSON value of its type:
-
-| Type | JSON value |
-|------|------------|
-| `date` | a string `YYYY-MM-DD`, read as [`date(str)`](/reference/query-language/#date-functions) reads it |
-| `str` | a string |
-| `set` | a list of strings |
-| `int` | an integer |
-| `decimal` | a number, or a string such as `"12.50"` to keep the decimal places |
-| `bool` | `true` or `false` |
-| any type | `null` |
-
-An unknown query name is answered with HTTP 404. A missing, unknown or mistyped parameter is answered with HTTP 400 and a `message` that names it.
+Send the text to [`POST /api/query`](/reference/query-language/#run-a-query) to run it: it returns the same rows as running the query by name.
 
 ## The queries
 
