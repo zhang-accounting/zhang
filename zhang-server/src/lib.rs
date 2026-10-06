@@ -12,7 +12,6 @@ use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
 use log::{debug, error, info, trace};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use routes::account::*;
-use routes::budget::*;
 use routes::commodity::*;
 use routes::common::*;
 use routes::document::*;
@@ -136,9 +135,6 @@ impl GotchaApp for ServerApp {
             .get("/api/statistic/summary", get_statistic_summary)
             .get("/api/statistic/graph", get_statistic_graph)
             .get("/api/statistic/:account_type", get_statistic_rank_detail_by_account_type)
-            .get("/api/budgets", get_budget_list)
-            .get("/api/budgets/:budget_name", get_budget_info)
-            .get("/api/budgets/:budget_name/interval/:year/:month", get_budget_interval_detail)
             .get("/api/plugins", routes::plugin::plugin_list)
             // router plugins: any method, behind the same layers (and authentication) as the rest of the API
             .route(routes::plugin_router::ROUTE, any(routes::plugin_router::route_to_plugin))

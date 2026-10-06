@@ -1,22 +1,23 @@
 //! Every number the API writes is in plain notation, as the queries and the exporter write it: a tiny amount is
 //! `"0.0000001"`, never `BigDecimal`'s `"1E-7"`, and a huge one is all its digits, never `"…E+30"`. Numbers keep
 //! their scale (`"0.50"`). This covers the amounts and bare numbers of the account, journal, commodity and error
-//! endpoints, the error metas included.
+//! endpoints, the error metas included, and the budget pages' built-in query.
 
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
+use axum::Json;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{AccountJournalRequest, BudgetListRequest, JournalRequest};
+use zhang_server::request::{AccountJournalRequest, BuiltinQueryRunRequest, JournalRequest};
 use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
-use zhang_server::routes::budget::get_budget_list;
 use zhang_server::routes::commodity::{get_all_commodities, get_single_commodity};
 use zhang_server::routes::common::get_errors;
+use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::get_journals;
 use zhang_server::routes::Query;
 use zhang_server::state::SharedLedger;
@@ -143,12 +144,13 @@ async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
     responses.push(("/api/commodities", commodities));
     let detail = json(get_single_commodity(State(ledger.clone()), Path(("BTC".to_owned(),))).await).await;
     responses.push(("/api/commodities/BTC", detail));
-    let budgets = BudgetListRequest {
-        month: Some(1),
-        year: Some(2024),
+    // the Budgets page: the built-in query `budgets.month`, run by name
+    let budgets = BuiltinQueryRunRequest {
+        params: serde_json::from_value(serde_json::json!({ "month": "2024-01-01" })).unwrap(),
+        count_total: None,
     };
-    let budgets = json(get_budget_list(State(ledger.clone()), axum::extract::Query(budgets)).await).await;
-    responses.push(("/api/budgets", budgets));
+    let budgets = json(run_builtin_query(State(ledger.clone()), Path(("budgets.month".to_owned(),)), Json(budgets)).await).await;
+    responses.push(("/api/query/builtins/budgets.month", budgets));
     let errors = json(get_errors(State(ledger.clone()), Query(journal_request())).await).await;
     responses.push(("/api/errors", errors));
 
@@ -166,6 +168,21 @@ async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
         .unwrap();
     let posting = find(&journal, "narration", "a tiny amount");
     let check = find(&journals["records"], "type", "BalanceCheck");
+    // the rows of a query result, as objects keyed by column name
+    let columns = budgets["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let budgets = Value::Array(
+        budgets["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+            .collect(),
+    );
     let huge = find(&budgets, "name", "Big");
     let short = find(&errors["records"], "error_type", "NoEnoughCommodityLot");
     assert_eq!(
@@ -180,7 +197,7 @@ async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
             &check["tolerance"],
             &find(&commodities, "name", "BTC")["latest_price_amount"],
             &detail["prices"][0]["amount"]["number"],
-            &huge["activity_amount"]["number"],
+            &huge["activity"],
             &short["metas"]["transaction_amount"],
         ],
         [

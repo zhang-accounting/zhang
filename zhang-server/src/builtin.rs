@@ -326,7 +326,7 @@ WHERE source = 'directive' AND under(account, :account)",
               LIMIT :size OFFSET :offset",
         params: &[("size", DataType::Int), ("offset", DataType::Int)],
     },
-    // ---- budgets and commodities: /api/budgets/*, /api/commodities/* ----
+    // ---- budgets (the budget pages, through POST /api/query/builtins) and commodities: /api/commodities/* ----
     BuiltinQuery {
         name: "budgets.month",
         description: "Every budget as of a month (its first day): its last month in #budgets up to that month, carried over to the month when it is later.",

@@ -489,69 +489,6 @@ pub struct AccountInfoEntity {
     pub has_sub_accounts: bool,
 }
 
-#[derive(Serialize, Schematic)]
-pub struct BudgetListItemEntity {
-    pub name: String,
-    pub alias: Option<String>,
-    pub category: Option<String>,
-    pub closed: bool,
-    pub assigned_amount: Amount,
-    pub activity_amount: Amount,
-    pub available_amount: Amount,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct BudgetInfoEntity {
-    pub name: String,
-    pub alias: Option<String>,
-    pub category: Option<String>,
-    pub closed: bool,
-    /// the date of the budget's close, whatever the month asked for; `null` if it is never closed
-    pub close: Option<NaiveDate>,
-    /// the time of day of the budget's close (`HH:MM:SS`), until which it takes activity on its
-    /// close day; `null` for a close without a time, or if it is never closed
-    pub close_time: Option<String>,
-
-    pub related_accounts: Vec<String>,
-
-    pub assigned_amount: Amount,
-    pub activity_amount: Amount,
-    pub available_amount: Amount,
-}
-
-/// The event kinds in the existing budget HTTP response.
-#[derive(Clone, Debug, Serialize, Schematic)]
-pub enum BudgetEventType {
-    AddAssignedAmount,
-    Transfer,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct BudgetEventEntity {
-    /// the date and time of the event: the ledger's wall-clock time in its timezone, as every `datetime` of the API
-    pub datetime: NaiveDateTime,
-    pub timestamp: i64,
-    pub amount: Amount,
-    pub event_type: BudgetEventType,
-}
-
-#[derive(Serialize, Schematic)]
-#[serde(tag = "type")]
-pub enum BudgetIntervalEventEntity {
-    BudgetEvent(BudgetEventEntity),
-    Posting(AccountJournalEntity),
-}
-
-impl BudgetIntervalEventEntity {
-    /// the Unix time of the event
-    pub(crate) fn timestamp(&self) -> i64 {
-        match self {
-            BudgetIntervalEventEntity::BudgetEvent(budget_event) => budget_event.timestamp,
-            BudgetIntervalEventEntity::Posting(posting) => posting.timestamp,
-        }
-    }
-}
-
 /// a loaded plugin
 #[derive(Serialize, Schematic)]
 pub struct PluginEntity {

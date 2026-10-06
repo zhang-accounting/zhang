@@ -7,8 +7,6 @@ import { apiBaseUrl, openAPIFetcher, reportUnauthorized } from './fetcher';
 
 export const retrieveJournals = openAPIFetcher.path('/api/journals').method('get').create();
 
-export const retrieveBudgets = openAPIFetcher.path('/api/budgets').method('get').create();
-
 export const retrieveDocuments = openAPIFetcher.path('/api/documents').method('get').create();
 
 export const retrieveStatisticGraph = openAPIFetcher.path('/api/statistic/graph').method('get').create();
@@ -35,10 +33,6 @@ export const retrieveAccountBalance = openAPIFetcher.path('/api/accounts/{accoun
 export const retrieveAccountJournals = openAPIFetcher.path('/api/accounts/{account_name}/journals').method('get').create();
 
 export const retrieveAccountDocuments = openAPIFetcher.path('/api/accounts/{account_name}/documents').method('get').create();
-
-export const retrieveBudgetInfo = openAPIFetcher.path('/api/budgets/{budget_name}').method('get').create();
-
-export const retrieveBudgetEvent = openAPIFetcher.path('/api/budgets/{budget_name}/interval/{year}/{month}').method('get').create();
 
 export const retrieveCommodityInfo = openAPIFetcher.path('/api/commodities/{commodity_name}').method('get').create();
 

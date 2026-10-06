@@ -12,12 +12,16 @@ export const ledgerRevisionAtom = atom(0);
 export const ledgerChangedAtom = atom(null, (get, set) => set(ledgerRevisionAtom, get(ledgerRevisionAtom) + 1));
 
 /**
- * Runs `query`, an API call (`undefined` to wait), again whenever `deps` or the ledger change, and unwraps the
- * response's `data`. `firstLoad`: nothing to show yet; `refreshing`: the previous value stays on screen while a new one
- * loads.
+ * Runs `load`, a read of the ledger (`undefined` to wait), again whenever `deps` or the ledger change. `firstLoad`:
+ * nothing to show yet; `refreshing`: the previous value stays on screen while a new one loads.
  */
-export function useLedgerQuery<T>(query: () => Promise<{ data: { data?: T } }> | undefined, deps: DependencyList) {
+export function useLedgerValue<T>(load: () => Promise<T> | undefined, deps: DependencyList) {
   const revision = useAtomValue(ledgerRevisionAtom);
-  const state = useAsyncRetry(async () => (await query())?.data.data, [...deps, revision]);
+  const state = useAsyncRetry(async () => load(), [...deps, revision]);
   return { ...state, firstLoad: state.loading && state.value === undefined, refreshing: state.loading && state.value !== undefined };
+}
+
+/** [`useLedgerValue`] of an API call, unwrapping the response's `data`. */
+export function useLedgerQuery<T>(query: () => Promise<{ data: { data?: T } }> | undefined, deps: DependencyList) {
+  return useLedgerValue(async () => (await query())?.data.data, deps);
 }

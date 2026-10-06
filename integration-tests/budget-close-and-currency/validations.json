@@ -33,7 +33,13 @@
     ]
   },
   {
-    "uri": "/api/budgets?year=2024&month=1",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2024-01-01"
+      }
+    },
     "validations": [
       [
         "$.data.length()",
@@ -48,25 +54,31 @@
         false
       ],
       [
-        "$.data[0].assigned_amount.number",
+        "$.data[0].assigned.number",
         "1000"
       ],
       [
-        "$.data[0].assigned_amount.commodity",
+        "$.data[0].assigned.currency",
         "CNY"
       ],
       [
-        "$.data[0].activity_amount.number",
+        "$.data[0].activity",
         "100"
       ],
       [
-        "$.data[0].available_amount.number",
+        "$.data[0].available.number",
         "900"
       ]
     ]
   },
   {
-    "uri": "/api/budgets?year=2024&month=2",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2024-02-01"
+      }
+    },
     "validations": [
       [
         "$.data.length()",
@@ -81,25 +93,31 @@
         false
       ],
       [
-        "$.data[0].assigned_amount.number",
+        "$.data[0].assigned.number",
         "900"
       ],
       [
-        "$.data[0].assigned_amount.commodity",
+        "$.data[0].assigned.currency",
         "CNY"
       ],
       [
-        "$.data[0].activity_amount.number",
+        "$.data[0].activity",
         "0"
       ],
       [
-        "$.data[0].available_amount.number",
+        "$.data[0].available.number",
         "900"
       ]
     ]
   },
   {
-    "uri": "/api/budgets?year=2024&month=3",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2024-03-01"
+      }
+    },
     "validations": [
       [
         "$.data.length()",
@@ -114,25 +132,31 @@
         true
       ],
       [
-        "$.data[0].assigned_amount.number",
+        "$.data[0].assigned.number",
         "900"
       ],
       [
-        "$.data[0].assigned_amount.commodity",
+        "$.data[0].assigned.currency",
         "CNY"
       ],
       [
-        "$.data[0].activity_amount.number",
+        "$.data[0].activity",
         "0"
       ],
       [
-        "$.data[0].available_amount.number",
+        "$.data[0].available.number",
         "900"
       ]
     ]
   },
   {
-    "uri": "/api/budgets?year=2024&month=4",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2024-04-01"
+      }
+    },
     "validations": [
       [
         "$.data.length()",
@@ -147,19 +171,19 @@
         true
       ],
       [
-        "$.data[0].assigned_amount.number",
+        "$.data[0].assigned.number",
         "900"
       ],
       [
-        "$.data[0].assigned_amount.commodity",
+        "$.data[0].assigned.currency",
         "CNY"
       ],
       [
-        "$.data[0].activity_amount.number",
+        "$.data[0].activity",
         "0"
       ],
       [
-        "$.data[0].available_amount.number",
+        "$.data[0].available.number",
         "900"
       ]
     ]

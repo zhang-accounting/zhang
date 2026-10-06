@@ -9,7 +9,13 @@
     ]
   },
   {
-    "uri": "/api/budgets?year=2023&month=12",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2023-12-01"
+      }
+    },
     "validations": [
       [
         "$.data.length()",
@@ -24,15 +30,15 @@
         "生活开销｜55%"
       ],
       [
-        "$.data[?(@.name=='food')].assigned_amount.number",
+        "$.data[?(@.name=='food')].assigned.number",
         "1100"
       ],
       [
-        "$.data[?(@.name=='food')].activity_amount.number",
+        "$.data[?(@.name=='food')].activity",
         "50"
       ],
       [
-        "$.data[?(@.name=='food')].available_amount.number",
+        "$.data[?(@.name=='food')].available.number",
         "1050"
       ],
       [
@@ -40,15 +46,15 @@
         "娱乐"
       ],
       [
-        "$.data[?(@.name=='fun')].assigned_amount.number",
+        "$.data[?(@.name=='fun')].assigned.number",
         "200.5"
       ],
       [
-        "$.data[?(@.name=='fun')].activity_amount.number",
+        "$.data[?(@.name=='fun')].activity",
         "80"
       ],
       [
-        "$.data[?(@.name=='fun')].available_amount.number",
+        "$.data[?(@.name=='fun')].available.number",
         "120.5"
       ],
       [
@@ -56,27 +62,45 @@
         true
       ],
       [
-        "$.data[?(@.name=='vacation')].assigned_amount.number",
+        "$.data[?(@.name=='vacation')].assigned.number",
         "0"
       ]
     ]
   },
   {
-    "uri": "/api/budgets/food?year=2023&month=12",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.budget",
+    "body": {
+      "params": {
+        "name": "food"
+      }
+    },
     "validations": [
       [
-        "$.data.name",
+        "$.data[0].name",
         "food"
       ],
       [
-        "$.data.assigned_amount.number",
-        "1100"
-      ],
-      [
-        "$.data.related_accounts",
+        "$.data[0].accounts",
         [
           "Expenses:Food"
         ]
+      ]
+    ]
+  },
+  {
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.budget_month",
+    "body": {
+      "params": {
+        "name": "food",
+        "month": "2023-12-01"
+      }
+    },
+    "validations": [
+      [
+        "$.data[0].assigned.number",
+        "1100"
       ]
     ]
   }

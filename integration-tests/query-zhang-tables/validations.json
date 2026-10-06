@@ -1,67 +1,85 @@
 [
   {
-    "uri": "/api/budgets?year=2024&month=2",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2024-02-01"
+      }
+    },
     "validations": [
       [
         "$.data.length()",
         2
       ],
       [
-        "$.data[?(@.name=='food')].assigned_amount.number",
+        "$.data[?(@.name=='food')].assigned.number",
         "300"
       ],
       [
-        "$.data[?(@.name=='food')].activity_amount.number",
+        "$.data[?(@.name=='food')].activity",
         "10"
       ],
       [
-        "$.data[?(@.name=='food')].available_amount.number",
+        "$.data[?(@.name=='food')].available.number",
         "290"
       ],
       [
-        "$.data[?(@.name=='fun')].assigned_amount.number",
+        "$.data[?(@.name=='fun')].assigned.number",
         "70"
       ],
       [
-        "$.data[?(@.name=='fun')].activity_amount.number",
+        "$.data[?(@.name=='fun')].activity",
         "0"
       ],
       [
-        "$.data[?(@.name=='fun')].available_amount.number",
+        "$.data[?(@.name=='fun')].available.number",
         "70"
       ]
     ]
   },
   {
-    "uri": "/api/budgets?year=2024&month=3",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.month",
+    "body": {
+      "params": {
+        "month": "2024-03-01"
+      }
+    },
     "validations": [
       [
-        "$.data[?(@.name=='food')].assigned_amount.number",
+        "$.data[?(@.name=='food')].assigned.number",
         "540"
       ],
       [
-        "$.data[?(@.name=='food')].activity_amount.number",
+        "$.data[?(@.name=='food')].activity",
         "650"
       ],
       [
-        "$.data[?(@.name=='food')].available_amount.number",
+        "$.data[?(@.name=='food')].available.number",
         "-110"
       ],
       [
-        "$.data[?(@.name=='fun')].assigned_amount.number",
+        "$.data[?(@.name=='fun')].assigned.number",
         "20"
       ],
       [
-        "$.data[?(@.name=='fun')].available_amount.number",
+        "$.data[?(@.name=='fun')].available.number",
         "20"
       ]
     ]
   },
   {
-    "uri": "/api/budgets/food?year=2024&month=1",
+    "method": "POST",
+    "uri": "/api/query/builtins/budgets.budget",
+    "body": {
+      "params": {
+        "name": "food"
+      }
+    },
     "validations": [
       [
-        "$.data.related_accounts.length()",
+        "$.data[0].accounts.length()",
         2
       ]
     ]

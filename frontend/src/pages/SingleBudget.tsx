@@ -1,13 +1,11 @@
 import { ArrowLeft, ListX, TriangleAlert } from 'lucide-react';
-import { OpReturnType } from 'openapi-typescript-fetch';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { retrieveBudgetEvent, retrieveBudgetInfo } from '@/api/requests';
-import { operations } from '@/api/schemas';
 import Amount from '@/components/Amount';
 import PayeeNarration from '@/components/basic/PayeeNarration';
-import { budgetPostingsParams } from '@/components/budget/budget-query';
+import { budgetMonth, retrieveBudgetEvents, retrieveBudgetInfo } from '@/components/budget/budget-api';
+import type { BudgetEvent } from '@/components/budget/budget-rows';
 import { budgetUsage, monthFromSearchParams, monthSearchParams, usageProgressClass } from '@/components/budget/budget-utils';
 import { MonthSwitcher } from '@/components/budget/MonthSwitcher';
 import { EmptyState, PageHeader, PageShell, RefreshingLabel, ResponsiveList, type ResponsiveColumn } from '@/components/layout';
@@ -20,9 +18,7 @@ import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { useLedgerQuery } from '@/states/ledger';
-
-type BudgetEvent = OpReturnType<operations['get_budget_interval_detail']>['data'][number];
+import { useLedgerValue } from '@/states/ledger';
 
 function isBudgetEvent(event: BudgetEvent): event is Extract<BudgetEvent, { type: 'BudgetEvent' }> {
   return 'event_type' in event;
@@ -45,8 +41,8 @@ function SingleBudget() {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
 
-  const info = useLedgerQuery(() => retrieveBudgetInfo({ budget_name: budgetName ?? '', year, month }), [budgetName, year, month]);
-  const events = useLedgerQuery(() => retrieveBudgetEvent({ budget_name: budgetName ?? '', year, month }), [budgetName, year, month]);
+  const info = useLedgerValue(() => retrieveBudgetInfo(budgetName ?? '', date), [budgetName, year, month]);
+  const events = useLedgerValue(() => retrieveBudgetEvents(budgetName ?? '', date), [budgetName, year, month]);
   const { value: budgetInfo, error, firstLoad } = info;
 
   const columns: ResponsiveColumn<BudgetEvent>[] = [
@@ -144,7 +140,7 @@ function SingleBudget() {
         actions={
           <>
             <MonthSwitcher date={date} onChange={setDate} />
-            <OpenInExplore name="budgets.budget_month" params={{ name: budgetName ?? '', month: date }} iconOnly className="size-10 md:size-8" />
+            <OpenInExplore name="budgets.budget_month" params={{ name: budgetName ?? '', month: budgetMonth(date) }} iconOnly className="size-10 md:size-8" />
           </>
         }
       >
@@ -201,7 +197,7 @@ function SingleBudget() {
       <section aria-busy={refreshing} className={cn('flex flex-col gap-3 transition-opacity', refreshing && 'opacity-60')}>
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">{t('budgets.activity_in', { month: fmt.month(date) })}</h2>
-          {budgetInfo && <OpenInExplore name="budgets.postings" params={budgetPostingsParams(budgetInfo, date)} iconOnly />}
+          {budgetInfo && <OpenInExplore name="budgets.postings" params={{ name: budgetName ?? '', month: budgetMonth(date) }} iconOnly />}
         </div>
         {events.error ? (
           <EmptyState icon={TriangleAlert} title={t('page_state.load_failed')} description={events.error.message} />

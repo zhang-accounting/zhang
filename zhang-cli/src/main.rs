@@ -243,10 +243,35 @@ mod test {
     async fn integration_test() {
         env_logger::try_init().ok();
         type ValidationPoint = (String, Value);
+        /// A request of `validations.json` and the JSONPath checks on its answer. `GET uri` by default; `method` and
+        /// `body` (sent as JSON) for the others, such as the built-in queries, `POST /api/query/builtins/{name}`. A
+        /// query result, `{"columns", "rows"}`, is read as its rows by column name, so a check names a cell as
+        /// `$.data[0].assigned.number`.
         #[derive(Deserialize)]
         struct Validation {
             uri: String,
+            #[serde(default)]
+            method: Option<String>,
+            #[serde(default)]
+            body: Option<Value>,
             validations: Vec<ValidationPoint>,
+        }
+        /// A query result's `data` as its rows by column name; any other `data` as it is.
+        fn rows_by_column(mut res: Value) -> Value {
+            let (columns, rows) = match (res["data"]["columns"].as_array(), res["data"]["rows"].as_array()) {
+                (Some(columns), Some(rows)) => (columns.clone(), rows.clone()),
+                _ => return res,
+            };
+            let names = columns.iter().map(|it| it["name"].as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>();
+            let objects = rows
+                .iter()
+                .map(|row| {
+                    let cells = row.as_array().cloned().unwrap_or_default();
+                    Value::Object(names.iter().cloned().zip(cells).collect())
+                })
+                .collect::<Vec<_>>();
+            res["data"] = Value::Array(objects);
+            res
         }
         let paths = std::fs::read_dir("../integration-tests").unwrap();
 
@@ -337,22 +362,33 @@ mod test {
 
                     let router = app.build_router(context.clone()).await.unwrap();
 
+                    let method = validation.method.as_deref().unwrap_or("GET").parse::<http::Method>().expect("a method");
+                    let body = match &validation.body {
+                        Some(body) => Body::from(serde_json::to_vec(body).unwrap()),
+                        None => Body::empty(),
+                    };
                     let response = router
                         .oneshot(
                             Request::builder()
-                                .method(http::Method::GET)
+                                .method(method)
                                 .uri(&validation.uri)
                                 .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                                .body(Body::empty())
+                                .body(body)
                                 .unwrap(),
                         )
                         .await
                         .unwrap();
 
-                    assert_eq!(response.status(), StatusCode::OK);
+                    assert_eq!(
+                        response.status(),
+                        StatusCode::OK,
+                        "{} {}",
+                        original_test_source_folder.display(),
+                        validation.uri
+                    );
 
                     let body = response.into_body().collect().await.unwrap().to_bytes();
-                    let res: Value = serde_json::from_slice(&body).unwrap();
+                    let res: Value = rows_by_column(serde_json::from_slice(&body).unwrap());
 
                     for point in validation.validations.iter() {
                         pprintln!(

@@ -1,13 +1,14 @@
-//! The `#budgets` and `#errors` query tables against the APIs the UI reads, for the same
-//! ledgers: every row of `#budgets` has the amounts `GET /api/budgets?year=&month=` returns for
-//! its budget and month, and its accounts are the related accounts of `GET /api/budgets/{name}`;
-//! `#errors` has one row per error of `GET /api/errors`, with its type, file, directive, id and
-//! span. `#documents` has the documents of `GET /api/documents` and `#budget_events` the events
-//! of `GET /api/budgets/{name}/interval/{year}/{month}`.
+//! The `#budgets` and `#errors` query tables against what the UI reads, for the same ledgers:
+//! every row of `#budgets` has the amounts the budget pages show for its budget and month (the
+//! built-in queries `budgets.month` and `budgets.budget_month`, run as the pages run them through
+//! `POST /api/query/builtins/{name}`), and its accounts are those of `budgets.budget`; `#errors`
+//! has one row per error of `GET /api/errors`, with its type, file, directive, id and span.
+//! `#documents` has the documents of `GET /api/documents` and `#budget_events` the events the
+//! budget page lists (`budgets.events`).
 //!
-//! The budget API computes its figures with built-in queries over `#budgets` (#479), so the two
-//! agree on every figure, also where the API used to be wrong: it added the numbers of amounts in
-//! different commodities and reported a budget's final `closed` for every month.
+//! The budget pages compute their figures with built-in queries over `#budgets` (#479), so the two
+//! agree on every figure, also where the old budget API used to be wrong: it added the numbers of
+//! amounts in different commodities and reported a budget's final `closed` for every month.
 //!
 //! `GET /api/errors` and `GET /api/documents` now read these tables (#479): their tables are
 //! compared with the hand-written endpoints they replace, kept until they are removed.
@@ -17,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::{Path as UrlPath, Query as UrlQuery, State};
+use axum::extract::{Path as UrlPath, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use bigdecimal::BigDecimal;
@@ -26,9 +27,8 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{BudgetIntervalDetailRequest, BudgetListRequest, QueryRequest};
-use zhang_server::routes::budget::{get_budget_info, get_budget_interval_detail, get_budget_list};
-use zhang_server::routes::query::{get_query_schema, run_query};
+use zhang_server::request::{BuiltinQueryRunRequest, QueryRequest};
+use zhang_server::routes::query::{get_query_schema, run_builtin_query, run_query};
 use zhang_server::state::SharedLedger;
 
 fn fixture_dir(name: &str) -> PathBuf {
@@ -89,13 +89,29 @@ async fn query(ledger: &SharedLedger, sql: &str) -> Vec<serde_json::Map<String, 
         .await,
     )
     .await;
-    let columns = response["data"]["columns"]
+    objects(&response["data"])
+}
+
+/// The rows of the built-in query `name` with `params` (JSON values by name), as
+/// `POST /api/query/builtins/{name}` answers them, as objects keyed by column name: what the pages read.
+async fn builtin(ledger: &SharedLedger, name: &str, params: Value) -> Vec<serde_json::Map<String, Value>> {
+    let request = BuiltinQueryRunRequest {
+        params: serde_json::from_value(params).unwrap(),
+        count_total: None,
+    };
+    let response = body(run_builtin_query(State(ledger.clone()), UrlPath((name.to_owned(),)), Json(request)).await).await;
+    objects(&response["data"])
+}
+
+/// The rows of a query result, as objects keyed by column name.
+fn objects(result: &Value) -> Vec<serde_json::Map<String, Value>> {
+    let columns = result["columns"]
         .as_array()
         .unwrap()
         .iter()
         .map(|it| it["name"].as_str().unwrap().to_owned())
         .collect::<Vec<_>>();
-    response["data"]["rows"]
+    result["rows"]
         .as_array()
         .unwrap()
         .iter()
@@ -140,14 +156,8 @@ async fn check_budgets(name: &str) -> usize {
         .map(|date| (date[..4].parse::<u32>().unwrap(), date[5..7].parse::<u32>().unwrap()))
         .unwrap();
     for (year, month) in months {
-        let request = BudgetListRequest {
-            year: Some(year),
-            month: Some(month),
-        };
-        let listed = body(get_budget_list(State(ledger.clone()), UrlQuery(request)).await).await["data"]
-            .as_array()
-            .unwrap()
-            .clone();
+        let first_day = json!(format!("{year}-{month:02}-01"));
+        let listed = builtin(&ledger, "budgets.month", json!({ "month": first_day })).await;
         let in_month = rows
             .iter()
             .filter(|row| row["year"] == json!(year) && row["month"] == json!(month))
@@ -166,21 +176,25 @@ async fn check_budgets(name: &str) -> usize {
             let at = format!("{name} {} {year}-{month}", row["name"]);
             assert_eq!(row["alias"], api["alias"], "{at}");
             assert_eq!(row["category"], api["category"], "{at}");
-            assert_eq!(amount(&row["assigned"]), amount(&api["assigned_amount"]), "{at}");
-            assert_eq!(amount(&row["activity"]), amount(&api["activity_amount"]), "{at}");
-            assert_eq!(amount(&row["available"]), amount(&api["available_amount"]), "{at}");
+            assert_eq!(amount(&row["assigned"]), amount(&api["assigned"]), "{at}");
+            // the page's activity is a number in the budget's currency
+            assert_eq!(
+                amount(&row["activity"]),
+                amount(&json!({"number": api["activity"], "currency": api["currency"]})),
+                "{at}"
+            );
+            assert_eq!(amount(&row["available"]), amount(&api["available"]), "{at}");
 
-            let request = BudgetListRequest {
-                year: Some(year),
-                month: Some(month),
-            };
-            let budget_name = row["name"].as_str().unwrap().to_owned();
-            let info = body(get_budget_info(State(ledger.clone()), UrlPath((budget_name,)), UrlQuery(request)).await).await;
-            let mut related = info["data"]["related_accounts"].as_array().unwrap().clone();
+            let info = builtin(&ledger, "budgets.budget", json!({ "name": row["name"] })).await.pop().unwrap();
+            let mut related = info["accounts"].as_array().unwrap().clone();
             related.sort_by_key(|it| it.as_str().unwrap().to_owned());
             assert_eq!(row["accounts"], Value::Array(related), "{at}");
             // whether the budget was closed in or before the month
-            assert_eq!(row["closed"], info["data"]["closed"], "{at}");
+            let figures = builtin(&ledger, "budgets.budget_month", json!({ "name": row["name"], "month": first_day }))
+                .await
+                .pop()
+                .unwrap();
+            assert_eq!(row["closed"], figures["closed"], "{at}");
             assert_eq!(row["closed"], api["closed"], "{at}");
         }
     }
@@ -355,27 +369,14 @@ async fn budget_differences(ledger: &SharedLedger) -> Vec<(String, u32, u32, &'s
     let mut differences = vec![];
     for row in rows {
         let (year, month) = (row["year"].as_u64().unwrap() as u32, row["month"].as_u64().unwrap() as u32);
-        let request = BudgetListRequest {
-            year: Some(year),
-            month: Some(month),
-        };
-        let listed = body(get_budget_list(State(ledger.clone()), UrlQuery(request)).await).await;
-        let api = listed["data"].as_array().unwrap().iter().find(|it| it["name"] == row["name"]).unwrap().clone();
-        for (column, api_field) in [
-            ("assigned", "assigned_amount"),
-            ("activity", "activity_amount"),
-            ("available", "available_amount"),
-        ] {
-            if amount(&row[column]) != amount(&api[api_field]) {
+        let listed = builtin(ledger, "budgets.month", json!({ "month": format!("{year}-{month:02}-01") })).await;
+        let api = listed.iter().find(|it| it["name"] == row["name"]).unwrap().clone();
+        // the page's activity is a number in the budget's currency
+        let api_activity = json!({"number": api["activity"], "currency": api["currency"]});
+        for (column, api_value) in [("assigned", &api["assigned"]), ("activity", &api_activity), ("available", &api["available"])] {
+            if amount(&row[column]) != amount(api_value) {
                 let number = |value: &Value| json!(zhang_query::decimal::to_plain_string(&amount(value).0.normalized()));
-                differences.push((
-                    budget_name_of(&row).to_owned(),
-                    year,
-                    month,
-                    column,
-                    number(&row[column]),
-                    number(&api[api_field]),
-                ));
+                differences.push((budget_name_of(&row).to_owned(), year, month, column, number(&row[column]), number(api_value)));
             }
         }
         if row["closed"] != api["closed"] {
@@ -397,16 +398,12 @@ async fn the_budget_api_reports_the_figures_of_the_table() {
     let dir = ScratchDir::with(&[("main.zhang", MULTI_CURRENCY_BUDGET)]);
     let ledger = load_dir(&dir.0).await;
     assert_eq!(budget_differences(&ledger).await, vec![]);
-    let request = BudgetListRequest {
-        year: Some(2025),
-        month: Some(4),
-    };
-    let april = body(get_budget_list(State(ledger.clone()), UrlQuery(request)).await).await;
+    let april = builtin(&ledger, "budgets.month", json!({ "month": "2025-04-01" })).await;
     assert_eq!(
-        amount(&april["data"][0]["activity_amount"]),
+        amount(&json!({"number": april[0]["activity"], "currency": april[0]["currency"]})),
         amount(&json!({"number": "5290", "commodity": "CNY"}))
     );
-    assert_eq!(april["data"][0]["closed"], json!(false));
+    assert_eq!(april[0]["closed"], json!(false));
     for name in ["budget-sytem-syntax-and-category", "query-zhang-tables"] {
         let ledger = load(name).await;
         assert_eq!(budget_differences(&ledger).await, vec![], "{name}");
@@ -435,20 +432,16 @@ async fn budget_events_are_the_events_of_the_budget_api() {
         })
         .collect::<BTreeSet<_>>();
     for (name, year, month) in months {
-        let request = BudgetIntervalDetailRequest {
-            budget_name: name.clone(),
-            year,
-            month,
-        };
-        let detail = body(get_budget_interval_detail(State(ledger.clone()), UrlPath(request)).await).await;
-        let mut api = detail["data"]
-            .as_array()
-            .unwrap()
+        let detail = builtin(&ledger, "budgets.events", json!({ "name": name, "month": format!("{year}-{month:02}-01") })).await;
+        // the page shows an `assign` as "AddAssignedAmount" and any other event as "Transfer"
+        let mut api = detail
             .iter()
-            .filter(|it| it["type"] == "BudgetEvent")
             .map(|it| {
-                let kind = it["event_type"].as_str().unwrap().to_owned();
-                (it["timestamp"].as_i64().unwrap(), amount(&it["amount"]), kind)
+                let kind = match it["type"].as_str().unwrap() {
+                    "assign" => "AddAssignedAmount",
+                    _ => "Transfer",
+                };
+                (it["timestamp"].as_i64().unwrap(), amount(&it["amount"]), kind.to_owned())
             })
             .collect::<Vec<_>>();
         let mut table = rows

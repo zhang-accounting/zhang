@@ -86,8 +86,13 @@ async fn every_error_has_one_json_body_with_a_message() {
         // a body that is not JSON, and one that is not the JSON the route takes
         (Method::POST, "/api/transactions", Some("{not json"), StatusCode::BAD_REQUEST),
         (Method::POST, "/api/transactions", Some("{\"payee\": 1}"), StatusCode::UNPROCESSABLE_ENTITY),
-        // a path segment that is not a number
-        (Method::GET, "/api/budgets/Food/interval/twenty/1", None, StatusCode::BAD_REQUEST),
+        // a parameter of a built-in query of the wrong type
+        (
+            Method::POST,
+            "/api/query/builtins/budgets.month",
+            Some("{\"params\": {\"month\": 20240101}}"),
+            StatusCode::BAD_REQUEST,
+        ),
         // a query string of axum's extractor missing a field
         (Method::GET, "/api/statistic/summary?from=2024-01-01", None, StatusCode::BAD_REQUEST),
         // a transaction id that is no id

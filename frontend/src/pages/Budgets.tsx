@@ -3,8 +3,8 @@ import { PiggyBank, RotateCw } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
-import { retrieveBudgets } from '@/api/requests';
 import Amount from '@/components/Amount';
+import { budgetMonth, retrieveBudgets } from '@/components/budget/budget-api';
 import BudgetCategory from '@/components/budget/BudgetCategory';
 import { budgetUsage, monthFromSearchParams, monthSearchParams, sumByCommodity, usageProgressClass } from '@/components/budget/budget-utils';
 import { monthTotals, primaryFigures } from '@/components/budget/month-totals';
@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
-import { useLedgerQuery } from '@/states/ledger';
+import { useLedgerValue } from '@/states/ledger';
 
 const UNCATEGORIZED = '__ZHANG_UNCATEGORIZED__';
 
@@ -54,13 +54,7 @@ export default function Budgets() {
   const setDate = (next: Date) => setSearchParams(monthSearchParams(next), { replace: true });
   const [hideZeroAssignBudget, setHideZeroAssignBudget] = useLocalStorage({ key: 'hideZeroAssignBudget', defaultValue: false });
 
-  const {
-    loading,
-    error,
-    value: budgets,
-    retry,
-    firstLoad,
-  } = useLedgerQuery(() => retrieveBudgets({ year: date.getFullYear(), month: date.getMonth() + 1 }), [date.getFullYear(), date.getMonth()]);
+  const { loading, error, value: budgets, retry, firstLoad } = useLedgerValue(() => retrieveBudgets(date), [date.getFullYear(), date.getMonth()]);
 
   const visibleBudgets = useMemo(
     () => (budgets ?? []).filter((budget) => !hideZeroAssignBudget || Number(budget.assigned_amount.number) !== 0),
@@ -89,7 +83,7 @@ export default function Budgets() {
         actions={
           <>
             <MonthSwitcher date={date} onChange={setDate} />
-            <OpenInExplore name="budgets.month" params={{ month: date }} iconOnly className="size-10 md:size-8" />
+            <OpenInExplore name="budgets.month" params={{ month: budgetMonth(date) }} iconOnly className="size-10 md:size-8" />
             <Button variant="outline" size="icon" className="size-10 md:size-8" aria-label={t('REFRESH')} onClick={retry} disabled={loading}>
               <RotateCw className={cn(loading && 'animate-spin')} />
             </Button>
