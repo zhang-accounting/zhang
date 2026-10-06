@@ -117,7 +117,7 @@ zhang serve [OPTIONS] <PATH>
 ## 其他命令
 
 - `zhang update` 把二进制文件替换为适用于你的平台的最新发布版，见[升级](/zh-cn/deployment/upgrading/#预编译二进制文件)。
-- `zhang parse` 和 `zhang export` 只是占位命令：它们目前还不会读取账本。要检查账本，请启动 `zhang serve` 并查看网页界面中的错误列表。
+- 没有单独检查账本的命令：要检查账本，请启动 `zhang serve` 并查看网页界面中的错误列表。
 
 ## 下一步
 

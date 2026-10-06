@@ -15,7 +15,7 @@ pub(crate) use crate::ast::ArithOp;
 use crate::ast::{self, BinaryOp, Count, CountValue, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
-use crate::functions::{resolve_scalar, AggregateFunction, AggregateKind, ScalarFunction};
+use crate::functions::{reads_the_row, resolve_scalar, AggregateFunction, AggregateKind, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes, Params};
 use crate::period::{Period, PeriodDate};
 use crate::table::{self, ColumnDef, Scope, Table, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN, POSTINGS};
@@ -1164,7 +1164,7 @@ impl Compiler<'_> {
         if star {
             return err(format!("{}(*) is not supported; only count(*) is", name), span);
         }
-        if ROW_FUNCTIONS.contains(&name) && info.bare_column.is_none() {
+        if reads_the_row(name) && info.bare_column.is_none() {
             // metadata functions read the current row, like a column reference
             info.bare_column = Some((format!("{}(...)", name), span));
         }
@@ -1394,10 +1394,6 @@ fn pivot(columns: &[Expr; 2], targets: &[PlannedTarget], group_keys: Option<&[us
     }
     Ok(Pivot { rows, columns: cols })
 }
-
-/// Scalar functions that read the row being evaluated (its metadata): in grouped queries
-/// they must be grouped or used inside an aggregate, like columns.
-const ROW_FUNCTIONS: &[&str] = &["meta", "entry_meta", "any_meta", "meta_values", "entry_meta_values"];
 
 fn literal_value(literal: &Literal) -> Typed {
     match literal {

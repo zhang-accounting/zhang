@@ -7,16 +7,15 @@
 
 use std::cmp::Ordering;
 
-use crate::functions::FunctionContext;
 use crate::value::Value;
 
 /// `least(a, b)`: the smaller argument, the first one when they are equal.
-pub(super) fn least(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn least(args: &[Value]) -> Result<Value, String> {
     Ok(pick(args, Ordering::Less))
 }
 
 /// `greatest(a, b)`: the larger argument, the first one when they are equal.
-pub(super) fn greatest(args: &[Value], _ctx: &dyn FunctionContext) -> Result<Value, String> {
+pub(super) fn greatest(args: &[Value]) -> Result<Value, String> {
     Ok(pick(args, Ordering::Greater))
 }
 

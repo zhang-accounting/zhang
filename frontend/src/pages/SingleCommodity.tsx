@@ -5,7 +5,6 @@ import { OpReturnType } from 'openapi-typescript-fetch';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
-import { useAsync } from 'react-use';
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
 import { retrieveCommodityInfo } from '@/api/requests';
 import { operations } from '@/api/schemas';
@@ -21,6 +20,7 @@ import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { useLedgerQuery } from '@/states/ledger';
 
 type CommodityDetail = OpReturnType<operations['get_single_commodity']>['data'];
 type Lot = CommodityDetail['lots'][number];
@@ -83,14 +83,7 @@ export default function SingleCommodity() {
   const { t } = useTranslation();
   const { commodityName } = useParams();
 
-  const {
-    value: commodity,
-    error,
-    loading,
-  } = useAsync(async () => {
-    const res = await retrieveCommodityInfo({ commodity_name: commodityName ?? '' });
-    return res.data.data;
-  }, [commodityName]);
+  const { value: commodity, error, firstLoad } = useLedgerQuery(() => retrieveCommodityInfo({ commodity_name: commodityName ?? '' }), [commodityName]);
 
   const lotColumns: ResponsiveColumn<Lot>[] = [
     {
@@ -147,7 +140,6 @@ export default function SingleCommodity() {
   const lots = commodity?.lots ?? [];
   const prices = commodity?.prices ?? [];
   const sortedPrices = [...prices].sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
-  const firstLoad = loading && commodity === undefined;
 
   return (
     <PageShell>

@@ -12,9 +12,8 @@
 //!   all earlier postings, and how a reduction splits across lots decides the rows themselves
 //!   (their number and units), so even `SELECT count(*)` needs it. It runs once per loaded
 //!   ledger, whatever the projection, and its rows are kept with the ledger
-//!   ([`crate::table::LedgerCache`]). Only whether an execution's rows *carry* the cost of
-//!   their lot depends on the projection (`position`, `cost_*`, `weight`), and so does the
-//!   price annotation (`price`, `weight`).
+//!   ([`crate::table::LedgerCache`]). An execution's rows borrow their lot, its cost and
+//!   price annotation, from those rows, so carrying them costs nothing.
 //! - Transaction columns (`id`, `flag`, `payee`, `narration`, `description`, `tags`,
 //!   `links`, `other_accounts`) are never copied up front: a row points at the stored
 //!   transaction and a column reads it when it is evaluated.
@@ -44,22 +43,21 @@ use std::fmt;
 
 use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
-use crate::functions::{AggregateKind, ParamType};
-use crate::table::{Borrow, ColumnDef, Reads, RowRef, Table};
+use crate::functions::AggregateKind;
+use crate::table::{Borrow, ColumnDef, RowRef, Table};
 use crate::value::Value;
 
-/// The columns of its table one plan reads, and the posting row parts they need.
+/// The columns of its table one plan reads.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Projection {
     table: &'static Table,
     /// bit `i` is set when `table.columns[i]` is read
     columns: u64,
-    reads: Reads,
 }
 
 impl PartialEq for Projection {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.table, other.table) && self.columns == other.columns && self.reads == other.reads
+        std::ptr::eq(self.table, other.table) && self.columns == other.columns
     }
 }
 
@@ -144,32 +142,6 @@ fn picks_a_row(aggregate: &AggregateCall) -> bool {
     matches!(aggregate.function.kind, AggregateKind::First | AggregateKind::Last)
 }
 
-/// Functions that return a value, never NULL or an error, for arguments of their types,
-/// as long as they take no integer (`abs` and `neg` can overflow one).
-const TOTAL_FUNCTIONS: &[&str] = &[
-    "units",
-    "cost",
-    "value",
-    "convert",
-    "str",
-    "only",
-    "filter_currency",
-    "possign",
-    "abs",
-    "neg",
-    "icontains",
-    "any_icontains",
-    "intersects",
-    "under",
-];
-
-fn total_function(expr: &CExpr) -> bool {
-    match expr {
-        CExpr::Scalar { function, .. } => TOTAL_FUNCTIONS.contains(&function.name) && !function.params.contains(&ParamType::Exact(crate::value::DataType::Int)),
-        _ => false,
-    }
-}
-
 /// Whether evaluating the expression can never fail, so evaluating it for fewer rows
 /// changes nothing but the work done.
 pub(crate) fn infallible(expr: &CExpr) -> bool {
@@ -177,7 +149,7 @@ pub(crate) fn infallible(expr: &CExpr) -> bool {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
         CExpr::InConst { .. } | CExpr::StrTest { .. } | CExpr::Case { .. } => true,
-        CExpr::Scalar { .. } => total_function(expr),
+        CExpr::Scalar { function, .. } => function.total,
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
     };
     node && expr.children().into_iter().all(infallible)
@@ -189,7 +161,7 @@ fn never_null(expr: &CExpr) -> bool {
     match expr {
         CExpr::Running(_) => true,
         CExpr::Const(value) => !value.is_null(),
-        CExpr::Scalar { args, .. } => total_function(expr) && args.iter().all(never_null),
+        CExpr::Scalar { function, args, .. } => function.total && args.iter().all(never_null),
         _ => false,
     }
 }
@@ -214,15 +186,9 @@ impl Projection {
     }
 
     fn of_columns<'c>(table: &'static Table, columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
-        let mut projection = Projection {
-            table,
-            columns: 0,
-            reads: Reads::default(),
-        };
+        let mut projection = Projection { table, columns: 0 };
         for column in columns {
             projection.columns |= projection.bit(column);
-            projection.reads.cost |= column.reads.cost;
-            projection.reads.price |= column.reads.price;
         }
         projection
     }
@@ -243,23 +209,6 @@ impl Projection {
 
     fn bit(&self, column: &ColumnDef) -> u64 {
         1 << self.index(column).expect("a column of the projected table")
-    }
-
-    /// Whether booked rows keep the cost of their lot.
-    pub fn keeps_cost(&self) -> bool {
-        self.reads.cost
-    }
-
-    /// The same columns, with booked rows that keep the cost of their lot (the period
-    /// modifiers sum balances at cost, whatever the query reads).
-    pub fn with_cost(mut self) -> Projection {
-        self.reads.cost = true;
-        self
-    }
-
-    /// Whether rows keep the price annotation of their posting.
-    pub fn keeps_price(&self) -> bool {
-        self.reads.price
     }
 
     /// The projected column names, in name order (like [`Plan::referenced_columns`]).
@@ -543,36 +492,14 @@ option "operating_currency" "USD"
     }
 
     #[test]
-    fn rows_drop_costs_and_prices_outside_the_projection() {
-        let ledger = load_text(LEDGER);
-        let store = ledger.store.read().unwrap();
-        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let rows_of = |sql: &str| {
-            let projection = Query::compile(sql).unwrap().projection;
-            let data = Dataset::new(&ledger, &store, today, projection);
-            let costs = data.rows.iter().filter(|row| row.cost.is_some()).count();
-            let prices = data.rows.iter().filter(|row| row.price.is_some()).count();
-            (data.rows.len(), costs, prices)
-        };
-        // booking still splits the reductions, but the rows carry no cost or price
-        assert_eq!(rows_of("SELECT account, number"), (19, 0, 0));
-        assert_eq!(rows_of("SELECT cost_date"), (19, 9, 0));
-        assert_eq!(rows_of("SELECT price"), (19, 0, 5));
-        assert_eq!(rows_of("SELECT weight"), (19, 9, 5));
-    }
-
-    #[test]
     fn projection_follows_the_columns_the_plan_reads() {
         let projection = Query::compile("SELECT payee, sum(position) WHERE 'x' IN tags GROUP BY payee ORDER BY max(price)")
             .unwrap()
             .projection;
         assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
-        assert!(projection.keeps_cost() && projection.keeps_price());
         assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
         assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 36 columns)");
 
-        let projection = Query::compile("SELECT count(*), sum(number) WHERE account ~ 'Food'").unwrap().projection;
-        assert!(!projection.keeps_cost() && !projection.keeps_price());
         assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 36 columns)");
         assert_eq!(Projection::all().names().len(), COLUMNS.len());
     }
@@ -585,7 +512,6 @@ option "operating_currency" "USD"
         let data = Dataset::new(&ledger, &store, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(), Projection::all());
         let params = Params::new();
         let regexes = RegexCache::default();
-        let impure = std::cell::Cell::new(false);
         let needles = ["food", "travel", "receipt-1", "Assets:Bank", "Income:Gains", "Expenses:Food", "x"];
         let mut checked = 0;
         for row in &data.rows {
@@ -597,7 +523,6 @@ option "operating_currency" "USD"
                 running: None,
                 params: &params,
                 regexes: &regexes,
-                impure: &impure,
             };
             for column in COLUMNS {
                 let expr = CExpr::Column(column);

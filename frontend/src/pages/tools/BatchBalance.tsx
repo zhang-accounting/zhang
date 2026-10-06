@@ -25,7 +25,8 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { apiErrorMessage } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { loadable_unwrap } from '@/states';
-import { accountAtom, accountFetcher, accountSelectItemsAtom } from '@/states/account';
+import { accountAtom, accountSelectItemsAtom } from '@/states/account';
+import { ledgerChangedAtom } from '@/states/ledger';
 
 interface BalanceLineItem {
   commodity: string;
@@ -73,7 +74,7 @@ export default function BatchBalance() {
 
   const [accounts, accountsHandler] = useListState<BalanceLineItem>(stateItems);
   const accountItems = useAtomValue(accountSelectItemsAtom);
-  const refreshAccounts = useSetAtom(accountFetcher);
+  const ledgerChanged = useSetAtom(ledgerChangedAtom);
   const [maskCurrentAmount, setMaskCurrentAmount] = useLocalStorage({
     key: 'tool/maskCurrentAmount',
     defaultValue: false,
@@ -143,7 +144,7 @@ export default function BatchBalance() {
       });
       resetOnNextRefresh.current = true;
       accountsHandler.setState(stateItems);
-      refreshAccounts();
+      ledgerChanged();
     } catch (e) {
       toast.error(t('batch_balance.failed_toast'), { description: await apiErrorMessage(e) });
     } finally {

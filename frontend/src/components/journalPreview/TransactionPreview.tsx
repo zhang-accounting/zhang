@@ -1,10 +1,8 @@
-import { useSetAtom } from 'jotai';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { JournalTransactionItem } from '@/api/types';
 import { useDateFormat } from '@/components/layout/use-date-format';
 import { Badge } from '@/components/ui/badge';
-import { journalFetcher } from '@/states/journals';
 import { canPreviewPath } from '../../utils/documents';
 import { calculate } from '../../utils/trx-calculator';
 import AccountDocumentUpload from '../AccountDocumentUpload';
@@ -24,7 +22,6 @@ interface Props {
 export default function TransactionPreview({ data }: Props) {
   const { t } = useTranslation();
   const fmt = useDateFormat();
-  const refreshJournals = useSetAtom(journalFetcher);
   const [lightboxSrc, setLightboxSrc] = useState<string | undefined>(undefined);
   const summary = Array.from(calculate(data).values());
   const metas = (data.metas ?? []).filter((meta) => meta.key !== DOCUMENT_KEY);
@@ -115,7 +112,7 @@ export default function TransactionPreview({ data }: Props) {
           {documents.map((meta, idx) => (
             <DocumentPreview onClick={() => setLightboxSrc(meta.value)} key={idx} filename={meta.value} previewable={canPreviewPath(meta.value)} />
           ))}
-          <AccountDocumentUpload id={data.id} type="transaction" onUploaded={() => refreshJournals()} />
+          <AccountDocumentUpload id={data.id} type="transaction" />
         </div>
       </PreviewSection>
     </div>

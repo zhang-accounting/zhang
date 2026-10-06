@@ -1,23 +1,11 @@
 import { endOfDay, endOfMonth, isBefore, startOfDay, startOfMonth, subDays } from 'date-fns';
-import { useAtomValue } from 'jotai';
-import { useAsync } from 'react-use';
 import { retrieveJournals } from '@/api/requests';
 import { JournalItem } from '@/api/types';
-import { journalAtom } from '@/states/journals';
+import { useLedgerQuery } from '@/states/ledger';
 
-/**
- * Latest journals of the whole ledger (independent of the Journals page filters). Refetches whenever the shared journal
- * list is refreshed (new / edited transaction, ledger reload).
- */
+/** Latest journals of the whole ledger (independent of the Journals page filters). */
 export function useRecentJournals(size = 6) {
-  const journals = useAtomValue(journalAtom);
-  // Wait for the shared list to settle so a page load issues a single request here.
-  const signal = journals.state === 'loading' ? undefined : journals.state === 'hasData' ? journals.data : 'error';
-  const { value, loading, error } = useAsync(async () => {
-    if (signal === undefined) return undefined;
-    const res = await retrieveJournals({ page: 1, size, keyword: '', tags: [], links: [] });
-    return res.data.data;
-  }, [size, signal]);
+  const { value, loading, error } = useLedgerQuery(() => retrieveJournals({ page: 1, size, keyword: '', tags: [], links: [] }), [size]);
   return { records: (value?.records ?? []) as JournalItem[], total: value?.total_count ?? 0, loading: loading || (!value && !error), error };
 }
 

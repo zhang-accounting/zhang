@@ -3,7 +3,6 @@ import { ChartColumn, CircleAlert, NotebookText } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { useAsync } from 'react-use';
 import { retrieveStatisticGraph } from '@/api/requests';
 import { MonthBudgetsCard } from '@/components/budget/MonthBudgetsCard';
 import { JournalRow } from '@/components/journalLines/JournalRow';
@@ -19,6 +18,7 @@ import { JournalRowsSkeleton } from '@/components/skeletons/journalListSkeleton'
 import { buttonVariants } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useLedgerQuery } from '@/states/ledger';
 import { cn } from '@/lib/utils';
 import ErrorBox from '../components/ErrorBox';
 import { BalanceTrendChart, CashFlowChart } from '../components/ReportGraph';
@@ -82,11 +82,7 @@ function Home() {
 
   // the days of the range, as ledger dates
   const dates = { from: ledgerDate(range.from), to: ledgerDate(range.to) };
-  const graph = useAsync(async () => {
-    if (!ready) return undefined;
-    const res = await retrieveStatisticGraph({ ...dates, interval: 'Day' });
-    return res.data.data;
-  }, [ready, dates.from, dates.to]);
+  const graph = useLedgerQuery(() => (ready ? retrieveStatisticGraph({ ...dates, interval: 'Day' }) : undefined), [ready, dates.from, dates.to]);
   const { rows, commodity } = useGraphRows(graph.value, 'Day');
   const graphLoading = !ready || graph.loading || (!graph.value && !graph.error);
 

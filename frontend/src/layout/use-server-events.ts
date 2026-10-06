@@ -3,13 +3,9 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { apiBaseUrl } from '@/api/fetcher';
-import { accountFetcher } from '@/states/account';
 import { loadAuthStatusAtom } from '@/states/auth';
 import { basicInfoFetcher, onlineAtom, updatableVersionAtom } from '@/states/basic';
-import { commoditiesFetcher } from '@/states/commodity';
-import { errorsFetcher } from '@/states/errors';
-import { journalFetcher } from '@/states/journals';
-import { optionsFetcher } from '@/states/options';
+import { ledgerChangedAtom } from '@/states/ledger';
 import { reloadFailureDetail } from './reload-failure';
 
 /**
@@ -23,12 +19,8 @@ export function useServerEvents() {
   const setUpdatableVersion = useSetAtom(updatableVersionAtom);
   const loadAuthStatus = useSetAtom(loadAuthStatusAtom);
 
-  const refreshErrors = useSetAtom(errorsFetcher);
-  const refreshAccounts = useSetAtom(accountFetcher);
+  const ledgerChanged = useSetAtom(ledgerChangedAtom);
   const refreshBasicInfo = useSetAtom(basicInfoFetcher);
-  const refreshCommodities = useSetAtom(commoditiesFetcher);
-  const refreshJournal = useSetAtom(journalFetcher);
-  const refreshOptions = useSetAtom(optionsFetcher);
 
   useEffect(() => {
     // `i18n.t` (not a captured `t`) so toasts follow later language switches.
@@ -43,13 +35,7 @@ export function useServerEvents() {
             id: 'leger-reload',
             description: i18n.t('SHELL_RELOAD_DONE_DESCRIPTION'),
           });
-
-          refreshErrors();
-          refreshAccounts();
-          refreshBasicInfo();
-          refreshCommodities();
-          refreshJournal();
-          refreshOptions();
+          ledgerChanged();
           break;
         case 'ReloadFailed':
           // the server keeps serving the ledger loaded before; `/api/info` carries the failure for the notice in the shell

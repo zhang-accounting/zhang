@@ -3,7 +3,6 @@ import { PiggyBank, RotateCw } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
-import { useAsyncRetry } from 'react-use';
 import { retrieveBudgets } from '@/api/requests';
 import Amount from '@/components/Amount';
 import BudgetCategory from '@/components/budget/BudgetCategory';
@@ -20,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
+import { useLedgerQuery } from '@/states/ledger';
 
 const UNCATEGORIZED = '__ZHANG_UNCATEGORIZED__';
 
@@ -59,10 +59,8 @@ export default function Budgets() {
     error,
     value: budgets,
     retry,
-  } = useAsyncRetry(async () => {
-    const res = await retrieveBudgets({ year: date.getFullYear(), month: date.getMonth() + 1 });
-    return res.data.data;
-  }, [date.getFullYear(), date.getMonth()]);
+    firstLoad,
+  } = useLedgerQuery(() => retrieveBudgets({ year: date.getFullYear(), month: date.getMonth() + 1 }), [date.getFullYear(), date.getMonth()]);
 
   const visibleBudgets = useMemo(
     () => (budgets ?? []).filter((budget) => !hideZeroAssignBudget || Number(budget.assigned_amount.number) !== 0),
@@ -82,7 +80,6 @@ export default function Budgets() {
   const { assigned, activity, available } = totals;
   const primary = primaryFigures(totals);
   const usage = budgetUsage(primary.activity?.number ?? '0', primary.assigned?.number ?? '0');
-  const firstLoad = loading && budgets === undefined;
 
   return (
     <PageShell>

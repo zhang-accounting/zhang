@@ -1,10 +1,10 @@
 import { ArrowDownLeft, ArrowUpRight, CreditCard, Landmark } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useAsync } from 'react-use';
 import { retrieveStatisticSummary } from '@/api/requests';
 import { OpenInExplore } from '@/components/query/OpenInExplore';
 import { ledgerDate } from '@/components/query/explore-link';
 import { cn } from '@/lib/utils';
+import { useLedgerQuery } from '@/states/ledger';
 import StatisticBox from './StatisticBox';
 
 interface Props {
@@ -20,16 +20,7 @@ export default function StatisticBar({ from, to, periodLabel, className }: Props
   const { t } = useTranslation();
   // the days of the range, as ledger dates
   const dates = { from: ledgerDate(from), to: ledgerDate(to) };
-  const {
-    value: data,
-    loading,
-    error,
-  } = useAsync(async () => {
-    const res = await retrieveStatisticSummary(dates);
-    return res.data.data;
-  }, [dates.from, dates.to]);
-
-  const isLoading = loading || (!data && !error);
+  const { value: data, loading: isLoading, error } = useLedgerQuery(() => retrieveStatisticSummary(dates), [dates.from, dates.to]);
   // the operating currency, which the queries value everything in
   const currency = data?.balance.calculated.commodity;
   /** "Open query" for the built-in query behind a card, once its currency is known. */

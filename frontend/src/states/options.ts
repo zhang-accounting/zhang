@@ -1,14 +1,16 @@
 import { atom } from 'jotai';
-import { atomWithRefresh, loadable } from 'jotai/utils';
+import { loadable } from 'jotai/utils';
 import { optionValue, retrieveOptions } from '../api/requests';
 import { DEFAULT_COMMODITY_PRECISION, defaultPrecisionOption } from '../components/amount-text';
 import { loadable_unwrap } from '.';
+import { ledgerRevisionAtom } from './ledger';
 
 /**
  * The ledger's options (`/api/options`), the defaults it did not set included: fetched once for every page that shows or
- * uses one, and refreshed when the ledger reloads (SSE `Reload`).
+ * uses one, and read again with every ledger revision (a reload or a write).
  */
-export const optionsFetcher = atomWithRefresh(async () => {
+export const optionsFetcher = atom(async (get) => {
+  get(ledgerRevisionAtom);
   return (await retrieveOptions({})).data.data;
 });
 

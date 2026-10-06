@@ -1,13 +1,15 @@
 import { loadable_unwrap } from '.';
-import { atomWithRefresh, loadable } from 'jotai/utils';
+import { loadable } from 'jotai/utils';
 import { atom } from 'jotai';
 import { openAPIFetcher } from '../api/fetcher';
 import { retrieveNewDocumentInfo, retrieveNewTransactionInfo } from '../api/requests';
 import { accountOptions } from '../utils/account-options';
+import { ledgerRevisionAtom } from './ledger';
 
 const findPetsByStatus = openAPIFetcher.path('/api/accounts').method('get').create();
 
-export const accountFetcher = atomWithRefresh(async () => {
+export const accountFetcher = atom(async (get) => {
+  get(ledgerRevisionAtom);
   return (await findPetsByStatus({})).data.data;
 });
 
@@ -15,11 +17,11 @@ export const accountAtom = loadable(accountFetcher);
 
 /**
  * The accounts open now, as the server lists them (`GET /api/for-new-transaction`) by the rule the ledger checks its
- * directives with: not a closed account, nor one opened later. Reading `accountFetcher` makes them be read again
- * whenever the account list is: on a ledger reload and after a write.
+ * directives with: not a closed account, nor one opened later. Read again with every ledger revision, as the account
+ * list is: on a ledger reload and after a write.
  */
 const openAccountsFetcher = atom(async (get) => {
-  get(accountFetcher);
+  get(ledgerRevisionAtom);
   return (await retrieveNewTransactionInfo({ datetime: null })).data.data.account_name;
 });
 
@@ -30,11 +32,11 @@ export const accountSelectItemsAtom = atom((get) => loadable_unwrap(get(openAcco
 
 /**
  * The accounts a document written now may name, as the server lists them (`GET /api/for-new-document`): every account
- * opened by now, closed ones included, as a document only records and may follow the close. Read again whenever the
- * account list is.
+ * opened by now, closed ones included, as a document only records and may follow the close. Read again with every
+ * ledger revision.
  */
 const documentAccountsFetcher = atom(async (get) => {
-  get(accountFetcher);
+  get(ledgerRevisionAtom);
   return (await retrieveNewDocumentInfo({})).data.data.account_name;
 });
 

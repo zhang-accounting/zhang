@@ -14,7 +14,8 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { setAccountsExpanded } from '@/components/layout/account-tree';
 import AccountLine from '../components/AccountLine';
 import Amount from '../components/Amount';
-import { accountAtom, accountFetcher } from '../states/account';
+import { accountAtom } from '../states/account';
+import { ledgerChangedAtom } from '../states/ledger';
 import { heldCommodities, treeTotals } from '../utils/account-totals';
 import AccountTrie from '../utils/AccountTrie';
 
@@ -31,7 +32,7 @@ export default function Accounts() {
   const [filterKeyword, setFilterKeyword] = useInputState('');
   const [hideClosedAccount, setHideClosedAccount] = useLocalStorage({ key: 'hideClosedAccount', defaultValue: false });
   const accounts = useAtomValue(accountAtom);
-  const refreshAccounts = useSetAtom(accountFetcher);
+  const refreshAccounts = useSetAtom(ledgerChangedAtom);
   const keyword = filterKeyword.trim().toLowerCase();
 
   const all = useMemo(() => (accounts.state === 'hasData' ? accounts.data : []), [accounts]);
