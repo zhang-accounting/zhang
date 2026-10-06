@@ -494,31 +494,6 @@ pub struct PluginCapabilitiesEntity {
     pub allowed_hosts: Vec<String>,
 }
 
-/// Where the directive of an error is in its file: its byte range, which writers use to replace it, and the line
-/// and column where it starts, which people read.
-#[derive(Serialize, Schematic)]
-pub struct SpanInfoEntity {
-    /// byte offset in the file where the directive starts
-    pub start: usize,
-    /// byte offset in the file just after the directive ends
-    pub end: usize,
-    /// the directive's text
-    pub content: String,
-    pub filename: Option<String>,
-    /// 1-based line in the file where the directive starts; null when unknown (a directive not read from a file)
-    pub line: Option<usize>,
-    /// 1-based column in its line where the directive starts, counting characters; null when unknown
-    pub column: Option<usize>,
-}
-
-#[derive(Serialize, Schematic)]
-pub struct ErrorEntity {
-    pub id: String,
-    pub span: Option<SpanInfoEntity>,
-    pub error_type: ErrorKind,
-    pub metas: HashMap<String, String>,
-}
-
 /// A value that is always present in the JSON but may be `null`.
 ///
 /// `Option<T>` makes gotcha mark a field optional (and a `Vec<Option<T>>` field too), while

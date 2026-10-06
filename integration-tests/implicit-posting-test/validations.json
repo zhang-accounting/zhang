@@ -1,17 +1,25 @@
 [
   {
-    "uri": "/api/errors",
+    "method": "POST",
+    "uri": "/api/query/builtins/journals.errors",
+    "body": {
+      "params": {
+        "size": 100,
+        "offset": 0
+      },
+      "count_total": true
+    },
     "validations": [
       [
-        "$.data.records.length()",
+        "$.data.length()",
         2
       ],
       [
-        "$.data.records[0].error_type",
+        "$.data[0].kind",
         "TransactionCannotInferTradeAmount"
       ],
       [
-        "$.data.records[1].error_type",
+        "$.data[1].kind",
         "TransactionHasMultipleImplicitPosting"
       ]
     ]

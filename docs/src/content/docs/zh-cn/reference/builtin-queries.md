@@ -159,6 +159,7 @@ Web 界面以前使用的各类型化读取接口正在按组逐个版本移除�
 | `GET /api/documents` | `journals.documents`；原接口附加的文件名、扩展名和据此猜测的 MIME 类型都可以从行的 `path` 得出 |
 | `GET /api/accounts/{account}/documents` | `accounts.documents`，参数 `account`，其余同上 |
 | `GET /api/accounts/{account}/balances` | `accounts.balance_history`，参数 `account`；原接口按 `currency` 把行分组 |
+| `GET /api/errors?page=&size=` | `journals.errors`，参数 `size` 和 `offset = (page - 1) * size`，加 `count_total` 以计算页数；行的 `kind`、`file`、`line`、`column`、`span_start`、`span_end`、`source` 和 `metas`（`{key, value}` 列表）对应原接口的 `error_type`、`span.filename`、`span.line`、`span.column`、`span.start`、`span.end`、`span.content` 和 `metas` |
 
 原接口的金额形如 `{number, commodity}`；查询的单元格形如 `{number, currency}`，预算的 `activity` 是以该预算 `currency` 计的数字。
 

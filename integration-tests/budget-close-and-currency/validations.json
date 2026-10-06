@@ -1,33 +1,41 @@
 [
   {
-    "uri": "/api/errors",
+    "method": "POST",
+    "uri": "/api/query/builtins/journals.errors",
+    "body": {
+      "params": {
+        "size": 100,
+        "offset": 0
+      },
+      "count_total": true
+    },
     "validations": [
       [
-        "$.data.records.length()",
+        "$.data.length()",
         3
       ],
       [
-        "$.data.records[0].error_type",
+        "$.data[0].kind",
         "BudgetCommodityMismatch"
       ],
       [
-        "$.data.records[0].metas.budget_name",
+        "$.data[0].metas[?(@.key=='budget_name')].value",
         "Food"
       ],
       [
-        "$.data.records[1].error_type",
+        "$.data[1].kind",
         "BudgetCommodityMismatch"
       ],
       [
-        "$.data.records[1].metas.account_name",
+        "$.data[1].metas[?(@.key=='account_name')].value",
         "Expenses:Food"
       ],
       [
-        "$.data.records[2].error_type",
+        "$.data[2].kind",
         "BudgetClosed"
       ],
       [
-        "$.data.records[2].metas.account_name",
+        "$.data[2].metas[?(@.key=='account_name')].value",
         "Expenses:Food"
       ]
     ]

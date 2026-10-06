@@ -2,51 +2,164 @@
   {
     "uri": "/api/journals",
     "validations": [
-      ["$.data.records.length()", 4],
-      ["$.data.records[3].postings.length()", 2],
-      ["$.data.records[3].postings[0].unit.number", "10"],
-      ["$.data.records[3].postings[0].cost.number", "10"],
-      ["$.data.records[3].postings[0].cost.commodity", "CNY"],
-      ["$.data.records[3].postings[0].inferred_unit.number", "10"],
-      ["$.data.records[3].postings[0].inferred_unit.commodity", "USD"],
-      ["$.data.records[3].postings[1].unit", null],
-      ["$.data.records[3].postings[1].cost", null],
-      ["$.data.records[3].postings[1].inferred_unit.number", "-100"],
-      ["$.data.records[3].postings[1].inferred_unit.commodity", "CNY"],
-      ["$.data.records[2].postings.length()", 2],
-      ["$.data.records[2].postings[0].cost.number", "11"],
-      ["$.data.records[2].postings[0].inferred_unit.number", "10"],
-      ["$.data.records[1].postings.length()", 2],
-      ["$.data.records[1].postings[0].unit.number", "10"],
-      ["$.data.records[1].postings[0].cost.number", "10.5"],
-      ["$.data.records[1].postings[0].inferred_unit.number", "10"],
-      ["$.data.records[0].postings.length()", 2],
-      ["$.data.records[0].postings[0].unit.number", "-15"],
-      ["$.data.records[0].postings[0].cost", null],
-      ["$.data.records[0].postings[0].inferred_unit.number", "-15"],
-      ["$.data.records[0].postings[0].inferred_unit.commodity", "USD"],
-      ["$.data.records[0].postings[0].account_after.number", "15"],
-      ["$.data.records[0].is_balanced", true]
+      [
+        "$.data.records.length()",
+        4
+      ],
+      [
+        "$.data.records[3].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[3].postings[0].unit.number",
+        "10"
+      ],
+      [
+        "$.data.records[3].postings[0].cost.number",
+        "10"
+      ],
+      [
+        "$.data.records[3].postings[0].cost.commodity",
+        "CNY"
+      ],
+      [
+        "$.data.records[3].postings[0].inferred_unit.number",
+        "10"
+      ],
+      [
+        "$.data.records[3].postings[0].inferred_unit.commodity",
+        "USD"
+      ],
+      [
+        "$.data.records[3].postings[1].unit",
+        null
+      ],
+      [
+        "$.data.records[3].postings[1].cost",
+        null
+      ],
+      [
+        "$.data.records[3].postings[1].inferred_unit.number",
+        "-100"
+      ],
+      [
+        "$.data.records[3].postings[1].inferred_unit.commodity",
+        "CNY"
+      ],
+      [
+        "$.data.records[2].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[2].postings[0].cost.number",
+        "11"
+      ],
+      [
+        "$.data.records[2].postings[0].inferred_unit.number",
+        "10"
+      ],
+      [
+        "$.data.records[1].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[1].postings[0].unit.number",
+        "10"
+      ],
+      [
+        "$.data.records[1].postings[0].cost.number",
+        "10.5"
+      ],
+      [
+        "$.data.records[1].postings[0].inferred_unit.number",
+        "10"
+      ],
+      [
+        "$.data.records[0].postings.length()",
+        2
+      ],
+      [
+        "$.data.records[0].postings[0].unit.number",
+        "-15"
+      ],
+      [
+        "$.data.records[0].postings[0].cost",
+        null
+      ],
+      [
+        "$.data.records[0].postings[0].inferred_unit.number",
+        "-15"
+      ],
+      [
+        "$.data.records[0].postings[0].inferred_unit.commodity",
+        "USD"
+      ],
+      [
+        "$.data.records[0].postings[0].account_after.number",
+        "15"
+      ],
+      [
+        "$.data.records[0].is_balanced",
+        true
+      ]
     ]
   },
   {
-    "uri": "/api/errors",
+    "method": "POST",
+    "uri": "/api/query/builtins/journals.errors",
+    "body": {
+      "params": {
+        "size": 100,
+        "offset": 0
+      },
+      "count_total": true
+    },
     "validations": [
-      ["$.data.records.length()", 0]
+      [
+        "$.data.length()",
+        0
+      ]
     ]
   },
   {
     "uri": "/api/commodities/USD",
     "validations": [
-      ["$.data.lots.length()", 2],
-      ["$.data.lots[0].account", "Assets:A"],
-      ["$.data.lots[0].amount", "5"],
-      ["$.data.lots[0].cost.number", "11"],
-      ["$.data.lots[0].acquisition_date", "2024-05-15"],
-      ["$.data.lots[1].account", "Assets:A"],
-      ["$.data.lots[1].amount", "10"],
-      ["$.data.lots[1].cost.number", "10.5"],
-      ["$.data.lots[1].acquisition_date", "2024-05-18"]
+      [
+        "$.data.lots.length()",
+        2
+      ],
+      [
+        "$.data.lots[0].account",
+        "Assets:A"
+      ],
+      [
+        "$.data.lots[0].amount",
+        "5"
+      ],
+      [
+        "$.data.lots[0].cost.number",
+        "11"
+      ],
+      [
+        "$.data.lots[0].acquisition_date",
+        "2024-05-15"
+      ],
+      [
+        "$.data.lots[1].account",
+        "Assets:A"
+      ],
+      [
+        "$.data.lots[1].amount",
+        "10"
+      ],
+      [
+        "$.data.lots[1].cost.number",
+        "10.5"
+      ],
+      [
+        "$.data.lots[1].acquisition_date",
+        "2024-05-18"
+      ]
     ]
   }
 ]

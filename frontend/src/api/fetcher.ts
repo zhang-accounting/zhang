@@ -58,7 +58,7 @@ const sessionExpiry: Middleware = async (url, init, next) => {
 
 /**
  * zhang-server reads list query params as `tags[]=a&tags[]=b`: `tags=a` (what the generated client writes for arrays) is a
- * 400, and a percent-encoded `tags%5B%5D=a` is silently ignored. Rewrite the list params of `/api/journals` / `/api/errors`.
+ * 400, and a percent-encoded `tags%5B%5D=a` is silently ignored. Rewrite the list params of `/api/journals`.
  */
 const LIST_PARAMS = new Set(['tags', 'links']);
 const listQueryParams: Middleware = (url, init, next) => {

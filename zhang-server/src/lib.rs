@@ -100,7 +100,6 @@ impl GotchaApp for ServerApp {
             .post("/api/reload", reload)
             .get("/api/info", get_basic_info)
             .get("/api/options", get_all_options)
-            .get("/api/errors", get_errors)
             .get("/api/files", get_files)
             // the file path is standard base64, which can contain `/`, see `Base64Path`: the OpenAPI document cannot
             // describe a catch-all and the router cannot have one next to `:file_path`, so the two `:file_path`

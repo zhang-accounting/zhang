@@ -12,10 +12,9 @@ export type JournalBalancePadItem = Extract<JournalItem, { type: 'BalancePad' }>
 export type Account = OpReturnType<operations['get_account_info']>['data'];
 export type AccountListItem = OpReturnType<operations['get_account_list']>['data'][number];
 
-export type LedgerError = OpReturnType<operations['get_errors']>['data']['records'][number];
-
 export type { BudgetInfo, BudgetListItem } from '@/components/budget/budget-rows';
 export type { Document } from '@/utils/documents';
+export type { LedgerError } from '@/utils/ledger-errors';
 export enum AccountType {
   Income = 'Income',
   Expenses = 'Expenses',

@@ -1,11 +1,11 @@
-//! `GET /api/errors` locates an error by the lines of its directive (#493): the span of an error has the 1-based
-//! `line` and `column` where its directive starts, next to `start` and `end`, which stay the byte offsets writers
-//! replace the directive by. The `#errors` table the endpoint reads has the same `line` and `column`, for both formats.
+//! The error box locates an error by the lines of its directive (#493): a row of `journals.errors` has the 1-based
+//! `line` and `column` where its directive starts, next to `span_start` and `span_end`, which stay the byte offsets
+//! writers replace the directive by. The `#errors` table it reads has the same `line` and `column`, for both formats.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path as UrlPath, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::{json, Value};
@@ -13,10 +13,8 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{JournalRequest, QueryRequest};
-use zhang_server::routes::common::get_errors;
-use zhang_server::routes::query::run_query;
-use zhang_server::routes::Query;
+use zhang_server::request::{BuiltinQueryRunRequest, QueryRequest};
+use zhang_server::routes::query::{run_builtin_query, run_query};
 use zhang_server::state::SharedLedger;
 
 /// The ledger of #493: an unbalanced transaction on lines 5 to 7, at bytes 98 to 157.
@@ -69,19 +67,25 @@ async fn body(response: impl IntoResponse) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-/// The first page of `GET /api/errors`.
+/// The first page of the error box: the rows of `journals.errors`, as objects keyed by column name.
 async fn errors(ledger: &SharedLedger) -> Vec<Value> {
-    let request = JournalRequest {
-        page: None,
-        size: None,
-        keyword: None,
-        tags: None,
-        links: None,
+    let request = BuiltinQueryRunRequest {
+        params: serde_json::from_value(json!({ "size": 100, "offset": 0 })).unwrap(),
+        count_total: None,
     };
-    body(get_errors(State(ledger.clone()), Query(request)).await).await["data"]["records"]
+    let result = body(run_builtin_query(State(ledger.clone()), UrlPath(("journals.errors".to_owned(),)), Json(request)).await).await;
+    let columns = result["data"]["columns"]
         .as_array()
         .unwrap()
-        .clone()
+        .iter()
+        .map(|it| it["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    result["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+        .collect()
 }
 
 /// The rows of `POST /api/query`.
@@ -100,15 +104,15 @@ async fn an_error_is_located_by_the_lines_of_its_directive() {
 
     let errors = errors(&ledger).await;
     assert_eq!(errors.len(), 1, "{errors:?}");
-    assert_eq!(errors[0]["error_type"], "UnbalancedTransaction");
-    let span = &errors[0]["span"];
-    assert_eq!(span["filename"], "main.zhang");
+    assert_eq!(errors[0]["kind"], "UnbalancedTransaction");
+    let span = &errors[0];
+    assert_eq!(span["file"], "main.zhang");
     assert_eq!((span["line"].as_u64(), span["column"].as_u64()), (Some(5), Some(1)), "{span}");
     // the byte offsets stay: a writer replaces the directive by them
-    assert_eq!((span["start"].as_u64(), span["end"].as_u64()), (Some(98), Some(157)), "{span}");
-    assert_eq!(span["content"], "2024-01-10 \"Lunch\"\n  Assets:A -10 CNY\n  Expenses:Food 5 CNY");
+    assert_eq!((span["span_start"].as_u64(), span["span_end"].as_u64()), (Some(98), Some(157)), "{span}");
+    assert_eq!(span["source"], "2024-01-10 \"Lunch\"\n  Assets:A -10 CNY\n  Expenses:Food 5 CNY");
 
-    // the table the endpoint reads
+    // the table the error box reads
     assert_eq!(
         query(&ledger, "SELECT line, column, span_start, span_end FROM #errors").await,
         json!([[5, 1, 98, 157]])
@@ -122,9 +126,9 @@ async fn a_beancount_error_is_located_the_same_way() {
 
     let errors = errors(&ledger).await;
     assert_eq!(errors.len(), 1, "{errors:?}");
-    let span = &errors[0]["span"];
+    let span = &errors[0];
     assert_eq!(
-        (span["line"].as_u64(), span["column"].as_u64(), span["start"].as_u64()),
+        (span["line"].as_u64(), span["column"].as_u64(), span["span_start"].as_u64()),
         (Some(5), Some(1), Some(98)),
         "{span}"
     );

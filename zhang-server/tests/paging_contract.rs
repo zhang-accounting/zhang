@@ -1,4 +1,4 @@
-//! One paging contract for the three paged endpoints, `/api/journals`, `/api/errors` and `/api/accounts/{a}/journals`,
+//! One paging contract for the two paged endpoints, `/api/journals` and `/api/accounts/{a}/journals`,
 //! through the extractor and the handlers the server routes them to: pages count from 1, the first by default; a page
 //! has 1 to 1000 rows, 100 by default; another page or size, or a query string that cannot be read, is a 400 with the
 //! JSON `{message}` body of every other bad request.
@@ -16,7 +16,6 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::routes::account::get_account_journals;
-use zhang_server::routes::common::get_errors;
 use zhang_server::routes::transaction::get_journals;
 use zhang_server::state::SharedLedger;
 
@@ -40,7 +39,7 @@ const MAIN: &str = r#"
 "#;
 
 /// the paged endpoints, routed as the server routes them
-const ENDPOINTS: [&str; 3] = ["/api/journals", "/api/errors", "/api/accounts/Assets:Cash/journals"];
+const ENDPOINTS: [&str; 2] = ["/api/journals", "/api/accounts/Assets:Cash/journals"];
 
 async fn router() -> (tempfile::TempDir, Router) {
     let dir = tempfile::tempdir().unwrap();
@@ -49,7 +48,6 @@ async fn router() -> (tempfile::TempDir, Router) {
     let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
     let router = Router::new()
         .route("/api/journals", get(get_journals))
-        .route("/api/errors", get(get_errors))
         .route("/api/accounts/:account_name/journals", get(get_account_journals))
         .with_state(SharedLedger(Arc::new(RwLock::new(ledger))));
     (dir, router)
@@ -73,8 +71,8 @@ async fn call(router: &Router, uri: &str) -> Reply {
     Reply { status, total_count, body }
 }
 
-/// A page of 0 is a 400 on every paged endpoint: `/api/journals` and `/api/errors` used to answer it with page 1, while
-/// an account's journal refused it
+/// A page of 0 is a 400 on every paged endpoint: `/api/journals` used to answer it with page 1, while an account's
+/// journal refused it
 #[tokio::test]
 async fn a_page_of_zero_is_a_bad_request_on_every_paged_endpoint() {
     let (_dir, router) = router().await;
@@ -105,7 +103,6 @@ async fn a_size_outside_1_to_1000_is_a_bad_request_with_one_message() {
 }
 
 /// A query string that cannot be read is a 400 with a JSON `{message}` saying so, not an empty body (`/api/journals`)
-/// or plain text (`/api/errors`)
 #[tokio::test]
 async fn a_query_string_that_cannot_be_read_is_a_bad_request_with_a_json_message() {
     let (_dir, router) = router().await;
@@ -119,7 +116,7 @@ async fn a_query_string_that_cannot_be_read_is_a_bad_request_with_a_json_message
     }
 }
 
-/// A good page keeps the shape each endpoint answered with: the `Pageable` body of `/api/journals` and `/api/errors`,
+/// A good page keeps the shape each endpoint answered with: the `Pageable` body of `/api/journals`,
 /// and the rows with the `X-Total-Count` header of an account's journal, which the frontend reads
 #[tokio::test]
 async fn a_page_keeps_the_shape_of_its_endpoint() {
@@ -132,12 +129,6 @@ async fn a_page_keeps_the_shape_of_its_endpoint() {
         (&json!(4), &json!(2), &json!(2), &json!(2))
     );
     assert_eq!(data["records"].as_array().unwrap().len(), 2);
-
-    let errors = call(&router, "/api/errors?page=1&size=1").await;
-    assert_eq!(errors.status, StatusCode::OK);
-    let data = &errors.body["data"];
-    assert_eq!((&data["page_size"], &data["current_page"]), (&json!(1), &json!(1)));
-    assert_eq!(data["records"].as_array().unwrap().len(), 1);
 
     let account = call(&router, "/api/accounts/Assets:Cash/journals?page=1&size=2").await;
     assert_eq!((account.status, account.total_count.as_deref()), (StatusCode::OK, Some("3")));

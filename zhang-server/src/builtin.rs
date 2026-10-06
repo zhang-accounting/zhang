@@ -243,7 +243,7 @@ FROM #documents
 WHERE source = 'directive' AND under(account, :account)",
         params: &[("account", DataType::Str)],
     },
-    // ---- journals: /api/journals, /api/for-new-transaction, /api/documents, /api/errors ----
+    // ---- journals: /api/journals, /api/for-new-transaction, and the documents and errors pages ----
     BuiltinQuery {
         name: "journals.page",
         description: "One page of the journal, newest first: the transactions, padding transactions included, and the balance \

@@ -85,10 +85,18 @@
     ]
   },
   {
-    "uri": "/api/errors",
+    "method": "POST",
+    "uri": "/api/query/builtins/journals.errors",
+    "body": {
+      "params": {
+        "size": 100,
+        "offset": 0
+      },
+      "count_total": true
+    },
     "validations": [
       [
-        "$.data.total_count",
+        "$.data.length()",
         6
       ]
     ]
