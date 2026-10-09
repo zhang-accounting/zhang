@@ -71,14 +71,6 @@ jobs:
   test:
     name: test (${{ matrix.os }}, ${{ matrix.group }})
     runs-on: ${{ matrix.os }}
-    env:
-      # the dependencies are built optimized with full debuginfo (Cargo.toml's `[profile.dev.package."*"]`), and that
-      # debuginfo is most of the bytes rust-cache stores and restores (2.6 GB on Linux) and a third of the time the
-      # workspace crates and their 85 test binaries take to build and link. Nobody steps through a test on CI, so keep
-      # only the line tables: panic backtraces still name the file and line, the cache is about 40 % smaller and the
-      # workspace build about a third faster (measured locally: 70 s to 45 s). The dev profile is what the test
-      # profile inherits from. Local builds are unchanged.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     strategy:
       fail-fast: false
       matrix:
@@ -88,10 +80,19 @@ jobs:
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[]' || '[{"os":"macOS-latest","group":"all"}]') }}
     steps:
       - uses: actions/checkout@v4
+      # rust-cache restores the nearest older cache when Cargo.lock changes and saves the result under the new key,
+      # and it keeps every build of a crate still in the lockfile, so a cache lineage only grows: the test cache had
+      # reached 2.6 GB (45-75 s to restore) where a fresh one is 0.9 GB (20 s). The month in the key starts a fresh
+      # lineage on the first run of each month, at the price of one cold build then. The old lineages age out.
+      - name: cache month
+        id: month
+        shell: bash
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       - name: Install stable
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
+          cache-key: ${{ steps.month.outputs.month }}
           # zhang-server/tests/sdk_plugins.rs builds the example plugins of zhang-plugin-sdk for wasm32 and runs
           # them; without the target that test fails on CI (it only skips locally)
           target: wasm32-unknown-unknown
@@ -128,8 +129,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      # see the test job's cache month
+      - name: cache month
+        id: month
+        shell: bash
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          cache-key: ${{ steps.month.outputs.month }}
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: jetli/wasm-pack-action@v0.4.0
@@ -222,11 +229,17 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      # see the test job's cache month
+      - name: cache month
+        id: month
+        shell: bash
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
           components: clippy
           target: wasm32-unknown-unknown
+          cache-key: ${{ steps.month.outputs.month }}
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fake frontend build
         run: mkdir -p dist
