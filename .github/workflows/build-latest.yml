@@ -71,6 +71,14 @@ jobs:
   test:
     name: test (${{ matrix.os }}, ${{ matrix.group }})
     runs-on: ${{ matrix.os }}
+    env:
+      # the dependencies are built optimized with full debuginfo (Cargo.toml's `[profile.dev.package."*"]`), and that
+      # debuginfo is most of the bytes rust-cache stores and restores (2.6 GB on Linux) and a third of the time the
+      # workspace crates and their 85 test binaries take to build and link. Nobody steps through a test on CI, so keep
+      # only the line tables: panic backtraces still name the file and line, the cache is about 40 % smaller and the
+      # workspace build about a third faster (measured locally: 70 s to 45 s). The dev profile is what the test
+      # profile inherits from. Local builds are unchanged.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     strategy:
       fail-fast: false
       matrix:
