@@ -836,9 +836,8 @@ impl Ledger {
     fn run_stages(&mut self, directives: Vec<Spanned<Directive>>) -> ZhangResult<(Vec<Spanned<Directive>>, AssertionOutcomes, FinalValidation)> {
         let directives = Ledger::sort_directives_datetime(directives, self.dialect);
         let stages = self.build_stages();
-        let options = self.options.all();
         let commodities = self.options.commodities().cloned().collect_vec();
-        let mut ctx = StageContext::new(&options)
+        let mut ctx = StageContext::new(&self.options)
             .with_dialect(self.dialect)
             .with_commodities(commodities)
             .with_clock(self.clock.clone(), self.options.timezone);

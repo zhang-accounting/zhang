@@ -55,9 +55,10 @@ use zhang_ast::{Directive, SpanInfo, Spanned};
 
 use crate::clock::{Clock, LoadClock};
 use crate::data_type::Dialect;
-use crate::domains::schemas::{CommodityDomain, OptionDomain};
+use crate::domains::schemas::CommodityDomain;
 use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
+use crate::options::InMemoryOptions;
 use crate::ZhangResult;
 
 /// where a plugin's processor and mapper run in the pipeline, relative to [`BookingStage`]
@@ -111,8 +112,8 @@ pub type AssertionOutcomes = HashMap<usize, AssertionOutcome>;
 
 /// context handed to every stage
 pub struct StageContext<'a> {
-    /// the ledger's resolved options
-    pub options: &'a [OptionDomain],
+    /// the ledger's options, as resolved before the pipeline runs
+    pub options: &'a InMemoryOptions,
     /// the commodities the options defined before the pipeline ran (the operating currency);
     /// `commodity` directives are in the stream
     pub commodities: Vec<CommodityDomain>,
@@ -132,7 +133,7 @@ pub struct StageContext<'a> {
 
 impl<'a> StageContext<'a> {
     /// a context on the system clock, in UTC
-    pub fn new(options: &'a [OptionDomain]) -> Self {
+    pub fn new(options: &'a InMemoryOptions) -> Self {
         Self {
             options,
             commodities: vec![],
@@ -279,6 +280,7 @@ pub(crate) mod test {
     use crate::data_type::{DataType, Dialect};
     use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
+    use crate::options::InMemoryOptions;
     use crate::ZhangResult;
 
     /// The account/pad/check stages in isolation: tests inspect the stream before final booking,
@@ -298,7 +300,8 @@ pub(crate) mod test {
     /// [`run_builtin_stages`], with the outcomes of the balance checks in stream order
     pub(crate) fn run_builtin_stages_with_assertions(content: &str) -> (Vec<Directive>, Vec<ErrorKind>, Vec<AssertionOutcome>) {
         let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
-        let mut ctx = StageContext::new(&[]);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options);
         let out = run_pipeline(&balance_stages(), Ledger::sort_directives_datetime(directives, Dialect::Zhang), &mut ctx).unwrap();
         let (errors, mut assertions) = ctx.into_results();
         let outcomes = out
@@ -367,7 +370,8 @@ pub(crate) mod test {
             Box::new(ReadStage(vec![receipt.clone(), ExtraInput::Clock, receipt.clone()])),
             Box::new(ReadStage(vec![documents.clone(), ExtraInput::Clock])),
         ];
-        let mut ctx = StageContext::new(&[]);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options);
 
         run_pipeline(&stages, vec![], &mut ctx).unwrap();
 
@@ -402,7 +406,8 @@ pub(crate) mod test {
         let fixed = "2024-03-15T16:30:00Z".parse::<DateTime<Utc>>().unwrap();
         let clock = LoadClock::new(Clock::Fixed(fixed));
         let stages: Vec<Box<dyn ProcessStage>> = vec![Box::new(NowStage), Box::new(AppendCommentStage("between")), Box::new(NowStage)];
-        let mut ctx = StageContext::new(&[]).with_clock(clock.clone(), Tz::Asia__Shanghai);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options).with_clock(clock.clone(), Tz::Asia__Shanghai);
 
         let out = run_pipeline(&stages, vec![], &mut ctx).unwrap();
 
@@ -415,7 +420,8 @@ pub(crate) mod test {
     fn should_not_read_the_clock_or_record_the_date_when_no_stage_asks() {
         let clock = LoadClock::new(Clock::System);
         let stages: Vec<Box<dyn ProcessStage>> = vec![Box::new(AppendCommentStage("only"))];
-        let mut ctx = StageContext::new(&[]).with_clock(clock.clone(), Tz::UTC);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options).with_clock(clock.clone(), Tz::UTC);
 
         run_pipeline(&stages, vec![], &mut ctx).unwrap();
 
@@ -430,7 +436,8 @@ pub(crate) mod test {
             Box::new(EmitErrorStage),
             Box::new(AppendCommentStage("second")),
         ];
-        let mut ctx = StageContext::new(&[]);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options);
 
         let out = run_pipeline(&stages, vec![], &mut ctx).unwrap();
 

@@ -403,6 +403,7 @@ mod test {
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::{DataType, Dialect};
     use crate::ledger::Ledger;
+    use crate::options::InMemoryOptions;
     use crate::pipeline::test::balance_stages;
     use crate::pipeline::{run_pipeline, ProcessStage, StageContext};
     use crate::ZhangResult;
@@ -462,7 +463,8 @@ mod test {
         let stages: Vec<Box<dyn ProcessStage>> = std::iter::once(Box::new(AbiV1View::new(Box::new(Shared(plugin)))) as Box<dyn ProcessStage>)
             .chain(balance_stages())
             .collect();
-        let mut ctx = StageContext::new(&[]);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options);
         let out = run_pipeline(&stages, parse(content), &mut ctx).unwrap();
         let errors = ctx.into_errors().into_iter().map(|it| (it.kind, it.span.content.trim().to_owned())).collect();
         (out.into_iter().map(|it| it.data).collect(), errors)
@@ -634,7 +636,7 @@ mod test {
         assert!(matches!(original[0].data, Directive::Pad(_)), "a pad comes first");
         let (shown, hidden) = hide_pads(original.clone(), None);
         assert!(!shown.iter().any(|it| matches!(it.data, Directive::Pad(_))));
-        assert_eq!(hidden.restore(shown, &mut StageContext::new(&[])), original);
+        assert_eq!(hidden.restore(shown, &mut StageContext::new(&InMemoryOptions::default())), original);
     }
 
     #[test]

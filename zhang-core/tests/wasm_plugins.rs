@@ -1103,7 +1103,8 @@ fn a_plugin_of_the_oldest_contract_loads_a_ledger_with_a_pad() {
     // the plugin is called without the pad: handed one, it fails
     let pad = ledger.directives.iter().find(|it| matches!(it.data, Directive::Pad(_))).unwrap().clone();
     for stage in ledger.plugins.build_stages(PluginStage::Booked) {
-        let mut ctx = zhang_core::pipeline::StageContext::new(&[]);
+        let options = zhang_core::options::InMemoryOptions::default();
+        let mut ctx = zhang_core::pipeline::StageContext::new(&options);
         assert!(stage.process(vec![pad.clone()], &mut ctx).is_err(), "{} fails on a pad", stage.name());
     }
 }
