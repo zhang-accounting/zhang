@@ -36,7 +36,7 @@ use zhang_core::utils::read_time;
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 
 /// Error returned when the input cannot be parsed as beancount text: zhang-core's, with a beancount message.
-pub use zhang::ParseError;
+pub type ParseError = zhang::ParseError;
 
 // ---------------------------------------------------------------------------
 // the leaves of a beancount file; the rest of the grammar is zhang-core's, read with them
