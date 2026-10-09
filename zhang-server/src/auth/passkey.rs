@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use webauthn_rs::prelude::{Passkey, PasskeyAuthentication, PasskeyRegistration, Url, Uuid};
 use webauthn_rs::{Webauthn, WebauthnBuilder};
 
-use super::AuthError;
+use crate::error::ServerError;
 
 /// zhang's own state in the ledger root, written by the server: never part of the ledger, never an input of a load.
 pub const STATE_DIR: &str = ".zhang";
@@ -39,11 +39,11 @@ pub struct RelyingParty {
 }
 
 impl RelyingParty {
-    pub fn webauthn(&self) -> Result<Webauthn, AuthError> {
+    pub fn webauthn(&self) -> Result<Webauthn, ServerError> {
         WebauthnBuilder::new(&self.id, &self.origin)
             .and_then(|builder| builder.rp_name("Zhang").build())
             .map_err(|_| {
-                AuthError::BadRequest(format!(
+                ServerError::InvalidInput(format!(
                     "passkeys cannot be used from {}: the relying party id `{}` must be a domain name (or localhost) that the origin is on; \
                      open zhang through its domain name, or set ZHANG_PASSKEY_RP_ID and ZHANG_PASSKEY_ORIGIN",
                     self.origin.as_str().trim_end_matches('/'),

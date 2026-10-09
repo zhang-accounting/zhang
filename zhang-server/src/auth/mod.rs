@@ -18,10 +18,10 @@ pub mod session;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -40,9 +40,9 @@ use self::limiter::FailureLimiter;
 use self::passkey::{Ceremonies, Ceremony, CeremonyKind, RelyingParty};
 pub use self::passkey::{PasskeyRecord, PASSKEYS_PATH, STATE_DIR};
 use self::session::{SessionClaims, SessionKey};
-use crate::error::error_response;
+use crate::error::ServerError;
 use crate::response::{AuthMethodsEntity, AuthStatusEntity, PasskeyEntity, ResponseWrapper};
-use crate::ServeConfig;
+use crate::{ServeConfig, ServerResult};
 
 /// The name of the session cookie.
 pub const SESSION_COOKIE: &str = "zhang_session";
@@ -107,54 +107,18 @@ pub struct Principal {
     pub user: String,
 }
 
-/// An error of the auth endpoints, answered as `{"message": ...}`.
-#[derive(Debug)]
-pub enum AuthError {
-    BadRequest(String),
-    Unauthorized(String),
-    NotFound(String),
-    Conflict(String),
-    /// too many failed attempts, try again after the duration
-    TooManyAttempts(Duration),
-    Internal(String),
+/// the answer to a request without a valid credential or session
+fn unauthorized() -> ServerError {
+    ServerError::Unauthorized("unauthorized".to_owned())
 }
 
-impl AuthError {
-    pub fn unauthorized() -> Self {
-        AuthError::Unauthorized("unauthorized".to_owned())
-    }
-
-    fn passkey_disabled() -> Self {
-        AuthError::BadRequest("passkey login is not enabled".to_owned())
-    }
-
-    fn expired_ceremony() -> Self {
-        AuthError::BadRequest("the passkey request is unknown or expired, please try again".to_owned())
-    }
+fn passkey_disabled() -> ServerError {
+    ServerError::InvalidInput("passkey login is not enabled".to_owned())
 }
 
-impl IntoResponse for AuthError {
-    fn into_response(self) -> Response {
-        if let AuthError::TooManyAttempts(wait) = self {
-            let mut response = error_response(StatusCode::TOO_MANY_REQUESTS, limiter::too_many_attempts_message(wait));
-            response
-                .headers_mut()
-                .insert(header::RETRY_AFTER, HeaderValue::from(limiter::whole_seconds(wait)));
-            return response;
-        }
-        let (status, message) = match self {
-            AuthError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
-            AuthError::Unauthorized(message) => (StatusCode::UNAUTHORIZED, message),
-            AuthError::NotFound(message) => (StatusCode::NOT_FOUND, message),
-            AuthError::Conflict(message) => (StatusCode::CONFLICT, message),
-            AuthError::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
-            AuthError::TooManyAttempts(_) => unreachable!("answered above"),
-        };
-        error_response(status, message)
-    }
+fn expired_ceremony() -> ServerError {
+    ServerError::InvalidInput("the passkey request is unknown or expired, please try again".to_owned())
 }
-
-pub type AuthResult<T> = Result<T, AuthError>;
 
 /// A JSON response that may also set (or clear) the session cookie.
 pub struct WithSessionCookie<T: Serialize + Schematic> {
@@ -324,12 +288,12 @@ impl AuthState {
         Ok(count)
     }
 
-    async fn save_passkeys(&self, records: &[PasskeyRecord]) -> AuthResult<()> {
-        let content = serde_json::to_vec_pretty(records).map_err(|e| AuthError::Internal(format!("cannot serialize the passkeys: {e}")))?;
+    async fn save_passkeys(&self, records: &[PasskeyRecord]) -> ServerResult<()> {
+        let content = serde_json::to_vec_pretty(records).map_err(|e| ServerError::Internal(format!("cannot serialize the passkeys: {e}")))?;
         let ledger = self.ledger.read().await;
         ledger.data_source.save(&ledger, PASSKEYS_PATH.to_owned(), &content).map_err(|e| {
             error!("cannot save {PASSKEYS_PATH}: {e}");
-            AuthError::Internal(format!("cannot save the passkeys: {e}"))
+            ServerError::Internal(format!("cannot save the passkeys: {e}"))
         })
     }
 
@@ -434,15 +398,15 @@ impl AuthState {
         self.basic_principal(headers)
     }
 
-    async fn require_principal(&self, headers: &HeaderMap) -> AuthResult<Principal> {
-        self.authenticate(headers).await.ok_or_else(AuthError::unauthorized)
+    async fn require_principal(&self, headers: &HeaderMap) -> ServerResult<Principal> {
+        self.authenticate(headers).await.ok_or_else(unauthorized)
     }
 
-    fn ensure_passkey_enabled(&self) -> AuthResult<()> {
+    fn ensure_passkey_enabled(&self) -> ServerResult<()> {
         if self.passkey_enabled() {
             Ok(())
         } else {
-            Err(AuthError::passkey_disabled())
+            Err(passkey_disabled())
         }
     }
 
@@ -490,13 +454,13 @@ impl AuthState {
     }
 
     /// The relying party of a passkey ceremony started by a request.
-    fn relying_party(&self, headers: &HeaderMap) -> AuthResult<RelyingParty> {
+    fn relying_party(&self, headers: &HeaderMap) -> ServerResult<RelyingParty> {
         let origin = match &self.config.passkey_origin {
-            Some(origin) => Url::parse(origin).map_err(|_| AuthError::Internal(format!("ZHANG_PASSKEY_ORIGIN `{origin}` is not a valid URL")))?,
+            Some(origin) => Url::parse(origin).map_err(|_| ServerError::Internal(format!("ZHANG_PASSKEY_ORIGIN `{origin}` is not a valid URL")))?,
             None => {
-                let site = RequestSite::from_headers(headers).ok_or_else(|| AuthError::BadRequest("the request has no Host header".to_owned()))?;
+                let site = RequestSite::from_headers(headers).ok_or_else(|| ServerError::InvalidInput("the request has no Host header".to_owned()))?;
                 Url::parse(&format!("{}://{}", site.scheme, site.host))
-                    .map_err(|_| AuthError::BadRequest(format!("`{}://{}` is not a valid origin", site.scheme, site.host)))?
+                    .map_err(|_| ServerError::InvalidInput(format!("`{}://{}` is not a valid origin", site.scheme, site.host)))?
             }
         };
         let id = match &self.config.passkey_rp_id {
@@ -504,7 +468,7 @@ impl AuthState {
             None => origin
                 .host_str()
                 .map(|host| host.to_owned())
-                .ok_or_else(|| AuthError::BadRequest(format!("`{origin}` has no host")))?,
+                .ok_or_else(|| ServerError::InvalidInput(format!("`{origin}` has no host")))?,
         };
         Ok(RelyingParty { id, origin })
     }
@@ -523,11 +487,11 @@ impl AuthState {
     }
 
     /// Refuses a client (or everyone) after too many failed sign-in attempts.
-    fn check_attempts(&self, client: &str) -> AuthResult<()> {
+    fn check_attempts(&self, client: &str) -> ServerResult<()> {
         match self.failures().blocked_for(client, Instant::now()) {
             Some(wait) => {
                 warn!("refused a sign-in attempt from {client}: too many failed attempts");
-                Err(AuthError::TooManyAttempts(wait))
+                Err(ServerError::TooManyAttempts(wait))
             }
             None => Ok(()),
         }
@@ -541,12 +505,12 @@ impl AuthState {
         self.failures().reset(client);
     }
 
-    fn take_ceremony(&self, state_id: &str) -> AuthResult<Ceremony> {
+    fn take_ceremony(&self, state_id: &str) -> ServerResult<Ceremony> {
         self.ceremonies
             .lock()
             .expect("ceremonies lock is poisoned")
             .take(state_id)
-            .ok_or_else(AuthError::expired_ceremony)
+            .ok_or_else(expired_ceremony)
     }
 
     async fn passkey_entities(&self) -> Vec<PasskeyEntity> {
@@ -562,10 +526,10 @@ impl AuthState {
             .collect()
     }
 
-    async fn add_passkey(&self, name: Option<&str>, passkey: Passkey) -> AuthResult<PasskeyRecord> {
+    async fn add_passkey(&self, name: Option<&str>, passkey: Passkey) -> ServerResult<PasskeyRecord> {
         let mut passkeys = self.passkeys.write().await;
         if passkeys.iter().any(|record| record.passkey.cred_id() == passkey.cred_id()) {
-            return Err(AuthError::Conflict("this passkey is already registered".to_owned()));
+            return Err(ServerError::Conflict("this passkey is already registered".to_owned()));
         }
         let record = PasskeyRecord {
             id: webauthn_rs::prelude::Uuid::new_v4().to_string(),
@@ -582,7 +546,7 @@ impl AuthState {
     }
 
     /// Records a passkey login (its counter and backup state); the id of the passkey that was used.
-    async fn record_passkey_use(&self, result: &AuthenticationResult) -> AuthResult<String> {
+    async fn record_passkey_use(&self, result: &AuthenticationResult) -> ServerResult<String> {
         let mut passkeys = self.passkeys.write().await;
         let mut updated = passkeys.clone();
         let mut used = None;
@@ -593,7 +557,7 @@ impl AuthState {
             }
         }
         let Some((id, changed)) = used else {
-            return Err(AuthError::Unauthorized("this passkey is not registered".to_owned()));
+            return Err(ServerError::Unauthorized("this passkey is not registered".to_owned()));
         };
         if changed {
             self.save_passkeys(&updated).await?;
@@ -602,13 +566,13 @@ impl AuthState {
         Ok(id)
     }
 
-    async fn remove_passkey(&self, id: &str) -> AuthResult<()> {
+    async fn remove_passkey(&self, id: &str) -> ServerResult<()> {
         let mut passkeys = self.passkeys.write().await;
         if !passkeys.iter().any(|record| record.id == id) {
-            return Err(AuthError::NotFound("passkey not found".to_owned()));
+            return Err(ServerError::NoSuchPasskey);
         }
         if passkeys.len() == 1 && !self.password_enabled() {
-            return Err(AuthError::Conflict(
+            return Err(ServerError::Conflict(
                 "cannot remove the last passkey while password login is disabled, it would lock you out".to_owned(),
             ));
         }
@@ -624,7 +588,7 @@ pub async fn require_authentication(State(auth): State<SharedAuth>, request: Req
     if !requires_authentication(request.method(), request.uri().path()) || auth.authenticate(request.headers()).await.is_some() {
         return next.run(request).await;
     }
-    AuthError::unauthorized().into_response()
+    unauthorized().into_response()
 }
 
 /// The handlers of the `/api/auth/*` endpoints, all reachable without a session.
@@ -639,13 +603,14 @@ pub mod handlers {
     use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential, Uuid};
 
     use super::passkey::CeremonyKind;
-    use super::{AuthError, AuthResult, SharedAuth, WithSessionCookie};
+    use super::{expired_ceremony, unauthorized, SharedAuth, WithSessionCookie};
+    use crate::error::ServerError;
     use crate::request::{LoginRequest, PasskeyLoginFinishRequest, PasskeyRegisterFinishRequest, PasskeyRegisterStartRequest};
     use crate::response::{AuthStatusEntity, PasskeyChallengeEntity, PasskeyEntity, ResponseWrapper};
-    use crate::ApiResult;
+    use crate::{ApiResult, ServerResult};
 
-    fn webauthn_error(context: &str, error: impl std::fmt::Display) -> AuthError {
-        AuthError::Internal(format!("{context}: {error}"))
+    fn webauthn_error(context: &str, error: impl std::fmt::Display) -> ServerError {
+        ServerError::Internal(format!("{context}: {error}"))
     }
 
     /// Whether authentication is enabled, which methods, and who the caller is.
@@ -659,16 +624,16 @@ pub mod handlers {
     #[api(group = "auth")]
     pub async fn auth_login(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>, Json(payload): Json<LoginRequest>,
-    ) -> AuthResult<WithSessionCookie<AuthStatusEntity>> {
+    ) -> ServerResult<WithSessionCookie<AuthStatusEntity>> {
         if !auth.password_enabled() {
-            return Err(AuthError::BadRequest("password login is not enabled".to_owned()));
+            return Err(ServerError::InvalidInput("password login is not enabled".to_owned()));
         }
         let client = auth.client(&headers, peer);
         auth.check_attempts(&client)?;
         if !auth.verify_password(&payload.username, &payload.password) {
             warn!("failed password login for user {:?} from {client}", payload.username);
             auth.record_failed_attempt(&client);
-            return Err(AuthError::Unauthorized("invalid username or password".to_owned()));
+            return Err(ServerError::Unauthorized("invalid username or password".to_owned()));
         }
         auth.reset_failed_attempts(&client);
         Ok(auth.status_with_cookie(&headers, auth.password_session()).await)
@@ -685,18 +650,18 @@ pub mod handlers {
     pub async fn passkey_register_start(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
         Json(payload): Json<PasskeyRegisterStartRequest>,
-    ) -> AuthResult<ResponseWrapper<PasskeyChallengeEntity>> {
+    ) -> ApiResult<PasskeyChallengeEntity> {
         auth.ensure_passkey_enabled()?;
         if auth.authenticate(&headers).await.is_none() {
             let Some(secret) = payload.secret.as_deref() else {
-                return Err(AuthError::unauthorized());
+                return Err(unauthorized());
             };
             let client = auth.client(&headers, peer);
             auth.check_attempts(&client)?;
             if !auth.verify_passkey_secret(secret) {
                 warn!("invalid passkey registration secret from {client}");
                 auth.record_failed_attempt(&client);
-                return Err(AuthError::Unauthorized("invalid registration secret".to_owned()));
+                return Err(ServerError::Unauthorized("invalid registration secret".to_owned()));
             }
         }
         let relying_party = auth.relying_party(&headers)?;
@@ -725,22 +690,22 @@ pub mod handlers {
     pub async fn passkey_register_finish(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
         Json(payload): Json<PasskeyRegisterFinishRequest>,
-    ) -> AuthResult<WithSessionCookie<AuthStatusEntity>> {
+    ) -> ServerResult<WithSessionCookie<AuthStatusEntity>> {
         auth.ensure_passkey_enabled()?;
         let principal = auth.authenticate(&headers).await;
         let ceremony = auth.take_ceremony(&payload.state_id)?;
         let CeremonyKind::Registration { state, name } = ceremony.kind else {
-            return Err(AuthError::expired_ceremony());
+            return Err(expired_ceremony());
         };
         let credential: RegisterPublicKeyCredential =
-            serde_json::from_value(payload.credential).map_err(|e| AuthError::BadRequest(format!("invalid passkey credential: {e}")))?;
+            serde_json::from_value(payload.credential).map_err(|e| ServerError::InvalidInput(format!("invalid passkey credential: {e}")))?;
         let passkey = ceremony
             .relying_party
             .webauthn()?
             .finish_passkey_registration(&credential, &state)
             .map_err(|e| {
                 warn!("passkey registration failed: {e}");
-                AuthError::BadRequest(format!("passkey registration failed: {e}"))
+                ServerError::InvalidInput(format!("passkey registration failed: {e}"))
             })?;
         let record = auth.add_passkey(payload.name.as_deref().or(name.as_deref()), passkey).await?;
         auth.reset_failed_attempts(&auth.client(&headers, peer));
@@ -756,11 +721,11 @@ pub mod handlers {
 
     /// Starts a passkey login, allowing every registered passkey.
     #[api(group = "auth")]
-    pub async fn passkey_login_start(State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap) -> AuthResult<ResponseWrapper<PasskeyChallengeEntity>> {
+    pub async fn passkey_login_start(State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap) -> ApiResult<PasskeyChallengeEntity> {
         auth.ensure_passkey_enabled()?;
         let passkeys: Vec<_> = auth.passkeys.read().await.iter().map(|record| record.passkey.clone()).collect();
         if passkeys.is_empty() {
-            return Err(AuthError::BadRequest("no passkey is registered".to_owned()));
+            return Err(ServerError::InvalidInput("no passkey is registered".to_owned()));
         }
         let relying_party = auth.relying_party(&headers)?;
         let (options, state) = relying_party
@@ -779,21 +744,21 @@ pub mod handlers {
     pub async fn passkey_login_finish(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
         Json(payload): Json<PasskeyLoginFinishRequest>,
-    ) -> AuthResult<WithSessionCookie<AuthStatusEntity>> {
+    ) -> ServerResult<WithSessionCookie<AuthStatusEntity>> {
         auth.ensure_passkey_enabled()?;
         let ceremony = auth.take_ceremony(&payload.state_id)?;
         let CeremonyKind::Authentication { state } = ceremony.kind else {
-            return Err(AuthError::expired_ceremony());
+            return Err(expired_ceremony());
         };
         let credential: PublicKeyCredential =
-            serde_json::from_value(payload.credential).map_err(|e| AuthError::BadRequest(format!("invalid passkey credential: {e}")))?;
+            serde_json::from_value(payload.credential).map_err(|e| ServerError::InvalidInput(format!("invalid passkey credential: {e}")))?;
         let result = ceremony
             .relying_party
             .webauthn()?
             .finish_passkey_authentication(&credential, &state)
             .map_err(|e| {
                 warn!("passkey login failed: {e}");
-                AuthError::Unauthorized("passkey verification failed".to_owned())
+                ServerError::Unauthorized("passkey verification failed".to_owned())
             })?;
         let passkey_id = auth.record_passkey_use(&result).await?;
         auth.reset_failed_attempts(&auth.client(&headers, peer));
@@ -803,7 +768,7 @@ pub mod handlers {
 
     /// The registered passkeys; needs a session.
     #[api(group = "auth")]
-    pub async fn get_passkeys(State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap) -> AuthResult<ResponseWrapper<Vec<PasskeyEntity>>> {
+    pub async fn get_passkeys(State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap) -> ApiResult<Vec<PasskeyEntity>> {
         auth.require_principal(&headers).await?;
         auth.ensure_passkey_enabled()?;
         Ok(ResponseWrapper {
@@ -816,7 +781,7 @@ pub mod handlers {
     #[api(group = "auth")]
     pub async fn delete_passkey(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, Path((passkey_id,)): Path<(String,)>,
-    ) -> AuthResult<ResponseWrapper<Vec<PasskeyEntity>>> {
+    ) -> ApiResult<Vec<PasskeyEntity>> {
         auth.require_principal(&headers).await?;
         auth.ensure_passkey_enabled()?;
         auth.remove_passkey(&passkey_id).await?;
