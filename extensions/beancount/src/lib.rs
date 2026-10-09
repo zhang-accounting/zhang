@@ -158,8 +158,8 @@ impl DataType for Beancount {
     }
 }
 
-/// `directive` with a date beancount reads: a date and time becomes the date alone plus `time` metadata. Budgets keep
-/// their date as it is
+/// `directive` with a date beancount reads: a date and time, to the second or to the minute (a plugin can emit a
+/// `Date::DateHour`), becomes the date alone plus `time` metadata. Budgets keep their date as it is
 fn time_into_meta(mut directive: Directive) -> Directive {
     if matches!(
         directive,
@@ -168,7 +168,9 @@ fn time_into_meta(mut directive: Directive) -> Directive {
         return directive;
     }
     let Some(date) = directive.date_mut() else { return directive };
-    let Date::Datetime(datetime) = *date else { return directive };
+    let (Date::Datetime(datetime) | Date::DateHour(datetime)) = *date else {
+        return directive;
+    };
     *date = Date::Date(datetime.date());
     if let Some(meta) = directive.meta_mut() {
         meta.insert("time".to_string(), ZhangString::QuoteString(datetime.time().format("%H:%M:%S").to_string()));
@@ -246,6 +248,38 @@ mod test {
             beancount_exporter.export(Spanned::new(directive, SpanInfo::default())),
             "should persist time into meta"
         );
+    }
+
+    /// A directive dated to the minute (`Date::DateHour`, which a plugin can emit) was written as `1970-01-01 08:30`,
+    /// which beancount cannot read: it is written like one dated to the second, the date plus `time` metadata, and
+    /// reads back at that time.
+    #[test]
+    fn a_directive_dated_to_the_minute_round_trips_through_time_meta() {
+        let at = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().and_hms_opt(8, 30, 0).unwrap();
+        let mut open = test_parse_zhang! {"1970-01-01 open Assets:BankAccount"};
+        let mut transaction = test_parse_zhang! {"1970-01-01 * \"lunch\"\n  Assets:BankAccount -10 CNY\n  Expenses:Food"};
+        for directive in [&mut open, &mut transaction] {
+            *directive.date_mut().unwrap() = Date::DateHour(at);
+        }
+
+        let exported = [&open, &transaction]
+            .into_iter()
+            .map(|it| Beancount {}.export(Spanned::new(it.clone(), SpanInfo::default())))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            exported,
+            vec![
+                "1970-01-01 open Assets:BankAccount\n  time: \"08:30:00\"",
+                "1970-01-01 * \"lunch\"\n  time: \"08:30:00\"\n  Assets:BankAccount -10 CNY\n  Expenses:Food",
+            ]
+        );
+        let read = Beancount::default().transform(exported.join("\n\n"), None).unwrap();
+        assert_eq!(read.len(), 2);
+        for (directive, original) in read.into_iter().zip([&open, &transaction]) {
+            assert_eq!(directive.data.directive_type().to_string(), original.directive_type().to_string());
+            assert_eq!(directive.data.datetime(), Some(at));
+            assert_eq!(directive.data.meta().unwrap().get_one("time"), None);
+        }
     }
 
     #[test]
