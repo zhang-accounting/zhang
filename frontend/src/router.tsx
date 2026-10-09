@@ -1,25 +1,30 @@
 import { useAtomValue, useSetAtom } from 'jotai';
-import { type ReactNode, useEffect } from 'react';
+import { lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { matchRoutes, Route, Routes, useLocation } from 'react-router';
+import { PageShell } from './components/layout';
+import { Skeleton } from './components/ui/skeleton';
 import { useDocumentTitle } from './hooks/use-document-title';
 import * as NAV from './layout/nav-links';
-import Home from './pages/Home';
-import Journals from './pages/Journals';
-import Accounts from './pages/Accounts';
-import SingleAccount from './pages/SingleAccount';
-import Commodities from './pages/Commodities';
-import SingleCommodity from './pages/SingleCommodity';
-import Documents from './pages/Documents';
-import Budgets from './pages/Budgets';
-import SingleBudget from './pages/SingleBudget';
-import RawEdit from './pages/RawEdit';
-import Report from './pages/Report';
-import ToolList from './pages/tools/ToolList';
-import BatchBalance from './pages/tools/BatchBalance';
-import Settings from './pages/Settings';
-import Explore from './pages/Explore';
 import { breadcrumbAtom, titleAtom } from './states/basic';
+
+// Every page is a chunk of its own, loaded on its first visit, so the first load ships the shell and one page; the chart and
+// editor libraries are chunks of their own (vite.config.ts), shared by the pages that draw charts or edit text.
+const Home = lazy(() => import('./pages/Home'));
+const Journals = lazy(() => import('./pages/Journals'));
+const Accounts = lazy(() => import('./pages/Accounts'));
+const SingleAccount = lazy(() => import('./pages/SingleAccount'));
+const Commodities = lazy(() => import('./pages/Commodities'));
+const SingleCommodity = lazy(() => import('./pages/SingleCommodity'));
+const Documents = lazy(() => import('./pages/Documents'));
+const Budgets = lazy(() => import('./pages/Budgets'));
+const SingleBudget = lazy(() => import('./pages/SingleBudget'));
+const RawEdit = lazy(() => import('./pages/RawEdit'));
+const Report = lazy(() => import('./pages/Report'));
+const ToolList = lazy(() => import('./pages/tools/ToolList'));
+const BatchBalance = lazy(() => import('./pages/tools/BatchBalance'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Explore = lazy(() => import('./pages/Explore'));
 
 /**
  * A page and what the shell shows for it. The breadcrumb is the page's `section`, then either the `:param` the page shows
@@ -76,15 +81,29 @@ function PageMeta() {
   return null;
 }
 
+/** The page's column while its chunk loads: the outline of a page header, in the style of the pages' own skeletons. */
+function PageLoading() {
+  return (
+    <PageShell aria-busy>
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-7 w-40" />
+        <Skeleton className="h-4 w-72 max-w-full" />
+      </div>
+    </PageShell>
+  );
+}
+
 export function Router() {
   return (
     <>
       <PageMeta />
-      <Routes>
-        {ROUTES.map((route) => (
-          <Route key={route.path} path={route.path} element={route.element} />
-        ))}
-      </Routes>
+      <Suspense fallback={<PageLoading />}>
+        <Routes>
+          {ROUTES.map((route) => (
+            <Route key={route.path} path={route.path} element={route.element} />
+          ))}
+        </Routes>
+      </Suspense>
     </>
   );
 }

@@ -1,6 +1,6 @@
 //! Test helpers for the scalar function library, plus registry-wide sanity checks.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -11,10 +11,10 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 
-use crate::functions::{resolve_scalar, Eval, SCALAR_FUNCTIONS};
+use crate::functions::{resolve_scalar, Eval, ParamType, SCALAR_FUNCTIONS};
 use crate::projector::Projection;
 use crate::table::{Dataset, RowRef};
-use crate::value::{Cost, Inventory, Position, Value};
+use crate::value::{Cost, DataType, Inventory, Position, Value};
 use crate::Amount;
 
 /// A ledger to unit-test functions with: "today" and the time of day of "now", the `price` directives of `prices`,
@@ -215,6 +215,95 @@ fn every_function_is_documented_and_no_overload_is_shadowed() {
                 "{} is shadowed by an earlier overload",
                 function.signature()
             );
+        }
+    }
+}
+
+/// Values of a type a function could answer NULL or an error to: empty, zero, mismatched and unpriced ones.
+fn samples(ty: DataType) -> Vec<Value> {
+    match ty {
+        DataType::Bool => vec![Value::Bool(true), Value::Bool(false)],
+        DataType::Int => vec![Value::Int(0), Value::Int(-1), Value::Int(i64::MIN), Value::Int(i64::MAX)],
+        DataType::Decimal => vec![Value::Decimal(d("0")), Value::Decimal(d("-1.50")), Value::Decimal(d("1E+30"))],
+        DataType::Str => ["", "USD", "EUR", "Assets", "Assets:Bank", "assets:bank", "x y"]
+            .into_iter()
+            .map(Value::from)
+            .collect(),
+        DataType::Date => vec![Value::Date(date("2024-02-29")), Value::Date(date("1970-01-01"))],
+        DataType::Set => vec![Value::Set(BTreeSet::new()), Value::Set(BTreeSet::from(["a".to_owned()]))],
+        DataType::Amount => vec![
+            Value::Amount(amount("0", "USD")),
+            Value::Amount(amount("-2.50", "EUR")),
+            Value::Amount(amount("10", "AAPL")),
+        ],
+        DataType::Position => vec![
+            Value::Position(position("1", "USD", None)),
+            Value::Position(position("10", "AAPL", Some(("100", "USD")))),
+            Value::Position(position("-5", "XYZ", Some(("2", "EUR")))),
+        ],
+        DataType::Inventory => vec![
+            Value::Inventory(inventory(vec![])),
+            Value::Inventory(inventory(vec![
+                position("10", "AAPL", Some(("100", "USD"))),
+                position("-1011.00", "USD", None),
+                position("3", "EUR", None),
+            ])),
+        ],
+        DataType::Null | DataType::Interval | DataType::Metas => vec![],
+    }
+}
+
+/// every way to pick one value per list, in order
+fn combinations(lists: &[Vec<Value>]) -> Vec<Vec<Value>> {
+    lists.iter().fold(vec![vec![]], |picked, list| {
+        picked
+            .iter()
+            .flat_map(|args| list.iter().map(move |value| args.iter().cloned().chain([value.clone()]).collect()))
+            .collect()
+    })
+}
+
+/// A `#[total]` function answers a value, never NULL or an error, whatever its arguments: the projector trusts the
+/// flag to defer `first()` / `last()` over a running total to one row, which must not be a NULL one. Every total
+/// function is called with every combination of values of its parameter types that could make it answer NULL:
+/// another currency, an empty inventory, an empty string, no price.
+#[test]
+fn every_total_function_returns_a_value() {
+    let ctx = context_with_prices(&[("2024-01-01", "AAPL", "USD", "150")]);
+    let any = [
+        DataType::Bool,
+        DataType::Int,
+        DataType::Decimal,
+        DataType::Str,
+        DataType::Date,
+        DataType::Set,
+        DataType::Amount,
+        DataType::Position,
+        DataType::Inventory,
+    ];
+    for function in SCALAR_FUNCTIONS.iter().filter(|it| it.total) {
+        let per_param = function
+            .params
+            .iter()
+            .map(|param| match param {
+                ParamType::Exact(ty) | ParamType::Variadic(ty) => samples(*ty),
+                ParamType::Any => any.into_iter().flat_map(samples).collect(),
+            })
+            .collect::<Vec<_>>();
+        for args in combinations(&per_param) {
+            let types = args.iter().map(Value::data_type).collect::<Vec<_>>();
+            let result = Fixture::from(&ctx).eval(function.eval, &args);
+            match &result {
+                Ok(value) if !value.is_null() => assert_eq!(
+                    value.data_type(),
+                    function.returns.resolve(&types),
+                    "{} returned {:?} for {:?}",
+                    function.signature(),
+                    value,
+                    args
+                ),
+                _ => panic!("{} is flagged total but answers {:?} to {:?}", function.signature(), result, args),
+            }
         }
     }
 }

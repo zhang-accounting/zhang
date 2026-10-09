@@ -21,8 +21,6 @@ use crate::{ZhangError, ZhangResult};
 
 #[derive(Default)]
 pub struct PluginStore {
-    pub processors: Vec<RegisteredPlugin>,
-    pub mappers: Vec<RegisteredPlugin>,
     pub routers: Vec<RegisteredPlugin>,
     /// registration order with the types each plugin supports — this is the execution order
     pub ordered: Vec<(RegisteredPlugin, Vec<PluginType>)>,
@@ -76,12 +74,6 @@ impl PluginStore {
             occurrence,
             files,
         };
-        if plugin_types.contains(&PluginType::Processor) {
-            self.processors.push(registered_plugin.clone())
-        }
-        if plugin_types.contains(&PluginType::Mapper) {
-            self.mappers.push(registered_plugin.clone())
-        }
         if plugin_types.contains(&PluginType::Router) {
             self.add_router(registered_plugin.clone())
         }
