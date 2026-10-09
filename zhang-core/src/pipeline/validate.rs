@@ -208,6 +208,7 @@ mod test {
     use crate::data_type::DataType;
     use crate::domains::schemas::CommodityDomain;
     use crate::ledger::Ledger;
+    use crate::options::InMemoryOptions;
 
     #[test]
     fn final_booking_completes_postings_and_rolls_back_a_rejected_cost_sale() {
@@ -233,7 +234,8 @@ mod test {
             )
             .unwrap();
         let rejected = directives.iter().find(|it| it.span.content.contains("\"reject\"")).unwrap().clone();
-        let mut ctx = StageContext::new(&[]);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options);
         let out = ValidateStage
             .process(Ledger::sort_directives_datetime(directives, crate::data_type::Dialect::Zhang), &mut ctx)
             .unwrap();
@@ -279,7 +281,8 @@ mod test {
                 None,
             )
             .unwrap();
-        let mut ctx = StageContext::new(&[]).with_commodities(vec![CommodityDomain {
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options).with_commodities(vec![CommodityDomain {
             name: "USD".to_owned(),
             precision: 2,
             prefix: None,
