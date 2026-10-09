@@ -141,7 +141,8 @@ react-day-picker 10 (`ui/calendar`) · react-i18next · jotai. `cn` comes from `
 ## Data entry, errors and navigation
 - Reading ledger data: shared resources are atoms in `states/` that read `ledgerRevisionAtom`, page data goes through
   `useLedgerQuery(query, deps)` (`states/ledger`). SSE `Reload`, every write and the sign-out reset call `ledgerChanged()`
-  once, so every open page follows the ledger. Lint keeps `react-use`'s `useAsync*` inside `states/ledger.ts`; the raw
+  once, so every open page follows the ledger; so does an SSE `Connected` that ends an outage, as the reloads broadcast
+  meanwhile were lost (`layout/server-events`). Lint keeps `react-use`'s `useAsync*` inside `states/ledger.ts`; the raw
   editor's file content is the one exception, as a reload must never overwrite unsaved text.
 - Request failures: `toast.error(title, { description: await apiErrorMessage(error) })` (`lib/api-error`) shows the server's
   `{ message }` (generated client `ApiError`, `Response`, `Error`, string). Plain `fetch` uploads throw
