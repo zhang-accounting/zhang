@@ -30,24 +30,25 @@
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use chrono::{DateTime, SecondsFormat};
 use chrono_tz::Tz;
 use extism::convert::MemoryHandle;
-use extism::{CurrentPlugin, Function, UserData, Val, EXTISM_USER_MODULE, PTR};
+use extism::{CurrentPlugin, Function, UserData, Val, ValType, EXTISM_USER_MODULE, PTR};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use zhang_ast::error::ErrorKind;
 use zhang_ast::SpanInfo;
 pub use zhang_shared::plugin_abi::import::{EMIT_ERROR, LIST_DIR, NOW, READ_FILE};
 // `zhang_now` cannot fail, so it always answers `HostOk::Ok`
-use zhang_shared::plugin_abi::{HostResult as HostOk, Now as NowPayload};
+use zhang_shared::plugin_abi::{HostResult as HostOk, LedgerInfo, Now as NowPayload};
 
 use crate::clock::LoadClock;
 use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
+use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION};
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
 pub const PLUGIN_META: &str = "plugin";
@@ -199,20 +200,34 @@ struct EmitErrorPayload {
 }
 
 /// the state the host functions of one plugin instance share
-struct HostState {
+pub(super) struct HostState {
     /// the plugin's name, given as the `plugin` meta of the errors it reports
     plugin: String,
     /// the span of the plugin's directive, where an error without a usable span of its own is reported
     directive_span: SpanInfo,
     /// the errors the plugin reported, in call order
     errors: Vec<StageError>,
+    /// the clock of the load, which `zhang_now` reads
+    clock: LoadClock,
+    /// the ledger timezone
+    timezone: Tz,
+    /// whether a `zhang_now` call is recorded as reading the date; not while the plugin registers or routes
+    record: bool,
+    /// whether the plugin read the time since its reads were last taken
+    read: bool,
+    /// what the plugin may read; `None` while it registers or handles a request as a router, when every
+    /// file call is denied
+    access: Option<FileAccess>,
+    /// the inputs its file calls recorded, in call order
+    inputs: Vec<ExtraInput>,
+    /// what the router host functions reach, the server's query host and the ledger's info; `None` outside
+    /// a router call, when they answer that they are unavailable
+    pub(super) router: Option<(Arc<dyn RouterHost>, LedgerInfo)>,
 }
 
 /// the host side of one plugin instance: the host functions to link into it and what they collected
 pub struct PluginHost {
     state: Arc<Mutex<HostState>>,
-    clock: Arc<Mutex<ClockState>>,
-    files: Arc<Mutex<FilesState>>,
 }
 
 impl PluginHost {
@@ -221,49 +236,93 @@ impl PluginHost {
     /// [`PluginHost::with_files`] grants some; the hosts of [`PluginHost::registering`] and
     /// [`PluginHost::routing`] never get any
     pub fn new(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
-        Self::with_clock_state(plugin.into(), directive_span, ClockState::new(clock, timezone, true))
+        Self::with_record(plugin.into(), directive_span, clock, timezone, true)
     }
 
     /// the host of an instance registering the plugin (`name`, `version`, `supported_type`): `zhang_now` returns
     /// the time of the load as for a stage, but records nothing, since what a plugin answers there is not ledger
     /// content
     pub fn registering(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
-        Self::with_clock_state(plugin.into(), directive_span, ClockState::new(clock, timezone, false))
+        Self::with_record(plugin.into(), directive_span, clock, timezone, false)
     }
 
     /// the host of an instance handling an HTTP request as a router plugin. A request is not a load:
     /// `zhang_now` reads the ledger's clock afresh for each request (so a report page shows the
     /// current date even when the ledger was loaded days ago) and records nothing.
     pub fn routing(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
-        Self::with_clock_state(plugin.into(), directive_span, ClockState::new(clock, timezone, false))
+        Self::with_record(plugin.into(), directive_span, clock, timezone, false)
     }
 
-    fn with_clock_state(plugin: String, directive_span: SpanInfo, clock: ClockState) -> Self {
+    fn with_record(plugin: String, directive_span: SpanInfo, clock: LoadClock, timezone: Tz, record: bool) -> Self {
         let state = HostState {
             plugin,
             directive_span,
             errors: vec![],
+            clock,
+            timezone,
+            record,
+            read: false,
+            access: None,
+            inputs: vec![],
+            router: None,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
-            clock: Arc::new(Mutex::new(clock)),
-            files: Arc::new(Mutex::new(FilesState::default())),
         }
     }
 
-    /// every host function zhang offers, bound to this host
+    /// this host with the files `access` grants readable through `zhang_read_file` and `zhang_list_dir`
+    pub fn with_files(self, access: FileAccess) -> Self {
+        self.lock().access = Some(access);
+        self
+    }
+
+    /// this host handling a request as a router: `zhang_query` runs queries through `host` and
+    /// `zhang_ledger_info` answers `info`
+    pub(super) fn with_router(self, host: Arc<dyn RouterHost>, info: LedgerInfo) -> Self {
+        self.lock().router = Some((host, info));
+        self
+    }
+
+    /// every host function zhang offers, bound to this host. The router functions are linked into every
+    /// instance, so a plugin importing them still loads; outside a router call they answer that they are
+    /// unavailable
     pub fn functions(&self) -> Vec<Function> {
-        let mut functions = vec![
-            Function::new(EMIT_ERROR, [PTR], [], UserData::Rust(self.state.clone()), emit_error).with_namespace(EXTISM_USER_MODULE),
-            self.now_function(),
-        ];
-        functions.extend(self.file_functions());
-        functions
+        vec![
+            self.bound(EMIT_ERROR, [PTR], [], emit_error),
+            self.bound(NOW, [], [PTR], zhang_now),
+            self.bound(READ_FILE, [PTR], [PTR], read_file),
+            self.bound(LIST_DIR, [PTR], [PTR], list_dir),
+            self.bound(QUERY_FUNCTION, [PTR], [PTR], router::zhang_query),
+            self.bound(LEDGER_INFO_FUNCTION, [], [PTR], router::zhang_ledger_info),
+        ]
+    }
+
+    /// the host function `function`, named `name`, bound to this host's state
+    fn bound<F>(&self, name: &str, inputs: impl IntoIterator<Item = ValType>, outputs: impl IntoIterator<Item = ValType>, function: F) -> Function
+    where
+        F: 'static + Fn(&mut CurrentPlugin, &[Val], &mut [Val], UserData<HostState>) -> Result<(), extism::Error> + Sync + Send,
+    {
+        Function::new(name, inputs, outputs, UserData::Rust(self.state.clone()), function).with_namespace(EXTISM_USER_MODULE)
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HostState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// take the errors the plugin reported so far
     pub fn take_errors(&self) -> Vec<StageError> {
-        std::mem::take(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner).errors)
+        std::mem::take(&mut self.lock().errors)
+    }
+
+    /// whether the plugin read the time since the last call; a host that is registering the plugin never records it
+    fn take_clock_read(&self) -> bool {
+        std::mem::take(&mut self.lock().read)
+    }
+
+    /// take the inputs the plugin's file calls recorded so far
+    pub fn take_inputs(&self) -> Vec<ExtraInput> {
+        std::mem::take(&mut self.lock().inputs)
     }
 
     /// hand what the plugin reported and read so far to the pipeline: its errors, the date if it read the time,
@@ -358,43 +417,8 @@ fn well_formed_span(plugin: &str, span: serde_json::Value) -> Option<SpanInfo> {
 // value. A call from a processor or mapper records `ExtraInput::Clock`; a call while the plugin registers does not.
 // `NOW` documents the ABI.
 
-/// the state `zhang_now` of one plugin instance keeps
-struct ClockState {
-    /// the clock of the load
-    clock: LoadClock,
-    /// the ledger timezone
-    timezone: Tz,
-    /// whether a call is recorded as reading the date; not while the plugin registers
-    record: bool,
-    /// whether the plugin read the time since its reads were last taken
-    read: bool,
-}
-
-impl ClockState {
-    fn new(clock: LoadClock, timezone: Tz, record: bool) -> Self {
-        Self {
-            clock,
-            timezone,
-            record,
-            read: false,
-        }
-    }
-}
-
-impl PluginHost {
-    /// `zhang_now`, bound to this host
-    fn now_function(&self) -> Function {
-        Function::new(NOW, [], [PTR], UserData::Rust(self.clock.clone()), zhang_now).with_namespace(EXTISM_USER_MODULE)
-    }
-
-    /// whether the plugin read the time since the last call; a host that is registering the plugin never records it
-    fn take_clock_read(&self) -> bool {
-        std::mem::take(&mut self.clock.lock().unwrap_or_else(PoisonError::into_inner).read)
-    }
-}
-
 /// `zhang_now()`: the current time of the load, read from its clock on the first call
-fn zhang_now(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut [Val], state: UserData<ClockState>) -> Result<(), extism::Error> {
+fn zhang_now(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
     let now = {
         let state = state.get()?;
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -422,50 +446,20 @@ fn now_payload(now: &DateTime<Tz>) -> NowPayload {
 /// `zhang_list_dir`: 4 KiB, Linux's `PATH_MAX`. A path relative to the ledger root is far shorter.
 const FILE_PATH_MAX_LEN: usize = 4096;
 
-/// the state the file functions of one plugin instance share
-#[derive(Default)]
-struct FilesState {
-    /// what the plugin may read; `None` while it registers or handles a request as a router, when every
-    /// call is denied
-    access: Option<FileAccess>,
-    /// the inputs its calls recorded, in call order
-    inputs: Vec<ExtraInput>,
-}
-
-impl PluginHost {
-    /// this host with the files `access` grants readable through `zhang_read_file` and `zhang_list_dir`
-    pub fn with_files(self, access: FileAccess) -> Self {
-        self.files.lock().unwrap_or_else(PoisonError::into_inner).access = Some(access);
-        self
-    }
-
-    /// take the inputs the plugin's file calls recorded so far
-    pub fn take_inputs(&self) -> Vec<ExtraInput> {
-        std::mem::take(&mut self.files.lock().unwrap_or_else(PoisonError::into_inner).inputs)
-    }
-
-    fn file_functions(&self) -> [Function; 2] {
-        [
-            Function::new(READ_FILE, [PTR], [PTR], UserData::Rust(self.files.clone()), read_file).with_namespace(EXTISM_USER_MODULE),
-            Function::new(LIST_DIR, [PTR], [PTR], UserData::Rust(self.files.clone()), list_dir).with_namespace(EXTISM_USER_MODULE),
-        ]
-    }
-}
-
 /// `zhang_read_file(path) -> result`
-fn read_file(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<FilesState>) -> Result<(), extism::Error> {
+fn read_file(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
     file_call(plugin, inputs, outputs, state, FileAccess::read_file)
 }
 
 /// `zhang_list_dir(path) -> result`
-fn list_dir(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<FilesState>) -> Result<(), extism::Error> {
+fn list_dir(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
     file_call(plugin, inputs, outputs, state, FileAccess::list_dir)
 }
 
 /// run a file function on the path the plugin passed and hand it the JSON result; a path it cannot read is an
 /// `invalid` result, not a trap
 fn file_call<T: Serialize>(
-    plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<FilesState>, call: impl FnOnce(&FileAccess, &str) -> FileCall<T>,
+    plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>, call: impl FnOnce(&FileAccess, &str) -> FileCall<T>,
 ) -> Result<(), extism::Error> {
     // through the bounds-checked helper, so a forged block header cannot make this read out of bounds (a
     // crash) or larger than the limit; any unreadable path (an empty one is no block either) is `invalid`

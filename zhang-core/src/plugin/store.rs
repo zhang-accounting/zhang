@@ -15,7 +15,6 @@ use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
-use crate::plugin::router::unavailable_host_functions;
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -42,12 +41,11 @@ impl PluginStore {
         let timeout = declaration.capabilities.timeout;
         let manifest = Manifest::new([wasm]).with_timeout(timeout);
 
-        // a plugin importing a host function cannot be instantiated without it, so the router host
-        // functions are linked too, answering that they are unavailable. Registering, the file
-        // functions deny every path
+        // registering, the file functions deny every path and the router functions answer that they
+        // are unavailable
         let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
-        let functions = host.functions().into_iter().chain(unavailable_host_functions());
-        let mut plugin = WasmPlugin::new(manifest, functions, true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        let mut plugin =
+            WasmPlugin::new(manifest, host.functions(), true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>(export::NAME, ())
             .map_err(|e| call_error(&plugin_name, export::NAME, timeout, e))?
@@ -189,12 +187,10 @@ impl RegisteredPlugin {
         PluginHost::routing(self.name.clone(), self.span.clone(), clock, timezone)
     }
 
-    /// a new instance of the plugin, with the host functions of `host` linked in, and the router host
-    /// functions answering that they are unavailable
+    /// a new instance of the plugin, with the host functions of `host` linked in
     pub fn load_as_plugin(&self, options: &[OptionDomain], host: &PluginHost) -> ZhangResult<WasmPlugin> {
         info!("loading plugin {} {}", self.name, self.version);
-        let functions = host.functions().into_iter().chain(unavailable_host_functions());
-        let plugin = WasmPlugin::new(self.manifest(options), functions, true)
+        let plugin = WasmPlugin::new(self.manifest(options), host.functions(), true)
             .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)
