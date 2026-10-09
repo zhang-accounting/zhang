@@ -350,15 +350,21 @@ export function buildSeriesBars(set: SeriesSet, currency: string): SeriesChartDa
   return { series, data };
 }
 
-/** One point per date in ascending order, for every series. A date without a value in a series is plotted as zero there. */
+/**
+ * One point per date in ascending order, for every series. A date without a value in a series (a NULL cell, or a value in
+ * another currency only) is `null` there, a gap in the line rather than a zero: a NULL is not a known zero, and a zero
+ * would read as the line dropping to zero.
+ */
 export function buildSeriesLines(set: SeriesSet, currency: string): SeriesChartData<SeriesLineDatum> {
   const { series, byLabel } = seriesIn(set, currency);
   const data = set.labels
     .flatMap((label) => {
       const time = localTime(label);
       if (time === null) return [];
-      const exact = byLabel.map((values) => values.get(label) ?? ZERO);
-      return [{ label, time, values: exact.map((value) => value.value.toNumber()), signed: exact.map(exactString) }];
+      const exact = byLabel.map((values) => values.get(label) ?? null);
+      return [
+        { label, time, values: exact.map((value) => value?.value.toNumber() ?? null), signed: exact.map((value) => (value ? exactString(value) : null)) },
+      ];
     })
     .sort((a, b) => a.time - b.time);
   return { series, data };
