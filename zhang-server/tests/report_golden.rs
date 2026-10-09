@@ -943,9 +943,13 @@ const TYPES: [AccountType; 5] = [
 /// the net worth at its last day in the range valued at the prices of that day, as a query for
 /// that day alone computes it, whether the bucket has postings or is carried over; what each
 /// account type changed by in it is valued at the same day.
-#[test]
-fn every_bucket_is_valued_at_its_last_day_in_the_range() {
-    for (name, ledger) in all_ledgers() {
+///
+/// The check runs as [`BUCKET_PARTS`] tests, so nextest runs them in parallel instead of one test
+/// taking most of the suite's wall time: part `index` holds every `BUCKET_PARTS`th ledger of
+/// [`all_ledgers`] from `index` on, and every ledger is in exactly one part
+/// ([`the_bucket_parts_hold_every_ledger_once`]).
+fn every_bucket_is_valued_at_its_last_day_in_the_range(index: usize) {
+    for (name, ledger) in all_ledgers().into_iter().skip(index).step_by(BUCKET_PARTS) {
         for (range, interval) in bucket_ranges(&name, &ledger) {
             let graph = report::graph(&ledger, &range, &interval).unwrap();
             check_buckets(
@@ -957,6 +961,60 @@ fn every_bucket_is_valued_at_its_last_day_in_the_range() {
             );
         }
     }
+}
+
+const BUCKET_PARTS: usize = 8;
+
+#[test]
+fn the_bucket_parts_hold_every_ledger_once() {
+    let name = |(name, _): (String, Ledger)| name;
+    let mut parts: Vec<String> = (0..BUCKET_PARTS)
+        .flat_map(|index| all_ledgers().into_iter().skip(index).step_by(BUCKET_PARTS).map(name))
+        .collect();
+    let mut all: Vec<String> = all_ledgers().into_iter().map(name).collect();
+    parts.sort_unstable();
+    all.sort_unstable();
+    assert_eq!(parts, all);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_1_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(0);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_2_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(1);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_3_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(2);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_4_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(3);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_5_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(4);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_6_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(5);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_7_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(6);
+}
+
+#[test]
+fn every_bucket_is_valued_at_its_last_day_in_the_range_part_8_of_8() {
+    every_bucket_is_valued_at_its_last_day_in_the_range(7);
 }
 
 /// Every bucket of `graph` is one of the range, its net worth that of a query for its last day
