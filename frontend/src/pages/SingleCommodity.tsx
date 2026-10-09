@@ -1,4 +1,3 @@
-import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 import { ArrowLeft, ChartLine, Layers, ListX, TriangleAlert } from 'lucide-react';
 import { OpReturnType } from 'openapi-typescript-fetch';
@@ -21,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { useLedgerQuery } from '@/states/ledger';
+import { priceHistoryByQuote } from '@/utils/commodity-prices';
 
 type CommodityDetail = OpReturnType<operations['get_single_commodity']>['data'];
 type Lot = CommodityDetail['lots'][number];
@@ -35,47 +35,34 @@ function UnitPrice({ unit }: { unit?: { number: string; commodity: string } | nu
   return <Amount amount={unit.number} currency={unit.commodity} />;
 }
 
-/** Price history as one line per quote commodity. */
+/**
+ * Price history, one chart per quote commodity, each on its own scale (`priceHistoryByQuote`): a commodity quoted in two
+ * currencies (AAPL at 150 USD and 1,080 CNY) would flatten the smaller quote on a shared axis. One quote draws as before.
+ */
 function PriceHistoryChart({ prices }: { prices: Price[] }) {
-  const { series, data, config } = useMemo(() => {
-    const quoteCommodities = Array.from(new Set(prices.map((price) => price.amount.commodity))).sort();
-    const byDate = new Map<string, Record<string, number | string>>();
-    [...prices]
-      .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime())
-      .forEach((price) => {
-        const key = format(new Date(price.datetime), 'yyyy-MM-dd');
-        const row = byDate.get(key) ?? { date: key };
-        row[price.amount.commodity] = new BigNumber(price.amount.number).toNumber();
-        byDate.set(key, row);
-      });
-    const chartConfig = quoteCommodities.reduce<ChartConfig>(
-      (acc, commodity, index) => ({ ...acc, [commodity]: { label: commodity, color: seriesColor(index) } }),
-      {},
-    );
-    return { series: quoteCommodities, data: Array.from(byDate.values()), config: chartConfig };
-  }, [prices]);
+  const histories = useMemo(() => priceHistoryByQuote(prices), [prices]);
+  const several = histories.length > 1;
 
   return (
-    <ChartContainer config={config} className="aspect-auto h-56 w-full md:h-72">
-      <LineChart accessibilityLayer data={data} margin={{ left: 4, right: 12, top: 8 }}>
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} tickFormatter={(value: string) => value.slice(5)} />
-        <YAxis tickLine={false} axisLine={false} width={48} domain={['auto', 'auto']} tickMargin={4} />
-        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-        {series.map((commodity) => (
-          <Line
-            key={commodity}
-            dataKey={commodity}
-            type="monotone"
-            stroke={config[commodity]?.color}
-            strokeWidth={2}
-            dot={data.length <= 12}
-            isAnimationActive={false}
-            connectNulls
-          />
-        ))}
-      </LineChart>
-    </ChartContainer>
+    <div className={cn('grid gap-4', several && 'md:grid-cols-2')}>
+      {histories.map(({ quote, points }, index) => {
+        const config = { price: { label: quote, color: seriesColor(index) } } satisfies ChartConfig;
+        return (
+          <div key={quote} className="flex min-w-0 flex-col gap-2">
+            {several && <span className="text-sm font-medium">{quote}</span>}
+            <ChartContainer config={config} className={cn('aspect-auto w-full', several ? 'h-48 md:h-56' : 'h-56 md:h-72')}>
+              <LineChart accessibilityLayer data={points} margin={{ left: 4, right: 12, top: 8 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} tickFormatter={(value: string) => value.slice(5)} />
+                <YAxis tickLine={false} axisLine={false} width={48} domain={['auto', 'auto']} tickMargin={4} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <Line dataKey="price" type="monotone" stroke="var(--color-price)" strokeWidth={2} dot={points.length <= 12} isAnimationActive={false} />
+              </LineChart>
+            </ChartContainer>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
