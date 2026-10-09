@@ -420,9 +420,64 @@ fn a_deep_page_of_groups_in_runs_holds_only_its_own_groups() {
     assert_eq!(sorted.kind, crate::QueryErrorKind::TooLarge);
 }
 
+/// The fava demo ledger check of [`QUERIES`] runs as [`FAVA_DEMO_PARTS`] tests, so nextest runs them in parallel
+/// instead of one test taking two thirds of the suite's wall time. Part `index` holds every `FAVA_DEMO_PARTS`th
+/// query from `index` on; the interleaving spreads the slow queries, which sit next to each other in the list (the
+/// two `ORDER BY balance` queries alone are two thirds of the time), over the parts, and every query is in exactly
+/// one part ([`the_fava_demo_parts_hold_every_query_once`]).
+const FAVA_DEMO_PARTS: usize = 8;
+
+fn fava_demo_part(index: usize) -> Vec<&'static str> {
+    QUERIES.iter().copied().skip(index).step_by(FAVA_DEMO_PARTS).collect()
+}
+
 #[test]
-fn decisions_keep_results_on_the_fava_demo_ledger() {
-    assert_equivalent(&fava_demo_ledger(), QUERIES);
+fn the_fava_demo_parts_hold_every_query_once() {
+    let mut parts: Vec<&str> = (0..FAVA_DEMO_PARTS).flat_map(fava_demo_part).collect();
+    let mut all = QUERIES.to_vec();
+    parts.sort_unstable();
+    all.sort_unstable();
+    assert_eq!(parts, all);
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_1_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(0));
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_2_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(1));
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_3_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(2));
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_4_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(3));
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_5_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(4));
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_6_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(5));
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_7_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(6));
+}
+
+#[test]
+fn decisions_keep_results_on_the_fava_demo_ledger_part_8_of_8() {
+    assert_equivalent(&fava_demo_ledger(), &fava_demo_part(7));
 }
 
 #[test]
