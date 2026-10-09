@@ -8,8 +8,6 @@
 
 pub(crate) use zhang_shared::plugin_abi::import::{LEDGER_INFO, LIST_DIR, NOW, QUERY, READ_FILE};
 
-use crate::error::HostError;
-
 #[cfg(target_arch = "wasm32")]
 mod imp {
     use extism_pdk::Memory;
@@ -112,37 +110,4 @@ mod imp {
     }
 }
 
-/// the config value of `key`, if the host set one
-pub(crate) fn config_get(key: &str) -> Option<String> {
-    imp::config_get(key)
-}
-
-/// `zhang_emit_error(payload)`; it has no answer
-pub(crate) fn emit_error(payload: &[u8]) {
-    imp::emit_error(payload)
-}
-
-/// `zhang_now()`, the JSON answer
-pub(crate) fn now() -> Result<Vec<u8>, HostError> {
-    imp::now()
-}
-
-/// `zhang_read_file(path)`, the JSON answer
-pub(crate) fn read_file(path: &str) -> Result<Vec<u8>, HostError> {
-    imp::read_file(path)
-}
-
-/// `zhang_list_dir(path)`, the JSON answer
-pub(crate) fn list_dir(path: &str) -> Result<Vec<u8>, HostError> {
-    imp::list_dir(path)
-}
-
-/// `zhang_query(bql)`, the JSON answer
-pub(crate) fn query(bql: &str) -> Result<Vec<u8>, HostError> {
-    imp::query(bql)
-}
-
-/// `zhang_ledger_info()`, the JSON answer
-pub(crate) fn ledger_info() -> Result<Vec<u8>, HostError> {
-    imp::ledger_info()
-}
+pub(crate) use imp::*;
