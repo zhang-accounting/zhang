@@ -1186,13 +1186,22 @@ mod test {
             }
         }
 
+        /// A number beyond the bound is out of range at the number itself, as an operand (which was reported at the
+        /// operation's right operand before literals were bounded) and alone.
         #[test]
         fn an_operand_out_of_range_is_an_error() {
-            let content = "2024-01-02 price STK 1e-9223372036854775807 * 1e-9223372036854775807 USD\n";
-            assert_eq!(
-                parse(content, None).expect_err(content).to_string(),
-                "failed to parse beancount file: number out of range at line 1, column 47"
-            );
+            for (content, column) in [
+                ("2024-01-02 price STK 1e-9223372036854775807 * 1e-9223372036854775807 USD\n", 22),
+                ("2024-01-02 price STK 2 * 1e-9223372036854775807 USD\n", 26),
+                ("2024-01-02 price STK 1e1000000 USD\n", 22),
+            ] {
+                assert_eq!(
+                    parse(content, None).expect_err(content).to_string(),
+                    format!("failed to parse beancount file: number out of range at line 1, column {column}"),
+                    "{content:?}"
+                );
+            }
+            assert!(parse("2024-01-02 price STK 1e999999 USD\n", None).is_ok());
         }
     }
 
