@@ -30,6 +30,14 @@ impl std::fmt::Display for ParamRef {
     }
 }
 
+/// What a query's parameters are bound to: a [`Value`] each to execute it ([`Params`]), or a
+/// [`DataType`] each to compile it ([`ParamTypes`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bindings<T> {
+    positional: Vec<T>,
+    named: BTreeMap<String, T>,
+}
+
 /// Values bound to the parameters of a query.
 ///
 /// ```
@@ -42,73 +50,41 @@ impl std::fmt::Display for ParamRef {
 ///     .push("^Expenses");
 /// assert_eq!(params.types().len(), 3);
 /// ```
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Params {
-    positional: Vec<Value>,
-    named: BTreeMap<String, Value>,
+pub type Params = Bindings<Value>;
+
+/// The declared types of query parameters.
+pub type ParamTypes = Bindings<DataType>;
+
+impl<T> Default for Bindings<T> {
+    fn default() -> Self {
+        Self {
+            positional: vec![],
+            named: BTreeMap::new(),
+        }
+    }
 }
 
-impl Params {
+impl<T> Bindings<T> {
     pub fn new() -> Self {
-        Params::default()
+        Self::default()
     }
 
     /// Append the next positional parameter (`$1`, then `$2`, ...).
-    pub fn push(mut self, value: impl Into<Value>) -> Self {
+    pub fn push(mut self, value: impl Into<T>) -> Self {
         self.positional.push(value.into());
         self
     }
 
     /// Bind a named parameter (`:name`).
-    pub fn bind(mut self, name: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn bind(mut self, name: impl Into<String>, value: impl Into<T>) -> Self {
         self.named.insert(name.into(), value.into());
         self
     }
 
-    pub fn get(&self, param: &ParamRef) -> Option<&Value> {
+    pub fn get(&self, param: &ParamRef) -> Option<&T> {
         match param {
             ParamRef::Positional(idx) => idx.checked_sub(1).and_then(|idx| self.positional.get(idx)),
             ParamRef::Named(name) => self.named.get(name),
-        }
-    }
-
-    /// The types of the bound values, for [`crate::Query::compile_with_params`].
-    pub fn types(&self) -> ParamTypes {
-        ParamTypes {
-            positional: self.positional.iter().map(Value::data_type).collect(),
-            named: self.named.iter().map(|(name, value)| (name.clone(), value.data_type())).collect(),
-        }
-    }
-}
-
-/// The declared types of query parameters.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ParamTypes {
-    positional: Vec<DataType>,
-    named: BTreeMap<String, DataType>,
-}
-
-impl ParamTypes {
-    pub fn new() -> Self {
-        ParamTypes::default()
-    }
-
-    /// Declare the next positional parameter.
-    pub fn push(mut self, ty: DataType) -> Self {
-        self.positional.push(ty);
-        self
-    }
-
-    /// Declare a named parameter.
-    pub fn bind(mut self, name: impl Into<String>, ty: DataType) -> Self {
-        self.named.insert(name.into(), ty);
-        self
-    }
-
-    pub fn get(&self, param: &ParamRef) -> Option<DataType> {
-        match param {
-            ParamRef::Positional(idx) => idx.checked_sub(1).and_then(|idx| self.positional.get(idx)).copied(),
-            ParamRef::Named(name) => self.named.get(name).copied(),
         }
     }
 
@@ -118,6 +94,16 @@ impl ParamTypes {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+impl Params {
+    /// The types of the bound values, for [`crate::Query::compile_with_params`].
+    pub fn types(&self) -> ParamTypes {
+        ParamTypes {
+            positional: self.positional.iter().map(Value::data_type).collect(),
+            named: self.named.iter().map(|(name, value)| (name.clone(), value.data_type())).collect(),
+        }
     }
 }
 
