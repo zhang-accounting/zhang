@@ -276,7 +276,7 @@ test('series without a value in the currency are left out and keep their colour 
   );
 });
 
-test('multi-series lines are sorted by date and zero-filled', () => {
+test('multi-series lines are sorted by date, with a gap where a series has no value', () => {
   const set = collectSeries(
     pivot(
       DATE,
@@ -304,11 +304,57 @@ test('multi-series lines are sorted by date and zero-filled', () => {
       ['2024-02-01', ['5']],
     ],
   );
-  // plain numbers have no currency
+  // plain numbers have no currency; the NULL rent of February is a gap, not a zero
   const rent = buildSeriesLines(set, '');
   assert.deepEqual(
     rent.data.map((datum) => datum.values),
-    [[1000], [0]],
+    [[1000], [null]],
+  );
+  assert.deepEqual(
+    rent.data.map((datum) => datum.signed),
+    [['1000'], [null]],
+  );
+});
+
+test('a NULL value is a gap in the line, in one series and in several', () => {
+  // the balance of an account with no posting that day is NULL in a PIVOT BY account result: unknown, not zero
+  const set = collectSeries(
+    pivot(
+      DATE,
+      [
+        { name: 'Assets:Bank', type: 'inventory' },
+        { name: 'Assets:Cash', type: 'inventory' },
+      ],
+      [
+        ['2024-01-01', inventory('100'), inventory('10')],
+        ['2024-01-02', null, inventory('12')],
+        ['2024-01-03', inventory('130'), null],
+      ],
+    ),
+  );
+  assert.deepEqual(
+    buildSeriesLines(set, 'USD').data.map((datum) => datum.values),
+    [
+      [100, 10],
+      [null, 12],
+      [130, null],
+    ],
+  );
+  // one series: a date whose only value is NULL stays on the axis as a gap, so the line does not pretend to know it
+  const one = collectSeries(
+    result(DATE, { name: 'cost(position)', type: 'amount' }, [
+      ['2024-01-01', usd('1')],
+      ['2024-01-02', null],
+      ['2024-01-03', usd('3')],
+    ]),
+  );
+  assert.deepEqual(
+    buildSeriesLines(one, 'USD').data.map((datum) => [datum.label, datum.values[0], datum.signed[0]]),
+    [
+      ['2024-01-01', 1, '1'],
+      ['2024-01-02', null, null],
+      ['2024-01-03', 3, '3'],
+    ],
   );
 });
 
