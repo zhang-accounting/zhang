@@ -2829,6 +2829,59 @@ mod test {
                 assert!(message.contains("named by a path within its directory"), "{}", message);
             }
 
+            /// A symlink inside the root that points outside leads outside, however the module spells it: refused,
+            /// naming where it resolves to
+            #[cfg(unix)]
+            #[test]
+            fn should_refuse_a_plugin_module_that_is_a_symlink_pointing_outside_the_root() {
+                let outside = tempdir().unwrap().keep().canonicalize().unwrap();
+                let target = outside.join("echo.wat");
+                std::fs::write(&target, ECHO).unwrap();
+                let root = tempdir().unwrap().keep().canonicalize().unwrap();
+                std::fs::create_dir(root.join("plugins")).unwrap();
+                std::os::unix::fs::symlink(&target, root.join("plugins/link.wat")).unwrap();
+                let absolute = root.join("plugins/link.wat").display().to_string();
+
+                for module in ["plugins/link.wat", absolute.as_str()] {
+                    std::fs::write(root.join("main.zhang"), LEDGER.replace("{module}", module)).unwrap();
+                    let source = LocalFileSystemDataSource::new(ZhangDataType {});
+                    let loaded = Ledger::load_with_data_source(root.clone(), "main.zhang".to_string(), Arc::new(source));
+
+                    let Err(error) = loaded else {
+                        panic!("{} loaded through a symlink pointing outside", module)
+                    };
+                    let message = error.to_string();
+                    assert!(
+                        message.contains(&format!(
+                            "plugin module {} resolves to {}, outside the ledger's directory {}",
+                            module,
+                            target.display(),
+                            root.display()
+                        )),
+                        "{}",
+                        message
+                    );
+                }
+            }
+
+            /// A root spelled through a symlink (on macOS, the temp dir `/var/…` is `/private/var/…`) holds its files:
+            /// a module spelled through it is under the root as the disk resolves both, and loads
+            #[cfg(unix)]
+            #[test]
+            fn should_read_a_plugin_module_under_the_root_spelled_through_a_symlink() {
+                let (root, _) = load_with_plugin(LEDGER);
+                let link = tempdir().unwrap().keep().canonicalize().unwrap().join("ledger");
+                std::os::unix::fs::symlink(&root, &link).unwrap();
+                let module = link.join("plugins/echo.wat");
+                std::fs::write(root.join("main.zhang"), LEDGER.replace("{module}", &module.to_string_lossy())).unwrap();
+                let source = LocalFileSystemDataSource::new(ZhangDataType {});
+
+                let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_string(), Arc::new(source)).unwrap();
+
+                assert_eq!(ledger.plugins.ordered.len(), 1);
+                assert_eq!(ledger.transactions().len(), 1);
+            }
+
             #[test]
             fn should_record_a_module_declared_twice_once() {
                 let (_, ledger) = load_with_plugin(&LEDGER.replace("plugin \"{module}\"", "plugin \"{module}\"\nplugin \"{module}\""));
