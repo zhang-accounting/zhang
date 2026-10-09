@@ -231,17 +231,21 @@ fn date_hour(i: &str) -> IResult<&str, Date> {
 // ---------------------------------------------------------------------------
 
 /// A numeric literal that may contain `,`/`_` group separators, a fractional
-/// part, and an optional scientific-notation exponent.
+/// part, and an optional scientific-notation exponent. One beyond [`MAX_OPERAND_SIZE`] is out of range
+/// ([`OUT_OF_RANGE`]), a failure at the literal, as an operand beyond it is: alone, `1e999999999` reads, and is
+/// then written out in plain notation, or added to a balance, with as many digits as its exponent says.
 fn number(i: &str) -> IResult<&str, BigDecimal> {
-    map_res(
-        recognize(tuple((
-            take_while1(is_digit),
-            take_while(|c: char| is_digit(c) || matches!(c, ',' | '_')),
-            opt(pair(char('.'), take_while(is_digit))),
-            opt(tuple((one_of("eE"), opt(one_of("+-")), take_while1(is_digit)))),
-        ))),
-        |s: &str| BigDecimal::from_str(&s.replace([',', '_'], "")),
-    )(i)
+    let (rest, text) = recognize(tuple((
+        take_while1(is_digit),
+        take_while(|c: char| is_digit(c) || matches!(c, ',' | '_')),
+        opt(pair(char('.'), take_while(is_digit))),
+        opt(tuple((one_of("eE"), opt(one_of("+-")), take_while1(is_digit)))),
+    )))(i)?;
+    let number = BigDecimal::from_str(&text.replace([',', '_'], "")).map_err(|_| nom::Err::Error(nom::error::Error::new(i, nom::error::ErrorKind::MapRes)))?;
+    if !in_range(&number) {
+        return Err(arithmetic_failure(i, OUT_OF_RANGE));
+    }
+    Ok((rest, number))
 }
 
 /// `expr_primary = number | "(" number_expr ")"`
@@ -270,22 +274,28 @@ fn binary_operator(operators: &'static str) -> impl Fn(&str) -> IResult<&str, ch
 /// The nom error kind of a division by zero in an expression ([`number_expr`]).
 const DIVISION_BY_ZERO: nom::error::ErrorKind = nom::error::ErrorKind::Fail;
 
-/// The nom error kind of an operation in an expression ([`number_expr`]) with an operand beyond
-/// [`MAX_OPERAND_SIZE`].
+/// The nom error kind of a number literal ([`number`]), or of an operation in an expression ([`number_expr`]) with an
+/// operand, beyond [`MAX_OPERAND_SIZE`].
 const OUT_OF_RANGE: nom::error::ErrorKind = nom::error::ErrorKind::TooLarge;
 
-/// The most digits an operand of `+`, `-`, `*` or `/` in an expression ([`number_expr`]) may have, and the largest
-/// exponent it may have either way: far beyond any number of a ledger (the decimal context of Python, which beancount
-/// computes in, keeps exponents within ±999999 too). `BigDecimal` does not bound its operations: the exponent of a
-/// result overflows, which panics, or gives a wrong number in a release build, and the sum of numbers far apart, such
-/// as `1e-999999999 + 1`, has as many digits as they are apart. Beyond this bound an operation is out of range instead.
+/// The most digits a number may have, written as a literal ([`number`]) or as an operand of `+`, `-`, `*` or `/` in an
+/// expression ([`number_expr`]), and the largest exponent it may have either way: far beyond any number of a ledger
+/// (the decimal context of Python, which beancount computes in, keeps exponents within ±999999 too). `BigDecimal`
+/// does not bound its operations: the exponent of a result overflows, which panics, or gives a wrong number in a
+/// release build, and the sum of numbers far apart, such as `1e-999999999 + 1`, has as many digits as they are
+/// apart; a literal alone is written out, and summed into balances, with as many digits as its exponent says. Beyond
+/// this bound a number is out of range instead.
 const MAX_OPERAND_SIZE: u64 = 999_999;
+
+/// whether `number` is within [`MAX_OPERAND_SIZE`]: its digits, and its exponent either way
+fn in_range(number: &BigDecimal) -> bool {
+    number.fractional_digit_count().unsigned_abs() <= MAX_OPERAND_SIZE && number.digits() <= MAX_OPERAND_SIZE
+}
 
 /// `lhs operator rhs` for an operator of [`number_expr`], or the nom error kind of why it has no value: a division by
 /// zero ([`DIVISION_BY_ZERO`]) or an operand out of range ([`OUT_OF_RANGE`]), on which `BigDecimal`'s own operators
 /// panic. A quotient is rounded to 28 significant digits ([`decimal::div`]), as everywhere zhang divides.
 fn arithmetic(lhs: BigDecimal, operator: char, rhs: BigDecimal) -> Result<BigDecimal, nom::error::ErrorKind> {
-    let in_range = |number: &BigDecimal| number.fractional_digit_count().unsigned_abs() <= MAX_OPERAND_SIZE && number.digits() <= MAX_OPERAND_SIZE;
     if !in_range(&lhs) || !in_range(&rhs) {
         return Err(OUT_OF_RANGE);
     }
@@ -2866,7 +2876,9 @@ mod test {
 
         use bigdecimal::BigDecimal;
 
-        use crate::data_type::text::parser::{is_valid_bare_meta_value, number_expr, parse, read_posting_cost, read_posting_price};
+        use crate::data_type::text::parser::{
+            is_valid_bare_meta_value, number_expr, parse, read_number, read_posting_amount, read_posting_cost, read_posting_price,
+        };
 
         /// The parse error of `content`.
         fn error(content: &str) -> String {
@@ -2903,7 +2915,9 @@ mod test {
         }
 
         /// `BigDecimal` does not bound the exponent of its operations: it overflowed, a panic, and a wrong number in a
-        /// release build. An operand beyond the bound is out of range, and a literal alone is still read.
+        /// release build. An operand beyond the bound is out of range, and so is a literal alone (#716 follow-up): it
+        /// was still read, and then written out in plain notation, or summed into a balance, with as many digits as
+        /// its exponent says, which does not end for `1e999999999`.
         #[test]
         fn an_operand_out_of_range_is_an_error() {
             for expression in [
@@ -2918,8 +2932,39 @@ mod test {
                     error(&content)
                 );
             }
-            assert!(parse("2024-01-02 price STK 1e1000000 USD\n", None).is_ok());
             assert!(parse("2024-01-02 price STK 1e999999 * 1e-999999 USD\n", None).is_ok());
+            assert!(parse("2024-01-02 price STK 1e999999 USD\n", None).is_ok());
+            assert!(parse("2024-01-02 price STK 1e-999999 USD\n", None).is_ok());
+        }
+
+        /// A literal beyond the bound is out of range at the literal, wherever a number is written: alone, in an
+        /// expression, and in the text the server reads from a request.
+        #[test]
+        fn a_literal_out_of_range_is_an_error_at_the_literal() {
+            let txn = |posting: &str| format!("2024-01-02 * \"x\"\n  {posting}\n  Assets:Cash\n");
+            let cases = [
+                ("2024-01-02 price STK 1e1000000 USD\n".to_owned(), 1, 22),
+                ("2024-01-02 price STK 1e999999999 USD\n".to_owned(), 1, 22),
+                ("2024-01-02 price STK 1E-1000000 USD\n".to_owned(), 1, 22),
+                ("2024-01-02 price STK 2 * 1e1000000 USD\n".to_owned(), 1, 26),
+                (txn("Expenses:Food 1e1000000 CNY"), 2, 17),
+                (txn("Assets:Stock 1 STK {1e1000000 USD}"), 2, 23),
+                (txn("Assets:Stock 1 STK @ 1e1000000 USD"), 2, 24),
+                ("2024-01-02 balance Assets:Cash 1e1000000 CNY\n".to_owned(), 1, 32),
+                ("2024-01-02 open Assets:Cash\n  ratio: 1e1000000\n".to_owned(), 2, 10),
+            ];
+            for (content, line, column) in cases {
+                assert_eq!(
+                    error(&content),
+                    format!("failed to parse zhang file: number out of range at line {line}, column {column}"),
+                    "{content:?}"
+                );
+            }
+            assert_eq!(read_posting_amount("1e1000000 STK"), None);
+            assert_eq!(read_posting_cost("{1e1000000 USD}"), None);
+            assert_eq!(read_posting_price("@ 1e1000000 USD"), None);
+            assert_eq!(read_number("1e1000000"), None);
+            assert!(!is_valid_bare_meta_value("1e1000000"));
         }
 
         /// The cost, price and metadata value the server reads from a request: not one, never a panic.
