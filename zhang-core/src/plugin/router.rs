@@ -41,7 +41,7 @@
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, PoisonError};
 
-use extism::{CurrentPlugin, Function, Plugin as WasmPlugin, UserData, Val, EXTISM_USER_MODULE, PTR};
+use extism::{CurrentPlugin, Plugin as WasmPlugin, UserData, Val};
 use log::{debug, warn};
 use serde::Serialize;
 use serde_json::Value;
@@ -51,7 +51,7 @@ use zhang_shared::plugin_abi::{HostError, HostErrorKind, LedgerInfo};
 
 use crate::clock::LoadClock;
 use crate::ledger::Ledger;
-use crate::plugin::host::{read_input_str, MESSAGE_META};
+use crate::plugin::host::{read_input_str, HostState, MESSAGE_META};
 use crate::plugin::http::{PluginRequest, PluginResponse};
 use crate::plugin::store::{PluginStore, RegisteredPlugin};
 
@@ -107,29 +107,7 @@ impl Display for RouterError {
 
 impl std::error::Error for RouterError {}
 
-/// what the host functions of one instance can reach; nothing outside a router call
-#[derive(Default)]
-struct RouterCall {
-    host: Option<Arc<dyn RouterHost>>,
-    ledger_info: Option<LedgerInfo>,
-}
-
-/// the router host functions bound to `call`
-fn host_functions(call: RouterCall) -> Vec<Function> {
-    let call = UserData::new(call);
-    vec![
-        Function::new(QUERY_FUNCTION, [PTR], [PTR], call.clone(), zhang_query).with_namespace(EXTISM_USER_MODULE),
-        Function::new(LEDGER_INFO_FUNCTION, [], [PTR], call, zhang_ledger_info).with_namespace(EXTISM_USER_MODULE),
-    ]
-}
-
-/// the router host functions for an instance that is not handling a request: they answer
-/// `{"Err": {"kind": "unavailable"}}`. Linked into every other instance, so a plugin importing them
-/// still loads.
-pub fn unavailable_host_functions() -> Vec<Function> {
-    host_functions(RouterCall::default())
-}
-
+/// what a router host function answers outside a router call, `{"Err": {"kind": "unavailable"}}`
 fn unavailable(function: &str) -> HostError {
     HostError::new(
         HostErrorKind::Unavailable,
@@ -145,9 +123,15 @@ fn answer<T: Serialize>(plugin: &mut CurrentPlugin, outputs: &mut [Val], result:
 }
 
 /// `zhang_query(bql) -> result`
-fn zhang_query(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], call: UserData<RouterCall>) -> Result<(), extism::Error> {
+pub(super) fn zhang_query(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
     // clone the host out, so the lock is not held while the query runs
-    let host = call.get()?.lock().unwrap_or_else(PoisonError::into_inner).host.clone();
+    let host = state
+        .get()?
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .router
+        .as_ref()
+        .map(|(host, _)| host.clone());
     // read the query text through the bounds-checked helper, so a forged block header cannot make
     // this read out of bounds (a crash) or larger than the limit; a bad input becomes an
     // `invalid_input` value, never a trap
@@ -173,8 +157,14 @@ fn query_answer(host: Option<&dyn RouterHost>, bql: Result<&str, &str>) -> Resul
 }
 
 /// `zhang_ledger_info() -> info`
-fn zhang_ledger_info(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut [Val], call: UserData<RouterCall>) -> Result<(), extism::Error> {
-    let info = call.get()?.lock().unwrap_or_else(PoisonError::into_inner).ledger_info.clone();
+pub(super) fn zhang_ledger_info(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
+    let info = state
+        .get()?
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .router
+        .as_ref()
+        .map(|(_, info)| info.clone());
     answer(plugin, outputs, info.ok_or_else(|| unavailable(LEDGER_INFO_FUNCTION)))
 }
 
@@ -213,16 +203,13 @@ impl RegisteredPlugin {
     pub fn execute_as_router(&self, request: &PluginRequest, ledger: &Ledger, host: Arc<dyn RouterHost>) -> Result<http::Response<Vec<u8>>, RouterError> {
         debug!("plugin {} {} handles {} {}", self.name, self.version, request.method, request.path);
         let options = ledger.options.all();
-        let call = RouterCall {
-            host: Some(host),
-            ledger_info: Some(ledger_info(ledger)),
-        };
         // `zhang_emit_error` too, so a plugin importing it can serve requests. `zhang_now` reads the
         // ledger's clock afresh for this request
-        let plugin_host = self.routing_host(LoadClock::new(ledger.clock()), ledger.options.timezone);
-        let functions = plugin_host.functions().into_iter().chain(host_functions(call));
+        let plugin_host = self
+            .routing_host(LoadClock::new(ledger.clock()), ledger.options.timezone)
+            .with_router(host, ledger_info(ledger));
         // the same manifest as a processor gets: config, allowed hosts and timeout
-        let mut plugin = WasmPlugin::new(self.manifest(&options), functions, true).map_err(|e| RouterError::Load(format!("{e:#}")))?;
+        let mut plugin = WasmPlugin::new(self.manifest(&options), plugin_host.functions(), true).map_err(|e| RouterError::Load(format!("{e:#}")))?;
         if !plugin.function_exists(ROUTER_EXPORT) {
             return Err(RouterError::NoRouterExport);
         }

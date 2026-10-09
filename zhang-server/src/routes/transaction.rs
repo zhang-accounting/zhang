@@ -2228,6 +2228,41 @@ mod string_round_trip_test {
         }
     }
 
+    /// The 400 for units, a cost or a price whose expression has no value names the field and why (#716 follow-up):
+    /// it named the form the field takes, as for any text that is not one, which does not say what is wrong with
+    /// `1/0 STK`.
+    #[tokio::test]
+    async fn a_failing_amount_expression_is_refused_naming_why() {
+        // the field, the units, the cost and the price sent, and why the expression has no value
+        let cases: &[(&str, &str, Field, Field, &str)] = &[
+            ("amount", "1/0 STK", None, None, "division by zero"),
+            ("amount", "10 / (2 - 2)", None, None, "division by zero"),
+            ("amount", "1e1000000 * 1 STK", None, None, "number out of range"),
+            ("cost", "10 STK", Some(Some("{1/0 USD}")), None, "division by zero"),
+            ("cost", "10 STK", Some(Some("{{1e1000000 * 1 USD}}")), None, "number out of range"),
+            ("price", "10 STK", None, Some(Some("@ 1/0 USD")), "division by zero"),
+            ("price", "10 STK", None, Some(Some("@@ 6/0 USD")), "division by zero"),
+        ];
+        let (dir, _) = stock_ledger("main.zhang", PURCHASE).await;
+        for (what, units, cost, price, why) in cases {
+            let value = match (cost, price) {
+                (Some(Some(cost)), _) => cost,
+                (_, Some(Some(price))) => price,
+                _ => units,
+            };
+            let stock = CreateTransactionPostingRequest {
+                unit: Some(crate::request::UnitRequest::Text((*units).to_owned())),
+                ..posting_with("Assets:Stock", None, *cost, *price, None)
+            };
+            let (state, reload) = states(load_main(&dir, "main.zhang").await);
+            let create = stock_update(11, "New", vec![stock, posting("Assets:Cash", None)]);
+            let (status, message) = status_and_message(create_new_transaction(state, reload, Json(create)).await.into_response()).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{units} {cost:?} {price:?}: {message}");
+            assert_eq!(message, format!("invalid {what} {value:?}: {why}"));
+        }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// A metadata value that divides by zero, such as `1/0`, made the parser panic when the server checked whether it
     /// reads back written bare. It does not, so it is written quoted, as text.
     #[tokio::test]
