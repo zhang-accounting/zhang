@@ -1149,7 +1149,7 @@ impl Compiler<'_> {
 
     fn param(&mut self, param: &ParamRef, span: Span) -> Result<Typed, LocatedError> {
         match self.param_types.get(param) {
-            Some(ty) => {
+            Some(&ty) => {
                 self.params.push((param.clone(), ty, span));
                 Ok((CExpr::Param(param.clone()), ty))
             }
