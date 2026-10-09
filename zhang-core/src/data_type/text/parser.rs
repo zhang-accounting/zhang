@@ -1135,44 +1135,55 @@ fn reads_all<'a, O>(mut parser: impl FnMut(&'a str) -> IResult<&'a str, O>, text
     matches!(parser(text), Ok(("", _)))
 }
 
-/// `text` read whole as the cost spec of a posting ([`posting_cost`]): `{150 USD}`, `{{1500 USD}}`,
-/// `{}`, `{150 USD, 2024-01-15, "lot"}` or any other form it reads. `None` when it is not one,
-/// such as `150 USD` without the braces or a cost followed by anything else: a caller that takes
-/// a cost as text (the server's transaction edit) writes exactly what the ledger reads back, or
-/// nothing.
-pub fn read_posting_cost(text: &str) -> Option<PostingCost> {
-    match posting_cost::<ZhangText>(text) {
-        Ok(("", cost)) => Some(cost),
-        _ => None,
+/// Why a text is not read whole as a value ([`read_posting_amount`], [`read_posting_cost`], [`read_posting_price`]
+/// and [`read_number`]): it is not one, or an expression in it has no value, which a caller that takes the text from
+/// a request (the server's transaction edit) tells apart to answer why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotRead {
+    /// not one: another form, or one followed by anything else
+    NotOne,
+    /// an expression in it has no value, as a file reports it at the operand: `division by zero` or
+    /// `number out of range`
+    NoValue(&'static str),
+}
+
+/// `result`, a text read as a value: the value when all of the text was read, else why not ([`NotRead`]).
+fn read_whole<T>(result: IResult<&str, T>) -> Result<T, NotRead> {
+    match result {
+        Ok(("", value)) => Ok(value),
+        Ok(_) => Err(NotRead::NotOne),
+        Err(err) => Err(arithmetic_error_at(&err).map_or(NotRead::NotOne, |(_, why)| NotRead::NoValue(why))),
     }
+}
+
+/// `text` read whole as the cost spec of a posting ([`posting_cost`]): `{150 USD}`, `{{1500 USD}}`,
+/// `{}`, `{150 USD, 2024-01-15, "lot"}` or any other form it reads. [`NotRead`] when it is not one,
+/// such as `150 USD` without the braces or a cost followed by anything else, or when an expression in it has no
+/// value: a caller that takes a cost as text (the server's transaction edit) writes exactly what the ledger reads
+/// back, or nothing.
+pub fn read_posting_cost(text: &str) -> Result<PostingCost, NotRead> {
+    read_whole(posting_cost::<ZhangText>(text))
 }
 
 /// `text` read whole as the units of a posting ([`posting_amount`]): a number, which may be an expression such as
-/// `(10 + 2) / 4` and may group its digits with `,` or `_`, then the commodity, as in `-1,000.50 CNY`. `None` when it
-/// is not one, such as a number without a commodity or units followed by a cost or a price.
-pub fn read_posting_amount(text: &str) -> Option<Amount> {
-    match posting_amount(text) {
-        Ok(("", amount)) => Some(amount),
-        _ => None,
-    }
+/// `(10 + 2) / 4` and may group its digits with `,` or `_`, then the commodity, as in `-1,000.50 CNY`. [`NotRead`]
+/// when it is not one, such as a number without a commodity or units followed by a cost or a price, or when an
+/// expression in it has no value.
+pub fn read_posting_amount(text: &str) -> Result<Amount, NotRead> {
+    read_whole(posting_amount(text))
 }
 
-/// `text` read whole as a number ([`number_expr`]): `-1,000.50`, or an expression such as `(10 + 2) / 4`. `None` when
-/// it is not one.
-pub fn read_number(text: &str) -> Option<BigDecimal> {
-    match number_expr(text) {
-        Ok(("", number)) => Some(number),
-        _ => None,
-    }
+/// `text` read whole as a number ([`number_expr`]): `-1,000.50`, or an expression such as `(10 + 2) / 4`. [`NotRead`]
+/// when it is not one, or when an expression in it has no value.
+pub fn read_number(text: &str) -> Result<BigDecimal, NotRead> {
+    read_whole(number_expr(text))
 }
 
 /// `text` read whole as the price annotation of a posting ([`posting_price`]): `@ 6 USD` per unit or
-/// `@@ 60 USD` in total. `None` when it is not one, such as `6 USD` without the `@`.
-pub fn read_posting_price(text: &str) -> Option<SingleTotalPrice> {
-    match posting_price(text) {
-        Ok(("", price)) => Some(price),
-        _ => None,
-    }
+/// `@@ 60 USD` in total. [`NotRead`] when it is not one, such as `6 USD` without the `@`, or when an expression in it
+/// has no value.
+pub fn read_posting_price(text: &str) -> Result<SingleTotalPrice, NotRead> {
+    read_whole(posting_price(text))
 }
 
 /// Whether `name` is an account name, such as `Assets:Bank:Checking`, that reads
@@ -2877,7 +2888,7 @@ mod test {
         use bigdecimal::BigDecimal;
 
         use crate::data_type::text::parser::{
-            is_valid_bare_meta_value, number_expr, parse, read_number, read_posting_amount, read_posting_cost, read_posting_price,
+            is_valid_bare_meta_value, number_expr, parse, read_number, read_posting_amount, read_posting_cost, read_posting_price, NotRead,
         };
 
         /// The parse error of `content`.
@@ -2960,18 +2971,28 @@ mod test {
                     "{content:?}"
                 );
             }
-            assert_eq!(read_posting_amount("1e1000000 STK"), None);
-            assert_eq!(read_posting_cost("{1e1000000 USD}"), None);
-            assert_eq!(read_posting_price("@ 1e1000000 USD"), None);
-            assert_eq!(read_number("1e1000000"), None);
+            let out_of_range = NotRead::NoValue("number out of range");
+            assert_eq!(read_posting_amount("1e1000000 STK").unwrap_err(), out_of_range);
+            assert_eq!(read_posting_cost("{1e1000000 USD}").unwrap_err(), out_of_range);
+            assert_eq!(read_posting_price("@ 1e1000000 USD").unwrap_err(), out_of_range);
+            assert_eq!(read_number("1e1000000").unwrap_err(), out_of_range);
             assert!(!is_valid_bare_meta_value("1e1000000"));
         }
 
-        /// The cost, price and metadata value the server reads from a request: not one, never a panic.
+        /// The units, cost, price and metadata value the server reads from a request: not one, never a panic, and
+        /// told apart from a text that is not one by why the expression has no value, which the request is answered.
         #[test]
         fn a_division_by_zero_is_no_cost_price_or_bare_metadata_value() {
-            assert_eq!(read_posting_cost("{1/0 USD}"), None);
-            assert_eq!(read_posting_price("@ 1/0 USD"), None);
+            let no_value = |why| NotRead::NoValue(why);
+            assert_eq!(read_posting_cost("{1/0 USD}").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_posting_price("@ 1/0 USD").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_posting_amount("10 / (2 - 2) STK").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_posting_amount("1e1000000 * 1 STK").unwrap_err(), no_value("number out of range"));
+            assert_eq!(read_number("1/0").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_number("1/0 USD").unwrap_err(), no_value("division by zero"));
+            // not one: another form, or one followed by more
+            assert_eq!(read_posting_cost("150 USD").unwrap_err(), NotRead::NotOne);
+            assert_eq!(read_posting_amount("150 USD {1 EUR}").unwrap_err(), NotRead::NotOne);
             assert!(!is_valid_bare_meta_value("1/0"));
             assert!(!is_valid_bare_meta_value("1/0 USD"));
         }
@@ -3020,16 +3041,16 @@ mod test {
                 total,
                 ..PostingCost::default()
             };
-            assert_eq!(read_posting_cost("{150 USD}"), Some(cost(Some("150"), None, None, false)));
-            assert_eq!(read_posting_cost("{ 150 USD }"), Some(cost(Some("150"), None, None, false)));
-            assert_eq!(read_posting_cost("{{1500 USD}}"), Some(cost(Some("1500"), None, None, true)));
-            assert_eq!(read_posting_cost("{}"), Some(cost(None, None, None, false)));
+            assert_eq!(read_posting_cost("{150 USD}").ok(), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{ 150 USD }").ok(), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{{1500 USD}}").ok(), Some(cost(Some("1500"), None, None, true)));
+            assert_eq!(read_posting_cost("{}").ok(), Some(cost(None, None, None, false)));
             assert_eq!(
-                read_posting_cost("{150 USD, 2024-01-15}"),
+                read_posting_cost("{150 USD, 2024-01-15}").ok(),
                 Some(cost(Some("150"), Some("2024-01-15"), None, false))
             );
             assert_eq!(
-                read_posting_cost("{150 USD, 2024-01-15, \"lot\"}"),
+                read_posting_cost("{150 USD, 2024-01-15, \"lot\"}").ok(),
                 Some(cost(Some("150"), Some("2024-01-15"), Some("lot"), false))
             );
             for invalid in [
@@ -3043,14 +3064,14 @@ mod test {
                 "{{150 USD}",
                 "@ 150 USD",
             ] {
-                assert_eq!(read_posting_cost(invalid), None, "{invalid:?}");
+                assert_eq!(read_posting_cost(invalid).ok(), None, "{invalid:?}");
             }
 
-            assert_eq!(read_posting_price("@ 6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
-            assert_eq!(read_posting_price("@6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
-            assert_eq!(read_posting_price("@@ 60 USD"), Some(SingleTotalPrice::Total(usd("60"))));
+            assert_eq!(read_posting_price("@ 6 USD").ok(), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@6 USD").ok(), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@@ 60 USD").ok(), Some(SingleTotalPrice::Total(usd("60"))));
             for invalid in ["", "6 USD", "@ 6", "@ 6 USD x", " @ 6 USD", "@@", "{6 USD}"] {
-                assert_eq!(read_posting_price(invalid), None, "{invalid:?}");
+                assert_eq!(read_posting_price(invalid).ok(), None, "{invalid:?}");
             }
         }
 
@@ -3062,21 +3083,21 @@ mod test {
             let usd = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "USD");
             let date = Date::Date(NaiveDate::from_str("2024-01-15").unwrap());
             assert_eq!(
-                read_posting_cost("{2024-01-15}"),
+                read_posting_cost("{2024-01-15}").ok(),
                 Some(PostingCost {
                     date: Some(date),
                     ..PostingCost::default()
                 })
             );
             assert_eq!(
-                read_posting_cost("{\"lot\"}"),
+                read_posting_cost("{\"lot\"}").ok(),
                 Some(PostingCost {
                     label: Some("lot".to_owned()),
                     ..PostingCost::default()
                 })
             );
             assert_eq!(
-                read_posting_cost("{100 # 5 USD}"),
+                read_posting_cost("{100 # 5 USD}").ok(),
                 Some(PostingCost {
                     base: Some(usd("100")),
                     compound_total: Some(BigDecimal::from(5)),
@@ -3084,7 +3105,7 @@ mod test {
                 })
             );
             assert_eq!(
-                read_posting_cost("{*}"),
+                read_posting_cost("{*}").ok(),
                 Some(PostingCost {
                     merge: true,
                     ..PostingCost::default()
@@ -3099,7 +3120,7 @@ mod test {
                 "{100 # 5 USD, 100 USD}",
                 "{\"lot\", 100 USD, 2024-01-15, 101 USD}",
             ] {
-                assert_eq!(read_posting_cost(invalid), None, "{invalid:?}");
+                assert_eq!(read_posting_cost(invalid).ok(), None, "{invalid:?}");
             }
         }
 
