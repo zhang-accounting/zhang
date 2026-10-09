@@ -11,6 +11,7 @@ use zhang_shared::plugin_abi::export;
 
 use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
+use crate::options::InMemoryOptions;
 use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
 use crate::plugin::files::FileAccess;
@@ -180,9 +181,9 @@ impl RegisteredPlugin {
     }
 
     /// a new instance of the plugin, with the host functions of `host` linked in
-    pub fn load_as_plugin(&self, options: &[OptionDomain], host: &PluginHost) -> ZhangResult<WasmPlugin> {
+    pub fn load_as_plugin(&self, options: &InMemoryOptions, host: &PluginHost) -> ZhangResult<WasmPlugin> {
         info!("loading plugin {} {}", self.name, self.version);
-        let plugin = WasmPlugin::new(self.manifest(options), host.functions(), true)
+        let plugin = WasmPlugin::new(self.manifest(&options.all()), host.functions(), true)
             .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)

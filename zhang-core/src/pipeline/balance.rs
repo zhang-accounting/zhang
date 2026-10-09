@@ -18,34 +18,18 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::ops::{Add, AddAssign, Sub};
-use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Account, Commodity, Directive, Open, Posting, Rounding, Transaction};
+use zhang_ast::{Account, Commodity, Directive, Open, Posting, Transaction};
 
 use super::StageContext;
 use crate::booking::{group_units, weighs_by_lots, written_groups, BookOutcome, Booker};
-use crate::constants::{DEFAULT_BOOKING_METHOD, KEY_DEFAULT_BOOKING_METHOD, KEY_DEFAULT_COMMODITY_PRECISION, KEY_DEFAULT_ROUNDING};
-use crate::domains::schemas::{CommodityDomain, OptionDomain};
+use crate::domains::schemas::CommodityDomain;
 use crate::inventory::BookingMethod;
+use crate::options::InMemoryOptions;
 use crate::process::commodity::commodity_precision;
-
-/// An option's resolved value; invalid options abort the load before the pipeline runs.
-fn option_value<T: FromStr>(options: &[OptionDomain], key: &str) -> Option<T> {
-    options.iter().find(|option| option.key == key).and_then(|option| option.value.parse().ok())
-}
-
-/// the ledger's default booking method, as the options handler resolved it into `options`
-pub fn default_booking_method(options: &[OptionDomain]) -> BookingMethod {
-    let fallback = DEFAULT_BOOKING_METHOD.parse().expect("the default booking method is valid");
-    options
-        .iter()
-        .find(|option| option.key == KEY_DEFAULT_BOOKING_METHOD)
-        .map(|option| BookingMethod::resolve(&option.value, fallback).0)
-        .unwrap_or(fallback)
-}
 
 /// running per-account, per-commodity unit sums of the transactions folded so far.
 ///
@@ -84,16 +68,14 @@ pub(crate) fn booker(default_booking_method: BookingMethod, commodities: &[Commo
 
 /// the booker of a stage, set up from its context
 pub(crate) fn stage_booker(ctx: &StageContext) -> Booker {
-    booker(default_booking_method(ctx.options), &ctx.commodities)
+    booker(ctx.options.default_booking_method, &ctx.commodities)
 }
 
 /// fold a `commodity` directive into `booker`: implicit postings in it are rounded at its precision,
 /// as the fold defines it from the same options
-pub(crate) fn define_commodity(booker: &mut Booker, commodity: &Commodity, options: &[OptionDomain]) {
-    let default_precision = option_value::<i32>(options, KEY_DEFAULT_COMMODITY_PRECISION);
-    let default_rounding = option_value::<Rounding>(options, KEY_DEFAULT_ROUNDING);
+pub(crate) fn define_commodity(booker: &mut Booker, commodity: &Commodity, options: &InMemoryOptions) {
     // an invalid `rounding` meta aborts the load in the fold; nothing to define here
-    if let Ok((precision, rounding)) = commodity_precision(commodity, default_precision, default_rounding) {
+    if let Ok((precision, rounding)) = commodity_precision(commodity, Some(options.default_commodity_precision), Some(options.default_rounding)) {
         booker.define_commodity(&commodity.currency, precision, rounding);
     }
 }
@@ -110,7 +92,7 @@ impl UnitBalances {
 
     /// the balances of a stage, set up from its context
     pub fn for_stage(ctx: &StageContext) -> Self {
-        Self::new(default_booking_method(ctx.options), &ctx.commodities)
+        Self::new(ctx.options.default_booking_method, &ctx.commodities)
     }
 
     /// fold an `open`: its booking method decides which lots later reductions book against
@@ -120,7 +102,7 @@ impl UnitBalances {
 
     /// fold a `commodity`: implicit postings in it are rounded at its precision, as final validation
     /// defines it from the same options
-    pub fn apply_commodity(&mut self, commodity: &Commodity, options: &[OptionDomain]) {
+    pub fn apply_commodity(&mut self, commodity: &Commodity, options: &InMemoryOptions) {
         define_commodity(&mut self.booker, commodity, options);
     }
 

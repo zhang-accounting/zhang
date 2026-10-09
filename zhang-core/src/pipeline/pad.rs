@@ -405,6 +405,7 @@ mod test {
     use zhang_ast::{Date, Directive, Flag, Transaction};
 
     use crate::data_type::DataType;
+    use crate::options::InMemoryOptions;
     use crate::pipeline::test::run_builtin_stages;
 
     fn synthesized(directives: &[Directive], flag: Flag) -> Vec<&Transaction> {
@@ -750,7 +751,8 @@ mod test {
             2023-01-04 balance Assets:A 10 CNY
         "#};
         let directives = crate::data_type::text::ZhangDataType {}.transform(content.to_owned(), None).unwrap();
-        let mut ctx = crate::pipeline::StageContext::new(&[]);
+        let options = InMemoryOptions::default();
+        let mut ctx = crate::pipeline::StageContext::new(&options);
         crate::pipeline::run_pipeline(
             &crate::pipeline::builtin_stages(),
             crate::ledger::Ledger::sort_directives_datetime(directives, crate::data_type::Dialect::Zhang),

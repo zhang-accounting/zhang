@@ -52,12 +52,14 @@ mod test {
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::ledger::Ledger;
+    use crate::options::InMemoryOptions;
     use crate::pipeline::{run_pipeline, ProcessStage, StageContext};
 
     /// the stream after the booking stage, as [`postings`] shows its transactions, and the errors it reported
     fn booked(content: &str) -> (Vec<Vec<String>>, usize) {
         let directives = ZhangDataType {}.transform(content.to_owned(), None).unwrap();
-        let mut ctx = StageContext::new(&[]);
+        let options = InMemoryOptions::default();
+        let mut ctx = StageContext::new(&options);
         let stages: Vec<Box<dyn ProcessStage>> = vec![Box::new(BookingStage)];
         let out = run_pipeline(
             &stages,
