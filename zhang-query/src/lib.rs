@@ -243,16 +243,20 @@ impl Query {
     /// count.
     pub fn inline_params(&self, params: &Params) -> Result<String, QueryError> {
         self.check_params(params)?;
+        // every use the compiler recorded, in text order; a use it visited twice is one
+        let mut uses = self.plan.params.iter().map(|(param, _, span)| (*span, param)).collect::<Vec<_>>();
+        uses.sort_by_key(|(span, _)| span.start);
+        uses.dedup_by_key(|(span, _)| span.start);
         let mut text = String::with_capacity(self.source.len());
         let mut copied = 0;
-        for (range, param) in parser::param_tokens(&self.source) {
-            let located = |message: String| error::LocatedError::compile(message, error::Span::new(range.start, range.end)).resolve(&self.source);
-            let value = params.get(&param).ok_or_else(|| located(format!("parameter {} is not bound", param)))?;
+        for (span, param) in uses {
+            let located = |message: String| error::LocatedError::compile(message, span).resolve(&self.source);
+            let value = params.get(param).ok_or_else(|| located(format!("parameter {} is not bound", param)))?;
             let literal =
                 params::to_bql(value).ok_or_else(|| located(format!("parameter {} is of type {}, which has no BQL literal", param, value.data_type())))?;
-            text.push_str(&self.source[copied..range.start]);
+            text.push_str(&self.source[copied..span.start]);
             text.push_str(&literal);
-            copied = range.end;
+            copied = span.end;
         }
         text.push_str(&self.source[copied..]);
         Ok(text)
