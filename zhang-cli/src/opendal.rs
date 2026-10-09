@@ -625,19 +625,23 @@ mod test {
     }
 
     /// A `plugin` whose module is not there stops the load, naming it, and caches nothing (#487): the module was read as
-    /// an empty one, cached as a 0-byte `.cache/plugins/<hash>.wasm`, and the load failed on it with a wasm error. On
-    /// the local disk, an absolute path is looked for within the ledger's directory, as every path the source reads:
-    /// a module given so is not found
+    /// an empty one, cached as a 0-byte `.cache/plugins/<hash>.wasm`, and the load failed on it with a wasm error. A
+    /// module outside the ledger's directory is no file of the ledger, whatever the source: it is refused, naming the
+    /// path and the rule
     #[tokio::test]
     async fn a_missing_plugin_module_stops_the_load_and_caches_nothing() {
         let dir = tempdir().unwrap();
         let unique = dir.path().file_name().unwrap().to_string_lossy().into_owned();
-        std::fs::create_dir(dir.path().join("plugins")).unwrap();
-        std::fs::write(dir.path().join("plugins/there.wasm"), b"(module)").unwrap();
-        let absolute = dir.path().join("plugins/there.wasm").display().to_string();
+        let outside = tempdir().unwrap();
+        std::fs::write(outside.path().join("there.wasm"), b"(module)").unwrap();
+        let absolute = outside.path().join("there.wasm").display().to_string();
         let source = local_source(dir.path(), "main.zhang").await;
 
-        for module in [format!("plugins/missing-{}.wasm", unique), absolute] {
+        let missing = format!("plugins/missing-{}.wasm", unique);
+        for (module, refused) in [
+            (missing.clone(), format!("plugin module not found: {}", missing)),
+            (absolute.clone(), format!("plugin module {} is outside the ledger's directory", absolute)),
+        ] {
             std::fs::write(
                 dir.path().join("main.zhang"),
                 format!("option \"features.plugin\" \"true\"\nplugin \"{}\"\n{}", module, OPENS),
@@ -647,7 +651,7 @@ mod test {
             let loaded = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source.clone());
 
             let Err(error) = loaded else { panic!("{} loaded", module) };
-            assert!(error.to_string().contains(&format!("plugin module not found: {}", module)), "{}", error);
+            assert!(error.to_string().contains(&refused), "{}", error);
             let cached = Path::new(".cache/plugins").join(format!("{}.wasm", zhang_server::util::sha256_hex(module.as_bytes())));
             assert!(!cached.exists(), "{} is cached as {}", module, cached.display());
         }

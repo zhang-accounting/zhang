@@ -19,7 +19,7 @@ plugin "<Module>" ["<Argument>" …]
 
 | Part | Required | Description |
 |---|---|---|
-| `"<Module>"` | yes | The path of the `.wasm` module, relative to the ledger root. |
+| `"<Module>"` | yes | The path of the `.wasm` module, relative to the ledger root. An absolute path is accepted only under the ledger root; a module outside it is refused, and the ledger does not load. |
 | `"<Argument>"` | no | Positional arguments, passed to the plugin as written. |
 | `<key>: "<value>"` | no | Metadata lines: the [capabilities](#capabilities) Zhang grants the plugin, and the plugin's own settings. |
 
@@ -122,7 +122,9 @@ A plugin can also read settings that change over time from [`custom`](/reference
 ### Loading and order
 
 - Zhang reads the module through the ledger's data source, from the ledger root, every time the ledger loads. When a
-  local module changes, `zhang serve` reloads the ledger.
+  local module changes, `zhang serve` reloads the ledger. A module is a file of the ledger, named by a path within
+  the ledger root, as an `include` is: a path outside the ledger root is refused, on the local disk as on remote
+  storage, with an error naming the path.
 - Plugins run in the order of their `plugin` directives, every time the ledger loads, after Zhang has booked the
   transactions (plugins declared `stage: "raw"` run before that) and before Zhang's own steps: the check of accounts
   that are not open, then [padding](/reference/directives/balance/#padding-with-with-pad), then balance checks. A

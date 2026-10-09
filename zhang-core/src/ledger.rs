@@ -2799,6 +2799,36 @@ mod test {
                 assert_eq!(ledger.visited_files, vec![root.join("main.zhang")]);
             }
 
+            /// A module outside the ledger's directory is no file of the ledger: the local source read it where it
+            /// was, while the remote (opendal) source never could, so a ledger loaded differently by where it was
+            /// stored. It is refused on both, naming the path and the rule
+            #[test]
+            fn should_refuse_a_plugin_module_outside_the_ledger_root() {
+                let outside = tempdir().unwrap().keep().canonicalize().unwrap();
+                let module = outside.join("echo.wat");
+                std::fs::write(&module, ECHO).unwrap();
+                let root = tempdir().unwrap().keep().canonicalize().unwrap();
+                std::fs::write(root.join("main.zhang"), LEDGER.replace("{module}", &module.to_string_lossy())).unwrap();
+                let source = LocalFileSystemDataSource::new(ZhangDataType {});
+
+                let loaded = Ledger::load_with_data_source(root.clone(), "main.zhang".to_string(), Arc::new(source));
+
+                let Err(error) = loaded else {
+                    panic!("a module outside the ledger's directory loaded")
+                };
+                let message = error.to_string();
+                assert!(
+                    message.contains(&format!(
+                        "plugin module {} is outside the ledger's directory {}",
+                        module.display(),
+                        root.display()
+                    )),
+                    "{}",
+                    message
+                );
+                assert!(message.contains("named by a path within its directory"), "{}", message);
+            }
+
             #[test]
             fn should_record_a_module_declared_twice_once() {
                 let (_, ledger) = load_with_plugin(&LEDGER.replace("plugin \"{module}\"", "plugin \"{module}\"\nplugin \"{module}\""));
