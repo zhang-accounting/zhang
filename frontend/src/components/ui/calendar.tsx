@@ -7,24 +7,12 @@ import { DayPicker, getDefaultClassNames, type DayButton, type Locale } from 're
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from 'lucide-react';
 
-function Calendar({
-  className,
-  classNames,
-  showOutsideDays = true,
-  captionLayout = 'label',
-  buttonVariant = 'ghost',
-  locale,
-  formatters,
-  components,
-  ...props
-}: React.ComponentProps<typeof DayPicker> & {
-  buttonVariant?: React.ComponentProps<typeof Button>['variant'];
-}) {
+function Calendar({ className, captionLayout = 'label', locale, ...props }: React.ComponentProps<typeof DayPicker>) {
   const defaultClassNames = getDefaultClassNames();
 
   return (
     <DayPicker
-      showOutsideDays={showOutsideDays}
+      showOutsideDays
       className={cn(
         'group/calendar bg-background p-2 [--cell-radius:var(--radius-md)] [--cell-size:--spacing(7)] in-data-[slot=card-content]:bg-transparent in-data-[slot=popover-content]:bg-transparent',
         String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
@@ -35,7 +23,6 @@ function Calendar({
       locale={locale}
       formatters={{
         formatMonthDropdown: (date) => date.toLocaleString(locale?.code, { month: 'short' }),
-        ...formatters,
       }}
       classNames={{
         root: cn('w-fit', defaultClassNames.root),
@@ -43,15 +30,11 @@ function Calendar({
         month: cn('flex w-full flex-col gap-4', defaultClassNames.month),
         nav: cn('absolute inset-x-0 top-0 flex w-full items-center justify-between gap-1', defaultClassNames.nav),
         button_previous: cn(
-          buttonVariants({ variant: buttonVariant }),
+          buttonVariants({ variant: 'ghost' }),
           'size-(--cell-size) p-0 select-none aria-disabled:opacity-50',
           defaultClassNames.button_previous,
         ),
-        button_next: cn(
-          buttonVariants({ variant: buttonVariant }),
-          'size-(--cell-size) p-0 select-none aria-disabled:opacity-50',
-          defaultClassNames.button_next,
-        ),
+        button_next: cn(buttonVariants({ variant: 'ghost' }), 'size-(--cell-size) p-0 select-none aria-disabled:opacity-50', defaultClassNames.button_next),
         month_caption: cn('flex h-(--cell-size) w-full items-center justify-center px-(--cell-size)', defaultClassNames.month_caption),
         dropdowns: cn('flex h-(--cell-size) w-full items-center justify-center gap-1.5 text-sm font-medium', defaultClassNames.dropdowns),
         dropdown_root: cn('relative rounded-(--cell-radius)', defaultClassNames.dropdown_root),
@@ -65,13 +48,9 @@ function Calendar({
         weekdays: cn('flex', defaultClassNames.weekdays),
         weekday: cn('flex-1 rounded-(--cell-radius) text-[0.8rem] font-normal text-muted-foreground select-none', defaultClassNames.weekday),
         week: cn('mt-2 flex w-full', defaultClassNames.week),
-        week_number_header: cn('w-(--cell-size) select-none', defaultClassNames.week_number_header),
-        week_number: cn('text-[0.8rem] text-muted-foreground select-none', defaultClassNames.week_number),
         day: cn(
           'group/day relative aspect-square h-full w-full rounded-(--cell-radius) p-0 text-center select-none [&:last-child[data-selected=true]_button]:rounded-r-(--cell-radius)',
-          props.showWeekNumber
-            ? '[&:nth-child(2)[data-selected=true]_button]:rounded-l-(--cell-radius)'
-            : '[&:first-child[data-selected=true]_button]:rounded-l-(--cell-radius)',
+          '[&:first-child[data-selected=true]_button]:rounded-l-(--cell-radius)',
           defaultClassNames.day,
         ),
         range_start: cn(
@@ -87,7 +66,6 @@ function Calendar({
         outside: cn('text-muted-foreground aria-selected:text-muted-foreground', defaultClassNames.outside),
         disabled: cn('text-muted-foreground opacity-50', defaultClassNames.disabled),
         hidden: cn('invisible', defaultClassNames.hidden),
-        ...classNames,
       }}
       components={{
         Root: ({ className, rootRef, ...props }) => {
@@ -105,14 +83,6 @@ function Calendar({
           return <ChevronDownIcon className={cn('size-4', className)} {...props} />;
         },
         DayButton: ({ ...props }) => <CalendarDayButton locale={locale} {...props} />,
-        WeekNumber: ({ children, ...props }) => {
-          return (
-            <td {...props}>
-              <div className="flex size-(--cell-size) items-center justify-center text-center">{children}</div>
-            </td>
-          );
-        },
-        ...components,
       }}
       {...props}
     />
