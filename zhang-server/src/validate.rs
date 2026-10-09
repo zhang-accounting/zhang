@@ -27,7 +27,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::{booked_group_units, written_groups, Account, Directive, Meta, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
     is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
-    read_posting_price,
+    read_posting_price, NotRead,
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
@@ -240,11 +240,15 @@ pub fn amount(amount: &Amount, rules: &Rules) -> Checked<()> {
 pub fn units(text: &str, rules: &Rules, operating_currency: &str) -> Checked<Amount> {
     let text = text.trim();
     let units = read_posting_amount(text)
-        .or_else(|| read_number(text).map(|number| Amount::new(number, operating_currency)))
-        .ok_or_else(|| {
-            invalid(
+        .or_else(|not_read| match not_read {
+            NotRead::NotOne => read_number(text).map(|number| Amount::new(number, operating_currency)),
+            no_value => Err(no_value),
+        })
+        .map_err(|not_read| {
+            not_read_as(
                 InvalidKind::InvalidAmount,
                 text,
+                not_read,
                 "it is a number followed by a commodity, as in `-1,000.50 CNY`, or a number alone in the operating currency; the cost and the price of a posting have fields of their own",
             )
         })?;
@@ -252,14 +256,24 @@ pub fn units(text: &str, rules: &Rules, operating_currency: &str) -> Checked<Amo
     Ok(units)
 }
 
+/// the 400 for `text` not read as a value of `kind`: an expression in it without a value is answered why, `division by
+/// zero` or `number out of range`, and anything else `rule`, the form the value takes
+fn not_read_as(kind: InvalidKind, text: &str, not_read: NotRead, rule: &str) -> Invalid {
+    match not_read {
+        NotRead::NoValue(why) => invalid(kind, text, why),
+        NotRead::NotOne => invalid(kind, text, rule),
+    }
+}
+
 /// Parse the cost of a posting given as text in the ledger's own syntax, which the ledger parser reads
 /// (`read_posting_cost`): `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}`, with
 /// its commodity checked like a unit's. Spaces around it are ignored. Anything else is a 400.
 pub fn cost(text: &str, rules: &Rules) -> Checked<PostingCost> {
-    let cost = read_posting_cost(text.trim()).ok_or_else(|| {
-        invalid(
+    let cost = read_posting_cost(text.trim()).map_err(|not_read| {
+        not_read_as(
             InvalidKind::InvalidCost,
             text,
+            not_read,
             "it is written as in the ledger: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for whatever lot there is, or `{150 USD, 2024-01-15, \"lot\"}` with the acquisition date and the label of the lot",
         )
     })?;
@@ -273,10 +287,11 @@ pub fn cost(text: &str, rules: &Rules) -> Checked<PostingCost> {
 /// `@ 6 USD` per unit or `@@ 60 USD` in total, with its commodity checked like a unit's. Spaces
 /// around it are ignored. Anything else is a 400.
 pub fn price(text: &str, rules: &Rules) -> Checked<SingleTotalPrice> {
-    let price = read_posting_price(text.trim()).ok_or_else(|| {
-        invalid(
+    let price = read_posting_price(text.trim()).map_err(|not_read| {
+        not_read_as(
             InvalidKind::InvalidPrice,
             text,
+            not_read,
             "it is written as in the ledger: `@ 6 USD` per unit or `@@ 60 USD` in total",
         )
     })?;
