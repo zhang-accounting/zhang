@@ -164,7 +164,8 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = scalars![
         "The currency of an amount; an alias of currency().";
     #[total] only(Str, Inventory) -> Amount = amounts::only,
         "The total units of one currency in an inventory, e.g. only('USD', sum(position)); zero if absent.";
-    #[total] filter_currency(Position, Str) -> Position = amounts::filter_currency,
+    // a position in another currency is NULL, so this overload is not total
+    filter_currency(Position, Str) -> Position = amounts::filter_currency,
         "The position if its units are in the currency, otherwise NULL.";
     #[total] filter_currency(Inventory, Str) -> Inventory = amounts::filter_currency,
         "The lots of an inventory whose units are in the currency.";
