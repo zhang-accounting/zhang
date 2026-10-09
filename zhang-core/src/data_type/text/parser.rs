@@ -2939,16 +2939,16 @@ mod test {
         /// told apart from a text that is not one by why the expression has no value, which the request is answered.
         #[test]
         fn a_division_by_zero_is_no_cost_price_or_bare_metadata_value() {
-            let no_value = |why| Err(NotRead::NoValue(why));
-            assert_eq!(read_posting_cost("{1/0 USD}"), no_value("division by zero"));
-            assert_eq!(read_posting_price("@ 1/0 USD"), no_value("division by zero"));
-            assert_eq!(read_posting_amount("10 / (2 - 2) STK"), no_value("division by zero"));
-            assert_eq!(read_posting_amount("1e1000000 * 1 STK"), no_value("number out of range"));
-            assert_eq!(read_number("1/0"), no_value("division by zero"));
+            let no_value = |why| NotRead::NoValue(why);
+            assert_eq!(read_posting_cost("{1/0 USD}").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_posting_price("@ 1/0 USD").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_posting_amount("10 / (2 - 2) STK").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_posting_amount("1e1000000 * 1 STK").unwrap_err(), no_value("number out of range"));
+            assert_eq!(read_number("1/0").unwrap_err(), no_value("division by zero"));
+            assert_eq!(read_number("1/0 USD").unwrap_err(), no_value("division by zero"));
             // not one: another form, or one followed by more
-            assert_eq!(read_posting_cost("150 USD"), Err(NotRead::NotOne));
-            assert_eq!(read_posting_amount("150 USD {1 EUR}"), Err(NotRead::NotOne));
-            assert_eq!(read_number("1/0 USD").unwrap_err(), NotRead::NoValue("division by zero"));
+            assert_eq!(read_posting_cost("150 USD").unwrap_err(), NotRead::NotOne);
+            assert_eq!(read_posting_amount("150 USD {1 EUR}").unwrap_err(), NotRead::NotOne);
             assert!(!is_valid_bare_meta_value("1/0"));
             assert!(!is_valid_bare_meta_value("1/0 USD"));
         }
@@ -2997,16 +2997,16 @@ mod test {
                 total,
                 ..PostingCost::default()
             };
-            assert_eq!(read_posting_cost("{150 USD}"), Some(cost(Some("150"), None, None, false)));
-            assert_eq!(read_posting_cost("{ 150 USD }"), Some(cost(Some("150"), None, None, false)));
-            assert_eq!(read_posting_cost("{{1500 USD}}"), Some(cost(Some("1500"), None, None, true)));
-            assert_eq!(read_posting_cost("{}"), Some(cost(None, None, None, false)));
+            assert_eq!(read_posting_cost("{150 USD}").ok(), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{ 150 USD }").ok(), Some(cost(Some("150"), None, None, false)));
+            assert_eq!(read_posting_cost("{{1500 USD}}").ok(), Some(cost(Some("1500"), None, None, true)));
+            assert_eq!(read_posting_cost("{}").ok(), Some(cost(None, None, None, false)));
             assert_eq!(
-                read_posting_cost("{150 USD, 2024-01-15}"),
+                read_posting_cost("{150 USD, 2024-01-15}").ok(),
                 Some(cost(Some("150"), Some("2024-01-15"), None, false))
             );
             assert_eq!(
-                read_posting_cost("{150 USD, 2024-01-15, \"lot\"}"),
+                read_posting_cost("{150 USD, 2024-01-15, \"lot\"}").ok(),
                 Some(cost(Some("150"), Some("2024-01-15"), Some("lot"), false))
             );
             for invalid in [
@@ -3020,14 +3020,14 @@ mod test {
                 "{{150 USD}",
                 "@ 150 USD",
             ] {
-                assert_eq!(read_posting_cost(invalid), None, "{invalid:?}");
+                assert_eq!(read_posting_cost(invalid).ok(), None, "{invalid:?}");
             }
 
-            assert_eq!(read_posting_price("@ 6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
-            assert_eq!(read_posting_price("@6 USD"), Some(SingleTotalPrice::Single(usd("6"))));
-            assert_eq!(read_posting_price("@@ 60 USD"), Some(SingleTotalPrice::Total(usd("60"))));
+            assert_eq!(read_posting_price("@ 6 USD").ok(), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@6 USD").ok(), Some(SingleTotalPrice::Single(usd("6"))));
+            assert_eq!(read_posting_price("@@ 60 USD").ok(), Some(SingleTotalPrice::Total(usd("60"))));
             for invalid in ["", "6 USD", "@ 6", "@ 6 USD x", " @ 6 USD", "@@", "{6 USD}"] {
-                assert_eq!(read_posting_price(invalid), None, "{invalid:?}");
+                assert_eq!(read_posting_price(invalid).ok(), None, "{invalid:?}");
             }
         }
 
@@ -3039,21 +3039,21 @@ mod test {
             let usd = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "USD");
             let date = Date::Date(NaiveDate::from_str("2024-01-15").unwrap());
             assert_eq!(
-                read_posting_cost("{2024-01-15}"),
+                read_posting_cost("{2024-01-15}").ok(),
                 Some(PostingCost {
                     date: Some(date),
                     ..PostingCost::default()
                 })
             );
             assert_eq!(
-                read_posting_cost("{\"lot\"}"),
+                read_posting_cost("{\"lot\"}").ok(),
                 Some(PostingCost {
                     label: Some("lot".to_owned()),
                     ..PostingCost::default()
                 })
             );
             assert_eq!(
-                read_posting_cost("{100 # 5 USD}"),
+                read_posting_cost("{100 # 5 USD}").ok(),
                 Some(PostingCost {
                     base: Some(usd("100")),
                     compound_total: Some(BigDecimal::from(5)),
@@ -3061,7 +3061,7 @@ mod test {
                 })
             );
             assert_eq!(
-                read_posting_cost("{*}"),
+                read_posting_cost("{*}").ok(),
                 Some(PostingCost {
                     merge: true,
                     ..PostingCost::default()
@@ -3076,7 +3076,7 @@ mod test {
                 "{100 # 5 USD, 100 USD}",
                 "{\"lot\", 100 USD, 2024-01-15, 101 USD}",
             ] {
-                assert_eq!(read_posting_cost(invalid), None, "{invalid:?}");
+                assert_eq!(read_posting_cost(invalid).ok(), None, "{invalid:?}");
             }
         }
 
