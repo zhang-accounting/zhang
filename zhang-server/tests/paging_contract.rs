@@ -3,21 +3,14 @@
 //! has 1 to 1000 rows, 100 by default; another page or size, or a query string that cannot be read, is a 400 with the
 //! JSON `{message}` body of every other bad request.
 
-use std::sync::Arc;
-
-use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
 use serde_json::{json, Value};
-use tokio::sync::RwLock;
-use tower::ServiceExt;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
 use zhang_server::routes::account::get_account_journals;
 use zhang_server::routes::transaction::get_journals;
-use zhang_server::state::SharedLedger;
+use zhang_testkit::http::shared;
+use zhang_testkit::ledger::Scratch;
 
 /// three transactions on `Assets:Cash`, and one to accounts never opened, which are errors
 const MAIN: &str = r#"
@@ -41,15 +34,12 @@ const MAIN: &str = r#"
 /// the paged endpoints, routed as the server routes them
 const ENDPOINTS: [&str; 2] = ["/api/journals", "/api/accounts/Assets:Cash/journals"];
 
-async fn router() -> (tempfile::TempDir, Router) {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("main.zhang"), MAIN).unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
+async fn router() -> (Scratch, Router) {
+    let dir = Scratch::zhang(MAIN);
     let router = Router::new()
         .route("/api/journals", get(get_journals))
         .route("/api/accounts/:account_name/journals", get(get_account_journals))
-        .with_state(SharedLedger(Arc::new(RwLock::new(ledger))));
+        .with_state(shared(dir.ledger().unwrap()));
     (dir, router)
 }
 
@@ -59,16 +49,15 @@ struct Reply {
     body: Value,
 }
 
+/// `GET uri`, whose body must be JSON
 async fn call(router: &Router, uri: &str) -> Reply {
-    let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
-    let response = router.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let total_count = response.headers().get("X-Total-Count").map(|it| it.to_str().unwrap().to_owned());
-    let content_type = response.headers().get(header::CONTENT_TYPE).map(|it| it.to_str().unwrap().to_owned());
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body =
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| panic!("{uri}: expect a JSON body, got {content_type:?} {:?}", String::from_utf8_lossy(&bytes)));
-    Reply { status, total_count, body }
+    let reply = zhang_testkit::http::get(router, uri, &[]).await;
+    let body = serde_json::from_slice(&reply.bytes).unwrap_or_else(|_| panic!("{uri}: expect a JSON body, got {:?} {:?}", reply.content_type(), reply.text()));
+    Reply {
+        status: reply.status,
+        total_count: reply.header("X-Total-Count"),
+        body,
+    }
 }
 
 /// A page of 0 is a 400 on every paged endpoint: `/api/journals` used to answer it with page 1, while an account's

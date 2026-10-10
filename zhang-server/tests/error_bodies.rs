@@ -4,52 +4,23 @@
 //! own errors carried an `origin` field no other error had.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
 use axum::Router;
-use gotcha::{GotchaApp, GotchaContext};
 use serde_json::{json, Value};
-use tokio::sync::RwLock;
-use tower::ServiceExt;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
-use zhang_server::broadcast::Broadcaster;
-use zhang_server::{create_server_app, ReloadSender, ServeConfig};
+use zhang_testkit::fixtures::data_source_for;
+use zhang_testkit::http::{router, send, Settings};
 
 const MAIN: &str = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n";
 
 async fn server(dir: &Path) -> Router {
     std::fs::write(dir.join("main.zhang"), MAIN).unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap();
-    let (sender, _receiver) = tokio::sync::mpsc::channel(8);
-    let app = create_server_app(
-        ServeConfig {
-            path: dir.to_path_buf(),
-            endpoint: "main.zhang".to_owned(),
-            addr: "127.0.0.1".to_owned(),
-            port: 0,
-            no_report: true,
-            data_source: source,
-            auth_credential: None,
-            passkey_secret: None,
-            passkey_rp_id: None,
-            passkey_origin: None,
-            session_secret: None,
-        },
-        Arc::new(RwLock::new(ledger)),
-        Broadcaster::create(),
-        Arc::new(ReloadSender::new(sender)),
-    );
-    let config = app.config().await.unwrap();
-    let state = app.state(&config).await.unwrap();
-    app.build_router(GotchaContext { config, state }).await.unwrap()
+    router(dir, "main.zhang", data_source_for("main.zhang"), &Settings::default()).await
 }
 
-/// the status, the content type and the JSON body of `method uri` with `body`, sent as JSON
+/// the status, the content type and the JSON body of `method uri` with `body`, sent as JSON (as written, so that a
+/// body that is not JSON reaches the extractor)
 async fn call(router: &Router, method: Method, uri: &str, body: Option<&str>) -> (StatusCode, String, Value) {
     let request = Request::builder().method(method).uri(uri);
     let request = match body {
@@ -57,16 +28,9 @@ async fn call(router: &Router, method: Method, uri: &str, body: Option<&str>) ->
         None => request.body(Body::empty()),
     }
     .unwrap();
-    let response = router.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let content_type = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .map(|it| it.to_str().unwrap().to_owned())
-        .unwrap_or_default();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({ "not json": String::from_utf8_lossy(&bytes) }));
-    (status, content_type, body)
+    let reply = send(router, request).await;
+    let body = serde_json::from_slice(&reply.bytes).unwrap_or_else(|_| json!({ "not json": reply.text() }));
+    (reply.status, reply.content_type(), body)
 }
 
 /// the message of an error body that holds a message and nothing else

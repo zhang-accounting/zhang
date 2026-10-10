@@ -28,9 +28,12 @@
 //! | a ledger of either format from a directory | [`fixtures::load_dir`] |
 //! | a reproducible random source | [`XorShift`] |
 //! | a golden file (`UPDATE_GOLDEN=1` rewrites it) | [`golden::assert_text`], [`golden::assert_json`] |
+//! | a handler's `State`, a response as JSON, the server's router (feature `server`) | [`http`] |
 
 pub mod fixtures;
 pub mod golden;
+#[cfg(feature = "server")]
+pub mod http;
 pub mod ledger;
 
 pub use ledger::XorShift;

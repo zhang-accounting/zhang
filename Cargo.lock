@@ -6810,11 +6810,17 @@ dependencies = [
 name = "zhang-testkit"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "beancount",
+ "bytes",
+ "gotcha",
  "serde_json",
  "tempfile",
+ "tokio",
+ "tower 0.4.13",
  "zhang-ast",
  "zhang-core",
+ "zhang-server",
 ]
 
 [[package]]
