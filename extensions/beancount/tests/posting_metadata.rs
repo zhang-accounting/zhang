@@ -11,18 +11,15 @@
 //! export back gives the same transaction.
 //!
 //! Written against the contract, not the implementation: a posting's metadata is
-//! `Posting.meta` (see `support::posting_meta`), with the same `Meta` type as
+//! `Posting.meta` (see `zhang_testkit::dialect::posting_meta`), with the same `Meta` type as
 //! `Transaction.meta`.
-
-#[path = "../../../zhang-core/tests/support/posting_metadata.rs"]
-mod support;
 
 use beancount::Beancount;
 use indoc::indoc;
-use support::*;
 use zhang_ast::*;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
+use zhang_testkit::dialect::*;
 
 fn transactions(text: &str) -> Vec<Transaction> {
     Beancount::default()

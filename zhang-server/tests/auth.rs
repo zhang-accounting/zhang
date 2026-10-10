@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
-use axum::http::{header, HeaderMap, Method, Request, StatusCode};
+use axum::http::{header, Method, Request, StatusCode};
 use axum::Router;
 use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
@@ -15,96 +15,49 @@ use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use tokio::sync::RwLock;
-use tower::ServiceExt;
 use webauthn_authenticator_rs::softpasskey::SoftPasskey;
 use webauthn_authenticator_rs::WebauthnAuthenticator;
 use webauthn_rs::prelude::{CreationChallengeResponse, RequestChallengeResponse, Url};
-use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource};
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_core::ZhangResult;
-use zhang_server::broadcast::Broadcaster;
-use zhang_server::{create_server_app, ReloadSender, ServeConfig, ServerApp};
+use zhang_server::ServerApp;
+use zhang_testkit::http::{router_of, send, Reply, RootedFileSystem};
+use zhang_testkit::ledger::Scratch;
 
 const MAIN: &str = "option \"title\" \"Auth Test\"\n1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n";
 const HOST: &str = "localhost:8010";
 const ORIGIN: &str = "http://localhost:8010";
 const SESSION_SECRET: &str = "test-session-secret";
 
-/// A scratch ledger directory under the system temp dir, removed on drop.
-struct ScratchDir(PathBuf);
+/// A scratch ledger directory with [`MAIN`], removed on drop.
+fn scratch() -> Scratch {
+    Scratch::zhang(MAIN)
+}
 
-impl ScratchDir {
-    fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("zhang-auth-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("main.zhang"), MAIN).unwrap();
-        ScratchDir(dir)
-    }
+/// A ledger serving zhang-core's echo router plugin, named `router-echo`: it answers every
+/// request with status 201 and the request JSON it received.
+fn with_router_plugin() -> Scratch {
+    let dir = scratch();
+    let module = dir.dir().join("router.wat");
+    std::fs::write(&module, include_str!("../../zhang-core/tests/plugins/router.wat")).unwrap();
+    // a local ledger resolves a module against the working directory, so declare it by absolute path
+    let main = format!("option \"features.plugin\" \"true\"\nplugin \"{}\"\n{MAIN}", module.display());
+    std::fs::write(dir.main_file(), main).unwrap();
+    dir
+}
 
-    /// A ledger serving zhang-core's echo router plugin, named `router-echo`: it answers every
-    /// request with status 201 and the request JSON it received.
-    fn with_router_plugin() -> Self {
-        let dir = ScratchDir::new();
-        let module = dir.0.join("router.wat");
-        std::fs::write(&module, include_str!("../../zhang-core/tests/plugins/router.wat")).unwrap();
-        // a local ledger resolves a module against the working directory, so declare it by absolute path
-        let main = format!("option \"features.plugin\" \"true\"\nplugin \"{}\"\n{MAIN}", module.display());
-        std::fs::write(dir.0.join("main.zhang"), main).unwrap();
-        dir
-    }
+/// the passkeys the server stores in the ledger directory
+trait Passkeys {
+    fn passkeys_file(&self) -> PathBuf;
+    fn stored_passkeys(&self) -> Vec<Value>;
+}
 
+impl Passkeys for Scratch {
     fn passkeys_file(&self) -> PathBuf {
-        self.0.join(".zhang/passkeys.json")
+        self.dir().join(".zhang/passkeys.json")
     }
 
     fn stored_passkeys(&self) -> Vec<Value> {
         serde_json::from_slice::<Vec<Value>>(&std::fs::read(self.passkeys_file()).unwrap()).unwrap()
-    }
-}
-
-impl Drop for ScratchDir {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).ok();
-    }
-}
-
-/// A local file system data source resolving relative paths against the ledger root, like the
-/// opendal one the CLI uses: a missing file reads as empty, saving creates the parent folders.
-struct RootedFileSystem {
-    root: PathBuf,
-    inner: LocalFileSystemDataSource,
-}
-
-impl RootedFileSystem {
-    fn resolve(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else {
-            self.root.join(path)
-        }
-    }
-}
-
-impl DataSource for RootedFileSystem {
-    fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        match std::fs::read(self.resolve(&path)) {
-            Ok(content) => Ok(content),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
-        self.inner.load(entry, endpoint)
-    }
-
-    fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
-        let path = self.resolve(&path);
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(path, content)?;
-        Ok(())
     }
 }
 
@@ -148,51 +101,31 @@ async fn app(dir: &Path, settings: &Settings) -> ServerApp {
     app_and_ledger(dir, settings).await.0
 }
 
-/// The app, and the ledger it serves.
+/// The app, and the ledger it serves: the ledger of `dir` read through a source without a local root, as the
+/// CLI's opendal one.
 async fn app_and_ledger(dir: &Path, settings: &Settings) -> (ServerApp, Arc<RwLock<Ledger>>) {
-    let source = Arc::new(RootedFileSystem {
-        root: dir.to_path_buf(),
-        inner: LocalFileSystemDataSource::new(ZhangDataType {}),
-    });
-    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source.clone()).unwrap_or_else(|error| panic!("ledger should load: {error}"));
-    let (sender, _receiver) = tokio::sync::mpsc::channel(8);
-    let ledger = Arc::new(RwLock::new(ledger));
-    let app = create_server_app(
-        ServeConfig {
-            path: dir.to_path_buf(),
-            endpoint: "main.zhang".to_owned(),
-            addr: "127.0.0.1".to_owned(),
-            port: 0,
-            no_report: true,
-            data_source: source,
-            auth_credential: settings.auth.map(str::to_owned),
-            passkey_secret: settings.passkey.map(str::to_owned),
-            passkey_rp_id: settings.rp_id.map(str::to_owned),
-            passkey_origin: settings.origin.map(str::to_owned),
-            session_secret: settings.session_secret.map(str::to_owned),
-        },
-        ledger.clone(),
-        Broadcaster::create(),
-        Arc::new(ReloadSender::new(sender)),
-    );
-    (app, ledger)
+    let settings = zhang_testkit::http::Settings {
+        auth_credential: settings.auth.map(str::to_owned),
+        passkey_secret: settings.passkey.map(str::to_owned),
+        passkey_rp_id: settings.rp_id.map(str::to_owned),
+        passkey_origin: settings.origin.map(str::to_owned),
+        session_secret: settings.session_secret.map(str::to_owned),
+    };
+    zhang_testkit::http::app_and_ledger(dir, "main.zhang", Arc::new(RootedFileSystem::new(dir)), &settings).await
 }
 
 async fn server(dir: &Path, settings: &Settings) -> Router {
-    let app = app(dir, settings).await;
-    let config = app.config().await.unwrap();
-    let state = app.state(&config).await.unwrap_or_else(|error| panic!("state should build: {error}"));
-    app.build_router(GotchaContext { config, state }).await.unwrap()
+    router_of(app(dir, settings).await).await
 }
 
-struct Reply {
-    status: StatusCode,
-    headers: HeaderMap,
-    body: Value,
-}
-
-impl Reply {
+/// the cookies a reply sets
+trait Cookies {
     /// The `zhang_session=...` pair the reply sets.
+    fn session_cookie(&self) -> String;
+    fn set_cookie(&self) -> String;
+}
+
+impl Cookies for Reply {
     fn session_cookie(&self) -> String {
         let cookie = self.headers.get(header::SET_COOKIE).expect("a session cookie is set").to_str().unwrap();
         let pair = cookie.split(';').next().unwrap().to_owned();
@@ -205,6 +138,7 @@ impl Reply {
     }
 }
 
+/// `method uri` with the `Host` of the passkey origin, `headers` and `body` as JSON.
 async fn call(router: &Router, method: Method, uri: &str, headers: &[(&str, &str)], body: Option<Value>) -> Reply {
     call_from(router, None, method, uri, headers, body).await
 }
@@ -225,23 +159,7 @@ async fn call_from(router: &Router, peer: Option<&str>, method: Method, uri: &st
         None => request.body(Body::empty()),
     }
     .unwrap();
-    let response = router.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let headers = response.headers().clone();
-    let body = if headers
-        .get(header::CONTENT_TYPE)
-        .is_some_and(|it| it.to_str().unwrap().starts_with("text/event-stream"))
-    {
-        Value::Null
-    } else {
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        if bytes.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).to_string()))
-        }
-    };
-    Reply { status, headers, body }
+    send(router, request).await
 }
 
 async fn get(router: &Router, uri: &str, headers: &[(&str, &str)]) -> Reply {
@@ -327,8 +245,8 @@ fn password_fingerprint() -> String {
 
 #[tokio::test]
 async fn without_credentials_everything_stays_open() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::default()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::default()).await;
 
     assert_eq!(get(&router, "/api/info", &[]).await.status, StatusCode::OK);
     let status = get(&router, "/api/auth/status", &[]).await;
@@ -349,8 +267,8 @@ async fn without_credentials_everything_stays_open() {
 
 #[tokio::test]
 async fn password_sessions_guard_the_api() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
 
     assert_unauthorized(&get(&router, "/api/info", &[]).await);
     assert_unauthorized(&get(&router, "/api/sse", &[]).await);
@@ -407,8 +325,8 @@ async fn password_sessions_guard_the_api() {
 
 #[tokio::test]
 async fn sessions_are_secure_cookies_behind_an_https_proxy() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
     let login = post(
         &router,
         "/api/auth/login",
@@ -421,8 +339,8 @@ async fn sessions_are_secure_cookies_behind_an_https_proxy() {
 
 #[tokio::test]
 async fn the_basic_header_still_works_for_scripts() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
 
     let valid = format!("Basic {}", BASE64_STANDARD.encode("admin:secret"));
     assert_eq!(get(&router, "/api/info", &[("authorization", &valid)]).await.status, StatusCode::OK);
@@ -434,15 +352,15 @@ async fn the_basic_header_still_works_for_scripts() {
     assert_unauthorized(&get(&router, "/api/info", &[("authorization", "Bearer admin:secret")]).await);
 
     // the Basic header is the password method, so it is refused when only passkeys are enabled
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::passkey()).await;
     assert_unauthorized(&get(&router, "/api/info", &[("authorization", &valid)]).await);
 }
 
 #[tokio::test]
 async fn tampered_expired_or_outdated_sessions_are_rejected() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
     let cookie = password_login(&router).await;
 
     // a different signature, and a different payload under the original signature
@@ -471,11 +389,11 @@ async fn tampered_expired_or_outdated_sessions_are_rejected() {
     assert_unauthorized(&get(&router, "/api/info", &[("cookie", &unbound)]).await);
 
     // sessions survive a restart with the same session secret ...
-    let restarted = server(&dir.0, &Settings::password()).await;
+    let restarted = server(dir.dir(), &Settings::password()).await;
     assert_eq!(get(&restarted, "/api/info", &[("cookie", &cookie)]).await.status, StatusCode::OK);
     // ... but not a new password ...
     let rotated = server(
-        &dir.0,
+        dir.dir(),
         &Settings {
             auth: Some("admin:another"),
             ..Settings::password()
@@ -485,7 +403,7 @@ async fn tampered_expired_or_outdated_sessions_are_rejected() {
     assert_unauthorized(&get(&rotated, "/api/info", &[("cookie", &cookie)]).await);
     // ... nor a restart without a session secret
     let random_secret = server(
-        &dir.0,
+        dir.dir(),
         &Settings {
             session_secret: None,
             ..Settings::password()
@@ -497,8 +415,8 @@ async fn tampered_expired_or_outdated_sessions_are_rejected() {
 
 #[tokio::test]
 async fn passkey_registration_needs_the_secret_or_a_session() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::both()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::both()).await;
 
     let reply = post(&router, "/api/auth/passkey/register/start", &[], json!({"secret": null, "name": null})).await;
     assert_unauthorized(&reply);
@@ -524,8 +442,8 @@ async fn passkey_registration_needs_the_secret_or_a_session() {
 
 #[tokio::test]
 async fn passkeys_register_log_in_and_persist() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::passkey()).await;
     let status = get(&router, "/api/auth/status", &[]).await;
     assert_eq!(status.body["data"]["methods"], json!({"password": false, "passkey": true}));
     assert_eq!(status.body["data"]["passkey_registered"], false);
@@ -572,7 +490,7 @@ async fn passkeys_register_log_in_and_persist() {
     );
 
     // the passkeys are read back after a restart
-    let restarted = server(&dir.0, &Settings::passkey()).await;
+    let restarted = server(dir.dir(), &Settings::passkey()).await;
     assert_eq!(get(&restarted, "/api/auth/status", &[]).await.body["data"]["passkey_registered"], true);
     assert_eq!(get(&restarted, "/api/info", &[("cookie", &cookie)]).await.status, StatusCode::OK);
     let login = passkey_login(&restarted, &mut phone).await;
@@ -594,8 +512,8 @@ async fn passkeys_register_log_in_and_persist() {
 
 #[tokio::test]
 async fn passkey_ceremonies_are_single_use() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::passkey()).await;
     let mut authenticator = soft_authenticator();
     assert_eq!(
         register_passkey(&router, &mut authenticator, &[], json!({"secret": "letmein"})).await.status,
@@ -627,8 +545,8 @@ async fn passkey_ceremonies_are_single_use() {
 
 #[tokio::test]
 async fn removing_passkeys_ends_their_sessions_but_never_locks_out() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::passkey()).await;
     let mut phone = soft_authenticator();
     let phone_cookie = register_passkey(&router, &mut phone, &[], json!({"secret": "letmein", "name": "Phone"}))
         .await
@@ -684,7 +602,7 @@ async fn removing_passkeys_ends_their_sessions_but_never_locks_out() {
     assert!(phone.do_authentication(origin(), options).is_err());
 
     // with password login enabled, the last passkey can go
-    let both = server(&dir.0, &Settings::both()).await;
+    let both = server(dir.dir(), &Settings::both()).await;
     let cookie = password_login(&both).await;
     let laptop_id = dir.stored_passkeys()[0]["id"].as_str().unwrap().to_owned();
     let reply = call(&both, Method::DELETE, &format!("/api/auth/passkeys/{laptop_id}"), &[("cookie", &cookie)], None).await;
@@ -695,8 +613,8 @@ async fn removing_passkeys_ends_their_sessions_but_never_locks_out() {
 
 #[tokio::test]
 async fn the_relying_party_follows_the_proxy_or_the_overrides() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::passkey()).await;
     let start = json!({"secret": "letmein"});
 
     let reply = post(
@@ -721,7 +639,7 @@ async fn the_relying_party_follows_the_proxy_or_the_overrides() {
     assert!(reply.body["message"].as_str().unwrap().contains("ZHANG_PASSKEY_RP_ID"), "{}", reply.body);
 
     let overridden = server(
-        &dir.0,
+        dir.dir(),
         &Settings {
             origin: Some("https://zhang.example.com"),
             ..Settings::passkey()
@@ -732,7 +650,7 @@ async fn the_relying_party_follows_the_proxy_or_the_overrides() {
     assert_eq!(reply.body["data"]["options"]["publicKey"]["rp"]["id"], "zhang.example.com");
 
     let parent = server(
-        &dir.0,
+        dir.dir(),
         &Settings {
             origin: Some("https://zhang.example.com"),
             rp_id: Some("example.com"),
@@ -763,8 +681,8 @@ async fn the_relying_party_follows_the_proxy_or_the_overrides() {
 
 #[tokio::test]
 async fn the_frontend_stays_reachable() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::both()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::both()).await;
     for uri in ["/", "/login", "/accounts", "/assets/index.js"] {
         let reply = get(&router, uri, &[]).await;
         assert_ne!(reply.status, StatusCode::UNAUTHORIZED, "{uri} is served");
@@ -783,23 +701,23 @@ async fn the_frontend_stays_reachable() {
 
 #[tokio::test]
 async fn an_unreadable_passkey_file_stops_the_start() {
-    let dir = ScratchDir::new();
-    std::fs::create_dir_all(dir.0.join(".zhang")).unwrap();
+    let dir = scratch();
+    std::fs::create_dir_all(dir.dir().join(".zhang")).unwrap();
     std::fs::write(dir.passkeys_file(), "{ not json").unwrap();
-    let app = app(&dir.0, &Settings::passkey()).await;
+    let app = app(dir.dir(), &Settings::passkey()).await;
     let config = app.config().await.unwrap();
     let error = app.state(&config).await.err().expect("the server refuses to start");
     assert!(error.to_string().contains(".zhang/passkeys.json"), "{error}");
 
     // the file is only read when passkeys are enabled
-    let router = server(&dir.0, &Settings::password()).await;
+    let router = server(dir.dir(), &Settings::password()).await;
     assert_eq!(get(&router, "/api/auth/status", &[]).await.status, StatusCode::OK);
 }
 
 #[tokio::test]
 async fn the_auth_endpoints_are_documented() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::both()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::both()).await;
     let spec = get(&router, "/openapi.json", &[]).await;
     assert_eq!(spec.status, StatusCode::OK);
     let paths: Vec<_> = spec.body["paths"]
@@ -852,8 +770,8 @@ async fn login_from(router: &Router, client: &str, password: &str) -> Reply {
 
 #[tokio::test]
 async fn failed_logins_are_rate_limited_per_client() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::both()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::both()).await;
     let attacker = "203.0.113.7";
 
     for _ in 0..5 {
@@ -892,8 +810,8 @@ async fn failed_logins_are_rate_limited_per_client() {
 
 #[tokio::test]
 async fn a_successful_login_resets_the_client_count() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
     let client = "198.51.100.20";
 
     for _ in 0..4 {
@@ -908,8 +826,8 @@ async fn a_successful_login_resets_the_client_count() {
 
 #[tokio::test]
 async fn failed_registration_secrets_are_rate_limited() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::passkey()).await;
     let start = |secret: &'static str| json!({"secret": secret, "name": null});
 
     for _ in 0..5 {
@@ -955,8 +873,8 @@ async fn failed_registration_secrets_are_rate_limited() {
 
 #[tokio::test]
 async fn without_a_forwarded_address_the_peer_is_the_client() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
     let body = json!({"username": "admin", "password": "guess"});
 
     for _ in 0..5 {
@@ -983,8 +901,8 @@ async fn without_a_forwarded_address_the_peer_is_the_client() {
 
 #[tokio::test]
 async fn too_many_failures_overall_refuse_everyone() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
     for client in 0..10 {
         let client = format!("192.0.2.{}", client + 100);
         for _ in 0..5 {
@@ -1008,8 +926,8 @@ async fn login_through(router: &Router, peer: &str, forwarded_for: &str, passwor
 
 #[tokio::test]
 async fn behind_a_proxy_the_address_it_appended_is_the_client() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::both()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::both()).await;
     let proxy = "10.0.0.2:41000";
 
     // the client rotates what it sends, the proxy appends its real address
@@ -1047,8 +965,8 @@ async fn behind_a_proxy_the_address_it_appended_is_the_client() {
 
 #[tokio::test]
 async fn adding_a_passkey_keeps_the_current_session() {
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::both()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::both()).await;
 
     // signed in with the password, a passkey is added, then removed
     let password_cookie = password_login(&router).await;
@@ -1076,8 +994,8 @@ async fn adding_a_passkey_keeps_the_current_session() {
     );
 
     // signed in with passkey A, passkey B is added, then removed
-    let dir = ScratchDir::new();
-    let router = server(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::passkey()).await;
     let mut phone = soft_authenticator();
     let first = register_passkey(&router, &mut phone, &[], json!({"secret": "letmein", "name": "Phone"})).await;
     let phone_cookie = first.session_cookie();
@@ -1103,8 +1021,8 @@ async fn adding_a_passkey_keeps_the_current_session() {
 
 #[tokio::test]
 async fn the_passkeys_file_is_not_part_of_the_ledger() {
-    let dir = ScratchDir::new();
-    let (app, ledger) = app_and_ledger(&dir.0, &Settings::passkey()).await;
+    let dir = scratch();
+    let (app, ledger) = app_and_ledger(dir.dir(), &Settings::passkey()).await;
     let config = app.config().await.unwrap();
     let state = app.state(&config).await.unwrap();
     let router = app.build_router(GotchaContext { config, state }).await.unwrap();
@@ -1132,8 +1050,8 @@ async fn the_passkeys_file_is_not_part_of_the_ledger() {
 
 #[tokio::test]
 async fn router_plugins_need_a_session_and_never_see_it() {
-    let dir = ScratchDir::with_router_plugin();
-    let router = server(&dir.0, &Settings::password()).await;
+    let dir = with_router_plugin();
+    let router = server(dir.dir(), &Settings::password()).await;
 
     // refused like the rest of the API, whatever the method, and so is the plugin list
     assert_unauthorized(&get(&router, "/api/plugins/router-echo/x", &[]).await);

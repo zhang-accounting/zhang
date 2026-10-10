@@ -4,15 +4,13 @@
 //! the transaction is still booked and the assertion is still checked.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use bigdecimal::BigDecimal;
 use indoc::indoc;
 use zhang_core::ast::error::ErrorKind;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
+use zhang_testkit::ledger::load_text;
 
 const HEADER: &str = indoc! {r#"
     1970-01-01 commodity USD
@@ -27,10 +25,7 @@ const HEADER: &str = indoc! {r#"
 
 /// load `HEADER` followed by `body` as a single-file ledger
 fn load(body: &str) -> Ledger {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("main.zhang"), format!("{HEADER}{body}")).unwrap();
-    let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source)).unwrap_or_else(|e| panic!("ledger should load: {e}"))
+    load_text(&format!("{HEADER}{body}"))
 }
 
 /// reported errors in store order, with the first line of their span and all their metas

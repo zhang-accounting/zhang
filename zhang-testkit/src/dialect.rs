@@ -1,11 +1,10 @@
-//! Shared by the posting metadata acceptance tests of zhang-core and of the beancount
-//! extension: a comparable view of where a transaction's metadata ended up, a small
-//! deterministic PRNG, random transactions with metadata on the transaction and on its
-//! postings, and random text layouts together with the metadata each line belongs to.
+//! Dialect scenarios, shared by the parser and exporter tests of zhang's text format (`zhang-core/tests`) and of
+//! the beancount extension (`extensions/beancount/tests`): a comparable view of where a transaction's metadata
+//! ended up ([`Shape`]), transactions with metadata on the transaction and on its postings, and random text
+//! layouts together with the metadata each line belongs to under each dialect's rule ([`random_layout`]).
 //!
-//! Every access to a posting's metadata goes through [`posting_meta`] and [`posting`]: the
-//! contract names the field `Posting.meta`, of the same `Meta` type as `Transaction.meta`.
-#![allow(dead_code)]
+//! Every access to a posting's metadata goes through [`posting_meta`] and [`posting`]: the contract names the
+//! field `Posting.meta`, of the same `Meta` type as `Transaction.meta`.
 
 use std::str::FromStr;
 
@@ -107,7 +106,7 @@ impl Shape {
     }
 }
 
-pub use zhang_testkit::XorShift;
+pub use crate::XorShift;
 
 /// Keys written bare. `Receipt` and `x` are no beancount keys, but zhang's parsers read them.
 pub const BARE_KEYS: &[&str] = &["receipt", "category", "note", "document", "trip", "x-y_z", "memo2", "Receipt", "x", "Assets"];

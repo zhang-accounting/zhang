@@ -3,16 +3,9 @@
 //! their scale (`"0.50"`). This covers the amounts and bare numbers of the account, journal, commodity and error
 //! endpoints, the error metas included, and the budget pages' built-in query.
 
-use std::sync::Arc;
-
 use axum::extract::{Path, State};
-use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::Value;
-use tokio::sync::RwLock;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
 use zhang_server::request::{AccountJournalRequest, BuiltinQueryRunRequest, JournalRequest};
 use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::commodity::{get_all_commodities, get_single_commodity};
@@ -20,6 +13,8 @@ use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::get_journals;
 use zhang_server::routes::Query;
 use zhang_server::state::SharedLedger;
+use zhang_testkit::http::{body, shared};
+use zhang_testkit::ledger::load_text;
 
 /// Tiny numbers in BTC; a huge USD holding and expense, which valued in CNY need more than 28 digits and are rounded
 /// to 28 (`1.234567890123456789012345679E+30` in `BigDecimal`'s notation).
@@ -60,19 +55,8 @@ const LEDGER: &str = r#"option "operating_currency" "CNY"
   Equity:Open
 "#;
 
-async fn ledger() -> SharedLedger {
-    let dir = tempfile::tempdir().unwrap().keep();
-    std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::load(dir, "main.zhang".to_owned(), source).unwrap();
-    SharedLedger(Arc::new(RwLock::new(ledger)))
-}
-
-async fn json(response: impl IntoResponse) -> Value {
-    let response = response.into_response();
-    assert!(response.status().is_success(), "{}", response.status());
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
+fn ledger() -> SharedLedger {
+    shared(load_text(LEDGER))
 }
 
 fn journal_request() -> JournalRequest {
@@ -124,38 +108,38 @@ fn find<'a>(records: &'a Value, key: &str, value: &str) -> &'a Value {
 
 #[tokio::test]
 async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
-    let ledger = ledger().await;
+    let ledger = ledger();
     let wallet = || Path(("Assets:Wallet".to_owned(),));
     let vault = || Path(("Assets:Vault".to_owned(),));
     let mut responses = vec![];
 
-    let list = json(get_account_list(State(ledger.clone())).await).await;
+    let list = body(get_account_list(State(ledger.clone())).await).await;
     responses.push(("/api/accounts", list));
-    let info = json(get_account_info(State(ledger.clone()), wallet()).await).await;
+    let info = body(get_account_info(State(ledger.clone()), wallet()).await).await;
     responses.push(("/api/accounts/Assets:Wallet", info));
-    let info = json(get_account_info(State(ledger.clone()), vault()).await).await;
+    let info = body(get_account_info(State(ledger.clone()), vault()).await).await;
     responses.push(("/api/accounts/Assets:Vault", info));
-    let journal = json(get_account_journals(State(ledger.clone()), wallet(), Query(AccountJournalRequest::default())).await).await;
+    let journal = body(get_account_journals(State(ledger.clone()), wallet(), Query(AccountJournalRequest::default())).await).await;
     responses.push(("/api/accounts/Assets:Wallet/journals", journal));
-    let journals = json(get_journals(State(ledger.clone()), Query(journal_request())).await).await;
+    let journals = body(get_journals(State(ledger.clone()), Query(journal_request())).await).await;
     responses.push(("/api/journals", journals));
-    let commodities = json(get_all_commodities(State(ledger.clone())).await).await;
+    let commodities = body(get_all_commodities(State(ledger.clone())).await).await;
     responses.push(("/api/commodities", commodities));
-    let detail = json(get_single_commodity(State(ledger.clone()), Path(("BTC".to_owned(),))).await).await;
+    let detail = body(get_single_commodity(State(ledger.clone()), Path(("BTC".to_owned(),))).await).await;
     responses.push(("/api/commodities/BTC", detail));
     // the Budgets page: the built-in query `budgets.month`, run by name
     let budgets = BuiltinQueryRunRequest {
         params: serde_json::from_value(serde_json::json!({ "month": "2024-01-01" })).unwrap(),
         count_total: None,
     };
-    let budgets = json(run_builtin_query(State(ledger.clone()), Path(("budgets.month".to_owned(),)), Json(budgets)).await).await;
+    let budgets = body(run_builtin_query(State(ledger.clone()), Path(("budgets.month".to_owned(),)), Json(budgets)).await).await;
     responses.push(("/api/query/builtins/budgets.month", budgets));
     // the error box: the built-in query `journals.errors`, run by name
     let errors = BuiltinQueryRunRequest {
         params: serde_json::from_value(serde_json::json!({ "size": 100, "offset": 0 })).unwrap(),
         count_total: None,
     };
-    let errors = json(run_builtin_query(State(ledger.clone()), Path(("journals.errors".to_owned(),)), Json(errors)).await).await;
+    let errors = body(run_builtin_query(State(ledger.clone()), Path(("journals.errors".to_owned(),)), Json(errors)).await).await;
     responses.push(("/api/query/builtins/journals.errors", errors));
 
     let mut found = vec![];

@@ -10,24 +10,18 @@
 //! export back gives the same transaction.
 //!
 //! Written against the contract, not the implementation: a posting's metadata is
-//! `Posting.meta` (see `support::posting_meta`), with the same `Meta` type as
+//! `Posting.meta` (see `zhang_testkit::dialect::posting_meta`), with the same `Meta` type as
 //! `Transaction.meta`, and deserialising a posting without `meta` gives empty metadata.
 
-#[path = "support/posting_metadata.rs"]
-mod support;
-
-use std::path::Path;
-use std::sync::Arc;
-
 use indoc::indoc;
-use support::*;
 use zhang_ast::*;
-use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
-use zhang_core::ledger::Ledger;
 use zhang_core::utils::string_::QuoteStyle;
+use zhang_testkit::dialect::*;
+use zhang_testkit::fixtures::fixture_dir;
+use zhang_testkit::ledger::load_text;
 
 fn transactions(text: &str) -> Vec<Transaction> {
     ZhangDataType {}
@@ -333,7 +327,7 @@ fn transaction_metadata_after_the_postings_at_their_indentation_stays_on_the_tra
 
 #[test]
 fn the_existing_inline_comment_fixture_keeps_its_transaction_metadata() {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../integration-tests/inline-comment-and-trailling-space/data.zhang");
+    let fixture = fixture_dir("inline-comment-and-trailling-space").join("data.zhang");
     let text = std::fs::read_to_string(&fixture).unwrap();
     let txns = transactions(&text);
     assert_eq!(txns.len(), 1, "{text}");
@@ -358,18 +352,9 @@ const LEDGER: &str = indoc! {r#"
       legacy: "after the postings"
 "#};
 
-fn load(text: &str) -> (tempfile::TempDir, Ledger) {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("main.zhang"), text).unwrap();
-    let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source))
-        .unwrap_or_else(|err| panic!("ledger should load: {err}"));
-    (dir, ledger)
-}
-
 #[test]
 fn a_loaded_ledger_keeps_posting_metadata_apart_from_transaction_metadata() {
-    let (_dir, ledger) = load(LEDGER);
+    let ledger = load_text(LEDGER);
     let txns: Vec<&Transaction> = ledger
         .directives
         .iter()
@@ -578,6 +563,11 @@ fn posting_metadata_survives_the_plugin_json() {
 /// The same older stream, returned by a real WASM processor plugin.
 #[cfg(feature = "plugin_runtime")]
 mod older_wasm_plugin {
+    use std::sync::Arc;
+
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::ledger::Ledger;
+
     use super::*;
 
     /// A processor plugin, in WAT, that ignores its input and returns `output`.
