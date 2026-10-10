@@ -48,6 +48,8 @@ Clients that are not browsers can keep sending the credentials as an HTTP Basic 
 curl -u admin:admin888 http://localhost:8000/api/info
 ```
 
+A session token (the value of the `zhang_session` cookie, or the token the [mobile app](#mobile-app-sign-in) receives) is accepted as an `Authorization: Bearer <token>` header too.
+
 Requests to `/api/*` without a valid session or `Authorization` header are answered with `401` and the JSON body `{"message": "unauthorized"}`.
 
 ## Passkeys
@@ -118,9 +120,43 @@ docker run --name zhang \
 
 Without `ZHANG_SESSION_SECRET`, a random key is generated every time the server starts, so a restart signs every browser out. Changing the secret signs every browser out as well.
 
+## Mobile app sign-in
+
+A mobile app cannot use the passkeys of an arbitrary domain by itself, so it signs in through the login page of the server in the system browser (`ASWebAuthenticationSession` on iOS, Custom Tabs on Android), where passkeys and the password work as on the web, and receives the session through a one-time code:
+
+1. The app opens `https://zhang.example.com/login?return_to=zhang-app://auth/callback` (URL-encode `return_to` when it carries a query of its own).
+2. You sign in with a passkey or the password, or register the first passkey. When the browser is already signed in, this step is skipped.
+3. The login page shows **Returning to the app…**, asks the server for a one-time code with `POST /api/auth/app/code` and opens `zhang-app://auth/callback?code=…`.
+4. The app sends the code to `POST /api/auth/app/exchange` and receives the session token, which it sends as `Authorization: Bearer <token>` with every request.
+
+| Endpoint | Needs | Request | Response |
+| --- | --- | --- | --- |
+| `POST /api/auth/app/code` | a session (cookie or Bearer token) | `{"return_to": "zhang-app://auth/callback"}` | `{"data": {"code": "…", "redirect": "zhang-app://auth/callback?code=…"}}` |
+| `POST /api/auth/app/exchange` | nothing, the code is the credential | `{"code": "…"}` | `{"data": {"token": "…", "expires_at": "2026-11-09T08:00:00Z", "user": "admin"}}` |
+
+`GET /api/auth/status` reports `"app_login": true` and the allowed schemes in `"app_return_schemes"`, so an app can tell whether the server supports this. An unknown, expired or already used code is answered with `401` and `{"message": "invalid or expired code"}`; a `return_to` of a scheme that is not allowed with `400`.
+
+The app URL must use the `zhang-app` scheme. To allow other schemes, for example for a build of the app with its own scheme, list them, comma-separated, in the `ZHANG_APP_RETURN_SCHEMES` environment variable:
+
+```shell
+docker run --name zhang \
+  -e "ZHANG_PASSKEY=a-long-random-secret" \
+  -e "ZHANG_SESSION_SECRET=$(openssl rand -hex 32)" \
+  -e "ZHANG_APP_RETURN_SCHEMES=my-zhang-app" \
+  kilerd/zhang:latest
+```
+
+Security notes:
+
+- A code can be exchanged once, within 60 seconds, and is bound to the session that asked for it: it stops working when that session ends (for example because its passkey was removed). Codes are kept in memory, so a restart drops the pending ones.
+- Only app URLs of the allowed schemes are returned to, so the login page cannot be used to redirect the browser to another web site. Do not add `http` or `https` to `ZHANG_APP_RETURN_SCHEMES`.
+- Failed exchanges count as [failed sign-in attempts](#failed-sign-in-attempts).
+- The token is the session token of the browser: it lasts as long as the browser session (30 days from the sign-in) and ends in the same cases, when `ZHANG_AUTH` or `ZHANG_SESSION_SECRET` changes or its passkey is removed. Signing out (in the browser or in the app) does not revoke a token that was handed off, as sessions are not stored on the server; to end every session, change `ZHANG_SESSION_SECRET`.
+- Set `ZHANG_SESSION_SECRET`, otherwise every restart signs the app out as well.
+
 ## Failed sign-in attempts
 
-To slow down password guessing, failed attempts at the password login and at the passkey registration secret are counted. After 5 failed attempts within 15 minutes from the same address, or 50 from all addresses together, further attempts are refused with `429 Too Many Requests` (and a `Retry-After` header) until the 15 minutes have passed, even with the right password. A successful sign-in resets the count of its address. Browsers that are already signed in, and passkey sign-ins, are not affected.
+To slow down password guessing, failed attempts at the password login, at the passkey registration secret and at exchanging an [app sign-in](#mobile-app-sign-in) code are counted. After 5 failed attempts within 15 minutes from the same address, or 50 from all addresses together, further attempts are refused with `429 Too Many Requests` (and a `Retry-After` header) until the 15 minutes have passed, even with the right password. A successful sign-in resets the count of its address. Browsers that are already signed in, and passkey sign-ins, are not affected.
 
 The address is the one the [reverse proxy](#reverse-proxies) reports in `X-Forwarded-For`, or the address of the connection without a proxy. The counts are kept in memory, so they start over when the server restarts.
 
@@ -136,4 +172,5 @@ Behind a reverse proxy, Zhang Accounting takes the address of the browser, and t
 - **The login page comes back right after signing in**: the browser did not keep the session cookie. Behind a proxy that sets `X-Forwarded-Proto: https`, the cookie is `Secure` and only kept over HTTPS; open the web UI through HTTPS.
 - **Passkeys are not offered, or the browser rejects them**: open the web UI through its domain name (or `localhost`) over HTTPS, and when it runs behind a proxy that does not forward the host, set `ZHANG_PASSKEY_ORIGIN`.
 - **"The registration secret is incorrect"**: enter the exact value of `ZHANG_PASSKEY` the server was started with.
+- **The app sign-in answers "the scheme … of return_to is not allowed"**: add the scheme of the app URL to `ZHANG_APP_RETURN_SCHEMES`.
 - **"too many attempts, try again in N minutes"**: too many failed attempts were made, see [Failed sign-in attempts](#failed-sign-in-attempts). Wait, or restart the server to clear the counts.

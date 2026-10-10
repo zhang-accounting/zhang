@@ -12,6 +12,16 @@ export interface AuthStatus {
   user?: string | null;
   /** Ledger title, readable before signing in (`/api/info` is protected). */
   title?: string | null;
+  /** The server supports the mobile app login handoff (`/login?return_to=<app url>`); absent on older servers. */
+  app_login?: boolean;
+  /** URL schemes the handoff may return to (`zhang-app` and `ZHANG_APP_RETURN_SCHEMES`). */
+  app_return_schemes?: string[];
+}
+
+/** One-time code of the app login handoff and the app URL carrying it. */
+export interface AppCode {
+  code: string;
+  redirect: string;
 }
 
 export interface PasskeyInfo {
@@ -71,6 +81,9 @@ export const fetchAuthStatus = () => authRequest<AuthStatus>('/status');
 export const login = (username: string, password: string) => authRequest<void>('/login', 'POST', { username, password });
 
 export const logout = () => authRequest<void>('/logout', 'POST');
+
+/** Asks for a one-time code for the signed-in session; the app exchanges it for the session token. */
+export const createAppCode = (returnTo: string) => authRequest<AppCode>('/app/code', 'POST', { return_to: returnTo });
 
 /** `secret` is the `ZHANG_PASSKEY` value; `null` once signed in (adding another passkey from Settings). */
 export const startPasskeyRegistration = (secret: string | null, name: string | null) =>

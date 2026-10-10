@@ -59,6 +59,23 @@ export interface paths {
      */
     get: operations['get_account_journals'];
   };
+  '/api/auth/app/code': {
+    /**
+     * App Login Code
+     * @description Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
+     * `return_to` with the code appended; needs a session (cookie or Bearer). The scheme of
+     * `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+     */
+    post: operations['app_login_code'];
+  };
+  '/api/auth/app/exchange': {
+    /**
+     * App Login Exchange
+     * @description Exchanges a one-time code of the app login handoff for the session token, to send as
+     * `Authorization: Bearer`. A code can be exchanged once; failures count towards the sign-in limit.
+     */
+    post: operations['app_login_exchange'];
+  };
   '/api/auth/login': {
     /**
      * Auth Login
@@ -680,6 +697,69 @@ export interface operations {
     };
   };
   /**
+   * App Login Code
+   * @description Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
+   * `return_to` with the code appended; needs a session (cookie or Bearer). The scheme of
+   * `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+   */
+  app_login_code: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description the app url to return to with the code, of the `zhang-app` scheme or one of `ZHANG_APP_RETURN_SCHEMES` */
+          return_to: string;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description the one-time code, valid for 60 seconds */
+              code: string;
+              /** @description the app url with the code appended to its query */
+              redirect: string;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * App Login Exchange
+   * @description Exchanges a one-time code of the app login handoff for the session token, to send as
+   * `Authorization: Bearer`. A code can be exchanged once; failures count towards the sign-in limit.
+   */
+  app_login_exchange: {
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description the one-time code of `POST /api/auth/app/code` */
+          code: string;
+        };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /** @description when the session ends */
+              expires_at: string;
+              /** @description the session token, to send as `Authorization: Bearer <token>` */
+              token: string;
+              /** @description who the session belongs to */
+              user: string;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
    * Auth Login
    * @description Exchanges the `ZHANG_AUTH` credential for a session cookie.
    */
@@ -698,6 +778,13 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              /**
+               * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
+               * `POST /api/auth/app/exchange`)
+               */
+              app_login: boolean;
+              /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
+              app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
               authenticated: boolean;
               /** @description whether any authentication method is enabled */
@@ -731,6 +818,13 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              /**
+               * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
+               * `POST /api/auth/app/exchange`)
+               */
+              app_login: boolean;
+              /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
+              app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
               authenticated: boolean;
               /** @description whether any authentication method is enabled */
@@ -776,6 +870,13 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              /**
+               * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
+               * `POST /api/auth/app/exchange`)
+               */
+              app_login: boolean;
+              /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
+              app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
               authenticated: boolean;
               /** @description whether any authentication method is enabled */
@@ -848,6 +949,13 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              /**
+               * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
+               * `POST /api/auth/app/exchange`)
+               */
+              app_login: boolean;
+              /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
+              app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
               authenticated: boolean;
               /** @description whether any authentication method is enabled */
@@ -961,6 +1069,13 @@ export interface operations {
         content: {
           'application/json': {
             data: {
+              /**
+               * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
+               * `POST /api/auth/app/exchange`)
+               */
+              app_login: boolean;
+              /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
+              app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
               authenticated: boolean;
               /** @description whether any authentication method is enabled */

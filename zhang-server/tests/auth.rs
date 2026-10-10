@@ -115,6 +115,7 @@ struct Settings {
     rp_id: Option<&'static str>,
     origin: Option<&'static str>,
     session_secret: Option<&'static str>,
+    app_return_schemes: Option<&'static str>,
 }
 
 impl Settings {
@@ -170,6 +171,7 @@ async fn app_and_ledger(dir: &Path, settings: &Settings) -> (ServerApp, Arc<RwLo
             passkey_rp_id: settings.rp_id.map(str::to_owned),
             passkey_origin: settings.origin.map(str::to_owned),
             session_secret: settings.session_secret.map(str::to_owned),
+            app_return_schemes: settings.app_return_schemes.map(str::to_owned),
         },
         ledger.clone(),
         Broadcaster::create(),
@@ -341,7 +343,9 @@ async fn without_credentials_everything_stays_open() {
             "methods": {"password": false, "passkey": false},
             "passkey_registered": false,
             "user": null,
-            "title": "Auth Test"
+            "title": "Auth Test",
+            "app_login": true,
+            "app_return_schemes": ["zhang-app"]
         }})
     );
     assert!(!dir.passkeys_file().exists());
@@ -363,7 +367,9 @@ async fn password_sessions_guard_the_api() {
             "methods": {"password": true, "passkey": false},
             "passkey_registered": false,
             "user": null,
-            "title": "Auth Test"
+            "title": "Auth Test",
+            "app_login": true,
+            "app_return_schemes": ["zhang-app"]
         }})
     );
 
@@ -812,6 +818,8 @@ async fn the_auth_endpoints_are_documented() {
     assert_eq!(
         paths,
         vec![
+            "/api/auth/app/code",
+            "/api/auth/app/exchange",
             "/api/auth/login",
             "/api/auth/logout",
             "/api/auth/passkey/login/finish",
@@ -1175,4 +1183,204 @@ async fn router_plugins_need_a_session_and_never_see_it() {
     let list = get(&router, "/api/plugins", &[("cookie", &cookie)]).await;
     assert_eq!(list.status, StatusCode::OK);
     assert_eq!(list.body["data"][0]["route"], "/api/plugins/router-echo");
+}
+
+/// The token of a `zhang_session=<token>` cookie pair, as an `Authorization: Bearer` header value.
+fn bearer(cookie: &str) -> String {
+    format!("Bearer {}", cookie.strip_prefix("zhang_session=").unwrap())
+}
+
+#[tokio::test]
+async fn session_tokens_work_as_bearer_tokens() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::both()).await;
+    let cookie = password_login(&router).await;
+
+    let info = get(&router, "/api/info", &[("authorization", &bearer(&cookie))]).await;
+    assert_eq!(info.status, StatusCode::OK, "{}", info.body);
+    let status = get(&router, "/api/auth/status", &[("authorization", &bearer(&cookie))]).await;
+    assert_eq!(status.body["data"]["authenticated"], true);
+    assert_eq!(status.body["data"]["user"], "admin");
+
+    // a passkey session too
+    let mut phone = soft_authenticator();
+    let registered = register_passkey(&router, &mut phone, &[("cookie", &cookie)], json!({"name": "Phone"})).await;
+    assert_eq!(registered.status, StatusCode::OK, "{}", registered.body);
+    let passkey_cookie = passkey_login(&router, &mut phone).await.session_cookie();
+    assert_eq!(
+        get(&router, "/api/info", &[("authorization", &bearer(&passkey_cookie))]).await.status,
+        StatusCode::OK
+    );
+
+    // the same checks as the cookie: signed, not expired, still backed by the configuration
+    assert_unauthorized(&get(&router, "/api/info", &[("authorization", "Bearer garbage")]).await);
+    let expired = sign_token(json!({"sub": "admin", "exp": chrono::Utc::now().timestamp() - 1, "pw": password_fingerprint()}));
+    assert_unauthorized(&get(&router, "/api/info", &[("authorization", &bearer(&expired))]).await);
+    let rotated = server(
+        &dir.0,
+        &Settings {
+            auth: Some("admin:another"),
+            ..Settings::both()
+        },
+    )
+    .await;
+    assert_unauthorized(&get(&rotated, "/api/info", &[("authorization", &bearer(&cookie))]).await);
+    // an invalid bearer token does not hide a valid cookie
+    let reply = get(&router, "/api/info", &[("authorization", "Bearer garbage"), ("cookie", &cookie)]).await;
+    assert_eq!(reply.status, StatusCode::OK);
+}
+
+async fn app_code(router: &Router, headers: &[(&str, &str)], return_to: &str) -> Reply {
+    post(router, "/api/auth/app/code", headers, json!({ "return_to": return_to })).await
+}
+
+async fn app_exchange(router: &Router, client: &str, code: &str) -> Reply {
+    post(router, "/api/auth/app/exchange", &[("x-forwarded-for", client)], json!({ "code": code })).await
+}
+
+#[tokio::test]
+async fn the_app_login_handoff_exchanges_a_one_time_code_for_the_session_token() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::password()).await;
+    let status = get(&router, "/api/auth/status", &[]).await;
+    assert_eq!(status.body["data"]["app_login"], true);
+    assert_eq!(status.body["data"]["app_return_schemes"], json!(["zhang-app"]));
+
+    // a code needs a session
+    assert_unauthorized(&app_code(&router, &[], "zhang-app://auth/callback").await);
+    let basic = format!("Basic {}", BASE64_STANDARD.encode("admin:secret"));
+    assert_unauthorized(&app_code(&router, &[("authorization", &basic)], "zhang-app://auth/callback").await);
+
+    let cookie = password_login(&router).await;
+    let issued = app_code(&router, &[("cookie", &cookie)], "zhang-app://auth/callback?x=1").await;
+    assert_eq!(issued.status, StatusCode::OK, "{}", issued.body);
+    let code = issued.body["data"]["code"].as_str().unwrap().to_owned();
+    assert_eq!(URL_SAFE_NO_PAD.decode(&code).unwrap().len(), 32);
+    assert_eq!(issued.body["data"]["redirect"], format!("zhang-app://auth/callback?x=1&code={code}"));
+    assert!(issued.headers.get(header::SET_COOKIE).is_none(), "the browser session stays as it is");
+
+    let exchanged = app_exchange(&router, "198.51.100.30", &code).await;
+    assert_eq!(exchanged.status, StatusCode::OK, "{}", exchanged.body);
+    let token = exchanged.body["data"]["token"].as_str().unwrap().to_owned();
+    assert_eq!(format!("zhang_session={token}"), cookie, "the token is the session of the browser");
+    assert_eq!(exchanged.body["data"]["user"], "admin");
+    let expires_at = chrono::DateTime::parse_from_rfc3339(exchanged.body["data"]["expires_at"].as_str().unwrap()).unwrap();
+    let ttl = expires_at.timestamp() - chrono::Utc::now().timestamp();
+    assert!((30 * 24 * 60 * 60 - 60..=30 * 24 * 60 * 60).contains(&ttl), "expires in {ttl} s");
+    let info = get(&router, "/api/info", &[("authorization", &format!("Bearer {token}"))]).await;
+    assert_eq!(info.status, StatusCode::OK);
+
+    // a code is used once
+    let again = app_exchange(&router, "198.51.100.30", &code).await;
+    assert_eq!(again.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(again.body, json!({"message": "invalid or expired code"}));
+    assert_eq!(app_exchange(&router, "198.51.100.30", "unknown").await.status, StatusCode::UNAUTHORIZED);
+
+    // the app can ask for a code with its Bearer token too
+    let issued = app_code(&router, &[("authorization", &format!("Bearer {token}"))], "zhang-app://auth/callback").await;
+    assert_eq!(issued.status, StatusCode::OK, "{}", issued.body);
+    assert_eq!(
+        issued.body["data"]["redirect"],
+        format!("zhang-app://auth/callback?code={}", issued.body["data"]["code"].as_str().unwrap())
+    );
+}
+
+#[tokio::test]
+async fn the_app_login_handoff_only_returns_to_allowed_schemes() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::password()).await;
+    let cookie = password_login(&router).await;
+    for (return_to, message) in [
+        (
+            "https://evil.example.com/callback",
+            "the scheme `https` of return_to is not allowed, allow it with ZHANG_APP_RETURN_SCHEMES",
+        ),
+        (
+            "my-app://callback",
+            "the scheme `my-app` of return_to is not allowed, allow it with ZHANG_APP_RETURN_SCHEMES",
+        ),
+        ("/settings", "return_to is not a valid url"),
+        ("zhang-app://auth/callback?code=planted", "return_to must not carry a `code` parameter"),
+    ] {
+        let reply = app_code(&router, &[("cookie", &cookie)], return_to).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{return_to}: {}", reply.body);
+        assert_eq!(reply.body, json!({ "message": message }), "{return_to}");
+    }
+
+    let router = server(
+        &dir.0,
+        &Settings {
+            app_return_schemes: Some("My-App, javascript"),
+            ..Settings::password()
+        },
+    )
+    .await;
+    let status = get(&router, "/api/auth/status", &[]).await;
+    assert_eq!(status.body["data"]["app_return_schemes"], json!(["zhang-app", "my-app"]));
+    let reply = app_code(&router, &[("cookie", &cookie)], "my-app://callback").await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    let reply = app_code(&router, &[("cookie", &cookie)], "javascript:alert(1)").await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+
+    // without authentication there is no session to hand off
+    let open = server(&dir.0, &Settings::default()).await;
+    let reply = app_code(&open, &[], "zhang-app://auth/callback").await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.body, json!({"message": "authentication is not enabled"}));
+}
+
+#[tokio::test]
+async fn passkey_sessions_are_handed_off_until_they_end() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::both()).await;
+    let cookie = password_login(&router).await;
+    let mut phone = soft_authenticator();
+    register_passkey(&router, &mut phone, &[("cookie", &cookie)], json!({"name": "Phone"})).await;
+    let phone_cookie = passkey_login(&router, &mut phone).await.session_cookie();
+    let new_code = || async {
+        app_code(&router, &[("cookie", &phone_cookie)], "zhang-app://auth/callback").await.body["data"]["code"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    let exchanged = app_exchange(&router, "198.51.100.31", &new_code().await).await;
+    assert_eq!(exchanged.status, StatusCode::OK, "{}", exchanged.body);
+    assert_eq!(exchanged.body["data"]["user"], "admin");
+    let token = exchanged.body["data"]["token"].as_str().unwrap().to_owned();
+    assert_eq!(
+        get(&router, "/api/info", &[("authorization", &format!("Bearer {token}"))]).await.status,
+        StatusCode::OK
+    );
+    let code = new_code().await;
+
+    // the passkey is removed before the app exchanges the code
+    let phone_id = dir.stored_passkeys()[0]["id"].as_str().unwrap().to_owned();
+    let reply = call(&router, Method::DELETE, &format!("/api/auth/passkeys/{phone_id}"), &[("cookie", &cookie)], None).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    let reply = app_exchange(&router, "198.51.100.31", &code).await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(reply.body, json!({"message": "invalid or expired code"}));
+    // and so does the token the app received
+    assert_unauthorized(&get(&router, "/api/info", &[("authorization", &format!("Bearer {token}"))]).await);
+}
+
+#[tokio::test]
+async fn failed_app_login_exchanges_are_rate_limited_with_the_logins() {
+    let dir = ScratchDir::new();
+    let router = server(&dir.0, &Settings::password()).await;
+    let cookie = password_login(&router).await;
+    let code = app_code(&router, &[("cookie", &cookie)], "zhang-app://auth/callback").await.body["data"]["code"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let attacker = "203.0.113.9";
+
+    for _ in 0..5 {
+        assert_eq!(app_exchange(&router, attacker, "guess").await.status, StatusCode::UNAUTHORIZED);
+    }
+    // refused before the code is looked at, even a valid one, which stays valid
+    assert_too_many_attempts(&app_exchange(&router, attacker, &code).await);
+    assert_too_many_attempts(&login_from(&router, attacker, "secret").await);
+    assert_eq!(app_exchange(&router, "203.0.113.10", &code).await.status, StatusCode::OK);
 }

@@ -39,6 +39,7 @@ async fn server(dir: &Path) -> Router {
             passkey_rp_id: None,
             passkey_origin: None,
             session_secret: None,
+            app_return_schemes: None,
         },
         Arc::new(RwLock::new(ledger)),
         Broadcaster::create(),

@@ -10,7 +10,12 @@
 //! and the expiry. When authentication is enabled every `/api/*` route but `/api/auth/*` requires
 //! a session (or the Basic header), answering `401 {"message": "unauthorized"}` otherwise. There is
 //! no `WWW-Authenticate` header, so browsers show the login page instead of their credentials popup.
+//!
+//! The session token is accepted as `Authorization: Bearer <token>` too: the mobile app signs in
+//! through the login page in the system browser and receives the token of that session through a
+//! one-time code, see [`app_login`].
 
+pub mod app_login;
 pub mod limiter;
 pub mod passkey;
 pub mod session;
@@ -36,12 +41,13 @@ use webauthn_rs::prelude::{AuthenticationResult, Passkey, Url};
 use zhang_core::ledger::Ledger;
 use zhang_core::{ZhangError, ZhangResult};
 
+use self::app_login::{AppCodes, ReturnToError};
 use self::limiter::FailureLimiter;
 use self::passkey::{Ceremonies, Ceremony, CeremonyKind, RelyingParty};
 pub use self::passkey::{PasskeyRecord, PASSKEYS_PATH, STATE_DIR};
 use self::session::{SessionClaims, SessionKey};
 use crate::error::ServerError;
-use crate::response::{AuthMethodsEntity, AuthStatusEntity, PasskeyEntity, ResponseWrapper};
+use crate::response::{AppCodeEntity, AppTokenEntity, AuthMethodsEntity, AuthStatusEntity, PasskeyEntity, ResponseWrapper};
 use crate::{ServeConfig, ServerResult};
 
 /// The name of the session cookie.
@@ -84,6 +90,8 @@ pub struct AuthConfig {
     pub passkey_origin: Option<String>,
     /// the key that signs the sessions; random (sessions end on restart) when absent
     pub session_secret: Option<String>,
+    /// more schemes the app login handoff may return to (comma separated), next to `zhang-app`
+    pub app_return_schemes: Option<String>,
 }
 
 impl AuthConfig {
@@ -97,6 +105,7 @@ impl AuthConfig {
             passkey_rp_id: non_empty(&opts.passkey_rp_id),
             passkey_origin: non_empty(&opts.passkey_origin),
             session_secret: opts.session_secret.clone().filter(|it| !it.is_empty()),
+            app_return_schemes: non_empty(&opts.app_return_schemes),
         }
     }
 }
@@ -118,6 +127,10 @@ fn passkey_disabled() -> ServerError {
 
 fn expired_ceremony() -> ServerError {
     ServerError::InvalidInput("the passkey request is unknown or expired, please try again".to_owned())
+}
+
+fn invalid_app_code() -> ServerError {
+    ServerError::Unauthorized("invalid or expired code".to_owned())
 }
 
 /// A JSON response that may also set (or clear) the session cookie.
@@ -208,6 +221,19 @@ fn session_cookie_values(headers: &HeaderMap) -> impl Iterator<Item = &str> {
         .map(|(_, value)| value.trim())
 }
 
+/// The token of an `Authorization: Bearer` header.
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, token) = value.trim().split_once(' ')?;
+    let token = token.trim();
+    (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then_some(token)
+}
+
+/// The session tokens a request carries: those of its session cookies, then its Bearer token.
+fn session_tokens(headers: &HeaderMap) -> impl Iterator<Item = &str> {
+    session_cookie_values(headers).chain(bearer_token(headers))
+}
+
 /// Whether a request has to be authenticated: the API, but not its auth endpoints, nor the CORS
 /// preflights. The frontend (static assets and the SPA fallback) never is.
 pub fn requires_authentication(method: &Method, path: &str) -> bool {
@@ -222,6 +248,9 @@ pub struct AuthState {
     passkeys: RwLock<Vec<PasskeyRecord>>,
     ceremonies: Mutex<Ceremonies>,
     failures: Mutex<FailureLimiter>,
+    /// the schemes the app login handoff may return to
+    app_return_schemes: Vec<String>,
+    app_codes: Mutex<AppCodes>,
 }
 
 #[derive(Clone)]
@@ -244,6 +273,8 @@ impl AuthState {
         }
         AuthState {
             key: SessionKey::new(config.session_secret.as_deref()),
+            app_return_schemes: app_login::return_schemes(config.app_return_schemes.as_deref()),
+            app_codes: Mutex::new(AppCodes::default()),
             config,
             ledger,
             passkeys: RwLock::new(vec![]),
@@ -360,9 +391,9 @@ impl AuthState {
         (Principal { user: subject }, token)
     }
 
-    /// The principal of a session token that is signed, not expired, and still backed by the
+    /// The claims of a session token that is signed, not expired, and still backed by the
     /// configuration: the same password credential, or a passkey that is still registered.
-    async fn session_principal(&self, token: &str) -> Option<Principal> {
+    async fn session_claims(&self, token: &str) -> Option<SessionClaims> {
         let claims = self.key.verify(token, Utc::now().timestamp())?;
         let valid = match (&claims.pw, &claims.pk) {
             (Some(fingerprint), None) => self
@@ -373,7 +404,17 @@ impl AuthState {
             (None, Some(passkey_id)) => self.passkey_enabled() && self.passkeys.read().await.iter().any(|record| record.id == *passkey_id),
             _ => false,
         };
-        valid.then_some(Principal { user: claims.sub })
+        valid.then_some(claims)
+    }
+
+    /// The session (its principal and token) of the first valid session cookie or Bearer token.
+    async fn session(&self, headers: &HeaderMap) -> Option<(Principal, String)> {
+        for token in session_tokens(headers) {
+            if let Some(claims) = self.session_claims(token).await {
+                return Some((Principal { user: claims.sub }, token.to_owned()));
+            }
+        }
+        None
     }
 
     /// The principal of an `Authorization: Basic` header, accepted when the password method is enabled.
@@ -388,14 +429,12 @@ impl AuthState {
         self.verify_password(username, password).then(|| Principal { user: username.to_owned() })
     }
 
-    /// Who the request is authenticated as, by its session cookie or its Basic header.
+    /// Who the request is authenticated as, by its session cookie, its Bearer token or its Basic header.
     pub async fn authenticate(&self, headers: &HeaderMap) -> Option<Principal> {
-        for token in session_cookie_values(headers) {
-            if let Some(principal) = self.session_principal(token).await {
-                return Some(principal);
-            }
+        match self.session(headers).await {
+            Some((principal, _)) => Some(principal),
+            None => self.basic_principal(headers),
         }
-        self.basic_principal(headers)
     }
 
     async fn require_principal(&self, headers: &HeaderMap) -> ServerResult<Principal> {
@@ -429,6 +468,8 @@ impl AuthState {
             passkey_registered: !self.passkeys.read().await.is_empty(),
             user: principal.filter(|_| enabled).map(|it| it.user.clone()),
             title,
+            app_login: true,
+            app_return_schemes: self.app_return_schemes.clone(),
         }
     }
 
@@ -511,6 +552,42 @@ impl AuthState {
             .expect("ceremonies lock is poisoned")
             .take(state_id)
             .ok_or_else(expired_ceremony)
+    }
+
+    /// A one-time code for the app url `return_to`, bound to the session of the caller.
+    async fn issue_app_code(&self, headers: &HeaderMap, return_to: &str) -> ServerResult<AppCodeEntity> {
+        if !self.enabled() {
+            return Err(ServerError::InvalidInput("authentication is not enabled".to_owned()));
+        }
+        let (principal, session) = self.session(headers).await.ok_or_else(unauthorized)?;
+        let return_to = app_login::parse_return_to(return_to, &self.app_return_schemes).map_err(|e| {
+            if let ReturnToError::SchemeNotAllowed(_) = e {
+                warn!("refused an app login handoff of {} to `{return_to}`: {e}", principal.user);
+            }
+            ServerError::InvalidInput(e.to_string())
+        })?;
+        let code = self.app_codes.lock().expect("app codes lock is poisoned").issue(session, Instant::now());
+        Ok(AppCodeEntity {
+            redirect: app_login::redirect_with_code(return_to, &code),
+            code,
+        })
+    }
+
+    /// The session token a one-time code was issued for, when the code is valid and the session still is.
+    async fn exchange_app_code(&self, code: &str) -> ServerResult<AppTokenEntity> {
+        let session = self
+            .app_codes
+            .lock()
+            .expect("app codes lock is poisoned")
+            .take(code.trim(), Instant::now())
+            .ok_or_else(invalid_app_code)?;
+        let claims = self.session_claims(&session).await.ok_or_else(invalid_app_code)?;
+        let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0).ok_or_else(invalid_app_code)?;
+        Ok(AppTokenEntity {
+            token: session,
+            expires_at,
+            user: claims.sub,
+        })
     }
 
     async fn passkey_entities(&self) -> Vec<PasskeyEntity> {
@@ -605,8 +682,10 @@ pub mod handlers {
     use super::passkey::CeremonyKind;
     use super::{expired_ceremony, unauthorized, SharedAuth, WithSessionCookie};
     use crate::error::ServerError;
-    use crate::request::{LoginRequest, PasskeyLoginFinishRequest, PasskeyRegisterFinishRequest, PasskeyRegisterStartRequest};
-    use crate::response::{AuthStatusEntity, PasskeyChallengeEntity, PasskeyEntity, ResponseWrapper};
+    use crate::request::{
+        AppCodeRequest, AppExchangeRequest, LoginRequest, PasskeyLoginFinishRequest, PasskeyRegisterFinishRequest, PasskeyRegisterStartRequest,
+    };
+    use crate::response::{AppCodeEntity, AppTokenEntity, AuthStatusEntity, PasskeyChallengeEntity, PasskeyEntity, ResponseWrapper};
     use crate::{ApiResult, ServerResult};
 
     fn webauthn_error(context: &str, error: impl std::fmt::Display) -> ServerError {
@@ -766,6 +845,40 @@ pub mod handlers {
         Ok(auth.status_with_cookie(&headers, Some(session)).await)
     }
 
+    /// Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
+    /// `return_to` with the code appended; needs a session (cookie or Bearer). The scheme of
+    /// `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+    #[api(group = "auth")]
+    pub async fn app_login_code(
+        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, Json(payload): Json<AppCodeRequest>,
+    ) -> ApiResult<AppCodeEntity> {
+        Ok(ResponseWrapper {
+            data: auth.issue_app_code(&headers, &payload.return_to).await?,
+        })
+    }
+
+    /// Exchanges a one-time code of the app login handoff for the session token, to send as
+    /// `Authorization: Bearer`. A code can be exchanged once; failures count towards the sign-in limit.
+    #[api(group = "auth")]
+    pub async fn app_login_exchange(
+        State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
+        Json(payload): Json<AppExchangeRequest>,
+    ) -> ApiResult<AppTokenEntity> {
+        let client = auth.client(&headers, peer);
+        auth.check_attempts(&client)?;
+        match auth.exchange_app_code(&payload.code).await {
+            Ok(token) => {
+                auth.reset_failed_attempts(&client);
+                Ok(ResponseWrapper { data: token })
+            }
+            Err(e) => {
+                warn!("invalid app login code from {client}");
+                auth.record_failed_attempt(&client);
+                Err(e)
+            }
+        }
+    }
+
     /// The registered passkeys; needs a session.
     #[api(group = "auth")]
     pub async fn get_passkeys(State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap) -> ApiResult<Vec<PasskeyEntity>> {
@@ -795,7 +908,9 @@ pub mod handlers {
 mod test {
     use axum::http::{HeaderMap, HeaderValue, Method};
 
-    use super::{forwarded_value, requires_authentication, session_cookie, session_cookie_values, PasswordCredential, RequestSite};
+    use super::{
+        bearer_token, forwarded_value, requires_authentication, session_cookie, session_cookie_values, session_tokens, PasswordCredential, RequestSite,
+    };
 
     fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -872,5 +987,16 @@ mod test {
     fn session_cookies_are_found_among_others() {
         let headers = headers(&[("cookie", "theme=dark; zhang_session=a"), ("cookie", "zhang_session=b")]);
         assert_eq!(session_cookie_values(&headers).collect::<Vec<_>>(), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn bearer_tokens_are_session_tokens_after_the_cookies() {
+        assert_eq!(bearer_token(&headers(&[("authorization", "Bearer abc.def")])), Some("abc.def"));
+        assert_eq!(bearer_token(&headers(&[("authorization", "bearer  abc.def ")])), Some("abc.def"));
+        assert_eq!(bearer_token(&headers(&[("authorization", "Bearer ")])), None);
+        assert_eq!(bearer_token(&headers(&[("authorization", "Basic YWRtaW46c2VjcmV0")])), None);
+        assert_eq!(bearer_token(&headers(&[])), None);
+        let both = headers(&[("cookie", "zhang_session=a"), ("authorization", "Bearer b")]);
+        assert_eq!(session_tokens(&both).collect::<Vec<_>>(), vec!["a", "b"]);
     }
 }

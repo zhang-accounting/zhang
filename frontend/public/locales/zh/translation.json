@@ -692,6 +692,9 @@
     "unavailable_no_fallback": "请换一个浏览器或地址登录。",
     "no_methods": "服务器没有启用任何登录方式。",
     "sign_out": "退出登录",
-    "sign_out_failed": "退出登录失败"
+    "sign_out_failed": "退出登录失败",
+    "app_returning": "正在返回 App…",
+    "app_return_failed": "无法返回 App：{{message}}",
+    "app_continue_in_browser": "在浏览器中继续"
   }
 }

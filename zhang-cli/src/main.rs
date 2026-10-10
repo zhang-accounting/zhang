@@ -72,7 +72,8 @@ pub struct ServerOpts {
 
     /// enable the passkey login; the value is the secret needed to register a passkey without a session,
     /// or enable it via env ZHANG_PASSKEY. ZHANG_PASSKEY_RP_ID and ZHANG_PASSKEY_ORIGIN override the
-    /// relying party id and origin derived from the request, ZHANG_SESSION_SECRET keeps the sessions across restarts
+    /// relying party id and origin derived from the request, ZHANG_SESSION_SECRET keeps the sessions across restarts,
+    /// ZHANG_APP_RETURN_SCHEMES adds url schemes (comma separated) the mobile app sign-in may return to, next to zhang-app
     #[clap(long)]
     pub passkey: Option<String>,
 
@@ -106,6 +107,7 @@ impl Opts {
                     passkey_rp_id: env_value("ZHANG_PASSKEY_RP_ID"),
                     passkey_origin: env_value("ZHANG_PASSKEY_ORIGIN"),
                     session_secret: env_value("ZHANG_SESSION_SECRET"),
+                    app_return_schemes: env_value("ZHANG_APP_RETURN_SCHEMES"),
                     no_report: opts.no_report,
                     data_source: Arc::new(data_source),
                 })
@@ -347,6 +349,7 @@ mod test {
                             passkey_rp_id: None,
                             passkey_origin: None,
                             session_secret: None,
+                            app_return_schemes: None,
                             no_report: false,
                             data_source: data_source.clone(),
                         },
@@ -468,6 +471,7 @@ mod test {
                 passkey_rp_id: None,
                 passkey_origin: None,
                 session_secret: Some("session-secret".to_string()),
+                app_return_schemes: None,
                 no_report: true,
                 data_source,
             },
