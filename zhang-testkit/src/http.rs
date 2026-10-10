@@ -12,8 +12,9 @@
 //! The ledger comes from [`crate::ledger::Scratch`] (a directory the test owns) or from a fixture; the harness only
 //! loads, wraps and reads. A response body is read whole, except an event stream, which is left unread.
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::body::Body;
 use axum::extract::State;
@@ -32,6 +33,8 @@ use zhang_core::ZhangResult;
 use zhang_server::broadcast::Broadcaster;
 pub use zhang_server::state::{SharedLedger, SharedReloadSender};
 pub use zhang_server::{ReloadSender, ServeConfig, ServerApp};
+
+use crate::fixtures::FixtureLedger;
 
 // ---- handler level ----------------------------------------------------------------------------------------------
 
@@ -55,6 +58,24 @@ pub fn reload() -> State<SharedReloadSender> {
 /// The two `State`s of a writing handler.
 pub fn states(ledger: Ledger) -> (State<SharedLedger>, State<SharedReloadSender>) {
     (state(ledger), reload())
+}
+
+/// A fixture ledger as the handlers share it, loaded once per process (by name) and shared read-only between the
+/// tests of the process; a test that writes to the ledger takes its own copy ([`crate::ledger::Scratch::copy_of`]).
+/// Panics, naming the fixture, when it does not load.
+pub fn fixture_shared(fixture: &FixtureLedger) -> SharedLedger {
+    static SHARED: OnceLock<Mutex<HashMap<String, SharedLedger>>> = OnceLock::new();
+    let mut loaded = SHARED.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    loaded
+        .entry(fixture.name.clone())
+        .or_insert_with(|| {
+            shared(
+                fixture
+                    .load()
+                    .unwrap_or_else(|error| panic!("{}: cannot load the ledger: {error}", fixture.name)),
+            )
+        })
+        .clone()
 }
 
 /// A response read whole: its status, headers and body as JSON (`Null` when empty, a `String` when not JSON).

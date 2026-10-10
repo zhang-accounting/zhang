@@ -130,9 +130,14 @@ impl Scratch {
 
     /// A copy of a fixture ledger's directory, for a test that writes to it.
     pub fn copy_of(fixture: &FixtureLedger) -> Scratch {
-        let dir = tempfile::Builder::new().prefix("zhang-test-").tempdir().expect("tempdir");
-        copy_dir(&fixture.dir, dir.path());
-        Scratch::from_dir(dir, &fixture.entry)
+        Scratch::copy_of_dir(&fixture.dir, &fixture.entry)
+    }
+
+    /// A copy of the ledger directory `dir`, whose main file is `main`, for a test that writes to it.
+    pub fn copy_of_dir(dir: &Path, main: &str) -> Scratch {
+        let scratch = tempfile::Builder::new().prefix("zhang-test-").tempdir().expect("tempdir");
+        copy_dir(dir, scratch.path());
+        Scratch::from_dir(scratch, main)
     }
 
     fn from_dir(dir: TempDir, main: &str) -> Scratch {

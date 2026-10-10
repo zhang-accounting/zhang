@@ -51,7 +51,9 @@ pub fn oracle_ledger_dir() -> PathBuf {
     repo_root().join("extensions/beancount/tests/balance_assertions")
 }
 
-/// A ledger of the repository: where it is, and its loaded form once something asked for it.
+/// A ledger of the repository: where it is, and its loaded form once something asked for it. A clone shares the
+/// loaded form.
+#[derive(Clone)]
 pub struct FixtureLedger {
     /// `<directory>/<entry>`, e.g. `fava-demo-ledger/main.zhang`, `examples/main.zhang`, `beancount-oracle/two_pads.bean`
     pub name: String,

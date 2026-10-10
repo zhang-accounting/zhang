@@ -472,7 +472,7 @@ async fn balance_assertions_and_pads_keep_their_shape() {
 /// padding of its sub-account.
 #[tokio::test]
 async fn a_balance_written_after_a_padding_comes_after_it() {
-    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", include_str!("fixtures/journals/review-padorder/main.zhang"))]);
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", include_str!("../fixtures/journals/review-padorder/main.zhang"))]);
     let ledger = shared_ledger(&scratch);
     let page = page(&ledger, None, None).await;
     let order = page["records"]

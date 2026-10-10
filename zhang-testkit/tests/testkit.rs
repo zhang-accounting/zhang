@@ -71,6 +71,15 @@ fn load_dir_reads_each_format_with_its_parser_and_expands_wildcard_includes() {
 }
 
 #[test]
+fn every_fixture_ledger_and_oracle_ledger_loads_in_its_format() {
+    for fixture in every_fixture_ledger().iter().chain(oracle_ledgers()) {
+        // panics, naming the fixture, when it does not load; the golden suites of zhang-server rely on it
+        let ledger = fixture.ledger();
+        assert_eq!(ledger.dialect, fixture.dialect, "{}", fixture.name);
+    }
+}
+
+#[test]
 fn the_oracle_ledgers_are_the_bean_files_of_the_oracle_directory_in_order() {
     let names = oracle_ledgers().iter().map(|it| it.name.as_str()).collect::<Vec<_>>();
     assert!(!names.is_empty());
