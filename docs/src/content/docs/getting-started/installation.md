@@ -107,7 +107,7 @@ Other environment variables:
 
 | Variable | Description |
 | --- | --- |
-| `ZHANG_SESSION_SECRET`, `ZHANG_PASSKEY_ORIGIN`, `ZHANG_PASSKEY_RP_ID` | Sessions and passkeys, see [Authentication](/deployment/authentication/). |
+| `ZHANG_SESSION_SECRET`, `ZHANG_PASSKEY_ORIGIN`, `ZHANG_PASSKEY_RP_ID`, `ZHANG_APP_RETURN_SCHEMES` | Sessions, passkeys and the mobile app sign-in, see [Authentication](/deployment/authentication/). |
 | `ZHANG_S3_*`, `ZHANG_WEBDAV_*`, `ZHANG_GITHUB_*` | The settings of the [S3](/deployment/data-sources/s3/), [WebDAV](/deployment/data-sources/webdav/) and [GitHub](/deployment/data-sources/github/) data sources. |
 | `ZHANG_QUERY_MAX_RESULT_VALUES` | How many values a [query](/reference/query-language/) result may hold before the query is stopped. Default `1000000`. Lower it on a machine with little memory. |
 | `ZHANG_LOG` | The log filter, such as `info`, `debug` or `zhang_core=trace` ([env_logger syntax](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)). When it is not set, `RUST_LOG` is used; without either, the level is `info`. The Docker image sets `RUST_LOG=info`. |

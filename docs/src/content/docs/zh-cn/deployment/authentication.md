@@ -48,6 +48,8 @@ docker run --name zhang -e "ZHANG_AUTH=admin:admin888" kilerd/zhang:latest
 curl -u admin:admin888 http://localhost:8000/api/info
 ```
 
+会话 token（`zhang_session` cookie 的值，或[移动端](#移动端登录)换到的 token）也可以放在 `Authorization: Bearer <token>` 请求头中发送。
+
 对 `/api/*` 的请求如果没有有效的会话或 `Authorization` 请求头，会得到 `401` 响应，JSON 响应体为 `{"message": "unauthorized"}`。
 
 ## 通行密钥
@@ -118,9 +120,43 @@ docker run --name zhang \
 
 没有 `ZHANG_SESSION_SECRET` 时，服务器每次启动都会生成一个随机密钥，所以重启会让所有浏览器退出登录。修改这个密钥同样会让所有浏览器退出登录。
 
+## 移动端登录
+
+移动 App 无法直接使用任意域名的通行密钥，所以它在系统浏览器（iOS 的 `ASWebAuthenticationSession`、Android 的 Custom Tabs）中打开服务器自己的登录页登录，通行密钥和密码都和网页上一样可用，再通过一次性 code 拿到会话：
+
+1. App 打开 `https://zhang.example.com/login?return_to=zhang-app://auth/callback`（`return_to` 自带查询参数时需要 URL 编码）。
+2. 用通行密钥或密码登录，或者注册第一个通行密钥。浏览器已经登录时跳过这一步。
+3. 登录页显示**正在返回 App…**，通过 `POST /api/auth/app/code` 向服务器申请一次性 code，然后打开 `zhang-app://auth/callback?code=…`。
+4. App 把 code 发给 `POST /api/auth/app/exchange`，换到会话 token，之后每个请求都带上 `Authorization: Bearer <token>`。
+
+| 端点 | 要求 | 请求 | 响应 |
+| --- | --- | --- | --- |
+| `POST /api/auth/app/code` | 已登录（cookie 或 Bearer token） | `{"return_to": "zhang-app://auth/callback"}` | `{"data": {"code": "…", "redirect": "zhang-app://auth/callback?code=…"}}` |
+| `POST /api/auth/app/exchange` | 无，code 本身就是凭据 | `{"code": "…"}` | `{"data": {"token": "…", "expires_at": "2026-11-09T08:00:00Z", "user": "admin"}}` |
+
+`GET /api/auth/status` 会返回 `"app_login": true`，以及允许的 scheme 列表 `"app_return_schemes"`，App 可以据此判断服务器是否支持这一流程。未知、过期或已经用过的 code 返回 `401` 和 `{"message": "invalid or expired code"}`；`return_to` 的 scheme 不被允许时返回 `400`。
+
+App 地址必须使用 `zhang-app` scheme。如需允许其他 scheme（例如使用自己 scheme 的 App 构建），把它们用逗号分隔写进环境变量 `ZHANG_APP_RETURN_SCHEMES`：
+
+```shell
+docker run --name zhang \
+  -e "ZHANG_PASSKEY=a-long-random-secret" \
+  -e "ZHANG_SESSION_SECRET=$(openssl rand -hex 32)" \
+  -e "ZHANG_APP_RETURN_SCHEMES=my-zhang-app" \
+  kilerd/zhang:latest
+```
+
+安全说明：
+
+- code 只能兑换一次，60 秒内有效，并且绑定申请它的会话：该会话失效（例如它的通行密钥被移除）后 code 也随之失效。code 保存在内存中，服务器重启会丢弃尚未兑换的 code。
+- 只会跳转到允许的 scheme 的 App 地址，登录页不能被用来把浏览器重定向到其他网站。不要把 `http` 或 `https` 加进 `ZHANG_APP_RETURN_SCHEMES`。
+- 兑换失败会计入[登录失败次数限制](#登录失败次数限制)。
+- token 就是浏览器的会话 token：有效期与浏览器会话相同（从登录起 30 天），失效条件也相同：`ZHANG_AUTH` 或 `ZHANG_SESSION_SECRET` 改变，或者它的通行密钥被移除。由于会话不保存在服务器上，退出登录（无论在浏览器还是 App 中）都不会吊销已经交给 App 的 token；要结束所有会话，请修改 `ZHANG_SESSION_SECRET`。
+- 请设置 `ZHANG_SESSION_SECRET`，否则每次重启 App 也会被登出。
+
 ## 登录失败次数限制
 
-为了减缓密码猜测，张记账会统计失败的尝试：密码登录失败，以及输错通行密钥的注册密钥。同一地址在 15 分钟内失败 5 次，或者所有地址合计失败 50 次之后，后续尝试都会被拒绝，返回 `429 Too Many Requests`（并带有 `Retry-After` 请求头），直到 15 分钟过去，即使密码正确也一样。成功登录会重置该地址的计数。已经登录的浏览器和通行密钥登录不受影响。
+为了减缓密码猜测，张记账会统计失败的尝试：密码登录失败、输错通行密钥的注册密钥，以及[移动端登录](#移动端登录)兑换 code 失败。同一地址在 15 分钟内失败 5 次，或者所有地址合计失败 50 次之后，后续尝试都会被拒绝，返回 `429 Too Many Requests`（并带有 `Retry-After` 请求头），直到 15 分钟过去，即使密码正确也一样。成功登录会重置该地址的计数。已经登录的浏览器和通行密钥登录不受影响。
 
 地址取自[反向代理](#反向代理)在 `X-Forwarded-For` 中报告的地址，没有代理时则是连接的地址。计数保存在内存中，服务器重启后重新开始。
 
@@ -136,4 +172,5 @@ docker run --name zhang \
 - **登录后马上又回到登录页面**：浏览器没有保存会话 cookie。在设置了 `X-Forwarded-Proto: https` 的代理之后，cookie 带有 `Secure`，只会在 HTTPS 下保存；请通过 HTTPS 打开网页界面。
 - **没有出现通行密钥选项，或者浏览器拒绝使用**：通过域名（或 `localhost`）以 HTTPS 打开网页界面；如果它运行在不转发主机的代理之后，请设置 `ZHANG_PASSKEY_ORIGIN`。
 - **“注册密钥不正确。”**：输入服务器启动时所用的 `ZHANG_PASSKEY` 的准确值。
+- **App 登录返回“the scheme … of return_to is not allowed”**：把 App 地址的 scheme 加进 `ZHANG_APP_RETURN_SCHEMES`。
 - **“too many attempts, try again in N minutes”**：失败的尝试太多，见[登录失败次数限制](#登录失败次数限制)。请等待，或者重启服务器以清除计数。

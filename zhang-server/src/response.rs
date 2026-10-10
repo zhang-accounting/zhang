@@ -1111,6 +1111,29 @@ pub struct AuthStatusEntity {
     pub user: Option<String>,
     /// title of ledger
     pub title: Option<String>,
+    /// whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
+    /// `POST /api/auth/app/exchange`)
+    pub app_login: bool,
+    /// the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES`
+    pub app_return_schemes: Vec<String>,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct AppCodeEntity {
+    /// the one-time code, valid for 60 seconds
+    pub code: String,
+    /// the app url with the code appended to its query
+    pub redirect: String,
+}
+
+#[derive(Serialize, Schematic)]
+pub struct AppTokenEntity {
+    /// the session token, to send as `Authorization: Bearer <token>`
+    pub token: String,
+    /// when the session ends
+    pub expires_at: DateTime<Utc>,
+    /// who the session belongs to
+    pub user: String,
 }
 
 #[derive(Serialize, Schematic)]

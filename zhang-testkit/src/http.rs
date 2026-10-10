@@ -157,6 +157,7 @@ pub struct Settings {
     pub passkey_rp_id: Option<String>,
     pub passkey_origin: Option<String>,
     pub session_secret: Option<String>,
+    pub app_return_schemes: Option<String>,
 }
 
 /// The configuration of a server on the ledger `dir/entry` read through `data_source`, on an ephemeral port, with
@@ -174,6 +175,7 @@ pub fn serve_config(dir: &Path, entry: &str, data_source: Arc<dyn DataSource>, s
         passkey_rp_id: settings.passkey_rp_id.clone(),
         passkey_origin: settings.passkey_origin.clone(),
         session_secret: settings.session_secret.clone(),
+        app_return_schemes: settings.app_return_schemes.clone(),
     }
 }
 

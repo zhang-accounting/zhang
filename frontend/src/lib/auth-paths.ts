@@ -13,3 +13,22 @@ export function returnPath(search: string) {
   if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\') || next.startsWith(LOGIN_PATH)) return '/';
   return next;
 }
+
+/** Query parameter of the login page with the app URL to return to (mobile app login handoff). */
+export const APP_RETURN_PARAM = 'return_to';
+
+/**
+ * The app URL of `?return_to=` when its scheme is one the server allows (`schemes` of `/api/auth/status`), else `null`:
+ * the login page then behaves as a normal web login. The server checks the scheme again when it issues the code.
+ */
+export function appReturnTo(search: string, schemes: readonly string[] | undefined) {
+  const returnTo = new URLSearchParams(search).get(APP_RETURN_PARAM)?.trim();
+  if (!returnTo || !schemes?.length) return null;
+  let scheme: string;
+  try {
+    scheme = new URL(returnTo).protocol.replace(/:$/, '').toLowerCase();
+  } catch {
+    return null;
+  }
+  return schemes.some((allowed) => allowed.toLowerCase() === scheme) ? returnTo : null;
+}

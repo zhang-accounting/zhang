@@ -90,6 +90,8 @@ impl GotchaApp for ServerApp {
             .get("/api/auth/status", auth::handlers::get_auth_status)
             .post("/api/auth/login", auth::handlers::auth_login)
             .post("/api/auth/logout", auth::handlers::auth_logout)
+            .post("/api/auth/app/code", auth::handlers::app_login_code)
+            .post("/api/auth/app/exchange", auth::handlers::app_login_exchange)
             .post("/api/auth/passkey/register/start", auth::handlers::passkey_register_start)
             .post("/api/auth/passkey/register/finish", auth::handlers::passkey_register_finish)
             .post("/api/auth/passkey/login/start", auth::handlers::passkey_login_start)
@@ -212,6 +214,8 @@ pub struct ServeConfig {
     pub passkey_origin: Option<String>,
     /// the key that signs the sessions, random (sessions end on restart) when absent (`ZHANG_SESSION_SECRET`)
     pub session_secret: Option<String>,
+    /// more url schemes the app login handoff may return to, comma separated, next to `zhang-app` (`ZHANG_APP_RETURN_SCHEMES`)
+    pub app_return_schemes: Option<String>,
 }
 
 impl ServeConfig {
@@ -916,6 +920,7 @@ mod served_root_test {
             passkey_rp_id: None,
             passkey_origin: None,
             session_secret: None,
+            app_return_schemes: None,
         }
     }
 

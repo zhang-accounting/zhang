@@ -711,6 +711,9 @@
     "unavailable_no_fallback": "Use another browser or address to sign in.",
     "no_methods": "No sign-in method is enabled on the server.",
     "sign_out": "Sign out",
-    "sign_out_failed": "Could not sign out"
+    "sign_out_failed": "Could not sign out",
+    "app_returning": "Returning to the app…",
+    "app_return_failed": "Could not return to the app: {{message}}",
+    "app_continue_in_browser": "Continue in the browser"
   }
 }
