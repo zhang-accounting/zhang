@@ -377,6 +377,7 @@ dependencies = [
  "zhang-ast",
  "zhang-core",
  "zhang-query",
+ "zhang-testkit",
 ]
 
 [[package]]
@@ -6680,6 +6681,7 @@ dependencies = [
  "zhang-ast",
  "zhang-query",
  "zhang-shared",
+ "zhang-testkit",
 ]
 
 [[package]]
@@ -6741,6 +6743,7 @@ dependencies = [
  "zhang-ast",
  "zhang-core",
  "zhang-shared",
+ "zhang-testkit",
 ]
 
 [[package]]
@@ -6788,6 +6791,7 @@ dependencies = [
  "zhang-core",
  "zhang-query",
  "zhang-shared",
+ "zhang-testkit",
 ]
 
 [[package]]
@@ -6800,6 +6804,26 @@ dependencies = [
  "http 1.5.0",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "zhang-testkit"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "beancount",
+ "bigdecimal",
+ "bytes",
+ "chrono",
+ "gotcha",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower 0.4.13",
+ "zhang-ast",
+ "zhang-core",
+ "zhang-query",
+ "zhang-server",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ members = [
     "bindings/wasm",
     "zhang-plugin-sdk",
     "zhang-plugin-sdk/examples/*",
+    "zhang-testkit",
 ]
 # the plugin SDK and its example plugins are default members: on a native target the SDK links nothing from
 # Extism (its host calls answer `unavailable`), so they build, test and lint natively like every other crate.
@@ -25,6 +26,8 @@ default-members = [
     "extensions/*",
     "zhang-plugin-sdk",
     "zhang-plugin-sdk/examples/*",
+    # shared test support of the integration tests; a default member so that its own checks run with `cargo test`
+    "zhang-testkit",
 ]
 
 [workspace.dependencies]

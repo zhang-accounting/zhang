@@ -1,6 +1,11 @@
 [files]
-extend-exclude = ["integration-tests/*", "CHANGELOG.md", "zhang-query/tests/golden/*", "zhang-query/tests/conformance/cases/*", "zhang-query/tests/tables/oracle.json"]
+extend-exclude = ["integration-tests/*", "CHANGELOG.md", "zhang-query/tests/oracle/cases/*"]
 
 [default]
-# the names of integration-test fixture directories, which tests refer to
-extend-ignore-re = ["budget-sytem-syntax-and-category", "shold_handle_the_meta_for_operating_currency_in_commodity_directive"]
+# the names of integration-test fixture directories, which tests refer to by name and as test names (`_` for `-`)
+extend-ignore-re = [
+    "budget[-_]sytem[-_]syntax[-_]and[-_]category",
+    "shold_handle_the_meta_for_operating_currency_in_commodity_directive",
+    "inline[-_]comment[-_]and[-_]trailling[-_]space",
+    "wildcard[-_]include[-_]directive[-_]supportted",
+]

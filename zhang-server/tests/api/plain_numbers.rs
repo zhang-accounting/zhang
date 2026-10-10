@@ -1,0 +1,211 @@
+//! Every number the API writes is in plain notation, as the queries and the exporter write it: a tiny amount is
+//! `"0.0000001"`, never `BigDecimal`'s `"1E-7"`, and a huge one is all its digits, never `"…E+30"`. Numbers keep
+//! their scale (`"0.50"`). This covers the amounts and bare numbers of the account, journal, commodity and error
+//! endpoints, the error metas included, and the budget pages' built-in query.
+
+use axum::extract::{Path, State};
+use axum::Json;
+use serde_json::Value;
+use zhang_server::request::{AccountJournalRequest, BuiltinQueryRunRequest, JournalRequest};
+use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
+use zhang_server::routes::commodity::{get_all_commodities, get_single_commodity};
+use zhang_server::routes::query::run_builtin_query;
+use zhang_server::routes::transaction::get_journals;
+use zhang_server::routes::Query;
+use zhang_server::state::SharedLedger;
+use zhang_testkit::http::{body, shared};
+use zhang_testkit::ledger::load_text;
+
+/// Tiny numbers in BTC; a huge USD holding and expense, which valued in CNY need more than 28 digits and are rounded
+/// to 28 (`1.234567890123456789012345679E+30` in `BigDecimal`'s notation).
+const LEDGER: &str = r#"option "operating_currency" "CNY"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity BTC
+  precision: 8
+
+1970-01-01 open Assets:Wallet
+1970-01-01 open Assets:Vault
+1970-01-01 open Assets:Short
+1970-01-01 open Equity:Open
+1970-01-01 budget Big CNY
+1970-01-01 open Expenses:Big
+  budget: Big
+
+2024-01-01 price BTC 0.0000002 CNY
+2024-01-01 price USD 1.0 CNY
+
+2024-01-02 * "Exchange" "a tiny amount"
+  Assets:Wallet 0.0000001 BTC {0.50 CNY}
+  Equity:Open
+
+2024-01-03 * "Bank" "a huge amount"
+  Assets:Vault 1234567890123456789012345678901 USD
+  Equity:Open
+
+2024-01-03 * "Bank" "a huge expense, valued in CNY in its budget"
+  Expenses:Big 1234567890123456789012345678901 USD
+  Equity:Open
+
+2024-01-04 balance Assets:Wallet 0.0000001 ~ 0.00000001 BTC
+
+2024-01-05 * "Exchange" "a sale of what no lot holds"
+  Assets:Short -0.0000001 BTC {0.50 CNY}
+  Equity:Open
+"#;
+
+fn ledger() -> SharedLedger {
+    shared(load_text(LEDGER))
+}
+
+fn journal_request() -> JournalRequest {
+    JournalRequest {
+        page: None,
+        size: None,
+        keyword: None,
+        tags: None,
+        links: None,
+    }
+}
+
+/// every string of `value` that reads as a number with an exponent, or holds one (an error meta lists lots as text,
+/// `1E-7 BTC {…}`), with its JSON path
+fn exponents(value: &Value, path: &str, found: &mut Vec<String>) {
+    match value {
+        Value::String(text) => {
+            let with_exponent = text.split([' ', ',', '{', '}']).any(|word| {
+                let number = word.strip_prefix('-').unwrap_or(word);
+                number.starts_with(|c: char| c.is_ascii_digit()) && (number.contains("E-") || number.contains("E+"))
+            });
+            if with_exponent {
+                found.push(format!("{path}: {text}"));
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                exponents(item, &format!("{path}[{index}]"), found);
+            }
+        }
+        Value::Object(map) => {
+            for (key, item) in map {
+                exponents(item, &format!("{path}.{key}"), found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// the record of `records` whose `key` is `value`
+fn find<'a>(records: &'a Value, key: &str, value: &str) -> &'a Value {
+    records
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|it| it[key] == value)
+        .unwrap_or_else(|| panic!("no {key} {value} in {records}"))
+}
+
+#[tokio::test]
+async fn the_api_writes_tiny_and_huge_numbers_in_plain_notation() {
+    let ledger = ledger();
+    let wallet = || Path(("Assets:Wallet".to_owned(),));
+    let vault = || Path(("Assets:Vault".to_owned(),));
+    let mut responses = vec![];
+
+    let list = body(get_account_list(State(ledger.clone())).await).await;
+    responses.push(("/api/accounts", list));
+    let info = body(get_account_info(State(ledger.clone()), wallet()).await).await;
+    responses.push(("/api/accounts/Assets:Wallet", info));
+    let info = body(get_account_info(State(ledger.clone()), vault()).await).await;
+    responses.push(("/api/accounts/Assets:Vault", info));
+    let journal = body(get_account_journals(State(ledger.clone()), wallet(), Query(AccountJournalRequest::default())).await).await;
+    responses.push(("/api/accounts/Assets:Wallet/journals", journal));
+    let journals = body(get_journals(State(ledger.clone()), Query(journal_request())).await).await;
+    responses.push(("/api/journals", journals));
+    let commodities = body(get_all_commodities(State(ledger.clone())).await).await;
+    responses.push(("/api/commodities", commodities));
+    let detail = body(get_single_commodity(State(ledger.clone()), Path(("BTC".to_owned(),))).await).await;
+    responses.push(("/api/commodities/BTC", detail));
+    // the Budgets page: the built-in query `budgets.month`, run by name
+    let budgets = BuiltinQueryRunRequest {
+        params: serde_json::from_value(serde_json::json!({ "month": "2024-01-01" })).unwrap(),
+        count_total: None,
+    };
+    let budgets = body(run_builtin_query(State(ledger.clone()), Path(("budgets.month".to_owned(),)), Json(budgets)).await).await;
+    responses.push(("/api/query/builtins/budgets.month", budgets));
+    // the error box: the built-in query `journals.errors`, run by name
+    let errors = BuiltinQueryRunRequest {
+        params: serde_json::from_value(serde_json::json!({ "size": 100, "offset": 0 })).unwrap(),
+        count_total: None,
+    };
+    let errors = body(run_builtin_query(State(ledger.clone()), Path(("journals.errors".to_owned(),)), Json(errors)).await).await;
+    responses.push(("/api/query/builtins/journals.errors", errors));
+
+    let mut found = vec![];
+    for (endpoint, response) in &responses {
+        exponents(response, endpoint, &mut found);
+    }
+    assert_eq!(found, Vec::<String>::new());
+
+    let [list, wallet, vault, journal, journals, commodities, detail, budgets, errors] = responses
+        .iter()
+        .map(|(_, response)| response["data"].clone())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    let posting = find(&journal, "narration", "a tiny amount");
+    let check = find(&journals["records"], "type", "BalanceCheck");
+    // the rows of a query result, as objects keyed by column name
+    let objects = |result: &Value| {
+        let columns = result["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| it["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        Value::Array(
+            result["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| Value::Object(columns.iter().cloned().zip(row.as_array().unwrap().iter().cloned()).collect()))
+                .collect(),
+        )
+    };
+    let (budgets, errors) = (objects(&budgets), objects(&errors));
+    let huge = find(&budgets, "name", "Big");
+    let short = find(&errors, "kind", "NoEnoughCommodityLot");
+    // an error's metas are `{key, value}` pairs
+    let transaction_amount = short["metas"].as_array().unwrap().iter().find(|it| it["key"] == "transaction_amount").unwrap();
+    assert_eq!(
+        [
+            &find(&list, "name", "Assets:Wallet")["amount"]["detail"]["BTC"],
+            &wallet["amount"]["detail"]["BTC"],
+            &wallet["balance_with_sub_accounts"]["BTC"],
+            &vault["amount"]["detail"]["USD"],
+            &vault["amount"]["calculated"]["number"],
+            &posting["inferred_unit"]["number"],
+            &posting["account_after"]["number"],
+            &check["tolerance"],
+            &find(&commodities, "name", "BTC")["latest_price_amount"],
+            &detail["prices"][0]["amount"]["number"],
+            &huge["activity"],
+            &transaction_amount["value"],
+        ],
+        [
+            "0.0000001",
+            "0.0000001",
+            "0.0000001",
+            "1234567890123456789012345678901",
+            "1234567890123456789012345679000",
+            "0.0000001",
+            "0.0000001",
+            "0.00000001",
+            "0.0000002",
+            "0.0000002",
+            "1234567890123456789012345679000",
+            "-0.0000001",
+        ]
+    );
+}
