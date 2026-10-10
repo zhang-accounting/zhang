@@ -4,23 +4,12 @@
 //! `default_commodity_precision` when that option is not written, and never gives a balance
 //! assertion a tolerance.
 
-use std::sync::Arc;
-
 use indoc::indoc;
 use zhang_core::ast::error::ErrorKind;
 use zhang_core::ast::Rounding;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::domains::schemas::CommodityDomain;
 use zhang_core::ledger::Ledger;
-
-/// load `content` as a single-file ledger
-fn load(content: &str) -> Ledger {
-    let dir = tempfile::tempdir().unwrap().keep();
-    std::fs::write(dir.join("main.zhang"), content).unwrap();
-    let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir, "main.zhang".to_owned(), Arc::new(source)).unwrap_or_else(|e| panic!("ledger should load: {e}"))
-}
+use zhang_testkit::ledger::load_text;
 
 fn commodity(ledger: &Ledger, name: &str) -> CommodityDomain {
     defined(ledger, name).unwrap_or_else(|| panic!("{name} should be defined"))
@@ -33,7 +22,7 @@ fn defined(ledger: &Ledger, name: &str) -> Option<CommodityDomain> {
 
 /// the precision of `CNY` once `options` (in the order given) are read
 fn cny_precision(options: &[&str]) -> i32 {
-    commodity(&load(&options.join("\n")), "CNY").precision
+    commodity(&load_text(&options.join("\n")), "CNY").precision
 }
 
 const OPERATING_CURRENCY: &str = r#"option "operating_currency" "CNY""#;
@@ -78,13 +67,19 @@ fn a_written_default_commodity_precision_wins_over_the_deprecated_option() {
 #[test]
 fn default_rounding_applies_to_the_operating_currency_in_either_order() {
     let round_up = r#"option "default_rounding" "RoundUp""#;
-    assert_eq!(commodity(&load(&[round_up, OPERATING_CURRENCY].join("\n")), "CNY").rounding, Rounding::RoundUp);
-    assert_eq!(commodity(&load(&[OPERATING_CURRENCY, round_up].join("\n")), "CNY").rounding, Rounding::RoundUp);
+    assert_eq!(
+        commodity(&load_text(&[round_up, OPERATING_CURRENCY].join("\n")), "CNY").rounding,
+        Rounding::RoundUp
+    );
+    assert_eq!(
+        commodity(&load_text(&[OPERATING_CURRENCY, round_up].join("\n")), "CNY").rounding,
+        Rounding::RoundUp
+    );
 }
 
 #[test]
 fn the_operating_currency_keeps_the_built_in_defaults_without_options() {
-    let cny = commodity(&load("1970-01-01 open Assets:Bank\n"), "CNY");
+    let cny = commodity(&load_text("1970-01-01 open Assets:Bank\n"), "CNY");
     assert_eq!(cny.precision, 2);
     assert_eq!(cny.rounding, Rounding::RoundDown);
 }
@@ -92,17 +87,17 @@ fn the_operating_currency_keeps_the_built_in_defaults_without_options() {
 #[test]
 fn another_operating_currency_is_defined_instead_of_the_built_in_one() {
     // the defaults are read before the ledger's own options: they must not define `CNY` on the way
-    let ledger = load(&[COMMODITY_PRECISION_4, r#"option "operating_currency" "USD""#].join("\n"));
+    let ledger = load_text(&[COMMODITY_PRECISION_4, r#"option "operating_currency" "USD""#].join("\n"));
     assert_eq!(commodity(&ledger, "USD").precision, 4);
     assert!(defined(&ledger, "CNY").is_none(), "CNY should not be defined");
-    let ledger = load(&[r#"option "operating_currency" "USD""#, COMMODITY_PRECISION_4].join("\n"));
+    let ledger = load_text(&[r#"option "operating_currency" "USD""#, COMMODITY_PRECISION_4].join("\n"));
     assert_eq!(commodity(&ledger, "USD").precision, 4);
     assert!(defined(&ledger, "CNY").is_none(), "CNY should not be defined");
 }
 
 #[test]
 fn a_commodity_directive_still_replaces_the_operating_currency_definition() {
-    let ledger = load(indoc! {r#"
+    let ledger = load_text(indoc! {r#"
         option "operating_currency" "CNY"
         option "default_commodity_precision" "4"
         1970-01-01 commodity CNY
@@ -116,7 +111,7 @@ fn a_commodity_directive_still_replaces_the_operating_currency_definition() {
 
 #[test]
 fn the_deprecated_option_leaves_other_commodities_at_default_commodity_precision() {
-    let ledger = load(indoc! {r#"
+    let ledger = load_text(indoc! {r#"
         option "default_balance_tolerance_precision" "4"
         1970-01-01 commodity USD
     "#});
@@ -128,7 +123,7 @@ fn the_deprecated_option_leaves_other_commodities_at_default_commodity_precision
 fn the_deprecated_option_gives_balance_assertions_no_tolerance() {
     // 0.00001 is below the precision the option sets; the assertion still fails, as assertions are exact unless
     // they write a tolerance with `~`
-    let ledger = load(indoc! {r#"
+    let ledger = load_text(indoc! {r#"
         option "default_balance_tolerance_precision" "4"
         1970-01-01 open Assets:Bank
         1970-01-01 open Equity:Opening

@@ -13,7 +13,6 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
-use std::sync::Arc;
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
@@ -21,11 +20,10 @@ use zhang_core::ast::amount::Amount;
 use zhang_core::ast::{
     Account, Custom, Date, Directive, Event, Flag, Meta, Note, Open, Posting, Query, SpanInfo, Spanned, StringOrAccount, Transaction, ZhangString,
 };
-use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
-use zhang_core::ZhangResult;
+use zhang_testkit::ledger::try_load_text;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -515,7 +513,7 @@ fn legacy_ledger_text_parses_to_the_original_strings() {
 
 #[test]
 fn legacy_ledger_loads_without_errors() {
-    let ledger = load_ledger(LEGACY_LEDGER).unwrap_or_else(|error| panic!("legacy ledger should load: {error}"));
+    let ledger = try_load_text(LEGACY_LEDGER).unwrap_or_else(|error| panic!("legacy ledger should load: {error}"));
     assert_eq!(error_kinds(&ledger), Vec::<String>::new());
 }
 
@@ -585,7 +583,7 @@ fn malformed_escapes_are_errors_not_panics() {
 fn malformed_escapes_in_a_ledger_report_the_offending_line() {
     let mut failures = vec![];
     for (name, text) in malformed_ledgers() {
-        match catch_unwind(AssertUnwindSafe(|| load_ledger(&text))) {
+        match catch_unwind(AssertUnwindSafe(|| try_load_text(&text))) {
             Ok(Err(error)) => {
                 let message = error.to_string();
                 if !message.contains("line 4") || message.contains("line 1,") {
@@ -682,20 +680,13 @@ fn generated_raw_escape_text_never_panics() {
 // 6. saved queries with regex escapes
 // ---------------------------------------------------------------------------
 
-fn load_ledger(content: &str) -> ZhangResult<Ledger> {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("main.zhang"), content).unwrap();
-    let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source))
-}
-
 fn error_kinds(ledger: &Ledger) -> Vec<String> {
     ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect()
 }
 
 #[test]
 fn query_with_an_unknown_regex_escape_loads_without_errors() {
-    let ledger = load_ledger("2014-01-01 query \"x\" \"SELECT narration WHERE narration ~ '\\d+'\"\n")
+    let ledger = try_load_text("2014-01-01 query \"x\" \"SELECT narration WHERE narration ~ '\\d+'\"\n")
         .unwrap_or_else(|error| panic!("a query with '\\d+' should load: {error}"));
     assert_eq!(error_kinds(&ledger), Vec::<String>::new());
     let queries = ledger.queries();
@@ -705,7 +696,7 @@ fn query_with_an_unknown_regex_escape_loads_without_errors() {
 
 #[test]
 fn both_regex_spellings_store_the_same_query_text() {
-    let ledger = load_ledger("2014-01-01 query \"single\" \"narration ~ '\\d+'\"\n2014-01-01 query \"double\" \"narration ~ '\\\\d+'\"\n")
+    let ledger = try_load_text("2014-01-01 query \"single\" \"narration ~ '\\d+'\"\n2014-01-01 query \"double\" \"narration ~ '\\\\d+'\"\n")
         .unwrap_or_else(|error| panic!("both spellings should load: {error}"));
     assert_eq!(error_kinds(&ledger), Vec::<String>::new());
     let queries = ledger.queries();
