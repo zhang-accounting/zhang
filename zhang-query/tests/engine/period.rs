@@ -1,42 +1,9 @@
-//! Oracle tests of the FROM period modifiers (`OPEN ON`, `CLOSE [ON]`, `CLEAR`): runs the
-//! beanquery-generated fixtures in `tests/period/cases` against the engine on the shared fava
-//! demo ledger, through `zhang_testkit::oracle` with the comparison rules of the conformance
-//! suite (`tests/conformance/README.md`): columns by position and type, decimals numerically,
-//! inventories and unordered results as multisets, errors by class.
-//!
-//! The fixtures come from `tests/conformance/generate.py --set period`, which runs the official
-//! beanquery with the conformance generator's validation (determinism, zhang's balance-check
-//! rows). Case 022 retains beanquery's zero-row fixture; #647 deliberately returns a single
-//! count of zero after CLOSE removes every posting, checked here as the exact accepted
-//! deviation ([`ACCEPTED_DEVIATIONS`]).
-
-use std::path::PathBuf;
+//! The FROM period modifiers (`OPEN ON`, `CLOSE [ON]`, `CLEAR`) with parameters and on a small
+//! ledger whose rows are worked out by hand (the beanquery oracle cases are in
+//! `tests/oracle/period.rs`).
 
 use chrono::NaiveDate;
 use zhang_query::{DataType, ParamTypes, Params, Query, QueryErrorKind, QueryResult, Value};
-use zhang_testkit::oracle::{assert_no_failures, check_lists, load_case_files, run_cases, Accepted, Deviation, Rules};
-
-/// Deliberate differences between the engine and beanquery, checked as in `conformance.rs`.
-const ACCEPTED_DEVIATIONS: &[Deviation] = &[Deviation {
-    case: Some("close_before_the_ledger"),
-    reason: "an aggregate without group keys returns one row over empty input (#647): a count of zero after CLOSE removes \
-             every posting; beanquery 0.2.0 returns no rows",
-    accepted: Accepted::Rows("[[0]]"),
-}];
-
-#[test]
-fn period_modifiers_match_beanquery() {
-    let fixtures = load_case_files(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/period/cases"));
-    assert!(!fixtures.is_empty(), "no fixtures in tests/period/cases");
-    check_lists(&fixtures, ACCEPTED_DEVIATIONS, &[]);
-    let close_before = fixtures
-        .iter()
-        .find(|fixture| fixture.file == "022_close_before_the_ledger.json")
-        .expect("case 022 of tests/period/cases");
-    assert!(close_before.rows.is_empty(), "revisit the #647 deviation if the oracle changes");
-    let ledger = zhang_testkit::fixtures::fava_demo();
-    assert_no_failures("period", &run_cases(&ledger, &fixtures, &Rules::on(date(2025, 1, 1)), ACCEPTED_DEVIATIONS, &[]));
-}
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).unwrap()

@@ -20,7 +20,12 @@ use zhang_query::{ExecuteOptions, Inventory, Params, Position, PriceMap, Query, 
 
 fn journal() -> &'static Ledger {
     static CELL: OnceLock<Ledger> = OnceLock::new();
-    CELL.get_or_init(|| zhang_testkit::ledger::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/server_features/journal"), "main.zhang"))
+    CELL.get_or_init(|| {
+        zhang_testkit::ledger::load_ledger(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/engine/server_features/journal"),
+            "main.zhang",
+        )
+    })
 }
 
 fn today() -> NaiveDate {

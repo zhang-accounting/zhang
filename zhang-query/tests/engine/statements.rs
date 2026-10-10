@@ -1,80 +1,12 @@
-//! The BALANCES and JOURNAL statements, the `AT` clause and the running `balance` column.
-//!
-//! The oracle tests compare whole results with beanquery's over
-//! `integration-tests/fava-demo-ledger` (`tests/golden/statements.json`, regenerated with
-//! `tests/conformance/generate.py --set statements`) through `zhang_testkit::oracle`. Numbers
-//! are compared numerically and inventory positions as sets; column types must match exactly
-//! and column names up to the spelling documented in [`zhang_name`]. The plain `BALANCES`
-//! statement is the conformance case `061_balances_plain` (the same query over the same
-//! ledger and oracle) and is not repeated here.
+//! The BALANCES and JOURNAL statements, the `AT` clause and the running `balance` column: what they
+//! desugar to, that they equal their SELECT, and their results and errors on a small ledger (the
+//! beanquery oracle cases are in `tests/oracle/statements.rs`).
 
-use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use chrono::NaiveDate;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, Params, Query, QueryError, QueryErrorKind, Value};
-use zhang_testkit::oracle::{load_query_list, run_case, Rules};
-
-fn fava_demo() -> &'static Ledger {
-    static LEDGER: OnceLock<Ledger> = OnceLock::new();
-    LEDGER.get_or_init(zhang_testkit::ledger::fava_demo_ledger)
-}
-
-/// The name zhang gives a column beanquery calls `name`: zhang names the targets of BALANCES
-/// and JOURNAL like the equivalent hand-written SELECT, in lower case and without the empty
-/// `AT` function (beanquery: `SUM((position))`, `MAXWIDTH(payee, 48)`).
-fn zhang_name(name: &str) -> String {
-    name.to_lowercase().replace("((position))", "(position)")
-}
-
-fn oracle_case(index: usize) {
-    let mut cases = load_query_list(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/statements.json"));
-    let case = &mut cases[index];
-    case.strict_names = true;
-    case.column_names = case.column_names.iter().map(|name| zhang_name(name)).collect();
-    run_case(fava_demo(), case, &Rules::on(NaiveDate::from_ymd_opt(2025, 1, 1).unwrap()), &[], &[]).assert_ok();
-}
-
-#[test]
-fn oracle_balances_at_cost_from_where() {
-    oracle_case(0);
-}
-
-#[test]
-fn oracle_balances_at_value() {
-    oracle_case(1);
-}
-
-#[test]
-fn oracle_journal_from() {
-    oracle_case(2);
-}
-
-#[test]
-fn oracle_journal_collapses_whitespace_like_maxwidth() {
-    oracle_case(3);
-}
-
-#[test]
-fn oracle_journal_at_cost_over_lots() {
-    oracle_case(4);
-}
-
-#[test]
-fn oracle_journal_at_units_double_quoted() {
-    oracle_case(5);
-}
-
-#[test]
-fn oracle_balance_is_accumulated_before_order_by() {
-    oracle_case(6);
-}
-
-#[test]
-fn oracle_balance_in_an_aggregate() {
-    oracle_case(7);
-}
 
 #[test]
 fn explain_shows_the_desugared_statements() {
@@ -133,9 +65,10 @@ fn statements_equal_their_select() {
     ];
     let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
     for (statement, select) in pairs {
+        let ledger = zhang_testkit::fixtures::fava_demo();
         let run = |sql: &str| {
             let query = Query::compile(sql).unwrap_or_else(|err| panic!("{}: {}", sql, err));
-            let result = query.execute_at(fava_demo(), &Params::new(), today).unwrap();
+            let result = query.execute_at(&ledger, &Params::new(), today).unwrap();
             (result.columns, result.rows)
         };
         let (statement_columns, statement_rows) = run(statement);

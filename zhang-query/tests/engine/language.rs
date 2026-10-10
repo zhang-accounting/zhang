@@ -4,7 +4,7 @@
 //! structured `metas` columns with `meta_values()` / `entry_meta_values()`.
 //!
 //! The beanquery functions are also checked against beanquery by the conformance fixtures
-//! (`tests/conformance`, Phase 4); the expectations here are worked out by hand on a small
+//! (`tests/oracle/cases/conformance`, Phase 4); the expectations here are worked out by hand on a small
 //! ledger, each explained where it is not obvious.
 
 use std::sync::OnceLock;

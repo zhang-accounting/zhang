@@ -1,10 +1,10 @@
 //! CSV export oracle: zhang's numberified CSV against `bean-query -f csv -m` on the shared
 //! fava demo ledger.
 //!
-//! The fixtures in `tests/export/cases` hold beanquery's raw CSV output, produced by
-//! `tests/conformance/generate.py --set export`. Each case runs the same query through the
+//! The fixtures in `tests/oracle/cases/export` hold beanquery's raw CSV output, produced by
+//! `tests/oracle/generate.py --set export`. Each case runs the same query through the
 //! engine and [`zhang_query::export::to_csv`]; `zhang_testkit::oracle` parses both CSV texts
-//! and compares them with the conformance rules (`tests/conformance/README.md`): the header
+//! and compares them with the conformance rules (`tests/oracle/README.md`): the header
 //! names must be identical (every query aliases its columns), and so must the number of rows
 //! and their order (every query is fully ordered); every cell is trimmed (beanquery pads
 //! numbers to align them on the decimal point, zhang never pads) and plain numbers are
@@ -25,8 +25,8 @@ use zhang_testkit::oracle::{assert_no_failures, execute, load_csv_files, parse_c
 
 #[test]
 fn csv_export_matches_beanquery() {
-    let fixtures = load_csv_files(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/export/cases"));
-    assert!(fixtures.len() >= 4, "expected the oracle fixtures in tests/export/cases");
+    let fixtures = load_csv_files(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/cases/export"));
+    assert!(fixtures.len() >= 4, "expected the oracle fixtures in tests/oracle/cases/export");
     let ledger = zhang_testkit::fixtures::fava_demo();
     let rules = Rules {
         today: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
