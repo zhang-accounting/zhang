@@ -1,9 +1,9 @@
-//! Conformance harness: runs the beanquery-generated fixtures in `tests/conformance/cases`
+//! Conformance harness: runs the beanquery-generated fixtures in `tests/oracle/cases/conformance`
 //! against the engine on the shared fava demo ledger.
 //!
-//! The fixtures are produced by `tests/conformance/generate.py` from the official Python
+//! The fixtures are produced by `tests/oracle/generate.py` from the official Python
 //! beanquery (the oracle), so they are independent of this engine. The comparison is the one
-//! of `zhang_testkit::oracle`, with the rules of `tests/conformance/README.md`: columns by
+//! of `zhang_testkit::oracle`, with the rules of `tests/oracle/README.md`: columns by
 //! position and type (names too in fixtures with `"strict_names": true`), decimals
 //! numerically, rows as a sequence when the fixture is `ordered` and as a multiset otherwise,
 //! inventories as multisets of positions, errors by class, and CSV cell by cell.
@@ -146,7 +146,7 @@ fn today() -> NaiveDate {
 fn cases_dir() -> PathBuf {
     match std::env::var_os("ZHANG_QUERY_CONFORMANCE_CASES") {
         Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/conformance/cases"),
+        None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/cases/conformance"),
     }
 }
 
@@ -162,7 +162,11 @@ fn beanquery_conformance() {
 
     let ledger = zhang_testkit::fixtures::fava_demo();
     let reports = run_cases(&ledger, &fixtures, &Rules::on(today()), ACCEPTED_DEVIATIONS, LEDGER_DEPENDENT_ALLOWED);
-    let out = summary("beanquery conformance (zhang-query/tests/conformance)", &reports, ACCEPTED_DEVIATIONS);
+    let out = summary(
+        "beanquery conformance (zhang-query/tests/oracle/cases/conformance)",
+        &reports,
+        ACCEPTED_DEVIATIONS,
+    );
     // Written to stderr directly so the table shows even when the test harness captures output.
     let _ = std::io::stderr().write_all(out.as_bytes());
     assert_no_failures("conformance", &reports);

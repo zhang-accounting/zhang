@@ -5,7 +5,7 @@ BQL-compatible query engine (issue #434, Phases 1 to 3, and issue #479, Phase 4)
 were produced by the official Python **beanquery**, not by zhang, so they are
 the reference the engine is cross-validated against.
 
-- `cases/NNN_<name>.json`: one fixture per query (175 cases: 001–060 for
+- `cases/conformance/NNN_<name>.json`: one fixture per query (175 cases: 001–060 for
   Phase 1, 061–100 for Phase 2, 101–145 for Phase 3, 146–175 for Phase 4).
 - `generate.py`: the generator. It holds the case list and writes the fixtures.
 - Oracle versions used: **beancount 3.2.3, beanquery 0.2.0** (Python 3.9).
@@ -59,9 +59,9 @@ with the committed files instead of writing them.
 ```sh
 python3 -m venv /tmp/bqvenv
 /tmp/bqvenv/bin/pip install beancount==3.2.3 beanquery==0.2.0
-cd zhang-query/tests/conformance
-/tmp/bqvenv/bin/python generate.py                    # rewrite cases/*.json (removes stale files)
-/tmp/bqvenv/bin/python generate.py --check            # fail if cases/*.json are out of date
+cd zhang-query/tests/oracle
+/tmp/bqvenv/bin/python generate.py                    # rewrite cases/conformance/*.json (removes stale files)
+/tmp/bqvenv/bin/python generate.py --check            # fail if cases/conformance/*.json are out of date
 /tmp/bqvenv/bin/python generate.py --check --table    # also print the case table below
 /tmp/bqvenv/bin/python generate.py --set period       # another set (see the table below)
 /tmp/bqvenv/bin/python generate.py --set all --check  # every set
@@ -78,14 +78,14 @@ The sets, all over the oracle versions above:
 
 | set | files | test module | ledger | format |
 |---|---|---|---|---|
-| `conformance` | `conformance/cases/NNN_<name>.json` (175) | `conformance.rs` | fava demo | one file per case (below) |
-| `having_pivot` | `having_pivot/cases/` (22) | `having_pivot.rs` | fava demo | the same; column names compared too |
-| `period` | `period/cases/` (25) | `period.rs` | fava demo | the same |
-| `export` | `export/cases/` (6) | `export.rs` | fava demo | `{"name", "query", "notes", "csv"}`, the raw `bean-query -f csv -m` output |
-| `golden` | `golden/fava_demo.json` (5) | `golden.rs` | fava demo | a list of `{"query", "columns", "rows"}`; ordered, column names compared too |
-| `statements` | `golden/statements.json` (8) | `statements.rs` | fava demo | the same; names compared after `zhang_name` |
-| `tables` | `tables/oracle.json` (35) | `tables.rs` | fava demo and `tables/ledger/main.zhang` | `{"generator", "cases": [{"ledger", "query", "ordered", "columns", "rows"}]}`; inventories as lists of amounts; names compared too |
-| `server_features` | `server_features/oracle/oracle.json` (29) | `server_features.rs` | `server_features/oracle/main.zhang` | `{"area", "name", "query", "notes", "columns": [types], "rows": [[text]]}`, cells as `Value::to_string()` writes them |
+| `conformance` | `cases/conformance/NNN_<name>.json` (175) | `conformance.rs` | fava demo | one file per case (below) |
+| `having_pivot` | `cases/having_pivot/` (22) | `having_pivot.rs` | fava demo | the same; column names compared too |
+| `period` | `cases/period/` (25) | `period.rs` | fava demo | the same |
+| `export` | `cases/export/` (6) | `export.rs` | fava demo | `{"name", "query", "notes", "csv"}`, the raw `bean-query -f csv -m` output |
+| `golden` | `cases/golden/fava_demo.json` (5) | `golden.rs` | fava demo | a list of `{"query", "columns", "rows"}`; ordered, column names compared too |
+| `statements` | `cases/statements/statements.json` (8) | `statements.rs` | fava demo | the same; names compared after `zhang_name` |
+| `tables` | `cases/tables/oracle.json` (35) | `tables.rs` | fava demo and `ledgers/tables/main.zhang` | `{"generator", "cases": [{"ledger", "query", "ordered", "columns", "rows"}]}`; inventories as lists of amounts; names compared too |
+| `server_features` | `cases/server_features/oracle.json` (29) | `server_features.rs` | `ledgers/server_features/main.zhang` | `{"area", "name", "query", "notes", "columns": [types], "rows": [[text]]}`, cells as `Value::to_string()` writes them |
 
 ## Fixture format
 
@@ -276,11 +276,11 @@ precision (`CsvNumbers::RoundedToOracle`, counted per case in its table);
 `server_features` reads its text cells by column type (`NULL` is null, `TRUE`
 and `FALSE` are bools, ints are numbers). `today()` is fixed per set.
 
-`zhang-query/tests/conformance.rs` runs every fixture of this set against the
+`zhang-query/tests/oracle/conformance.rs` runs every fixture of this set against the
 engine on the shared ledger:
 
 ```sh
-cargo test -p zhang-query --test conformance
+cargo nextest run -p zhang-query -E 'binary(oracle) & test(conformance::)'
 ```
 
 It prints a table to stderr with one status per case:
@@ -305,7 +305,7 @@ To check that the gate catches regressions, run it over a mutated copy of the
 fixtures:
 
 ```sh
-ZHANG_QUERY_CONFORMANCE_CASES=/tmp/mutated-cases cargo test -p zhang-query --test conformance
+ZHANG_QUERY_CONFORMANCE_CASES=/tmp/mutated-cases cargo nextest run -p zhang-query -E 'binary(oracle) & test(conformance::)'
 ```
 
 ## Deviations

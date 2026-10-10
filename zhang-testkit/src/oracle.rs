@@ -2,7 +2,7 @@
 //! the engine's results are compared with them.
 //!
 //! Every case set of `zhang-query/tests` runs through [`run_case`] with one set of rules, those of
-//! `zhang-query/tests/conformance/README.md`:
+//! `zhang-query/tests/oracle/README.md`:
 //!
 //! - columns are compared by position and type; the names are compared too only when the case is
 //!   [`Case::strict_names`] (a set whose column names are data marks every case so after loading it);

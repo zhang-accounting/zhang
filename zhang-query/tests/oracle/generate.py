@@ -6,25 +6,25 @@ The expected results are produced by the official Python beanquery (beancount 3.
 beanquery 0.2.0) running over a ledger, not by zhang. ``--set`` picks the fixture set:
 
 =========================  ======================================  ============================
-set                        output (under zhang-query/tests)        checked by (tests/*.rs)
+set                        output (under zhang-query/tests/oracle)        checked by (tests/oracle/*.rs)
 =========================  ======================================  ============================
-``conformance`` (default)  ``conformance/cases/NNN_name.json``     ``conformance.rs``
-``having_pivot``           ``having_pivot/cases/NNN_name.json``    ``having_pivot.rs``
-``period``                 ``period/cases/NNN_name.json``          ``period.rs``
-``export``                 ``export/cases/NNN_name.json``          ``export.rs``
-``golden``                 ``golden/fava_demo.json``               ``golden.rs``
-``statements``             ``golden/statements.json``              ``statements.rs``
-``tables``                 ``tables/oracle.json``                  ``tables.rs``
-``server_features``        ``server_features/oracle/oracle.json``  ``server_features.rs``
+``conformance`` (default)  ``cases/conformance/NNN_name.json``     ``conformance.rs``
+``having_pivot``           ``cases/having_pivot/NNN_name.json``    ``having_pivot.rs``
+``period``                 ``cases/period/NNN_name.json``          ``period.rs``
+``export``                 ``cases/export/NNN_name.json``          ``export.rs``
+``golden``                 ``cases/golden/fava_demo.json``         ``golden.rs``
+``statements``             ``cases/statements/statements.json``    ``statements.rs``
+``tables``                 ``cases/tables/oracle.json``            ``tables.rs``
+``server_features``        ``cases/server_features/oracle.json``   ``server_features.rs``
 ``all``                    every set above
 =========================  ======================================  ============================
 
 Usage::
 
-    python generate.py [LEDGER]                  # (re)write conformance/cases/*.json
-    python generate.py --check [LEDGER]          # verify conformance/cases/*.json are up to date
+    python generate.py [LEDGER]                  # (re)write cases/conformance/*.json
+    python generate.py --check [LEDGER]          # verify cases/conformance/*.json are up to date
     python generate.py --table                   # also print the README case table
-    python generate.py --set period [LEDGER]     # (re)write period/cases/*.json
+    python generate.py --set period [LEDGER]     # (re)write cases/period/*.json
     python generate.py --set all --check         # verify every set
 
 LEDGER defaults to ``integration-tests/fava-demo-ledger/main.zhang`` at the
@@ -79,7 +79,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS_DIR = os.path.abspath(os.path.join(HERE, ".."))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 DEFAULT_LEDGER = os.path.join(REPO_ROOT, "integration-tests", "fava-demo-ledger", "main.zhang")
-CASES_DIR = os.path.join(HERE, "cases")
+CASES_DIR = os.path.join(HERE, "cases", "conformance")
 MAX_ROWS = 200
 
 ENGINE = "engine"
@@ -1522,7 +1522,7 @@ def build_conformance(args, shared):
 # ---------------------------------------------------------------------------
 # Set having_pivot: the oracle fixtures of HAVING and PIVOT BY
 # ---------------------------------------------------------------------------
-# The expected results in ``having_pivot/cases/*.json`` come from the official Python beanquery over the
+# The expected results in ``cases/having_pivot/*.json`` come from the official Python beanquery over the
 # shared ledger, exactly like the conformance set: the same ledger loading, validation (determinism, synthetic
 # balance-check re-runs, CSV rounding), encoding and fixture format, with a case list of its own. The fixtures
 # are checked by ``zhang-query/tests/having_pivot.rs``, which also compares column names: the names of pivoted
@@ -1532,7 +1532,7 @@ def build_conformance(args, shared):
 # (beanquery evaluates it on an arbitrary posting), NULL values in a PIVOT BY column (beanquery cannot sort
 # them) and missing pivot cells in CSV cases (beanquery's numberify fails on them).
 
-HAVING_PIVOT_CASES_DIR = os.path.join(TESTS_DIR, "having_pivot", "cases")
+HAVING_PIVOT_CASES_DIR = os.path.join(HERE, "cases", "having_pivot")
 
 HAVING_PIVOT_CASES = [
     # --- HAVING --------------------------------------------------------------
@@ -1640,12 +1640,12 @@ def build_having_pivot(args, shared):
 # ---------------------------------------------------------------------------
 # Set period: the oracle fixtures of the FROM period modifiers (OPEN ON, CLOSE [ON], CLEAR)
 # ---------------------------------------------------------------------------
-# The expected results in ``period/cases/*.json`` come from the official Python beanquery over the shared
+# The expected results in ``cases/period/*.json`` come from the official Python beanquery over the shared
 # ledger, exactly like the conformance set: the same ledger loading, validation (determinism and synthetic
 # balance-check re-runs), encoding and fixture format, with a case list of its own. The fixtures are checked
 # by ``zhang-query/tests/period.rs``.
 
-PERIOD_CASES_DIR = os.path.join(TESTS_DIR, "period", "cases")
+PERIOD_CASES_DIR = os.path.join(HERE, "cases", "period")
 
 PERIOD_CASES = [
     # --- reports ------------------------------------------------------------
@@ -1777,7 +1777,7 @@ def build_period(args, shared):
 # Set export: the CSV export oracle from beanquery's command line
 # ---------------------------------------------------------------------------
 # Each case in ``EXPORT_CASES`` is run with ``bean-query -q -f csv -m`` (CSV output, numberified) over the
-# shared ledger, and the raw output is stored verbatim in ``export/cases/NNN_<name>.json`` as
+# shared ledger, and the raw output is stored verbatim in ``cases/export/NNN_<name>.json`` as
 # ``{"name", "query", "notes", "csv"}``. The CSV is kept inside JSON so that its CRLF line endings survive
 # git.
 #
@@ -1787,7 +1787,7 @@ def build_period(args, shared):
 # ``bean-query`` is looked up next to the running interpreter (the venv of ``tests/conformance/README.md``:
 # beancount 3.2.3, beanquery 0.2.0).
 
-EXPORT_CASES_DIR = os.path.join(TESTS_DIR, "export", "cases")
+EXPORT_CASES_DIR = os.path.join(HERE, "cases", "export")
 
 
 def export_case(name, query, notes=""):
@@ -1860,7 +1860,7 @@ def build_export(args, shared):
 # exponent), dates as YYYY-MM-DD, sets as sorted arrays, amounts/positions/inventories as objects. The
 # statements set shares this encoding; it is not the encoding of the conformance fixtures above.
 
-GOLDEN_OUTPUT = os.path.join(TESTS_DIR, "golden", "fava_demo.json")
+GOLDEN_OUTPUT = os.path.join(HERE, "cases", "golden", "fava_demo.json")
 
 GOLDEN_QUERIES = [
     'SELECT year, month, root(account, 2), sum(position) WHERE account ~ "^Expenses" GROUP BY 1, 2, 3 ORDER BY 1, 2, 3',
@@ -1939,7 +1939,7 @@ def build_golden(args, shared):
 # The BALANCES and JOURNAL statements and the running ``balance`` column over the shared ledger. Values are
 # encoded as in the golden set (the ``POST /api/query`` JSON encoding), one row per line.
 
-STATEMENTS_OUTPUT = os.path.join(TESTS_DIR, "golden", "statements.json")
+STATEMENTS_OUTPUT = os.path.join(HERE, "cases", "statements", "statements.json")
 
 STATEMENTS_QUERIES = [
     "BALANCES AT cost FROM year <= 2016 WHERE account ~ '^(Assets|Liabilities)'",
@@ -1976,20 +1976,20 @@ def build_statements(args, shared):
 # ---------------------------------------------------------------------------
 # Set tables: the ``FROM #table`` oracle cases
 # ---------------------------------------------------------------------------
-# The expected results in ``tables/oracle.json`` are produced by the official Python beanquery running each
+# The expected results in ``cases/tables/oracle.json`` are produced by the official Python beanquery running each
 # query over a ledger, not by zhang. ``tests/tables.rs`` runs the same queries with zhang and compares
 # (decimals numerically, sets as sets, rows as multisets unless the case is ordered).
 #
 # Ledgers:
 #
 # * ``fava``: the shared ledger (``integration-tests/fava-demo-ledger/main.zhang``, or the LEDGER argument).
-# * ``extra``: ``tables/ledger/main.zhang``, with the directives the fava demo ledger has none of (notes,
+# * ``extra``: ``ledgers/tables/main.zhang``, with the directives the fava demo ledger has none of (notes,
 #   documents, close, custom, query, a failing balance assertion, a tolerance, links, '!' flags, posting flags
 #   and metadata). beancount reports two errors on it, both expected: the document file does not exist, and
 #   one balance assertion fails.
 
-TABLES_EXTRA_LEDGER = os.path.join(TESTS_DIR, "tables", "ledger", "main.zhang")
-TABLES_OUTPUT = os.path.join(TESTS_DIR, "tables", "oracle.json")
+TABLES_EXTRA_LEDGER = os.path.join(HERE, "ledgers", "tables", "main.zhang")
+TABLES_OUTPUT = os.path.join(HERE, "cases", "tables", "oracle.json")
 
 
 def tables_case(ledger, query, ordered=False):
@@ -2131,9 +2131,9 @@ def build_tables(args, shared):
 # ---------------------------------------------------------------------------
 # Set server_features: the date and directive-metadata functions of issue #479 (track L of the wave 1 spec)
 # ---------------------------------------------------------------------------
-# Every case runs one query over ``server_features/oracle/main.zhang`` with beanquery and records the column
-# types and the rows. ``server_features/oracle/oracle.json`` lists the cases in this file's order; the Rust
-# test ``zhang-query/tests/server_features.rs`` runs the same query with zhang and compares column types and
+# Every case runs one query over ``ledgers/server_features/main.zhang`` with beanquery and records the column
+# types and the rows. ``cases/server_features/oracle.json`` lists the cases in this file's order; the Rust
+# test ``zhang-query/tests/oracle/server_features.rs`` runs the same query with zhang and compares column types and
 # rows, in order. Column names are not compared (they are advisory, as in the conformance set).
 #
 # Cells are written the way ``zhang_query::Value`` displays them, so the Rust side compares
@@ -2148,11 +2148,11 @@ def build_tables(args, shared):
 # Accepted deviations: where the lead ruled that zhang deliberately differs from beanquery, the case still
 # records beanquery's output, and carries an ``accepted_deviation`` field with the reason. The rows zhang must
 # return instead are in ``ACCEPTED_DEVIATIONS`` of ``server_features.rs``, the mechanism of the conformance
-# suite (``zhang-query/tests/conformance.rs``). The Rust test checks that the two lists name the same cases
+# suite (``zhang-query/tests/oracle/conformance.rs``). The Rust test checks that the two lists name the same cases
 # and that beanquery's rows still differ from the accepted ones.
 
-SERVER_FEATURES_LEDGER = os.path.join(TESTS_DIR, "server_features", "oracle", "main.zhang")
-SERVER_FEATURES_OUTPUT = os.path.join(TESTS_DIR, "server_features", "oracle", "oracle.json")
+SERVER_FEATURES_LEDGER = os.path.join(HERE, "ledgers", "server_features", "main.zhang")
+SERVER_FEATURES_OUTPUT = os.path.join(HERE, "cases", "server_features", "oracle.json")
 
 
 def server_features_case(area, name, query, notes="", accepted_deviation=None):
