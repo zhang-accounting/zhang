@@ -10,6 +10,7 @@
 
 use zhang_core::ledger::Ledger;
 use zhang_query::Value;
+use zhang_testkit::ledger::load_text_as;
 
 const LEDGER: &str = r#"1970-01-01 commodity USD
 1970-01-01 open Assets:Cash
@@ -105,4 +106,66 @@ fn posting_metadata_filters_and_groups() {
     expect(&ledger, "SELECT count(*) WHERE any_meta('trip') IS NOT NULL", &[&["4"]]);
     // produced by beanquery 0.2.0
     expect(&ledger, "SELECT count(*) WHERE meta('trip') IS NULL", &[&["4"]]);
+}
+
+/// A beancount ledger with posting metadata at the postings' indentation, deeper, after an
+/// indented comment, on a posting without an amount, plus `pushmeta`.
+const BEAN_LEDGER: &str = r#"1970-01-01 commodity USD
+1970-01-01 open Assets:Cash
+1970-01-01 open Expenses:Food
+1970-01-01 open Expenses:Drink
+
+pushmeta source: "import"
+2024-01-02 * "Cafe" "lunch"
+  category: "meal"
+  Assets:Cash -10 USD
+  receipt: "r-1"
+  ; checked by hand
+  Expenses:Food 7 USD
+  category: "food"
+  Expenses:Drink 3 USD
+    trip: "rome"
+popmeta source:
+
+2024-01-03 * "Shop" "snack"
+    trip: "home"
+  Assets:Cash -2 USD
+  Expenses:Food
+  receipt: "r-2"
+"#;
+
+/// [`BEAN_LEDGER`] read by the beancount parser, which loads without errors.
+fn beancount_ledger() -> Ledger {
+    let ledger = load_text_as("main.bean", BEAN_LEDGER);
+    let errors: Vec<String> = ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
+    assert!(errors.is_empty(), "the beancount ledger has errors: {errors:?}");
+    ledger
+}
+
+/// The same rows used to be read through `POST /api/query` in zhang-server's tests.
+#[test]
+fn beanquery_reads_the_posting_metadata_of_a_beancount_ledger() {
+    let ledger = beancount_ledger();
+    // produced by beanquery 0.2.0 on the same ledger
+    expect_table(
+        &ledger,
+        "SELECT date, account, meta('category'), entry_meta('category'), any_meta('category'), \
+         meta('receipt'), entry_meta('receipt'), any_meta('receipt'), meta('trip'), entry_meta('trip'), any_meta('trip'), \
+         meta('source'), entry_meta('source'), any_meta('source') ORDER BY date, account",
+        r#"
+        2024-01-02 | Assets:Cash    | NULL | meal | meal | r-1  | NULL | r-1  | NULL | NULL | NULL | NULL | import | import
+        2024-01-02 | Expenses:Drink | NULL | meal | meal | NULL | NULL | NULL | rome | NULL | rome | NULL | import | import
+        2024-01-02 | Expenses:Food  | food | meal | food | NULL | NULL | NULL | NULL | NULL | NULL | NULL | import | import
+        2024-01-03 | Assets:Cash    | NULL | NULL | NULL | NULL | NULL | NULL | NULL | home | home | NULL | NULL   | NULL
+        2024-01-03 | Expenses:Food  | NULL | NULL | NULL | r-2  | NULL | r-2  | NULL | home | home | NULL | NULL   | NULL
+        "#,
+    );
+    // produced by beanquery 0.2.0 on the same ledger
+    expect_table(
+        &ledger,
+        "SELECT account, any_meta('category') WHERE entry_meta('category') = 'meal' ORDER BY account",
+        "Assets:Cash | meal\nExpenses:Drink | meal\nExpenses:Food | food",
+    );
+    // produced by beanquery 0.2.0 on the same ledger
+    expect_table(&ledger, "SELECT date, account WHERE meta('category') = 'food'", "2024-01-02 | Expenses:Food");
 }
