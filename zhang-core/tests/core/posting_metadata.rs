@@ -16,68 +16,29 @@
 use indoc::indoc;
 use zhang_ast::*;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::DataType;
 use zhang_core::utils::string_::QuoteStyle;
 use zhang_testkit::dialect::*;
 use zhang_testkit::fixtures::fixture_dir;
 use zhang_testkit::ledger::load_text;
 
 fn transactions(text: &str) -> Vec<Transaction> {
-    ZhangDataType {}
-        .transform(text.to_owned(), None)
-        .unwrap_or_else(|err| panic!("cannot parse {text:?}: {err}"))
-        .into_iter()
-        .filter_map(|it| match it.data {
-            Directive::Transaction(txn) => Some(txn),
-            _ => None,
-        })
-        .collect()
+    Scenario::zhang().transactions(text)
 }
 
 fn parse_one(text: &str) -> Transaction {
-    let mut txns = transactions(text);
-    assert_eq!(txns.len(), 1, "expected one transaction in {text:?}");
-    txns.remove(0)
+    Scenario::zhang().parse_one(text)
 }
 
 fn assert_shape(text: &str, expected: Shape) {
-    assert_eq!(Shape::of(&parse_one(text)), expected, "zhang format, text:\n{text}");
+    Scenario::zhang().assert_shape(text, expected)
 }
 
 fn export(txn: Transaction) -> String {
-    ZhangDataType {}.export(Spanned::new(Directive::Transaction(txn), SpanInfo::default()))
+    Scenario::zhang().export(txn)
 }
 
-/// Export then parse gives `txn` back, and the export is laid out as the contract says.
 fn assert_round_trips(txn: &Transaction) {
-    let exported = export(txn.clone());
-    assert_export_layout(&exported, txn);
-    let reparsed = parse_one(&exported);
-    assert_eq!(&reparsed, txn, "exported as:\n{exported}");
-    assert_eq!(Shape::of(&reparsed), Shape::of(txn), "exported as:\n{exported}");
-}
-
-/// The exported text is the header, the transaction metadata at 2 spaces, then each posting
-/// at 2 spaces followed by exactly its own metadata lines at 4 spaces.
-fn assert_export_layout(exported: &str, txn: &Transaction) {
-    let lines: Vec<&str> = exported.trim_end_matches('\n').split('\n').collect();
-    let indent = |line: &str| line.len() - line.trim_start_matches(' ').len();
-    let txn_lines = txn.meta.clone().get_flatten().len();
-    let mut expected_indents = vec![2; txn_lines];
-    for posting in &txn.postings {
-        expected_indents.push(2);
-        expected_indents.extend(std::iter::repeat_n(4, posting_meta(posting).clone().get_flatten().len()));
-    }
-    let indents: Vec<usize> = lines.iter().skip(1).map(|line| indent(line)).collect();
-    assert_eq!(indents, expected_indents, "indentation of each line after the header of:\n{exported}");
-    for (line, posting) in lines.iter().skip(1 + txn_lines).filter(|line| indent(line) == 2).zip(&txn.postings) {
-        assert!(
-            line.trim_start().starts_with(&posting.account.content),
-            "expected the posting on {} at {line:?} in:\n{exported}",
-            posting.account.content
-        );
-    }
+    Scenario::zhang().assert_round_trips(txn)
 }
 
 // ---------------------------------------------------------------------------
@@ -393,17 +354,6 @@ fn a_loaded_ledger_keeps_posting_metadata_apart_from_transaction_metadata() {
 // export
 // ---------------------------------------------------------------------------
 
-fn lunch() -> Transaction {
-    transaction(
-        vec![
-            posting("Assets:Cash", Some(("-10", "CNY")), &[("receipt", quote("r-1"))]),
-            posting("Expenses:Food", Some(("7", "CNY")), &[]),
-            posting("Expenses:Tips", None, &[("memo", quote("say \"hi\" \\ bye"))]),
-        ],
-        &[("note", quote("t"))],
-    )
-}
-
 const LUNCH: &str = indoc! {r#"
     2024-01-02 * "Shop" "lunch"
       note: "t"
@@ -566,6 +516,7 @@ mod older_wasm_plugin {
     use std::sync::Arc;
 
     use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::ledger::Ledger;
 
     use super::*;

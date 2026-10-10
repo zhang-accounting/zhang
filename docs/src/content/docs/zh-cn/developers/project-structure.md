@@ -74,14 +74,14 @@ CI（`.github/workflows/build-latest.yml`）会在每个 pull request 上运行�
 
 | 检查 | 命令 |
 | --- | --- |
-| Rust 测试 | `cargo test`，以及 `cargo test -p zhang-core`（不含插件运行时） |
+| Rust 测试 | 分三组运行的 `cargo nextest run`（`zhang-query`、`zhang-server`、其余部分）、`cargo test --doc`，以及 `cargo test -p zhang-core`（不含插件运行时） |
 | 格式 | `cargo +nightly fmt --all -- --check` |
 | Lint | `cargo clippy --all-features --all-targets -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs`，以及针对 `--target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary` 的同样检查 |
 | WebAssembly 绑定 | 在 `bindings/wasm` 中运行 `wasm-pack build` |
 | 网页界面 | 在 `frontend` 中运行 `pnpm run prettier:check` 和 `pnpm build` |
 | 拼写 | [typos](https://github.com/crate-ci/typos)，配置在 `_typos.toml` 中 |
 
-`cargo test` 也会运行 `integration-tests/` 中的端到端用例。每个文件夹包含一个 `main.zhang` 或 `main.bean`，以及一个 `validations.json`：一组 API URI，每个 URI 带有若干 JSONPath 表达式及其必须返回的值。网页界面也有单元测试：在 `frontend` 中运行 `pnpm test`。
+Rust 测试包含 `integration-tests/` 中的端到端用例。每个文件夹包含一个 `main.zhang` 或 `main.bean`，以及一个 `validations.json`：一组 API URI，每个 URI 带有若干 JSONPath 表达式及其必须返回的值。网页界面也有单元测试：在 `frontend` 中运行 `pnpm test`。测试如何分层、新测试放在哪里以及它们遵循的约定，见[测试](/zh-cn/developers/testing/)页。
 
 文档只在推送到 `main` 和 `develop` 时构建和部署，pull request 上不会构建。修改 `docs/` 之前请先自己构建一次，见 `docs/README.md`。
 

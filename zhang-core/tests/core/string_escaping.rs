@@ -12,325 +12,34 @@
 //! 5. malformed escapes are reported as positioned errors, never as panics.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::str::FromStr;
 
-use bigdecimal::BigDecimal;
-use chrono::NaiveDate;
-use zhang_core::ast::amount::Amount;
-use zhang_core::ast::{
-    Account, Custom, Date, Directive, Event, Flag, Meta, Note, Open, Posting, Query, SpanInfo, Spanned, StringOrAccount, Transaction, ZhangString,
-};
+use zhang_core::ast::Directive;
 use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
+use zhang_testkit::dialect::escaping::{
+    self, directive_with, field_value, legacy_escapes_in, panic_message, snippets, Field, Outcome, Rng, ALPHABET, EXAMPLES, FIELDS,
+};
 use zhang_testkit::ledger::try_load_text;
 
 // ---------------------------------------------------------------------------
-// helpers
+// helpers: the shared scenarios of `zhang_testkit::dialect::escaping`, run through this dialect
 // ---------------------------------------------------------------------------
 
-/// Every quoted field kind a string can be exported into.
-#[derive(Clone, Copy, Debug)]
-enum Field {
-    Payee,
-    Narration,
-    TransactionMeta,
-    OpenMeta,
-    QueryName,
-    QueryText,
-    NoteComment,
-    EventDescription,
-    CustomValue,
-}
-
-const FIELDS: [Field; 9] = [
-    Field::Payee,
-    Field::Narration,
-    Field::TransactionMeta,
-    Field::OpenMeta,
-    Field::QueryName,
-    Field::QueryText,
-    Field::NoteComment,
-    Field::EventDescription,
-    Field::CustomValue,
-];
-
-/// Outcome of handing text to the parser, with panics caught.
-enum Outcome {
-    Parsed(Vec<Spanned<Directive>>),
-    Error(String),
-    Panicked(String),
-}
-
-fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
-    payload
-        .downcast_ref::<&str>()
-        .map(|message| message.to_string())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "non-string panic payload".to_owned())
-}
-
 fn transform(text: &str) -> Outcome {
-    match catch_unwind(AssertUnwindSafe(|| ZhangDataType {}.transform(text.to_owned(), None))) {
-        Ok(Ok(directives)) => Outcome::Parsed(directives),
-        Ok(Err(error)) => Outcome::Error(error.to_string()),
-        Err(payload) => Outcome::Panicked(panic_message(payload)),
-    }
+    escaping::transform(&ZhangDataType {}, text)
 }
 
 fn export(directive: Directive) -> Result<String, String> {
-    catch_unwind(AssertUnwindSafe(|| ZhangDataType {}.export(Spanned::new(directive, SpanInfo::default())))).map_err(panic_message)
+    escaping::export(&ZhangDataType {}, directive)
 }
 
-fn date() -> Date {
-    Date::Date(NaiveDate::from_ymd_opt(2024, 1, 2).unwrap())
-}
-
-fn account(name: &str) -> Account {
-    Account::from_str(name).unwrap()
-}
-
-fn posting(name: &str, units: Option<i64>) -> Posting {
-    Posting {
-        flag: None,
-        account: account(name),
-        units: units.map(|number| Amount::new(BigDecimal::from(number), "CNY")),
-        cost: None,
-        price: None,
-        comment: None,
-        meta: Default::default(),
-        written: None,
-    }
-}
-
-fn memo(value: &str) -> Meta {
-    let mut meta = Meta::default();
-    meta.insert("memo".to_owned(), ZhangString::quote(value));
-    meta
-}
-
-/// A directive whose `field` holds `s` as a quoted string; every other field is plain ASCII.
-fn directive_with(field: Field, s: &str) -> Directive {
-    match field {
-        Field::Payee | Field::Narration | Field::TransactionMeta => {
-            let (payee, narration, meta) = match field {
-                Field::Payee => (s, "narration", Meta::default()),
-                Field::Narration => ("payee", s, Meta::default()),
-                _ => ("payee", "narration", memo(s)),
-            };
-            Directive::Transaction(Transaction {
-                date: date(),
-                flag: Some(Flag::Okay),
-                payee: Some(ZhangString::quote(payee)),
-                narration: Some(ZhangString::quote(narration)),
-                tags: Default::default(),
-                links: Default::default(),
-                postings: vec![posting("Assets:Cash", Some(-5)), posting("Expenses:Food", Some(5))],
-                meta,
-            })
-        }
-        Field::OpenMeta => Directive::Open(Open {
-            date: date(),
-            account: account("Assets:Cash"),
-            commodities: vec![],
-            meta: memo(s),
-        }),
-        Field::QueryName | Field::QueryText => {
-            let (name, text) = match field {
-                Field::QueryName => (s, "SELECT account"),
-                _ => ("saved", s),
-            };
-            Directive::Query(Query {
-                date: date(),
-                name: ZhangString::quote(name),
-                query_string: ZhangString::quote(text),
-                meta: Meta::default(),
-            })
-        }
-        Field::NoteComment => Directive::Note(Note {
-            date: date(),
-            account: account("Assets:Cash"),
-            comment: ZhangString::quote(s),
-            tags: None,
-            links: None,
-            meta: Meta::default(),
-        }),
-        Field::EventDescription => Directive::Event(Event {
-            date: date(),
-            event_type: ZhangString::quote("mood"),
-            description: ZhangString::quote(s),
-            meta: Meta::default(),
-        }),
-        Field::CustomValue => Directive::Custom(Custom {
-            date: date(),
-            custom_type: ZhangString::quote("kind"),
-            values: vec![StringOrAccount::String(ZhangString::quote(s))],
-            meta: Meta::default(),
-        }),
-    }
-}
-
-/// The value of `field` in a parsed directive, if the directive has that shape.
-fn field_value(field: Field, directive: &Directive) -> Option<String> {
-    let memo = |meta: &Meta| meta.get_one("memo").map(|value| value.as_str().to_owned());
-    match (field, directive) {
-        (Field::Payee, Directive::Transaction(txn)) => txn.payee.as_ref().map(|it| it.as_str().to_owned()),
-        (Field::Narration, Directive::Transaction(txn)) => txn.narration.as_ref().map(|it| it.as_str().to_owned()),
-        (Field::TransactionMeta, Directive::Transaction(txn)) => memo(&txn.meta),
-        (Field::OpenMeta, Directive::Open(open)) => memo(&open.meta),
-        (Field::QueryName, Directive::Query(query)) => Some(query.name.as_str().to_owned()),
-        (Field::QueryText, Directive::Query(query)) => Some(query.query_string.as_str().to_owned()),
-        (Field::NoteComment, Directive::Note(note)) => Some(note.comment.as_str().to_owned()),
-        (Field::EventDescription, Directive::Event(event)) => Some(event.description.as_str().to_owned()),
-        (Field::CustomValue, Directive::Custom(custom)) => match custom.values.as_slice() {
-            [StringOrAccount::String(value)] => Some(value.as_str().to_owned()),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Export a directive holding `s` in `field`, parse the output back and compare.
 fn round_trip(field: Field, s: &str) -> Result<(), String> {
-    let exported = export(directive_with(field, s)).map_err(|panic| format!("{field:?} {s:?}: exporter panicked: {panic}"))?;
-    let directives = match transform(&exported) {
-        Outcome::Parsed(directives) => directives,
-        Outcome::Error(error) => return Err(format!("{field:?} {s:?}: exported {exported:?} fails to parse: {error}")),
-        Outcome::Panicked(panic) => return Err(format!("{field:?} {s:?}: parser panicked on exported {exported:?}: {panic}")),
-    };
-    match directives.as_slice() {
-        [directive] => match field_value(field, &directive.data) {
-            Some(value) if value == s => Ok(()),
-            other => Err(format!("{field:?} {s:?}: exported {exported:?} parses back as {other:?}")),
-        },
-        _ => Err(format!("{field:?} {s:?}: exported {exported:?} parses into {} directives", directives.len())),
-    }
+    escaping::round_trip(&ZhangDataType {}, field, s)
 }
 
-/// Escape sequences in exporter output that the contract forbids (`\$`, `` \` ``, `\u{`).
-///
-/// The scan pairs each backslash with the character after it, the way the parser reads escapes,
-/// so `\\$` (an escaped backslash followed by a dollar) is not a violation.
-fn legacy_escapes_in(exported: &str) -> Vec<&'static str> {
-    let mut found = vec![];
-    let mut chars = exported.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            continue;
-        }
-        match chars.next() {
-            Some('$') => found.push(r"\$"),
-            Some('`') => found.push(r"\`"),
-            Some('u') if chars.peek() == Some(&'{') => found.push(r"\u{"),
-            _ => {}
-        }
-    }
-    found
+fn check_decodes(cases: &[(&str, &str)]) {
+    escaping::check_decodes(&ZhangDataType {}, cases)
 }
-
-/// Small deterministic xorshift PRNG, so the property tests need no extra dependency and every
-/// run checks the same inputs.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-
-    fn below(&mut self, bound: usize) -> usize {
-        (self.next() % bound as u64) as usize
-    }
-
-    /// A string of up to `max_pieces` pieces drawn from `alphabet`.
-    fn string(&mut self, alphabet: &[&str], max_pieces: usize) -> String {
-        let pieces = self.below(max_pieces + 1);
-        (0..pieces).map(|_| alphabet[self.below(alphabet.len())]).collect()
-    }
-}
-
-/// Pieces for generated field values: quoting and escaping characters, control and separator
-/// characters, non-BMP and CJK text, and literal text that looks like an escape sequence.
-const ALPHABET: &[&str] = &[
-    "\"",
-    "\\",
-    "$",
-    "`",
-    "\n",
-    "\t",
-    "\r",
-    "\u{0}",
-    "\u{1}",
-    "\u{7}",
-    "\u{8}",
-    "\u{b}",
-    "\u{c}",
-    "\u{1b}",
-    "\u{7f}",
-    "\u{85}",
-    "\u{a0}",
-    "\u{2028}",
-    "\u{2029}",
-    "\u{200b}",
-    "\u{feff}",
-    "\u{1F600}",
-    "\u{1F468}\u{200D}\u{1F469}",
-    "中",
-    "账本",
-    "a",
-    "Z",
-    "0",
-    "9",
-    " ",
-    "{",
-    "}",
-    "u",
-    "/",
-    "'",
-    "#",
-    ";",
-    ":",
-    "~",
-    "SELECT",
-    r"\u{a0}",
-    r"\$",
-    r"\`",
-    r"\d",
-    r"\u00e9",
-    "u{2028}",
-    r#"\""#,
-];
-
-/// Hand-picked strings that must round-trip in every field.
-const EXAMPLES: &[&str] = &[
-    "",
-    "coffee $5",
-    "a ` b",
-    "$`$`",
-    "x\u{a0}y",
-    "SELECT\u{a0}account",
-    "line\u{2028}separator",
-    r"\d+",
-    r"\\d+",
-    r"C:\Users\me",
-    "\\",
-    "ends with a backslash \\",
-    "\"",
-    "say \"hi\"",
-    "\\\"",
-    "tab\there",
-    "line\nbreak",
-    "carriage\rreturn",
-    "bell\u{7} vt\u{b} esc\u{1b} nul\u{0} del\u{7f}",
-    "\u{1F600} 账本",
-    r"literal \u{a0} and \u00e9 and \$ and \`",
-    "{}",
-    "u{2028}",
-];
 
 // ---------------------------------------------------------------------------
 // 1. round trip
@@ -411,39 +120,6 @@ fn legacy_escape_scan_pairs_backslashes_like_the_parser() {
 // ---------------------------------------------------------------------------
 // 3. decoding: known and legacy escapes
 // ---------------------------------------------------------------------------
-
-/// Ledger snippets that put `inner` (raw ledger text, between the quotes) into one quoted field.
-fn snippets(inner: &str) -> [(Field, String); 3] {
-    [
-        (
-            Field::Narration,
-            format!("2024-01-02 * \"payee\" \"{inner}\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n"),
-        ),
-        (Field::OpenMeta, format!("2024-01-02 open Assets:Cash\n  memo: \"{inner}\"\n")),
-        (Field::QueryText, format!("2024-01-02 query \"saved\" \"{inner}\"\n")),
-    ]
-}
-
-/// Check that the raw quoted text `inner` decodes to `expected` in every snippet position.
-fn check_decodes(cases: &[(&str, &str)]) {
-    let mut failures = vec![];
-    for (inner, expected) in cases {
-        for (field, text) in snippets(inner) {
-            let actual = match transform(&text) {
-                Outcome::Parsed(directives) => match directives.as_slice() {
-                    [directive] => field_value(field, &directive.data).ok_or_else(|| format!("no {field:?} in {:?}", directive.data)),
-                    _ => Err(format!("{} directives", directives.len())),
-                },
-                Outcome::Error(error) => Err(format!("parse error: {error}")),
-                Outcome::Panicked(panic) => Err(format!("panic: {panic}")),
-            };
-            if actual.as_deref() != Ok(*expected) {
-                failures.push(format!("{field:?} \"{inner}\": expected {expected:?}, got {actual:?}"));
-            }
-        }
-    }
-    assert!(failures.is_empty(), "{} decodings failed:\n{}", failures.len(), failures.join("\n"));
-}
 
 #[test]
 fn known_escapes_decode() {

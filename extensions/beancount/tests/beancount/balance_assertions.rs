@@ -10,31 +10,23 @@
 //! zhang never infers a tolerance, and pads to exactly the asserted amount.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 
-use beancount::Beancount;
 use bigdecimal::{BigDecimal, Zero};
 use serde_json::Value;
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{group_units, written_groups, Date, Directive, Flag, Transaction};
-use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
-
-fn dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/balance_assertions")
-}
+use zhang_testkit::fixtures::{load_dir, oracle_ledger_dir};
 
 fn load(case: &str) -> Ledger {
-    let data_source = Arc::new(LocalFileSystemDataSource::new(Beancount::default()));
-    Ledger::load_with_data_source(dir(), format!("{case}.bean"), data_source).expect("the ledger loads")
+    load_dir(oracle_ledger_dir(), &format!("{case}.bean")).expect("the ledger loads")
 }
 
 fn oracle_cases() -> serde_json::Map<String, Value> {
-    let oracle: Value = serde_json::from_str(&std::fs::read_to_string(dir().join("oracle.json")).unwrap()).unwrap();
+    let oracle: Value = serde_json::from_str(&std::fs::read_to_string(oracle_ledger_dir().join("oracle.json")).unwrap()).unwrap();
     oracle.as_object().unwrap().clone()
 }
 
@@ -542,12 +534,12 @@ fn zhang_reads_a_document_relative_to_its_file() {
         })
         .collect::<Vec<_>>();
     assert_eq!(paths, vec!["document_paths/attachments/statement.txt"; 2]);
-    assert!(dir().join(&paths[0]).is_file());
+    assert!(oracle_ledger_dir().join(&paths[0]).is_file());
 }
 
 #[test]
 fn every_ledger_has_an_oracle() {
-    let mut ledgers = std::fs::read_dir(dir())
+    let mut ledgers = std::fs::read_dir(oracle_ledger_dir())
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .filter_map(|name| name.strip_suffix(".bean").map(str::to_owned))
