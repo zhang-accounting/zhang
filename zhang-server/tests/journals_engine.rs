@@ -25,7 +25,6 @@ use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use zhang_ast::Account;
 use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::pipeline::AccountUse;
 use zhang_server::request::{BuiltinQueryRunRequest, JournalRequest};
@@ -35,6 +34,8 @@ use zhang_server::routes::transaction::{get_journals, update_single_transaction}
 use zhang_server::routes::{Base64Path, Query as UrlQuery};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
+use zhang_testkit::http::{respond, shared};
+use zhang_testkit::ledger::Scratch;
 
 const LEDGER: &str = r#"option "operating_currency" "CNY"
 option "timezone" "Asia/Shanghai"
@@ -86,41 +87,9 @@ const MORE: &str = r#"2024-01-09 * "Unbalanced" "in another file"
   Expenses:Food 2 CNY
 "#;
 
-struct Scratch {
-    dir: PathBuf,
-}
-
-impl Scratch {
-    fn new(files: &[(&str, &str)]) -> Scratch {
-        let dir = std::env::temp_dir().join(format!("zhang-journals-engine-{}", uuid::Uuid::new_v4()));
-        for (name, content) in files {
-            let path = dir.join(name);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, content).unwrap();
-        }
-        Scratch {
-            dir: dir.canonicalize().unwrap(),
-        }
-    }
-
-    async fn ledger(&self) -> SharedLedger {
-        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::load(self.dir.clone(), "main.zhang".to_owned(), source).expect("the ledger loads");
-        SharedLedger(Arc::new(RwLock::new(ledger)))
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.dir).ok();
-    }
-}
-
-async fn respond(response: impl IntoResponse) -> (StatusCode, Value) {
-    let response = response.into_response();
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+/// The ledger of `scratch` as the handlers share it.
+fn shared_ledger(scratch: &Scratch) -> SharedLedger {
+    shared(scratch.ledger().expect("the ledger loads"))
 }
 
 /// The first column of the rows of the built-in query `name` with `params`, as strings: the lists of the forms.
@@ -239,8 +208,8 @@ fn amount(number: &str, commodity: &str) -> Value {
 
 #[tokio::test]
 async fn the_journal_lists_transactions_and_assertions_newest_first_as_zhang_checks_them() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     let page = page(&ledger, None, None).await;
     assert_eq!(page["total_count"], 9);
     assert_eq!(
@@ -272,8 +241,8 @@ async fn the_journal_lists_transactions_and_assertions_newest_first_as_zhang_che
 
 #[tokio::test]
 async fn a_transaction_keeps_every_value_of_a_repeated_key_and_its_postings_their_balances() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     let page = page(&ledger, None, None).await;
     let lunch = record(&page, "lunch");
     assert_eq!(lunch["datetime"], "2024-01-01T10:30:00");
@@ -316,8 +285,8 @@ async fn a_transaction_keeps_every_value_of_a_repeated_key_and_its_postings_thei
 
 #[tokio::test]
 async fn a_cost_is_the_per_unit_cost_of_the_lot() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     let page = page(&ledger, None, None).await;
     // `{{1000 USD}}` for 10 AAPL: the old journal reported 1000 USD where a per-unit cost is expected
     let buy = &record(&page, "buy")["postings"][0];
@@ -362,8 +331,8 @@ async fn a_reduction_across_lots_has_their_cost_only_when_they_share_it() {
   Assets:Cash 820 USD
   Income:Gains
 "#;
-    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", ledger_text)]);
+    let ledger = shared_ledger(&scratch);
     let page = page(&ledger, None, None).await;
     // 10 + 2 of the two lots bought at 100 USD: one posting, their common cost
     let same = &record(&page, "across the lots of 100 USD")["postings"][0];
@@ -407,8 +376,8 @@ async fn a_balance_with_pad_follows_the_paddings_of_its_time_on_every_page() {
   Assets:A -3 CNY
   Expenses:Food
 "#;
-    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", ledger_text)]);
+    let ledger = shared_ledger(&scratch);
     let all = page(&ledger, None, None).await;
     let order = all["records"]
         .as_array()
@@ -448,8 +417,8 @@ async fn a_balance_with_pad_follows_the_paddings_of_its_time_on_every_page() {
 
 #[tokio::test]
 async fn balance_assertions_and_pads_keep_their_shape() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     let page = page(&ledger, None, None).await;
     let records = page["records"].as_array().unwrap();
     let checks = records.iter().filter(|it| it["type"] == "BalanceCheck").collect::<Vec<_>>();
@@ -503,8 +472,8 @@ async fn balance_assertions_and_pads_keep_their_shape() {
 /// padding of its sub-account.
 #[tokio::test]
 async fn a_balance_written_after_a_padding_comes_after_it() {
-    let scratch = Scratch::new(&[("main.zhang", include_str!("fixtures/journals/review-padorder/main.zhang"))]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", include_str!("fixtures/journals/review-padorder/main.zhang"))]);
+    let ledger = shared_ledger(&scratch);
     let page = page(&ledger, None, None).await;
     let order = page["records"]
         .as_array()
@@ -527,8 +496,8 @@ async fn a_balance_written_after_a_padding_comes_after_it() {
 
 #[tokio::test]
 async fn a_keyword_is_plain_text_that_matches_ignoring_case() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     // payees (`Unbalanced` too), and the `Balance Check` of the assertions
     assert_eq!(
         summary(&page(&ledger, Some("BALANCE"), None).await),
@@ -562,8 +531,8 @@ async fn a_keyword_is_plain_text_that_matches_ignoring_case() {
 
 #[tokio::test]
 async fn bad_pages_are_bad_requests_and_a_page_past_the_end_is_empty() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     // the old journal divided by the size and panicked
     let (status, _) = journals(&ledger, request(Some(1), Some(0), None, None)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -611,8 +580,8 @@ const TAGGED: &str = r#"option "operating_currency" "CNY"
 /// sends them back as the journal lists them, does not reorder them when it saves.
 #[tokio::test]
 async fn tags_and_links_keep_their_written_order_through_a_save() {
-    let scratch = Scratch::new(&[("main.zhang", TAGGED)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", TAGGED)]);
+    let ledger = shared_ledger(&scratch);
     let item = page(&ledger, None, None).await["records"][0].clone();
     assert_eq!(item["tags"], json!(["trip", "Food"]));
     assert_eq!(item["links"], json!(["z-link", "a-link"]));
@@ -637,11 +606,11 @@ async fn tags_and_links_keep_their_written_order_through_a_save() {
     let id = item["id"].as_str().unwrap().to_owned();
     let (status, body) = respond(update_single_transaction(State(ledger.clone()), reload, UrlPath((id,)), Json(payload)).await).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let written = std::fs::read_to_string(scratch.dir.join("main.zhang")).unwrap();
+    let written = std::fs::read_to_string(scratch.main_file()).unwrap();
     assert!(written.contains("#trip #Food ^z-link ^a-link"), "{written}");
 
     // and the reloaded journal lists them in that order again
-    let reloaded = scratch.ledger().await;
+    let reloaded = shared_ledger(&scratch);
     let item = page(&reloaded, None, None).await["records"][0].clone();
     assert_eq!(item["tags"], json!(["trip", "Food"]));
     assert_eq!(item["links"], json!(["z-link", "a-link"]));
@@ -651,8 +620,8 @@ async fn tags_and_links_keep_their_written_order_through_a_save() {
 /// `journals.accounts` at that instant for its suggestions (`retrieveNewTransactionInfo` in the frontend).
 #[tokio::test]
 async fn the_new_transaction_form_suggests_sorted_payees_without_pads_and_open_accounts() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     // the ledger's time now, by the system clock here
     let (date, time) = ledger_now(&ledger).await;
     assert!(chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_ok(), "{date}");
@@ -680,8 +649,8 @@ async fn a_document_is_the_same_row_on_both_lists() {
 2024-01-02 document Assets:Cash "photos/receipt.webp"
 2024-01-03 document Assets:Cash "notes/README"
 "#;
-    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", ledger_text)]);
+    let ledger = shared_ledger(&scratch);
     let (status, mut all) = builtin(&ledger, "journals.documents", json!({})).await;
     assert_eq!(status, StatusCode::OK);
     let (status, mut of_account) = builtin(&ledger, "accounts.documents", json!({ "account": "Assets:Cash" })).await;
@@ -710,10 +679,12 @@ async fn a_document_is_the_same_row_on_both_lists() {
 async fn the_new_transaction_form_offers_the_accounts_open_today() {
     let today = chrono::Utc::now().date_naive();
     let tomorrow = today.succ_opt().unwrap();
-    let scratch = Scratch::new(&[(
+    let scratch = Scratch::with_files(
         "main.zhang",
-        &format!(
-            r#"option "timezone" "UTC"
+        &[(
+            "main.zhang",
+            &format!(
+                r#"option "timezone" "UTC"
 1970-01-01 open Assets:Again
 2000-01-01 close Assets:Again
 2001-01-01 open Assets:Again
@@ -725,9 +696,10 @@ async fn the_new_transaction_form_offers_the_accounts_open_today() {
 1970-01-01 open Assets:Midnight
 {today} 00:00:00 close Assets:Midnight
 "#
-        ),
-    )]);
-    let ledger = scratch.ledger().await;
+            ),
+        )],
+    );
+    let ledger = shared_ledger(&scratch);
     let (date, time) = ledger_now(&ledger).await;
     assert_eq!(
         names(&ledger, "journals.accounts", json!({ "date": date, "time": time })).await,
@@ -740,9 +712,11 @@ async fn the_new_transaction_form_offers_the_accounts_open_today() {
 /// until that time, and an account is offered from its open on.
 #[tokio::test]
 async fn the_new_transaction_form_offers_the_accounts_open_at_the_date_of_the_transaction() {
-    let scratch = Scratch::new(&[(
+    let scratch = Scratch::with_files(
         "main.zhang",
-        r#"option "timezone" "Asia/Shanghai"
+        &[(
+            "main.zhang",
+            r#"option "timezone" "Asia/Shanghai"
 1970-01-01 open Assets:Cash
 1970-01-01 open Assets:Day
 2024-01-05 close Assets:Day
@@ -750,8 +724,9 @@ async fn the_new_transaction_form_offers_the_accounts_open_at_the_date_of_the_tr
 2024-01-05 10:00:00 close Assets:Timed
 2024-01-05 open Assets:New
 "#,
-    )]);
-    let ledger = scratch.ledger().await;
+        )],
+    );
+    let ledger = shared_ledger(&scratch);
     // the form sends the transaction's wall-clock date and time in the ledger's timezone, which the endpoint read from an
     // instant before; here as the ledger's wall-clock time of each instant
     let accounts = |at: &str| {
@@ -788,10 +763,12 @@ async fn the_new_transaction_form_offers_the_accounts_open_at_the_date_of_the_tr
 #[tokio::test]
 async fn the_document_upload_offers_every_account_opened_by_now() {
     let tomorrow = chrono::Utc::now().date_naive().succ_opt().unwrap();
-    let scratch = Scratch::new(&[(
+    let scratch = Scratch::with_files(
         "main.zhang",
-        &format!(
-            r#"option "timezone" "UTC"
+        &[(
+            "main.zhang",
+            &format!(
+                r#"option "timezone" "UTC"
 1970-01-01 open Assets:Cash
 1970-01-01 open Assets:Gone
 2000-01-01 close Assets:Gone
@@ -804,9 +781,10 @@ async fn the_document_upload_offers_every_account_opened_by_now() {
   Assets:Cash -1 CNY
   Expenses:Ghost 1 CNY
 "#
-        ),
-    )]);
-    let ledger = scratch.ledger().await;
+            ),
+        )],
+    );
+    let ledger = shared_ledger(&scratch);
     let (date, time) = ledger_now(&ledger).await;
     let at = json!({ "date": date, "time": time });
     assert_eq!(
@@ -834,9 +812,11 @@ async fn accounts_opened_is_the_rule_the_ledger_checks_a_record_with() {
         "Assets:Reopened",
         "Assets:Tomorrow",
     ];
-    let scratch = Scratch::new(&[(
+    let scratch = Scratch::with_files(
         "main.zhang",
-        r#"option "timezone" "UTC"
+        &[(
+            "main.zhang",
+            r#"option "timezone" "UTC"
 1970-01-01 open Assets:Cash
 2024-01-05 09:00:00 open Assets:Morning
 2024-01-05 15:00:00 open Assets:Afternoon
@@ -852,8 +832,9 @@ async fn accounts_opened_is_the_rule_the_ledger_checks_a_record_with() {
 2024-01-06 open Assets:Reopened
 2024-01-06 open Assets:Tomorrow
 "#,
-    )]);
-    let ledger = scratch.ledger().await;
+        )],
+    );
+    let ledger = shared_ledger(&scratch);
     let instants = [
         "2024-01-04 12:00:00",
         "2024-01-05 08:00:00",
@@ -910,8 +891,8 @@ async fn documents_come_from_the_documents_table_newest_first() {
   Expenses:Food
     document: "receipts/c.pdf"
 "#;
-    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", ledger_text)]);
+    let ledger = shared_ledger(&scratch);
     let id = {
         let guard = ledger.read().await;
         guard.transactions()[0].0.to_string()
@@ -987,8 +968,8 @@ async fn the_document_of_a_split_sale_is_listed_once() {
   Assets:Cash 2250 USD
   Income:Gains
 "#;
-    let scratch = Scratch::new(&[("main.zhang", ledger_text)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", ledger_text)]);
+    let ledger = shared_ledger(&scratch);
     {
         let guard = ledger.read().await;
         assert!(guard.errors.is_empty(), "{:?}", guard.errors);
@@ -1004,8 +985,8 @@ async fn the_document_of_a_split_sale_is_listed_once() {
 
 #[tokio::test]
 async fn errors_are_listed_by_file_then_position_one_page_at_a_time() {
-    let scratch = Scratch::new(&[("main.zhang", LEDGER), ("more.zhang", MORE)]);
-    let ledger = scratch.ledger().await;
+    let scratch = Scratch::with_files("main.zhang", &[("main.zhang", LEDGER), ("more.zhang", MORE)]);
+    let ledger = shared_ledger(&scratch);
     let (records, total) = errors_page(&ledger, 10, 0).await;
     assert_eq!(total, 2);
     // main.zhang before more.zhang, whatever the order zhang found them in

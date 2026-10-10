@@ -2,29 +2,21 @@
 //! result size limit is read once per process, from `ZHANG_QUERY_MAX_RESULT_VALUES`, so this test has a
 //! binary of its own.
 
-use std::sync::Arc;
-
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde_json::Value;
-use tokio::sync::RwLock;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
 use zhang_server::request::AccountJournalRequest;
 use zhang_server::routes::account::get_account_journals;
 use zhang_server::routes::query::{max_result_values, MAX_RESULT_VALUES_ENV};
 use zhang_server::routes::Query;
-use zhang_server::state::SharedLedger;
+use zhang_testkit::http::{answer, shared};
+use zhang_testkit::ledger::load_text;
 
+/// the status, the `X-Total-Count` header and the JSON body
 async fn respond(response: impl IntoResponse) -> (StatusCode, Option<String>, Value) {
-    let response = response.into_response();
-    let status = response.status();
-    let total = response.headers().get("X-Total-Count").map(|it| it.to_str().unwrap().to_owned());
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body: Value = serde_json::from_slice(&bytes).unwrap();
-    (status, total, body)
+    let answer = answer(response).await;
+    (answer.status, answer.header("X-Total-Count"), answer.body)
 }
 
 #[tokio::test]
@@ -37,11 +29,7 @@ async fn a_journal_too_large_to_return_at_once_asks_for_pages() {
         let date = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap() + chrono::Duration::days(day);
         text += &format!("{date} * \"Shop\" \"day {day}\"\n  Assets:Cash 1 CNY\n  Equity:Open\n");
     }
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("main.zhang"), text).unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
-    let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
+    let ledger = shared(load_text(&text));
     let path = || Path(("Assets:Cash".to_owned(),));
 
     let (status, _, body) = respond(get_account_journals(State(ledger.clone()), path(), Query(Default::default())).await).await;

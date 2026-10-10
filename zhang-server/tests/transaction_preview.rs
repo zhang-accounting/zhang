@@ -9,14 +9,13 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, RwLock};
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
+use tokio::sync::mpsc;
 use zhang_server::request::CreateTransactionRequest;
 use zhang_server::routes::transaction::{create_new_transaction, preview_new_transaction, preview_transaction_update};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
+use zhang_testkit::fixtures::load_dir;
+use zhang_testkit::http::{respond, shared};
 
 const LEDGER: &str = r#"option "operating_currency" "CNY"
 option "timezone" "UTC"
@@ -31,11 +30,10 @@ option "timezone" "UTC"
 2023-06-30 close Expenses:Food
 "#;
 
-async fn ledger(dir: &Path, main: &str) -> SharedLedger {
+/// The ledger of `main`, written as `main.zhang` to `dir`.
+fn ledger(dir: &Path, main: &str) -> SharedLedger {
     std::fs::write(dir.join("main.zhang"), main).unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"));
-    SharedLedger(Arc::new(RwLock::new(ledger)))
+    shared(load_dir(dir.to_path_buf(), "main.zhang").unwrap_or_else(|error| panic!("ledger should load: {error}")))
 }
 
 /// A create or update request on 2024-01-15 12:00 UTC with `postings`.
@@ -52,14 +50,8 @@ fn request(postings: Value) -> CreateTransactionRequest {
     .unwrap()
 }
 
-async fn body(response: axum::response::Response) -> (StatusCode, Value) {
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap())
-}
-
 async fn preview(ledger: &SharedLedger, postings: Value) -> Value {
-    let (status, body) = body(preview_new_transaction(State(ledger.clone()), Json(request(postings))).await.into_response()).await;
+    let (status, body) = respond(preview_new_transaction(State(ledger.clone()), Json(request(postings))).await).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     body["data"].clone()
 }
@@ -67,7 +59,7 @@ async fn preview(ledger: &SharedLedger, postings: Value) -> Value {
 #[tokio::test]
 async fn a_stock_purchase_balances_by_its_cost() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path(), LEDGER).await;
+    let ledger = ledger(dir.path(), LEDGER);
     let preview = preview(
         &ledger,
         json!([
@@ -90,7 +82,7 @@ async fn a_stock_purchase_balances_by_its_cost() {
 #[tokio::test]
 async fn units_weigh_by_their_price_and_round_at_their_precision() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path(), LEDGER).await;
+    let ledger = ledger(dir.path(), LEDGER);
     // `@6CNY` is a price the ledger reads, written back as `@ 6 CNY`
     let priced = preview(
         &ledger,
@@ -125,7 +117,7 @@ async fn units_weigh_by_their_price_and_round_at_their_precision() {
 #[tokio::test]
 async fn units_are_read_with_the_ledger_grammar() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path(), LEDGER).await;
+    let ledger = ledger(dir.path(), LEDGER);
     // grouped digits, an expression, a trailing dot and a number alone, in the operating currency
     let preview = preview(
         &ledger,
@@ -147,7 +139,7 @@ async fn units_are_read_with_the_ledger_grammar() {
 #[tokio::test]
 async fn every_invalid_field_is_named_and_nothing_else_is_checked() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path(), LEDGER).await;
+    let ledger = ledger(dir.path(), LEDGER);
     let postings = json!([
         {"account": "Assets:Broker", "unit": "10 AAPL {150 USD}"},
         {"account": "Assets:Cash", "unit": "-1500 USD", "cost": "150 USD", "price": "6 USD"},
@@ -174,7 +166,7 @@ async fn every_invalid_field_is_named_and_nothing_else_is_checked() {
     // the create answers with the first one
     let (sender, _receiver) = mpsc::channel(1);
     let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
-    let (status, body) = body(
+    let (status, body) = respond(
         create_new_transaction(State(ledger.clone()), reload, Json(request(postings)))
             .await
             .into_response(),
@@ -187,7 +179,7 @@ async fn every_invalid_field_is_named_and_nothing_else_is_checked() {
 #[tokio::test]
 async fn the_accounts_are_checked_at_the_transactions_date() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path(), LEDGER).await;
+    let ledger = ledger(dir.path(), LEDGER);
     let preview = preview(
         &ledger,
         json!([{"account": "Assets:Cash", "unit": "-5 CNY"}, {"account": "Expenses:Food", "unit": "5 CNY"}]),
@@ -207,11 +199,11 @@ async fn an_update_preview_keeps_flags_and_bare_metadata_and_writes_nothing() {
         "{LEDGER}{}",
         "2024-01-15 12:00:00 * \"Broker\" \"trade\"\n  rate: 1.5\n  ! Assets:Cash -5 CNY\n  Assets:Broker 5 CNY\n"
     );
-    let ledger = ledger(dir.path(), &main).await;
+    let ledger = ledger(dir.path(), &main);
     let id = ledger.read().await.transactions()[0].0.to_string();
     let mut update = request(json!([{"account": "Assets:Cash", "unit": "-6 CNY"}, {"account": "Assets:Broker", "unit": "6 CNY"}]));
     update.metas = serde_json::from_value(json!([{"key": "rate", "value": "1.5"}])).unwrap();
-    let (status, preview) = body(
+    let (status, preview) = respond(
         preview_transaction_update(State(ledger.clone()), UrlPath((id,)), Json(update))
             .await
             .into_response(),
@@ -230,7 +222,7 @@ async fn an_update_preview_keeps_flags_and_bare_metadata_and_writes_nothing() {
 #[tokio::test]
 async fn an_update_preview_of_no_transaction_is_not_found() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path(), LEDGER).await;
+    let ledger = ledger(dir.path(), LEDGER);
     let response = preview_transaction_update(State(ledger), UrlPath((uuid::Uuid::new_v4().to_string(),)), Json(request(json!([]))))
         .await
         .into_response();
@@ -241,9 +233,7 @@ async fn an_update_preview_of_no_transaction_is_not_found() {
 async fn a_name_beancount_rejects_has_its_own_kind() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.bean"), "1970-01-01 open Assets:Cash\n1970-01-01 commodity CNY\n").unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-    let ledger = Ledger::load(dir.path().to_path_buf(), "main.bean".to_owned(), source).unwrap();
-    let ledger = SharedLedger(Arc::new(RwLock::new(ledger)));
+    let ledger = shared(load_dir(dir.path().to_path_buf(), "main.bean").unwrap());
     let preview = preview(
         &ledger,
         json!([
@@ -269,7 +259,7 @@ async fn a_name_beancount_rejects_has_its_own_kind() {
 #[tokio::test]
 async fn a_division_by_zero_is_a_field_error() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path(), LEDGER).await;
+    let ledger = ledger(dir.path(), LEDGER);
     let postings = json!([
         {"account": "Assets:Broker", "unit": "1/0 AAPL", "cost": "{1/0 USD}", "price": "@ 1/0 USD"},
         {"account": "Assets:Cash", "unit": "10 / (2 - 2)"},
@@ -293,7 +283,7 @@ async fn a_division_by_zero_is_a_field_error() {
     );
     let (sender, _receiver) = mpsc::channel(1);
     let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
-    let (status, body) = body(
+    let (status, body) = respond(
         create_new_transaction(State(ledger.clone()), reload, Json(request(postings)))
             .await
             .into_response(),

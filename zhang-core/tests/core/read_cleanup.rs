@@ -5,17 +5,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-
-fn load(text: &str) -> Ledger {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("main.zhang"), text).unwrap();
-    Ledger::load_with_data_source(
-        dir.path().to_owned(),
-        "main.zhang".to_owned(),
-        Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
-    )
-    .unwrap()
-}
+use zhang_testkit::ledger::load_text;
 
 fn errors(ledger: &Ledger) -> Vec<ErrorKind> {
     ledger.errors.iter().map(|error| error.error_type.clone()).collect()
@@ -23,7 +13,7 @@ fn errors(ledger: &Ledger) -> Vec<ErrorKind> {
 
 #[test]
 fn close_sums_lots_in_the_same_commodity_but_keeps_currencies_separate() {
-    let ledger = load(
+    let ledger = load_text(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity USD
@@ -49,7 +39,7 @@ option "operating_currency" "CNY"
 
 #[test]
 fn close_checks_own_units_at_its_place_in_the_stream() {
-    let ledger = load(
+    let ledger = load_text(
         r#"
 1970-01-01 open Assets:Parent
 1970-01-01 open Assets:Parent:Child
@@ -68,7 +58,7 @@ fn close_checks_own_units_at_its_place_in_the_stream() {
 
 #[test]
 fn close_uses_stream_order_on_a_daylight_saving_gap_day() {
-    let ledger = load(
+    let ledger = load_text(
         r#"
 option "timezone" "America/New_York"
 1970-01-01 open Assets:Cash
@@ -87,7 +77,7 @@ option "timezone" "America/New_York"
 
 #[test]
 fn a_failed_assertion_does_not_zero_the_units_a_close_checks() {
-    let ledger = load(
+    let ledger = load_text(
         r#"
 1970-01-01 open Assets:Cash
 1970-01-01 open Equity:Opening
@@ -101,7 +91,7 @@ fn a_failed_assertion_does_not_zero_the_units_a_close_checks() {
 
 #[test]
 fn budget_directive_validation_keeps_its_order_and_errors() {
-    let ledger = load(
+    let ledger = load_text(
         r#"
 2024-01-01 budget-add food 10 CNY
 2024-01-02 budget-close food

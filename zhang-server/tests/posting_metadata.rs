@@ -10,23 +10,17 @@
 //! Requests are built from JSON, as the frontend sends them, and responses are read as JSON.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::Path as UrlPath;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, RwLock};
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::{CreateTransactionRequest, JournalRequest, QueryRequest};
 use zhang_server::routes::query::run_query;
 use zhang_server::routes::transaction::{create_new_transaction, get_journals, update_single_transaction};
 use zhang_server::routes::Query as UrlQuery;
-use zhang_server::state::{SharedLedger, SharedReloadSender};
-use zhang_server::ReloadSender;
+use zhang_testkit::http::{respond, states};
 
 #[derive(Clone, Copy, Debug)]
 enum Format {
@@ -34,12 +28,11 @@ enum Format {
     Beancount,
 }
 
-/// A ledger directory under the system temp dir, removed on drop. The API appends January
-/// 2024 transactions to `data/2024/01.zhang` (`01.bean` in a beancount ledger), which the
-/// main file includes; the local file system data source only appends to an existing file,
-/// so it is created empty.
+/// A ledger directory, removed on drop. The API appends January 2024 transactions to `data/2024/01.zhang`
+/// (`01.bean` in a beancount ledger), which the main file includes; the local file system data source only
+/// appends to an existing file, so it is created empty.
 struct Scratch {
-    dir: PathBuf,
+    dir: zhang_testkit::ledger::Scratch,
     format: Format,
 }
 
@@ -47,53 +40,42 @@ const OPENS: &str = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970
 
 impl Scratch {
     fn new(format: Format, extra: &str) -> Scratch {
-        let dir = std::env::temp_dir().join(format!("zhang-posting-metadata-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(dir.join("data/2024")).unwrap();
-        let scratch = Scratch {
-            dir: dir.canonicalize().unwrap(),
+        let (main, data) = (Scratch::main_name_of(format), Scratch::data_name_of(format));
+        let content = format!("option \"operating_currency\" \"CNY\"\ninclude \"{data}\"\n{OPENS}{extra}");
+        Scratch {
+            dir: zhang_testkit::ledger::Scratch::with_files(main, &[(main, &content), (data, "")]),
             format,
-        };
-        std::fs::write(
-            scratch.main_file(),
-            format!("option \"operating_currency\" \"CNY\"\ninclude \"{}\"\n{OPENS}{extra}", scratch.data_name()),
-        )
-        .unwrap();
-        std::fs::write(scratch.data_file(), "").unwrap();
-        scratch
+        }
     }
 
     /// A ledger whose main file is exactly `content`.
     fn with_main(format: Format, content: &str) -> Scratch {
-        let dir = std::env::temp_dir().join(format!("zhang-posting-metadata-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let scratch = Scratch {
-            dir: dir.canonicalize().unwrap(),
+        Scratch {
+            dir: zhang_testkit::ledger::Scratch::with_main(Scratch::main_name_of(format), content),
             format,
-        };
-        std::fs::write(scratch.main_file(), content).unwrap();
-        scratch
+        }
     }
 
-    fn main_name(&self) -> &'static str {
-        match self.format {
+    fn main_name_of(format: Format) -> &'static str {
+        match format {
             Format::Zhang => "main.zhang",
             Format::Beancount => "main.bean",
         }
     }
 
-    fn main_file(&self) -> PathBuf {
-        self.dir.join(self.main_name())
-    }
-
-    fn data_name(&self) -> &'static str {
-        match self.format {
+    fn data_name_of(format: Format) -> &'static str {
+        match format {
             Format::Zhang => "data/2024/01.zhang",
             Format::Beancount => "data/2024/01.bean",
         }
     }
 
+    fn main_file(&self) -> PathBuf {
+        self.dir.main_file()
+    }
+
     fn data_file(&self) -> PathBuf {
-        self.dir.join(self.data_name())
+        self.dir.dir().join(Scratch::data_name_of(self.format))
     }
 
     fn written(&self) -> String {
@@ -101,17 +83,10 @@ impl Scratch {
     }
 
     async fn load(&self) -> Ledger {
-        let ledger = match self.format {
-            Format::Zhang => {
-                let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-                Ledger::load(self.dir.clone(), self.main_name().to_owned(), source)
-            }
-            Format::Beancount => {
-                let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-                Ledger::load(self.dir.clone(), self.main_name().to_owned(), source)
-            }
-        };
-        let ledger = ledger.unwrap_or_else(|err| panic!("the {:?} ledger should load: {err}", self.format));
+        let ledger = self
+            .dir
+            .ledger()
+            .unwrap_or_else(|err| panic!("the {:?} ledger should load: {err}", self.format));
         let errors: Vec<String> = ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
         assert!(errors.is_empty(), "the {:?} ledger has errors: {errors:?}", self.format);
         ledger
@@ -148,28 +123,6 @@ impl Scratch {
         assert_eq!(records.len(), 1, "{records:?}");
         records.into_iter().next().unwrap()
     }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.dir).ok();
-    }
-}
-
-fn states(ledger: Ledger) -> (State<SharedLedger>, State<SharedReloadSender>) {
-    let (sender, _) = mpsc::channel(1);
-    (
-        State(SharedLedger(Arc::new(RwLock::new(ledger)))),
-        State(SharedReloadSender(Arc::new(ReloadSender::new(sender)))),
-    )
-}
-
-async fn respond(response: impl IntoResponse) -> (StatusCode, Value) {
-    let response = response.into_response();
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body = serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
-    (status, body)
 }
 
 /// A create (or update) request for `2024-01-15 "Cafe" "lunch"` with the transaction

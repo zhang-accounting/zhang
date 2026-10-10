@@ -37,6 +37,7 @@ use zhang_server::routes::account::{get_account_info, get_account_journals, get_
 use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::Query as UrlQuery;
 use zhang_server::state::SharedLedger;
+use zhang_testkit::http::answer;
 
 /// Whether a file name matches a pattern of `include`, where `*` stands for any part of a name.
 fn matches(pattern: &str, name: &str) -> bool {
@@ -138,14 +139,11 @@ async fn load(dir: &Path, entry: &str) -> SharedLedger {
     SharedLedger(Arc::new(RwLock::new(ledger)))
 }
 
-/// The status, the `X-Total-Count` header and the `data` of a response.
+/// The status, the `X-Total-Count` header and the `data` of a response (the whole body when it has no `data`).
 async fn respond_with_total(response: impl IntoResponse) -> (StatusCode, Option<u64>, Value) {
-    let response = response.into_response();
-    let status = response.status();
-    let total = response.headers().get("X-Total-Count").map(|it| it.to_str().unwrap().parse::<u64>().unwrap());
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body: Value = serde_json::from_slice(&bytes).unwrap();
-    (status, total, body.get("data").cloned().unwrap_or(body))
+    let answer = answer(response).await;
+    let body = answer.body.get("data").cloned().unwrap_or_else(|| answer.body.clone());
+    (answer.status, answer.total_count(), body)
 }
 
 /// The status and the `data` of a response.

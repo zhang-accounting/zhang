@@ -17,6 +17,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::outcome::{Detail, Outcome};
 use zhang_core::ZhangResult;
 use zhang_query::{DataType, ParamTypes, Params, Query};
+use zhang_testkit::ledger::try_load_text;
 
 const HEADER: &str = indoc! {r#"
     1970-01-01 commodity USD
@@ -33,10 +34,7 @@ const BUY_10_AT_10: &str = indoc! {r#"
 
 /// load `HEADER` followed by `body` as a single-file ledger
 fn try_load(body: &str) -> ZhangResult<Ledger> {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("main.zhang"), format!("{HEADER}{body}")).unwrap();
-    let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source))
+    try_load_text(&format!("{HEADER}{body}"))
 }
 
 fn load(body: &str) -> Ledger {
