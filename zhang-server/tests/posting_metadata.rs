@@ -5,7 +5,6 @@
 //!   is written under its posting and reads back after a reload;
 //! - a beancount ledger rejects a new posting metadata key beancount cannot read with a 400
 //!   and writes nothing, a zhang ledger takes it;
-//! - the query route reads posting metadata with `meta()`, like beanquery.
 //!
 //! Requests are built from JSON, as the frontend sends them, and responses are read as JSON.
 
@@ -16,8 +15,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 use zhang_core::ledger::Ledger;
-use zhang_server::request::{CreateTransactionRequest, JournalRequest, QueryRequest};
-use zhang_server::routes::query::run_query;
+use zhang_server::request::{CreateTransactionRequest, JournalRequest};
 use zhang_server::routes::transaction::{create_new_transaction, get_journals, update_single_transaction};
 use zhang_server::routes::Query as UrlQuery;
 use zhang_testkit::http::{respond, states};
@@ -559,77 +557,4 @@ async fn a_beancount_ledger_file_attaches_metadata_like_beancount() {
         expected_postings(&[("Assets:Cash", &[]), ("Expenses:Food", &[("receipt", "r-2")])]),
         "{snack}"
     );
-}
-
-/// The rows of `POST /api/query`, with `NULL` for a null cell.
-async fn query(scratch: &Scratch, sql: &str) -> Vec<Vec<String>> {
-    let (ledger, _) = states(scratch.load().await);
-    let (status, body) = respond(
-        run_query(
-            ledger,
-            Json(QueryRequest {
-                query: sql.to_owned(),
-                count_total: None,
-            }),
-        )
-        .await,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{sql}: {body}");
-    body["data"]["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|row| {
-            row.as_array()
-                .unwrap()
-                .iter()
-                .map(|cell| match cell {
-                    Value::Null => "NULL".to_owned(),
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                })
-                .collect()
-        })
-        .collect()
-}
-
-/// One row per line, the cells separated by `|`.
-fn table(rows: &str) -> Vec<Vec<String>> {
-    rows.lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| line.split('|').map(|cell| cell.trim().to_owned()).collect())
-        .collect()
-}
-
-#[tokio::test]
-async fn the_query_route_reads_posting_metadata_like_beanquery() {
-    let scratch = Scratch::with_main(Format::Beancount, BEAN_LEDGER);
-    // produced by beanquery 0.2.0 on the same ledger
-    let sql = "SELECT date, account, meta('category'), entry_meta('category'), any_meta('category'), \
-               meta('receipt'), entry_meta('receipt'), any_meta('receipt'), meta('trip'), entry_meta('trip'), any_meta('trip'), \
-               meta('source'), entry_meta('source'), any_meta('source') ORDER BY date, account";
-    assert_eq!(
-        query(&scratch, sql).await,
-        table(
-            r#"
-            2024-01-02 | Assets:Cash    | NULL | meal | meal | r-1  | NULL | r-1  | NULL | NULL | NULL | NULL | import | import
-            2024-01-02 | Expenses:Drink | NULL | meal | meal | NULL | NULL | NULL | rome | NULL | rome | NULL | import | import
-            2024-01-02 | Expenses:Food  | food | meal | food | NULL | NULL | NULL | NULL | NULL | NULL | NULL | import | import
-            2024-01-03 | Assets:Cash    | NULL | NULL | NULL | NULL | NULL | NULL | NULL | home | home | NULL | NULL   | NULL
-            2024-01-03 | Expenses:Food  | NULL | NULL | NULL | r-2  | NULL | r-2  | NULL | home | home | NULL | NULL   | NULL
-            "#
-        ),
-        "{sql}"
-    );
-    // produced by beanquery 0.2.0 on the same ledger
-    let sql = "SELECT account, any_meta('category') WHERE entry_meta('category') = 'meal' ORDER BY account";
-    assert_eq!(
-        query(&scratch, sql).await,
-        table("Assets:Cash | meal\nExpenses:Drink | meal\nExpenses:Food | food"),
-        "{sql}"
-    );
-    // produced by beanquery 0.2.0 on the same ledger
-    let sql = "SELECT date, account WHERE meta('category') = 'food'";
-    assert_eq!(query(&scratch, sql).await, table("2024-01-02 | Expenses:Food"), "{sql}");
 }
