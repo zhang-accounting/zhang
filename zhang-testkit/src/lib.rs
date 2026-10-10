@@ -29,10 +29,13 @@
 //! | a reproducible random source | [`XorShift`] |
 //! | a golden file (`UPDATE_GOLDEN=1` rewrites it) | [`golden::assert_text`], [`golden::assert_json`] |
 //! | where a transaction's metadata landed, random transactions and text layouts per dialect | [`dialect::Shape`], [`dialect::random_transaction`], [`dialect::random_layout`] |
+//! | a handler's `State`, a response as JSON, the server's router (feature `server`) | [`http`] |
 
 pub mod dialect;
 pub mod fixtures;
 pub mod golden;
+#[cfg(feature = "server")]
+pub mod http;
 pub mod ledger;
 
 pub use ledger::XorShift;

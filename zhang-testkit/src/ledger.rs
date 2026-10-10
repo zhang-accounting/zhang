@@ -79,15 +79,26 @@ pub fn load_transformed(content: &str, transform: impl FnOnce(Vec<Spanned<Direct
     .expect("cannot process ledger")
 }
 
+/// Load a ledger from `content` written as `main` (`main.zhang`, `main.bean`, ...) to a temporary directory, read
+/// in the format of `main`'s extension. The directory is kept like [`load_text`]'s. Panics when the ledger does not
+/// load.
+pub fn load_text_as(main: &str, content: &str) -> Ledger {
+    let dir = tempfile::tempdir().expect("tempdir").keep();
+    std::fs::write(dir.join(main), content).expect("write ledger");
+    fixtures::load_dir(dir, main).unwrap_or_else(|error| panic!("{main} should load: {error}"))
+}
+
 /// The fava demo ledger, loaded anew. [`fixtures::fava_demo`] shares one load per process instead.
 pub fn fava_demo_ledger() -> Ledger {
     load_ledger(fixtures::fixture_dir("fava-demo-ledger"), "main.zhang")
 }
 
 /// A directory the test owns, with a main file, removed when dropped. The ledger is read in the format of the main
-/// file's extension.
+/// file's extension. The directory's path is canonical (on macOS the temp dir is behind a symlink), so the paths
+/// a loaded ledger records compare equal to [`Scratch::dir`].
 pub struct Scratch {
     dir: TempDir,
+    path: PathBuf,
     main: String,
 }
 
@@ -104,24 +115,38 @@ impl Scratch {
 
     /// A directory with the main file `main` holding `content`.
     pub fn with_main(main: &str, content: &str) -> Scratch {
-        let dir = tempfile::Builder::new().prefix("zhang-test-").tempdir().expect("tempdir");
-        std::fs::write(dir.path().join(main), content).expect("write the main file");
-        Scratch { dir, main: main.to_owned() }
+        Scratch::with_files(main, &[(main, content)])
+    }
+
+    /// A directory with `files` (relative path, content; parent directories are created), `main` being the main
+    /// file among them (or one an `include` of theirs names).
+    pub fn with_files(main: &str, files: &[(&str, &str)]) -> Scratch {
+        let scratch = Scratch::from_dir(tempfile::Builder::new().prefix("zhang-test-").tempdir().expect("tempdir"), main);
+        for (relative, content) in files {
+            scratch.write(relative, content);
+        }
+        scratch
     }
 
     /// A copy of a fixture ledger's directory, for a test that writes to it.
     pub fn copy_of(fixture: &FixtureLedger) -> Scratch {
         let dir = tempfile::Builder::new().prefix("zhang-test-").tempdir().expect("tempdir");
         copy_dir(&fixture.dir, dir.path());
+        Scratch::from_dir(dir, &fixture.entry)
+    }
+
+    fn from_dir(dir: TempDir, main: &str) -> Scratch {
+        let path = dir.path().canonicalize().expect("the temp dir exists");
         Scratch {
             dir,
-            main: fixture.entry.clone(),
+            path,
+            main: main.to_owned(),
         }
     }
 
-    /// the directory
+    /// the directory (a canonical path)
     pub fn dir(&self) -> &Path {
-        self.dir.path()
+        &self.path
     }
 
     /// the name of the main file within the directory
@@ -131,12 +156,12 @@ impl Scratch {
 
     /// the path of the main file
     pub fn main_file(&self) -> PathBuf {
-        self.dir.path().join(&self.main)
+        self.path.join(&self.main)
     }
 
     /// Write `content` to `relative`, creating its parent directories.
     pub fn write(&self, relative: &str, content: &str) {
-        let path = self.dir.path().join(relative);
+        let path = self.path.join(relative);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("create the parent directories");
         }
@@ -145,18 +170,25 @@ impl Scratch {
 
     /// The text of `relative`.
     pub fn read(&self, relative: &str) -> String {
-        let path = self.dir.path().join(relative);
+        let path = self.path.join(relative);
         std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
     }
 
     /// The ledger loaded from the files as they are now, in the format of the main file.
     pub fn ledger(&self) -> ZhangResult<Ledger> {
-        fixtures::load_dir(self.dir.path().to_path_buf(), &self.main)
+        fixtures::load_dir(self.path.clone(), &self.main)
+    }
+
+    /// The ledger loaded from the files as they are now, with the current time read from `clock`.
+    pub fn ledger_at(&self, clock: Clock) -> ZhangResult<Ledger> {
+        Ledger::load_with_clock(self.path.clone(), self.main.clone(), fixtures::data_source_for(&self.main), clock)
     }
 
     /// Keep the directory after the test (to look at what was written) and return its path.
     pub fn keep(self) -> PathBuf {
-        self.dir.keep()
+        let Scratch { dir, path, .. } = self;
+        let _ = dir.keep();
+        path
     }
 }
 

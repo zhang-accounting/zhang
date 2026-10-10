@@ -2,26 +2,11 @@
 //! numbers. A zhang ledger orders a day by time; a beancount ledger as beancount does, with a balance at the start of
 //! its day and a `close` at its end. The journal, `#entries` and the other directive tables all follow that order.
 
-use std::sync::Arc;
-
 use chrono::NaiveDate;
 use zhang_ast::error::ErrorKind;
-use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_query::{Params, Query, Value};
-
-/// The ledger of one file named `main`, read in the format of its extension.
-fn load(main: &str, content: &str) -> Ledger {
-    let dir = tempfile::tempdir().expect("tempdir").keep();
-    std::fs::write(dir.join(main), content).expect("write the ledger");
-    let source: Arc<dyn DataSource> = if main.ends_with(".bean") {
-        Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
-    } else {
-        Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
-    };
-    Ledger::load_with_data_source(dir, main.to_owned(), source).unwrap_or_else(|error| panic!("{main} should load: {error}"))
-}
+use zhang_testkit::ledger::load_text_as;
 
 fn run(ledger: &Ledger, sql: &str) -> Vec<Vec<String>> {
     let today = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
@@ -57,7 +42,7 @@ fn errors(ledger: &Ledger) -> Vec<ErrorKind> {
 /// The journal lists it there too, where its amount, which includes the morning, is checked.
 #[test]
 fn a_zhang_ledger_lists_a_timed_balance_after_the_transactions_before_its_time() {
-    let ledger = load(
+    let ledger = load_text_as(
         "main.zhang",
         r#"
 option "operating_currency" "CNY"
@@ -92,7 +77,7 @@ option "operating_currency" "CNY"
 /// the transactions of that day, and lists it last. A `close` with a time is checked and listed at that time.
 #[test]
 fn a_zhang_ledger_closes_an_account_at_the_end_of_the_day_of_a_close_with_only_a_date() {
-    let ledger = load(
+    let ledger = load_text_as(
         "main.zhang",
         r#"
 option "operating_currency" "CNY"
@@ -133,7 +118,7 @@ option "operating_currency" "CNY"
 /// `commodity` of the same date, which it may name.
 #[test]
 fn an_open_may_name_a_commodity_of_its_own_date_written_after_it() {
-    let ledger = load(
+    let ledger = load_text_as(
         "main.zhang",
         r#"
 1970-01-01 open Assets:A EUR
@@ -152,7 +137,7 @@ fn an_open_may_name_a_commodity_of_its_own_date_written_after_it() {
 /// after the transactions of its day.
 #[test]
 fn a_beancount_ledger_lists_a_day_in_beancount_order() {
-    let ledger = load(
+    let ledger = load_text_as(
         "main.bean",
         r#"
 option "operating_currency" "CNY"

@@ -8,14 +8,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use axum::extract::{Path as UrlPath, State};
-use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use zhang_core::clock::Clock;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::{BuiltinParamValue, BuiltinQueryRunRequest, CreateTransactionRequest};
 use zhang_server::routes::query::run_builtin_query;
@@ -23,6 +20,8 @@ use zhang_server::routes::transaction::{get_journals, preview_new_transaction, u
 use zhang_server::routes::Query;
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
+use zhang_testkit::fixtures::data_source_for;
+use zhang_testkit::http::{data, shared};
 
 const LEDGER: &str = r#"option "operating_currency" "CNY"
 option "timezone" "Asia/Shanghai"
@@ -44,24 +43,10 @@ fn breakfast_time() -> Clock {
     Clock::Fixed(DateTime::parse_from_rfc3339("2024-01-01T23:00:00Z").unwrap().with_timezone(&Utc))
 }
 
-async fn ledger(dir: &Path) -> SharedLedger {
+/// The ledger, written to `dir` and loaded at the breakfast time.
+fn ledger(dir: &Path) -> SharedLedger {
     std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::load_with_clock(dir.to_path_buf(), "main.zhang".to_owned(), source, breakfast_time()).unwrap();
-    SharedLedger(Arc::new(RwLock::new(ledger)))
-}
-
-async fn data(response: impl IntoResponse) -> Value {
-    let response = response.into_response();
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body: Value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap()
-    };
-    assert!(status.is_success(), "{status}: {body}");
-    body["data"].clone()
+    shared(Ledger::load_with_clock(dir.to_path_buf(), "main.zhang".to_owned(), data_source_for("main.zhang"), breakfast_time()).unwrap())
 }
 
 /// the breakfast as the journal shows it, edited to 6 CNY with its date and time sent as `datetime`
@@ -100,7 +85,7 @@ async fn save(ledger: &SharedLedger, dir: &Path, datetime: &str) -> String {
 #[tokio::test]
 async fn an_edit_that_sends_the_time_the_journal_shows_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path()).await;
+    let ledger = ledger(dir.path());
     // the journal shows the ledger's wall-clock time, and the form sends it back as it is
     let shown = breakfast(&ledger).await["datetime"].as_str().unwrap().to_owned();
     assert_eq!(shown, "2024-01-02T07:00:00");
@@ -114,7 +99,7 @@ async fn an_edit_that_sends_the_time_the_journal_shows_keeps_it() {
 #[tokio::test]
 async fn an_instant_still_reads_as_its_time_in_the_ledgers_timezone() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path()).await;
+    let ledger = ledger(dir.path());
     // 23:00 UTC is 07:00 the next day in Asia/Shanghai
     let written = save(&ledger, dir.path(), "2024-01-01T23:00:00Z").await;
     assert!(written.contains("2024-01-02 07:00:00 * \"Shop\" \"breakfast\""), "{written}");
@@ -123,7 +108,7 @@ async fn an_instant_still_reads_as_its_time_in_the_ledgers_timezone() {
 #[tokio::test]
 async fn the_preview_writes_the_wall_clock_time_it_is_sent() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path()).await;
+    let ledger = ledger(dir.path());
     let preview = data(preview_new_transaction(State(ledger.clone()), Json(edit("2024-01-02T07:00:00"))).await).await;
     assert!(preview["text"].as_str().unwrap().starts_with("2024-01-02 07:00:00 * \"Shop\""), "{preview}");
 }
@@ -133,7 +118,7 @@ async fn the_preview_writes_the_wall_clock_time_it_is_sent() {
 #[tokio::test]
 async fn the_new_transaction_form_gets_the_ledgers_time_and_its_open_accounts_at_a_wall_clock_time() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path()).await;
+    let ledger = ledger(dir.path());
     let run = |name: &str, params: Value| {
         let ledger = ledger.clone();
         let request = BuiltinQueryRunRequest {
@@ -155,7 +140,7 @@ async fn the_new_transaction_form_gets_the_ledgers_time_and_its_open_accounts_at
 #[tokio::test]
 async fn a_budget_event_has_its_wall_clock_time() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = ledger(dir.path()).await;
+    let ledger = ledger(dir.path());
     // the budget page lists the month's events (`budgets.events`) and postings (`budgets.postings`), newest first,
     // each with its `date` and `time`: the ledger's wall-clock time in its timezone
     let params: HashMap<String, Option<BuiltinParamValue>> = serde_json::from_value(json!({ "name": "Food", "month": "2024-01-01" })).unwrap();

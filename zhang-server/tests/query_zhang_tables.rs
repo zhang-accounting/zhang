@@ -13,66 +13,28 @@
 //! The error box and the documents page read these tables (#479) through their built-in queries.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use axum::extract::{Path as UrlPath, State};
-use axum::response::IntoResponse;
 use axum::Json;
 use bigdecimal::BigDecimal;
 use serde_json::{json, Value};
-use tokio::sync::RwLock;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
 use zhang_server::request::{BuiltinQueryRunRequest, QueryRequest};
 use zhang_server::routes::query::{get_query_schema, run_builtin_query, run_query};
 use zhang_server::state::SharedLedger;
-
-fn fixture_dir(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests").join(name)
-}
+use zhang_testkit::fixtures::fixture_dir;
+use zhang_testkit::http::{body, shared};
+use zhang_testkit::ledger::Scratch;
 
 /// The fixture, loaded the way the server loads a ledger.
-async fn load(name: &str) -> SharedLedger {
-    load_dir(&fixture_dir(name)).await
+fn load(name: &str) -> SharedLedger {
+    load_dir(&fixture_dir(name))
 }
 
-/// The ledger of `dir`, loaded the way the server loads a ledger.
-async fn load_dir(dir: &Path) -> SharedLedger {
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let ledger = Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("{} should load: {error}", dir.display()));
-    SharedLedger(Arc::new(RwLock::new(ledger)))
-}
-
-/// A temporary ledger directory, removed when dropped.
-struct ScratchDir(PathBuf);
-
-impl ScratchDir {
-    /// A directory with `files` (relative path, content).
-    fn with(files: &[(&str, &str)]) -> ScratchDir {
-        let dir = ScratchDir(std::env::temp_dir().join(format!("zhang-query-tables-{}", uuid::Uuid::new_v4())));
-        for (name, content) in files {
-            let path = dir.0.join(name);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, content).unwrap();
-        }
-        dir
-    }
-}
-
-impl Drop for ScratchDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-async fn body(response: impl IntoResponse) -> Value {
-    let response = response.into_response();
-    assert!(response.status().is_success(), "{}", response.status());
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
+/// The ledger `main.zhang` of `dir`, loaded the way the server loads a ledger.
+fn load_dir(dir: &Path) -> SharedLedger {
+    shared(zhang_testkit::fixtures::load_dir(dir.to_path_buf(), "main.zhang").unwrap_or_else(|error| panic!("{} should load: {error}", dir.display())))
 }
 
 /// The rows of `POST /api/query`, as objects keyed by column name.
@@ -132,7 +94,7 @@ fn budget_name_of(row: &serde_json::Map<String, Value>) -> &str {
 /// Checks every row of `#budgets` of the fixture against the budget API, and returns the number
 /// of rows through the month of the ledger's last entry.
 async fn check_budgets(name: &str) -> usize {
-    let ledger = load(name).await;
+    let ledger = load(name);
     let rows = query(
         &ledger,
         "SELECT name, alias, category, year, month, assigned, activity, available, accounts, closed FROM #budgets",
@@ -217,7 +179,7 @@ async fn budgets_are_the_amounts_of_the_budget_api() {
 }
 
 async fn check_errors(name: &str) -> usize {
-    let ledger = load(name).await;
+    let ledger = load(name);
     let rows = query(&ledger, "SELECT kind, file, source, account, date, id, span_start, span_end FROM #errors").await;
     rows.len()
 }
@@ -394,8 +356,8 @@ async fn budget_differences(ledger: &SharedLedger) -> Vec<(String, u32, u32, &'s
 
 #[tokio::test]
 async fn the_budget_api_reports_the_figures_of_the_table() {
-    let dir = ScratchDir::with(&[("main.zhang", MULTI_CURRENCY_BUDGET)]);
-    let ledger = load_dir(&dir.0).await;
+    let dir = Scratch::zhang(MULTI_CURRENCY_BUDGET);
+    let ledger = load_dir(dir.dir());
     assert_eq!(budget_differences(&ledger).await, vec![]);
     let april = builtin(&ledger, "budgets.month", json!({ "month": "2025-04-01" })).await;
     assert_eq!(
@@ -404,7 +366,7 @@ async fn the_budget_api_reports_the_figures_of_the_table() {
     );
     assert_eq!(april[0]["closed"], json!(false));
     for name in ["budget-sytem-syntax-and-category", "query-zhang-tables"] {
-        let ledger = load(name).await;
+        let ledger = load(name);
         assert_eq!(budget_differences(&ledger).await, vec![], "{name}");
     }
 }
@@ -413,7 +375,7 @@ async fn the_budget_api_reports_the_figures_of_the_table() {
 /// same timestamps and amounts.
 #[tokio::test]
 async fn budget_events_are_the_events_of_the_budget_api() {
-    let ledger = load("query-zhang-tables").await;
+    let ledger = load("query-zhang-tables");
     let rows = query(
         &ledger,
         "SELECT name, year(date) AS y, month(date) AS m, timestamp, type, amount FROM #budget_events",
@@ -494,8 +456,8 @@ const DOCUMENTS_MORE: &str = r#"
 /// posting's account.
 #[tokio::test]
 async fn the_documents_table_has_every_document_and_a_postings_account() {
-    let dir = ScratchDir::with(&[("main.zhang", DOCUMENTS_MAIN), ("sub/more.zhang", DOCUMENTS_MORE)]);
-    let ledger = load_dir(&dir.0).await;
+    let dir = Scratch::with_files("main.zhang", &[("main.zhang", DOCUMENTS_MAIN), ("sub/more.zhang", DOCUMENTS_MORE)]);
+    let ledger = load_dir(dir.dir());
     let rows = query(&ledger, "SELECT date, account, path, transaction_id, source FROM #documents").await;
     assert_eq!(rows.len(), 5);
     // the posting's document belongs to its account

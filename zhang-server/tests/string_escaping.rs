@@ -1,38 +1,27 @@
 //! Acceptance test for #442 through the server: a transaction created via the API with `$`, a
 //! backtick and a no-break space in its strings must read back unchanged after a reload.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::extract::State;
 use axum::Json;
 use bigdecimal::BigDecimal;
 use chrono::{TimeZone, Utc};
-use tokio::sync::RwLock;
 use zhang_ast::amount::Amount;
 use zhang_ast::{Directive, Transaction};
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::request::{CreateTransactionPostingRequest, CreateTransactionRequest, MetaRequest};
 use zhang_server::routes::transaction::create_new_transaction;
-use zhang_server::state::{SharedLedger, SharedReloadSender};
+use zhang_server::state::SharedReloadSender;
 use zhang_server::ReloadSender;
+use zhang_testkit::http::shared;
+use zhang_testkit::ledger::Scratch;
 
 const MAIN: &str = "1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n";
 
-/// A scratch ledger directory under the system temp dir, removed on drop.
-struct ScratchDir(PathBuf);
-
-impl Drop for ScratchDir {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).ok();
-    }
-}
-
-async fn load(dir: &Path) -> Ledger {
-    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    Ledger::load(dir.to_path_buf(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"))
+fn load(dir: &Scratch) -> Ledger {
+    dir.ledger().unwrap_or_else(|error| panic!("ledger should load: {error}"))
 }
 
 /// The text of every `.zhang` file under `dir`.
@@ -51,14 +40,10 @@ fn ledger_text(dir: &Path) -> String {
 
 #[tokio::test]
 async fn created_transaction_strings_survive_a_reload() {
-    let dir = ScratchDir(std::env::temp_dir().join(format!("zhang-escaping-{}", uuid::Uuid::new_v4())));
-    std::fs::create_dir_all(&dir.0).unwrap();
-    std::fs::write(dir.0.join("main.zhang"), MAIN).unwrap();
     // appending reads the month's data file first, so it has to exist (a separate quirk)
-    std::fs::create_dir_all(dir.0.join("data/2024")).unwrap();
-    std::fs::write(dir.0.join("data/2024/05.zhang"), "").unwrap();
+    let dir = Scratch::with_files("main.zhang", &[("main.zhang", MAIN), ("data/2024/05.zhang", "")]);
 
-    let ledger = SharedLedger(Arc::new(RwLock::new(load(&dir.0).await)));
+    let ledger = shared(load(&dir));
     let (sender, _receiver) = tokio::sync::mpsc::channel(8);
     let reload_sender = SharedReloadSender(Arc::new(ReloadSender::new(sender)));
     let request = CreateTransactionRequest {
@@ -95,7 +80,7 @@ async fn created_transaction_strings_survive_a_reload() {
         panic!("creating the transaction should succeed: {error}");
     }
 
-    let reloaded = load(&dir.0).await;
+    let reloaded = load(&dir);
     let errors = reloaded.errors.iter().map(|it| format!("{:?}", it.error_type)).collect::<Vec<_>>();
     assert_eq!(errors, Vec::<String>::new(), "the reloaded ledger has errors");
     let created: Vec<&Transaction> = reloaded
@@ -113,7 +98,7 @@ async fn created_transaction_strings_survive_a_reload() {
     assert_eq!(txn.meta.get_one("memo").map(|it| it.as_str()), Some("paid $5\u{a0}in cash"));
 
     // nothing above contains a backslash, so any of these in the file is an escape the exporter wrote
-    let written = ledger_text(&dir.0);
+    let written = ledger_text(dir.dir());
     for legacy in [r"\$", r"\`", r"\u{"] {
         assert!(!written.contains(legacy), "the ledger file holds the legacy escape {legacy}:\n{written}");
     }

@@ -3,20 +3,14 @@
 //! `Invalid currency EUR for account 'Assets:Bank'`. Both formats report it the same way, and the transaction is
 //! still booked.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
 use axum::extract::{Path as UrlPath, State};
-use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::{json, Value};
-use tokio::sync::RwLock;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::ledger::Ledger;
 use zhang_server::request::{BuiltinQueryRunRequest, QueryRequest};
 use zhang_server::routes::query::{run_builtin_query, run_query};
 use zhang_server::state::SharedLedger;
+use zhang_testkit::http::{body, shared};
+use zhang_testkit::ledger::Scratch;
 
 /// The ledger of #496, the same in both formats.
 const LEDGER: &str = "option \"operating_currency\" \"USD\"\n\
@@ -27,40 +21,9 @@ const LEDGER: &str = "option \"operating_currency\" \"USD\"\n\
                       \n\
                       2024-01-10 * \"Deposit in the wrong currency\"\n  Assets:Bank 100 EUR\n  Equity:Opening -100 EUR\n";
 
-/// A temporary ledger directory, removed when dropped.
-struct ScratchDir(PathBuf);
-
-impl ScratchDir {
-    fn with(main: &str, content: &str) -> ScratchDir {
-        let dir = ScratchDir(std::env::temp_dir().join(format!("zhang-open-commodities-{}", uuid::Uuid::new_v4())));
-        std::fs::create_dir_all(&dir.0).unwrap();
-        std::fs::write(dir.0.join(main), content).unwrap();
-        dir
-    }
-}
-
-impl Drop for ScratchDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-/// The ledger of `dir`, loaded the way the server loads one, in the format of its `main` file.
-async fn load(dir: &Path, main: &str) -> SharedLedger {
-    let source: Arc<dyn zhang_core::data_source::DataSource> = if main.ends_with(".bean") {
-        Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
-    } else {
-        Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
-    };
-    let ledger = Ledger::load(dir.to_path_buf(), main.to_owned(), source).unwrap_or_else(|error| panic!("{main} should load: {error}"));
-    SharedLedger(Arc::new(RwLock::new(ledger)))
-}
-
-async fn body(response: impl IntoResponse) -> Value {
-    let response = response.into_response();
-    assert!(response.status().is_success(), "{}", response.status());
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
+/// The ledger of `scratch`, loaded the way the server loads one, in the format of its main file.
+fn load(scratch: &Scratch) -> SharedLedger {
+    shared(scratch.ledger().unwrap_or_else(|error| panic!("{} should load: {error}", scratch.main())))
 }
 
 /// The first page of the error box: the rows of `journals.errors`, as objects keyed by column name.
@@ -106,8 +69,8 @@ async fn query(ledger: &SharedLedger, sql: &str) -> Value {
 }
 
 async fn the_posting_in_eur_is_reported_on_its_transaction(main: &str) {
-    let dir = ScratchDir::with(main, LEDGER);
-    let ledger = load(&dir.0, main).await;
+    let dir = Scratch::with_main(main, LEDGER);
+    let ledger = load(&dir);
 
     let errors = errors(&ledger).await;
     assert_eq!(errors.len(), 1, "{main}: {errors:?}");

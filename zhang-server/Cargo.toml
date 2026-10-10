@@ -56,7 +56,7 @@ chrono = { version = "0.4" }
 
 [dev-dependencies]
 beancount = { version = "0.1", path = "../extensions/beancount" }
-zhang-testkit = { path = "../zhang-testkit" }
+zhang-testkit = { path = "../zhang-testkit", features = ["server"] }
 webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }
 tower = { version = "0.4", features = ["util"] }
 tempfile = "3.20"
