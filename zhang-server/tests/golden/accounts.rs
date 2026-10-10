@@ -17,126 +17,25 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use bigdecimal::{BigDecimal, Zero};
 use serde_json::{json, Map, Value};
-use tokio::sync::RwLock;
-use zhang_ast::{group_units, written_groups, Directive, Spanned};
-use zhang_core::clock::Clock;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::DataType;
-use zhang_core::ledger::{Ledger, LedgerProcessContext};
+use zhang_ast::{group_units, written_groups, Directive};
 use zhang_core::outcome::Detail;
 use zhang_server::request::{AccountJournalRequest, BuiltinQueryRunRequest};
 use zhang_server::routes::account::{get_account_info, get_account_journals, get_account_list};
 use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::Query as UrlQuery;
 use zhang_server::state::SharedLedger;
-use zhang_testkit::http::answer;
+use zhang_testkit::fixtures::{every_fixture_ledger, load_dir, oracle_ledgers, repo_root};
+use zhang_testkit::http::{answer, shared};
 
-/// Whether a file name matches a pattern of `include`, where `*` stands for any part of a name.
-fn matches(pattern: &str, name: &str) -> bool {
-    let parts = pattern.split('*').collect::<Vec<_>>();
-    let (first, last) = (parts[0], parts[parts.len() - 1]);
-    if parts.len() == 1 {
-        return pattern == name;
-    }
-    if !name.starts_with(first) || !name[first.len()..].ends_with(last) || name.len() < first.len() + last.len() {
-        return false;
-    }
-    let mut rest = &name[first.len()..name.len() - last.len()];
-    for part in &parts[1..parts.len() - 1] {
-        match rest.find(part) {
-            Some(at) => rest = &rest[at + part.len()..],
-            None => return false,
-        }
-    }
-    true
-}
-
-/// The files an `include` names, its wildcards expanded, in name order.
-fn included(base: &Path, pattern: &str) -> Vec<PathBuf> {
-    let mut paths = vec![base.to_path_buf()];
-    for component in pattern.split('/') {
-        paths = paths
-            .into_iter()
-            .flat_map(|path| {
-                if !component.contains('*') {
-                    return vec![path.join(component)];
-                }
-                let mut entries = std::fs::read_dir(&path)
-                    .map(|entries| {
-                        entries
-                            .filter_map(|entry| entry.ok())
-                            .filter(|entry| matches(component, &entry.file_name().to_string_lossy()))
-                            .map(|entry| entry.path())
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                entries.sort();
-                entries
-            })
-            .collect();
-    }
-    paths.into_iter().filter(|it| it.is_file()).collect()
-}
-
-/// The directives of a ledger file and of the files it includes, wildcards expanded, as the server's
-/// data source reads them.
-fn directives(file: &Path, data_type: &dyn DataType<Carrier = String>, visited: &mut Vec<PathBuf>) -> Vec<Spanned<Directive>> {
-    if visited.contains(&file.to_path_buf()) {
-        return vec![];
-    }
-    visited.push(file.to_path_buf());
-    let content = std::fs::read_to_string(file).unwrap_or_else(|error| panic!("{}: {error}", file.display()));
-    let mut directives = data_type.transform(content, Some(file.to_string_lossy().into_owned())).unwrap();
-    let includes = directives
-        .iter()
-        .filter_map(|it| match &it.data {
-            Directive::Include(include) => Some(include.file.clone().to_plain_string()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    for include in includes {
-        for path in included(file.parent().unwrap(), &include) {
-            directives.extend(self::directives(&path, data_type, visited));
-        }
-    }
-    directives
-}
-
-async fn load(dir: &Path, entry: &str) -> SharedLedger {
-    let (source, data_type): (Arc<LocalFileSystemDataSource>, Box<dyn DataType<Carrier = String>>) = if entry.ends_with(".bean") {
-        (
-            Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {})),
-            Box::new(beancount::Beancount {}),
-        )
-    } else {
-        (Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})), Box::new(ZhangDataType {}))
-    };
-    let ledger = match Ledger::load(dir.to_path_buf(), entry.to_owned(), source.clone()) {
-        Ok(ledger) => ledger,
-        // the local data source does not expand the wildcards of `include`
-        Err(_) => {
-            let mut visited = vec![];
-            let directives = directives(&dir.join(entry), data_type.as_ref(), &mut visited);
-            Ledger::process(LedgerProcessContext {
-                directives,
-                entry: (dir.to_path_buf(), entry.to_owned()),
-                dialect: zhang_core::data_type::Dialect::of(entry).unwrap(),
-                visited_files: visited,
-                data_source: source,
-                clock: Clock::System,
-            })
-            .unwrap_or_else(|error| panic!("{}/{entry}: {error}", dir.display()))
-        }
-    };
-    SharedLedger(Arc::new(RwLock::new(ledger)))
+/// The ledger of `dir/entry`, loaded the way the server loads one, in the format of its entry file.
+fn load(dir: &Path, entry: &str) -> SharedLedger {
+    shared(load_dir(dir.to_path_buf(), entry).unwrap_or_else(|error| panic!("{}/{entry}: {error}", dir.display())))
 }
 
 /// The status, the `X-Total-Count` header and the `data` of a response (the whole body when it has no `data`).
@@ -285,36 +184,12 @@ impl Report {
 /// beancount oracle ledgers, the ledgers of `tests/accounts_on_query/`, and those of
 /// `ZHANG_ACCOUNTS_GOLDEN_EXTRA`.
 fn fixtures() -> Vec<(String, PathBuf, String)> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").canonicalize().unwrap();
-    let mut fixtures = vec![];
-    let mut dirs = std::fs::read_dir(root.join("integration-tests"))
-        .unwrap()
-        .map(|it| it.unwrap().path())
-        .filter(|it| it.is_dir())
+    let mut fixtures = every_fixture_ledger()
+        .iter()
+        .chain(oracle_ledgers())
+        .map(|it| (it.name.clone(), it.dir.clone(), it.entry.clone()))
         .collect::<Vec<_>>();
-    dirs.sort();
-    dirs.push(root.join("examples"));
-    for dir in dirs {
-        for entry in ["main.zhang", "main.bean"] {
-            if dir.join(entry).exists() {
-                let name = format!("{}/{entry}", dir.file_name().unwrap().to_string_lossy());
-                fixtures.push((name, dir.clone(), entry.to_owned()));
-            }
-        }
-    }
-    // the beancount oracle ledgers of pads, balances and document paths
-    let oracle = zhang_testkit::fixtures::oracle_ledger_dir();
-    let mut files = std::fs::read_dir(&oracle)
-        .unwrap()
-        .map(|it| it.unwrap().path())
-        .filter(|it| it.extension().is_some_and(|extension| extension == "bean"))
-        .collect::<Vec<_>>();
-    files.sort();
-    for file in files {
-        let entry = file.file_name().unwrap().to_string_lossy().into_owned();
-        fixtures.push((format!("balance_assertions/{entry}"), oracle.clone(), entry));
-    }
-    let own = root.join("zhang-server/tests/accounts_on_query");
+    let own = repo_root().join("zhang-server/tests/accounts_on_query");
     let mut files = std::fs::read_dir(&own).unwrap().map(|it| it.unwrap().path()).collect::<Vec<_>>();
     files.sort();
     for file in files {
@@ -735,7 +610,7 @@ async fn check_pages(report: &mut Report, ledger_name: &str, ledger: &SharedLedg
 async fn the_account_endpoints_are_what_the_store_says() {
     let mut report = Report::default();
     for (name, dir, entry) in fixtures() {
-        let ledger = load(&dir, &entry).await;
+        let ledger = load(&dir, &entry);
         check(&mut report, &name, &ledger).await;
     }
     assert!(report.wrong.is_empty(), "not what the store says:\n{}", report.wrong.join("\n"));
@@ -795,7 +670,7 @@ const DIFFERENCES: &str = r#"option "operating_currency" "CNY"
 async fn differences() -> (SharedLedger, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.zhang"), DIFFERENCES).unwrap();
-    (load(dir.path(), "main.zhang").await, dir)
+    (load(dir.path(), "main.zhang"), dir)
 }
 
 fn number(value: &Value) -> BigDecimal {
@@ -868,7 +743,7 @@ async fn the_status_of_an_account_is_the_one_its_directives_are_checked_with() {
         ),
     )
     .unwrap();
-    let ledger = load(dir.path(), "main.zhang").await;
+    let ledger = load(dir.path(), "main.zhang");
     let (_, list) = respond(get_account_list(State(ledger.clone())).await).await;
     let listed = list
         .as_array()
@@ -1062,7 +937,7 @@ async fn fixture(name: &str) -> SharedLedger {
         .join("tests/accounts_on_query")
         .canonicalize()
         .unwrap();
-    load(&dir, name).await
+    load(&dir, name)
 }
 
 /// The rows of a journal as `account | payee | change | balance`, and for an assertion

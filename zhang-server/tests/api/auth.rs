@@ -38,7 +38,7 @@ fn scratch() -> Scratch {
 fn with_router_plugin() -> Scratch {
     let dir = scratch();
     let module = dir.dir().join("router.wat");
-    std::fs::write(&module, include_str!("../../zhang-core/tests/plugins/router.wat")).unwrap();
+    std::fs::write(&module, include_str!("../../../zhang-core/tests/plugins/router.wat")).unwrap();
     // a local ledger resolves a module against the working directory, so declare it by absolute path
     let main = format!("option \"features.plugin\" \"true\"\nplugin \"{}\"\n{MAIN}", module.display());
     std::fs::write(dir.main_file(), main).unwrap();

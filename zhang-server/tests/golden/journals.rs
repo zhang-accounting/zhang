@@ -7,174 +7,51 @@
 //! `ZHANG_GOLDEN_EXTRA=dir[:entry],...` checks more ledgers (such as a large generated one).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::Path;
 
 use axum::extract::State;
 use axum::response::IntoResponse;
 use serde_json::Value;
-use tokio::sync::RwLock;
-use zhang_ast::Directive;
-use zhang_core::data_source::{DataSource, LoadResult};
-use zhang_core::data_type::text::ZhangDataType;
-use zhang_core::data_type::DataType;
-use zhang_core::ledger::Ledger;
-use zhang_core::ZhangResult;
 use zhang_query::Params;
 use zhang_server::request::JournalRequest;
 use zhang_server::routes::transaction::get_journals;
 use zhang_server::routes::Query as UrlQuery;
 use zhang_server::state::SharedLedger;
+use zhang_testkit::fixtures::{every_fixture_ledger, oracle_ledgers, FixtureLedger};
+use zhang_testkit::http::fixture_shared;
 
-/// A ledger to check.
-struct Fixture {
-    name: String,
-    dir: PathBuf,
-    entry: String,
-}
-
-fn workspace() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
-}
-
-/// Every ledger of `integration-tests` and `examples` in each format it has, the survey probes, and
-/// the ledgers of `ZHANG_GOLDEN_EXTRA`.
-fn fixtures() -> Vec<Fixture> {
-    let mut dirs = vec![];
-    for root in [
-        workspace().join("integration-tests"),
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/journals"),
-    ] {
-        let mut entries = std::fs::read_dir(&root)
-            .unwrap()
-            .map(|it| it.unwrap().path())
-            .filter(|it| it.is_dir())
-            .collect::<Vec<_>>();
-        entries.sort();
-        dirs.extend(entries);
-    }
-    dirs.push(workspace().join("examples"));
-    let mut fixtures = vec![];
+/// Every ledger of `integration-tests` in each format it has, the survey probes, the example ledger, the beancount
+/// oracle ledgers, and the ledgers of `ZHANG_GOLDEN_EXTRA`.
+fn fixtures() -> Vec<FixtureLedger> {
+    let (examples, mut fixtures): (Vec<_>, Vec<_>) = every_fixture_ledger().iter().cloned().partition(|it| it.name.starts_with("examples/"));
+    let probes = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/journals");
+    let mut dirs = std::fs::read_dir(&probes)
+        .unwrap()
+        .map(|it| it.unwrap().path())
+        .filter(|it| it.is_dir())
+        .collect::<Vec<_>>();
+    dirs.sort();
     for dir in dirs {
         for entry in ["main.zhang", "main.bean"] {
             if dir.join(entry).exists() {
-                fixtures.push(Fixture {
-                    name: format!("{}/{}", dir.file_name().unwrap().to_string_lossy(), entry),
-                    dir: dir.clone(),
-                    entry: entry.to_owned(),
-                });
+                fixtures.push(FixtureLedger::new(
+                    format!("{}/{}", dir.file_name().unwrap().to_string_lossy(), entry),
+                    dir.clone(),
+                    entry,
+                ));
             }
         }
     }
+    fixtures.extend(examples);
     // the beancount ledgers of the balance assertion oracle: pads, balances and document paths as beancount reads them
-    let oracle = zhang_testkit::fixtures::oracle_ledger_dir();
-    let mut ledgers = std::fs::read_dir(&oracle)
-        .unwrap()
-        .map(|it| it.unwrap().path())
-        .filter(|it| it.extension().is_some_and(|extension| extension == "bean"))
-        .collect::<Vec<_>>();
-    ledgers.sort();
-    for ledger in ledgers {
-        let entry = ledger.file_name().unwrap().to_string_lossy().into_owned();
-        fixtures.push(Fixture {
-            name: format!("beancount-oracle/{}", entry),
-            dir: oracle.clone(),
-            entry,
-        });
-    }
+    fixtures.extend(oracle_ledgers().iter().cloned());
     if let Ok(extra) = std::env::var("ZHANG_GOLDEN_EXTRA") {
         for item in extra.split(',').filter(|it| !it.is_empty()) {
             let (dir, entry) = item.split_once(':').unwrap_or((item, "main.zhang"));
-            fixtures.push(Fixture {
-                name: format!("{}/{}", dir, entry),
-                dir: PathBuf::from(dir),
-                entry: entry.to_owned(),
-            });
+            fixtures.push(FixtureLedger::new(format!("{}/{}", dir, entry), dir, entry));
         }
     }
     fixtures
-}
-
-/// The local files of a ledger, with the wildcard includes (`include "data/*.zhang"`) the server's
-/// file system source expands; zhang-core's local source reads includes as plain paths.
-struct GlobSource {
-    data_type: Box<dyn DataType<Carrier = String> + Send + Sync>,
-}
-
-impl GlobSource {
-    /// The files `pattern` names relative to `dir`: a `*` in a segment matches any name.
-    fn expand(dir: &Path, pattern: &str) -> Vec<PathBuf> {
-        let mut paths = vec![if pattern.starts_with('/') { PathBuf::from("/") } else { dir.to_path_buf() }];
-        for segment in pattern.split('/').filter(|it| !it.is_empty()) {
-            paths = match segment.split_once('*') {
-                None => paths.into_iter().map(|path| path.join(segment)).collect(),
-                Some((prefix, suffix)) => {
-                    let mut matched = vec![];
-                    for path in paths {
-                        let Ok(entries) = std::fs::read_dir(&path) else { continue };
-                        let mut names = entries
-                            .filter_map(|it| it.ok())
-                            .map(|it| it.file_name().to_string_lossy().into_owned())
-                            .collect::<Vec<_>>();
-                        names.sort();
-                        matched.extend(
-                            names
-                                .into_iter()
-                                .filter(|name| name.len() >= prefix.len() + suffix.len() && name.starts_with(prefix) && name.ends_with(suffix))
-                                .map(|name| path.join(name)),
-                        );
-                    }
-                    matched
-                }
-            };
-        }
-        paths
-    }
-}
-
-impl DataSource for GlobSource {
-    fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
-        Ok(std::fs::read(path)?)
-    }
-
-    fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
-        let entry = PathBuf::from(entry).canonicalize()?;
-        let mut queue = std::collections::VecDeque::from([entry.join(endpoint).canonicalize()?]);
-        let mut visited: Vec<PathBuf> = vec![];
-        let mut directives = vec![];
-        while let Some(path) = queue.pop_front() {
-            if visited.contains(&path) {
-                continue;
-            }
-            // `examples` includes a file that the first transaction written through the API creates
-            let Ok(content) = std::fs::read(&path) else { continue };
-            let content = String::from_utf8_lossy(&content).to_string();
-            let parsed = self.data_type.transform(content, Some(path.to_string_lossy().to_string()))?;
-            for directive in &parsed {
-                if let Directive::Include(include) = &directive.data {
-                    queue.extend(GlobSource::expand(path.parent().unwrap(), &include.file.clone().to_plain_string()));
-                }
-            }
-            directives.extend(parsed);
-            visited.push(path);
-        }
-        Ok(LoadResult {
-            directives,
-            visited_files: visited,
-            missing_includes: vec![],
-        })
-    }
-}
-
-async fn load(fixture: &Fixture) -> SharedLedger {
-    let data_type: Box<dyn DataType<Carrier = String> + Send + Sync> = if fixture.entry.ends_with(".bean") {
-        Box::new(beancount::Beancount {})
-    } else {
-        Box::new(ZhangDataType {})
-    };
-    let ledger = Ledger::load(fixture.dir.clone(), fixture.entry.clone(), Arc::new(GlobSource { data_type }))
-        .unwrap_or_else(|error| panic!("{}: {:?}", fixture.name, error));
-    SharedLedger(Arc::new(RwLock::new(ledger)))
 }
 
 async fn json(response: impl IntoResponse) -> Value {
@@ -272,7 +149,7 @@ fn broken_chains(journal: &[Value]) -> BTreeSet<(String, usize)> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_journal_and_the_new_transaction_suggestions_hold_on_every_ledger() {
     for fixture in fixtures() {
-        let ledger = load(&fixture).await;
+        let ledger = fixture_shared(&fixture);
         let name = fixture.name.as_str();
         let everything = journal(&ledger).await;
         let broken = broken_chains(&everything);

@@ -4,7 +4,7 @@
 //! own computation, and on small ledgers checked by hand.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -13,70 +13,43 @@ use chrono::{Datelike, Days, Months, NaiveDate, NaiveDateTime, Utc};
 use serde_json::Value;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::{AccountType, Flag};
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, Inventory, ParamTypes, Params, Query, QueryResult, Value as Cell};
 use zhang_server::builtin::{calculated_amount, execute, LedgerDateRange};
 use zhang_server::report;
 use zhang_server::request::StatisticInterval;
+use zhang_testkit::fixtures::every_fixture_ledger;
+use zhang_testkit::ledger::Scratch;
 
 /// A ledger to test on.
 #[derive(Debug, Clone)]
 struct Case {
     name: String,
     dir: PathBuf,
-    main: &'static str,
+    main: String,
 }
 
 /// Every fixture: each `integration-tests/*` ledger in each format it has, and `examples`.
 fn fixtures() -> Vec<Case> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let mut cases = vec![];
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root.join("integration-tests"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.is_dir())
-        .collect();
-    dirs.sort();
-    dirs.push(root.join("examples"));
-    for dir in dirs {
-        for main in ["main.zhang", "main.bean"] {
-            if dir.join(main).exists() {
-                let name = format!("{}/{}", dir.file_name().unwrap().to_string_lossy(), main);
-                cases.push(Case { name, dir: dir.clone(), main });
-            }
-        }
-    }
-    cases
+    every_fixture_ledger()
+        .iter()
+        .map(|it| Case {
+            name: it.name.clone(),
+            dir: it.dir.clone(),
+            main: it.entry.clone(),
+        })
+        .collect()
 }
 
 /// A copy of the ledger's directory, with `option "timezone"` set when `timezone` is given, so
 /// the tests do not depend on the timezone of the machine.
 fn load(case: &Case, timezone: Option<&str>) -> Option<Ledger> {
-    let scratch = std::env::temp_dir().join(format!("zhang-report-golden-{}", uuid::Uuid::new_v4()));
-    copy_dir(&case.dir, &scratch);
-    let scratch = scratch.canonicalize().unwrap();
+    let scratch = Scratch::copy_of_dir(&case.dir, &case.main);
     if let Some(timezone) = timezone {
-        let main = scratch.join(case.main);
-        let content = std::fs::read_to_string(&main).unwrap();
-        std::fs::write(&main, format!("option \"timezone\" \"{}\"\n{}", timezone, content)).unwrap();
+        let content = scratch.read(&case.main);
+        scratch.write(&case.main, &format!("option \"timezone\" \"{}\"\n{}", timezone, content));
     }
-    let ledger = if case.main.ends_with(".bean") {
-        Ledger::load_with_data_source(
-            scratch.clone(),
-            case.main.to_owned(),
-            Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {})),
-        )
-    } else {
-        Ledger::load_with_data_source(
-            scratch.clone(),
-            case.main.to_owned(),
-            Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
-        )
-    };
-    std::fs::remove_dir_all(&scratch).ok();
-    match ledger {
+    match scratch.ledger() {
         Ok(ledger) => Some(ledger),
         // `examples` includes a file that is not in the repository, and the local file data
         // source does not expand the wildcard includes of the wildcard include fixture
@@ -94,19 +67,6 @@ fn load(case: &Case, timezone: Option<&str>) -> Option<Ledger> {
 
 /// The fixtures that do not load from a plain directory, by the start of their name.
 const SKIPPED: [&str; 2] = ["examples", "wildcard-include-directive-"];
-
-fn copy_dir(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        let target = to.join(entry.file_name());
-        if entry.path().is_dir() {
-            copy_dir(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), target).unwrap();
-        }
-    }
-}
 
 /// The ranges to test on: the whole ledger, the month of its last transaction, the three
 /// months up to it, and the first day of that month.
@@ -513,7 +473,7 @@ fn hand_ledger() -> Ledger {
     let case = Case {
         name: "hand".to_owned(),
         dir: dir.clone(),
-        main: "main.zhang",
+        main: "main.zhang".to_owned(),
     };
     let ledger = load(&case, None).unwrap();
     std::fs::remove_dir_all(dir).ok();
@@ -875,7 +835,7 @@ fn carry_ledger() -> Ledger {
     let case = Case {
         name: "carry".to_owned(),
         dir: dir.clone(),
-        main: "main.zhang",
+        main: "main.zhang".to_owned(),
     };
     let ledger = load(&case, None).unwrap();
     std::fs::remove_dir_all(dir).ok();
@@ -1044,7 +1004,7 @@ fn ledger_of(name: &str, text: &str) -> Ledger {
     let case = Case {
         name: name.to_owned(),
         dir: dir.clone(),
-        main: "main.zhang",
+        main: "main.zhang".to_owned(),
     };
     let ledger = load(&case, None).unwrap();
     std::fs::remove_dir_all(dir).ok();

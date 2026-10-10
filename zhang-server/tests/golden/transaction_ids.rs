@@ -9,22 +9,15 @@
 
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use beancount::Beancount;
 use uuid::Uuid;
 use zhang_ast::{Directive, Spanned};
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
 use zhang_core::utils::id::FromSpan;
+use zhang_testkit::fixtures::{every_fixture_ledger, load_dir};
 
-const GOLDEN: &str = "tests/transaction_ids.txt";
-
-fn integration_tests() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests").canonicalize().unwrap()
-}
+const GOLDEN: &str = "tests/golden/transaction_ids.txt";
 
 /// `id` as derived from the place of `directive` in the ledger at `root`: `file:offset #n`
 fn derivation(root: &Path, directive: &Spanned<Directive>, id: Uuid) -> String {
@@ -80,26 +73,11 @@ const SHARED_PLACES: &[(&str, &str)] = &[
 
 /// the ledger of the file `main` in the directory `root`, read in the format of its extension
 fn load(root: &Path, main: &str) -> Ledger {
-    let ledger = if main.ends_with(".bean") {
-        Ledger::load_with_data_source(
-            root.to_path_buf(),
-            main.to_owned(),
-            Arc::new(LocalFileSystemDataSource::new(Beancount::default())),
-        )
-    } else {
-        Ledger::load_with_data_source(root.to_path_buf(), main.to_owned(), Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})))
-    };
-    ledger.unwrap_or_else(|error| panic!("{}/{main} loads: {error}", root.display()))
+    load_dir(root.to_path_buf(), main).unwrap_or_else(|error| panic!("{}/{main} loads: {error}", root.display()))
 }
 
 #[test]
 fn every_transaction_and_balance_assertion_keeps_its_id() {
-    let mut cases = std::fs::read_dir(integration_tests())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    cases.sort();
     let mut text = String::new();
     for (main, content) in SHARED_PLACES {
         let dir = tempfile::tempdir().unwrap();
@@ -110,16 +88,12 @@ fn every_transaction_and_balance_assertion_keeps_its_id() {
             writeln!(text, "{id}").unwrap();
         }
     }
-    for case in cases {
-        for main in ["main.zhang", "main.bean"] {
-            if !case.join(main).exists() {
-                continue;
-            }
-            let ledger = load(&case, main);
-            writeln!(text, "## {}/{main}", case.file_name().unwrap().to_string_lossy()).unwrap();
-            for id in ids(&case, &ledger) {
-                writeln!(text, "{id}").unwrap();
-            }
+    // every `integration-tests` ledger in each of its formats (the example ledger is not pinned)
+    for fixture in every_fixture_ledger().iter().filter(|it| !it.name.starts_with("examples/")) {
+        let ledger = fixture.ledger();
+        writeln!(text, "## {}", fixture.name).unwrap();
+        for id in ids(&fixture.dir, &ledger) {
+            writeln!(text, "{id}").unwrap();
         }
     }
     let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(GOLDEN);
