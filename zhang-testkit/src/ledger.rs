@@ -29,9 +29,15 @@ pub fn load_ledger(dir: PathBuf, entry: &str) -> Ledger {
 /// Load a ledger from zhang text written as `main.zhang` to a temporary directory. The directory is kept for the
 /// life of the process (the ledger's data source reads from it); use [`Scratch`] for a directory that is removed.
 pub fn load_text(content: &str) -> Ledger {
+    try_load_text(content).expect("cannot load ledger")
+}
+
+/// [`load_text`] with the load's error instead of a panic, for a test of what fails to load. The directory is kept
+/// like [`load_text`]'s.
+pub fn try_load_text(content: &str) -> ZhangResult<Ledger> {
     let dir = tempfile::tempdir().expect("tempdir").keep();
     std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
-    load_ledger(dir, "main.zhang")
+    Ledger::load_with_data_source(dir, "main.zhang".to_owned(), Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})))
 }
 
 /// Load a ledger from zhang text, with the current time read from `clock` (what a plugin calling `zhang_now`
