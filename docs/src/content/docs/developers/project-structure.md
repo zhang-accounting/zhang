@@ -74,14 +74,14 @@ CI (`.github/workflows/build-latest.yml`) runs these on every pull request:
 
 | Check | Command |
 | --- | --- |
-| Rust tests | `cargo test`, and `cargo test -p zhang-core` (without the plugin runtime) |
+| Rust tests | `cargo nextest run` in three groups (`zhang-query`, `zhang-server`, the rest), `cargo test --doc`, and `cargo test -p zhang-core` (without the plugin runtime) |
 | Formatting | `cargo +nightly fmt --all -- --check` |
 | Lints | `cargo clippy --all-features --all-targets -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs`, and the same for `--target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary` |
 | WebAssembly bindings | `wasm-pack build` in `bindings/wasm` |
 | Web UI | `pnpm run prettier:check` and `pnpm build` in `frontend` |
 | Spelling | [typos](https://github.com/crate-ci/typos), configured in `_typos.toml` |
 
-`cargo test` also runs the end-to-end cases of `integration-tests/`. Each folder holds a `main.zhang` or `main.bean` and a `validations.json`: a list of API URIs, each with JSONPath expressions and the values they must return. The web UI has unit tests too: `pnpm test` in `frontend`.
+The Rust tests include the end-to-end cases of `integration-tests/`. Each folder holds a `main.zhang` or `main.bean` and a `validations.json`: a list of API URIs, each with JSONPath expressions and the values they must return. The web UI has unit tests too: `pnpm test` in `frontend`. How the tests are layered, where a new one goes and the conventions they follow are on the [Testing](/developers/testing/) page.
 
 The documentation is built and deployed only on pushes to `main` and `develop`, not on pull requests. Build it yourself before you send a change to `docs/`, see `docs/README.md`.
 
