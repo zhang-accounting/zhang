@@ -2,8 +2,8 @@
 //!
 //! The crate is a dev-dependency of the crates with integration tests (`tests/`). It holds what those tests used to
 //! copy from one another: where the fixture ledgers are and how to load them once ([`fixtures`]), how to build a
-//! ledger from text or in a scratch directory ([`ledger`]), and how a golden file is compared and rewritten
-//! ([`golden`]).
+//! ledger from text or in a scratch directory ([`ledger`]), how a golden file is compared and rewritten
+//! ([`golden`]), and the scenarios the parser and exporter tests of both dialects share ([`dialect`]).
 //!
 //! # Rules
 //!
@@ -19,7 +19,7 @@
 //!
 //! | need | use |
 //! |---|---|
-//! | a ledger from text | [`ledger::load_text`], [`ledger::load_text_at`] (with a clock), [`ledger::load_transformed`] |
+//! | a ledger from text | [`ledger::load_text`], [`ledger::try_load_text`] (its error), [`ledger::load_text_at`] (with a clock), [`ledger::load_transformed`] |
 //! | a ledger on disk the test writes to or reloads | [`ledger::Scratch`] |
 //! | the fava demo ledger | [`fixtures::fava_demo`] (loaded once per process) or [`ledger::fava_demo_ledger`] (a fresh load) |
 //! | every ledger of `integration-tests/` and `examples/` | [`fixtures::every_fixture_ledger`] |
@@ -28,8 +28,10 @@
 //! | a ledger of either format from a directory | [`fixtures::load_dir`] |
 //! | a reproducible random source | [`XorShift`] |
 //! | a golden file (`UPDATE_GOLDEN=1` rewrites it) | [`golden::assert_text`], [`golden::assert_json`] |
+//! | where a transaction's metadata landed, random transactions and text layouts per dialect | [`dialect::Shape`], [`dialect::random_transaction`], [`dialect::random_layout`] |
 //! | a handler's `State`, a response as JSON, the server's router (feature `server`) | [`http`] |
 
+pub mod dialect;
 pub mod fixtures;
 pub mod golden;
 #[cfg(feature = "server")]

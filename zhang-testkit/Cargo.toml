@@ -18,6 +18,8 @@ zhang-ast = { path = "../zhang-ast" }
 # no features: a crate tested alone (`cargo test -p zhang-core`) must not get the plugin runtime through its tests
 zhang-core = { path = "../zhang-core" }
 beancount = { path = "../extensions/beancount" }
+bigdecimal = { workspace = true }
+chrono = "0.4"
 tempfile = "3.20"
 serde_json = { workspace = true }
 
