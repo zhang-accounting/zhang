@@ -21,11 +21,11 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_query::Params;
+use zhang_server::response::{QueryResultEntity, ResponseWrapper};
+use zhang_server::state::SharedLedger;
+use zhang_server::ServerResult;
 
 use super::budget_reference::{Figures, Reference};
-use crate::response::{QueryResultEntity, ResponseWrapper};
-use crate::state::SharedLedger;
-use crate::ServerResult;
 
 /// What a query or an endpoint answered. For the budget probes, `Json` holds the rows of the built-in
 /// queries as objects by column name, as the budget pages read them (`rowsByColumn` in the frontend).
@@ -39,7 +39,7 @@ pub(crate) enum Outcome {
 /// The rows of the built-in query `name` with `params` bound, as JSON objects by column name, as
 /// `POST /api/query/builtins/{name}` encodes the cells; or the status the query API answers.
 async fn rows_of(ledger: &SharedLedger, name: &'static str, params: Params) -> Result<Vec<Json>, u16> {
-    match crate::builtin::run(ledger, name, params).await {
+    match zhang_server::builtin::run(ledger, name, params).await {
         Ok(result) => {
             let result = serde_json::to_value(QueryResultEntity::from(result)).expect("serializable");
             let columns = result["columns"]
@@ -525,7 +525,7 @@ pub(crate) fn check(probe: &Probe, outcome: &Outcome, context: &Context) -> Resu
             if context
                 .reference
                 .as_ref()
-                .is_ok_and(|reference| reference.months_until(month) > crate::routes::query::max_result_values()) =>
+                .is_ok_and(|reference| reference.months_until(month) > zhang_server::routes::query::max_result_values()) =>
         {
             Ok(())
         }
@@ -533,7 +533,6 @@ pub(crate) fn check(probe: &Probe, outcome: &Outcome, context: &Context) -> Resu
     }
 }
 
-#[cfg(test)]
 mod test {
     use super::*;
 
@@ -555,14 +554,13 @@ mod test {
 }
 
 /// Small ledgers whose figures are worked out by hand, and what the pages' queries answer.
-#[cfg(test)]
 mod worked_examples {
     use std::collections::HashMap;
 
     use serde_json::json;
+    use zhang_server::request::{BuiltinParamValue, BuiltinQueryRunRequest};
 
     use super::*;
-    use crate::request::{BuiltinParamValue, BuiltinQueryRunRequest};
 
     /// The ledger of `text` on 2025-06-15 (UTC): "this month" is June 2025.
     pub(super) async fn ledger_of(text: &str) -> SharedLedger {
@@ -773,7 +771,7 @@ option "timezone" "Asia/Shanghai"
         };
         assert_eq!(unknown.run(&ledger).await, Outcome::Status(404));
         let params: HashMap<String, Option<BuiltinParamValue>> = serde_json::from_value(json!({"name": "trip", "month": "2025-13-01"})).unwrap();
-        let response = crate::routes::query::run_builtin_query(
+        let response = zhang_server::routes::query::run_builtin_query(
             State(SharedLedger(ledger.0.clone())),
             Path(("budgets.events".to_owned(),)),
             axum::Json(BuiltinQueryRunRequest { params, count_total: None }),
@@ -901,7 +899,7 @@ option "operating_currency" "USD"
     /// What `GET /api/commodities/{name}` answers.
     async fn commodity(ledger: &SharedLedger, name: &str) -> Outcome {
         let state = State(SharedLedger(ledger.0.clone()));
-        call(crate::routes::commodity::get_single_commodity(state, Path((name.to_owned(),)))).await
+        call(zhang_server::routes::commodity::get_single_commodity(state, Path((name.to_owned(),)))).await
     }
 
     async fn commodity_json(ledger: &SharedLedger, name: &str) -> Json {
@@ -1000,16 +998,15 @@ option "operating_currency" "USD"
 
 /// The budget pages with the ledger's clock pinned: the current month in the ledger's timezone,
 /// a month after the last row, the pages against the queries they open, and a date typo.
-#[cfg(test)]
 mod fixed_clock {
     use std::collections::HashMap;
 
     use serde_json::json;
+    use zhang_server::request::{BuiltinParamValue, BuiltinQueryTextRequest, QueryRequest};
+    use zhang_server::routes::query;
 
     use super::worked_examples::{figures, json_answer as new_json, ledger_at, ledger_of, of, BUDGETS, CLOSED_499};
     use super::*;
-    use crate::request::{BuiltinParamValue, BuiltinQueryTextRequest, QueryRequest};
-    use crate::routes::query;
 
     /// Shanghai is UTC+8: at 2024-03-31 16:30 UTC it is already April 1st there. Without a month,
     /// the budget pages show April, the ledger's current month: 500 CNY assigned in March, 100
@@ -1226,7 +1223,7 @@ option "operating_currency" "CNY"
         }
         assert_eq!(Probe::BudgetList { month: Some((9999, 1)) }.run(&ledger).await, Outcome::Status(400));
         let far = Params::new().bind("month", NaiveDate::from_ymd_opt(9999, 1, 1).unwrap());
-        let err = crate::builtin::run(&ledger, "budgets.month", far).await.expect_err("too large");
+        let err = zhang_server::builtin::run(&ledger, "budgets.month", far).await.expect_err("too large");
         assert!(err.to_string().contains("too many rows"), "{}", err);
         assert_eq!(err.into_response().status().as_u16(), 400);
     }
@@ -1234,7 +1231,6 @@ option "operating_currency" "CNY"
 
 /// Accounts named by several `budget` entries, or closed and opened again with another budget:
 /// the pages and the independent computation they are checked against, on hand-verified figures.
-#[cfg(test)]
 mod budget_accounts {
     use serde_json::json;
 
