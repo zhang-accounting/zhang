@@ -6,13 +6,10 @@
 //! marks with an `accepted_deviation` would be checked against zhang's own rule instead; none is.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use beancount::Beancount;
 use serde_json::Value;
 use zhang_ast::error::ErrorKind;
-use zhang_core::data_source::LocalFileSystemDataSource;
-use zhang_core::ledger::Ledger;
+use zhang_testkit::fixtures::load_dir;
 
 fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/active_accounts")
@@ -43,8 +40,7 @@ fn beancount(case: &Value) -> Vec<Located> {
 /// `CloseNonZeroAccount`, zhang's own check that an account is empty at its close, which beancount does not make: at
 /// the end of the close day, after the postings the oracle ledgers make on that day
 fn zhang(case: &str) -> Vec<Located> {
-    let data_source = Arc::new(LocalFileSystemDataSource::new(Beancount::default()));
-    let ledger = Ledger::load_with_data_source(dir(), format!("{case}.bean"), data_source).expect("the ledger loads");
+    let ledger = load_dir(dir(), &format!("{case}.bean")).expect("the ledger loads");
     let inactive = |kind: &ErrorKind| matches!(kind, ErrorKind::AccountDoesNotExist | ErrorKind::AccountClosed);
     let other_errors = ledger
         .errors
@@ -74,8 +70,7 @@ fn zhang(case: &str) -> Vec<Located> {
 
 /// the kinds of the errors zhang reports, in its order
 fn kinds(case: &str) -> Vec<ErrorKind> {
-    let data_source = Arc::new(LocalFileSystemDataSource::new(Beancount::default()));
-    let ledger = Ledger::load_with_data_source(dir(), format!("{case}.bean"), data_source).expect("the ledger loads");
+    let ledger = load_dir(dir(), &format!("{case}.bean")).expect("the ledger loads");
     ledger.errors.iter().map(|error| error.error_type.clone()).collect()
 }
 

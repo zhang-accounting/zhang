@@ -23,14 +23,12 @@
 use std::path::PathBuf;
 
 use beancount::parser::parse;
-
-/// beancount's `bean-example` generated ledger (shared with the fava-demo
-/// integration fixture).
-const OFFICIAL_EXAMPLE: &str = "../../integration-tests/fava-demo-ledger/main.zhang";
+use zhang_testkit::fixtures::fixture_dir;
 
 #[test]
 fn official_bean_example_ledger_parses_fully() {
-    let content = std::fs::read_to_string(OFFICIAL_EXAMPLE).expect("read bean-example ledger");
+    // beancount's `bean-example` generated ledger, shared with the fava-demo integration fixture
+    let content = std::fs::read_to_string(fixture_dir("fava-demo-ledger").join("main.zhang")).expect("read bean-example ledger");
     let directives = parse(&content, None::<PathBuf>).expect("bean-example ledger must parse");
     assert!(directives.len() > 2000, "expected a large ledger, got {} directives", directives.len());
 }
