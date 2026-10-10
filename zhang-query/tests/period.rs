@@ -1,231 +1,41 @@
 //! Oracle tests of the FROM period modifiers (`OPEN ON`, `CLOSE [ON]`, `CLEAR`): runs the
 //! beanquery-generated fixtures in `tests/period/cases` against the engine on the shared fava
-//! demo ledger, with the comparison rules of the conformance suite
-//! (`tests/conformance/README.md`): columns by position and type, decimals numerically,
+//! demo ledger, through `zhang_testkit::oracle` with the comparison rules of the conformance
+//! suite (`tests/conformance/README.md`): columns by position and type, decimals numerically,
 //! inventories and unordered results as multisets, errors by class.
 //!
-//! The fixtures come from `tests/period/generate.py`, which runs the official beanquery with
-//! the conformance generator's validation (determinism, zhang's balance-check rows).
-//! Case 022 retains beanquery's zero-row fixture; #647 deliberately returns a single count of
-//! zero after CLOSE removes every posting, checked here as the exact accepted deviation.
+//! The fixtures come from `tests/conformance/generate.py --set period`, which runs the official
+//! beanquery with the conformance generator's validation (determinism, zhang's balance-check
+//! rows). Case 022 retains beanquery's zero-row fixture; #647 deliberately returns a single
+//! count of zero after CLOSE removes every posting, checked here as the exact accepted
+//! deviation ([`ACCEPTED_DEVIATIONS`]).
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::str::FromStr;
 
-use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use serde_json::{json, Value as Json};
-use zhang_query::decimal::to_plain_string;
-use zhang_query::{Amount, DataType, ParamTypes, Params, Position, Query, QueryErrorKind, QueryResult, Value};
+use zhang_query::{DataType, ParamTypes, Params, Query, QueryErrorKind, QueryResult, Value};
+use zhang_testkit::oracle::{assert_no_failures, check_lists, load_case_files, run_cases, Accepted, Deviation, Rules};
 
-struct Fixture {
-    file: String,
-    query: String,
-    ordered: bool,
-    /// `Some(class)` for an `expect: "error"` case
-    expect_error: Option<String>,
-    column_types: Vec<String>,
-    rows: Vec<Vec<Json>>,
-}
-
-fn load_fixtures() -> Vec<Fixture> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/period/cases");
-    let mut files = std::fs::read_dir(&dir)
-        .unwrap_or_else(|err| panic!("cannot read {}: {}", dir.display(), err))
-        .map(|entry| entry.expect("dir entry").path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .collect::<Vec<_>>();
-    files.sort();
-    files
-        .into_iter()
-        .map(|path| {
-            let file = path.file_name().unwrap().to_string_lossy().into_owned();
-            let json: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|err| panic!("{}: {}", file, err));
-            Fixture {
-                query: json["query"].as_str().expect("query").to_owned(),
-                ordered: json["ordered"].as_bool().expect("ordered"),
-                expect_error: (json["expect"] == "error").then(|| json["error_class"].as_str().expect("error_class").to_owned()),
-                column_types: json["columns"]
-                    .as_array()
-                    .expect("columns")
-                    .iter()
-                    .map(|column| column["type"].as_str().expect("column type").to_owned())
-                    .collect(),
-                rows: json["rows"]
-                    .as_array()
-                    .expect("rows")
-                    .iter()
-                    .map(|row| row.as_array().expect("row").clone())
-                    .collect(),
-                file,
-            }
-        })
-        .collect()
-}
-
-// canonical encoding: the fixture cell encoding with normalised decimals and sorted positions
-
-fn decimal(number: &BigDecimal) -> Json {
-    Json::String(to_plain_string(&number.normalized()))
-}
-
-fn decimal_str(text: &str) -> Json {
-    decimal(&BigDecimal::from_str(text).unwrap_or_else(|err| panic!("bad decimal {:?}: {}", text, err)))
-}
-
-fn engine_amount(amount: &Amount) -> Json {
-    json!({"number": decimal(&amount.number), "currency": amount.commodity})
-}
-
-fn engine_position(position: &Position) -> Json {
-    let cost = position.cost.as_ref().map(|cost| {
-        json!({
-            "number": decimal(&cost.number),
-            "currency": cost.currency,
-            "date": cost.date.map(|date| date.to_string()),
-            "label": cost.label,
-        })
-    });
-    json!({"units": engine_amount(&position.units), "cost": cost})
-}
-
-fn sorted_positions(mut positions: Vec<Json>) -> Json {
-    positions.sort_by_cached_key(|position| position.to_string());
-    json!({ "positions": positions })
-}
-
-fn engine_cell(value: &Value) -> Json {
-    match value {
-        Value::Null => Json::Null,
-        Value::Bool(it) => json!(it),
-        Value::Int(it) => json!(it),
-        Value::Decimal(it) => decimal(it),
-        Value::Str(it) => json!(it),
-        Value::Date(it) => json!(it.to_string()),
-        Value::Set(it) => json!(it.iter().collect::<Vec<_>>()),
-        Value::Amount(it) => engine_amount(it),
-        Value::Position(it) => engine_position(it),
-        Value::Inventory(it) => sorted_positions(it.positions().map(|position| engine_position(&position)).collect()),
-        Value::Interval(it) => json!(it.to_string()),
-        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
-    }
-}
-
-fn fixture_amount(cell: &Json) -> Json {
-    json!({"number": decimal_str(cell["number"].as_str().expect("amount number")), "currency": cell["currency"]})
-}
-
-fn fixture_position(cell: &Json) -> Json {
-    let cost = match &cell["cost"] {
-        Json::Null => Json::Null,
-        cost => json!({
-            "number": decimal_str(cost["number"].as_str().expect("cost number")),
-            "currency": cost["currency"],
-            "date": cost["date"],
-            "label": cost["label"],
-        }),
-    };
-    json!({"units": fixture_amount(&cell["units"]), "cost": cost})
-}
-
-fn fixture_cell(cell: &Json, ty: &str) -> Json {
-    if cell.is_null() {
-        return Json::Null;
-    }
-    match ty {
-        "decimal" => decimal_str(cell.as_str().expect("decimal cell")),
-        "amount" => fixture_amount(cell),
-        "position" => fixture_position(cell),
-        "inventory" => sorted_positions(cell["positions"].as_array().expect("positions").iter().map(fixture_position).collect()),
-        "set" => json!(cell
-            .as_array()
-            .expect("set cell")
-            .iter()
-            .map(|it| it.as_str().expect("set item").to_owned())
-            .collect::<BTreeSet<_>>()),
-        _ => cell.clone(),
-    }
-}
-
-fn error_class(kind: QueryErrorKind) -> &'static str {
-    match kind {
-        QueryErrorKind::Parse => "syntax",
-        QueryErrorKind::Compile => "compile",
-        QueryErrorKind::Eval => "runtime",
-        QueryErrorKind::Timeout => "timeout",
-        QueryErrorKind::TooLarge => "too_large",
-    }
-}
-
-/// `None` when the engine matches the fixture, otherwise what differs.
-fn compare(fixture: &Fixture, outcome: Result<QueryResult, zhang_query::QueryError>) -> Option<String> {
-    let result = match (outcome, &fixture.expect_error) {
-        (Err(err), Some(class)) if error_class(err.kind) == class => return None,
-        (Err(err), _) => return Some(format!("engine error: {}", err)),
-        (Ok(result), Some(class)) => return Some(format!("expected a {} error, got {} rows", class, result.rows.len())),
-        (Ok(result), None) => result,
-    };
-    let types = result.columns.iter().map(|column| column.ty.name()).collect::<Vec<_>>();
-    if types != fixture.column_types {
-        return Some(format!("columns: expected {:?}, got {:?}", fixture.column_types, types));
-    }
-    let accepted = (fixture.file == "022_close_before_the_ledger.json").then(|| {
-        assert!(fixture.rows.is_empty(), "revisit the #647 deviation if the oracle changes");
-        vec![vec![json!(0)]]
-    });
-    let mut expected = accepted
-        .as_ref()
-        .unwrap_or(&fixture.rows)
-        .iter()
-        .map(|row| {
-            let cells = row.iter().zip(&fixture.column_types).map(|(cell, ty)| fixture_cell(cell, ty)).collect();
-            Json::Array(cells).to_string()
-        })
-        .collect::<Vec<_>>();
-    let mut actual = result
-        .rows
-        .iter()
-        .map(|row| Json::Array(row.iter().map(engine_cell).collect()).to_string())
-        .collect::<Vec<_>>();
-    if !fixture.ordered {
-        expected.sort();
-        actual.sort();
-    }
-    if expected == actual {
-        return None;
-    }
-    let missing = expected.iter().filter(|row| !actual.contains(row)).take(3).cloned().collect::<Vec<_>>();
-    let unexpected = actual.iter().filter(|row| !expected.contains(row)).take(3).cloned().collect::<Vec<_>>();
-    Some(format!(
-        "{} expected rows, {} actual; missing {:?}; unexpected {:?}",
-        expected.len(),
-        actual.len(),
-        missing,
-        unexpected
-    ))
-}
+/// Deliberate differences between the engine and beanquery, checked as in `conformance.rs`.
+const ACCEPTED_DEVIATIONS: &[Deviation] = &[Deviation {
+    case: Some("close_before_the_ledger"),
+    reason: "an aggregate without group keys returns one row over empty input (#647): a count of zero after CLOSE removes \
+             every posting; beanquery 0.2.0 returns no rows",
+    accepted: Accepted::Rows("[[0]]"),
+}];
 
 #[test]
 fn period_modifiers_match_beanquery() {
-    let fixtures = load_fixtures();
+    let fixtures = load_case_files(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/period/cases"));
     assert!(!fixtures.is_empty(), "no fixtures in tests/period/cases");
-    let ledger = zhang_testkit::ledger::fava_demo_ledger();
-    let today = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
-    let failures = fixtures
+    check_lists(&fixtures, ACCEPTED_DEVIATIONS, &[]);
+    let close_before = fixtures
         .iter()
-        .filter_map(|fixture| {
-            let outcome = Query::compile(&fixture.query).and_then(|query| query.execute_at(&ledger, &Params::default(), today));
-            compare(fixture, outcome).map(|diff| format!("  {}: {}", fixture.file, diff))
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        failures.is_empty(),
-        "{} of {} cases differ from beanquery:\n{}",
-        failures.len(),
-        fixtures.len(),
-        failures.join("\n")
-    );
+        .find(|fixture| fixture.file == "022_close_before_the_ledger.json")
+        .expect("case 022 of tests/period/cases");
+    assert!(close_before.rows.is_empty(), "revisit the #647 deviation if the oracle changes");
+    let ledger = zhang_testkit::fixtures::fava_demo();
+    assert_no_failures("period", &run_cases(&ledger, &fixtures, &Rules::on(date(2025, 1, 1)), ACCEPTED_DEVIATIONS, &[]));
 }
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {

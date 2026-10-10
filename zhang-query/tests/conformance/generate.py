@@ -1,20 +1,42 @@
 #!/usr/bin/env python3
-"""Generate the zhang-query conformance fixtures from the beanquery oracle.
+"""Generate the zhang-query oracle fixtures from the beanquery oracle.
 
-The expected results in ``cases/*.json`` are produced by the official Python
-beanquery running over the shared ledger, not by zhang. See README.md.
+This is the one generator of every beanquery oracle file under ``zhang-query/tests``.
+The expected results are produced by the official Python beanquery (beancount 3.2.3,
+beanquery 0.2.0) running over a ledger, not by zhang. ``--set`` picks the fixture set:
+
+=========================  ======================================  ============================
+set                        output (under zhang-query/tests)        checked by (tests/*.rs)
+=========================  ======================================  ============================
+``conformance`` (default)  ``conformance/cases/NNN_name.json``     ``conformance.rs``
+``having_pivot``           ``having_pivot/cases/NNN_name.json``    ``having_pivot.rs``
+``period``                 ``period/cases/NNN_name.json``          ``period.rs``
+``export``                 ``export/cases/NNN_name.json``          ``export.rs``
+``golden``                 ``golden/fava_demo.json``               ``golden.rs``
+``statements``             ``golden/statements.json``              ``statements.rs``
+``tables``                 ``tables/oracle.json``                  ``tables.rs``
+``server_features``        ``server_features/oracle/oracle.json``  ``server_features.rs``
+``all``                    every set above
+=========================  ======================================  ============================
 
 Usage::
 
-    python generate.py [LEDGER]          # (re)write cases/*.json
-    python generate.py --check [LEDGER]  # verify cases/*.json are up to date
-    python generate.py --table           # also print the README case table
+    python generate.py [LEDGER]                  # (re)write conformance/cases/*.json
+    python generate.py --check [LEDGER]          # verify conformance/cases/*.json are up to date
+    python generate.py --table                   # also print the README case table
+    python generate.py --set period [LEDGER]     # (re)write period/cases/*.json
+    python generate.py --set all --check         # verify every set
 
 LEDGER defaults to ``integration-tests/fava-demo-ledger/main.zhang`` at the
-repository root. Requires only the standard library plus beancount (3.x) and
-beanquery (0.2.x).
+repository root and applies to the sets that run over the shared ledger
+(conformance, having_pivot, period, export, golden, statements); tables and
+server_features have ledgers of their own. Requires only the standard library
+plus beancount (3.x) and beanquery (0.2.x); the export set also runs the
+``bean-query`` command found next to the interpreter.
 
-Besides running each query, the generator validates every case:
+Each set is described at the top of its section below. The conformance,
+having_pivot and period sets share the fixture format and the validation of
+this section; besides running each query, the generator validates every case:
 
 * Determinism: the query is re-run over a perturbed copy of the ledger
   (entries reversed within each date, postings reversed within each
@@ -39,6 +61,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import typing
 from decimal import Decimal
@@ -53,6 +76,7 @@ from beanquery.query_render import render_csv
 from beanquery.sources import beancount as bq_source
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+TESTS_DIR = os.path.abspath(os.path.join(HERE, ".."))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 DEFAULT_LEDGER = os.path.join(REPO_ROOT, "integration-tests", "fava-demo-ledger", "main.zhang")
 CASES_DIR = os.path.join(HERE, "cases")
@@ -1436,50 +1460,44 @@ def build_fixture(index, spec, conns, dcontext):
     return filename, render_fixture(fixture), detail
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("ledger", nargs="?", default=DEFAULT_LEDGER)
-    parser.add_argument("--check", action="store_true", help="verify fixtures instead of writing them")
-    parser.add_argument("--table", action="store_true", help="also print the README case table (Markdown)")
-    args = parser.parse_args()
 
-    names = [spec["name"] for spec in CASES]
+class SharedLedger:
+    """The shared ledger's three beanquery connections (plain, perturbed, with synthetic balance checks) and
+    its display context, loaded once for every conformance-style set of a run."""
+
+    def __init__(self, path):
+        self.path = path
+        self._loaded = None
+
+    def load(self):
+        if self._loaded is None:
+            entries, options = load_ledger(self.path)
+            conns = (connect(entries, options),
+                     connect(perturbed(entries), options),
+                     connect(with_synthetic_balance_checks(entries), options))
+            self._loaded = (conns, options["dcontext"])
+        return self._loaded
+
+
+def build_fixtures(cases, cases_dir, shared):
+    """The fixtures of a conformance-style case list as {absolute path: text}, with the per-case details."""
+    names = [spec["name"] for spec in cases]
     duplicates = [name for name, count in collections.Counter(names).items() if count > 1]
     if duplicates:
         sys.exit(f"duplicate case names: {duplicates}")
-
-    entries, options = load_ledger(args.ledger)
-    conns = (connect(entries, options),
-             connect(perturbed(entries), options),
-             connect(with_synthetic_balance_checks(entries), options))
-    print(f"oracle: beancount {beancount.__version__}, beanquery {beanquery.__version__}; ledger {args.ledger}")
-
+    conns, dcontext = shared.load()
     outputs = {}
     details = []
-    for index, spec in enumerate(CASES, start=1):
-        filename, text, detail = build_fixture(index, spec, conns, options["dcontext"])
-        outputs[filename] = text
+    for index, spec in enumerate(cases, start=1):
+        filename, text, detail = build_fixture(index, spec, conns, dcontext)
+        outputs[os.path.join(cases_dir, filename)] = text
         details.append(detail)
         print(f"  {filename:<55} {spec['kind']:<17} {detail}")
+    return outputs, details
 
-    os.makedirs(CASES_DIR, exist_ok=True)
-    existing = {name for name in os.listdir(CASES_DIR) if name.endswith(".json")}
-    if args.check:
-        stale = sorted(existing - set(outputs))
-        changed = []
-        for filename, text in outputs.items():
-            path = os.path.join(CASES_DIR, filename)
-            if not os.path.exists(path) or open(path, encoding="utf-8").read() != text:
-                changed.append(filename)
-        if stale or changed:
-            sys.exit(f"fixtures out of date: changed={changed} stale={stale}")
-        print("fixtures are up to date")
-    else:
-        for filename in existing - set(outputs):
-            os.remove(os.path.join(CASES_DIR, filename))
-        for filename, text in outputs.items():
-            with open(os.path.join(CASES_DIR, filename), "w", encoding="utf-8") as handle:
-                handle.write(text)
+
+def build_conformance(args, shared):
+    outputs, details = build_fixtures(CASES, CASES_DIR, shared)
 
     by_area = collections.Counter(spec["area"] for spec in CASES)
     by_kind = collections.Counter(spec["kind"] if spec["expect"] != "error" else "error" for spec in CASES)
@@ -1498,6 +1516,981 @@ def main():
             expect = "error" if spec["expect"] == "error" else detail
             print(f"| {index:03d} | `{spec['name']}` | {spec['phase']} | {spec['area']} | {spec['kind']} | "
                   f"{'yes' if spec['ordered'] else 'no'} | {expect} |")
+    return outputs
+
+
+# ---------------------------------------------------------------------------
+# Set having_pivot: the oracle fixtures of HAVING and PIVOT BY
+# ---------------------------------------------------------------------------
+# The expected results in ``having_pivot/cases/*.json`` come from the official Python beanquery over the
+# shared ledger, exactly like the conformance set: the same ledger loading, validation (determinism, synthetic
+# balance-check re-runs, CSV rounding), encoding and fixture format, with a case list of its own. The fixtures
+# are checked by ``zhang-query/tests/having_pivot.rs``, which also compares column names: the names of pivoted
+# columns are data.
+#
+# The cases avoid what beanquery does not define: HAVING conditions that read a column outside an aggregate
+# (beanquery evaluates it on an arbitrary posting), NULL values in a PIVOT BY column (beanquery cannot sort
+# them) and missing pivot cells in CSV cases (beanquery's numberify fails on them).
+
+HAVING_PIVOT_CASES_DIR = os.path.join(TESTS_DIR, "having_pivot", "cases")
+
+HAVING_PIVOT_CASES = [
+    # --- HAVING --------------------------------------------------------------
+    case("having", "having_categories_over_1000",
+         "SELECT root(account, 2) AS category, sum(number) AS total WHERE account ~ '^Expenses' "
+         "GROUP BY 1 HAVING sum(number) > 1000 ORDER BY 1",
+         ordered=True,
+         notes="HAVING keeps the groups whose aggregate passes; it is evaluated per finished group."),
+    case("having", "having_aggregate_not_selected_with_limit",
+         "SELECT account, sum(position) AS total WHERE account ~ '^Expenses:Food' "
+         "GROUP BY account HAVING count(*) > 10 ORDER BY account LIMIT 2",
+         ordered=True,
+         notes="HAVING may use an aggregate that is not a target. LIMIT applies after HAVING."),
+    case("having", "having_three_valued_logic",
+         "SELECT account, count(*) AS n, max(number) AS largest WHERE account ~ '^Expenses:(Food|Home)' "
+         "GROUP BY account HAVING NOT (sum(number) > 5000) OR max(number) / 0 > 1 ORDER BY account",
+         ordered=True,
+         notes="A group whose condition is NULL (here the division by zero) is dropped, like FALSE."),
+    case("having", "having_keeps_late_groups",
+         "SELECT year, count(*) AS n WHERE account ~ '^Expenses:Food' GROUP BY year HAVING count(*) < 180 LIMIT 2",
+         ordered=True,
+         notes="Without ORDER BY, groups come in the order of their first posting, and LIMIT keeps the first "
+               "groups that pass HAVING: 2016 fails it and does not count, so 2017 is kept."),
+    case("having", "having_with_order_by_aggregate",
+         "SELECT year, root(account, 2) AS category, count(*) AS n WHERE account ~ '^Expenses' "
+         "GROUP BY 1, 2 HAVING count(*) >= 100 ORDER BY sum(number) DESC LIMIT 4",
+         ordered=True,
+         notes="ORDER BY and LIMIT apply to the groups HAVING keeps."),
+
+    # --- PIVOT BY ------------------------------------------------------------
+    case("pivot", "pivot_category_by_year",
+         "SELECT root(account, 2) AS category, year, sum(position) AS total WHERE account ~ '^Expenses' "
+         "GROUP BY 1, 2 PIVOT BY category, year",
+         ordered=True,
+         notes="One row per value of the first column, sorted; one column per value of the second, sorted and "
+               "named after the value. The first column is named '<first>/<second>'."),
+    case("pivot", "pivot_monthly_food_by_year",
+         "SELECT month, year, sum(number) AS total WHERE account ~ '^Expenses:Food' GROUP BY month, year "
+         "PIVOT BY month, year",
+         ordered=True,
+         notes="A missing (month, year) pair is NULL: the ledger ends in September 2017."),
+    case("pivot", "pivot_two_value_columns_by_index",
+         "SELECT year, root(account, 2) AS category, count(*) AS n, sum(number) AS total "
+         "WHERE account ~ '^Expenses:(Food|Home|Transport)' GROUP BY 1, 2 PIVOT BY 1, 2",
+         ordered=True,
+         notes="With several other targets each value gets one column per target, named '<value>/<target>'. "
+               "Columns may be given by their 1-based index."),
+    case("pivot", "pivot_after_having_order_and_limit",
+         "SELECT year, root(account, 2) AS category, sum(number) AS total WHERE account ~ '^Expenses' "
+         "GROUP BY 1, 2 HAVING sum(number) > 1000 ORDER BY 3 DESC PIVOT BY category, year LIMIT 8",
+         ordered=True,
+         notes="PIVOT BY reshapes the rows LIMIT leaves; it sorts them itself, so ORDER BY only decides which "
+               "rows remain."),
+    case("pivot", "pivot_last_row_of_a_pair_wins",
+         "SELECT year, root(account, 2) AS category, month, count(*) AS n WHERE account ~ '^Expenses:(Food|Home)' "
+         "GROUP BY 1, 2, 3 ORDER BY month DESC, year, category PIVOT BY year, category",
+         ordered=True,
+         notes="When several rows share a (first, second) pair, the last one in result order fills the cells: "
+               "here the earliest month of each year."),
+    case("pivot", "pivot_boolean_column_names",
+         "SELECT root(account, 2) AS category, payee IS NULL AS no_payee, count(*) AS n "
+         "WHERE account ~ '^Expenses' GROUP BY 1, 2 PIVOT BY category, no_payee",
+         ordered=True,
+         notes="Columns are named with Python's str() of the value: False and True."),
+    case("pivot", "csv_pivot_inventory_columns",
+         "SELECT account, year, sum(position) AS total "
+         "WHERE account ~ '^Assets:US:(BofA:Checking|Vanguard:Cash|Hoogle:Vacation)' GROUP BY 1, 2 "
+         "PIVOT BY account, year",
+         expect="csv", ordered=True,
+         notes="numberify splits each pivoted inventory column per currency: '2015 (USD)', '2015 (VACHR)'."),
+
+    # --- errors ----------------------------------------------------------------
+    case("error", "error_having_without_group_by",
+         "SELECT sum(number) AS total WHERE account ~ '^Expenses' HAVING sum(number) > 10", expect="error",
+         notes="HAVING is part of the GROUP BY clause."),
+    case("error", "error_having_without_aggregate",
+         "SELECT account, count(*) AS n GROUP BY account HAVING account ~ 'Food'", expect="error",
+         notes="HAVING must use an aggregate function."),
+    case("error", "error_having_target_name",
+         "SELECT account, sum(number) AS total GROUP BY account HAVING total > 10", expect="error",
+         notes="Names in HAVING are postings columns, never target aliases."),
+    case("error", "error_pivot_second_column_not_grouped",
+         "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY account, total", expect="error"),
+    case("error", "error_pivot_column_not_a_target",
+         "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY account, month", expect="error"),
+    case("error", "error_pivot_same_column_twice",
+         "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY account, 1", expect="error"),
+    case("error", "error_pivot_index_out_of_range",
+         "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY 1, 4", expect="error"),
+    case("error", "error_pivot_three_columns",
+         "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY account, year, total", expect="error"),
+    case("error", "error_pivot_expression",
+         "SELECT account, year, sum(number) AS total GROUP BY 1, 2 PIVOT BY account, year + 1", expect="error"),
+    case("error", "error_pivot_after_limit",
+         "SELECT account, year, sum(number) AS total GROUP BY 1, 2 LIMIT 3 PIVOT BY account, year", expect="error"),
+]
+
+
+def build_having_pivot(args, shared):
+    outputs, _ = build_fixtures(HAVING_PIVOT_CASES, HAVING_PIVOT_CASES_DIR, shared)
+    print(f"{len(HAVING_PIVOT_CASES)} cases")
+    return outputs
+
+
+# ---------------------------------------------------------------------------
+# Set period: the oracle fixtures of the FROM period modifiers (OPEN ON, CLOSE [ON], CLEAR)
+# ---------------------------------------------------------------------------
+# The expected results in ``period/cases/*.json`` come from the official Python beanquery over the shared
+# ledger, exactly like the conformance set: the same ledger loading, validation (determinism and synthetic
+# balance-check re-runs), encoding and fixture format, with a case list of its own. The fixtures are checked
+# by ``zhang-query/tests/period.rs``.
+
+PERIOD_CASES_DIR = os.path.join(TESTS_DIR, "period", "cases")
+
+PERIOD_CASES = [
+    # --- reports ------------------------------------------------------------
+    case("period", "income_statement_2016",
+         "SELECT account, sum(position) FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 "
+         "WHERE account ~ '^(Income|Expenses)' GROUP BY 1 ORDER BY 1",
+         ordered=True,
+         notes="The income statement of 2016: OPEN moves earlier income and expenses to equity, CLOSE drops "
+               "later entries."),
+    case("period", "balance_sheet_at_2017_clear",
+         "SELECT account, sum(position) FROM CLOSE ON 2017-01-01 CLEAR "
+         "WHERE account ~ '^(Assets|Liabilities|Equity)' GROUP BY 1 ORDER BY 1",
+         kind=LEDGER, ordered=True,
+         notes="The balance sheet at 2017-01-01: CLEAR moves all income and expenses to Equity:Earnings:Current, "
+               "and CLOSE adds the Equity:Conversions:Current entry. Holdings keep their lots."),
+    case("period", "balance_sheet_totals_by_root",
+         "SELECT root(account, 1) AS root, sum(cost(position)) AS total "
+         "FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR GROUP BY 1 ORDER BY 1",
+         ordered=True,
+         notes="Per root account at cost: income and expenses net to nothing after CLEAR, and the whole "
+               "period balances at cost except for the zero-priced conversion entry."),
+    case("period", "open_holdings_with_lots",
+         "SELECT account, sum(position) FROM OPEN ON 2017-01-01 "
+         "WHERE account ~ '^Assets:US:(ETrade|Vanguard)' GROUP BY 1 ORDER BY 1",
+         kind=LEDGER, ordered=True,
+         notes="Holdings after OPEN: the summarization entries keep the booked lots (cost, cost date)."),
+    case("period", "open_holdings_units_and_cost",
+         "SELECT account, currency, sum(number) AS units, sum(cost(position)) AS book_value "
+         "FROM OPEN ON 2016-06-01 WHERE account ~ '^Assets:US:ETrade' AND currency != 'USD' "
+         "GROUP BY 1, 2 ORDER BY 1, 2",
+         kind=LEDGER, ordered=True),
+    case("period", "open_equity_accounts",
+         "SELECT account, sum(position) FROM OPEN ON 2016-01-01 WHERE account ~ '^Equity' GROUP BY 1 ORDER BY 1",
+         ordered=True,
+         notes="Equity after OPEN: previous earnings, previous conversions and the opening balances."),
+
+    # --- synthetic rows ------------------------------------------------------
+    case("synthetic", "flags_counts_and_dates",
+         "SELECT flag, count(*) AS n, min(date) AS first, max(date) AS last "
+         "FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 CLEAR GROUP BY 1 ORDER BY 1",
+         kind=LEDGER, ordered=True,
+         notes="S (summarization) rows are dated the day before OPEN, the C (conversion) entry the day before "
+               "CLOSE, and the T (transfer) entries like the last entry of the period."),
+    case("synthetic", "summarization_rows",
+         "SELECT date, flag, payee, narration, description, account, position, price, weight, tags, links "
+         "FROM OPEN ON 2016-01-01 WHERE flag = 'S'",
+         kind=LEDGER,
+         notes="Every summarization posting: one per lot of each account, against Equity:Opening-Balances at cost."),
+    case("synthetic", "summarization_entries",
+         "SELECT first(narration) AS narration, count(*) AS postings FROM OPEN ON 2016-01-01 WHERE flag = 'S' "
+         "GROUP BY id",
+         notes="One summarization entry per account; all its postings share one id."),
+    case("synthetic", "transfer_rows",
+         "SELECT date, flag, narration, account, position, other_accounts "
+         "FROM CLOSE ON 2017-01-01 CLEAR WHERE flag = 'T'",
+         notes="CLEAR: one transfer entry per income or expense account, against Equity:Earnings:Current."),
+    case("synthetic", "conversion_row",
+         "SELECT date, flag, payee, account, position, price, weight, cost_number, other_accounts "
+         "FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 WHERE flag = 'C'",
+         notes="The conversion entry of CLOSE: the residual of the price conversions at cost, priced at zero in "
+               "the conversion currency (NOTHING). Its narration is compared in conversion_narration_*."),
+    case("synthetic", "conversion_narration_mid_2016",
+         "SELECT narration FROM CLOSE ON 2016-06-01 WHERE flag = 'C'",
+         kind=LEDGER,
+         notes="The conversion entry's narration lists the balance of the period with its lots, in beancount's "
+               "inventory order: major currencies (USD first), then the others by name length, then by cost and "
+               "units."),
+    case("synthetic", "conversion_narration_2017",
+         "SELECT narration FROM CLOSE ON 2017-01-01 WHERE flag = 'C'",
+         kind=LEDGER),
+    case("synthetic", "conversion_narration_2016_after_open",
+         "SELECT narration FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 WHERE flag = 'C'",
+         kind=LEDGER,
+         notes="After OPEN the balance includes the summarized lots and the equity accounts."),
+    case("synthetic", "bare_close_conversion",
+         "SELECT date, flag, account, position, price FROM CLOSE WHERE flag = 'C'",
+         notes="A bare CLOSE drops nothing and dates the conversion entry like the last entry of the ledger."),
+    case("synthetic", "bare_clear",
+         "SELECT flag, account, count(*) AS n, min(date) AS first, max(date) AS last, sum(position) AS total "
+         "FROM CLEAR WHERE account ~ '^Equity' GROUP BY 1, 2 ORDER BY 1, 2",
+         ordered=True,
+         notes="CLEAR without CLOSE: the transfer entries are dated like the last entry of the ledger "
+               "(here a price on 2017-09-08)."),
+    case("synthetic", "clear_dated_like_last_entry",
+         "SELECT date, flag, account, position FROM OPEN ON 2016-01-01 CLOSE ON 2016-01-02 CLEAR WHERE flag IN ('C', 'T')",
+         notes="Without a conversion entry the transfer entries take the date of the last entry before CLOSE."),
+
+    # --- composition and edges -------------------------------------------------
+    case("compose", "from_expression_filters_after_the_period",
+         "SELECT account, sum(position) FROM year = 2016 OPEN ON 2016-06-01 "
+         "WHERE account ~ '^Assets:US:BofA' GROUP BY 1 ORDER BY 1",
+         ordered=True,
+         notes="The FROM expression filters the transformed rows, like WHERE: the opening balance on "
+               "2016-05-31 still summarizes 2015."),
+    case("compose", "from_account_filter_with_clear",
+         "SELECT flag, count(*) AS n, sum(position) AS total FROM account ~ 'Expenses:Food' OPEN ON 2016-01-01 "
+         "CLEAR GROUP BY 1 ORDER BY 1",
+         ordered=True,
+         notes="After OPEN the food accounts start at zero; CLEAR then empties them again."),
+    case("compose", "open_before_the_ledger",
+         "SELECT flag, count(*) AS n FROM OPEN ON 2010-01-01 GROUP BY 1 ORDER BY 1",
+         kind=LEDGER, ordered=True,
+         notes="Nothing to summarize: the postings are unchanged."),
+    case("compose", "open_after_the_ledger",
+         "SELECT flag, count(*) AS n, sum(cost(position)) AS total FROM OPEN ON 2030-01-01 GROUP BY 1 ORDER BY 1",
+         ordered=True),
+    case("compose", "close_before_the_ledger",
+         "SELECT count(*) AS n FROM CLOSE ON 2010-01-01 CLEAR"),
+    case("compose", "open_and_close_on_the_same_day",
+         "SELECT flag, count(*) AS n FROM open on 2016-01-01 close on 2016-01-01 GROUP BY 1 ORDER BY 1",
+         ordered=True,
+         notes="Keywords are case-insensitive; CLOSE may equal OPEN."),
+
+    # --- errors -------------------------------------------------------------
+    case("error", "error_modifiers_out_of_order",
+         "SELECT count(*) FROM CLEAR OPEN ON 2016-01-01", expect="error"),
+    case("error", "error_open_on_string",
+         "SELECT count(*) FROM OPEN ON '2016-01-01'", expect="error"),
+]
+
+
+def build_period(args, shared):
+    outputs, _ = build_fixtures(PERIOD_CASES, PERIOD_CASES_DIR, shared)
+    print(f"{len(PERIOD_CASES)} cases")
+    return outputs
+
+
+# ---------------------------------------------------------------------------
+# Set export: the CSV export oracle from beanquery's command line
+# ---------------------------------------------------------------------------
+# Each case in ``EXPORT_CASES`` is run with ``bean-query -q -f csv -m`` (CSV output, numberified) over the
+# shared ledger, and the raw output is stored verbatim in ``export/cases/NNN_<name>.json`` as
+# ``{"name", "query", "notes", "csv"}``. The CSV is kept inside JSON so that its CRLF line endings survive
+# git.
+#
+# ``zhang-query/tests/export.rs`` compares zhang's ``to_csv`` against these fixtures cell by cell; see that
+# file for the comparison rules and the documented differences.
+#
+# ``bean-query`` is looked up next to the running interpreter (the venv of ``tests/conformance/README.md``:
+# beancount 3.2.3, beanquery 0.2.0).
+
+EXPORT_CASES_DIR = os.path.join(TESTS_DIR, "export", "cases")
+
+
+def export_case(name, query, notes=""):
+    return {"name": name, "query": query, "notes": notes}
+
+
+# Every column is aliased so that header names do not depend on how either
+# tool names an unaliased expression. Every query is fully ordered.
+EXPORT_CASES = [
+    export_case("inventory_by_root_account",
+                "SELECT root(account, 1) AS root, sum(position) AS balance GROUP BY root ORDER BY root",
+                notes="inventories with many cost lots per currency: units are summed per currency, costs dropped"),
+    export_case("holdings_units_cost_and_market_value",
+                "SELECT account, units(sum(position)) AS units, cost(sum(position)) AS cost, "
+                "value(sum(position)) AS market WHERE account ~ '^Assets:US' GROUP BY account ORDER BY account",
+                notes="Assets:US:Federal:PreTax401k sums to an empty inventory, so all its split cells are empty; "
+                      "market depends on the price map"),
+    export_case("yearly_inventory_cost_and_count",
+                "SELECT year, account, sum(position) AS balance, sum(cost(position)) AS cost, count(*) AS postings "
+                "WHERE account ~ '^Assets:US:Vanguard' GROUP BY year, account ORDER BY year, account",
+                notes="three currencies with equal counts: ties are ordered by currency name descending"),
+    export_case("posting_positions_and_amounts",
+                "SELECT date, account, position, units(position) AS units, cost(position) AS cost "
+                "WHERE account ~ 'Vanguard|Vacation' AND date >= 2017-05-01 AND date <= 2017-06-05 "
+                "ORDER BY date, account, number",
+                notes="position and amount columns with four currencies; the cost of held lots is dropped from "
+                      "position and is its own amount column through cost()"),
+    export_case("scalars_sets_and_nulls",
+                "SELECT date, payee, narration, account, tags, other_accounts, number, TRUE AS t, "
+                "number > 0 AS positive, NULL AS nothing, cost_number, number / 3 AS third, "
+                "'a,b \"c\"' AS quoted "
+                "WHERE (account = 'Assets:US:Vanguard:Cash' AND date >= 2017-08-10) "
+                "OR ('trip-chicago-2016' IN tags AND account ~ '^Expenses' AND date = 2016-11-18) "
+                "ORDER BY date, number, account",
+                notes="NULL payees and cost numbers, empty and multi-element sets (joined by ',' and quoted), "
+                      "booleans, a 28-digit quotient and a literal that needs quoting"),
+    export_case("empty_result_drops_split_columns",
+                "SELECT account, sum(position) AS balance WHERE account = 'Assets:Nowhere' GROUP BY account",
+                notes="no rows: the inventory column has no currency, so only the header 'account' remains"),
+]
+
+
+def bean_query():
+    path = os.path.join(os.path.dirname(sys.executable), "bean-query")
+    return path if os.path.exists(path) else "bean-query"
+
+
+def export_run(ledger, query):
+    out = subprocess.run([bean_query(), "-q", "-f", "csv", "-m", ledger, query],
+                         check=True, capture_output=True)
+    return out.stdout.decode("utf-8")
+
+
+def build_export(args, shared):
+    outputs = {}
+    for idx, spec in enumerate(EXPORT_CASES, start=1):
+        fixture = dict(spec)
+        fixture["csv"] = export_run(args.ledger, spec["query"])
+        filename = "{:03d}_{}.json".format(idx, spec["name"])
+        outputs[os.path.join(EXPORT_CASES_DIR, filename)] = json.dumps(fixture, ensure_ascii=False, indent=2) + "\n"
+        print(f"  {filename:<55} csv, {fixture['csv'].count(chr(10)) - 1} rows")
+    print(f"{len(EXPORT_CASES)} cases")
+    return outputs
+
+
+# ---------------------------------------------------------------------------
+# Set golden: the beanquery oracle results used by tests/golden.rs
+# ---------------------------------------------------------------------------
+# Values are encoded like the ``POST /api/query`` JSON: decimals as strings (Python's str, which keeps the
+# exponent), dates as YYYY-MM-DD, sets as sorted arrays, amounts/positions/inventories as objects. The
+# statements set shares this encoding; it is not the encoding of the conformance fixtures above.
+
+GOLDEN_OUTPUT = os.path.join(TESTS_DIR, "golden", "fava_demo.json")
+
+GOLDEN_QUERIES = [
+    'SELECT year, month, root(account, 2), sum(position) WHERE account ~ "^Expenses" GROUP BY 1, 2, 3 ORDER BY 1, 2, 3',
+    'SELECT payee, sum(cost(position)) AS total WHERE account ~ "^Expenses" GROUP BY payee ORDER BY total DESC LIMIT 20',
+    "SELECT date, payee, account, position WHERE 'trip-chicago-2016' IN tags",
+    'SELECT account, units(sum(position)) AS qty, cost(sum(position)) AS book, convert(units(sum(position)), "USD") AS market '
+    'WHERE account ~ "^Assets" GROUP BY account ORDER BY account',
+    'SELECT count(*), sum(number) WHERE account ~ "Expenses:Food"',
+]
+
+TYPE_NAMES = {"Decimal": "decimal", "Inventory": "inventory", "Position": "position", "Amount": "amount", "NoneType": "null"}
+
+
+def golden_amount(value):
+    return {"number": str(value.number), "currency": value.currency}
+
+
+def golden_position(value):
+    cost = value.cost
+    return {
+        "units": golden_amount(value.units),
+        "cost": None
+        if cost is None
+        else {
+            "number": str(cost.number),
+            "currency": cost.currency,
+            "date": cost.date.isoformat() if cost.date else None,
+            "label": cost.label,
+        },
+    }
+
+
+def golden_encode(value):
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    # Amount and Position are named tuples: test them before generic sequences
+    if isinstance(value, amount.Amount):
+        return golden_amount(value)
+    if isinstance(value, position.Position):
+        return golden_position(value)
+    if isinstance(value, inventory.Inventory):
+        return {"positions": [golden_position(p) for p in value]}
+    if isinstance(value, (set, frozenset, list, tuple)):
+        return sorted(value)
+    raise TypeError(type(value))
+
+
+def golden_run(connection, query):
+    cursor = connection.execute(query)
+    columns = [
+        {"name": column.name, "type": TYPE_NAMES.get(column.datatype.__name__, column.datatype.__name__)}
+        for column in cursor.description
+    ]
+    rows = [[golden_encode(cell) for cell in row] for row in cursor.fetchall()]
+    return columns, rows
+
+
+def build_golden(args, shared):
+    connection = beanquery.connect("beancount:" + args.ledger)
+    cases = []
+    for query in GOLDEN_QUERIES:
+        columns, rows = golden_run(connection, query)
+        cases.append({"query": query, "columns": columns, "rows": rows})
+        print(f"  {len(rows):>4} rows  {query}")
+    print(f"{len(GOLDEN_QUERIES)} cases")
+    return {GOLDEN_OUTPUT: json.dumps(cases, indent=1, ensure_ascii=False) + "\n"}
+
+
+# ---------------------------------------------------------------------------
+# Set statements: the beanquery oracle results used by tests/statements.rs
+# ---------------------------------------------------------------------------
+# The BALANCES and JOURNAL statements and the running ``balance`` column over the shared ledger. Values are
+# encoded as in the golden set (the ``POST /api/query`` JSON encoding), one row per line.
+
+STATEMENTS_OUTPUT = os.path.join(TESTS_DIR, "golden", "statements.json")
+
+STATEMENTS_QUERIES = [
+    "BALANCES AT cost FROM year <= 2016 WHERE account ~ '^(Assets|Liabilities)'",
+    "BALANCES AT value WHERE account ~ 'Vanguard|ETrade'",
+    "JOURNAL 'Checking' FROM year = 2016",
+    # 'Eating out ' narrations: JOURNAL collapses their whitespace with maxwidth()
+    "JOURNAL 'Restaurant' FROM year = 2017 AND month <= 3",
+    "JOURNAL 'ETrade:GLD' AT cost",
+    'JOURNAL "ETrade" AT units FROM year = 2016',
+    # the running balance is accumulated before ORDER BY sorts the rows
+    "SELECT date, position, balance WHERE account ~ 'Checking' ORDER BY date DESC LIMIT 10",
+    # ... and before GROUP BY, over every row WHERE selects
+    "SELECT account, last(balance), count(*) WHERE account ~ 'ETrade:(GLD|VEA)' GROUP BY account ORDER BY account",
+]
+
+
+def build_statements(args, shared):
+    connection = beanquery.connect("beancount:" + args.ledger)
+    out = io.StringIO()
+    out.write("[\n")
+    for idx, query in enumerate(STATEMENTS_QUERIES):
+        columns, rows = golden_run(connection, query)
+        out.write(' {"query": %s,\n' % json.dumps(query, ensure_ascii=False))
+        out.write('  "columns": %s,\n' % json.dumps(columns, ensure_ascii=False))
+        out.write('  "rows": [\n')
+        out.write(",\n".join("   " + json.dumps(row, ensure_ascii=False) for row in rows))
+        out.write("\n  ]}%s\n" % ("," if idx + 1 < len(STATEMENTS_QUERIES) else ""))
+        print(f"  {len(rows):>4} rows  {query}")
+    out.write("]\n")
+    print(f"{len(STATEMENTS_QUERIES)} cases")
+    return {STATEMENTS_OUTPUT: out.getvalue()}
+
+
+# ---------------------------------------------------------------------------
+# Set tables: the ``FROM #table`` oracle cases
+# ---------------------------------------------------------------------------
+# The expected results in ``tables/oracle.json`` are produced by the official Python beanquery running each
+# query over a ledger, not by zhang. ``tests/tables.rs`` runs the same queries with zhang and compares
+# (decimals numerically, sets as sets, rows as multisets unless the case is ordered).
+#
+# Ledgers:
+#
+# * ``fava``: the shared ledger (``integration-tests/fava-demo-ledger/main.zhang``, or the LEDGER argument).
+# * ``extra``: ``tables/ledger/main.zhang``, with the directives the fava demo ledger has none of (notes,
+#   documents, close, custom, query, a failing balance assertion, a tolerance, links, '!' flags, posting flags
+#   and metadata). beancount reports two errors on it, both expected: the document file does not exist, and
+#   one balance assertion fails.
+
+TABLES_EXTRA_LEDGER = os.path.join(TESTS_DIR, "tables", "ledger", "main.zhang")
+TABLES_OUTPUT = os.path.join(TESTS_DIR, "tables", "oracle.json")
+
+
+def tables_case(ledger, query, ordered=False):
+    return dict(ledger=ledger, query=query, ordered=ordered)
+
+
+# Every beanquery table: SELECT * (or its portable columns) with an ORDER BY, and a filter or
+# an aggregate. `ordered` only when the order is fully determined.
+TABLES_CASES = [
+    # entries
+    tables_case("fava", "SELECT type, date, year, month, day, flag, payee, narration, description, tags, links, accounts "
+                        "FROM #entries WHERE date >= 2017-08-20 ORDER BY date, type"),
+    tables_case("extra", "SELECT type, date, flag, payee, narration, description, tags, links, accounts FROM #entries", ordered=True),
+    tables_case("extra", "SELECT date, meta('source') AS source FROM #entries WHERE meta('source') IS NOT NULL", ordered=True),
+    # transactions
+    tables_case("fava", "SELECT * FROM #transactions WHERE date >= 2017-08-01 ORDER BY date, payee, narration"),
+    tables_case("fava", "SELECT year(date) AS y, flag, count(*) AS n, count(payee) AS payees FROM #transactions GROUP BY 1, 2 ORDER BY 1, 2",
+                ordered=True),
+    tables_case("extra", "SELECT * FROM #transactions", ordered=True),
+    tables_case("extra", "SELECT payee, narration FROM #transactions WHERE 'payroll-1' IN links OR flag = '!' ORDER BY payee", ordered=True),
+    # prices
+    tables_case("fava", "SELECT * FROM #prices WHERE currency = 'VHT' AND year(date) = 2016 ORDER BY date", ordered=True),
+    tables_case("fava", "SELECT currency, count(*) AS n, min(number(amount)) AS low, max(number(amount)) AS high, last(amount) AS latest "
+                        "FROM #prices GROUP BY currency ORDER BY currency", ordered=True),
+    tables_case("extra", "SELECT * FROM #prices ORDER BY date, currency(amount)", ordered=True),
+    # balances
+    tables_case("fava", "SELECT * FROM #balances WHERE account ~ 'Checking' AND year(date) = 2016 ORDER BY date", ordered=True),
+    tables_case("fava", "SELECT account, count(*) AS n, last(amount) AS latest FROM #balances GROUP BY account ORDER BY account",
+                ordered=True),
+    tables_case("extra", "SELECT * FROM #balances ORDER BY date", ordered=True),
+    tables_case("extra", "SELECT date, discrepancy FROM #balances WHERE discrepancy IS NOT NULL", ordered=True),
+    # notes
+    tables_case("extra", "SELECT * FROM #notes ORDER BY date", ordered=True),
+    tables_case("extra", "SELECT account, count(*) AS n FROM #notes WHERE comment ~ 'bank|less' GROUP BY account ORDER BY account",
+                ordered=True),
+    # events
+    tables_case("fava", "SELECT * FROM #events ORDER BY date", ordered=True),
+    tables_case("fava", "SELECT type, count(*) AS n, max(date) AS last FROM #events GROUP BY type ORDER BY type", ordered=True),
+    tables_case("extra", "SELECT * FROM #events WHERE type = 'location' ORDER BY date", ordered=True),
+    # documents (the filename is an absolute path, compared in tests/tables.rs instead)
+    tables_case("extra", "SELECT date, account, tags, links FROM #documents ORDER BY date", ordered=True),
+    tables_case("extra", "SELECT account, count(*) AS n FROM #documents GROUP BY account", ordered=True),
+    tables_case("extra", "SELECT date, comment FROM #notes WHERE 't1' IN tags AND 'ln' IN links", ordered=True),
+    tables_case("extra", "SELECT type, tags, links FROM #entries WHERE type IN ('note', 'document') ORDER BY date", ordered=True),
+    # accounts
+    tables_case("fava", "SELECT account, open.date, open.currencies, close.date FROM #accounts ORDER BY account", ordered=True),
+    tables_case("fava", "SELECT account, open.date FROM #accounts", ordered=True),
+    tables_case("fava", "SELECT root(account, 1) AS root, count(*) AS n, min(open.date) AS first FROM #accounts GROUP BY 1 ORDER BY 1",
+                ordered=True),
+    tables_case("extra", "SELECT account, open.date, open.currencies, close.date FROM #accounts", ordered=True),
+    tables_case("extra", "SELECT account FROM #accounts WHERE close.date IS NOT NULL", ordered=True),
+    # commodities
+    tables_case("fava", "SELECT date, name FROM #commodities ORDER BY date, name", ordered=True),
+    tables_case("fava", "SELECT name, meta('name') AS title FROM #commodities WHERE meta('export') ~ 'NYSE' ORDER BY name", ordered=True),
+    tables_case("extra", "SELECT date, name, meta('name') AS title FROM #commodities", ordered=True),
+    # the postings table, named explicitly
+    tables_case("extra", "SELECT account, sum(units(position)) AS balance FROM #postings GROUP BY account ORDER BY account", ordered=True),
+    # the flag of the posting itself, NULL when it has none
+    tables_case("extra", "SELECT date, flag, posting_flag, account, number FROM #postings ORDER BY date, account, number", ordered=True),
+    tables_case("extra", "SELECT posting_flag, count(*) AS n FROM #postings GROUP BY posting_flag ORDER BY posting_flag", ordered=True),
+    tables_case("extra", "SELECT payee, account FROM #postings WHERE posting_flag = '!' OR posting_flag IS NULL AND flag = '!' "
+                         "ORDER BY payee, account", ordered=True),
+]
+
+
+def tables_column_type(dtype):
+    if dtype is bool:
+        return "bool"
+    if dtype is int:
+        return "int"
+    if dtype is Decimal:
+        return "decimal"
+    if dtype is str or dtype is object:
+        return "str"
+    if dtype is datetime.date:
+        return "date"
+    if dtype is amount.Amount:
+        return "amount"
+    name = str(dtype)
+    if dtype in (set, frozenset, list) or "Set" in name or "frozenset" in name or "list" in name:
+        return "set"
+    if getattr(dtype, "__name__", "") == "Inventory":
+        return "inventory"
+    raise TypeError(f"unmapped beanquery datatype {dtype!r}")
+
+
+def tables_encode(value):
+    if value is None:
+        return None
+    if isinstance(value, bool) or isinstance(value, int):
+        return value
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, str):
+        return value
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, (set, frozenset, list)):
+        return sorted(value)
+    if isinstance(value, amount.Amount):
+        return {"number": format(value.number, "f"), "currency": value.currency}
+    if hasattr(value, "get_positions"):
+        positions = []
+        for pos in value.get_positions():
+            if pos.cost is not None:
+                raise TypeError("inventories at cost are not encoded")
+            positions.append({"number": format(pos.units.number, "f"), "currency": pos.units.currency})
+        return sorted(positions, key=lambda it: it["currency"])
+    raise TypeError(f"unmapped value {value!r}")
+
+
+def tables_run(conn, query):
+    cursor = conn.execute(query)
+    columns = [{"name": column.name, "type": tables_column_type(column.datatype)} for column in cursor.description]
+    rows = [[tables_encode(cell) for cell in row] for row in cursor.fetchall()]
+    return columns, rows
+
+
+def build_tables(args, shared):
+    ledgers = {"fava": args.ledger, "extra": TABLES_EXTRA_LEDGER}
+    connections = {}
+    for name, path in ledgers.items():
+        entries, errors, options = loader.load_file(path)
+        if name == "fava" and errors:
+            sys.exit(f"{path}: unexpected beancount errors: {errors}")
+        conn = beanquery.Connection()
+        bq_source.attach(conn, "beancount:", entries=entries, errors=errors, options=options)
+        connections[name] = conn
+    cases = []
+    for spec in TABLES_CASES:
+        columns, rows = tables_run(connections[spec["ledger"]], spec["query"])
+        cases.append(dict(spec, columns=columns, rows=rows))
+        print(f"  {spec['ledger']:<6} {len(rows):>4} rows  {spec['query']}")
+    print(f"{len(TABLES_CASES)} cases")
+    oracle = {"generator": "beancount 3.2.3, beanquery 0.2.0", "cases": cases}
+    return {TABLES_OUTPUT: json.dumps(oracle, indent=1, ensure_ascii=False) + "\n"}
+
+
+# ---------------------------------------------------------------------------
+# Set server_features: the date and directive-metadata functions of issue #479 (track L of the wave 1 spec)
+# ---------------------------------------------------------------------------
+# Every case runs one query over ``server_features/oracle/main.zhang`` with beanquery and records the column
+# types and the rows. ``server_features/oracle/oracle.json`` lists the cases in this file's order; the Rust
+# test ``zhang-query/tests/server_features.rs`` runs the same query with zhang and compares column types and
+# rows, in order. Column names are not compared (they are advisory, as in the conformance set).
+#
+# Cells are written the way ``zhang_query::Value`` displays them, so the Rust side compares
+# ``Value::to_string()`` with the oracle text:
+#
+# * ``None`` -> ``NULL``; booleans -> ``TRUE`` / ``FALSE``;
+# * dates -> ``YYYY-MM-DD``; ints and strings as they are.
+#
+# Only these types occur: the queries never select a raw ``interval`` value, whose rendering beanquery leaves
+# to Python (``relativedelta(months=+1)``).
+#
+# Accepted deviations: where the lead ruled that zhang deliberately differs from beanquery, the case still
+# records beanquery's output, and carries an ``accepted_deviation`` field with the reason. The rows zhang must
+# return instead are in ``ACCEPTED_DEVIATIONS`` of ``server_features.rs``, the mechanism of the conformance
+# suite (``zhang-query/tests/conformance.rs``). The Rust test checks that the two lists name the same cases
+# and that beanquery's rows still differ from the accepted ones.
+
+SERVER_FEATURES_LEDGER = os.path.join(TESTS_DIR, "server_features", "oracle", "main.zhang")
+SERVER_FEATURES_OUTPUT = os.path.join(TESTS_DIR, "server_features", "oracle", "oracle.json")
+
+
+def server_features_case(area, name, query, notes="", accepted_deviation=None):
+    spec = dict(area=area, name=name, query=query, notes=notes)
+    if accepted_deviation is not None:
+        spec["accepted_deviation"] = accepted_deviation
+    return spec
+
+
+# Reasons of the accepted deviations, as the lead ruled them (see "Accepted deviations" above).
+DATE_BIN_BOUNDARY = (
+    "zhang buckets correctly: a date exactly on a month or year bin boundary starts that bin, so "
+    "date_bin('1 month', 2000-02-01, 2000-01-01) is 2000-02-01. beanquery 0.2.0 puts it into the "
+    "previous bin (2000-01-01), because its loop stops when the next boundary is >= the date; dates "
+    "inside a bin, before the origin and day strides are not affected.")
+DATE_BIN_FROM_ORIGIN = (
+    "zhang starts the bins at origin + k x stride, each computed from the origin itself, so month and "
+    "year bins do not drift: from 2020-01-31 the monthly bins start on 01-31, 02-29, 03-31, 04-30, "
+    "and a date on a bin start begins that bin. beanquery 0.2.0 adds the stride to the previous start, "
+    "so its bins drift (01-31, 02-29, 03-29, 04-29, ...), and it puts a date on a start into the "
+    "previous bin.")
+INTERVAL_WEEKS = (
+    "zhang extension: interval('<n> week[s]') is 7 x n days. beanquery 0.2.0 returns NULL for weeks: "
+    "its regular expression only lets day, month and year through, although interval() has a branch "
+    "for weeks.")
+
+
+# Every query is ordered, so the rows are compared as a sequence. `SELECT DISTINCT date, ...`
+# evaluates the functions once per distinct posting date of the ledger.
+SERVER_FEATURES_CASES = [
+    # --- date_trunc -----------------------------------------------------------------------
+    server_features_case("date_trunc", "date_trunc_every_field",
+                         "SELECT DISTINCT date, date_trunc('week', date), date_trunc('month', date), "
+                         "date_trunc('quarter', date), date_trunc('year', date), date_trunc('decade', date), "
+                         "date_trunc('century', date), date_trunc('millennium', date) ORDER BY date",
+                         notes="week truncates to the Monday on or before the date; century and millennium start in years "
+                               "ending in 01 (2000-02-29 truncates to 1901-01-01 and 1001-01-01)."),
+    server_features_case("date_trunc", "date_trunc_unknown_field_is_null",
+                         "SELECT DISTINCT date, date_trunc('day', date), date_trunc('MONTH', date), date_trunc('', date) "
+                         "ORDER BY date",
+                         notes="beanquery has no 'day' field and the field names are case-sensitive: NULL."),
+
+    # --- date_part ------------------------------------------------------------------------
+    server_features_case("date_part", "date_part_calendar_fields",
+                         "SELECT DISTINCT date, date_part('weekday', date), date_part('dow', date), "
+                         "date_part('isoweekday', date), date_part('isodow', date), date_part('week', date), "
+                         "date_part('month', date), date_part('quarter', date), date_part('year', date), "
+                         "date_part('isoyear', date) ORDER BY date",
+                         notes="weekday/dow is Monday=0; isoweekday/isodow Monday=1; week and isoyear are ISO 8601 "
+                               "(2021-01-03 is week 53 of 2020, 2024-12-30 week 1 of 2025)."),
+    server_features_case("date_part", "date_part_long_fields_and_epoch",
+                         "SELECT DISTINCT date, date_part('decade', date), date_part('century', date), "
+                         "date_part('millennium', date), date_part('epoch', date) ORDER BY date",
+                         notes="epoch is seconds since 1970-01-01 (negative before it); century and millennium count "
+                               "from years ending in 01."),
+    server_features_case("date_part", "date_part_unknown_field_is_null",
+                         "SELECT DISTINCT date, date_part('day', date), date_part('Year', date), date_part('', date) "
+                         "ORDER BY date",
+                         notes="beanquery has no 'day' field and the field names are case-sensitive: NULL."),
+
+    # --- date_add, date_diff ----------------------------------------------------------------
+    server_features_case("date_add", "date_add_days_across_month_and_year_ends",
+                         "SELECT DISTINCT date, date_add(date, 1), date_add(date, -1), date_add(date, 0), "
+                         "date_add(date, 365), date_add(date, -366) ORDER BY date"),
+    server_features_case("date_diff", "date_diff_in_days_both_signs",
+                         "SELECT DISTINCT date, date_diff(date, 2020-01-01), date_diff(2020-01-01, date), "
+                         "date_diff(date, date), date_diff(date, 1970-01-01) ORDER BY date"),
+
+    # --- date(y, m, d) ----------------------------------------------------------------------
+    server_features_case("date_ymd", "date_from_parts_of_each_date",
+                         "SELECT DISTINCT date, date(year, month, 1), date(year, 12, 31), date(year, 2, 29) ORDER BY date",
+                         notes="date(year, 2, 29) is NULL in common years."),
+    server_features_case("date_ymd", "date_from_invalid_parts_is_null",
+                         "SELECT DISTINCT date(2024, 2, 29), date(2023, 2, 29), date(2100, 2, 29), date(2000, 2, 29), "
+                         "date(2024, 4, 31), date(2024, 13, 1), date(2024, 0, 1), date(2024, 1, 0), date(0, 1, 1), "
+                         "date(10000, 1, 1), date(1, 1, 1), date(9999, 12, 31) WHERE account = 'Assets:Wallet'",
+                         notes="Invalid dates are NULL, so are years outside 1..9999 (Python's date range)."),
+
+    # --- interval and date arithmetic -------------------------------------------------------
+    server_features_case("interval", "interval_months_clamp_to_the_month_end",
+                         "SELECT DISTINCT date, date + interval('1 month'), date - interval('1 month'), "
+                         "date + interval('-1 month'), interval('1 month') + date, date + interval('12 months') "
+                         "ORDER BY date",
+                         notes="Adding months keeps the day when it exists and clamps it to the month's last day "
+                               "otherwise (2020-01-31 + 1 month = 2020-02-29)."),
+    server_features_case("interval", "interval_years_days_and_signs",
+                         "SELECT DISTINCT date, date + interval('1 year'), date - interval('1 year'), "
+                         "date + interval('-2 years'), date + interval('10 days'), date - interval('+10 days'), "
+                         "date + interval('-1 day') ORDER BY date",
+                         notes="2000-02-29 + 1 year = 2001-02-28; 2024-02-29 - 1 year = 2023-02-28."),
+    server_features_case("interval", "interval_sum_versus_repeated_addition",
+                         "SELECT DISTINCT date, date + interval('1 month') + interval('1 month'), "
+                         "date + (interval('1 month') + interval('1 month')), date + interval('2 months') ORDER BY date",
+                         notes="Each addition clamps: (2020-01-31 + 1 month) + 1 month = 2020-03-29, but "
+                               "2020-01-31 + (1 month + 1 month) = 2020-03-31."),
+    server_features_case("interval", "interval_parsing",
+                         "SELECT DISTINCT interval('1 day') IS NULL, interval('3 days') IS NULL, interval('+3 days') IS NULL, "
+                         "interval('-3 days') IS NULL, interval('1  month') IS NULL, interval('2 years') IS NULL, "
+                         "interval('1 Month') IS NULL, interval(' 1 day') IS NULL, "
+                         "interval('1day') IS NULL, interval('one day') IS NULL, interval('1.5 days') IS NULL "
+                         "WHERE account = 'Assets:Wallet'",
+                         notes="beanquery 0.2.0 accepts '<signed int> <day|month|year>[s]', case-sensitively. Weeks are "
+                               "in interval_weeks, a zhang extension."),
+    server_features_case("interval", "interval_null_propagates",
+                         "SELECT DISTINCT date, date + interval('1 hour'), date - interval('bogus') ORDER BY date",
+                         notes="An interval that does not parse is NULL, and so is a date plus NULL."),
+
+    # --- interval weeks: an accepted deviation ---------------------------------------------
+    server_features_case("interval_weeks", "interval_weeks_are_seven_days",
+                         "SELECT DISTINCT date, date + interval('1 week'), date - interval('2 weeks'), "
+                         "date + interval('-1 week'), interval('+3 weeks') + date ORDER BY date",
+                         notes="beanquery: NULL in every interval column.",
+                         accepted_deviation=INTERVAL_WEEKS),
+    server_features_case("interval_weeks", "interval_week_parsing",
+                         "SELECT DISTINCT interval('1 week') IS NULL, interval('2 weeks') IS NULL, interval('-1 week') IS NULL, "
+                         "interval('+2 weeks') IS NULL, interval('1 weeks') IS NULL, interval('2 week') IS NULL, "
+                         "interval('1 Week') IS NULL, interval('1week') IS NULL WHERE account = 'Assets:Wallet'",
+                         notes="beanquery: TRUE (NULL) for every week.",
+                         accepted_deviation=INTERVAL_WEEKS),
+
+    # --- date_bin ---------------------------------------------------------------------------
+    server_features_case("date_bin", "date_bin_days",
+                         "SELECT DISTINCT date, date_bin('7 days', date, 2020-01-06), date_bin('1 day', date, 2000-01-01), "
+                         "date_bin('10 days', date, 2024-01-01), date_bin('-7 days', date, 2020-01-06) ORDER BY date",
+                         notes="Day strides bin by whole days from the origin, also before it; a negative stride is NULL."),
+    server_features_case("date_bin", "date_bin_months_and_years_inside_bins",
+                         "SELECT DISTINCT date, date_bin('1 month', date, 1960-01-15), date_bin('3 months', date, 1960-01-15), "
+                         "date_bin('1 year', date, 1960-07-01), date_bin(interval('1 month'), date, 1960-01-15) "
+                         "ORDER BY date",
+                         notes="Origins in the middle of a month, so that no posting date falls on a bin boundary "
+                               "(see date_bin_month_boundaries for those)."),
+    server_features_case("date_bin", "date_bin_months_origin_after_the_dates",
+                         "SELECT DISTINCT date, date_bin('1 month', date, 2030-01-01), date_bin('1 year', date, 2030-01-01) "
+                         "ORDER BY date",
+                         notes="Before the origin, beanquery steps back from the origin until it reaches the date."),
+    server_features_case("date_bin", "date_bin_negative_month_stride_is_null",
+                         "SELECT DISTINCT date, date_bin('-1 month', date, 2020-01-01), date_bin('-1 year', date, 2020-01-01) "
+                         "ORDER BY date",
+                         notes="A negative stride is NULL (beanquery: 'FIXME: this should raise'). A zero stride is not "
+                               "here: beanquery 0.2.0 raises ZeroDivisionError for it."),
+
+    # --- date_bin on bin boundaries: an accepted deviation ----------------------------------
+    server_features_case("date_bin_boundary", "date_bin_month_boundaries",
+                         "SELECT DISTINCT date, date_bin('1 month', date, 2000-01-01), date_bin(interval('1 month'), date, 2000-01-01), "
+                         "date_bin('3 months', date, 2000-01-01), date_bin('1 year', date, 2000-01-01) ORDER BY date",
+                         notes="Origin on the first of a month: many posting dates (2001-01-01, 2020-01-01, 2020-03-01, "
+                               "2023-01-01, 2024-01-01) are bin boundaries.",
+                         accepted_deviation=DATE_BIN_BOUNDARY),
+    server_features_case("date_bin_boundary", "date_bin_boundary_examples",
+                         "SELECT DISTINCT date_bin('1 month', 2000-02-01, 2000-01-01), date_bin(interval('1 month'), 2000-03-01, 2000-01-01), "
+                         "date_bin('1 month', 2000-01-01, 2000-01-01), date_bin('1 month', 2000-01-31, 2000-01-01), "
+                         "date_bin('2 months', 2000-03-01, 2000-01-01), date_bin('2 months', 2000-02-29, 2000-01-01), "
+                         "date_bin('1 year', 2001-01-01, 2000-01-01), date_bin('1 year', 2000-12-31, 2000-01-01), "
+                         "date_bin('1 month', 1999-12-01, 2000-01-01) WHERE account = 'Assets:Wallet'",
+                         notes="The examples of the ruling, a date on the origin, the last day of a bin, and a "
+                               "boundary before the origin (correct in beanquery too).",
+                         accepted_deviation=DATE_BIN_BOUNDARY),
+    server_features_case("date_bin_boundary", "date_bin_month_end_origin",
+                         "SELECT DISTINCT date, date_bin('1 month', date, 2020-01-31), date_bin('2 months', date, 2020-01-31), "
+                         "date_bin('1 year', date, 2020-02-29) ORDER BY date",
+                         notes="Origins at a month end, so that origin + k x stride clamps to shorter months. beanquery "
+                               "adds the stride to the previous boundary, so its boundaries drift (2020-01-31, 2020-02-29, "
+                               "2020-03-29, ...; 2020-02-29, 2021-02-28, 2022-02-28, 2023-02-28, 2024-02-28, ...).",
+                         accepted_deviation=DATE_BIN_FROM_ORIGIN),
+    server_features_case("date_bin_boundary", "date_bin_month_end_examples",
+                         "SELECT DISTINCT date_bin('1 month', 2020-03-30, 2020-01-31), date_bin('1 month', 2020-03-31, 2020-01-31), "
+                         "date_bin('1 month', 2020-04-30, 2020-01-31), date_bin('1 month', 2019-10-30, 2020-01-31), "
+                         "date_bin('2 months', 2020-03-31, 2020-01-31), date_bin('2 months', 2020-03-30, 2020-01-31), "
+                         "date_bin('1 year', 2021-02-28, 2020-02-29), date_bin('1 year', 2021-02-27, 2020-02-29), "
+                         "date_bin('1 year', 2024-02-28, 2020-02-29), date_bin('1 year', 2024-02-29, 2020-02-29), "
+                         "date_bin('1 year', 2019-02-28, 2020-02-29), date_bin(interval('1 month'), 2020-05-31, 2020-01-31) "
+                         "WHERE account = 'Assets:Wallet'",
+                         notes="Single dates around the bin starts of month-end origins, before and after the origin.",
+                         accepted_deviation=DATE_BIN_FROM_ORIGIN),
+
+    # --- open_date, close_date, open_meta, commodity_meta ------------------------------------
+    server_features_case("directive_meta", "open_and_close_dates_of_each_account",
+                         "SELECT DISTINCT account, open_date(account), close_date(account), "
+                         "date_diff(close_date(account), open_date(account)), date_trunc('year', close_date(account)) "
+                         "ORDER BY account",
+                         notes="close_date is NULL for an account that is not closed, and NULL propagates."),
+    server_features_case("directive_meta", "open_meta_by_key",
+                         "SELECT DISTINCT account, open_meta(account, 'owner'), open_meta(account, 'bank'), "
+                         "open_meta(account, 'category'), open_meta(account, 'nosuchkey') ORDER BY account",
+                         notes="The metadata of the open directive; NULL for a key it does not have."),
+    server_features_case("directive_meta", "commodity_meta_by_key",
+                         "SELECT DISTINCT currency, commodity_meta(currency, 'name'), commodity_meta(currency, 'symbol') "
+                         "ORDER BY currency",
+                         notes="The metadata of the commodity directive."),
+    server_features_case("directive_meta", "unknown_accounts_and_commodities_are_null",
+                         "SELECT DISTINCT open_date('Assets:Nope'), close_date('Assets:Nope'), open_meta('Assets:Nope', 'owner'), "
+                         "open_date('Assets'), commodity_meta('XYZ', 'name'), commodity_meta('JPY', 'name'), "
+                         "commodity_meta('cny', 'name'), open_date('assets:bank') WHERE account = 'Assets:Wallet'",
+                         notes="An account or commodity without a directive is NULL, and so is a commodity directive "
+                               "without the key. Names are case-sensitive; a parent account without its own open is "
+                               "unknown."),
+    server_features_case("directive_meta", "directive_metadata_in_filters",
+                         "SELECT account, count(*) WHERE open_meta(account, 'owner') = 'alice' OR close_date(account) IS NOT NULL "
+                         "GROUP BY account ORDER BY account"),
+]
+
+
+def server_features_cell(value):
+    if value is None:
+        return "NULL"
+    if value is True:
+        return "TRUE"
+    if value is False:
+        return "FALSE"
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, (int, str)):
+        return str(value)
+    raise TypeError("unexpected value {!r} ({})".format(value, type(value).__name__))
+
+
+def server_features_column_type(datatype):
+    if datatype is bool:
+        return "bool"
+    if datatype is int:
+        return "int"
+    if datatype is str:
+        return "str"
+    if datatype is datetime.date:
+        return "date"
+    if datatype is object:
+        # open_meta / commodity_meta with a key are dynamically typed; zhang metadata is text
+        return "str"
+    raise TypeError("unexpected column type {!r}".format(datatype))
+
+
+def build_server_features(args, shared):
+    entries, errors, options = loader.load_file(SERVER_FEATURES_LEDGER)
+    if errors:
+        sys.exit("beancount reports errors: {}".format([error.message for error in errors]))
+    conn = beanquery.Connection()
+    bq_source.attach(conn, "beancount:", entries=entries, errors=[], options=options)
+    names = set()
+    out = []
+    for spec in SERVER_FEATURES_CASES:
+        if spec["name"] in names:
+            sys.exit("duplicate case name {}".format(spec["name"]))
+        names.add(spec["name"])
+        cursor = conn.execute(spec["query"])
+        rows = [[server_features_cell(value) for value in row] for row in cursor.fetchall()]
+        if not rows:
+            sys.exit("case {} returns no rows".format(spec["name"]))
+        out.append(dict(spec, columns=[server_features_column_type(column.datatype) for column in cursor.description],
+                        rows=rows))
+        print(f"  {spec['name']:<55} {len(rows)} rows")
+    print(f"{len(SERVER_FEATURES_CASES)} cases")
+    return {SERVER_FEATURES_OUTPUT: json.dumps(out, indent=1, ensure_ascii=False) + "\n"}
+
+
+# ---------------------------------------------------------------------------
+# The sets, and writing or checking their files
+# ---------------------------------------------------------------------------
+
+class OracleSet(typing.NamedTuple):
+    build: typing.Callable  # (args, shared ledger) -> {absolute path: text}
+    cases_dir: typing.Optional[str]  # for the one-file-per-case sets: other *.json files there are stale
+
+
+SETS = {
+    "conformance": OracleSet(build_conformance, CASES_DIR),
+    "having_pivot": OracleSet(build_having_pivot, HAVING_PIVOT_CASES_DIR),
+    "period": OracleSet(build_period, PERIOD_CASES_DIR),
+    "export": OracleSet(build_export, EXPORT_CASES_DIR),
+    "golden": OracleSet(build_golden, None),
+    "statements": OracleSet(build_statements, None),
+    "tables": OracleSet(build_tables, None),
+    "server_features": OracleSet(build_server_features, None),
+}
+
+
+def compare(outputs, cases_dir):
+    """The output files that are missing or differ byte for byte, and the stale fixture files of the set."""
+    changed = [path for path, text in outputs.items()
+               if not os.path.exists(path) or open(path, "rb").read() != text.encode("utf-8")]
+    stale = []
+    if cases_dir and os.path.isdir(cases_dir):
+        stale = sorted(os.path.join(cases_dir, name) for name in os.listdir(cases_dir)
+                       if name.endswith(".json") and os.path.join(cases_dir, name) not in outputs)
+    return changed, stale
+
+
+def write(outputs, cases_dir):
+    _, stale = compare(outputs, cases_dir)
+    for path in stale:
+        os.remove(path)
+    for path, text in outputs.items():
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("ledger", nargs="?", default=DEFAULT_LEDGER,
+                        help="the shared ledger of the conformance, having_pivot, period, export, golden and "
+                             "statements sets (and the 'fava' ledger of tables)")
+    parser.add_argument("--set", dest="sets", choices=[*SETS, "all"], default="conformance",
+                        help="the fixture set to (re)write or check (default: conformance)")
+    parser.add_argument("--check", action="store_true", help="verify the fixtures instead of writing them")
+    parser.add_argument("--table", action="store_true",
+                        help="also print the README case table (Markdown) of the conformance set")
+    args = parser.parse_args()
+    selected = list(SETS) if args.sets == "all" else [args.sets]
+    if args.table and "conformance" not in selected:
+        parser.error("--table applies to the conformance set")
+
+    print(f"oracle: beancount {beancount.__version__}, beanquery {beanquery.__version__}; ledger {args.ledger}")
+    shared = SharedLedger(args.ledger)
+    out_of_date = {}
+    for name in selected:
+        oracle_set = SETS[name]
+        print(f"== {name}")
+        outputs = oracle_set.build(args, shared)
+        if args.check:
+            changed, stale = compare(outputs, oracle_set.cases_dir)
+            if changed or stale:
+                out_of_date[name] = (changed, stale)
+                for path in changed:
+                    print(f"  changed: {os.path.relpath(path, TESTS_DIR)}")
+                for path in stale:
+                    print(f"  stale: {os.path.relpath(path, TESTS_DIR)}")
+            else:
+                print(f"  {name}: {len(outputs)} file(s) up to date")
+        else:
+            write(outputs, oracle_set.cases_dir)
+            print(f"  {name}: wrote {len(outputs)} file(s)")
+    if out_of_date:
+        summary = "; ".join(f"{name}: changed={[os.path.basename(p) for p in changed]} "
+                            f"stale={[os.path.basename(p) for p in stale]}"
+                            for name, (changed, stale) in out_of_date.items())
+        sys.exit(f"fixtures out of date: {summary}; run generate.py --set <set>")
+    if args.check:
+        print("fixtures are up to date")
 
 
 if __name__ == "__main__":

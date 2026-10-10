@@ -15,3 +15,10 @@ zhang-core = { path = "../zhang-core" }
 beancount = { path = "../extensions/beancount" }
 tempfile = "3.20"
 serde_json = { workspace = true }
+# the `query` feature: the beanquery oracle harness (`oracle`), for the crates that test the query engine
+zhang-query = { path = "../zhang-query", optional = true }
+bigdecimal = { workspace = true, optional = true }
+chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
+
+[features]
+query = ["dep:zhang-query", "dep:bigdecimal", "dep:chrono"]

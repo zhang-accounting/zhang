@@ -6811,10 +6811,13 @@ name = "zhang-testkit"
 version = "0.1.0"
 dependencies = [
  "beancount",
+ "bigdecimal",
+ "chrono",
  "serde_json",
  "tempfile",
  "zhang-ast",
  "zhang-core",
+ "zhang-query",
 ]
 
 [[package]]
