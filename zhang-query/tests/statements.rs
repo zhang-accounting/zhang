@@ -2,75 +2,23 @@
 //!
 //! The oracle tests compare whole results with beanquery's over
 //! `integration-tests/fava-demo-ledger` (`tests/golden/statements.json`, regenerated with
-//! `tests/golden/statements.py`). Numbers are compared numerically and inventory positions as
-//! sets; column types must match exactly and column names up to the spelling documented in
-//! [`zhang_name`].
+//! `tests/conformance/generate.py --set statements`) through `zhang_testkit::oracle`. Numbers
+//! are compared numerically and inventory positions as sets; column types must match exactly
+//! and column names up to the spelling documented in [`zhang_name`]. The plain `BALANCES`
+//! statement is the conformance case `061_balances_plain` (the same query over the same
+//! ledger and oracle) and is not repeated here.
 
-use std::str::FromStr;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use serde_json::{json, Value as Json};
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, Params, Position, Query, QueryError, QueryErrorKind, Value};
+use zhang_query::{DataType, Params, Query, QueryError, QueryErrorKind, Value};
+use zhang_testkit::oracle::{load_query_list, run_case, Rules};
 
 fn fava_demo() -> &'static Ledger {
     static LEDGER: OnceLock<Ledger> = OnceLock::new();
     LEDGER.get_or_init(zhang_testkit::ledger::fava_demo_ledger)
-}
-
-fn decimal_json(value: &BigDecimal) -> Json {
-    Json::String(zhang_query::decimal::to_plain_string(value))
-}
-
-fn position_json(position: &Position) -> Json {
-    json!({
-        "units": {"number": decimal_json(&position.units.number), "currency": position.units.commodity},
-        "cost": position.cost.as_ref().map(|cost| json!({
-            "number": decimal_json(&cost.number),
-            "currency": cost.currency,
-            "date": cost.date.map(|date| date.to_string()),
-            "label": cost.label,
-        })),
-    })
-}
-
-/// The `POST /api/query` cell encoding.
-fn cell_json(value: &Value) -> Json {
-    match value {
-        Value::Null => Json::Null,
-        Value::Bool(it) => json!(it),
-        Value::Int(it) => json!(it),
-        Value::Decimal(it) => decimal_json(it),
-        Value::Str(it) => json!(it),
-        Value::Date(it) => json!(it.to_string()),
-        Value::Set(it) => json!(it),
-        Value::Amount(it) => json!({"number": decimal_json(&it.number), "currency": it.commodity}),
-        Value::Position(it) => position_json(it),
-        Value::Inventory(it) => json!({ "positions": it.positions().map(|it| position_json(&it)).collect::<Vec<_>>() }),
-        Value::Interval(it) => json!(it.to_string()),
-        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
-    }
-}
-
-/// A form in which equal results are equal JSON: numbers are normalized (`4.00` = `4`) and
-/// the positions of an inventory are sorted. Applied to both sides alike.
-fn canonical(json: &Json) -> Json {
-    match json {
-        Json::String(text) => match BigDecimal::from_str(text) {
-            Ok(number) => Json::String(number.normalized().to_string()),
-            Err(_) => json.clone(),
-        },
-        Json::Array(items) => Json::Array(items.iter().map(canonical).collect()),
-        Json::Object(object) if object.contains_key("positions") => {
-            let mut positions = object["positions"].as_array().unwrap().iter().map(canonical).collect::<Vec<_>>();
-            positions.sort_by_key(|it| it.to_string());
-            json!({ "positions": positions })
-        }
-        Json::Object(object) => Json::Object(object.iter().map(|(key, value)| (key.clone(), canonical(value))).collect()),
-        other => other.clone(),
-    }
 }
 
 /// The name zhang gives a column beanquery calls `name`: zhang names the targets of BALANCES
@@ -81,72 +29,51 @@ fn zhang_name(name: &str) -> String {
 }
 
 fn oracle_case(index: usize) {
-    let cases: Vec<Json> = serde_json::from_str(include_str!("golden/statements.json")).unwrap();
-    let case = &cases[index];
-    let sql = case["query"].as_str().unwrap();
-    let query = Query::compile(sql).unwrap_or_else(|err| panic!("{}: {}", sql, err));
-    let result = query.execute(fava_demo(), &Params::new()).unwrap_or_else(|err| panic!("{}: {}", sql, err));
-
-    let expected_columns = case["columns"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|it| (zhang_name(it["name"].as_str().unwrap()), it["type"].as_str().unwrap().to_owned()))
-        .collect::<Vec<_>>();
-    let columns = result.columns.iter().map(|it| (it.name.clone(), it.ty.name().to_owned())).collect::<Vec<_>>();
-    assert_eq!(columns, expected_columns, "columns of {}", sql);
-
-    let expected = case["rows"].as_array().unwrap();
-    assert_eq!(result.rows.len(), expected.len(), "row count of {}", sql);
-    for (idx, (expected, actual)) in expected.iter().zip(&result.rows).enumerate() {
-        let actual = Json::Array(actual.iter().map(cell_json).collect());
-        assert_eq!(canonical(&actual), canonical(expected), "{}: row {}", sql, idx);
-    }
-}
-
-#[test]
-fn oracle_balances() {
-    oracle_case(0);
+    let mut cases = load_query_list(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/statements.json"));
+    let case = &mut cases[index];
+    case.strict_names = true;
+    case.column_names = case.column_names.iter().map(|name| zhang_name(name)).collect();
+    run_case(fava_demo(), case, &Rules::on(NaiveDate::from_ymd_opt(2025, 1, 1).unwrap()), &[], &[]).assert_ok();
 }
 
 #[test]
 fn oracle_balances_at_cost_from_where() {
-    oracle_case(1);
+    oracle_case(0);
 }
 
 #[test]
 fn oracle_balances_at_value() {
-    oracle_case(2);
+    oracle_case(1);
 }
 
 #[test]
 fn oracle_journal_from() {
-    oracle_case(3);
+    oracle_case(2);
 }
 
 #[test]
 fn oracle_journal_collapses_whitespace_like_maxwidth() {
-    oracle_case(4);
+    oracle_case(3);
 }
 
 #[test]
 fn oracle_journal_at_cost_over_lots() {
-    oracle_case(5);
+    oracle_case(4);
 }
 
 #[test]
 fn oracle_journal_at_units_double_quoted() {
-    oracle_case(6);
+    oracle_case(5);
 }
 
 #[test]
 fn oracle_balance_is_accumulated_before_order_by() {
-    oracle_case(7);
+    oracle_case(6);
 }
 
 #[test]
 fn oracle_balance_in_an_aggregate() {
-    oracle_case(8);
+    oracle_case(7);
 }
 
 #[test]

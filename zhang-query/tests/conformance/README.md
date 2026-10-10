@@ -52,43 +52,40 @@ on the missing data are therefore only partly covered (see "Not covered").
 
 ## Regenerating
 
+`generate.py` is the one generator of every beanquery case set of
+`zhang-query/tests` (`--set <name>`); `--check` compares what it would write
+with the committed files instead of writing them.
+
 ```sh
 python3 -m venv /tmp/bqvenv
 /tmp/bqvenv/bin/pip install beancount==3.2.3 beanquery==0.2.0
 cd zhang-query/tests/conformance
-/tmp/bqvenv/bin/python generate.py                 # rewrite cases/*.json (removes stale files)
-/tmp/bqvenv/bin/python generate.py --check         # fail if cases/*.json are out of date
-/tmp/bqvenv/bin/python generate.py --check --table # also print the case table below
+/tmp/bqvenv/bin/python generate.py                    # rewrite cases/*.json (removes stale files)
+/tmp/bqvenv/bin/python generate.py --check            # fail if cases/*.json are out of date
+/tmp/bqvenv/bin/python generate.py --check --table    # also print the case table below
+/tmp/bqvenv/bin/python generate.py --set period       # another set (see the table below)
+/tmp/bqvenv/bin/python generate.py --set all --check  # every set
 ```
 
 `generate.py [LEDGER]` defaults to the shared ledger. It uses only the
-standard library plus beancount and beanquery. To add a case, append a
-`case(...)` entry to `CASES`, or `case2(...)` / `case3(...)` for a Phase 2 or
-Phase 3 case. Fixtures are numbered by their position in the list, so append
-new cases at the end.
+standard library plus beancount and beanquery (and `bean-query` next to the
+interpreter for the `export` set). To add a case, append a `case(...)` entry
+to the set's list (`CASES` for this set, with `case2(...)` / `case3(...)` for
+a Phase 2 or Phase 3 case). Fixtures are numbered by their position in the
+list, so append new cases at the end.
 
-Before writing anything, the generator checks every case:
+The sets, all over the oracle versions above:
 
-- **Determinism.** It re-runs the query over a perturbed ledger, with entries
-  reversed within each date and postings reversed within each transaction. An
-  ordered case must return the same sequence and an unordered case the same
-  multiset. This rejects results that depend on tie-breaking, such as
-  `ORDER BY date` with several rows on one day, `LIMIT` cut-offs inside a tie,
-  or `first()`/`last()` over rows on the same day.
-- **Classification.** It re-runs the query over the ledger plus one synthetic
-  zero-amount transaction per `balance` directive, which mimics zhang's Store.
-  An `engine` case that changes is rejected. A `ledger-dependent` case that
-  changes gets an automatic note.
-- **Shape.** A query with `LIMIT` must be `ordered`, each fixture has at
-  most 200 rows, and only rows fixtures may set `strict_names`.
-- **CSV rounding.** For a csv case, beanquery's numberify step rounds numbers
-  to the ledger's display precision (inferred by beancount per currency). A
-  case whose cells change under that rounding is rejected, so no fixture
-  depends on it.
-
-Determinism matters most for Phase 2: the running `balance` column and
-`JOURNAL` depend on the order of rows within a day, so those cases select
-windows with at most one selected posting per day.
+| set | files | test module | ledger | format |
+|---|---|---|---|---|
+| `conformance` | `conformance/cases/NNN_<name>.json` (175) | `conformance.rs` | fava demo | one file per case (below) |
+| `having_pivot` | `having_pivot/cases/` (22) | `having_pivot.rs` | fava demo | the same; column names compared too |
+| `period` | `period/cases/` (25) | `period.rs` | fava demo | the same |
+| `export` | `export/cases/` (6) | `export.rs` | fava demo | `{"name", "query", "notes", "csv"}`, the raw `bean-query -f csv -m` output |
+| `golden` | `golden/fava_demo.json` (5) | `golden.rs` | fava demo | a list of `{"query", "columns", "rows"}`; ordered, column names compared too |
+| `statements` | `golden/statements.json` (8) | `statements.rs` | fava demo | the same; names compared after `zhang_name` |
+| `tables` | `tables/oracle.json` (35) | `tables.rs` | fava demo and `tables/ledger/main.zhang` | `{"generator", "cases": [{"ledger", "query", "ordered", "columns", "rows"}]}`; inventories as lists of amounts; names compared too |
+| `server_features` | `server_features/oracle/oracle.json` (29) | `server_features.rs` | `server_features/oracle/main.zhang` | `{"area", "name", "query", "notes", "columns": [types], "rows": [[text]]}`, cells as `Value::to_string()` writes them |
 
 ## Fixture format
 
@@ -268,8 +265,19 @@ on how an engine names unaliased expressions.
 
 ## Running the harness
 
-`zhang-query/tests/conformance.rs` runs every fixture against the engine on the
-shared ledger and applies the rules above:
+The harness is `zhang_testkit::oracle` (`zhang-testkit/src/oracle.rs`, feature
+`query`): one loader per file format of the table above, one canonical cell
+encoding, one comparison, and `run_case`, which applies the rules above and the
+deviation lists a test passes it. Every set runs through it. The per-set rules
+are: `having_pivot`, `golden`, `tables` and `statements` compare the column
+names as well (`statements` after `zhang_name`); `export` also accepts a number
+zhang keeps exact where `bean-query`'s command line rounded it to the display
+precision (`CsvNumbers::RoundedToOracle`, counted per case in its table);
+`server_features` reads its text cells by column type (`NULL` is null, `TRUE`
+and `FALSE` are bools, ints are numbers). `today()` is fixed per set.
+
+`zhang-query/tests/conformance.rs` runs every fixture of this set against the
+engine on the shared ledger:
 
 ```sh
 cargo test -p zhang-query --test conformance
@@ -280,30 +288,18 @@ It prints a table to stderr with one status per case:
 - `PASS`: the engine matches the oracle.
 - `ACCEPTED`: the engine differs from the oracle exactly as documented in
   `ACCEPTED_DEVIATIONS` in that file. Most entries give the exact rows the
-  engine must return instead.
+  engine must return instead. An entry whose accepted rows beanquery now
+  agrees with is stale and fails its case.
 - `LEDGER-DEP`: a `ledger-dependent` case differs and is listed, with a
   reason, in `LEDGER_DEPENDENT_ALLOWED`. The list is empty today.
-- `PENDING-PHASE2` / `PENDING-PHASE3`: a `"phase": 2` or `"phase": 3`
-  fixture while the temporary gate `PHASE2_FEATURES_LANDED` or
-  `PHASE3_FEATURES_LANDED` in the harness is `false`. The case still runs,
-  and the detail column shows the status it would get (`would PASS`,
-  `would FAIL: ...`). A summary line counts the pending cases that would
-  fail. `PHASE2_FEATURES_LANDED` is `true` since Phase 2 landed; set
-  `PHASE3_FEATURES_LANDED` to `true` during the Phase 3 integration.
 - `FAIL`: any other difference. This includes unlisted ledger-dependent
   cases, an error of the wrong class, and functions the engine lacks.
 
-Only `FAIL` makes the test fail. Phase 1 fixtures are always strict. An
-allow-list entry for a case that passes is reported as a stale entry.
-
-The Phase 2 integration set `PHASE2_FEATURES_LANDED` to `true` and wired
-`engine_csv()` to `zhang_query::export::to_csv`. During the Phase 3
-integration, set `PHASE3_FEATURES_LANDED` to `true`; nothing else needs
-wiring, because the csv cases of Phase 3 use the same export and the
-`strict_names` check is already in place. A second test, `csv_comparison_rules`, checks the CSV
-comparison itself on the csv fixtures: an equivalent rewrite (trimmed,
-normalized, fully quoted, LF line ends) must compare equal, and a changed
-number or header must not.
+Only `FAIL` makes the test fail. Every fixture is strict: the gates of the
+Phase 2 and Phase 3 integrations (`PENDING-PHASE2`, `PENDING-PHASE3`) are
+gone. A second test, `csv_comparison_rules`, checks the CSV comparison itself
+on the csv fixtures: an equivalent rewrite (trimmed, normalized, fully quoted,
+LF line ends) must compare equal, and a changed number or header must not.
 
 To check that the gate catches regressions, run it over a mutated copy of the
 fixtures:
@@ -311,6 +307,44 @@ fixtures:
 ```sh
 ZHANG_QUERY_CONFORMANCE_CASES=/tmp/mutated-cases cargo test -p zhang-query --test conformance
 ```
+
+## Deviations
+
+A deliberate difference from beanquery is never an edited expectation: the
+case keeps beanquery's rows and the test lists the difference with its reason
+(`ACCEPTED_DEVIATIONS` in `conformance.rs`, `period.rs` and
+`server_features.rs`; the generator marks the `server_features` cases with the
+same reason). Today's entries:
+
+- conformance: `aggregate_over_no_rows` (#647), `null_logic_beanquery_quirks`,
+  `not_vs_not_equal_on_null`, `interval_values`, `date_bin_on_boundaries` and
+  `date_bin_month_end_origin` (the rows zhang returns instead); `select_star`
+  and `date_text_compared_with_a_date` (the fixture was generated from zhang's
+  reading); and seven differences no fixture can exercise, listed in the
+  table's footer.
+- period: `close_before_the_ledger` (#647: one row with a count of zero where
+  beanquery returns no rows).
+- server_features: `interval_weeks_are_seven_days` and `interval_week_parsing`
+  (weeks, a zhang extension); `date_bin_month_boundaries`,
+  `date_bin_boundary_examples`, `date_bin_month_end_origin` and
+  `date_bin_month_end_examples` (bins start at the origin plus whole strides,
+  and a date on a boundary starts its bin).
+- export: no entry; the display-precision rounding is a rule of the set.
+
+## Cases kept once
+
+Three cases were the same query over the same ledger and the same oracle as a
+conformance case, so only the conformance case remains:
+
+| removed | survivor |
+|---|---|
+| `statements.json` `BALANCES` (`statements.rs::oracle_balances`) | `061_balances_plain` |
+| `tables/oracle.json` `SELECT type, count(*) AS n, min(date) AS first, max(date) AS last FROM #entries GROUP BY type ORDER BY type` (fava) | `123_entries_count_by_type` |
+| `period/cases/026_error_close_before_open.json` | `099_error_close_date_before_open_date` |
+
+`tables/oracle.json`'s `SELECT * FROM #notes ORDER BY date` runs on the
+`extra` ledger (two notes) and is not `132_notes_select_star` (fava, no
+notes), so both stay.
 
 ## beanquery semantics captured by the fixtures
 

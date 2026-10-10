@@ -239,185 +239,267 @@ mod test {
         assert_eq!(log_filter(None, None), "info");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn integration_test() {
-        env_logger::try_init().ok();
-        type ValidationPoint = (String, Value);
-        /// A request of `validations.json` and the JSONPath checks on its answer. `GET uri` by default; `method` and
-        /// `body` (sent as JSON) for the others, such as the built-in queries, `POST /api/query/builtins/{name}`. A
-        /// query result, `{"columns", "rows"}`, is read as its rows by column name, so a check names a cell as
-        /// `$.data[0].assigned.number`.
-        #[derive(Deserialize)]
-        struct Validation {
-            uri: String,
-            #[serde(default)]
-            method: Option<String>,
-            #[serde(default)]
-            body: Option<Value>,
-            validations: Vec<ValidationPoint>,
-        }
-        /// A query result's `data` as its rows by column name; any other `data` as it is.
-        fn rows_by_column(mut res: Value) -> Value {
-            let (columns, rows) = match (res["data"]["columns"].as_array(), res["data"]["rows"].as_array()) {
-                (Some(columns), Some(rows)) => (columns.clone(), rows.clone()),
-                _ => return res,
-            };
-            let names = columns.iter().map(|it| it["name"].as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>();
-            let objects = rows
-                .iter()
-                .map(|row| {
-                    let cells = row.as_array().cloned().unwrap_or_default();
-                    Value::Object(names.iter().cloned().zip(cells).collect())
-                })
-                .collect::<Vec<_>>();
-            res["data"] = Value::Array(objects);
-            res
-        }
-        let paths = std::fs::read_dir("../integration-tests").unwrap();
+    type ValidationPoint = (String, Value);
 
-        for path in paths {
-            let path = path.unwrap();
-            if !path.path().is_dir() {
+    /// A request of `validations.json` and the JSONPath checks on its answer. `GET uri` by default; `method` and
+    /// `body` (sent as JSON) for the others, such as the built-in queries, `POST /api/query/builtins/{name}`. A
+    /// query result, `{"columns", "rows"}`, is read as its rows by column name, so a check names a cell as
+    /// `$.data[0].assigned.number`.
+    #[derive(Deserialize)]
+    struct Validation {
+        uri: String,
+        #[serde(default)]
+        method: Option<String>,
+        #[serde(default)]
+        body: Option<Value>,
+        validations: Vec<ValidationPoint>,
+    }
+
+    /// A query result's `data` as its rows by column name; any other `data` as it is.
+    fn rows_by_column(mut res: Value) -> Value {
+        let (columns, rows) = match (res["data"]["columns"].as_array(), res["data"]["rows"].as_array()) {
+            (Some(columns), Some(rows)) => (columns.clone(), rows.clone()),
+            _ => return res,
+        };
+        let names = columns.iter().map(|it| it["name"].as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>();
+        let objects = rows
+            .iter()
+            .map(|row| {
+                let cells = row.as_array().cloned().unwrap_or_default();
+                Value::Object(names.iter().cloned().zip(cells).collect())
+            })
+            .collect::<Vec<_>>();
+        res["data"] = Value::Array(objects);
+        res
+    }
+
+    /// The end-to-end run of one directory of `integration-tests/`: a copy of the directory is served by the whole
+    /// app as `zhang serve` builds it, once per main file it has (`main.zhang`, `main.bean`), and every request of its
+    /// `validations.json` must be answered as the file says.
+    async fn validate_fixture(name: &str) {
+        env_logger::try_init().ok();
+        let original_test_source_folder = std::path::Path::new("../integration-tests").join(name);
+        pprintln!("    \x1b[0;32mIntegration Test\x1b[0;0m: {}", original_test_source_folder.display());
+        let tempdir = tempdir().unwrap();
+        let test_temp_folder = tempdir.path();
+
+        for entry in walkdir::WalkDir::new(&original_test_source_folder).into_iter().filter_map(|e| e.ok()) {
+            if entry.path().eq(&original_test_source_folder) {
                 continue;
             }
-            let original_test_source_folder = path.path();
-            pprintln!("    \x1b[0;32mIntegration Test\x1b[0;0m: {}", original_test_source_folder.display());
-            let tempdir = tempdir().unwrap();
-            let test_temp_folder = tempdir.path();
+            if entry.path().is_dir() {
+                // create dir
+                let target_folder = entry.path().strip_prefix(&original_test_source_folder).unwrap();
+                tokio::fs::create_dir_all(test_temp_folder.join(target_folder))
+                    .await
+                    .expect("cannot create folder");
+            } else {
+                // copy file
+                let target_file = entry.path().strip_prefix(&original_test_source_folder).unwrap();
+                tokio::fs::copy(entry.path(), test_temp_folder.join(target_file))
+                    .await
+                    .expect("cannot create folder");
+            }
+        }
+        let validations_content = std::fs::read_to_string(test_temp_folder.join("validations.json")).unwrap();
+        let validations: Vec<Validation> = serde_json::from_str(&validations_content).unwrap();
 
-            for entry in walkdir::WalkDir::new(&original_test_source_folder).into_iter().filter_map(|e| e.ok()) {
-                if entry.path().eq(&original_test_source_folder) {
+        for validation in validations {
+            pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
+
+            for main_file in ["main.zhang", "main.bean"] {
+                let main_file_exists = test_temp_folder.join(main_file).exists();
+                if !main_file_exists {
                     continue;
                 }
-                if entry.path().is_dir() {
-                    // create dir
-                    let target_folder = entry.path().strip_prefix(&original_test_source_folder).unwrap();
-                    tokio::fs::create_dir_all(test_temp_folder.join(target_folder))
-                        .await
-                        .expect("cannot create folder");
-                } else {
-                    // copy file
-                    let target_file = entry.path().strip_prefix(&original_test_source_folder).unwrap();
-                    tokio::fs::copy(entry.path(), test_temp_folder.join(target_file))
-                        .await
-                        .expect("cannot create folder");
-                }
-            }
-            let validations_content = std::fs::read_to_string(test_temp_folder.join("validations.json")).unwrap();
-            let validations: Vec<Validation> = serde_json::from_str(&validations_content).unwrap();
+                pprintln!("      \x1b[0;32mDetected main file\x1b[0;0m: {}", &main_file);
+                let data_source = OpendalDataSource::from_env(
+                    FileSystem::Fs,
+                    &mut ServerOpts {
+                        path: test_temp_folder.to_path_buf(),
+                        endpoint: main_file.to_string(),
+                        addr: "".to_string(),
+                        port: 0,
+                        auth: None,
+                        passkey: None,
+                        source: None,
+                        no_report: false,
+                    },
+                )
+                .await
+                .expect("a known ledger format");
+                let data_source = Arc::new(data_source);
+                let ledger = Ledger::load(test_temp_folder.to_path_buf(), main_file.to_string(), data_source.clone()).expect("cannot load ledger");
+                let ledger_data = Arc::new(RwLock::new(ledger));
+                let broadcaster = Broadcaster::create();
+                let (tx, _) = mpsc::channel(1);
+                let reload_sender = Arc::new(ReloadSender::new(tx));
+                let app = create_server_app(
+                    ServeConfig {
+                        path: test_temp_folder.to_path_buf(),
+                        endpoint: main_file.to_string(),
+                        addr: "".to_string(),
+                        port: 0,
+                        auth_credential: None,
+                        passkey_secret: None,
+                        passkey_rp_id: None,
+                        passkey_origin: None,
+                        session_secret: None,
+                        no_report: false,
+                        data_source: data_source.clone(),
+                    },
+                    ledger_data,
+                    broadcaster,
+                    reload_sender,
+                );
 
-            for validation in validations {
-                pprintln!("      \x1b[0;32mTesting\x1b[0;0m: {}", &validation.uri);
+                let config = app.config().await.unwrap();
+                let state = app.state(&config).await.unwrap();
 
-                for main_file in ["main.zhang", "main.bean"] {
-                    let main_file_exists = test_temp_folder.join(main_file).exists();
-                    if !main_file_exists {
-                        continue;
-                    }
-                    pprintln!("      \x1b[0;32mDetected main file\x1b[0;0m: {}", &main_file);
-                    let data_source = OpendalDataSource::from_env(
-                        FileSystem::Fs,
-                        &mut ServerOpts {
-                            path: test_temp_folder.to_path_buf(),
-                            endpoint: main_file.to_string(),
-                            addr: "".to_string(),
-                            port: 0,
-                            auth: None,
-                            passkey: None,
-                            source: None,
-                            no_report: false,
-                        },
+                let context = GotchaContext { config: config.clone(), state };
+
+                let router = app.build_router(context.clone()).await.unwrap();
+
+                let method = validation.method.as_deref().unwrap_or("GET").parse::<http::Method>().expect("a method");
+                let body = match &validation.body {
+                    Some(body) => Body::from(serde_json::to_vec(body).unwrap()),
+                    None => Body::empty(),
+                };
+                let response = router
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(&validation.uri)
+                            .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                            .body(body)
+                            .unwrap(),
                     )
                     .await
-                    .expect("a known ledger format");
-                    let data_source = Arc::new(data_source);
-                    let ledger = Ledger::load(test_temp_folder.to_path_buf(), main_file.to_string(), data_source.clone()).expect("cannot load ledger");
-                    let ledger_data = Arc::new(RwLock::new(ledger));
-                    let broadcaster = Broadcaster::create();
-                    let (tx, _) = mpsc::channel(1);
-                    let reload_sender = Arc::new(ReloadSender::new(tx));
-                    let app = create_server_app(
-                        ServeConfig {
-                            path: test_temp_folder.to_path_buf(),
-                            endpoint: main_file.to_string(),
-                            addr: "".to_string(),
-                            port: 0,
-                            auth_credential: None,
-                            passkey_secret: None,
-                            passkey_rp_id: None,
-                            passkey_origin: None,
-                            session_secret: None,
-                            no_report: false,
-                            data_source: data_source.clone(),
-                        },
-                        ledger_data,
-                        broadcaster,
-                        reload_sender,
+                    .unwrap();
+
+                assert_eq!(
+                    response.status(),
+                    StatusCode::OK,
+                    "{} {}",
+                    original_test_source_folder.display(),
+                    validation.uri
+                );
+
+                let body = response.into_body().collect().await.unwrap().to_bytes();
+                let res: Value = rows_by_column(serde_json::from_slice(&body).unwrap());
+
+                for point in validation.validations.iter() {
+                    pprintln!(
+                        "        \x1b[0;32mValidating\x1b[0;0m: \x1b[0;34m{}\x1b[0;0m to be \x1b[0;34m{}\x1b[0;0m",
+                        point.0,
+                        &point.1
                     );
 
-                    let config = app.config().await.unwrap();
-                    let state = app.state(&config).await.unwrap();
-
-                    let context = GotchaContext { config: config.clone(), state };
-
-                    let router = app.build_router(context.clone()).await.unwrap();
-
-                    let method = validation.method.as_deref().unwrap_or("GET").parse::<http::Method>().expect("a method");
-                    let body = match &validation.body {
-                        Some(body) => Body::from(serde_json::to_vec(body).unwrap()),
-                        None => Body::empty(),
-                    };
-                    let response = router
-                        .oneshot(
-                            Request::builder()
-                                .method(method)
-                                .uri(&validation.uri)
-                                .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                                .body(body)
-                                .unwrap(),
-                        )
-                        .await
-                        .unwrap();
-
-                    assert_eq!(
-                        response.status(),
-                        StatusCode::OK,
-                        "{} {}",
-                        original_test_source_folder.display(),
-                        validation.uri
-                    );
-
-                    let body = response.into_body().collect().await.unwrap().to_bytes();
-                    let res: Value = rows_by_column(serde_json::from_slice(&body).unwrap());
-
-                    for point in validation.validations.iter() {
-                        pprintln!(
-                            "        \x1b[0;32mValidating\x1b[0;0m: \x1b[0;34m{}\x1b[0;0m to be \x1b[0;34m{}\x1b[0;0m",
+                    let value = res.clone().path(&point.0).unwrap();
+                    let expected_value = Value::Array(vec![point.1.clone()]);
+                    if !expected_value.eq(&value) {
+                        panic!(
+                            "Validation fail\n\
+                     Test case: {} \n\
+                     Test URL: {} \n\
+                     Test rule: {} \n\
+                     Excepted value: {} \n\
+                     Get: {}",
+                            original_test_source_folder.display(),
+                            validation.uri,
                             point.0,
-                            &point.1
+                            expected_value,
+                            value
                         );
-
-                        let value = res.clone().path(&point.0).unwrap();
-                        let expected_value = Value::Array(vec![point.1.clone()]);
-                        if !expected_value.eq(&value) {
-                            panic!(
-                                "Validation fail\n\
-                         Test case: {} \n\
-                         Test URL: {} \n\
-                         Test rule: {} \n\
-                         Excepted value: {} \n\
-                         Get: {}",
-                                original_test_source_folder.display(),
-                                validation.uri,
-                                point.0,
-                                expected_value,
-                                value
-                            );
-                        }
                     }
                 }
             }
         }
+    }
+
+    /// One test per directory of `integration-tests/`, so that the directories run in parallel and a failure names its
+    /// directory. `every_fixture_directory_is_listed` fails when a directory is added without its entry here, or an
+    /// entry outlives its directory.
+    macro_rules! fixture_tests {
+        ($($test:ident = $dir:literal,)*) => {
+            mod fixtures {
+                $(
+                    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+                    async fn $test() {
+                        super::validate_fixture($dir).await
+                    }
+                )*
+
+                #[test]
+                fn every_fixture_directory_is_listed() {
+                    let mut listed: Vec<&str> = vec![$($dir),*];
+                    listed.sort_unstable();
+                    let mut on_disk: Vec<String> = std::fs::read_dir("../integration-tests")
+                        .unwrap()
+                        .map(|entry| entry.unwrap())
+                        .filter(|entry| entry.path().is_dir())
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect();
+                    on_disk.sort_unstable();
+                    assert_eq!(
+                        listed, on_disk,
+                        "every directory of integration-tests/ needs an entry in `fixture_tests!`, and every entry its directory"
+                    );
+                }
+            }
+        };
+    }
+
+    fixture_tests! {
+        account_booking_method = "account_booking_method",
+        allow_balance_account_on_the_open_day = "allow_balance_account_on_the_open_day",
+        allow_multiple_leading_zero_in_amount = "allow_multiple_leading_zero_in_amount",
+        allow_multiple_leading_zero_in_amount_beancount = "allow_multiple_leading_zero_in_amount_beancount",
+        budget_beancount_custom_syntax = "budget-beancount-custom-syntax",
+        budget_close_and_currency = "budget-close-and-currency",
+        budget_sytem_syntax_and_category = "budget-sytem-syntax-and-category",
+        budget_sytem_syntax_and_category_multiple_file = "budget-sytem-syntax-and-category-multiple-file",
+        comments_between_postings = "comments-between-postings",
+        commodity_latest_price_ignores_future_prices = "commodity-latest-price-ignores-future-prices",
+        commodity_latest_price_newer_inverse_quote = "commodity-latest-price-newer-inverse-quote",
+        commodity_latest_price_round_inverse_quote = "commodity-latest-price-round-inverse-quote",
+        commodity_group = "commodity_group",
+        commodity_latest_price_should_return_operating_commodity = "commodity_latest_price_should_return_operating_commodity",
+        cost_spec_forms = "cost-spec-forms",
+        fava_demo_ledger = "fava-demo-ledger",
+        implicit_posting_test = "implicit-posting-test",
+        inconsistent_indent_for_postings = "inconsistent-indent-for-postings",
+        inline_comment_and_trailling_space = "inline-comment-and-trailling-space",
+        multiple_operating_currency_support = "multiple-operating-currency-support",
+        multiple_commodity_balance = "multiple_commodity_balance",
+        pad_info_should_be_used_once_beancount = "pad_info_should_be_used_once_beancount",
+        posting_flags = "posting-flags",
+        posting_flags_star_hash_beancount = "posting-flags-star-hash-beancount",
+        posting_flags_star_hash_zhang = "posting-flags-star-hash-zhang",
+        posting_lot_test_implicit_cost_lot = "posting-lot-test-implicit-cost-lot",
+        posting_lot_test_label = "posting-lot-test-label",
+        posting_lot_test_lifo = "posting-lot-test-lifo",
+        posting_lot_test_no_enough_lot_amount = "posting-lot-test-no-enough-lot-amount",
+        posting_lot_test_only_have_cost = "posting-lot-test-only-have-cost",
+        posting_lot_test_only_have_cost_and_single_price = "posting-lot-test-only-have-cost-and-single-price",
+        posting_lot_test_only_have_price = "posting-lot-test-only-have-price",
+        posting_lot_test_posting_rows = "posting-lot-test-posting-rows",
+        posting_lot_test_sub_amount_given_cost = "posting-lot-test-sub-amount-given-cost",
+        posting_lot_test_sub_amount_given_cost_and_cost_date = "posting-lot-test-sub-amount-given-cost-and-cost-date",
+        posting_lot_test_sub_amount_given_cost_and_cost_date_2 = "posting-lot-test-sub-amount-given-cost-and-cost-date-2",
+        query_directive_saved_queries = "query-directive-saved-queries",
+        query_zhang_tables = "query-zhang-tables",
+        raise_error_if_posting_commodity_is_not_defined = "raise-error-if-posting-commodity-is-not-defined",
+        random_order_of_links_and_tags = "random-order-of-links-and-tags",
+        shold_handle_the_meta_for_operating_currency_in_commodity_directive = "shold_handle_the_meta_for_operating_currency_in_commodity_directive",
+        should_raise_unbalance_error_for_unbalanced_txn = "should_raise_unbalance_error_for_unbalanced_txn",
+        should_txn_support_filter_by_payee_narration = "should_txn_support_filter_by_payee_narration",
+        should_txn_support_filter_by_tags_and_links = "should_txn_support_filter_by_tags_and_links",
+        simple_parser = "simple-parser",
+        space_of_posting_uint_can_be_empty = "space-of-posting-uint-can-be-empty",
+        unquoted_meta_values_beancount = "unquoted-meta-values-beancount",
+        value_holdings_through_inverse_prices = "value-holdings-through-inverse-prices",
+        wildcard_include_directive_supportted = "wildcard-include-directive-supportted",
     }
 
     /// Sends a request to `router` as a browser on `http://localhost:8010` would; the status and the JSON body.
