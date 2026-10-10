@@ -11,6 +11,7 @@ use zhang_core::data_type::DataType;
 use zhang_core::inventory::TransactionInference;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
+use zhang_testkit::ledger::Scratch;
 
 fn txn(content: &str) -> Transaction {
     let d = parse(content, None::<PathBuf>).unwrap().into_iter().find_map(|s| s.data.left()).unwrap();
@@ -174,17 +175,9 @@ fn transaction_metadata_is_exported_before_the_postings() {
 /// that file, as beancount reads it, and zhang reads it back by its path within the ledger.
 #[test]
 fn a_document_appended_to_a_beancount_file_names_its_file_from_there() {
-    use std::sync::Arc;
-
-    use zhang_core::data_source::LocalFileSystemDataSource;
-
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("zhang-document-path-{}-{nanos}", std::process::id()));
-    std::fs::create_dir_all(dir.join("attachments/u1")).unwrap();
-    std::fs::write(dir.join("attachments/u1/a statement.pdf"), "%PDF").unwrap();
-    std::fs::write(dir.join("main.bean"), "1970-01-01 open Assets:Cash\n").unwrap();
-    let source = Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}));
-    let ledger = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source.clone()).unwrap();
+    let scratch = Scratch::beancount("1970-01-01 open Assets:Cash\n");
+    scratch.write("attachments/u1/a statement.pdf", "%PDF");
+    let ledger = scratch.ledger().unwrap();
     let document = parse("2024-01-15 document Assets:Cash \"attachments/u1/a statement.pdf\"\n", None::<PathBuf>)
         .unwrap()
         .remove(0)
@@ -194,16 +187,15 @@ fn a_document_appended_to_a_beancount_file_names_its_file_from_there() {
 
     ledger.data_source.append(&ledger, vec![document]).unwrap();
 
-    let written = std::fs::read_to_string(dir.join("data/2024/01.bean")).unwrap();
+    let written = scratch.read("data/2024/01.bean");
     assert!(
         written.contains("2024-01-15 document Assets:Cash \"../../attachments/u1/a statement.pdf\""),
         "{written}"
     );
-    let reloaded = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source).unwrap();
+    let reloaded = scratch.ledger().unwrap();
     assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
     let paths = documents(&reloaded).into_iter().map(|(path, _)| path).collect::<Vec<_>>();
     assert_eq!(paths, vec!["attachments/u1/a statement.pdf"]);
-    std::fs::remove_dir_all(dir).ok();
 }
 
 /// On the local disk, whether the document of a `document` exists is looked at with a stat: the source is never asked
@@ -242,19 +234,14 @@ fn on_the_local_disk_documents_are_looked_at_not_listed() {
         }
     }
 
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("zhang-local-documents-{}-{nanos}", std::process::id()));
-    std::fs::create_dir_all(dir.join("attachments")).unwrap();
-    std::fs::create_dir_all(dir.join("data")).unwrap();
-    std::fs::write(dir.join("attachments/legacy.pdf"), "%PDF").unwrap();
-    std::fs::write(dir.join("main.bean"), "1970-01-01 open Assets:Cash\ninclude \"data/2024.bean\"\n").unwrap();
-    std::fs::write(
-        dir.join("data/2024.bean"),
+    let scratch = Scratch::beancount("1970-01-01 open Assets:Cash\ninclude \"data/2024.bean\"\n");
+    scratch.write("attachments/legacy.pdf", "%PDF");
+    scratch.write(
+        "data/2024.bean",
         "2024-01-01 document Assets:Cash \"attachments/legacy.pdf\"\n2024-01-02 document Assets:Cash \"missing.pdf\"\n",
-    )
-    .unwrap();
+    );
     let source = Arc::new(Counting(LocalFileSystemDataSource::new(beancount::Beancount {}), AtomicUsize::new(0)));
-    let ledger = Ledger::load_with_data_source(dir.clone(), "main.bean".to_owned(), source.clone()).unwrap();
+    let ledger = Ledger::load_with_data_source(scratch.dir().to_path_buf(), "main.bean".to_owned(), source.clone()).unwrap();
 
     assert_eq!(source.1.load(Ordering::SeqCst), 0, "nothing is asked of the source for the documents");
     let mut errors = ledger.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
@@ -265,7 +252,6 @@ fn on_the_local_disk_documents_are_looked_at_not_listed() {
         .map(|(path, alternate)| (path, alternate.map(str::to_owned)))
         .collect::<Vec<_>>();
     assert_eq!(documents, vec![("attachments/legacy.pdf", None), ("data/missing.pdf", None)]);
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
