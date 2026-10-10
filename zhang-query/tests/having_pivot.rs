@@ -1,268 +1,23 @@
 //! Oracle tests of `HAVING` and `PIVOT BY`: runs the beanquery-generated fixtures in
-//! `tests/having_pivot/cases` against the engine on the shared fava demo ledger, with the
-//! comparison rules of the conformance suite (`tests/conformance/README.md`): column types by
-//! position, decimals numerically, inventories and unordered results as multisets, errors by
-//! class, CSV cells trimmed and compared numerically when they are numbers.
+//! `tests/having_pivot/cases` against the engine on the shared fava demo ledger, through
+//! `zhang_testkit::oracle` with the comparison rules of the conformance suite
+//! (`tests/conformance/README.md`): column types by position, decimals numerically,
+//! inventories and unordered results as multisets, errors by class, CSV cells trimmed and
+//! compared numerically when they are numbers.
 //!
 //! Unlike the conformance suite, column **names** are compared too: the columns of a pivot
 //! are named after the data, so their names are part of the result. Every computed target of
 //! these fixtures has an alias, so names never depend on how an engine spells an expression.
 //!
-//! The fixtures come from `tests/having_pivot/generate.py`, which runs the official beanquery
-//! with the conformance generator's validation (determinism, zhang's balance-check rows).
+//! The fixtures come from `tests/conformance/generate.py --set having_pivot`, which runs the
+//! official beanquery with the conformance generator's validation (determinism, zhang's
+//! balance-check rows).
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::str::FromStr;
 
-use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use serde_json::{json, Value as Json};
-use zhang_query::decimal::to_plain_string;
-use zhang_query::{Amount, DataType, Params, Position, Query, QueryErrorKind, QueryResult, Value};
-
-enum Expect {
-    Rows,
-    Error(String),
-    Csv(Vec<String>),
-}
-
-struct Fixture {
-    file: String,
-    query: String,
-    ordered: bool,
-    expect: Expect,
-    /// (name, type) of every column
-    columns: Vec<(String, String)>,
-    rows: Vec<Vec<Json>>,
-}
-
-fn load_fixtures() -> Vec<Fixture> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/having_pivot/cases");
-    let mut files = std::fs::read_dir(&dir)
-        .unwrap_or_else(|err| panic!("cannot read {}: {}", dir.display(), err))
-        .map(|entry| entry.expect("dir entry").path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .collect::<Vec<_>>();
-    files.sort();
-    files
-        .into_iter()
-        .map(|path| {
-            let file = path.file_name().unwrap().to_string_lossy().into_owned();
-            let json: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|err| panic!("{}: {}", file, err));
-            let expect = match json["expect"].as_str().expect("expect") {
-                "rows" => Expect::Rows,
-                "error" => Expect::Error(json["error_class"].as_str().expect("error_class").to_owned()),
-                "csv" => Expect::Csv(
-                    json["csv"]
-                        .as_array()
-                        .expect("csv")
-                        .iter()
-                        .map(|line| line.as_str().expect("csv line").to_owned())
-                        .collect(),
-                ),
-                other => panic!("{}: unknown expect {:?}", file, other),
-            };
-            Fixture {
-                query: json["query"].as_str().expect("query").to_owned(),
-                ordered: json["ordered"].as_bool().expect("ordered"),
-                expect,
-                columns: json["columns"]
-                    .as_array()
-                    .expect("columns")
-                    .iter()
-                    .map(|column| {
-                        (
-                            column["name"].as_str().expect("column name").to_owned(),
-                            column["type"].as_str().expect("column type").to_owned(),
-                        )
-                    })
-                    .collect(),
-                rows: json["rows"]
-                    .as_array()
-                    .expect("rows")
-                    .iter()
-                    .map(|row| row.as_array().expect("row").clone())
-                    .collect(),
-                file,
-            }
-        })
-        .collect()
-}
-
-// canonical encoding: the fixture cell encoding with normalised decimals and sorted positions
-
-fn decimal(number: &BigDecimal) -> Json {
-    Json::String(to_plain_string(&number.normalized()))
-}
-
-fn decimal_str(text: &str) -> Json {
-    decimal(&BigDecimal::from_str(text).unwrap_or_else(|err| panic!("bad decimal {:?}: {}", text, err)))
-}
-
-fn engine_amount(amount: &Amount) -> Json {
-    json!({"number": decimal(&amount.number), "currency": amount.commodity})
-}
-
-fn engine_position(position: &Position) -> Json {
-    let cost = position.cost.as_ref().map(|cost| {
-        json!({
-            "number": decimal(&cost.number),
-            "currency": cost.currency,
-            "date": cost.date.map(|date| date.to_string()),
-            "label": cost.label,
-        })
-    });
-    json!({"units": engine_amount(&position.units), "cost": cost})
-}
-
-fn sorted_positions(mut positions: Vec<Json>) -> Json {
-    positions.sort_by_cached_key(|position| position.to_string());
-    json!({ "positions": positions })
-}
-
-fn engine_cell(value: &Value) -> Json {
-    match value {
-        Value::Null => Json::Null,
-        Value::Bool(it) => json!(it),
-        Value::Int(it) => json!(it),
-        Value::Decimal(it) => decimal(it),
-        Value::Str(it) => json!(it),
-        Value::Date(it) => json!(it.to_string()),
-        Value::Set(it) => json!(it.iter().collect::<Vec<_>>()),
-        Value::Amount(it) => engine_amount(it),
-        Value::Position(it) => engine_position(it),
-        Value::Inventory(it) => sorted_positions(it.positions().map(|position| engine_position(&position)).collect()),
-        Value::Interval(it) => json!(it.to_string()),
-        Value::Metas(it) => json!(it.iter().map(|(key, value)| json!({"key": key, "value": value})).collect::<Vec<_>>()),
-    }
-}
-
-fn fixture_amount(cell: &Json) -> Json {
-    json!({"number": decimal_str(cell["number"].as_str().expect("amount number")), "currency": cell["currency"]})
-}
-
-fn fixture_position(cell: &Json) -> Json {
-    let cost = match &cell["cost"] {
-        Json::Null => Json::Null,
-        cost => json!({
-            "number": decimal_str(cost["number"].as_str().expect("cost number")),
-            "currency": cost["currency"],
-            "date": cost["date"],
-            "label": cost["label"],
-        }),
-    };
-    json!({"units": fixture_amount(&cell["units"]), "cost": cost})
-}
-
-fn fixture_cell(cell: &Json, ty: &str) -> Json {
-    if cell.is_null() {
-        return Json::Null;
-    }
-    match ty {
-        "decimal" => decimal_str(cell.as_str().expect("decimal cell")),
-        "amount" => fixture_amount(cell),
-        "position" => fixture_position(cell),
-        "inventory" => sorted_positions(cell["positions"].as_array().expect("positions").iter().map(fixture_position).collect()),
-        "set" => json!(cell
-            .as_array()
-            .expect("set cell")
-            .iter()
-            .map(|it| it.as_str().expect("set item").to_owned())
-            .collect::<BTreeSet<_>>()),
-        _ => cell.clone(),
-    }
-}
-
-fn error_class(kind: QueryErrorKind) -> &'static str {
-    match kind {
-        QueryErrorKind::Parse => "syntax",
-        QueryErrorKind::Compile => "compile",
-        QueryErrorKind::Eval => "runtime",
-        QueryErrorKind::Timeout => "timeout",
-        QueryErrorKind::TooLarge => "too_large",
-    }
-}
-
-fn compare_rows(mut expected: Vec<String>, mut actual: Vec<String>, ordered: bool) -> Option<String> {
-    if !ordered {
-        expected.sort();
-        actual.sort();
-    }
-    if expected == actual {
-        return None;
-    }
-    let missing = expected.iter().filter(|row| !actual.contains(row)).take(3).cloned().collect::<Vec<_>>();
-    let unexpected = actual.iter().filter(|row| !expected.contains(row)).take(3).cloned().collect::<Vec<_>>();
-    Some(format!(
-        "{} expected rows, {} actual; missing {:?}; unexpected {:?}",
-        expected.len(),
-        actual.len(),
-        missing,
-        unexpected
-    ))
-}
-
-/// The records of a CSV text without quoted fields (the fixtures have none), each cell
-/// trimmed and, when it is a plain number, normalised.
-fn csv_records(text: &str) -> Vec<String> {
-    text.lines()
-        .map(|line| {
-            assert!(!line.contains('"'), "quoted CSV fields are not expected: {}", line);
-            let cells = line
-                .trim_end_matches('\r')
-                .split(',')
-                .map(|cell| {
-                    let cell = cell.trim();
-                    match BigDecimal::from_str(cell) {
-                        Ok(number) if cell.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') => decimal(&number),
-                        _ => Json::String(cell.to_owned()),
-                    }
-                })
-                .collect();
-            Json::Array(cells).to_string()
-        })
-        .collect()
-}
-
-/// `None` when the engine matches the fixture, otherwise what differs.
-fn compare(fixture: &Fixture, outcome: Result<QueryResult, zhang_query::QueryError>) -> Option<String> {
-    let result = match (outcome, &fixture.expect) {
-        (Err(err), Expect::Error(class)) if error_class(err.kind) == class => return None,
-        (Err(err), _) => return Some(format!("engine error: {}", err)),
-        (Ok(result), Expect::Error(class)) => return Some(format!("expected a {} error, got {} rows", class, result.rows.len())),
-        (Ok(result), Expect::Csv(lines)) => {
-            let (expected, actual) = (csv_records(&lines.join("\n")), csv_records(&zhang_query::export::to_csv(&result)));
-            if expected.first() != actual.first() {
-                return Some(format!("CSV header: expected {:?}, got {:?}", expected.first(), actual.first()));
-            }
-            return compare_rows(expected[1..].to_vec(), actual[1..].to_vec(), fixture.ordered).map(|diff| format!("CSV {}", diff));
-        }
-        (Ok(result), Expect::Rows) => result,
-    };
-    let columns = result
-        .columns
-        .iter()
-        .map(|column| (column.name.clone(), column.ty.name().to_owned()))
-        .collect::<Vec<_>>();
-    if columns != fixture.columns {
-        return Some(format!("columns: expected {:?}, got {:?}", fixture.columns, columns));
-    }
-    let expected = fixture
-        .rows
-        .iter()
-        .map(|row| {
-            let cells = row.iter().zip(&fixture.columns).map(|(cell, (_, ty))| fixture_cell(cell, ty)).collect();
-            Json::Array(cells).to_string()
-        })
-        .collect::<Vec<_>>();
-    let actual = result
-        .rows
-        .iter()
-        .map(|row| Json::Array(row.iter().map(engine_cell).collect()).to_string())
-        .collect::<Vec<_>>();
-    compare_rows(expected, actual, fixture.ordered)
-}
+use zhang_query::{DataType, Params, Query, QueryErrorKind, QueryResult, Value};
+use zhang_testkit::oracle::{assert_no_failures, load_case_files, run_cases, Rules};
 
 fn today() -> NaiveDate {
     NaiveDate::from_ymd_opt(2025, 1, 1).unwrap()
@@ -270,23 +25,14 @@ fn today() -> NaiveDate {
 
 #[test]
 fn having_and_pivot_match_beanquery() {
-    let fixtures = load_fixtures();
+    let mut fixtures = load_case_files(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/having_pivot/cases"));
     assert!(fixtures.len() >= 20, "fixtures missing from tests/having_pivot/cases");
-    let ledger = zhang_testkit::ledger::fava_demo_ledger();
-    let failures = fixtures
-        .iter()
-        .filter_map(|fixture| {
-            let outcome = Query::compile(&fixture.query).and_then(|query| query.execute_at(&ledger, &Params::default(), today()));
-            compare(fixture, outcome).map(|diff| format!("  {}: {}", fixture.file, diff))
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        failures.is_empty(),
-        "{} of {} cases differ from beanquery:\n{}",
-        failures.len(),
-        fixtures.len(),
-        failures.join("\n")
-    );
+    // the names of pivoted columns are data, so every case compares them
+    for fixture in &mut fixtures {
+        fixture.strict_names = true;
+    }
+    let ledger = zhang_testkit::fixtures::fava_demo();
+    assert_no_failures("having_pivot", &run_cases(&ledger, &fixtures, &Rules::on(today()), &[], &[]));
 }
 
 fn run(query: &str) -> QueryResult {

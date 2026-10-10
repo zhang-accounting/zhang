@@ -13,8 +13,8 @@
 //! - **beanquery functions** (the date functions, `interval`, `open_meta`, `commodity_meta`,
 //!   `open_date`, `close_date`): `server_features/oracle/oracle.json`, written by beanquery
 //!   0.2.0 over `server_features/oracle/main.zhang`. Regenerate with
-//!   `/tmp/bqvenv/bin/python zhang-query/tests/server_features/oracle/generate.py` and check
-//!   with `generate.py --check`.
+//!   `python zhang-query/tests/conformance/generate.py --set server_features` and check with
+//!   `--check`; the cases run through `zhang_testkit::oracle`.
 //!   Where the lead ruled that zhang deliberately differs from beanquery (`date_bin` starts
 //!   bin k at origin + k × stride, computed from the origin, and a date on a bin start begins
 //!   that bin; `interval` accepts weeks), the oracle keeps beanquery's rows, generate.py marks
@@ -46,11 +46,11 @@ use std::time::{Duration, Instant};
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use serde_json::Value as Json;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
 use zhang_query::decimal::to_plain_string;
 use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryError, QueryErrorKind, QueryResult, Value};
+use zhang_testkit::oracle::{assert_no_failures, load_text_rows, run_cases, Accepted, Case, Deviation, Rules};
 
 // =======================================================================================
 // helpers
@@ -2115,52 +2115,17 @@ fn l_metas_columns_keep_repeated_keys_in_written_order() {
 // =======================================================================================
 // track L: the beanquery 0.2.0 functions, against the oracle
 
-struct OracleCase {
-    area: String,
-    name: String,
-    query: String,
-    columns: Vec<String>,
-    rows: Vec<Vec<String>>,
-    /// the reason of an accepted deviation, when generate.py marks the case as one
-    accepted_deviation: Option<String>,
-}
-
-fn oracle_cases() -> Vec<OracleCase> {
-    let path = fixture_dir("oracle").join("oracle.json");
-    let json: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    let strings = |value: &Json| {
-        value
-            .as_array()
-            .expect("array")
-            .iter()
-            .map(|it| it.as_str().expect("string").to_owned())
-            .collect::<Vec<_>>()
-    };
-    json.as_array()
-        .expect("cases")
-        .iter()
-        .map(|case| OracleCase {
-            area: case["area"].as_str().unwrap().to_owned(),
-            name: case["name"].as_str().unwrap().to_owned(),
-            query: case["query"].as_str().unwrap().to_owned(),
-            columns: strings(&case["columns"]),
-            rows: case["rows"].as_array().unwrap().iter().map(strings).collect(),
-            accepted_deviation: case.get("accepted_deviation").map(|it| it.as_str().expect("reason").to_owned()),
-        })
-        .collect()
+/// The oracle cases of `server_features/oracle/oracle.json`, read by `zhang_testkit::oracle`:
+/// the cells beanquery wrote as text (`NULL`, `TRUE`, dates, ints) in the typed encoding, the
+/// column types, and the generator's `accepted_deviation` mark.
+fn oracle_cases() -> Vec<Case> {
+    load_text_rows(&fixture_dir("oracle").join("oracle.json"))
 }
 
 /// A deliberate difference from beanquery, as the lead ruled it; the mechanism of
 /// `ACCEPTED_DEVIATIONS` in `conformance.rs`. The oracle keeps beanquery's rows, and generate.py
-/// marks the case with the same reason; zhang must return `rows` instead.
-struct Deviation {
-    /// the oracle case
-    case: &'static str,
-    reason: &'static str,
-    /// the rows zhang returns, cells as `Value::to_string()` writes them
-    rows: &'static [&'static [&'static str]],
-}
-
+/// marks the case with the same reason; zhang must return the accepted rows instead, written as
+/// `Value::to_string()` writes them.
 const DATE_BIN_BOUNDARY: &str = "zhang buckets correctly: a date exactly on a month or year bin boundary starts that bin \
                                  (date_bin('1 month', 2000-02-01, 2000-01-01) is 2000-02-01); beanquery 0.2.0 puts it into \
                                  the previous bin";
@@ -2177,9 +2142,9 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
     // the dates that are themselves a boundary: 2001-01-01, 2020-01-01, 2023-01-01, 2024-01-01
     // in every column, and 2020-03-01 in the monthly ones (beanquery: the previous bin).
     Deviation {
-        case: "date_bin_month_boundaries",
+        case: Some("date_bin_month_boundaries"),
         reason: DATE_BIN_BOUNDARY,
-        rows: &[
+        accepted: Accepted::TextRows(&[
             &["1969-12-31", "1969-12-01", "1969-12-01", "1969-10-01", "1969-01-01"],
             &["1999-12-31", "1999-12-01", "1999-12-01", "1999-10-01", "1999-01-01"],
             &["2000-01-01", "2000-01-01", "2000-01-01", "2000-01-01", "2000-01-01"],
@@ -2199,7 +2164,7 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
             &["2024-05-31", "2024-05-01", "2024-05-01", "2024-04-01", "2024-01-01"],
             &["2024-12-30", "2024-12-01", "2024-12-01", "2024-10-01", "2024-01-01"],
             &["2024-12-31", "2024-12-01", "2024-12-01", "2024-10-01", "2024-01-01"],
-        ],
+        ]),
     },
     // The examples of the ruling, origin 2000-01-01: 2000-02-01 and 2000-03-01 start their
     // monthly bins (beanquery: 2000-01-01, 2000-02-01); the origin is its own bin; 2000-01-31 is
@@ -2208,9 +2173,9 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
     // 2000-01-01) while 2000-12-31 ends the first; 1999-12-01, a boundary before the origin,
     // starts its bin (as in beanquery).
     Deviation {
-        case: "date_bin_boundary_examples",
+        case: Some("date_bin_boundary_examples"),
         reason: DATE_BIN_BOUNDARY,
-        rows: &[&[
+        accepted: Accepted::TextRows(&[&[
             "2000-02-01",
             "2000-03-01",
             "2000-01-01",
@@ -2220,7 +2185,7 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
             "2001-01-01",
             "2000-01-01",
             "1999-12-01",
-        ]],
+        ]]),
     },
     // Month-end origins (ruled): bin k starts at origin + k × stride, computed from the origin
     // and clamped to the month's last day, never from the previous start; a date belongs to the
@@ -2240,9 +2205,9 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
     //   2024-01-01 -> 2023-02-28, 2024-02-29 -> 2024-02-29. (beanquery: 2021-02-28 ->
     //   2020-02-29, and from 2021 on its starts stay on Feb 28.)
     Deviation {
-        case: "date_bin_month_end_origin",
+        case: Some("date_bin_month_end_origin"),
         reason: DATE_BIN_FROM_ORIGIN,
-        rows: &[
+        accepted: Accepted::TextRows(&[
             &["1969-12-31", "1969-12-31", "1969-11-30", "1969-02-28"],
             &["1999-12-31", "1999-12-31", "1999-11-30", "1999-02-28"],
             &["2000-01-01", "1999-12-31", "1999-11-30", "1999-02-28"],
@@ -2262,7 +2227,7 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
             &["2024-05-31", "2024-05-31", "2024-05-31", "2024-02-29"],
             &["2024-12-30", "2024-11-30", "2024-11-30", "2024-02-29"],
             &["2024-12-31", "2024-12-31", "2024-11-30", "2024-02-29"],
-        ],
+        ]),
     },
     // Single dates around month-end starts, by the same rule:
     // - monthly from 2020-01-31 (starts 01-31, 02-29, 03-31, 04-30, 05-31; before the origin
@@ -2278,9 +2243,9 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
     //   2019-02-28 -> 2019-02-28;
     // - the interval form: 2020-05-31 -> 2020-05-31 (beanquery 2020-05-29).
     Deviation {
-        case: "date_bin_month_end_examples",
+        case: Some("date_bin_month_end_examples"),
         reason: DATE_BIN_FROM_ORIGIN,
-        rows: &[&[
+        accepted: Accepted::TextRows(&[&[
             "2020-02-29",
             "2020-03-31",
             "2020-04-30",
@@ -2293,15 +2258,15 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
             "2024-02-29",
             "2019-02-28",
             "2020-05-31",
-        ]],
+        ]]),
     },
     // date + 7 days, date - 14 days, date - 7 days, date + 21 days (beanquery: NULL), across
     // month, year and leap-day ends: 1969-12-31 + 7 = 1970-01-07, 2000-02-29 + 7 = 2000-03-07,
     // 2021-02-28 + 7 = 2021-03-07, 2024-12-30 + 7 = 2025-01-06.
     Deviation {
-        case: "interval_weeks_are_seven_days",
+        case: Some("interval_weeks_are_seven_days"),
         reason: INTERVAL_WEEKS,
-        rows: &[
+        accepted: Accepted::TextRows(&[
             &["1969-12-31", "1970-01-07", "1969-12-17", "1969-12-24", "1970-01-21"],
             &["1999-12-31", "2000-01-07", "1999-12-17", "1999-12-24", "2000-01-21"],
             &["2000-01-01", "2000-01-08", "1999-12-18", "1999-12-25", "2000-01-22"],
@@ -2321,77 +2286,31 @@ const ACCEPTED_DEVIATIONS: &[Deviation] = &[
             &["2024-05-31", "2024-06-07", "2024-05-17", "2024-05-24", "2024-06-21"],
             &["2024-12-30", "2025-01-06", "2024-12-16", "2024-12-23", "2025-01-20"],
             &["2024-12-31", "2025-01-07", "2024-12-17", "2024-12-24", "2025-01-21"],
-        ],
+        ]),
     },
     // '1 week', '2 weeks', '-1 week', '+2 weeks', '1 weeks' and '2 week' parse (beanquery: NULL).
     // READING: weeks follow the grammar beanquery has for days, months and years (a signed
     // integer, whitespace, the unit with an optional plural s, case-sensitive), so '1 Week' and
     // '1week' are NULL like '1 Month' and '1day'.
     Deviation {
-        case: "interval_week_parsing",
+        case: Some("interval_week_parsing"),
         reason: INTERVAL_WEEKS,
-        rows: &[&["FALSE", "FALSE", "FALSE", "FALSE", "FALSE", "FALSE", "TRUE", "TRUE"]],
+        accepted: Accepted::TextRows(&[&["FALSE", "FALSE", "FALSE", "FALSE", "FALSE", "FALSE", "TRUE", "TRUE"]]),
     },
 ];
 
 fn deviation(case: &str) -> Option<&'static Deviation> {
-    ACCEPTED_DEVIATIONS.iter().find(|it| it.case == case)
+    ACCEPTED_DEVIATIONS.iter().find(|it| it.case == Some(case))
 }
 
 /// Run every oracle case of `area` with zhang over the same ledger, and compare the column
-/// types with beanquery's and the rows (as text, in order) with beanquery's, or with the
-/// accepted rows of an [`ACCEPTED_DEVIATIONS`] entry. The accepted rows must still differ from
-/// beanquery's: an entry beanquery agrees with is stale.
+/// types with beanquery's and the rows (in order) with beanquery's, or with the accepted rows
+/// of an [`ACCEPTED_DEVIATIONS`] entry. The accepted rows must still differ from beanquery's: an
+/// entry beanquery agrees with is stale and fails its case.
 fn check_oracle(area: &str) {
     let cases = oracle_cases().into_iter().filter(|case| case.area == area).collect::<Vec<_>>();
     assert!(!cases.is_empty(), "no oracle case of {}", area);
-    let mut failures = vec![];
-    for case in &cases {
-        let (expected, source) = match deviation(&case.name) {
-            Some(deviation) => {
-                let accepted = deviation
-                    .rows
-                    .iter()
-                    .map(|row| row.iter().map(|cell| (*cell).to_owned()).collect::<Vec<_>>())
-                    .collect::<Vec<_>>();
-                assert_ne!(accepted, case.rows, "{}: beanquery agrees with the accepted deviation; remove it", case.name);
-                (accepted, "accepted")
-            }
-            None => (case.rows.clone(), "beanquery"),
-        };
-        let outcome = Query::compile(&case.query).and_then(|query| query.execute_with_options(oracle_ledger(), &Params::new(), &options()));
-        match outcome {
-            Err(err) => failures.push(format!("{}: {:?} {}\n    {}", case.name, err.kind, err.message, case.query)),
-            Ok(result) => {
-                let types = result.columns.iter().map(|column| column.ty.name().to_owned()).collect::<Vec<_>>();
-                if types != case.columns {
-                    failures.push(format!("{}: column types {:?}, beanquery {:?}", case.name, types, case.columns));
-                }
-                let rows = result
-                    .rows
-                    .iter()
-                    .map(|row| row.iter().map(Value::to_string).collect::<Vec<_>>())
-                    .collect::<Vec<_>>();
-                if rows != expected {
-                    let first = rows
-                        .iter()
-                        .zip(&expected)
-                        .position(|(a, b)| a != b)
-                        .map(|index| format!("row {}: zhang {:?}, {} {:?}", index, rows[index], source, expected[index]))
-                        .unwrap_or_else(|| format!("{} rows, {} {}", rows.len(), source, expected.len()));
-                    failures.push(format!("{}: {}\n    {}", case.name, first, case.query));
-                }
-            }
-        }
-    }
-    assert!(
-        failures.is_empty(),
-        "{} of {} {} cases differ from beanquery 0.2.0 or its accepted deviations:\n  {}",
-        failures.len(),
-        cases.len(),
-        area,
-        failures.join("\n  ")
-    );
+    assert_no_failures(area, &run_cases(oracle_ledger(), &cases, &Rules::on(today()), ACCEPTED_DEVIATIONS, &[]));
 }
 
 #[test]
@@ -2468,14 +2387,17 @@ fn l_oracle_fixture_is_well_formed() {
         assert!(names.insert(case.name.clone()), "duplicate case {}", case.name);
         assert!(!case.rows.is_empty(), "{} has no rows", case.name);
         for row in &case.rows {
-            assert_eq!(row.len(), case.columns.len(), "{}", case.name);
+            assert_eq!(row.len(), case.column_types.len(), "{}", case.name);
         }
         match (deviation(&case.name), &case.accepted_deviation) {
             (Some(deviation), Some(reason)) => {
                 assert!(!reason.is_empty() && !deviation.reason.is_empty(), "{}: no reason", case.name);
-                assert_eq!(deviation.rows.len(), case.rows.len(), "{}: accepted rows", case.name);
-                for row in deviation.rows {
-                    assert_eq!(row.len(), case.columns.len(), "{}: accepted row {:?}", case.name, row);
+                let Accepted::TextRows(rows) = deviation.accepted else {
+                    panic!("{}: the accepted rows are written as text", case.name)
+                };
+                assert_eq!(rows.len(), case.rows.len(), "{}: accepted rows", case.name);
+                for row in rows {
+                    assert_eq!(row.len(), case.column_types.len(), "{}: accepted row {:?}", case.name, row);
                 }
             }
             (None, None) => {}
@@ -2484,7 +2406,8 @@ fn l_oracle_fixture_is_well_formed() {
         }
     }
     for deviation in ACCEPTED_DEVIATIONS {
-        assert!(names.contains(deviation.case), "ACCEPTED_DEVIATIONS refers to unknown case {}", deviation.case);
+        let case = deviation.case.expect("every deviation here names its case");
+        assert!(names.contains(case), "ACCEPTED_DEVIATIONS refers to unknown case {}", case);
     }
 }
 
