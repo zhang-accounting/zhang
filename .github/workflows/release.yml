@@ -2,15 +2,17 @@ name: Build/publish release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
-  # release binaries are built on main and tags only; run it manually to get binaries of a branch
+  # release binaries of main are built once a day instead of on every push: a push started seven release jobs beside the
+  # twelve check jobs, and merging several pull requests in a row made the checks queue behind them. Nothing consumes
+  # per-push binaries (images are published for version tags only). Run it manually to get binaries of a branch now.
+  schedule:
+    - cron: "0 18 * * *"
   workflow_dispatch:
 
-# a newer push to main supersedes the binaries of an older one, so its run is cancelled instead of
-# holding runners that pull request checks wait for; a tag (release) run is never cancelled
+# a newer run of the same ref (the nightly, or a manual run) supersedes the binaries of an older one, so its run is
+# cancelled instead of holding runners that pull request checks wait for; a tag (release) run is never cancelled
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
