@@ -1,8 +1,6 @@
 //! Evaluator tests over a small ledger: row source, operators, NULL handling, grouping,
 //! ordering, aggregates, parameters and error positions.
 
-mod common;
-
 use std::sync::OnceLock;
 
 use chrono::NaiveDate;
@@ -65,7 +63,7 @@ option "operating_currency" "USD"
 
 fn ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| common::load_text(LEDGER))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(LEDGER))
 }
 
 fn today() -> NaiveDate {
@@ -135,7 +133,7 @@ fn entry_columns() {
         vec!["2024-01-05", "2024", "1", "5", "*", "午餐", "lunch", "午餐 | lunch", "food", "receipt-1"]
     );
     // a transaction without strings has an empty narration, like in beancount
-    let ledger = common::load_text("1970-01-01 open Assets:A\n1970-01-01 open Income:B\n2024-01-01 *\n  Assets:A 1 USD\n  Income:B\n");
+    let ledger = zhang_testkit::ledger::load_text("1970-01-01 open Assets:A\n1970-01-01 open Income:B\n2024-01-01 *\n  Assets:A 1 USD\n  Income:B\n");
     let result = Query::compile("SELECT payee, narration, description")
         .unwrap()
         .execute_at(&ledger, &Params::new(), today())
@@ -168,7 +166,7 @@ fn directives_are_matched_by_file_and_offset() {
     )
     .unwrap();
     std::fs::write(dir.join("other.zhang"), transaction("other", "2.20")).unwrap();
-    let ledger = common::load_ledger(dir, "main.zhang");
+    let ledger = zhang_testkit::ledger::load_ledger(dir, "main.zhang");
     let result = Query::compile("SELECT narration, price, entry_meta('k') WHERE account = 'Assets:A' ORDER BY narration")
         .unwrap()
         .execute_at(&ledger, &Params::new(), today())
@@ -471,7 +469,7 @@ fn empty_aggregate_groups_are_only_created_without_group_keys() {
     ] {
         assert!(query(sql).is_empty(), "{}", sql);
     }
-    let empty = common::load_text("");
+    let empty = zhang_testkit::ledger::load_text("");
     for table in ["postings", "transactions", "prices", "balances"] {
         let sql = format!("SELECT count(*) FROM #{table}");
         let result = Query::compile(&sql).unwrap().execute_at(&empty, &Params::new(), today()).unwrap();

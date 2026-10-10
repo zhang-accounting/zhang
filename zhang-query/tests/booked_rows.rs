@@ -3,8 +3,6 @@
 //! transactions at one position, or change the legs booking produced; the rows must still be
 //! those of the transaction zhang stored, with its prices spread as written.
 
-mod common;
-
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -87,7 +85,7 @@ fn the_sale_booked() -> Vec<Vec<String>> {
 /// read from its own directive, not from the copy, whose legs have no units to make rows of.
 #[test]
 fn an_unbookable_copy_at_the_same_position_is_passed_over() {
-    let ledger = common::load_transformed(&format!("{LOTS}{SALE_PER_UNIT}"), |mut directives| {
+    let ledger = zhang_testkit::ledger::load_transformed(&format!("{LOTS}{SALE_PER_UNIT}"), |mut directives| {
         let at = transaction_at(&directives, "sell");
         let Directive::Transaction(sale) = &directives[at].data else { unreachable!() };
         let mut copy = sale.clone();
@@ -119,7 +117,7 @@ fn an_unbookable_copy_at_the_same_position_is_passed_over() {
 /// account that holds no lots: the copy cannot be booked (its cost cannot be resolved), so the
 /// ledger reports it and never stores it, but it stays among the directives.
 fn with_an_unbookable_copy_of_the_sale() -> Ledger {
-    common::load_transformed(&format!("{LOTS}{SALE_PER_UNIT}"), |mut directives| {
+    zhang_testkit::ledger::load_transformed(&format!("{LOTS}{SALE_PER_UNIT}"), |mut directives| {
         let at = transaction_at(&directives, "sell");
         let Directive::Transaction(sale) = &directives[at].data else { unreachable!() };
         let mut copy = sale.clone();
@@ -163,7 +161,7 @@ fn an_unbookable_copy_at_the_same_position_takes_neither_the_id_nor_the_seq_of_t
 /// 5 AAPL left): the two are stored in that order, and each reads its own directive.
 #[test]
 fn a_booked_copy_at_the_same_position_has_its_own_rows() {
-    let ledger = common::load_transformed(&format!("{LOTS}{SALE_PER_UNIT}"), |mut directives| {
+    let ledger = zhang_testkit::ledger::load_transformed(&format!("{LOTS}{SALE_PER_UNIT}"), |mut directives| {
         let at = transaction_at(&directives, "sell");
         let Directive::Transaction(sale) = &directives[at].data else { unreachable!() };
         let mut copy = sale.clone();
@@ -198,7 +196,7 @@ fn a_booked_copy_at_the_same_position_has_its_own_rows() {
 /// same per-unit price.
 #[test]
 fn a_total_price_is_spread_over_the_written_units_of_a_split() {
-    let ledger = common::load_text(&format!(
+    let ledger = zhang_testkit::ledger::load_text(&format!(
         "{LOTS}
 2024-06-01 * \"Broker\" \"sell\"
   Assets:Fifo    -15 AAPL {{}} @@ 2250 USD
@@ -214,7 +212,7 @@ fn a_total_price_is_spread_over_the_written_units_of_a_split() {
 /// as, and its total price is still spread over the written 15 AAPL, not over its own units.
 #[test]
 fn a_total_price_is_spread_over_the_written_units_of_a_split_a_stage_broke_apart() {
-    let ledger = common::load_transformed(
+    let ledger = zhang_testkit::ledger::load_transformed(
         &format!(
             "{LOTS}
 2024-06-01 * \"Broker\" \"sell\"

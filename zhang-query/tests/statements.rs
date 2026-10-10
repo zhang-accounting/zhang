@@ -6,8 +6,6 @@
 //! sets; column types must match exactly and column names up to the spelling documented in
 //! [`zhang_name`].
 
-mod common;
-
 use std::str::FromStr;
 use std::sync::OnceLock;
 
@@ -19,7 +17,7 @@ use zhang_query::{DataType, Params, Position, Query, QueryError, QueryErrorKind,
 
 fn fava_demo() -> &'static Ledger {
     static LEDGER: OnceLock<Ledger> = OnceLock::new();
-    LEDGER.get_or_init(common::fava_demo_ledger)
+    LEDGER.get_or_init(zhang_testkit::ledger::fava_demo_ledger)
 }
 
 fn decimal_json(value: &BigDecimal) -> Json {
@@ -262,7 +260,7 @@ option "operating_currency" "USD"
 
 fn ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| common::load_text(LEDGER))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(LEDGER))
 }
 
 fn try_rows(sql: &str) -> Result<Vec<Vec<String>>, QueryError> {

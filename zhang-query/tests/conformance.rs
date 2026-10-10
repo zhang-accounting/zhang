@@ -35,8 +35,6 @@
 //! Set `ZHANG_QUERY_CONFORMANCE_CASES=<dir>` to run the harness over another fixture
 //! directory (e.g. a mutated copy when checking that the gate catches regressions).
 
-mod common;
-
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
@@ -748,7 +746,7 @@ fn beanquery_conformance() {
         );
     }
 
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let reports = fixtures.iter().map(|fixture| run_case(&ledger, fixture)).collect::<Vec<_>>();
 
     let mut out = String::from("\nbeanquery conformance (zhang-query/tests/conformance)\n\n");

@@ -5,8 +5,6 @@
 //! beancount ignores, so the oracle copies of these ledgers wrote it on the open line
 //! instead (`1970-01-01 open Assets:Fifo "FIFO"`); they are otherwise identical.
 
-mod common;
-
 use chrono::NaiveDate;
 use zhang_query::{Params, Query, Value};
 
@@ -20,7 +18,7 @@ const HEADER: &str = r#"
 
 /// Rows of `sql` over `ledger` (appended to the shared header), as strings.
 fn query(ledger: &str, sql: &str) -> Vec<Vec<String>> {
-    let ledger = common::load_text(&format!("{HEADER}{ledger}"));
+    let ledger = zhang_testkit::ledger::load_text(&format!("{HEADER}{ledger}"));
     let today = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
     let result = Query::compile(sql)
         .and_then(|query| query.execute_at(&ledger, &Params::new(), today))
@@ -265,7 +263,7 @@ fn reduction_by_label_alone_reduces_that_lot_in_the_store_and_in_queries() {
   Assets:Bank     120 USD
   Income:Gains
 "#;
-    let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    let loaded = zhang_testkit::ledger::load_text(&format!("{HEADER}{ledger}"));
     let txns = loaded.transactions();
     let gains = txns
         .iter()
@@ -311,7 +309,7 @@ fn unlabelled_reduction_books_labelled_lots_in_the_store_and_in_queries() {
   Assets:Bank    1800 USD
   Income:Gains
 "#;
-    let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    let loaded = zhang_testkit::ledger::load_text(&format!("{HEADER}{ledger}"));
     let txns = loaded.transactions();
     let gains = txns
         .iter()
@@ -482,7 +480,7 @@ const TOTAL_COST: &str = r#"
 fn a_lot_bought_at_a_divided_cost_keeps_the_cost_it_shows() {
     // beancount 3.2.3: Cost(number=Decimal('33.33333333333333333333333333'), date=2024-01-01) for both
     let cost = "33.33333333333333333333333333";
-    let ledger = common::load_text(&format!("{HEADER}{TOTAL_COST}"));
+    let ledger = zhang_testkit::ledger::load_text(&format!("{HEADER}{TOTAL_COST}"));
     assert_eq!(booked_costs(&ledger, "Assets:Strict"), vec![cost]);
     assert_eq!(booked_costs(&ledger, "Assets:Inferred"), vec![cost]);
     assert_eq!(postings(TOTAL_COST, "Assets:Strict"), vec![row(&["3", cost, "2024-01-01", "NULL", "NULL"])]);
@@ -502,7 +500,7 @@ fn a_lot_bought_at_a_total_cost_sells_at_the_cost_it_shows() {
   Assets:Bank
 "#
     );
-    let loaded = common::load_text(&format!("{HEADER}{ledger}"));
+    let loaded = zhang_testkit::ledger::load_text(&format!("{HEADER}{ledger}"));
     assert_eq!(error_kinds(&loaded), Vec::<String>::new());
     // beancount 3.2.3: (2 STK {33.33333333333333333333333333 USD, 2024-01-01})
     assert_eq!(holdings(&ledger, "Assets:Strict"), "2 STK {33.33333333333333333333333333 USD, 2024-01-01}");

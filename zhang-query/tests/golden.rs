@@ -4,8 +4,6 @@
 //!
 //! Numbers are compared numerically (`4.0 = 4.00`) and inventory positions as sets.
 
-mod common;
-
 use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
@@ -122,7 +120,7 @@ fn run_case(index: usize) {
     let cases: Vec<Json> = serde_json::from_str(include_str!("golden/fava_demo.json")).unwrap();
     let case = &cases[index];
     let query = case["query"].as_str().unwrap();
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
 
     let compiled = Query::compile(query).unwrap_or_else(|err| panic!("golden case {}: {}: {}", index, query, err));
     let result = compiled.execute(&ledger, &Params::new()).unwrap_or_else(|err| panic!("{}: {}", query, err));
@@ -173,7 +171,7 @@ fn count_and_sum_of_food_expenses() {
 /// parameters, as an internal caller in zhang-server would.
 #[test]
 fn typed_api_with_parameters() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let query = Query::compile_with_params(
         "SELECT year, month, root(account, 2) AS category, sum(position) AS total \
          WHERE account ~ :pattern AND date >= :from AND date < :to \

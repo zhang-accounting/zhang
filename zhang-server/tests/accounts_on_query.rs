@@ -305,7 +305,7 @@ fn fixtures() -> Vec<(String, PathBuf, String)> {
         }
     }
     // the beancount oracle ledgers of pads, balances and document paths
-    let oracle = root.join("extensions/beancount/tests/balance_assertions");
+    let oracle = zhang_testkit::fixtures::oracle_ledger_dir();
     let mut files = std::fs::read_dir(&oracle)
         .unwrap()
         .map(|it| it.unwrap().path())

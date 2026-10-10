@@ -24,8 +24,6 @@
 //!   zeros (`-54500` vs `-54500.00`). zhang writes the scale its engine computed; the cell
 //!   is numerically exact.
 
-mod common;
-
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -178,7 +176,7 @@ fn compare(fixture: &Fixture, numberified: &NumberifiedResult, csv: &str) -> Tal
 fn csv_export_matches_beanquery() {
     let fixtures = load_fixtures();
     assert!(fixtures.len() >= 4, "expected the oracle fixtures in tests/export/cases");
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let today = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
 
     let mut table = String::from("\ncsv export vs bean-query -f csv -m (zhang-query/tests/export)\n\n");
