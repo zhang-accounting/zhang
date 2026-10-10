@@ -1,8 +1,6 @@
 //! End-to-end checks of the scalar function library on the fava demo ledger. Every expected
 //! value was cross-checked with beanquery 0.2.0 (`bean-query` on the same `main.zhang`).
 
-mod common;
-
 use chrono::NaiveDate;
 use zhang_core::ledger::Ledger;
 use zhang_query::{Params, Query, Value};
@@ -29,7 +27,7 @@ fn expect(ledger: &Ledger, query: &str, expected: &[&[&str]]) {
 
 #[test]
 fn valuation_of_holdings() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     expect(
         &ledger,
         "SELECT account, str(sum(position)), str(units(sum(position))), str(cost(sum(position))), str(value(sum(position))), \
@@ -77,7 +75,7 @@ fn valuation_of_holdings() {
 
 #[test]
 fn amount_functions() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     expect(
         &ledger,
         "SELECT date, str(units(position)), number(units(position)), currency(units(position)), str(possign(units(position), account)), \
@@ -149,7 +147,7 @@ fn amount_functions() {
 
 #[test]
 fn account_date_string_and_meta_functions() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     expect(
         &ledger,
         "SELECT DISTINCT parent(account), leaf(account), parent(root(account)) WHERE account ~ 'ETrade' ORDER BY 1, 2",
@@ -188,7 +186,7 @@ fn account_date_string_and_meta_functions() {
 
 #[test]
 fn today_comes_from_the_execution() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let today = NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
     let result = Query::compile("SELECT today(), quarter(today()) LIMIT 1")
         .unwrap()
@@ -199,7 +197,7 @@ fn today_comes_from_the_execution() {
 
 #[test]
 fn metadata_functions_read_the_posting_and_its_transaction() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"1970-01-01 commodity CNY
 1970-01-01 open Assets:Cash
 1970-01-01 open Expenses:Food

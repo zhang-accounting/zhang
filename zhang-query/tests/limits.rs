@@ -1,8 +1,6 @@
 //! The result size limit ([`ExecuteOptions::max_result_values`]): an execution that would hold
 //! more values stops with a `TooLarge` error, and ordinary queries never reach the default.
 
-mod common;
-
 use std::sync::OnceLock;
 
 use chrono::NaiveDate;
@@ -31,7 +29,7 @@ fn lots_ledger(lots: usize) -> String {
 /// 200 open lots: a `JOURNAL` of 400 rows whose running balances hold 20,000 positions.
 fn ledger() -> &'static Ledger {
     static LEDGER: OnceLock<Ledger> = OnceLock::new();
-    LEDGER.get_or_init(|| common::load_text(&lots_ledger(200)))
+    LEDGER.get_or_init(|| zhang_testkit::ledger::load_text(&lots_ledger(200)))
 }
 
 fn run(sql: &str, max_result_values: Option<u64>) -> Result<QueryResult, QueryError> {
@@ -128,7 +126,7 @@ fn small_results_stay_within_the_limit() {
 #[test]
 fn the_default_limit_covers_the_fava_demo_ledger() {
     assert_eq!(ExecuteOptions::default().max_result_values, Some(DEFAULT_MAX_RESULT_VALUES));
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     for (sql, rows) in [("JOURNAL", 3209), ("BALANCES", 58), ("SELECT *", 3209)] {
         let result = Query::compile(sql).unwrap().execute(&ledger, &Params::new()).unwrap();
         assert_eq!(result.rows.len(), rows, "{}", sql);

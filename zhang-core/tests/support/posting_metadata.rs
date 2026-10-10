@@ -107,55 +107,7 @@ impl Shape {
     }
 }
 
-/// A small xorshift PRNG, so the property tests need no extra dependency and are
-/// reproducible.
-pub struct XorShift(pub u64);
-
-impl XorShift {
-    pub fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-
-    pub fn below(&mut self, bound: usize) -> usize {
-        (self.next() % bound as u64) as usize
-    }
-
-    /// true `percent` times in a hundred
-    pub fn chance(&mut self, percent: usize) -> bool {
-        self.below(100) < percent
-    }
-
-    pub fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
-        &items[self.below(items.len())]
-    }
-
-    /// A random string drawn mostly from the characters that need care in a quoted string.
-    pub fn string(&mut self) -> String {
-        const INTERESTING: &[char] = &[
-            '"', '\\', '$', '`', '\'', '/', 'u', '{', '}', 'd', 'n', ' ', '\n', '\r', '\t', '\u{0}', '\u{07}', '\u{08}', '\u{1b}', '\u{7f}', '\u{85}',
-            '\u{a0}', '\u{200d}', '\u{2028}', '\u{2029}', '\u{3000}', '\u{feff}', '😀', '你', '好', 'é', 'a', ';', '#', ':', '*', '^', '@', '!',
-        ];
-        let len = self.below(16);
-        (0..len)
-            .map(|_| {
-                if self.below(6) == 0 {
-                    loop {
-                        if let Some(c) = char::from_u32((self.next() % 0x11_0000) as u32) {
-                            break c;
-                        }
-                    }
-                } else {
-                    INTERESTING[self.below(INTERESTING.len())]
-                }
-            })
-            .collect()
-    }
-}
+pub use zhang_testkit::XorShift;
 
 /// Keys written bare. `Receipt` and `x` are no beancount keys, but zhang's parsers read them.
 pub const BARE_KEYS: &[&str] = &["receipt", "category", "note", "document", "trip", "x-y_z", "memo2", "Receipt", "x", "Assets"];

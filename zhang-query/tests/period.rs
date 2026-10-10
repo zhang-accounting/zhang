@@ -9,8 +9,6 @@
 //! Case 022 retains beanquery's zero-row fixture; #647 deliberately returns a single count of
 //! zero after CLOSE removes every posting, checked here as the exact accepted deviation.
 
-mod common;
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -212,7 +210,7 @@ fn compare(fixture: &Fixture, outcome: Result<QueryResult, zhang_query::QueryErr
 fn period_modifiers_match_beanquery() {
     let fixtures = load_fixtures();
     assert!(!fixtures.is_empty(), "no fixtures in tests/period/cases");
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let today = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
     let failures = fixtures
         .iter()
@@ -246,7 +244,7 @@ fn cells(result: &QueryResult) -> Vec<Vec<String>> {
 
 #[test]
 fn period_dates_can_be_parameters() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let literal = run(
         &ledger,
         "SELECT account, sum(position) FROM OPEN ON 2016-01-01 CLOSE ON 2017-01-01 WHERE account ~ '^Income' GROUP BY 1 ORDER BY 1",
@@ -278,7 +276,7 @@ fn period_dates_can_be_parameters() {
 /// rows are worked out by hand from beancount's summarize, truncate and clear operations.
 #[test]
 fn period_modifiers_on_a_small_ledger() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 option "operating_currency" "USD"
 option "account_previous_earnings" "Retained"

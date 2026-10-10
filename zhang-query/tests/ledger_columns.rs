@@ -4,15 +4,13 @@
 //! per-ledger cache behind every query. These are
 //! zhang extensions, so the expected values are worked out by hand in the comments.
 
-mod common;
-
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
-use common::{fava_demo_ledger, load_text};
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, Inventory, ParamTypes, Params, PriceMap, Query, QueryErrorKind, Value};
+use zhang_testkit::ledger::{fava_demo_ledger, load_text};
 
 /// A cafe lunch at 10:30 in Shanghai, an unbalanced transaction, one posting to an account
 /// that was never opened, two lots bought and partly sold, a pad and a failing balance check.
@@ -454,7 +452,7 @@ fn a_reload_replaces_the_cache() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("main.zhang");
     std::fs::write(&file, LEDGER).unwrap();
-    let mut ledger = common::load_ledger(dir.path().to_path_buf(), "main.zhang");
+    let mut ledger = zhang_testkit::ledger::load_ledger(dir.path().to_path_buf(), "main.zhang");
     let count = |ledger: &Ledger| table(ledger, "SELECT count(*), max(seq) FROM #transactions");
     let postings = |ledger: &Ledger| table(ledger, "SELECT count(*), last(account_balance) WHERE account = 'Expenses:Food'");
     assert_eq!(count(&ledger), "6 | 11");

@@ -11,8 +11,6 @@
 //! The fixtures come from `tests/having_pivot/generate.py`, which runs the official beanquery
 //! with the conformance generator's validation (determinism, zhang's balance-check rows).
 
-mod common;
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -274,7 +272,7 @@ fn today() -> NaiveDate {
 fn having_and_pivot_match_beanquery() {
     let fixtures = load_fixtures();
     assert!(fixtures.len() >= 20, "fixtures missing from tests/having_pivot/cases");
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let failures = fixtures
         .iter()
         .filter_map(|fixture| {
@@ -292,7 +290,7 @@ fn having_and_pivot_match_beanquery() {
 }
 
 fn run(query: &str) -> QueryResult {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     Query::compile(query)
         .and_then(|query| query.execute_at(&ledger, &Params::default(), today()))
         .unwrap_or_else(|err| panic!("{}: {}", query, err))
@@ -346,7 +344,7 @@ fn having_errors_explain_the_rule() {
 /// HAVING works with the deferred running balance and with parameters.
 #[test]
 fn having_with_balance_aggregates_and_parameters() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let query = Query::compile_with_params(
         "SELECT account, last(balance) AS balance WHERE account ~ '^Assets:US:BofA' GROUP BY account \
          HAVING count(*) > :min AND last(balance) IS NOT NULL ORDER BY account",
@@ -418,7 +416,7 @@ fn pivot_errors_explain_the_rule() {
 /// when most of them are NULL.
 #[test]
 fn pivot_respects_the_result_budget() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     // about 1,000 dates × 60 accounts: 60,000 cells from about 3,000 groups
     let query = Query::compile("SELECT date, account, count(*) AS n GROUP BY 1, 2 PIVOT BY date, account").unwrap();
     let options = |limit: u64| zhang_query::ExecuteOptions {
@@ -446,7 +444,7 @@ fn pivot_column_names_count_towards_the_result_budget() {
     let alias = |c: char| c.to_string().repeat(31_000);
     let sql = format!("SELECT 'r' AS r, id, 1 AS {}, 2 AS {} GROUP BY r, id PIVOT BY r, id", alias('a'), alias('b'));
     assert!(sql.len() < zhang_query::MAX_QUERY_LENGTH);
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     // a thousand ids, two 31 KB names each: about 1,000,000 values of names for 2,000 cells
     let err = Query::compile(&sql).unwrap().execute_at(&ledger, &Params::default(), today()).unwrap_err();
     assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err);

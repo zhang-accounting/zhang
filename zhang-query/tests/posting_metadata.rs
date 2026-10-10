@@ -8,8 +8,6 @@
 //! posting): every expected row was produced by beanquery 0.2.0 on beancount 3.2.3 for the
 //! same text saved as a `.bean` file.
 
-mod common;
-
 use zhang_core::ledger::Ledger;
 use zhang_query::Value;
 
@@ -63,7 +61,7 @@ fn expect_table(ledger: &Ledger, query: &str, expected: &str) {
 }
 
 fn ledger() -> Ledger {
-    let ledger = common::load_text(LEDGER);
+    let ledger = zhang_testkit::ledger::load_text(LEDGER);
     let errors: Vec<String> = ledger.errors.iter().map(|it| format!("{:?}", it.error_type)).collect();
     assert!(errors.is_empty(), "{errors:?}");
     ledger

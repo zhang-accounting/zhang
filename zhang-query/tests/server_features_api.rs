@@ -8,8 +8,6 @@
 //! `server_features/journal/main.zhang` and the valuation ledger below, and explained in
 //! comments.
 
-mod common;
-
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::OnceLock;
@@ -22,7 +20,7 @@ use zhang_query::{ExecuteOptions, Inventory, Params, Position, PriceMap, Query, 
 
 fn journal() -> &'static Ledger {
     static CELL: OnceLock<Ledger> = OnceLock::new();
-    CELL.get_or_init(|| common::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/server_features/journal"), "main.zhang"))
+    CELL.get_or_init(|| zhang_testkit::ledger::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/server_features/journal"), "main.zhang"))
 }
 
 fn today() -> NaiveDate {
@@ -243,7 +241,7 @@ const VALUATION: &str = r#"
 
 fn valuation() -> &'static Ledger {
     static CELL: OnceLock<Ledger> = OnceLock::new();
-    CELL.get_or_init(|| common::load_text(VALUATION))
+    CELL.get_or_init(|| zhang_testkit::ledger::load_text(VALUATION))
 }
 
 /// An amount-like text with its number normalized (`80.00 CNY` is `80 CNY`); an inventory's
@@ -343,13 +341,13 @@ fn d1_price_map_for_ledger_has_the_ledgers_prices() {
     assert_eq!(rate("AAPL", "USD", Some(date(2024, 1, 15))), None);
     assert_eq!(rate("AAPL", "CNY", None), None);
     // a ledger without prices
-    assert!(PriceMap::for_ledger(&common::load_text("1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n")).is_empty());
+    assert!(PriceMap::for_ledger(&zhang_testkit::ledger::load_text("1970-01-01 commodity CNY\n1970-01-01 open Assets:Cash\n")).is_empty());
 }
 
 #[test]
 fn the_cached_price_map_is_the_one_queries_use_and_is_shared() {
     // a ledger of its own, so no other test has filled its cache yet
-    let ledger = common::load_text(VALUATION);
+    let ledger = zhang_testkit::ledger::load_text(VALUATION);
     let cached = PriceMap::cached(&ledger);
     // built once: a query and a later call use the same map
     single(&ledger, "SELECT convert(sum(position), 'CNY')");

@@ -3,8 +3,6 @@
 //! parameters bound, for every type a parameter can have, including strings with quotes and
 //! backslashes, dates, sets and NULL.
 
-mod common;
-
 use std::collections::BTreeSet;
 use std::str::FromStr;
 use std::sync::OnceLock;
@@ -44,7 +42,7 @@ const LEDGER: &str = r#"option "operating_currency" "USD"
 
 fn ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| common::load_text(LEDGER))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(LEDGER))
 }
 
 fn options() -> ExecuteOptions {

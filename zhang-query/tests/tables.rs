@@ -1,8 +1,6 @@
 //! `FROM #table`: the table registry, name resolution, per-table columns, the projector,
 //! `explain()`, CSV export and the schema.
 
-mod common;
-
 use std::sync::OnceLock;
 
 use chrono::NaiveDate;
@@ -33,7 +31,7 @@ option "operating_currency" "USD"
 
 fn ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| common::load_text(LEDGER))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(LEDGER))
 }
 
 fn today() -> NaiveDate {
@@ -81,7 +79,7 @@ fn prices_rows_come_in_ledger_order() {
 /// 1705248000 (19737 days of 86400 s since 1970-01-01, minus 8 hours).
 #[test]
 fn prices_have_the_time_and_timestamp_of_their_directive() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 option "operating_currency" "USD"
 option "timezone" "Asia/Shanghai"
@@ -281,7 +279,7 @@ fn the_schema_describes_every_table() {
 
 #[test]
 fn the_fava_demo_ledger_prices_match_the_store() {
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let run = |sql: &str| Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap().rows;
     assert_eq!(run("SELECT count(*) FROM #prices"), vec![vec![Value::Int(846)]]);
     assert_eq!(run("SELECT DISTINCT currency FROM #prices").len(), 6);
@@ -327,7 +325,7 @@ option "operating_currency" "USD"
 
 fn directives_ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| common::load_text(DIRECTIVES))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(DIRECTIVES))
 }
 
 fn on_directives(sql: &str) -> Vec<Vec<String>> {
@@ -444,7 +442,7 @@ fn balances_report_the_discrepancy_zhang_found() {
 fn a_balance_discrepancy_is_measured_from_the_postings() {
     // an assertion moves no balance, failing or not: each one is measured from the postings, and a
     // transaction flagged `C` (beancount's conversions) is an ordinary transaction
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Equity:Opening\n\
          2024-01-01 * \"Salary\"\n  Assets:Bank 165 CNY\n  Equity:Opening\n\
          2024-01-02 balance Assets:Bank 200 CNY\n\
@@ -470,7 +468,7 @@ fn a_balance_discrepancy_is_measured_from_the_postings() {
 
 #[test]
 fn a_pad_is_an_entry_and_its_padding_a_transaction_on_its_date() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Assets:Cash\n1970-01-01 open Equity:Opening\n\
          2024-01-01 pad Assets:Bank Equity:Opening\n\
          2024-01-01 pad Assets:Cash Equity:Opening\n\
@@ -501,7 +499,7 @@ fn a_pad_is_an_entry_and_its_padding_a_transaction_on_its_date() {
 
 #[test]
 fn a_balance_with_pad_reports_the_discrepancy_a_later_pad_of_its_time_leaves() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Assets:Bank:Checking\n1970-01-01 open Equity:Opening\n\
          2024-01-02 * \"init\"\n  Assets:Bank 345 CNY\n  Assets:Bank:Checking 155 CNY\n  Equity:Opening\n\
          2024-01-10 balance Assets:Bank 500 CNY with pad Equity:Opening\n\
@@ -522,7 +520,7 @@ fn a_balance_with_pad_reports_the_discrepancy_a_later_pad_of_its_time_leaves() {
 /// same values.
 #[test]
 fn directive_tables_have_the_columns_of_their_entries() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 1970-01-01 commodity USD
   name: "US Dollar"
@@ -607,7 +605,7 @@ fn accounts_expose_open_and_close_as_structures() {
 /// the instant its lifecycle starts at, the one `account_status` compares with.
 #[test]
 fn open_time_is_the_time_written_in_the_open() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 option "timezone" "Asia/Shanghai"
 1970-01-01 open Assets:Plain
@@ -653,7 +651,7 @@ option "timezone" "Asia/Shanghai"
 /// for a value that is not a method zhang books with.
 #[test]
 fn open_booking_is_the_method_booking_uses() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 option "operating_currency" "USD"
 1970-01-01 commodity USD
@@ -768,12 +766,12 @@ mod oracle {
     use zhang_core::ledger::Ledger;
     use zhang_query::{DataType, Params, Query, Value};
 
-    use super::{common, today};
+    use super::today;
 
     fn ledger(name: &str) -> Ledger {
         match name {
-            "fava" => common::fava_demo_ledger(),
-            "extra" => common::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/tables/ledger"), "main.zhang"),
+            "fava" => zhang_testkit::ledger::fava_demo_ledger(),
+            "extra" => zhang_testkit::ledger::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/tables/ledger"), "main.zhang"),
             other => panic!("unknown oracle ledger {}", other),
         }
     }
@@ -922,7 +920,7 @@ mod oracle {
 #[test]
 fn the_paddings_of_a_pad_follow_it_each_with_its_own_id_as_beancount_orders_a_day() {
     // a pad between two transactions of its day, padding two commodities
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 open Equity:Opening\n\
          2024-01-05 * \"before pad\"\n  Assets:Bank -10 CNY\n  Expenses:Food\n\
          2024-01-05 pad Assets:Bank Equity:Opening\n\
@@ -986,7 +984,7 @@ fn the_paddings_of_a_pad_follow_it_each_with_its_own_id_as_beancount_orders_a_da
 fn a_pad_is_processed_after_the_balance_entries_of_its_day() {
     // a pad written at 9:00, before a balance at noon: zhang processes it after every balance entry of its day, at
     // the time of the last one, with its padding right after it
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 open Equity:Opening\n\
          2024-01-05 09:00:00 pad Assets:Bank Equity:Opening\n\
          2024-01-05 08:00:00 * \"breakfast\"\n  Assets:Bank -10 CNY\n  Expenses:Food\n\

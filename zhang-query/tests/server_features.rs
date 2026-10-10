@@ -38,8 +38,6 @@
 //! `cargo test --release -p zhang-query --test server_features -- --ignored --nocapture`.
 //! The big synthetic ledger is read from `ZHANG_QUERY_BIG_LEDGER` (default `/tmp/qm-b/big`).
 
-mod common;
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -65,7 +63,7 @@ macro_rules! fixture_ledger {
     ($function:ident, $name:literal) => {
         fn $function() -> &'static Ledger {
             static CELL: OnceLock<Ledger> = OnceLock::new();
-            CELL.get_or_init(|| common::load_ledger(fixture_dir($name), "main.zhang"))
+            CELL.get_or_init(|| zhang_testkit::ledger::load_ledger(fixture_dir($name), "main.zhang"))
         }
     };
 }
@@ -944,8 +942,8 @@ fn d1_a_reloaded_ledger_is_queried_afresh() {
     let second = tempfile::tempdir().unwrap();
     write(first.path(), HEADER);
     write(second.path(), HEADER);
-    let mut ledger = common::load_ledger(first.path().to_path_buf(), "main.zhang");
-    let other = common::load_ledger(second.path().to_path_buf(), "main.zhang");
+    let mut ledger = zhang_testkit::ledger::load_ledger(first.path().to_path_buf(), "main.zhang");
+    let other = zhang_testkit::ledger::load_ledger(second.path().to_path_buf(), "main.zhang");
 
     let compiled = Query::compile("SELECT narration, position, balance, account_balance, seq FROM #postings WHERE account = 'Assets:Bank'").unwrap();
     let run = |ledger: &Ledger| cells(&compiled.execute_with_options(ledger, &Params::new(), &options()).unwrap());
@@ -2701,7 +2699,7 @@ fn big_ledger() -> Option<Ledger> {
         return None;
     }
     let start = Instant::now();
-    let ledger = common::load_ledger(dir, "main.zhang");
+    let ledger = zhang_testkit::ledger::load_ledger(dir, "main.zhang");
     eprintln!("loaded the big ledger in {:?}", start.elapsed());
     Some(ledger)
 }
@@ -2745,7 +2743,7 @@ fn perf_fixed_cost_per_query_on_fava_demo() {
     if !release_only() {
         return;
     }
-    let ledger = common::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let slow = time_all(
         &ledger,
         &[
@@ -2775,7 +2773,7 @@ fn perf_parameterized_regex_costs_what_a_literal_costs() {
     let literal = "SELECT count(*) WHERE payee ~ 'restaurant' OR narration ~ 'restaurant' OR account ~ 'restaurant'";
     let parameterized = literal.replace("'restaurant'", ":keyword");
     let params = Params::new().bind("keyword", "restaurant");
-    let mut ledgers = vec![("fava-demo", common::fava_demo_ledger())];
+    let mut ledgers = vec![("fava-demo", zhang_testkit::ledger::fava_demo_ledger())];
     ledgers.extend(big_ledger().map(|it| ("big", it)));
     let mut slow = vec![];
     for (name, ledger) in &ledgers {

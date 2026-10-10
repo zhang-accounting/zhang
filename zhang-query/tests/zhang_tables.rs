@@ -5,8 +5,6 @@
 //! and error APIs, and `zhang-server/tests/query_zhang_tables.rs` checks the same ledgers
 //! against `GET /api/budgets` and `GET /api/errors`.
 
-mod common;
-
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -22,7 +20,7 @@ fn ledger() -> &'static Ledger {
 }
 
 fn fixture(name: &str) -> Ledger {
-    common::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests").join(name), "main.zhang")
+    zhang_testkit::ledger::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests").join(name), "main.zhang")
 }
 
 /// `today()` of the executions: before every entry of the fixtures, so that the current month
@@ -598,7 +596,7 @@ option "operating_currency" "CNY"
 /// activity after it: the lunch of April is left out and reported.
 #[test]
 fn a_budget_leaves_out_unconverted_amounts_and_spending_after_its_close() {
-    let ledger = common::load_text(BUDGET_499);
+    let ledger = zhang_testkit::ledger::load_text(BUDGET_499);
     assert_eq!(
         run(&ledger, "SELECT date, assigned, added, activity, available, closed FROM #budgets"),
         rows(&[
@@ -634,7 +632,7 @@ fn a_budget_leaves_out_unconverted_amounts_and_spending_after_its_close() {
 
     // with a price, the amounts in USD are converted at their date and nothing is reported but
     // the spending after the close
-    let ledger = common::load_text(&format!("{}\n2024-01-01 price USD 7 CNY\n", BUDGET_499));
+    let ledger = zhang_testkit::ledger::load_text(&format!("{}\n2024-01-01 price USD 7 CNY\n", BUDGET_499));
     assert_eq!(
         run(
             &ledger,
@@ -683,7 +681,7 @@ const ONE_MEMBERSHIP_RULE: &str = r#"
 
 #[test]
 fn a_posting_counts_toward_a_budget_by_one_rule() {
-    let ledger = common::load_text(ONE_MEMBERSHIP_RULE);
+    let ledger = zhang_testkit::ledger::load_text(ONE_MEMBERSHIP_RULE);
     // the lunch at 09:00 counts in A, the budget of the open in effect then, not in B, which
     // the account names from 10:00 on; the market before the budget's definition and the
     // dollars no price converts are not food's
@@ -743,7 +741,7 @@ fn a_posting_counts_toward_a_budget_by_one_rule() {
 /// closes it at that time.
 #[test]
 fn a_budget_takes_activity_until_its_close() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 1970-01-01 commodity CNY
 1970-01-01 open Assets:Bank
@@ -799,7 +797,7 @@ fn a_budget_takes_activity_until_its_close() {
 /// transaction, whichever is later; other directives do not extend them.
 #[test]
 fn budget_months_follow_the_budget_and_the_transactions() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 1970-01-01 commodity CNY
 1970-01-01 open Assets:Bank
@@ -833,7 +831,7 @@ fn a_far_future_event_does_not_generate_months() {
     for index in 0..100 {
         text.push_str(&format!("1000-01-01 budget b{} CNY\n", index));
     }
-    let ledger = common::load_text(&text);
+    let ledger = zhang_testkit::ledger::load_text(&text);
     let in_the_year_1000 = NaiveDate::from_ymd_opt(1000, 1, 15).unwrap();
     assert_eq!(
         run_at(&ledger, "SELECT count(*), min(date), max(date) FROM #budgets", in_the_year_1000),
@@ -863,7 +861,7 @@ fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
     for index in 0..100 {
         text.push_str(&format!("1000-01-01 budget b{} CNY\n", index));
     }
-    let ledger = common::load_text(&text);
+    let ledger = zhang_testkit::ledger::load_text(&text);
     let compiled = Query::compile("SELECT count(*) FROM #budgets WHERE year = 2024").unwrap();
     // 100 budgets of 9000 years of months would be 10.8 million rows
     let err = compiled.execute_at(&ledger, &Params::new(), today()).unwrap_err();
@@ -891,7 +889,7 @@ fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
     // one budget fits: 9000 years of months, of which 12 are in 2024
     let mut text = String::from("1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 commodity CNY\n");
     text.push_str("9999-12-31 * \"a typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n1000-01-01 budget b CNY\n");
-    let ledger = common::load_text(&text);
+    let ledger = zhang_testkit::ledger::load_text(&text);
     assert_eq!(run(&ledger, "SELECT count(*) FROM #budgets WHERE year = 2024"), rows(&[&["12"]]));
 }
 
@@ -908,7 +906,7 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
     };
     // a filter that keeps the months of a year still generates every month before it is applied
     let message = |text: &str| {
-        let ledger = common::load_text(text);
+        let ledger = zhang_testkit::ledger::load_text(text);
         let err = Query::compile("SELECT name, available FROM #budgets WHERE year = 2024")
             .unwrap()
             .execute_with_options(&ledger, &Params::new(), &options)
@@ -952,7 +950,7 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
     );
 
     // without the typo, the same query is small
-    let ledger = common::load_text(header);
+    let ledger = zhang_testkit::ledger::load_text(header);
     let result = Query::compile("SELECT name, available FROM #budgets WHERE date = 2024-02-01")
         .unwrap()
         .execute_with_options(&ledger, &Params::new(), &options)

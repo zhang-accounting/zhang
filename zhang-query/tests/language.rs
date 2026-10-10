@@ -7,8 +7,6 @@
 //! (`tests/conformance`, Phase 4); the expectations here are worked out by hand on a small
 //! ledger, each explained where it is not obvious.
 
-mod common;
-
 use std::sync::OnceLock;
 
 use chrono::NaiveDate;
@@ -55,12 +53,12 @@ const LEDGER: &str = r#"option "operating_currency" "USD"
 
 fn ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| common::load_text(LEDGER))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(LEDGER))
 }
 
 fn fava() -> &'static Ledger {
     static FAVA: OnceLock<Ledger> = OnceLock::new();
-    FAVA.get_or_init(common::fava_demo_ledger)
+    FAVA.get_or_init(zhang_testkit::ledger::fava_demo_ledger)
 }
 
 fn today() -> NaiveDate {
@@ -364,7 +362,7 @@ fn directive_functions_read_open_close_and_commodity() {
 /// beanquery, whichever comes first in the file.
 #[test]
 fn directive_functions_read_the_earliest_open() {
-    let ledger = common::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"option "operating_currency" "CNY"
 1970-01-01 commodity CNY
 1970-01-01 open Equity:Opening
@@ -701,7 +699,7 @@ fn metas_and_sets_count_their_text_against_the_result_budget() {
         }
         text.push_str("  Expenses:B 1 USD\n  Assets:A -1 USD\n");
     }
-    let ledger = common::load_text(&text);
+    let ledger = zhang_testkit::ledger::load_text(&text);
     let run = |sql: &str, limit: u64| {
         let options = ExecuteOptions {
             max_result_values: Some(limit),
