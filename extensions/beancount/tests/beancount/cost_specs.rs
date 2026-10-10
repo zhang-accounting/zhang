@@ -8,25 +8,23 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use beancount::Beancount;
 use bigdecimal::BigDecimal;
 use serde_json::Value;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
-use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType as ColumnType, ParamTypes, Params, Query};
+use zhang_testkit::fixtures::load_dir;
 
 fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cost_specs")
 }
 
 fn load() -> Ledger {
-    let data_source = Arc::new(LocalFileSystemDataSource::new(Beancount::default()));
-    Ledger::load_with_data_source(dir(), "ledger.bean".to_owned(), data_source).expect("the ledger loads")
+    load_dir(dir(), "ledger.bean").expect("the ledger loads")
 }
 
 fn oracle() -> Value {

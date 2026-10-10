@@ -11,46 +11,28 @@ use bigdecimal::BigDecimal;
 use zhang_ast::amount::Amount;
 use zhang_ast::*;
 use zhang_core::data_type::DataType;
+use zhang_testkit::XorShift;
 
-/// A small xorshift PRNG, so the property test needs no extra dependency and is
-/// reproducible.
-struct XorShift(u64);
-
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-
-    fn below(&mut self, bound: usize) -> usize {
-        (self.next() % bound as u64) as usize
-    }
-
-    /// A random string drawn mostly from the characters that need care.
-    fn string(&mut self) -> String {
-        const INTERESTING: &[char] = &[
-            '"', '\\', '$', '`', '\'', '/', 'u', '{', '}', 'd', 'n', ' ', '\n', '\r', '\t', '\u{0}', '\u{07}', '\u{08}', '\u{1b}', '\u{7f}', '\u{85}',
-            '\u{a0}', '\u{200d}', '\u{2028}', '\u{2029}', '\u{3000}', '\u{feff}', '😀', '你', '好', 'é', 'a', ';', '#', ':',
-        ];
-        let len = self.below(24);
-        (0..len)
-            .map(|_| {
-                if self.below(5) == 0 {
-                    loop {
-                        if let Some(c) = char::from_u32((self.next() % 0x11_0000) as u32) {
-                            break c;
-                        }
+/// A random string drawn mostly from the characters that need care.
+fn random_string(rng: &mut XorShift) -> String {
+    const INTERESTING: &[char] = &[
+        '"', '\\', '$', '`', '\'', '/', 'u', '{', '}', 'd', 'n', ' ', '\n', '\r', '\t', '\u{0}', '\u{07}', '\u{08}', '\u{1b}', '\u{7f}', '\u{85}', '\u{a0}',
+        '\u{200d}', '\u{2028}', '\u{2029}', '\u{3000}', '\u{feff}', '😀', '你', '好', 'é', 'a', ';', '#', ':',
+    ];
+    let len = rng.below(24);
+    (0..len)
+        .map(|_| {
+            if rng.below(5) == 0 {
+                loop {
+                    if let Some(c) = char::from_u32((rng.next() % 0x11_0000) as u32) {
+                        break c;
                     }
-                } else {
-                    INTERESTING[self.below(INTERESTING.len())]
                 }
-            })
-            .collect()
-    }
+            } else {
+                INTERESTING[rng.below(INTERESTING.len())]
+            }
+        })
+        .collect()
 }
 
 fn quote(s: String) -> ZhangString {
@@ -211,7 +193,7 @@ fn exporting_then_parsing_random_strings_is_an_identity() {
     for _ in 0..300 {
         let mut strings = Vec::new();
         for _ in 0..20 {
-            strings.push(rng.string());
+            strings.push(random_string(&mut rng));
         }
         let mut strings = strings.into_iter();
         for directive in directives_with_strings(|| strings.next().unwrap()) {
@@ -237,7 +219,7 @@ fn metadata_keys_that_are_not_bare_words_round_trip_quoted() {
     // quoted for zhang's beancount parser, which reads them back exactly
     let mut rng = XorShift(0x6b65_7973_beef);
     let keys = ["my key", ";path", "", "a:b", "#tag", "say \"hi\"", "tab\tkey"].map(str::to_owned);
-    for key in keys.into_iter().chain((0..300).map(|_| rng.string())) {
+    for key in keys.into_iter().chain((0..300).map(|_| random_string(&mut rng))) {
         let mut meta = Meta::default();
         meta.insert(key.clone(), quote("v".to_owned()));
         let open = Directive::Open(Open {

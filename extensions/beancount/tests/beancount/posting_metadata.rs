@@ -14,7 +14,6 @@
 //! `Posting.meta` (see `zhang_testkit::dialect::posting_meta`), with the same `Meta` type as
 //! `Transaction.meta`.
 
-use beancount::Beancount;
 use indoc::indoc;
 use zhang_ast::*;
 use zhang_core::data_type::text::ZhangDataType;
@@ -22,60 +21,23 @@ use zhang_core::data_type::DataType;
 use zhang_testkit::dialect::*;
 
 fn transactions(text: &str) -> Vec<Transaction> {
-    Beancount::default()
-        .transform(text.to_owned(), None)
-        .unwrap_or_else(|err| panic!("cannot parse {text:?}: {err}"))
-        .into_iter()
-        .filter_map(|it| match it.data {
-            Directive::Transaction(txn) => Some(txn),
-            _ => None,
-        })
-        .collect()
+    Scenario::beancount().transactions(text)
 }
 
 fn parse_one(text: &str) -> Transaction {
-    let mut txns = transactions(text);
-    assert_eq!(txns.len(), 1, "expected one transaction in {text:?}");
-    txns.remove(0)
+    Scenario::beancount().parse_one(text)
 }
 
 fn assert_shape(text: &str, expected: Shape) {
-    assert_eq!(Shape::of(&parse_one(text)), expected, "beancount format, text:\n{text}");
+    Scenario::beancount().assert_shape(text, expected)
 }
 
 fn export(txn: Transaction) -> String {
-    Beancount::default().export(Spanned::new(Directive::Transaction(txn), SpanInfo::default()))
+    Scenario::beancount().export(txn)
 }
 
-/// Export then parse gives `txn` back, and the export is laid out as the contract says.
 fn assert_round_trips(txn: &Transaction) {
-    let exported = export(txn.clone());
-    assert_export_layout(&exported, txn);
-    let reparsed = parse_one(&exported);
-    assert_eq!(&reparsed, txn, "exported as:\n{exported}");
-    assert_eq!(Shape::of(&reparsed), Shape::of(txn), "exported as:\n{exported}");
-}
-
-/// The exported text is the header, the transaction metadata at 2 spaces, then each posting
-/// at 2 spaces followed by exactly its own metadata lines at 4 spaces.
-fn assert_export_layout(exported: &str, txn: &Transaction) {
-    let lines: Vec<&str> = exported.trim_end_matches('\n').split('\n').collect();
-    let indent = |line: &str| line.len() - line.trim_start_matches(' ').len();
-    let txn_lines = txn.meta.clone().get_flatten().len();
-    let mut expected_indents = vec![2; txn_lines];
-    for posting in &txn.postings {
-        expected_indents.push(2);
-        expected_indents.extend(std::iter::repeat_n(4, posting_meta(posting).clone().get_flatten().len()));
-    }
-    let indents: Vec<usize> = lines.iter().skip(1).map(|line| indent(line)).collect();
-    assert_eq!(indents, expected_indents, "indentation of each line after the header of:\n{exported}");
-    for (line, posting) in lines.iter().skip(1 + txn_lines).filter(|line| indent(line) == 2).zip(&txn.postings) {
-        assert!(
-            line.trim_start().starts_with(&posting.account.content),
-            "expected the posting on {} at {line:?} in:\n{exported}",
-            posting.account.content
-        );
-    }
+    Scenario::beancount().assert_round_trips(txn)
 }
 
 // ---------------------------------------------------------------------------
@@ -328,17 +290,6 @@ fn the_same_text_attaches_by_each_format_s_own_rule() {
 // ---------------------------------------------------------------------------
 // export
 // ---------------------------------------------------------------------------
-
-fn lunch() -> Transaction {
-    transaction(
-        vec![
-            posting("Assets:Cash", Some(("-10", "CNY")), &[("receipt", quote("r-1"))]),
-            posting("Expenses:Food", Some(("7", "CNY")), &[]),
-            posting("Expenses:Tips", None, &[("memo", quote("say \"hi\" \\ bye"))]),
-        ],
-        &[("note", quote("t"))],
-    )
-}
 
 /// beancount 3.2.3 reads this text as txn {note: t}, Assets:Cash {receipt: r-1},
 /// Expenses:Food {} and Expenses:Tips {memo: say "hi" \ bye}.

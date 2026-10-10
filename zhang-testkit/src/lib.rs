@@ -29,6 +29,8 @@
 //! | a reproducible random source | [`XorShift`] |
 //! | a golden file (`UPDATE_GOLDEN=1` rewrites it) | [`golden::assert_text`], [`golden::assert_json`] |
 //! | where a transaction's metadata landed, random transactions and text layouts per dialect | [`dialect::Shape`], [`dialect::random_transaction`], [`dialect::random_layout`] |
+//! | a text through one dialect's parser and exporter, with the shape and round-trip checks | [`dialect::Scenario`] |
+//! | the string-escaping scenarios of both dialects | [`dialect::escaping`] |
 //! | a handler's `State`, a response as JSON, the server's router (feature `server`) | [`http`] |
 
 pub mod dialect;
