@@ -99,6 +99,8 @@ pub fn parse(body: &[u8]) -> Result<Message, RpcError> {
     match object.get("id") {
         None => Ok(Message::Notification { method }),
         Some(Value::Null) => Err(invalid("the id of a request must not be null")),
+        // a number is echoed as it was read: only an integer within 64 bits survives that exactly
+        Some(Value::Number(number)) if !(number.is_i64() || number.is_u64()) => Err(invalid("a numeric id must be an integer within 64 bits")),
         Some(id @ (Value::String(_) | Value::Number(_))) => Ok(Message::Request(Request {
             id: id.clone(),
             method,
@@ -113,9 +115,14 @@ pub fn result_body(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-/// the error response to the request `id`, `null` when the request could not be read
+/// the error response to the request `id`; without an `id` when the request could not be read (the 2026-07-28
+/// schema's `JSONRPCErrorResponse` has `id?: RequestId`)
 pub fn error_body(id: Option<&Value>, error: &RpcError) -> Value {
-    json!({"jsonrpc": "2.0", "id": id.cloned().unwrap_or(Value::Null), "error": error.to_json()})
+    let mut body = json!({"jsonrpc": "2.0", "error": error.to_json()});
+    if let Some(id) = id {
+        body["id"] = id.clone();
+    }
+    body
 }
 
 #[cfg(test)]
@@ -141,6 +148,11 @@ mod test {
         );
         let numbered = parse(br#"{"jsonrpc":"2.0","id":7,"method":"ping"}"#).unwrap();
         assert!(matches!(numbered, Message::Request(Request { id, .. }) if id == json!(7)));
+        // integers within 64 bits are kept exactly
+        let large = parse(br#"{"jsonrpc":"2.0","id":18446744073709551615,"method":"ping"}"#).unwrap();
+        assert!(matches!(large, Message::Request(Request { id, .. }) if serde_json::to_string(&id).unwrap() == "18446744073709551615"));
+        let negative = parse(br#"{"jsonrpc":"2.0","id":-9223372036854775808,"method":"ping"}"#).unwrap();
+        assert!(matches!(negative, Message::Request(Request { id, .. }) if serde_json::to_string(&id).unwrap() == "-9223372036854775808"));
         assert_eq!(
             parse(br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#).unwrap(),
             Message::Notification {
@@ -164,6 +176,12 @@ mod test {
         assert_eq!(code_of(r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#), INVALID_REQUEST);
         assert_eq!(code_of(r#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#), INVALID_REQUEST);
         assert_eq!(code_of(r#"{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}"#), INVALID_REQUEST);
+        assert_eq!(code_of(r#"{"jsonrpc":"2.0","id":1.5,"method":"ping"}"#), INVALID_REQUEST);
+        assert_eq!(code_of(r#"{"jsonrpc":"2.0","id":1e3,"method":"ping"}"#), INVALID_REQUEST);
+        assert_eq!(
+            code_of(r#"{"jsonrpc":"2.0","id":123456789012345678901234567890,"method":"ping"}"#),
+            INVALID_REQUEST
+        );
         assert_eq!(code_of(r#"{"jsonrpc":"2.0","id":1,"method":7}"#), INVALID_REQUEST);
         assert_eq!(code_of(r#"{"jsonrpc":"2.0","id":1,"method":"ping","params":[1]}"#), INVALID_REQUEST);
         assert_eq!(code_of(r#"{"jsonrpc":"2.0","id":1}"#), INVALID_REQUEST);
@@ -179,7 +197,7 @@ mod test {
         );
         assert_eq!(
             error_body(None, &RpcError::new(-32700, "bad")),
-            json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "bad"}})
+            json!({"jsonrpc": "2.0", "error": {"code": -32700, "message": "bad"}})
         );
     }
 }

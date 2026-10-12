@@ -380,6 +380,10 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
     assert_eq!((rows["row_count"].as_u64(), rows["truncated"].as_bool()), (Some(3), Some(false)));
     let cut = structured(&router, "query", json!({"bql": "SELECT account GROUP BY account ORDER BY account", "limit": 2})).await;
     assert_eq!((cut["row_count"].as_u64(), cut["truncated"].as_bool()), (Some(2), Some(true)));
+    // `limit` over the directive's `max_rows` is an error the model can correct
+    let over = tool(&router, "query", json!({"bql": "SELECT account", "limit": 51})).await;
+    assert_eq!(over["isError"], true);
+    assert_eq!(over["content"][0]["text"], "the argument `limit` must be at most 50, this server's cap on rows");
 
     // accounts: open ones now, the closed one on request
     let accounts = structured(&router, "accounts", json!({})).await;
@@ -454,6 +458,12 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
     assert_eq!(inventory(cell(&monthly, 0, "value")), BTreeMap::from([("CNY".to_owned(), 50.0)]));
     assert_eq!(cell(&monthly, 1, "month"), "2024-03-01");
     assert_eq!(inventory(cell(&monthly, 1, "value")), BTreeMap::from([("CNY".to_owned(), 340.0)]));
+    let backwards = tool(&router, "spending", json!({"from": "2024-03-31", "to": "2024-01-01"})).await;
+    assert_eq!(backwards["isError"], true);
+    assert!(backwards["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("the argument `from` (2024-03-31) is after `to` (2024-01-01)"));
     let by_currency = structured(&router, "spending", json!({"from": "2024-01-01", "to": "2024-03-31", "group_by": "currency"})).await;
     assert_eq!(columns(&by_currency), ["currency", "units", "value"]);
     assert_eq!(cell(&by_currency, 0, "currency"), "CNY");
@@ -515,11 +525,18 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
         "{failed}"
     );
 
-    // protocol errors
+    // arguments failing the tool's schema are tool execution errors naming the argument
+    let wrong = tool(&router, "journal", json!({"account": 1})).await;
+    assert_eq!(wrong["isError"], true);
+    assert_eq!(wrong["content"][0]["text"], "the argument `account` must be a string");
+    let missing = tool(&router, "journal", json!({})).await;
+    assert_eq!(missing["content"][0]["text"], "the argument `account` is required");
+
+    // protocol errors: an unknown tool, a malformed call
     let reply = post(&router, &[], &request(4, "tools/call", json!({"name": "nope"}))).await;
     assert_eq!(reply.status, 200);
     assert_eq!(reply.json()["error"]["code"], -32602);
-    let reply = post(&router, &[], &request(5, "tools/call", json!({"name": "journal", "arguments": {"account": 1}}))).await;
+    let reply = post(&router, &[], &request(5, "tools/call", json!({"arguments": {}}))).await;
     assert_eq!(reply.json()["error"]["code"], -32602);
     let reply = post(&router, &[], &request(6, "resources/list", json!({}))).await;
     assert_eq!((reply.status.as_u16(), reply.json()["error"]["code"].as_i64()), (200, Some(-32601)));
@@ -533,9 +550,28 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
     assert_eq!(reply.status, 405);
     let reply = post(&router, &[("origin", "https://evil.example")], &request(8, "ping", json!({}))).await;
     assert_eq!((reply.status.as_u16(), reply.json()["error"]["code"].as_i64()), (403, Some(-32600)));
+    assert!(reply.json().get("id").is_none(), "a transport-level error has no id");
+    // the request's own host counts only when it is this machine
+    let reply = post(
+        &router,
+        &[("origin", "http://localhost:8000"), ("host", "localhost:8000")],
+        &request(8, "ping", json!({})),
+    )
+    .await;
+    assert_eq!(reply.status, 200, "{}", reply.text());
+    let reply = post(
+        &router,
+        &[("origin", "http://ledger.lan:8000"), ("host", "ledger.lan:8000")],
+        &request(8, "ping", json!({})),
+    )
+    .await;
+    assert_eq!(reply.status, 403);
     let reply = post(&router, &[("origin", "https://ledger.example.com")], &request(8, "ping", json!({}))).await;
     assert_eq!(reply.status, 200, "an allowed origin");
     let reply = post(&router, &[], &json!([request(8, "ping", json!({}))])).await;
+    assert_eq!((reply.status.as_u16(), reply.json()["error"]["code"].as_i64()), (400, Some(-32600)));
+    assert!(reply.json().get("id").is_none());
+    let reply = post(&router, &[], &json!({"jsonrpc": "2.0", "id": 1.5, "method": "ping"})).await;
     assert_eq!((reply.status.as_u16(), reply.json()["error"]["code"].as_i64()), (400, Some(-32600)));
     let reply = post(&router, &[], &json!({"jsonrpc": "2.0", "id": 3, "result": {}})).await;
     assert_eq!(reply.status, 202);
@@ -564,7 +600,7 @@ async fn a_modern_session_discovers_and_calls_with_headers_and_meta() {
     assert_eq!(result["supportedVersions"], json!(["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"]));
     assert_eq!(result["capabilities"], json!({"tools": {}}));
     assert_eq!(result["_meta"][META_SERVER_INFO]["name"], "zhang-mcp");
-    assert_eq!((result["ttlMs"].as_u64(), result["cacheScope"].as_str()), (Some(3_600_000), Some("public")));
+    assert_eq!((result["ttlMs"].as_u64(), result["cacheScope"].as_str()), (Some(3_600_000), Some("private")));
     assert!(reply.header("mcp-session-id").is_none());
 
     let reply = post(
@@ -576,6 +612,7 @@ async fn a_modern_session_discovers_and_calls_with_headers_and_meta() {
     let result = &reply.json()["result"];
     assert_eq!(result["tools"].as_array().unwrap().len(), 12);
     assert_eq!((result["resultType"].as_str(), result["ttlMs"].as_u64()), (Some("complete"), Some(3_600_000)));
+    assert_eq!(result["cacheScope"], "public");
 
     let reply = post(
         &router,

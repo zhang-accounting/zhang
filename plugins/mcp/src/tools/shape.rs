@@ -52,8 +52,17 @@ pub fn rows(result: QueryResult, limit: usize) -> Value {
     })
 }
 
-/// the `outputSchema` of a rows tool
+/// the `outputSchema` of a rows tool without an `offset` argument
 pub fn rows_schema() -> Value {
+    rows_schema_with("true when more rows exist than were returned: narrow the query, or raise `limit`")
+}
+
+/// the `outputSchema` of a rows tool that pages with `offset`
+pub fn paged_rows_schema() -> Value {
+    rows_schema_with("true when more rows exist than were returned: page on with `offset`, or raise `limit`")
+}
+
+fn rows_schema_with(truncated: &str) -> Value {
     json!({
         "type": "object",
         "description": "A query result: the columns in order, then one array per row with a cell per column. A cell is \
@@ -71,7 +80,7 @@ pub fn rows_schema() -> Value {
             },
             "rows": {"type": "array", "items": {"type": "array"}},
             "row_count": {"type": "integer", "description": "the number of rows returned"},
-            "truncated": {"type": "boolean", "description": "true when more rows exist than were returned: narrow the query or page with offset"},
+            "truncated": {"type": "boolean", "description": truncated},
         },
         "required": ["columns", "rows", "row_count", "truncated"],
     })

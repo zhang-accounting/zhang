@@ -1,10 +1,9 @@
 //! The arguments of a tool: declared once, they give both the tool's `inputSchema` and the validation of a call.
-//! An argument that fails its declaration is a protocol error (`-32602`), as the specification keeps for requests
-//! that do not satisfy the tool's schema.
+//! An argument that fails its declaration is a tool execution error (`isError: true`) naming the argument and what it
+//! expects, so the model can correct the call: the specification's "Error Handling" of tools keeps input validation
+//! errors ("date in wrong format, value out of range") for tool results, not for JSON-RPC errors (SEP-1303).
 
 use serde_json::{json, Map, Value};
-
-use crate::jsonrpc::RpcError;
 
 /// what an argument holds
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,12 +84,16 @@ pub struct Args {
 
 impl Args {
     /// Read `arguments` for a tool declaring `args`: an unknown name, a missing required argument or a value of the
-    /// wrong shape is an `-32602` error naming the argument. `null` is the same as absent.
-    pub fn validate(args: &[Arg], arguments: &Map<String, Value>) -> Result<Args, RpcError> {
+    /// wrong shape is an error message naming the argument. `null` is the same as absent.
+    pub fn validate(args: &[Arg], arguments: &Map<String, Value>) -> Result<Args, String> {
         let mut values = Map::new();
         for (name, value) in arguments {
             let Some(arg) = args.iter().find(|arg| arg.name == name) else {
-                return Err(RpcError::invalid_params(format!("unknown argument `{name}`")));
+                let known: Vec<String> = args.iter().map(|arg| format!("`{}`", arg.name)).collect();
+                return Err(format!(
+                    "unknown argument `{name}`; the arguments are {}",
+                    if known.is_empty() { "none".to_owned() } else { known.join(", ") }
+                ));
             };
             if value.is_null() {
                 continue;
@@ -100,7 +103,7 @@ impl Args {
         }
         for arg in args.iter().filter(|arg| arg.required) {
             if !values.contains_key(arg.name) {
-                return Err(RpcError::invalid_params(format!("the argument `{}` is required", arg.name)));
+                return Err(format!("the argument `{}` is required", arg.name));
             }
         }
         Ok(Args { values })
@@ -125,8 +128,8 @@ impl Args {
     }
 }
 
-fn check(arg: &Arg, value: &Value) -> Result<(), RpcError> {
-    let wrong = |expected: &str| RpcError::invalid_params(format!("the argument `{}` must be {expected}", arg.name));
+fn check(arg: &Arg, value: &Value) -> Result<(), String> {
+    let wrong = |expected: &str| format!("the argument `{}` must be {expected}", arg.name);
     match arg.kind {
         Kind::Str => value.as_str().map(|_| ()).ok_or_else(|| wrong("a string")),
         Kind::Date => match value.as_str() {
@@ -190,7 +193,7 @@ mod test {
     ];
 
     fn validate(arguments: serde_json::Value) -> Result<Args, String> {
-        Args::validate(&ARGS, arguments.as_object().unwrap()).map_err(|e| e.message)
+        Args::validate(&ARGS, arguments.as_object().unwrap())
     }
 
     #[test]
@@ -226,7 +229,10 @@ mod test {
         assert_eq!(nulls.str("from"), None);
 
         assert_eq!(validate(json!({})).unwrap_err(), "the argument `account` is required");
-        assert_eq!(validate(json!({"account": "Assets", "nope": 1})).unwrap_err(), "unknown argument `nope`");
+        assert_eq!(
+            validate(json!({"account": "Assets", "nope": 1})).unwrap_err(),
+            "unknown argument `nope`; the arguments are `account`, `from`, `limit`, `group_by`, `tags`"
+        );
         assert_eq!(validate(json!({"account": 1})).unwrap_err(), "the argument `account` must be a string");
         assert_eq!(
             validate(json!({"account": "a", "from": "2024-2-9"})).unwrap_err(),

@@ -30,7 +30,7 @@ The settings of the `plugin` directive:
 | Metadata | Meaning | Default |
 |---|---|---|
 | `timeout` | how long one request may run, see [Using Plugins](/guides/plugins/#grant-capabilities) | 60 seconds; `"20s"` is plenty |
-| `allowed_origins` | browser origins allowed to call the endpoint besides Zhang's own address, comma-separated (`"https://ledger.example.com, http://localhost:5173"`) or the key repeated | only Zhang's own address |
+| `allowed_origins` | browser origins (`scheme://host[:port]`) allowed to call the endpoint, comma-separated (`"https://ledger.example.com, http://localhost:5173"`) or the key repeated. Without it, only a page served by Zhang itself on `localhost` or `127.0.0.1` may call it; a Zhang behind a domain or a reverse proxy lists that address here | none |
 | `max_rows` | the most rows any tool returns | `"1000"` |
 
 The plugin needs a Zhang with the `zhang_query_params` host function (the release it ships with, or newer). On an older Zhang the ledger fails to load with an error naming that import.
@@ -106,7 +106,7 @@ The named queries are the [built-in queries](/reference/builtin-queries/) of the
 
 ## Limits
 
-- `limit` defaults to 200 rows and is capped by `max_rows` (1000). A result cut at the limit says `truncated: true`; the assistant can page with `offset` or narrow the query.
+- `limit` defaults to 200 rows; asking for more than `max_rows` (1000) is answered with an error naming the cap. A result cut at the limit says `truncated: true`; the assistant can raise `limit`, narrow the query, or, for `journal`, `transactions` and `errors`, page on with `offset`.
 - Each query has the 10 second time limit and the result size limit of the Query page; a request as a whole has the plugin's `timeout`.
 - Request bodies over 1 MiB are refused.
 
@@ -115,7 +115,7 @@ The named queries are the [built-in queries](/reference/builtin-queries/) of the
 | Symptom | Cause | Fix |
 |---|---|---|
 | `401 {"message": "unauthorized"}` | sign-in is enabled and the client sends no valid `Authorization` header | add the `--header` as above; check the base64 of `user:password` |
-| `403` on every request | the client is a browser page whose origin is not Zhang's own address | list it in `allowed_origins` |
+| `403` on every request | the client is a browser page whose origin is neither Zhang's own `localhost` address nor listed; a Zhang behind a reverse proxy that rewrites `Host`, or reached by a domain or LAN address, needs the listing too | add the page's origin to `allowed_origins` |
 | `405` | the client opened a GET stream (older clients may try it once, then continue with POST) | nothing: the server offers no stream |
 | `504 {"message": "plugin zhang-mcp ran longer than its timeout"}` | a query ran longer than the plugin's `timeout` | raise `timeout`, or narrow the query |
 | the ledger does not load, naming `zhang_query_params` | the Zhang is older than the plugin | upgrade Zhang, or use the plugin of your Zhang's release |
@@ -126,4 +126,4 @@ The named queries are the [built-in queries](/reference/builtin-queries/) of the
 - Everything a tool returns, payees, narrations and metadata included, is sent to the assistant's model. Only connect a client whose provider you trust with your ledger.
 - With sign-in disabled, anyone who can reach the port can read the ledger through this endpoint, as through the rest of the API. Enable sign-in, or bind Zhang to localhost.
 - The plugin cannot write, cannot reach the network and cannot read files; it holds no credentials (Zhang never passes the `Authorization` header to a plugin).
-- A web page cannot call the endpoint with your browser's session from another origin: the `Origin` check refuses it unless you listed that origin.
+- A web page cannot call the endpoint with your browser's session: the `Origin` check refuses every page except one served by Zhang itself on `localhost` and those you listed in `allowed_origins`, so a malicious site cannot reach a Zhang on your machine through DNS rebinding.

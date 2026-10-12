@@ -167,9 +167,13 @@ jobs:
           asset_name: zhang-${{ steps.extract_version.outputs.version }}-${{ matrix.target }}${{ env.EXE }}
   
   
-  # the official MCP plugin, `zhang-mcp-<version>.wasm`: a release asset on version tags, a workflow artifact otherwise
+  # the official MCP plugin, `zhang-mcp-<version>.wasm`: a release asset on version tags, a workflow artifact otherwise.
+  # On a tag the asset is uploaded after `create-release` made the release; on the nightly and manual runs
+  # `create-release` is skipped and the artifact is still built
   plugin-mcp:
     name: Plugin zhang-mcp (wasm32)
+    needs: create-release
+    if: ${{ !cancelled() && needs.create-release.result != 'failure' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:

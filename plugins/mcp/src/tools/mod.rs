@@ -34,15 +34,22 @@ impl Call<'_> {
         }
     }
 
-    /// `limit` as this call runs with it
-    fn limit(&self) -> usize {
-        self.config.limit(self.args.int("limit").map(|it| it as usize))
+    /// `limit` as this call runs with it: the default when absent; one over the server's cap is an error the model can
+    /// correct
+    fn limit(&self) -> Result<usize, ToolError> {
+        match self.args.int("limit") {
+            Some(limit) if limit as usize > self.config.max_rows => Err(ToolError {
+                message: format!("the argument `limit` must be at most {}, this server's cap on rows", self.config.max_rows),
+            }),
+            Some(limit) => Ok(limit as usize),
+            None => Ok(self.config.limit(None)),
+        }
     }
 
     /// what a query with `LIMIT :limit` is asked for: one row more than [`Call::limit`], so that `truncated` can say
     /// whether more rows exist after the plugin cuts the result at `limit`
-    fn fetch(&self) -> i64 {
-        self.limit() as i64 + 1
+    fn fetch(&self) -> Result<i64, ToolError> {
+        Ok(self.limit()? as i64 + 1)
     }
 
     fn offset(&self) -> i64 {
@@ -168,8 +175,9 @@ pub static TOOLS: [Tool; 12] = [
         args: &[Arg::required("bql", Kind::Str, "the query text"), LIMIT],
         output_schema: shape::rows_schema,
         run: |call| {
+            let limit = call.limit()?;
             let bql = call.args.str("bql").unwrap_or_default();
-            Ok(shape::rows(call.host.query(bql, &Params::new())?, call.limit()))
+            Ok(shape::rows(call.host.query(bql, &Params::new())?, limit))
         },
     },
     Tool {
@@ -282,6 +290,11 @@ pub static TOOLS: [Tool; 12] = [
             let currency = call.currency()?;
             let account = call.args.str_or("account", "Expenses");
             let (from, to) = (call.args.str("from").unwrap_or_default(), call.args.str("to").unwrap_or_default());
+            if from > to {
+                return Err(ToolError {
+                    message: format!("the argument `from` ({from}) is after `to` ({to}): give the first day of the period as `from` and its last day as `to`"),
+                });
+            }
             let range = vec![("from", date(from)), ("to", date(to)), ("currency", text(&currency))];
             let (query, params) = match call.args.str_or("group_by", "account") {
                 "month" => (&queries::SPENDING_BY_MONTH, [vec![("account", text(account))], range].concat()),
@@ -297,13 +310,13 @@ pub static TOOLS: [Tool; 12] = [
         description: "The postings of an account and its sub-accounts in ledger order, one row per posting with the running \
                       balance after it. Page with `limit` and `offset`.",
         args: &[Arg::required("account", Kind::Str, "the account; its sub-accounts are included"), LIMIT, OFFSET],
-        output_schema: shape::rows_schema,
+        output_schema: shape::paged_rows_schema,
         run: |call| {
-            let limit = call.limit();
+            let limit = call.limit()?;
             let account = call.args.str("account").unwrap_or_default();
             call.rows(
                 &queries::ACCOUNTS_JOURNAL_PAGE,
-                bind(vec![("account", text(account)), ("limit", int(call.fetch())), ("offset", int(call.offset()))]),
+                bind(vec![("account", text(account)), ("limit", int(call.fetch()?)), ("offset", int(call.offset()))]),
                 limit,
             )
         },
@@ -323,9 +336,9 @@ pub static TOOLS: [Tool; 12] = [
             LIMIT,
             OFFSET,
         ],
-        output_schema: shape::rows_schema,
+        output_schema: shape::paged_rows_schema,
         run: |call| {
-            let limit = call.limit();
+            let limit = call.limit()?;
             let tags = call.args.list("tags").filter(|tags| !tags.is_empty());
             call.rows(
                 &queries::TRANSACTIONS,
@@ -335,7 +348,7 @@ pub static TOOLS: [Tool; 12] = [
                     ("tags", Param::Set(tags)),
                     ("from", opt_date(call.args.str("from"))),
                     ("to", opt_date(call.args.str("to"))),
-                    ("limit", int(call.fetch())),
+                    ("limit", int(call.fetch()?)),
                     ("offset", int(call.offset())),
                 ]),
                 limit,
@@ -356,12 +369,12 @@ pub static TOOLS: [Tool; 12] = [
         description: "The problems zhang found in the ledger (unbalanced transactions, failed balance assertions, unknown \
                       accounts, …), by file and position, with the source text of each. Page with `limit` and `offset`.",
         args: &[LIMIT, OFFSET],
-        output_schema: shape::rows_schema,
+        output_schema: shape::paged_rows_schema,
         run: |call| {
-            let limit = call.limit();
+            let limit = call.limit()?;
             call.rows(
                 &queries::JOURNALS_ERRORS,
-                bind(vec![("size", int(call.fetch())), ("offset", int(call.offset()))]),
+                bind(vec![("size", int(call.fetch()?)), ("offset", int(call.offset()))]),
                 limit,
             )
         },
@@ -404,9 +417,10 @@ pub fn list() -> Vec<Value> {
     TOOLS.iter().map(Tool::describe).collect()
 }
 
-/// `tools/call`: the `CallToolResult` of running the tool `params.name` with `params.arguments`. An unknown tool or
-/// arguments that do not fit the tool's schema are protocol errors (`-32602`); a failing query is a tool execution
-/// error (`isError: true`) inside the `Ok`.
+/// `tools/call`: the `CallToolResult` of running the tool `params.name` with `params.arguments`. An unknown tool, or a
+/// request that is not a `CallToolRequest` (no `name`, `arguments` not an object), is a protocol error (`-32602`);
+/// arguments that fail the tool's schema and a failing query are tool execution errors (`isError: true`) inside the
+/// `Ok`, with a message the model can act on.
 pub fn call(params: &Map<String, Value>, host: &dyn Host, config: &McpConfig) -> Result<Value, RpcError> {
     let name = match params.get("name") {
         Some(Value::String(name)) => name.as_str(),
@@ -419,7 +433,10 @@ pub fn call(params: &Map<String, Value>, host: &dyn Host, config: &McpConfig) ->
         Some(Value::Object(arguments)) => arguments,
         Some(_) => return Err(RpcError::invalid_params("params.arguments must be an object")),
     };
-    let args = Args::validate(tool.args, arguments)?;
+    let args = match Args::validate(tool.args, arguments) {
+        Ok(args) => args,
+        Err(message) => return Ok(shape::failure(&ToolError { message })),
+    };
     let call = Call { args, host, config };
     Ok(match (tool.run)(&call) {
         Ok(structured) => shape::success(structured),
@@ -535,20 +552,18 @@ mod test {
         assert_eq!(ran, catalogue);
     }
 
+    /// the text of a tool execution error
+    fn error_text(host: &FakeHost, name: &str, arguments: Value) -> String {
+        let result = run(host, name, arguments).unwrap();
+        assert_eq!(result["isError"], true, "{result}");
+        assert!(result.get("structuredContent").is_none());
+        result["content"][0]["text"].as_str().unwrap().to_owned()
+    }
+
     #[test]
-    fn protocol_errors_for_unknown_tools_and_bad_arguments() {
+    fn protocol_errors_for_unknown_tools_and_malformed_calls() {
         let host = FakeHost::new();
         assert_eq!(run(&host, "nope", json!({})).unwrap_err(), "-32602: Unknown tool: nope");
-        assert_eq!(run(&host, "journal", json!({})).unwrap_err(), "-32602: the argument `account` is required");
-        assert_eq!(
-            run(&host, "query", json!({"bql": "SELECT 1", "limit": "ten"})).unwrap_err(),
-            "-32602: the argument `limit` must be an integer of at least 1"
-        );
-        assert_eq!(run(&host, "payees", json!({"x": 1})).unwrap_err(), "-32602: unknown argument `x`");
-        assert_eq!(
-            run(&host, "spending", json!({"from": "2024-01-01", "to": "2024-01-31", "group_by": "week"})).unwrap_err(),
-            "-32602: the argument `group_by` must be one of `account`, `month`, `currency`"
-        );
         let no_name: Map<String, Value> = json!({"arguments": {}}).as_object().unwrap().clone();
         assert_eq!(call(&no_name, &host, &McpConfig::default()).unwrap_err().code, -32602);
         let bad_arguments: Map<String, Value> = json!({"name": "payees", "arguments": [1]}).as_object().unwrap().clone();
@@ -556,6 +571,41 @@ mod test {
         // arguments may be absent
         let no_arguments: Map<String, Value> = json!({"name": "ledger_info"}).as_object().unwrap().clone();
         assert!(call(&no_arguments, &host, &McpConfig::default()).is_ok());
+    }
+
+    #[test]
+    fn argument_validation_errors_are_tool_execution_errors() {
+        let host = FakeHost::new();
+        assert_eq!(error_text(&host, "journal", json!({})), "the argument `account` is required");
+        assert_eq!(
+            error_text(&host, "query", json!({"bql": "SELECT 1", "limit": "ten"})),
+            "the argument `limit` must be an integer of at least 1"
+        );
+        assert_eq!(
+            error_text(&host, "query", json!({"bql": "SELECT 1", "limit": 0})),
+            "the argument `limit` must be an integer of at least 1"
+        );
+        assert_eq!(
+            error_text(&host, "query", json!({"bql": "SELECT 1", "limit": 1001})),
+            "the argument `limit` must be at most 1000, this server's cap on rows"
+        );
+        assert_eq!(error_text(&host, "payees", json!({"x": 1})), "unknown argument `x`; the arguments are none");
+        assert_eq!(
+            error_text(&host, "spending", json!({"from": "2024-01-01", "to": "2024-01-31", "group_by": "week"})),
+            "the argument `group_by` must be one of `account`, `month`, `currency`"
+        );
+        assert_eq!(
+            error_text(&host, "spending", json!({"from": "2024-02-01", "to": "2024-01-31"})),
+            "the argument `from` (2024-02-01) is after `to` (2024-01-31): give the first day of the period as `from` and its last day as `to`"
+        );
+        assert_eq!(
+            error_text(&host, "journal", json!({"account": "Assets", "offset": -1})),
+            "the argument `offset` must be an integer of at least 0"
+        );
+        assert_eq!(
+            error_text(&host, "net_worth", json!({"date": "2024-13-01"})),
+            "the argument `date` must be a date written YYYY-MM-DD"
+        );
     }
 
     #[test]
@@ -602,7 +652,7 @@ mod test {
         assert_eq!(all["columns"], json!([{"name": "n", "type": "int"}]));
         let few = structured(&host, "query", json!({"bql": "SELECT n", "limit": 3}));
         assert_eq!(few["rows"], json!([[0], [1], [2]]));
-        let plenty = structured(&host, "query", json!({"bql": "SELECT n", "limit": 5000}));
+        let plenty = structured(&host, "query", json!({"bql": "SELECT n", "limit": 1000}));
         assert_eq!((plenty["row_count"].as_u64(), plenty["truncated"].as_bool()), (Some(300), Some(false)));
         assert_eq!(host.last_params(), vec![], "the query tool binds nothing");
 
@@ -610,13 +660,23 @@ mod test {
             max_rows: 10,
             ..McpConfig::default()
         };
-        let params: Map<String, Value> = json!({"name": "query", "arguments": {"bql": "SELECT n", "limit": 50}})
+        let params: Map<String, Value> = json!({"name": "query", "arguments": {"bql": "SELECT n", "limit": 10}})
             .as_object()
             .unwrap()
             .clone();
         let result = call(&params, &host, &capped).unwrap();
         assert_eq!(result["structuredContent"]["row_count"], 10);
         assert_eq!(result["structuredContent"]["truncated"], true);
+        let over: Map<String, Value> = json!({"name": "query", "arguments": {"bql": "SELECT n", "limit": 11}})
+            .as_object()
+            .unwrap()
+            .clone();
+        let result = call(&over, &host, &capped).unwrap();
+        assert_eq!(result["isError"], true);
+        assert_eq!(
+            result["content"][0]["text"],
+            "the argument `limit` must be at most 10, this server's cap on rows"
+        );
     }
 
     #[test]
@@ -757,7 +817,7 @@ mod test {
             max_rows: 7,
             ..McpConfig::default()
         };
-        let params: Map<String, Value> = json!({"name": "journal", "arguments": {"account": "Assets", "limit": 100}})
+        let params: Map<String, Value> = json!({"name": "journal", "arguments": {"account": "Assets", "limit": 7}})
             .as_object()
             .unwrap()
             .clone();

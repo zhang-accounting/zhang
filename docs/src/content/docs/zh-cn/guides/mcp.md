@@ -30,7 +30,7 @@ MCP 端点是 `POST <你的张记账地址>/api/plugins/zhang-mcp/mcp`，例如 
 | 元数据 | 含义 | 默认值 |
 |---|---|---|
 | `timeout` | 一个请求最多可以运行多久，见[插件](/zh-cn/guides/plugins/#授予能力) | 60 秒；`"20s"` 足够 |
-| `allowed_origins` | 除张记账自己的地址之外，允许调用端点的浏览器来源（origin），用逗号分隔（`"https://ledger.example.com, http://localhost:5173"`）或重复该键 | 只有张记账自己的地址 |
+| `allowed_origins` | 允许调用端点的浏览器来源（`scheme://host[:port]`），用逗号分隔（`"https://ledger.example.com, http://localhost:5173"`）或重复该键。不设置时，只有张记账自己在 `localhost` 或 `127.0.0.1` 上提供的页面可以调用；部署在域名或反向代理之后的张记账要在这里列出那个地址 | 无 |
 | `max_rows` | 任何工具最多返回的行数 | `"1000"` |
 
 这个插件需要带有 `zhang_query_params` 宿主函数的张记账（随它一起发布的版本或更新）。在更老的张记账上，账本会加载失败，并在错误中指出这个导入。
@@ -106,7 +106,7 @@ Claude.ai 的自定义连接器，以及任何使用 Streamable HTTP 的客户�
 
 ## 限制
 
-- `limit` 默认 200 行，上限由 `max_rows`（1000）决定。被截断的结果会标明 `truncated: true`；助手可以用 `offset` 翻页或缩小查询。
+- `limit` 默认 200 行；请求超过 `max_rows`（1000）会得到一个指出上限的错误。被截断的结果会标明 `truncated: true`；助手可以提高 `limit`、缩小查询，或者对 `journal`、`transactions` 和 `errors` 用 `offset` 翻页。
 - 每条查询有和查询页面相同的 10 秒时间限制和结果大小限制；整个请求受插件的 `timeout` 限制。
 - 超过 1 MiB 的请求体会被拒绝。
 
@@ -115,7 +115,7 @@ Claude.ai 的自定义连接器，以及任何使用 Streamable HTTP 的客户�
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `401 {"message": "unauthorized"}` | 启用了登录，而客户端没有发送有效的 `Authorization` 请求头 | 按上文加上 `--header`；检查 `user:password` 的 base64 |
-| 每个请求都 `403` | 客户端是一个来源不是张记账自己地址的浏览器页面 | 把它列入 `allowed_origins` |
+| 每个请求都 `403` | 客户端是一个浏览器页面，其来源既不是张记账自己的 `localhost` 地址，也没有被列出；经过会改写 `Host` 的反向代理、或通过域名或局域网地址访问的张记账同样需要列出 | 把该页面的来源加入 `allowed_origins` |
 | `405` | 客户端尝试打开 GET 流（较老的客户端可能尝试一次，然后继续用 POST） | 无需处理：服务器不提供流 |
 | `504 {"message": "plugin zhang-mcp ran longer than its timeout"}` | 一条查询运行超过了插件的 `timeout` | 提高 `timeout`，或缩小查询 |
 | 账本加载失败，错误提到 `zhang_query_params` | 张记账比插件旧 | 升级张记账，或使用你的张记账版本自带的插件 |
@@ -126,4 +126,4 @@ Claude.ai 的自定义连接器，以及任何使用 Streamable HTTP 的客户�
 - 工具返回的一切，包括收款人、摘要和元数据，都会发送给助手的模型。只连接你信任其提供方处理你账本的客户端。
 - 未启用登录时，任何能访问该端口的人都能通过这个端点读取账本，就像通过 API 的其他部分一样。请启用登录，或把张记账绑定到 localhost。
 - 插件不能写入、不能访问网络、不能读取文件；它不持有凭据（张记账从不把 `Authorization` 请求头传给插件）。
-- 其他来源的网页不能凭你浏览器的会话调用这个端点：除非你列出了那个来源，`Origin` 检查会拒绝它。
+- 网页不能凭你浏览器的会话调用这个端点：`Origin` 检查只放行张记账自己在 `localhost` 上提供的页面和你在 `allowed_origins` 中列出的来源，所以恶意网站无法通过 DNS 重绑定访问你机器上的张记账。

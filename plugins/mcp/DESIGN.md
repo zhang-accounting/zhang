@@ -22,25 +22,28 @@ rule below was read on these pages on 2026-10-13.
 | D5 | Twelve read-only tools; every BQL with a built-in equivalent is copied verbatim from `zhang-server/src/builtin.rs` and pinned by a parity test; the others are written in the same style. User input is only bound as a parameter. | The MCP answers are the app's answers; the owner's rule for routes (BQL plus a thin mapping) applies to plugins. |
 | D6 | Tool results: `structuredContent` with the query API's cell encoding, plus the same JSON in a text block, plus an `outputSchema`. Tool execution errors are `isError: true` with a text block only. | S/server/tools (§4): structured content SHOULD be mirrored as text; with an `outputSchema` the structured result MUST conform, so an error object must not be sent as `structuredContent` (the TypeScript SDK validates it even on errors). |
 | D7 | Authentication is zhang's (`Basic`, `Bearer`, cookie); no OAuth, no `WWW-Authenticate`. | S/basic/authorization: authorization is OPTIONAL and custom strategies MAY be used; zhang's credentials are issued for zhang. |
-| D8 | `Origin`: absent → allowed; same `host[:port]` as the request's `Host`, or listed in `allowed_origins` → allowed; `null` or anything else → `403`. | The DNS rebinding rule of both transports (§2). |
-| D9 | `limit` defaults to 200 and is capped by `max_rows` (default 1000); tools with `LIMIT :limit` fetch one row more than the limit so `truncated` is exact. | Keeps a result within a model's context; the host's value cap stays the hard bound. |
+| D8 | `Origin`: absent → allowed; listed in `allowed_origins` (exact full origin) → allowed; the same `host[:port]` as the request's `Host` → allowed only when that host is this machine (`localhost`, 127.0.0.0/8, `[::1]`); `null` or anything else → `403`. | The DNS rebinding rule of both transports (§2). A rebinding attack is a `Host` the attacker's DNS points at this server, so "same host" is only safe for loopback names; a deployment behind a proxy or on a LAN address lists its origin. |
+| D9 | `limit` defaults to 200; one over `max_rows` (default 1000) is a tool error naming the cap; tools with `LIMIT :limit` fetch one row more than the limit so `truncated` is exact. | Keeps a result within a model's context; the host's value cap stays the hard bound. |
 | D10 | Writes, resources, prompts, SSE, rate limiting, budget tools: out of scope (§7). | Read-only MVP first; writes need a generic host capability (G4). |
 
 ## 2. Transport (`src/transport.rs`)
 
 | Request | Response | Rule |
 | --- | --- | --- |
-| `Origin` present and not allowed (D8) | `403`, JSON-RPC error without id | S transport "Security & Endpoint" 1: "If the `Origin` header is present and invalid, servers MUST respond with HTTP 403 Forbidden. The HTTP response body MAY comprise a JSON-RPC error response that has no `id`"; the same text in L/basic/transports "Security Warning". |
+| `Origin` present and not allowed (D8) | `403`, JSON-RPC error without `id` | S transport "Security & Endpoint" 1: "If the `Origin` header is present and invalid, servers MUST respond with HTTP 403 Forbidden. The HTTP response body MAY comprise a JSON-RPC error response that has no `id`"; the same text in L/basic/transports "Security Warning". |
 | `GET`, `DELETE`, any non-POST on `/mcp` | `405`, `Allow: POST` | S "Earlier Streamable HTTP Revisions": "HTTP GET or DELETE to the MCP endpoint: respond with `405 Method Not Allowed`"; L "Listening for Messages from the Server" 3: "or else return HTTP 405 Method Not Allowed, indicating that the server does not offer an SSE stream". |
 | body over 1 MiB | `413`, JSON-RPC `-32600` without id | the plugin's own bound; JSON-RPC requests are small. |
 | body not JSON | `400`, `-32700` | JSON-RPC 2.0. |
-| array (batch), no `"jsonrpc": "2.0"`, `id: null`, params not an object, neither request nor notification nor response | `400`, `-32600` | S/basic "Requests": "the ID MUST NOT be `null`"; batching was removed in 2025-06-18. |
+| array (batch), no `"jsonrpc": "2.0"`, `id: null`, a numeric id that is not an integer within 64 bits (a fraction, an exponent, a 20-digit number), params not an object, neither request nor notification nor response | `400`, `-32600` | S/basic "Requests": "the ID MUST NOT be `null`", "a string or integer ID"; batching was removed in 2025-06-18. An id is echoed exactly as read, which only an integer within 64 bits survives without `arbitrary_precision`. |
 | notification, or a response posted by the client | `202`, empty body | S "Sending Messages" 5: "If the body is a JSON-RPC notification: If the server accepts it, the server MUST return HTTP status code `202 Accepted` with no body"; L 4: "If the input is a JSON-RPC response or notification: If the server accepts the input, the server MUST return HTTP status code 202 Accepted with no body". |
 | request | `200 application/json` with the result, or an error as §3 says | S 6 / L 5: the server returns "`Content-Type: application/json` (a single JSON object)"; "The client MUST support both". |
 | `Accept` | not checked | both revisions constrain the client only. |
 
 Every answer carries `Content-Type: application/json` (not the `202`), `Cache-Control: no-store` and
-`X-Content-Type-Options: nosniff`.
+`X-Content-Type-Options: nosniff`. A transport-level error (403, 405, 413, a body that is not one message) has no
+`id` member rather than `"id": null`: the 2026-07-28 schema's `JSONRPCErrorResponse` declares `id?: RequestId`
+(`schema.ts` lines 298-302), and the transport pages say "a JSON-RPC error response that has no `id`". A legacy
+client's SDK ignores a response it cannot correlate either way.
 
 ## 3. Eras (`src/era.rs`)
 
@@ -89,10 +92,12 @@ Validation, in this order, each failure a `400`:
 6. `_meta["io.modelcontextprotocol/clientCapabilities"]` missing → `-32602` (the `_meta` table marks it required).
 
 Then: `server/discover` → `{supportedVersions, capabilities: {tools: {}}, instructions, ttlMs: 3600000,
-cacheScope: "public"}` (S/server/discover: "Servers MUST implement it"; `schema`: `DiscoverResult extends
-CacheableResult { supportedVersions, capabilities, instructions? }`); `tools/list` with the same caching hints
-(S/server/utilities/caching: "Servers MUST include caching hints on results with `resultType: "complete"` returned by
-… `server/discover`, `tools/list` …"; `public` is "appropriate for lists of tools … when they are identical for all
+cacheScope: "private"}` (S/server/discover: "Servers MUST implement it"; `schema`: `DiscoverResult extends
+CacheableResult { supportedVersions, capabilities, instructions? }`; `private` because the `instructions` name the
+ledger's title, currency and timezone, and S/server/utilities/caching says a `public` result "may be shared between
+callers even if the Result is coming from an authenticated endpoint"); `tools/list` with `ttlMs: 3600000,
+cacheScope: "public"` ("Servers MUST include caching hints on results with `resultType: "complete"` returned by …
+`server/discover`, `tools/list` …"; `public` is "appropriate for lists of tools … when they are identical for all
 users"); `tools/call` as §4; any other method, `ping` and `initialize` included, → `404` + `-32601` ("If the server
 does not implement the requested RPC method, it MUST respond with `404 Not Found` and a JSON-RPC error with code
 `-32601`"). Every result gets `resultType: "complete"` (S/basic "Result Responses": "The `result` MUST include a
@@ -121,8 +126,13 @@ false}`; dates are `YYYY-MM-DD`; `limit` defaults to 200, capped by `max_rows`. 
 dates are strings, amounts `{number, currency}`, inventories `{positions: [{units, cost}]}`), as text and as
 `structuredContent`, described by its `outputSchema`.
 
-Errors: an unknown tool, an unknown argument, a missing required argument or a value of the wrong shape → `-32602`
-("Protocol Errors … Unknown tool, Malformed requests (requests that fail to satisfy CallToolRequest schema)"); a
+Errors: an unknown tool, or a call that is not a `CallToolRequest` (`params.name` missing or not a string,
+`arguments` present but not an object) → `-32602` ("Protocol Errors … Unknown tool, Malformed requests (requests that
+fail to satisfy CallToolRequest schema)"). An argument that fails the tool's own schema (unknown or missing argument,
+wrong type, a date not `YYYY-MM-DD`, `limit` under 1 or over `max_rows`, an unknown `group_by`, `from` after `to`) →
+`isError: true` with a text naming the argument and what it expects: S/server/tools "Error Handling" puts "Input
+validation errors (e.g., date in wrong format, value out of range)" among the "Tool Execution Errors" that "contain
+actionable feedback that language models can use to self-correct", and L/changelog records this as SEP-1303. A
 failing query, an unavailable host function or a result over the host's cap → `isError: true` with a text such as
 `query error at line 3, column 8: …` (or `<kind>: <message>` for a host error without a position, e.g.
 `unavailable: …`) ("Tool Execution Errors … They are reported in tool results with `isError: true`"), no
@@ -161,7 +171,8 @@ plugin "plugins/zhang-mcp.wasm"
 ```
 
 Bounds in effect: the plugin `timeout`; 10 s per BQL and `ZHANG_QUERY_MAX_RESULT_VALUES` (the host, as for
-`POST /api/query`); `limit`/`max_rows` (the plugin); request bodies ≤ 1 MiB (the plugin); BQL text ≤ 1 MiB (the host).
+`POST /api/query`); `limit`/`max_rows` (the plugin; a `limit` over the cap is a tool error naming the cap, never a
+silent cut); request bodies ≤ 1 MiB (the plugin); BQL text ≤ 1 MiB (the host).
 
 ## 6. Security
 
@@ -172,7 +183,8 @@ Bounds in effect: the plugin `timeout`; 10 s per BQL and `ZHANG_QUERY_MAX_RESULT
 - Injection: every argument is bound as a typed parameter; the `query` tool runs arbitrary BQL by design, in the
   read-only, time- and size-bounded engine.
 - Prompt injection: payees, narrations and metadata reach the model as data; the `instructions` say so, and the guide
-  warns that ledger text reaches the model.
+  warns that ledger text reaches the model. The ledger title inside the `instructions` is JSON-quoted, so a title
+  holding quotes or line breaks cannot add text to them.
 - `Origin` (D8), `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`.
 - Rate limiting: not provided by a stateless plugin (S/server/tools "Security Considerations" lists it as a server
   MUST); mitigated by authentication, the plugin timeout and the query bounds. A per-plugin limiter would belong to
@@ -192,7 +204,15 @@ Bounds in effect: the plugin `timeout`; 10 s per BQL and `ZHANG_QUERY_MAX_RESULT
 - A legacy request with an unsupported version header is answered with `-32022` and the supported list (the PRD left
   the code open).
 - Error responses carry the request's `id` whenever the request was parsed (the PRD said "without id" for the bad
-  version header case).
+  version header case); transport-level errors omit the `id` member instead of sending `null`.
+- Arguments that fail a tool's schema are tool execution errors (`isError: true`), not `-32602` as the PRD and the
+  first review draft said: the specification's tools "Error Handling" (SEP-1303) keeps input validation errors in
+  tool results so the model can self-correct; `-32602` stays for an unknown tool and a malformed `CallToolRequest`.
+- `server/discover` is `cacheScope: "private"` (the PRD said `public`): its `instructions` name the ledger.
+- The same-host `Origin` rule applies to loopback hosts only (the PRD allowed any host equal to `Host`); any other
+  deployment lists its origin in `allowed_origins`.
+- A numeric request id must be an integer within 64 bits (a fraction or exponent is `-32600`), so that it is echoed
+  exactly.
 
 ## 8. Follow-ups
 
@@ -204,3 +224,5 @@ Bounds in effect: the plugin `timeout`; 10 s per BQL and `ZHANG_QUERY_MAX_RESULT
   is on #698's P1 list.
 - G5 bundling: ship official plugins inside the binary (`plugin "zhang:mcp"`) instead of a downloaded file.
 - Rate limiting in the host, if a shared deployment needs it.
+- Echoing integer ids beyond 64 bits exactly would need the id carried as raw JSON text (`serde_json`'s `RawValue`)
+  through the response builders; such ids do not occur in practice and are refused with `-32600` for now.

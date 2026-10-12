@@ -81,8 +81,9 @@ fn mcp(request: &Request, host: &dyn Host, config: &McpConfig) -> Response {
 }
 
 /// Whether a request with this `Origin` header may reach the endpoint (the DNS rebinding check of the transport):
-/// no `Origin` (a non-browser client) is allowed; an origin whose host and port are the request's own `Host`, or
-/// one listed in `allowed`, is allowed; `null` and anything else is not.
+/// no `Origin` (a non-browser client) is allowed; an origin listed in `allowed` is allowed; an origin whose host and
+/// port are the request's own `Host` is allowed only when that host is this machine (`localhost`, 127.0.0.0/8 or
+/// `[::1]`), since a rebinding attack is precisely a `Host` the attacker controls; `null` and anything else is not.
 pub fn origin_allowed(origin: Option<&str>, host: Option<&str>, allowed: &[String]) -> bool {
     let Some(origin) = origin.and_then(normalize_origin) else {
         return true;
@@ -96,7 +97,19 @@ pub fn origin_allowed(origin: Option<&str>, host: Option<&str>, allowed: &[Strin
     let Some(host) = host.and_then(normalize_origin) else {
         return false;
     };
-    origin.split_once("://").is_some_and(|(_, origin_host)| origin_host == host)
+    is_loopback(&host) && origin.split_once("://").is_some_and(|(_, origin_host)| origin_host == host)
+}
+
+/// whether `host` (`host[:port]`, lower case) names this machine: `localhost`, an IPv4 address in 127.0.0.0/8, or `[::1]`
+fn is_loopback(host: &str) -> bool {
+    let name = if let Some(bracketed) = host.strip_prefix('[') {
+        bracketed.split(']').next().unwrap_or_default()
+    } else if host.matches(':').count() > 1 {
+        host
+    } else {
+        host.rsplit_once(':').map_or(host, |(name, _)| name)
+    };
+    name == "localhost" || name == "::1" || name.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 fn json_response(status: u16, body: &Value) -> Response {
@@ -169,7 +182,7 @@ mod test {
             assert_eq!(response.status, 405, "{method}");
             assert_eq!(response.headers["allow"], "POST");
             assert_eq!(body(&response)["error"]["code"], -32600);
-            assert_eq!(body(&response)["id"], Value::Null);
+            assert!(body(&response).get("id").is_none(), "a transport error has no id");
         }
         // `/mcp/` is the endpoint too
         let response = handle(&request("GET", "/mcp/", &[], ""), &FakeHost::new(), &McpConfig::default());
@@ -182,7 +195,8 @@ mod test {
         assert_eq!((parse.status, body(&parse)["error"]["code"].as_i64()), (400, Some(-32700)));
         let batch = post(r#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#);
         assert_eq!((batch.status, body(&batch)["error"]["code"].as_i64()), (400, Some(-32600)));
-        assert_eq!(body(&batch)["id"], Value::Null);
+        assert!(body(&batch).get("id").is_none());
+        assert!(body(&parse).get("id").is_none());
         let base64 = handle(&request("POST", "/mcp", &[], "not base64!"), &FakeHost::new(), &McpConfig::default());
         assert_eq!(base64.status, 400);
         let oversize = post(&format!(
@@ -220,11 +234,25 @@ mod test {
     #[test]
     fn the_origin_policy() {
         let allowed = vec!["https://ledger.example.com".to_owned()];
+        // absent: a CLI client
         assert!(origin_allowed(None, Some("localhost:8000"), &allowed));
+        assert!(origin_allowed(None, Some("ledger.example.com"), &[]));
+        // the same loopback host and port
         assert!(origin_allowed(Some("http://localhost:8000"), Some("localhost:8000"), &[]));
         assert!(origin_allowed(Some("http://LOCALHOST:8000/"), Some("localhost:8000"), &[]));
+        assert!(origin_allowed(Some("http://127.0.0.1:8000"), Some("127.0.0.1:8000"), &[]));
+        assert!(origin_allowed(Some("http://127.1.2.3"), Some("127.1.2.3"), &[]));
+        assert!(origin_allowed(Some("http://[::1]:8000"), Some("[::1]:8000"), &[]));
+        // the same host and port, but not this machine: a reverse proxy or a LAN address needs the allowlist
+        assert!(!origin_allowed(Some("http://10.0.0.2:8000"), Some("10.0.0.2:8000"), &[]));
+        assert!(!origin_allowed(Some("https://ledger.example.com"), Some("ledger.example.com"), &[]));
+        assert!(!origin_allowed(Some("http://app.localhost:8000"), Some("app.localhost:8000"), &[]));
+        assert!(!origin_allowed(Some("http://128.0.0.1:8000"), Some("128.0.0.1:8000"), &[]));
+        // the allowlist, whatever the host
         assert!(origin_allowed(Some("https://ledger.example.com"), Some("10.0.0.2:8000"), &allowed));
-        assert!(origin_allowed(Some("https://Ledger.Example.com/"), Some("10.0.0.2:8000"), &allowed));
+        assert!(origin_allowed(Some("https://ledger.example.com"), Some("ledger.example.com"), &allowed));
+        assert!(origin_allowed(Some("https://Ledger.Example.com/"), None, &allowed));
+        // refused
         assert!(!origin_allowed(Some("http://localhost:5173"), Some("localhost:8000"), &[]));
         assert!(!origin_allowed(Some("http://localhost:8000"), Some("localhost"), &[]));
         assert!(!origin_allowed(Some("http://localhost:8000"), None, &[]));
@@ -244,7 +272,7 @@ mod test {
         );
         assert_eq!(bad.status, 403);
         assert_eq!(body(&bad)["error"]["code"], -32600);
-        assert_eq!(body(&bad)["id"], Value::Null);
+        assert!(body(&bad).get("id").is_none());
         // the policy applies to every method
         let get = handle(&request("GET", "/mcp", &[("origin", "null")], ""), &FakeHost::new(), &McpConfig::default());
         assert_eq!(get.status, 403);
