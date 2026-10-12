@@ -48,7 +48,7 @@ use crate::clock::LoadClock;
 use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
-use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION};
+use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION, QUERY_PARAMS_FUNCTION, QUERY_SCHEMA_FUNCTION};
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
 pub const PLUGIN_META: &str = "plugin";
@@ -277,8 +277,8 @@ impl PluginHost {
         self
     }
 
-    /// this host handling a request as a router: `zhang_query` runs queries through `host` and
-    /// `zhang_ledger_info` answers `info`
+    /// this host handling a request as a router: `zhang_query`, `zhang_query_params` and
+    /// `zhang_query_schema` read the ledger through `host` and `zhang_ledger_info` answers `info`
     pub(super) fn with_router(self, host: Arc<dyn RouterHost>, info: LedgerInfo) -> Self {
         self.lock().router = Some((host, info));
         self
@@ -295,6 +295,8 @@ impl PluginHost {
             self.bound(LIST_DIR, [PTR], [PTR], list_dir),
             self.bound(QUERY_FUNCTION, [PTR], [PTR], router::zhang_query),
             self.bound(LEDGER_INFO_FUNCTION, [], [PTR], router::zhang_ledger_info),
+            self.bound(QUERY_PARAMS_FUNCTION, [PTR], [PTR], router::zhang_query_params),
+            self.bound(QUERY_SCHEMA_FUNCTION, [], [PTR], router::zhang_query_schema),
         ]
     }
 

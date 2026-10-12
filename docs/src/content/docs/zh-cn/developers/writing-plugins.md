@@ -209,7 +209,7 @@ SDK 提供的内容：
 | `errors` | `emit_error(message)`、`emit_error_at(span, message, metas)` |
 | `prices` | 用于[汇率](#汇率)的 `PriceMap::from_stream(&stream)`、`rate(base, quote, date)`、`convert(amount, target, date)` |
 | `realization` | 用于[指定账户数量和成本汇总](#指定账户余额)的 `SparseRealization` |
-| `router` | `Request`、`Response`、`query(bql)`、`ledger_info()` |
+| `router` | `Request`、`Response`、`query(bql)`、用 `Param` 绑定用户输入的 `query_with_params(bql, &Params)`、`schema()`、`ledger_info()` |
 
 在原生 target 上 SDK 依然可以编译：`plugin!` 不导出任何东西，宿主函数返回 `unavailable`，所以 `cargo test` 可以在没有张记账的情况下运行你的插件逻辑，并用 `Config::from_map(...)` 代替宿主提供的配置。[`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples) 中有四个完整的插件：三个 processor（`guard`、展示记账后视图的 `lots`、记录数量和成本累计值的 `balances`）和一个 router。张记账自己的测试会构建并运行它们。
 
@@ -321,7 +321,18 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **路由：** `{name}` 是插件的名称；请求的 `path` 是路由之下的部分。
 - **身份认证：** 这些路由位于张记账自己的登录保护之后，凭据请求头永远不会传给插件。
-- **只读：** router 只能通过 `zhang_query`（BQL）和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本。每个请求都在新的实例中运行，运行期间账本不会重新加载。
+- **只读：** router 只能通过 `zhang_query` 和 `zhang_query_params`（BQL）、`zhang_query_schema` 和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本。每个请求都在新的实例中运行，运行期间账本不会重新加载。
+- **绑定用户输入：** 永远不要把用户输入的内容写进查询文本。`router::query_with_params` 绑定带类型的参数，查询按参数的类型编译：
+
+  ```rust
+  use zhang_plugin_sdk::router::{self, Param, Params};
+
+  let since = request.query_param("since").unwrap_or("1970-01-01"); // 用户输入的内容
+  let params = Params::new().bind("since", Param::Date(Some(since.to_owned())));
+  let result = router::query_with_params("SELECT account, sum(position) WHERE date >= :since GROUP BY account", &params)?;
+  ```
+
+  `Param` 是 `Bool`、`Int`、`Decimal`（文本形式，如 `"12.50"`）、`Str`、`Date`（`YYYY-MM-DD`）或 `Set`，各自的 `None` 表示 NULL。无法按其类型读取的值（如 `Date(Some("soon"))`）是一个没有位置的 `query` 错误，例如 `parameter :since must be a date string YYYY-MM-DD or null`；查询用到但插件没有绑定的参数是一个带位置的 `query` 错误。`router::schema()` 像 `GET /api/query/schema` 一样列出查询可用的表、列和函数，供拼装查询的插件使用。
 - **安全：** router 的页面由张记账自己的地址提供，所以这类页面上的脚本可以用你的会话调用张记账的 API，包括会修改账本文件的接口。放进 HTML 的所有内容都要转义。
 
 [Router 插件](/zh-cn/guides/router-plugins/)介绍了请求和响应的 JSON、错误状态码以及更多细节。
@@ -382,14 +393,31 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang_read_file` | 路径，UTF-8 | `{"content": "…", "encoding": "utf8" \| "base64"}` | `denied`、`not_found`、`too_large`、`unsupported`、`invalid` |
 | `zhang_list_dir` | 路径，UTF-8 | `{"entries": [{"name": "…", "kind": "file" \| "dir"}]}`，按名称排序 | 同 `zhang_read_file` |
 | `zhang_query` | BQL 文本 | `{"columns": [{"name": "…", "type": "…"}], "rows": [[…]]}` | `query`（带 `line` 和 `column`）、`invalid_input`、`unavailable` |
+| `zhang_query_params` | `{"bql": "… :from …", "params": {"from": {"type": "date", "value": "2024-01-01"}}}` | 同 `zhang_query` | 同 `zhang_query`；参数问题是一个指明参数名的 `query` 错误 |
+| `zhang_query_schema` | 无 | `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`，即 `GET /api/query/schema` 的 `data` | `unavailable` |
 | `zhang_ledger_info` | 无 | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
+
+`zhang_query_params` 绑定命名参数（`from` 绑定 `:from`；位置参数 `$1` 不能绑定），插件因此可以绑定用户输入的内容，而不是把它写进 BQL。查询按参数的类型编译。每个参数是 `{"type": "…", "value": …}`，值的写法与 API 的内置查询相同；`null` 或缺少 `value` 对任何类型都表示 NULL：
+
+| `type` | `value` |
+|---|---|
+| `bool` | `true` 或 `false` |
+| `int` | 整数 |
+| `decimal` | 数字，或保留小数位数的字符串，如 `"12.50"` |
+| `str` | 字符串 |
+| `date` | `YYYY-MM-DD` 字符串 |
+| `set` | 字符串列表 |
+
+不在此表中的类型，或形状不符的值，是一个没有位置的 `query` 错误，例如 `parameter :from must be a date string YYYY-MM-DD or null`；查询用到但输入没有绑定的参数是一个带位置的 `query` 错误；查询没有用到的参数会被忽略。整个输入与查询文本有同样的大小上限，不是上述 JSON 的输入返回 `invalid_input`。
 
 它们在哪里可用：
 
 - `zhang_emit_error` 在 processor 或 mapper 中把问题报告到错误列表。插件注册期间（`name`、`version`、`supported_type`）报告的内容会被丢弃，在 router 中则只会写入日志。
 - `zhang_now` 在任何地方都可用。在 router 中，它为每个请求重新读取时钟；在注册期间调用它不会让账本依赖于日期。
 - `zhang_read_file` 和 `zhang_list_dir` 在 processor 或 mapper 之外，以及对 `allowed_paths` 未授予的任何路径，都返回 `denied`。
-- `zhang_query` 和 `zhang_ledger_info` 在 router 请求之外返回 `unavailable`。
+- `zhang_query`、`zhang_query_params`、`zhang_query_schema` 和 `zhang_ledger_info` 在 router 请求之外返回 `unavailable`。
+
+`zhang_query_params` 和 `zhang_query_schema` 晚于 `zhang_query` 加入。新增宿主函数是插件可以忽略的扩展，所以 ABI 版本仍然是 1：不导入它们的插件照常运行，导入了它们的插件在没有它们的张记账上无法加载（见下文）。
 
 ### 最低版本要求
 

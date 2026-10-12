@@ -366,6 +366,26 @@ async fn the_summary_router_queries_the_ledger_and_answers_html_and_json() {
         ])
     );
 
+    // `since` is bound as a date parameter through `router::query_with_params`
+    let (status, _, body) = send(
+        &app,
+        Request::get("/api/plugins/summary/balances?since=2024-01-02").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap().as_array().unwrap().len(), 2);
+    let (status, _, body) = send(
+        &app,
+        Request::get("/api/plugins/summary/balances?since=2024-01-03").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "[]"));
+    let (status, _, body) = send(&app, Request::get("/api/plugins/summary/balances?since=soon").body(Body::empty()).unwrap()).await;
+    assert_eq!(
+        (status, body.as_str()),
+        (StatusCode::BAD_REQUEST, "parameter :since must be a date string YYYY-MM-DD or null")
+    );
+
     let (status, content_type, body) = send(&app, Request::get("/api/plugins/summary").body(Body::empty()).unwrap()).await;
     assert_eq!((status, content_type.as_str()), (StatusCode::OK, "text/html; charset=utf-8"));
     assert!(body.contains("<h1>Home &lt;books&gt;</h1>"), "{body}");

@@ -12,6 +12,7 @@
 //!
 //! The details go to the log.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
@@ -24,11 +25,12 @@ use serde_json::Value;
 use tokio::sync::OwnedRwLockReadGuard;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::http::PluginRequest;
-use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
+use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost};
+use zhang_query::params::bind_json;
 use zhang_query::{Params, Query, QueryError};
 
 use crate::error::error_response;
-use crate::response::QueryResultEntity;
+use crate::response::{QueryResultEntity, QuerySchemaEntity};
 use crate::routes::query::{execute_options, max_result_values};
 use crate::state::SharedLedger;
 
@@ -89,23 +91,51 @@ struct ServerRouterHost {
     max_result_values: u64,
 }
 
+/// a failed query as the plugin sees it
+fn failure(error: QueryError) -> QueryFailure {
+    QueryFailure {
+        message: error.message,
+        line: error.line,
+        column: error.column,
+    }
+}
+
+/// a problem without a position in the query text
+fn unlocated(message: String) -> QueryFailure {
+    QueryFailure {
+        message,
+        line: None,
+        column: None,
+    }
+}
+
+impl ServerRouterHost {
+    /// run `query` with `params` bound, with the limits of `POST /api/query`, and encode the
+    /// result as that endpoint does
+    fn run(&self, query: &Query, params: &Params) -> Result<Value, QueryFailure> {
+        let result = query
+            .execute_with_options(&self.ledger, params, &execute_options(self.max_result_values))
+            .map_err(failure)?;
+        serde_json::to_value(QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")))
+    }
+}
+
 impl RouterHost for ServerRouterHost {
     /// compiled and run like `POST /api/query`, with the same limits
     fn query(&self, bql: &str) -> Result<Value, QueryFailure> {
-        let failure = |error: QueryError| QueryFailure {
-            message: error.message,
-            line: error.line,
-            column: error.column,
-        };
-        let query = Query::compile(bql).map_err(failure)?;
-        let result = query
-            .execute_with_options(&self.ledger, &Params::new(), &execute_options(self.max_result_values))
-            .map_err(failure)?;
-        serde_json::to_value(QueryResultEntity::from(result)).map_err(|e| QueryFailure {
-            message: format!("the result cannot be encoded: {e}"),
-            line: None,
-            column: None,
-        })
+        self.run(&Query::compile(bql).map_err(failure)?, &Params::new())
+    }
+
+    /// the parameters bound as the built-in queries bind theirs (`builtin::json_params`), then
+    /// compiled with their declared types and run like [`RouterHost::query`]
+    fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
+        let (types, values) = bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(unlocated)?;
+        self.run(&Query::compile_with_params(bql, &types).map_err(failure)?, &values)
+    }
+
+    /// the schema as `GET /api/query/schema` answers it
+    fn schema(&self) -> Result<Value, QueryFailure> {
+        serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema())).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
     }
 }
 
@@ -163,16 +193,23 @@ mod test {
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::data_type::DataType;
     use zhang_core::ledger::{Ledger, LedgerProcessContext};
-    use zhang_core::plugin::router::RouterHost;
+    use zhang_core::plugin::router::{RawQueryParam, RouterHost};
 
     use super::{route_of, route_to_plugin, split_route, ServerRouterHost, ROUTE};
+    use crate::builtin;
+    use crate::request::BuiltinParamValue;
+    use crate::response::QuerySchemaEntity;
     use crate::routes::plugin::plugin_list;
     use crate::state::SharedLedger;
 
     /// the WAT fixtures of zhang-core's plugin tests, see `zhang-core/tests/wasm_plugins.rs`
-    const FIXTURES: [(&str, &str); 6] = [
+    const FIXTURES: [(&str, &str); 7] = [
         ("router.wat", include_str!("../../../zhang-core/tests/plugins/router.wat")),
         ("router_query.wat", include_str!("../../../zhang-core/tests/plugins/router_query.wat")),
+        (
+            "router_query_params.wat",
+            include_str!("../../../zhang-core/tests/plugins/router_query_params.wat"),
+        ),
         ("router_no_export.wat", include_str!("../../../zhang-core/tests/plugins/router_no_export.wat")),
         ("router_malformed.wat", include_str!("../../../zhang-core/tests/plugins/router_malformed.wat")),
         ("router_trap.wat", include_str!("../../../zhang-core/tests/plugins/router_trap.wat")),
@@ -305,6 +342,79 @@ mod test {
         );
     }
 
+    /// what the `router-query-params` fixture answers for the path `/{case}`: the raw result of the
+    /// host function it calls for that case (see the fixture for the cases)
+    async fn query_params_case(app: &Router, case: char) -> Value {
+        let response = send(
+            app,
+            Request::get(format!("/api/plugins/router-query-params/{case}")).body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        json_body(response).await
+    }
+
+    #[tokio::test]
+    async fn the_plugin_can_bind_query_parameters_and_read_the_schema() {
+        let (_dir, app) = app().await;
+
+        // `SELECT date, narration WHERE date >= :from AND narration = :who AND number > :min`, with
+        // `:from` 2024-01-01, `:who` "lunch" and `:min` 5.5: the one lunch posting of 10 CNY
+        assert_eq!(
+            query_params_case(&app, 'a').await,
+            json!({"Ok": {
+                "columns": [{"name": "date", "type": "date"}, {"name": "narration", "type": "str"}],
+                "rows": [["2024-01-02", "lunch"]],
+            }})
+        );
+        // `narration = :who` with `:who` NULL matches nothing
+        assert_eq!(
+            query_params_case(&app, 'b').await,
+            json!({"Ok": {"columns": [{"name": "date", "type": "date"}], "rows": []}})
+        );
+        // a parameter the query uses but the input does not bind fails where the query uses it
+        assert_eq!(
+            query_params_case(&app, 'e').await,
+            json!({"Err": {"kind": "query", "message": "parameter :from is not bound", "line": 1, "column": 27}})
+        );
+        assert_eq!(
+            query_params_case(&app, 's').await,
+            json!({"Ok": serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema())).unwrap()})
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bad_plugin_query_parameter_fails_as_a_builtin_parameter_does() {
+        let (_dir, app) = app().await;
+
+        // `{"type": "date", "value": 20240101}`: a date given as a number
+        let plugin = query_params_case(&app, 'd').await;
+        let builtin = builtin::json_params(
+            builtin::get("postings.between").unwrap(),
+            [
+                ("from".to_owned(), Some(BuiltinParamValue::Int(20240101))),
+                ("to".to_owned(), Some(BuiltinParamValue::Text("2024-01-31".to_owned()))),
+            ]
+            .into_iter()
+            .collect(),
+        )
+        .unwrap_err();
+        assert_eq!(builtin.to_string(), "parameter :from must be a date string YYYY-MM-DD or null");
+        assert_eq!(
+            plugin,
+            json!({"Err": {"kind": "query", "message": builtin.to_string(), "line": null, "column": null}})
+        );
+        assert_eq!(
+            query_params_case(&app, 'c').await,
+            json!({"Err": {
+                "kind": "query",
+                "message": "parameter :who has the type \"money\", which is not one of bool, int, decimal, str, date, set",
+                "line": null,
+                "column": null,
+            }})
+        );
+    }
+
     #[tokio::test]
     async fn plugins_that_cannot_answer_get_a_json_error() {
         let (_dir, app) = app().await;
@@ -387,6 +497,46 @@ mod test {
             host(4).query("SELECT account ORDER BY account").unwrap(),
             json!({"columns": [{"name": "account", "type": "str"}], "rows": [["Assets:Cash"], ["Expenses:Food"]]})
         );
+
+        // with parameters: bound by name with their declared types, under the same limits
+        let params = |pairs: &[(&str, &str, Value)]| {
+            pairs
+                .iter()
+                .map(|(name, ty, value)| {
+                    (
+                        name.to_string(),
+                        RawQueryParam {
+                            ty: ty.to_string(),
+                            value: value.clone(),
+                        },
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        assert_eq!(
+            host(4)
+                .query_with_params(
+                    "SELECT account WHERE account ~ :re AND date >= :from ORDER BY account",
+                    &params(&[("re", "str", json!("^Exp")), ("from", "date", json!("2024-01-01"))])
+                )
+                .unwrap(),
+            json!({"columns": [{"name": "account", "type": "str"}], "rows": [["Expenses:Food"]]})
+        );
+        let failure = host(4)
+            .query_with_params("SELECT account WHERE date >= :from", &params(&[("from", "date", json!("soon"))]))
+            .unwrap_err();
+        assert_eq!(failure.message, "parameter :from must be a date string YYYY-MM-DD or null");
+        assert_eq!((failure.line, failure.column), (None, None));
+        let failure = host(4).query_with_params("SELECT account WHERE date >= :from", &params(&[])).unwrap_err();
+        assert_eq!(failure.message, "parameter :from is not bound");
+        assert_eq!((failure.line, failure.column), (Some(1), Some(30)));
+        let failure = host(3)
+            .query_with_params(
+                "SELECT account, position WHERE date >= :from",
+                &params(&[("from", "date", json!("2024-01-01"))]),
+            )
+            .unwrap_err();
+        assert!(failure.message.starts_with("the result is too large"), "{}", failure.message);
     }
 
     #[test]

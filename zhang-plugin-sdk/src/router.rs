@@ -5,14 +5,18 @@
 //! [`Response`] of any content type, so a router can answer JSON for a script or a whole HTML page.
 //!
 //! Every request runs in a fresh plugin instance: nothing survives between requests. The ledger is read-only:
-//! [`query`] runs BQL over it and [`ledger_info`] describes it, and no host function changes it. Both answer
+//! [`query`] and [`query_with_params`] run BQL over it, [`schema`] lists what a query can use, [`ledger_info`]
+//! describes the ledger, and no host function changes it. All of them answer
 //! [`HostErrorKind::Unavailable`](crate::HostErrorKind::Unavailable) outside a request, e.g. in a processor.
 //!
 //! **Security:** a router's pages are served from zhang's own address, so a script on such a page can call
-//! zhang's whole API with the user's session. Never echo untrusted input into HTML unescaped.
+//! zhang's whole API with the user's session. Never echo untrusted input into HTML unescaped. Never write what a
+//! user typed into a query's text either: bind it with [`query_with_params`].
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-pub use zhang_shared::plugin_abi::{Encoding as BodyEncoding, LedgerInfo, Request, Response};
+pub use zhang_shared::plugin_abi::{Encoding as BodyEncoding, LedgerInfo, QueryParam as Param, Request, Response};
 
 use crate::abi;
 use crate::error::{host_result, HostError};
@@ -49,6 +53,86 @@ pub fn query(bql: &str) -> Result<QueryResult, HostError> {
     host_result(abi::QUERY, &abi::query(bql)?)
 }
 
+/// The named parameters of a query, for [`query_with_params`]: `bind("from", Param::Date(Some("2024-01-01".into())))`
+/// binds `:from`. A [`Param`] is typed, `Bool`, `Int`, `Decimal` (as text, e.g. `"12.50"`), `Str`, `Date` (as
+/// `YYYY-MM-DD`) or `Set`, each `None` for NULL; the query is compiled against these types, so `:from` above
+/// compares as a date. Positional parameters (`$1`) cannot be bound.
+///
+/// ```
+/// use zhang_plugin_sdk::router::{Param, Params};
+///
+/// let params = Params::new()
+///     .bind("from", Param::Date(Some("2024-01-01".into())))
+///     .bind("re", Param::Str(None));
+/// assert_eq!(params.len(), 2);
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Params(BTreeMap<String, Param>);
+
+impl Params {
+    /// no parameters
+    pub fn new() -> Params {
+        Params::default()
+    }
+
+    /// these parameters with `:name` bound to `value`, replacing an earlier binding of the name
+    pub fn bind(mut self, name: impl Into<String>, value: Param) -> Params {
+        self.0.insert(name.into(), value);
+        self
+    }
+
+    /// the parameter `:name`
+    pub fn get(&self, name: &str) -> Option<&Param> {
+        self.0.get(name)
+    }
+
+    /// how many parameters are bound
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// the input of `zhang_query_params`, as the host reads it (`zhang_shared::plugin_abi::QueryWithParams`)
+#[derive(Serialize)]
+struct QueryInput<'a> {
+    bql: &'a str,
+    params: &'a Params,
+}
+
+/// Run a read-only BQL query with its named parameters bound, as [`query`] runs one: the query is compiled
+/// against the parameters' types, and `:name` in its text is the value bound as `name`. Bind what a user typed
+/// instead of writing it into the query. A parameter the query does not use is ignored. A parameter the query uses
+/// but `params` does not bind, or a query that fails, is a [`HostErrorKind::Query`](crate::HostErrorKind::Query)
+/// error with its line and column; a parameter that cannot be read as its type (`Date(Some("soon"))`) is one
+/// without a position, e.g. `parameter :from must be a date string YYYY-MM-DD or null`.
+///
+/// ```no_run
+/// use zhang_plugin_sdk::router::{query_with_params, Param, Params};
+///
+/// let since = "2024-01-01"; // what the user typed
+/// let params = Params::new().bind("since", Param::Date(Some(since.to_owned())));
+/// let result = query_with_params("SELECT account, sum(position) WHERE date >= :since GROUP BY account", &params)?;
+/// # Ok::<(), zhang_plugin_sdk::HostError>(())
+/// ```
+pub fn query_with_params(bql: &str, params: &Params) -> Result<QueryResult, HostError> {
+    let input =
+        serde_json::to_vec(&QueryInput { bql, params }).map_err(|e| HostError::new(crate::HostErrorKind::Invalid, format!("cannot encode the query: {e}")))?;
+    host_result(abi::QUERY_PARAMS, &abi::query_params(&input)?)
+}
+
+/// The tables, columns and functions a query can use, as `GET /api/query/schema` answers them:
+/// `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": [...],
+/// "functions": [{"name", "signature", "description", "aggregate"}], "keywords": [...]}`, where `columns` are
+/// those of the default `postings` table. Kept as JSON, so a newer zhang can add to it.
+pub fn schema() -> Result<serde_json::Value, HostError> {
+    host_result(abi::QUERY_SCHEMA, &abi::query_schema()?)
+}
+
 /// the ledger's title, operating currency and timezone
 pub fn ledger_info() -> Result<LedgerInfo, HostError> {
     host_result(abi::LEDGER_INFO, &abi::ledger_info()?)
@@ -58,7 +142,7 @@ pub fn ledger_info() -> Result<LedgerInfo, HostError> {
 mod test {
     use serde_json::json;
 
-    use super::{BodyEncoding, LedgerInfo, QueryResult, Request, Response};
+    use super::{BodyEncoding, LedgerInfo, Param, Params, QueryInput, QueryResult, Request, Response};
     use crate::error::{host_result, HostErrorKind};
 
     #[test]
@@ -118,5 +202,42 @@ mod test {
         .unwrap();
         assert_eq!((info.title, info.operating_currency.as_str()), (None, "CNY"));
         assert_eq!(super::query("SELECT 1").unwrap_err().kind, HostErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn should_write_the_query_with_params_zhang_reads() {
+        let params = Params::new()
+            .bind("from", Param::Date(Some("2024-01-01".into())))
+            .bind("re", Param::Str(None))
+            .bind("min", Param::Decimal(Some("12.50".into())))
+            .bind("n", Param::Int(Some(3)))
+            .bind("on", Param::Bool(Some(true)))
+            .bind("tags", Param::Set(Some(vec!["a".into()])))
+            // a later binding of a name replaces the earlier one
+            .bind("n", Param::Int(None));
+        assert_eq!((params.len(), params.get("n")), (6, Some(&Param::Int(None))));
+        assert_eq!(
+            serde_json::to_value(QueryInput {
+                bql: "SELECT date WHERE date >= :from",
+                params: &params
+            })
+            .unwrap(),
+            json!({
+                "bql": "SELECT date WHERE date >= :from",
+                "params": {
+                    "from": {"type": "date", "value": "2024-01-01"},
+                    "re": {"type": "str", "value": null},
+                    "min": {"type": "decimal", "value": "12.50"},
+                    "n": {"type": "int", "value": null},
+                    "on": {"type": "bool", "value": true},
+                    "tags": {"type": "set", "value": ["a"]},
+                },
+            })
+        );
+        assert!(Params::new().is_empty());
+        assert_eq!(serde_json::to_value(Params::new()).unwrap(), json!({}));
+        // natively the host functions are unavailable
+        assert_eq!(super::query_with_params("SELECT 1", &params).unwrap_err().kind, HostErrorKind::Unavailable);
+        assert_eq!(super::schema().unwrap_err().kind, HostErrorKind::Unavailable);
     }
 }
