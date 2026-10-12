@@ -209,7 +209,7 @@ What the SDK offers:
 | `errors` | `emit_error(message)`, `emit_error_at(span, message, metas)` |
 | `prices` | `PriceMap::from_stream(&stream)`, `rate(base, quote, date)`, `convert(amount, target, date)` for [exchange rates](#exchange-rates) |
 | `realization` | `SparseRealization` for [selected account quantities and costs](#selected-account-balances) |
-| `router` | `Request`, `Response`, `query(bql)`, `ledger_info()` |
+| `router` | `Request`, `Response`, `query(bql)`, `query_with_params(bql, &Params)` with `Param` for user input, `schema()`, `ledger_info()` |
 
 On a native target the SDK still compiles: `plugin!` exports nothing and host functions answer `unavailable`, so `cargo test` runs your plugin logic without Zhang, with a `Config::from_map(...)` standing in for the host's config. Four complete plugins live in [`zhang-plugin-sdk/examples`](https://github.com/zhang-accounting/zhang/tree/main/zhang-plugin-sdk/examples): three processors (`guard`, `lots`, which shows the booked view, and `balances`, which records running quantities and costs) and a router. Zhang's own tests build and run them.
 
@@ -321,7 +321,18 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **Route:** `{name}` is the plugin's name; the request's `path` is the part below the route.
 - **Authentication:** the routes sit behind Zhang's own sign-in, and the credential headers never reach the plugin.
-- **Read-only:** a router reads the ledger only through `zhang_query` (BQL) and `zhang_ledger_info`; no host function changes it. Every request runs in a fresh instance, and the ledger does not reload while it runs.
+- **Read-only:** a router reads the ledger only through `zhang_query` and `zhang_query_params` (BQL), `zhang_query_schema` and `zhang_ledger_info`; no host function changes it. Every request runs in a fresh instance, and the ledger does not reload while it runs.
+- **Bind user input:** never write what a user typed into a query's text. `router::query_with_params` binds typed parameters, and the query is compiled against their types:
+
+  ```rust
+  use zhang_plugin_sdk::router::{self, Param, Params};
+
+  let since = request.query_param("since").unwrap_or("1970-01-01"); // what the user typed
+  let params = Params::new().bind("since", Param::Date(Some(since.to_owned())));
+  let result = router::query_with_params("SELECT account, sum(position) WHERE date >= :since GROUP BY account", &params)?;
+  ```
+
+  A `Param` is `Bool`, `Int`, `Decimal` (as text, `"12.50"`), `Str`, `Date` (`YYYY-MM-DD`) or `Set`, each `None` for NULL. A value that cannot be read as its type, such as `Date(Some("soon"))`, is a `query` error without a position, e.g. `parameter :since must be a date string YYYY-MM-DD or null`; a parameter the query uses but the plugin does not bind is a `query` error at its position. `router::schema()` lists the tables, columns and functions a query can use, as `GET /api/query/schema` does, for a plugin that composes queries.
 - **Security:** a router's pages are served from Zhang's own address, so a script on such a page can call Zhang's API, including the endpoints that change your ledger files, with your session. Escape everything you put into HTML.
 
 [Router Plugins](/guides/router-plugins/) has the request and response JSON, the error statuses and the details.
@@ -382,14 +393,31 @@ They live in the `extism:host/user` namespace. Arguments and results are `i64` o
 | `zhang_read_file` | the path, UTF-8 | `{"content": "…", "encoding": "utf8" \| "base64"}` | `denied`, `not_found`, `too_large`, `unsupported`, `invalid` |
 | `zhang_list_dir` | the path, UTF-8 | `{"entries": [{"name": "…", "kind": "file" \| "dir"}]}`, sorted by name | as `zhang_read_file` |
 | `zhang_query` | the BQL text | `{"columns": [{"name": "…", "type": "…"}], "rows": [[…]]}` | `query` (with `line` and `column`), `invalid_input`, `unavailable` |
+| `zhang_query_params` | `{"bql": "… :from …", "params": {"from": {"type": "date", "value": "2024-01-01"}}}` | as `zhang_query` | as `zhang_query`; a parameter problem is a `query` error naming the parameter |
+| `zhang_query_schema` | none | `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`, the `data` of `GET /api/query/schema` | `unavailable` |
 | `zhang_ledger_info` | none | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
+
+`zhang_query_params` binds named parameters (`from` binds `:from`; positional `$1` parameters cannot be bound), so a plugin binds what a user typed instead of writing it into the BQL. The query is compiled against the parameters' types. Each parameter is `{"type": "…", "value": …}`, with the value as the API's built-in queries take theirs; `null`, or no `value`, is NULL for any type:
+
+| `type` | `value` |
+|---|---|
+| `bool` | `true` or `false` |
+| `int` | an integer |
+| `decimal` | a number, or a string such as `"12.50"`, which keeps its scale |
+| `str` | a string |
+| `date` | a string `YYYY-MM-DD` |
+| `set` | a list of strings |
+
+A type not in this table, or a value not of that shape, is a `query` error without a position, e.g. `parameter :from must be a date string YYYY-MM-DD or null`; a parameter the query uses but the input does not bind is a `query` error at its position; a parameter the query does not use is ignored. The whole input has the same size limit as a query's text, and an input that is not this JSON is `invalid_input`.
 
 Where they work:
 
 - `zhang_emit_error` reports into the error list from a processor or mapper. While the plugin registers (`name`, `version`, `supported_type`) what it reports is dropped, and in a router it is only logged.
 - `zhang_now` works everywhere. In a router it reads the clock afresh for each request, and a call while registering does not make the ledger depend on the date.
 - `zhang_read_file` and `zhang_list_dir` answer `denied` outside a processor or mapper, and for any path `allowed_paths` does not grant.
-- `zhang_query` and `zhang_ledger_info` answer `unavailable` outside a router request.
+- `zhang_query`, `zhang_query_params`, `zhang_query_schema` and `zhang_ledger_info` answer `unavailable` outside a router request.
+
+`zhang_query_params` and `zhang_query_schema` were added after `zhang_query`. A new host function is an addition a plugin can ignore, so the ABI version stays 1: a plugin that does not import them runs unchanged, and one that does fails to load, as below, on a Zhang without them.
 
 ### Minimum Zhang version
 

@@ -20,11 +20,22 @@
 //!     `query` with `message`, `line` and `column`.
 //!   - `zhang_ledger_info() -> i64` gives
 //!     `{"title": "..." or null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`.
+//!   - `zhang_query_params(input: i64) -> i64` runs a query with named parameters bound, so a
+//!     plugin binds what a user typed instead of writing it into the BQL. The block holds a
+//!     [`QueryWithParams`] as JSON, `{"bql": "... :from ...", "params": {"from": {"type": "date",
+//!     "value": "2024-01-01"}}}`, with the same size limit as a query's text; the value is what
+//!     `zhang_query` gives. A parameter whose type is not one of `bool`, `int`, `decimal`,
+//!     `str`, `date` and `set`, or whose value is not of the shape that type takes (see
+//!     [`RawQueryParam`]), is a `query` error naming the parameter, without a position; a
+//!     parameter the query uses but the input does not bind is a `query` error at its position.
+//!   - `zhang_query_schema() -> i64` gives the tables, columns and functions a query can use,
+//!     the `data` that `GET /api/query/schema` answers.
 //!
-//!   Both are only useful while `router` runs. They are linked into every other instance of a
-//!   plugin too (registration, `processor`, `mapper`), so a plugin importing them still loads and
-//!   runs as its other types; there they give the kind `unavailable`. A call whose argument is not
-//!   a readable UTF-8 block gives the kind `invalid_input`.
+//!   All of them are only useful while `router` runs. They are linked into every other instance
+//!   of a plugin too (registration, `processor`, `mapper`), so a plugin importing them still
+//!   loads and runs as its other types; there they give the kind `unavailable`. A call whose
+//!   argument is not a readable UTF-8 block, or for `zhang_query_params` not the JSON described,
+//!   gives the kind `invalid_input`.
 //! - `zhang_emit_error` ([`crate::plugin::host`]) is linked into a router call too, so a plugin
 //!   importing it can serve requests. A request has no error list to report into, so what the
 //!   plugin reports is logged as a warning and otherwise dropped; the call still never traps. A
@@ -38,6 +49,7 @@
 //! holds the ledger's read lock for the whole call, so the ledger cannot reload under the plugin,
 //! and no host function can change the ledger.
 
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, PoisonError};
 
@@ -46,8 +58,11 @@ use log::{debug, warn};
 use serde::Serialize;
 use serde_json::Value;
 pub use zhang_shared::plugin_abi::export::ROUTER as ROUTER_EXPORT;
-pub use zhang_shared::plugin_abi::import::{LEDGER_INFO as LEDGER_INFO_FUNCTION, QUERY as QUERY_FUNCTION};
+pub use zhang_shared::plugin_abi::import::{
+    LEDGER_INFO as LEDGER_INFO_FUNCTION, QUERY as QUERY_FUNCTION, QUERY_PARAMS as QUERY_PARAMS_FUNCTION, QUERY_SCHEMA as QUERY_SCHEMA_FUNCTION,
+};
 use zhang_shared::plugin_abi::{HostError, HostErrorKind, LedgerInfo};
+pub use zhang_shared::plugin_abi::{QueryWithParams, RawQueryParam};
 
 use crate::clock::LoadClock;
 use crate::ledger::Ledger;
@@ -55,8 +70,9 @@ use crate::plugin::host::{read_input_str, HostState, MESSAGE_META};
 use crate::plugin::http::{PluginRequest, PluginResponse};
 use crate::plugin::store::{PluginStore, RegisteredPlugin};
 
-/// the most bytes `zhang_query` will read for a plugin's BQL text. A query is human-written SQL-like
-/// text, so one mebibyte is far beyond any real query while capping what a single call can read.
+/// the most bytes `zhang_query` will read for a plugin's BQL text, and `zhang_query_params` for its
+/// whole JSON input. A query is human-written SQL-like text, so one mebibyte is far beyond any real
+/// query while capping what a single call can read.
 const QUERY_MAX_LEN: usize = 1024 * 1024;
 
 /// a query that failed to parse, compile or run
@@ -76,6 +92,15 @@ pub trait RouterHost: Send + Sync {
     /// run a BQL query over the ledger being served, with the limits of `POST /api/query`.
     /// The value is the `data` of that endpoint: `{"columns": [...], "rows": [...]}`
     fn query(&self, bql: &str) -> Result<Value, QueryFailure>;
+
+    /// run a BQL query with the named parameters `params` bound, as [`RouterHost::query`] runs one.
+    /// The host reads each parameter's type by name and its value as JSON
+    /// (`zhang_query::params::bind_json`), and reports a parameter it cannot read as a failure
+    /// without a position, e.g. `parameter :from must be a date string YYYY-MM-DD or null`
+    fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure>;
+
+    /// the tables, columns and functions a query can use: the `data` of `GET /api/query/schema`
+    fn schema(&self) -> Result<Value, QueryFailure>;
 }
 
 /// why a router plugin could not answer a request
@@ -124,14 +149,7 @@ fn answer<T: Serialize>(plugin: &mut CurrentPlugin, outputs: &mut [Val], result:
 
 /// `zhang_query(bql) -> result`
 pub(super) fn zhang_query(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
-    // clone the host out, so the lock is not held while the query runs
-    let host = state
-        .get()?
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .router
-        .as_ref()
-        .map(|(host, _)| host.clone());
+    let host = router_host(&state)?;
     // read the query text through the bounds-checked helper, so a forged block header cannot make
     // this read out of bounds (a crash) or larger than the limit; a bad input becomes an
     // `invalid_input` value, never a trap
@@ -148,12 +166,68 @@ pub(super) fn zhang_query(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &
 fn query_answer(host: Option<&dyn RouterHost>, bql: Result<&str, &str>) -> Result<Value, HostError> {
     let host = host.ok_or_else(|| unavailable(QUERY_FUNCTION))?;
     let bql = bql.map_err(|message| HostError::new(HostErrorKind::InvalidInput, message))?;
-    host.query(bql).map_err(|failure| HostError {
+    host.query(bql).map_err(query_error)
+}
+
+/// a failed query as the plugin sees it: the kind `query`, with the position when it has one
+fn query_error(failure: QueryFailure) -> HostError {
+    HostError {
         kind: HostErrorKind::Query,
         message: failure.message,
         line: failure.line,
         column: failure.column,
-    })
+    }
+}
+
+/// the host of the current router call, or none outside one. The host is cloned out, so the
+/// lock is not held while the query runs
+fn router_host(state: &UserData<HostState>) -> Result<Option<Arc<dyn RouterHost>>, extism::Error> {
+    Ok(state
+        .get()?
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .router
+        .as_ref()
+        .map(|(host, _)| host.clone()))
+}
+
+/// `zhang_query_params(input) -> result`
+pub(super) fn zhang_query_params(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
+    let host = router_host(&state)?;
+    // the whole JSON input is read under the same cap as a query's text, through the same
+    // bounds-checked helper, so a forged block answers `invalid_input` and never traps
+    let input = match inputs.first() {
+        None => Err("the input is not a memory block".to_owned()),
+        Some(offset) => read_input_str(plugin, offset, QUERY_MAX_LEN).map_err(|e| format!("the input {e}")),
+    };
+    let result = query_params_answer(host.as_deref(), input.as_deref().map_err(String::as_str));
+    answer(plugin, outputs, result)
+}
+
+/// what `zhang_query_params` answers, given the host of the router call (none outside one) and
+/// the JSON input the plugin passed, or why it could not be read
+fn query_params_answer(host: Option<&dyn RouterHost>, input: Result<&str, &str>) -> Result<Value, HostError> {
+    let host = host.ok_or_else(|| unavailable(QUERY_PARAMS_FUNCTION))?;
+    let input = input.map_err(|message| HostError::new(HostErrorKind::InvalidInput, message))?;
+    let query: QueryWithParams = serde_json::from_str(input).map_err(|e| {
+        HostError::new(
+            HostErrorKind::InvalidInput,
+            format!("the input is not a JSON object {{\"bql\": \"...\", \"params\": {{\"name\": {{\"type\": \"...\", \"value\": ...}}}}}}: {e}"),
+        )
+    })?;
+    host.query_with_params(&query.bql, &query.params).map_err(query_error)
+}
+
+/// `zhang_query_schema() -> schema`
+pub(super) fn zhang_query_schema(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
+    let host = router_host(&state)?;
+    answer(plugin, outputs, schema_answer(host.as_deref()))
+}
+
+/// what `zhang_query_schema` answers, given the host of the router call (none outside one)
+fn schema_answer(host: Option<&dyn RouterHost>) -> Result<Value, HostError> {
+    let host = host.ok_or_else(|| unavailable(QUERY_SCHEMA_FUNCTION))?;
+    host.schema().map_err(query_error)
 }
 
 /// `zhang_ledger_info() -> info`
@@ -237,11 +311,14 @@ impl RegisteredPlugin {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
     use serde_json::{json, Value};
 
-    use super::{query_answer, QueryFailure, RouterHost};
+    use super::{query_answer, query_params_answer, schema_answer, QueryFailure, RawQueryParam, RouterHost};
 
-    /// answers `SELECT 1` and fails every other query
+    /// answers `SELECT 1` and fails every other query; with parameters, echoes what it was given
+    /// unless a parameter is named `bad`
     struct OneQuery;
 
     impl RouterHost for OneQuery {
@@ -255,10 +332,29 @@ mod test {
                 }),
             }
         }
+
+        fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
+            if params.contains_key("bad") {
+                return Err(QueryFailure {
+                    message: "parameter :bad must be a date string YYYY-MM-DD or null".to_owned(),
+                    line: None,
+                    column: None,
+                });
+            }
+            Ok(json!({"bql": bql, "params": params}))
+        }
+
+        fn schema(&self) -> Result<Value, QueryFailure> {
+            Ok(json!({"tables": [{"name": "postings"}]}))
+        }
     }
 
     fn encoded(host: Option<&dyn RouterHost>, bql: Result<&str, &str>) -> Value {
         serde_json::to_value(query_answer(host, bql)).unwrap()
+    }
+
+    fn encoded_with_params(host: Option<&dyn RouterHost>, input: Result<&str, &str>) -> Value {
+        serde_json::to_value(query_params_answer(host, input)).unwrap()
     }
 
     #[test]
@@ -275,10 +371,59 @@ mod test {
     }
 
     #[test]
+    fn should_hand_the_parsed_parameters_to_the_host_and_answer_failures_as_values() {
+        let input = r#"{"bql": "SELECT date WHERE date >= :from", "params": {"from": {"type": "date", "value": "2024-01-01"}, "re": {"type": "str"}}}"#;
+        assert_eq!(
+            encoded_with_params(Some(&OneQuery), Ok(input)),
+            json!({"Ok": {
+                "bql": "SELECT date WHERE date >= :from",
+                "params": {"from": {"type": "date", "value": "2024-01-01"}, "re": {"type": "str", "value": null}},
+            }})
+        );
+        assert_eq!(
+            encoded_with_params(
+                Some(&OneQuery),
+                Ok(r#"{"bql": "SELECT date", "params": {"bad": {"type": "date", "value": 1}}}"#)
+            ),
+            json!({"Err": {"kind": "query", "message": "parameter :bad must be a date string YYYY-MM-DD or null", "line": null, "column": null}})
+        );
+        // an input that is not the JSON described could not be read, like a block that is not UTF-8
+        let not_json = encoded_with_params(Some(&OneQuery), Ok("SELECT date"));
+        assert_eq!(not_json["Err"]["kind"], json!("invalid_input"));
+        assert!(
+            not_json["Err"]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("the input is not a JSON object {\"bql\": \"...\", \"params\": "),
+            "{not_json}"
+        );
+        assert_eq!(
+            encoded_with_params(Some(&OneQuery), Ok(r#"{"params": {}}"#))["Err"]["kind"],
+            json!("invalid_input")
+        );
+        assert_eq!(
+            encoded_with_params(Some(&OneQuery), Err("the input is 2000000 bytes, over the 1048576 byte limit")),
+            json!({"Err": {"kind": "invalid_input", "message": "the input is 2000000 bytes, over the 1048576 byte limit"}})
+        );
+        assert_eq!(
+            serde_json::to_value(schema_answer(Some(&OneQuery))).unwrap(),
+            json!({"Ok": {"tables": [{"name": "postings"}]}})
+        );
+    }
+
+    #[test]
     fn should_answer_unavailable_outside_a_router_call() {
         assert_eq!(
             encoded(None, Ok("SELECT 1")),
             json!({"Err": {"kind": "unavailable", "message": "zhang_query is only available while the plugin handles a request as a router"}})
+        );
+        assert_eq!(
+            encoded_with_params(None, Ok(r#"{"bql": "SELECT 1", "params": {}}"#)),
+            json!({"Err": {"kind": "unavailable", "message": "zhang_query_params is only available while the plugin handles a request as a router"}})
+        );
+        assert_eq!(
+            serde_json::to_value(schema_answer(None)).unwrap(),
+            json!({"Err": {"kind": "unavailable", "message": "zhang_query_schema is only available while the plugin handles a request as a router"}})
         );
     }
 }

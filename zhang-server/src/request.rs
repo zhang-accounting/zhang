@@ -275,6 +275,19 @@ pub enum BuiltinParamValue {
     List(Vec<String>),
 }
 
+impl From<BuiltinParamValue> for serde_json::Value {
+    /// the value as the JSON it was read from, for the engine's `zhang_query::params::from_json`
+    fn from(value: BuiltinParamValue) -> Self {
+        match value {
+            BuiltinParamValue::Bool(it) => serde_json::Value::Bool(it),
+            BuiltinParamValue::Int(it) => serde_json::Value::from(it),
+            BuiltinParamValue::Number(it) => serde_json::Value::from(it),
+            BuiltinParamValue::Text(it) => serde_json::Value::String(it),
+            BuiltinParamValue::List(items) => serde_json::Value::from(items),
+        }
+    }
+}
+
 #[derive(Schematic, Deserialize)]
 pub struct BuiltinQueryTextRequest {
     /// the value of every parameter of the query, by name (`from` for `:from`)

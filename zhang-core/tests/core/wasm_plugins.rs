@@ -6,7 +6,7 @@
 //! module cache file.
 #![cfg(feature = "plugin_runtime")]
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,9 +27,11 @@ use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::outcome::Detail;
 use zhang_core::plugin::capabilities::{plugin_seed, PluginStage};
 use zhang_core::plugin::http::PluginRequest;
-use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
+use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost};
 use zhang_core::plugin::PluginType;
 use zhang_core::ZhangResult;
+use zhang_query::params::{bind_json, to_bql};
+use zhang_query::{ParamRef, Query, QueryError};
 
 const LEDGER: &str = indoc! {r#"
     1970-01-01 commodity CNY
@@ -500,7 +502,10 @@ fn plugin_declaring_router_and_processor_runs_as_both() {
     assert_eq!(store_summary(&ledger), (vec![], vec![], vec![]));
 }
 
-/// a router host answering every query with `{"echo": <bql>}`, or with a failure for `FAIL`
+/// A router host answering every query with `{"echo": <bql>}`, or with a failure for `FAIL`. With
+/// parameters it binds them as the server does, with the engine's `bind_json`, compiles the query
+/// against their types, and echoes the bound values written as BQL: `{"echo": <bql>, "params":
+/// {"from": "2024-01-01"}}`. The schema is a fixed one.
 struct FakeHost;
 
 impl RouterHost for FakeHost {
@@ -513,6 +518,29 @@ impl RouterHost for FakeHost {
             });
         }
         Ok(json!({ "echo": bql }))
+    }
+
+    fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<serde_json::Value, QueryFailure> {
+        let (types, values) =
+            bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(|message| QueryFailure {
+                message,
+                line: None,
+                column: None,
+            })?;
+        Query::compile_with_params(bql, &types).map_err(|error: QueryError| QueryFailure {
+            message: error.message,
+            line: error.line,
+            column: error.column,
+        })?;
+        let bound: BTreeMap<&str, Option<String>> = params
+            .keys()
+            .map(|name| (name.as_str(), values.get(&ParamRef::Named(name.clone())).and_then(to_bql)))
+            .collect();
+        Ok(json!({ "echo": bql, "params": bound }))
+    }
+
+    fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
+        Ok(json!({"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]}))
     }
 }
 
@@ -571,6 +599,91 @@ fn router_reads_the_ledger_through_host_functions_only_while_routing() {
     );
     // what it reported with `zhang_emit_error` during the request is only logged
     assert_eq!(errors(&ledger), vec![]);
+}
+
+/// what `router-query-params` answers for the request path `/{case}`: the raw host function result
+fn query_params_case(ledger: &Ledger, case: char) -> serde_json::Value {
+    let request = PluginRequest::new("GET", format!("/{case}"), vec![], vec![], vec![]);
+    // the fixture reads the case from byte 25 of the request JSON
+    assert_eq!(serde_json::to_vec(&request).unwrap()[25], case as u8);
+    let response = call(ledger, "router-query-params", &request).unwrap();
+    assert_eq!(response.status(), 200);
+    serde_json::from_slice(response.body()).unwrap()
+}
+
+#[test]
+fn router_binds_query_parameters_through_the_host() {
+    // loading proves the processor got an `Err` from both host functions: it traps otherwise
+    let (_dir, ledger) = router_ledger(&["router_query_params.wat"]);
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the processor passed the stream through");
+
+    // a date, a str and a decimal given as a JSON number bind with their declared types
+    assert_eq!(
+        query_params_case(&ledger, 'a'),
+        json!({"Ok": {
+            "echo": "SELECT date, narration WHERE date >= :from AND narration = :who AND number > :min",
+            "params": {"from": "2024-01-01", "who": "'lunch'", "min": "5.5"},
+        }})
+    );
+    // null is NULL, and the query still compiles against the declared type
+    assert_eq!(
+        query_params_case(&ledger, 'b'),
+        json!({"Ok": {"echo": "SELECT date WHERE narration = :who", "params": {"who": "NULL"}}})
+    );
+}
+
+#[test]
+fn router_query_parameter_problems_are_query_errors() {
+    let (_dir, ledger) = router_ledger(&["router_query_params.wat"]);
+
+    assert_eq!(
+        query_params_case(&ledger, 'c'),
+        json!({"Err": {
+            "kind": "query",
+            "message": "parameter :who has the type \"money\", which is not one of bool, int, decimal, str, date, set",
+            "line": null,
+            "column": null,
+        }})
+    );
+    assert_eq!(
+        query_params_case(&ledger, 'd'),
+        json!({"Err": {"kind": "query", "message": "parameter :from must be a date string YYYY-MM-DD or null", "line": null, "column": null}})
+    );
+    // a parameter the query uses but the input does not bind is reported where the query uses it
+    assert_eq!(
+        query_params_case(&ledger, 'e'),
+        json!({"Err": {"kind": "query", "message": "parameter :from is not bound", "line": 1, "column": 27}})
+    );
+}
+
+#[test]
+fn router_query_params_input_that_cannot_be_read_is_invalid_input() {
+    let (_dir, ledger) = router_ledger(&["router_query_params.wat"]);
+
+    let not_json = query_params_case(&ledger, 'f');
+    assert_eq!(not_json["Err"]["kind"], json!("invalid_input"), "{not_json}");
+    assert!(
+        not_json["Err"]["message"].as_str().unwrap().starts_with("the input is not a JSON object"),
+        "{not_json}"
+    );
+    // the whole input is capped like a query's text, and a block over the cap is never read
+    let oversize = query_params_case(&ledger, 'g');
+    assert_eq!(oversize["Err"]["kind"], json!("invalid_input"), "{oversize}");
+    assert_eq!(
+        oversize["Err"]["message"],
+        json!("the input is 1048577 bytes, over the 1048576 byte limit"),
+        "{oversize}"
+    );
+}
+
+#[test]
+fn router_reads_the_query_schema_through_the_host() {
+    let (_dir, ledger) = router_ledger(&["router_query_params.wat"]);
+
+    assert_eq!(
+        query_params_case(&ledger, 's'),
+        json!({"Ok": {"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]}})
+    );
 }
 
 #[test]

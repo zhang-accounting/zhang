@@ -1,6 +1,6 @@
 ---
 title: Router Plugins
-description: How a WASM plugin serves its own HTTP endpoints under /api/plugins/{name}, the request and response JSON it exchanges with Zhang, and the zhang_query host function it reads the ledger with.
+description: How a WASM plugin serves its own HTTP endpoints under /api/plugins/{name}, the request and response JSON it exchanges with Zhang, and the host functions it reads the ledger with, zhang_query and zhang_query_params.
 sidebar:
   order: 8
 ---
@@ -67,14 +67,23 @@ Its output is the response as JSON. Every field is optional:
 - Without a `content-type` header the response is `text/plain; charset=utf-8`. Any content type works, so a plugin can return JSON, an HTML page or, with `"body_encoding": "base64"`, an image.
 - Zhang sets `content-length`, `transfer-encoding` and `connection` itself and ignores them in the plugin's headers.
 
-## Reading the ledger: `zhang_query`
+## Reading the ledger: `zhang_query` and `zhang_query_params`
 
 A router plugin reads the ledger through host functions in the `extism:host/user` namespace. Each one returns JSON, either `{"Ok": value}` or `{"Err": {"kind": "...", "message": "..."}}`, and reports problems as values instead of failing the plugin.
 
 - `zhang_query(bql)` runs a read-only [query](/reference/query-language/) and returns what `POST /api/query` returns in `data`: `{"columns": [{"name", "type"}], "rows": [[...]]}`. It has the same time and result size limits. A query that fails gives the kind `query`, with `message`, `line` and `column`.
+- `zhang_query_params(input)` runs a query with named parameters bound, and returns the same. Bind what a user typed instead of writing it into the query text. The input is JSON:
+
+  ```json
+  {"bql": "SELECT date, narration WHERE date >= :from AND account ~ :re",
+   "params": {"from": {"type": "date", "value": "2024-01-01"}, "re": {"type": "str", "value": null}}}
+  ```
+
+  `from` binds `:from` (positional `$1` parameters cannot be bound), and the query is compiled against the parameters' types. `type` is `bool`, `int`, `decimal`, `str`, `date` or `set`, and `value` is what the [built-in queries](/reference/builtin-queries/) take: a boolean, an integer, a number or a string such as `"12.50"`, a string, a string `YYYY-MM-DD`, or a list of strings; `null` is NULL for any type. A parameter of another type or shape is a `query` error without a position, e.g. `parameter :from must be a date string YYYY-MM-DD or null`; a parameter the query uses but the input does not bind is a `query` error at its position.
+- `zhang_query_schema()` returns the tables, columns and functions a query can use, exactly what `GET /api/query/schema` returns in `data`, for a plugin that composes queries or describes them.
 - `zhang_ledger_info()` returns `{"title": "...", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`, with a `title` of `null` when the ledger sets no `title` option.
 
-In Rust with the plain Extism PDK (the [Rust SDK](/developers/writing-plugins/#router-plugins) wraps this as `router::query`):
+In Rust with the plain Extism PDK (the [Rust SDK](/developers/writing-plugins/#router-plugins) wraps these as `router::query`, `router::query_with_params` and `router::schema`):
 
 ```rust
 use extism_pdk::*;

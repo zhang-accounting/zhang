@@ -64,6 +64,16 @@ pub mod import {
     pub const QUERY: &str = "zhang_query";
     /// the host function a router plugin reads the ledger's title, currency and timezone with
     pub const LEDGER_INFO: &str = "zhang_ledger_info";
+    /// The host function a router plugin runs a BQL query with named parameters bound with.
+    ///
+    /// `zhang_query_params(input: i64) -> i64` takes the offset of a block holding a
+    /// [`QueryWithParams`](super::QueryWithParams) as JSON and answers as `zhang_query` does.
+    pub const QUERY_PARAMS: &str = "zhang_query_params";
+    /// The host function a router plugin reads the query schema with: the tables, columns and
+    /// functions a query can use, as `GET /api/query/schema` lists them.
+    ///
+    /// `zhang_query_schema() -> i64` answers `{"Ok": schema}`.
+    pub const QUERY_SCHEMA: &str = "zhang_query_schema";
 }
 
 /// the config keys the host sets for every plugin; a `plugin` directive's meta cannot override them
@@ -228,7 +238,8 @@ pub enum HostErrorKind {
     InvalidInput,
     /// router host functions outside a request; on a native (non-WASM) build of a plugin, every host function
     Unavailable,
-    /// `zhang_query`: the query failed to parse, compile or run; see [`HostError::line`] and [`HostError::column`]
+    /// `zhang_query` and `zhang_query_params`: the query failed to parse, compile or run, or a parameter could not
+    /// be bound; see [`HostError::line`] and [`HostError::column`]
     Query,
     /// a kind this side does not know, from a newer zhang, or an answer it cannot read
     #[serde(other)]
@@ -329,6 +340,56 @@ pub struct LedgerInfo {
     pub operating_currency: String,
     /// the ledger's timezone, an IANA name
     pub timezone: String,
+}
+
+/// A parameter of `zhang_query_params` as a plugin writes it, `{"type": "date", "value": "2026-09-01"}`: `type`
+/// is one of the query engine's parameter types, `bool`, `int`, `decimal`, `str`, `date` and `set`, and `value` is
+/// read as the API's built-in queries read theirs. `null`, or no `value`, is NULL for any type; otherwise a `bool`
+/// takes a boolean, an `int` an integer, a `decimal` a number or a string such as `"12.50"`, a `str` a string, a
+/// `date` a string `YYYY-MM-DD`, and a `set` a list of strings. The host checks the type name and the value's shape
+/// and reports a problem with either as a `query` error naming the parameter.
+///
+/// [`QueryParam`] is the typed view of the same JSON, for plugins written in Rust.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RawQueryParam {
+    /// the type's name
+    #[serde(rename = "type")]
+    pub ty: String,
+    /// the value as JSON; `null` when absent
+    #[serde(default)]
+    pub value: serde_json::Value,
+}
+
+/// A parameter of `zhang_query_params`, typed: `QueryParam::Date(None)` is `{"type": "date", "value": null}` and
+/// `QueryParam::Str(Some("x".into()))` is `{"type": "str", "value": "x"}`. The SDK sends these; the host reads the
+/// same JSON as a [`RawQueryParam`], so a plugin in another language may also give a `decimal` as a JSON number.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "lowercase")]
+pub enum QueryParam {
+    Bool(Option<bool>),
+    Int(Option<i64>),
+    /// a decimal as text, e.g. `"12.50"`, keeping its scale
+    Decimal(Option<String>),
+    Str(Option<String>),
+    /// a date as `YYYY-MM-DD`
+    Date(Option<String>),
+    Set(Option<Vec<String>>),
+}
+
+/// The input of `zhang_query_params`: a query and the named parameters it uses, by name without the colon
+/// (`from` binds `:from`). Positional parameters (`$1`) cannot be bound. On the wire:
+///
+/// ```json
+/// {"bql": "SELECT date, narration WHERE date >= :from AND account ~ :re",
+///  "params": {"from": {"type": "date", "value": "2026-09-01"}, "re": {"type": "str", "value": null}}}
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryWithParams {
+    /// the query text, with its parameters written `:name`
+    pub bql: String,
+    /// the parameters by name; empty when absent. A parameter the query does not use is ignored
+    #[serde(default)]
+    pub params: BTreeMap<String, RawQueryParam>,
 }
 
 /// Request headers carrying the user's credentials for zhang itself, or for a proxy in front of it. A plugin sits
@@ -625,5 +686,63 @@ impl<E: std::error::Error> From<E> for Error {
             source = cause.source();
         }
         Error { message }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeMap;
+
+    use serde_json::{json, Value};
+
+    use super::{QueryParam, QueryWithParams, RawQueryParam};
+
+    #[test]
+    fn should_write_typed_query_params_as_the_wire_json() {
+        let params = [
+            (QueryParam::Bool(Some(true)), json!({"type": "bool", "value": true})),
+            (QueryParam::Int(Some(-3)), json!({"type": "int", "value": -3})),
+            (QueryParam::Decimal(Some("12.50".into())), json!({"type": "decimal", "value": "12.50"})),
+            (QueryParam::Str(Some("x".into())), json!({"type": "str", "value": "x"})),
+            (QueryParam::Date(Some("2026-09-01".into())), json!({"type": "date", "value": "2026-09-01"})),
+            (QueryParam::Set(Some(vec!["a".into(), "b".into()])), json!({"type": "set", "value": ["a", "b"]})),
+            (QueryParam::Date(None), json!({"type": "date", "value": null})),
+            (QueryParam::Set(None), json!({"type": "set", "value": null})),
+        ];
+        for (typed, wire) in params {
+            assert_eq!(serde_json::to_value(&typed).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<QueryParam>(wire.clone()).unwrap(), typed);
+            // the host reads the same JSON leniently, the type by name and the value as it is
+            let raw: RawQueryParam = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!((raw.ty.as_str(), &raw.value), (wire["type"].as_str().unwrap(), &wire["value"]));
+            assert_eq!(serde_json::to_value(&raw).unwrap(), wire);
+        }
+    }
+
+    #[test]
+    fn should_read_the_query_input_leniently() {
+        let input: QueryWithParams = serde_json::from_value(json!({
+            "bql": "SELECT date WHERE date >= :from AND number > :min",
+            "params": {
+                "from": {"type": "date", "value": "2026-09-01"},
+                // a plugin in another language may give a decimal as a number, and leave a null value out
+                "min": {"type": "decimal", "value": 12.5},
+                "re": {"type": "str"},
+                "money": {"type": "money", "value": 1},
+            },
+        }))
+        .unwrap();
+        assert_eq!(input.bql, "SELECT date WHERE date >= :from AND number > :min");
+        let param = |name: &str| input.params.get(name).map(|param| (param.ty.as_str(), param.value.clone()));
+        assert_eq!(param("from"), Some(("date", json!("2026-09-01"))));
+        assert_eq!(param("min"), Some(("decimal", json!(12.5))));
+        assert_eq!(param("re"), Some(("str", Value::Null)));
+        assert_eq!(param("money"), Some(("money", json!(1))));
+        // the parameters are optional
+        let bare: QueryWithParams = serde_json::from_value(json!({"bql": "SELECT date"})).unwrap();
+        assert_eq!(bare.params, BTreeMap::new());
+        // the query is not
+        assert!(serde_json::from_value::<QueryWithParams>(json!({"params": {}})).is_err());
+        assert!(serde_json::from_value::<QueryWithParams>(json!({"bql": "SELECT date", "params": {"x": "str"}})).is_err());
     }
 }

@@ -1,6 +1,6 @@
 ---
 title: Router 插件
-description: WASM 插件如何在 /api/plugins/{name} 下提供自己的 HTTP 接口，它与张记账交换的请求和响应 JSON，以及它用来读取账本的 zhang_query 宿主函数。
+description: WASM 插件如何在 /api/plugins/{name} 下提供自己的 HTTP 接口，它与张记账交换的请求和响应 JSON，以及它用来读取账本的宿主函数 zhang_query 和 zhang_query_params。
 sidebar:
   order: 8
 ---
@@ -67,14 +67,23 @@ Router 插件服务 `/api/plugins/{name}` 及其下的所有路径，接受任�
 - 没有 `content-type` 头时，响应的类型是 `text/plain; charset=utf-8`。任何内容类型都可以，因此插件可以返回 JSON、HTML 页面，或者配合 `"body_encoding": "base64"` 返回图片。
 - 张记账自己设置 `content-length`、`transfer-encoding` 和 `connection`，并忽略插件响应头中的这些字段。
 
-## 读取账本：`zhang_query`
+## 读取账本：`zhang_query` 和 `zhang_query_params`
 
 Router 插件通过 `extism:host/user` 命名空间中的宿主函数读取账本。每个函数都返回 JSON，要么是 `{"Ok": value}`，要么是 `{"Err": {"kind": "...", "message": "..."}}`，并把问题作为值报告，而不是让插件失败。
 
 - `zhang_query(bql)` 运行一条只读的[查询](/zh-cn/reference/query-language/)，返回 `POST /api/query` 在 `data` 中返回的内容：`{"columns": [{"name", "type"}], "rows": [[...]]}`。它有同样的时间和结果大小限制。失败的查询给出 kind `query`，以及 `message`、`line` 和 `column`。
+- `zhang_query_params(input)` 运行一条绑定了命名参数的查询，返回同样的内容。请绑定用户输入的内容，而不是把它写进查询文本。输入是 JSON：
+
+  ```json
+  {"bql": "SELECT date, narration WHERE date >= :from AND account ~ :re",
+   "params": {"from": {"type": "date", "value": "2024-01-01"}, "re": {"type": "str", "value": null}}}
+  ```
+
+  `from` 绑定 `:from`（位置参数 `$1` 不能绑定），查询按参数的类型编译。`type` 是 `bool`、`int`、`decimal`、`str`、`date` 或 `set`，`value` 的写法与[内置查询](/zh-cn/reference/builtin-queries/)相同：布尔值、整数、数字或如 `"12.50"` 的字符串、字符串、`YYYY-MM-DD` 字符串，或字符串列表；`null` 对任何类型都表示 NULL。其他类型或形状的参数是一个没有位置的 `query` 错误，例如 `parameter :from must be a date string YYYY-MM-DD or null`；查询用到但输入没有绑定的参数是一个带位置的 `query` 错误。
+- `zhang_query_schema()` 返回查询可用的表、列和函数，与 `GET /api/query/schema` 在 `data` 中返回的内容完全相同，供拼装或描述查询的插件使用。
 - `zhang_ledger_info()` 返回 `{"title": "...", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`；账本没有设置 `title` 选项时，`title` 为 `null`。
 
-使用普通 Extism PDK 的 Rust 代码如下（[Rust SDK](/zh-cn/developers/writing-plugins/#router-插件) 把它封装为 `router::query`）：
+使用普通 Extism PDK 的 Rust 代码如下（[Rust SDK](/zh-cn/developers/writing-plugins/#router-插件) 把它们封装为 `router::query`、`router::query_with_params` 和 `router::schema`）：
 
 ```rust
 use extism_pdk::*;
