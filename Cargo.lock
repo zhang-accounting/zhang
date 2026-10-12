@@ -6799,6 +6799,7 @@ dependencies = [
  "webauthn-rs",
  "zhang-ast",
  "zhang-core",
+ "zhang-plugin-mcp",
  "zhang-query",
  "zhang-shared",
  "zhang-testkit",

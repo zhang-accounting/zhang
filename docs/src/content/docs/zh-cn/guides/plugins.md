@@ -42,7 +42,7 @@ plugin "plugins/large_expense.wasm"
 
 - **processor** 接收账本的所有条目，返回张记账接下来使用的条目。它可以添加、修改或删除条目，也可以只检查条目并报告问题。
 - **mapper** 做同样的事，但一次处理一个条目。
-- **router** 在 `/api/plugins/{name}` 下提供页面和数据，例如自定义报表。见 [Router 插件](/zh-cn/guides/router-plugins/)。
+- **router** 在 `/api/plugins/{name}` 下提供页面和数据，例如自定义报表。见 [Router 插件](/zh-cn/guides/router-plugins/)。张记账自带一个：[MCP 服务器](/zh-cn/guides/mcp/)，让 AI 助手读取账本。
 
 由 processor 或 mapper 所做的修改只在账本加载期间存在。你的文件保持原样。
 

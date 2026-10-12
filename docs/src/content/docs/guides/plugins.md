@@ -42,7 +42,7 @@ A plugin declares what it is, and can be several of these at once:
 
 - A **processor** receives every entry of the ledger and returns the entries Zhang goes on with. It can add, change or remove entries, or only check them and report problems.
 - A **mapper** does the same one entry at a time.
-- A **router** serves pages and data under `/api/plugins/{name}`, such as a custom report. See [Router Plugins](/guides/router-plugins/).
+- A **router** serves pages and data under `/api/plugins/{name}`, such as a custom report. See [Router Plugins](/guides/router-plugins/). Zhang ships one: the [MCP Server](/guides/mcp/), which lets an AI assistant read the ledger.
 
 What a processor or mapper changes exists only while the ledger is loaded. Your files stay as they are.
 

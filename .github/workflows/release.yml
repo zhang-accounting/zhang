@@ -167,6 +167,49 @@ jobs:
           asset_name: zhang-${{ steps.extract_version.outputs.version }}-${{ matrix.target }}${{ env.EXE }}
   
   
+  # the official MCP plugin, `zhang-mcp-<version>.wasm`: a release asset on version tags, a workflow artifact otherwise
+  plugin-mcp:
+    name: Plugin zhang-mcp (wasm32)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: extract_version
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: cargo build
+        run: cargo build --release --locked --target wasm32-unknown-unknown -p zhang-plugin-mcp
+
+      - name: Name the module
+        run: cp target/wasm32-unknown-unknown/release/zhang_plugin_mcp.wasm zhang-mcp-${{ steps.extract_version.outputs.version }}.wasm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhang-mcp-wasm32
+          path: zhang-mcp-${{ steps.extract_version.outputs.version }}.wasm
+
+      - name: Release
+        uses: svenstaro/upload-release-action@v2
+        # only release if the commit is tagged with version
+        if: startsWith(github.ref_name, 'v') && github.ref_type == 'tag'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: zhang-mcp-${{ steps.extract_version.outputs.version }}.wasm
+          tag: ${{ github.ref_name }}
+          asset_name: zhang-mcp-${{ steps.extract_version.outputs.version }}.wasm
+
   docker-image-release:
     runs-on: ubuntu-22.04
     needs: publish

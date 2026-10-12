@@ -39,6 +39,12 @@ impl Call<'_> {
         self.config.limit(self.args.int("limit").map(|it| it as usize))
     }
 
+    /// what a query with `LIMIT :limit` is asked for: one row more than [`Call::limit`], so that `truncated` can say
+    /// whether more rows exist after the plugin cuts the result at `limit`
+    fn fetch(&self) -> i64 {
+        self.limit() as i64 + 1
+    }
+
     fn offset(&self) -> i64 {
         self.args.int("offset").unwrap_or(0)
     }
@@ -111,7 +117,11 @@ impl Tool {
     }
 }
 
-const LIMIT: Arg = Arg::optional("limit", Kind::Int { min: 1 }, "the most rows to return; default 200, capped by the server");
+const LIMIT: Arg = Arg::optional(
+    "limit",
+    Kind::Int { min: 1 },
+    "the most rows to return; default 200, capped by the server. `truncated` tells when more exist",
+);
 const OFFSET: Arg = Arg::optional("offset", Kind::Int { min: 0 }, "rows to skip, for paging; default 0");
 const FROM: Arg = Arg::required("from", Kind::Date, "the first day of the range, YYYY-MM-DD");
 const TO: Arg = Arg::required("to", Kind::Date, "the last day of the range, YYYY-MM-DD, included");
@@ -292,7 +302,7 @@ pub static TOOLS: [Tool; 12] = [
             let account = call.args.str("account").unwrap_or_default();
             call.rows(
                 &queries::ACCOUNTS_JOURNAL_PAGE,
-                bind(vec![("account", text(account)), ("limit", int(limit as i64)), ("offset", int(call.offset()))]),
+                bind(vec![("account", text(account)), ("limit", int(call.fetch())), ("offset", int(call.offset()))]),
                 limit,
             )
         },
@@ -324,7 +334,7 @@ pub static TOOLS: [Tool; 12] = [
                     ("tags", Param::Set(tags)),
                     ("from", opt_date(call.args.str("from"))),
                     ("to", opt_date(call.args.str("to"))),
-                    ("limit", int(limit as i64)),
+                    ("limit", int(call.fetch())),
                     ("offset", int(call.offset())),
                 ]),
                 limit,
@@ -350,7 +360,7 @@ pub static TOOLS: [Tool; 12] = [
             let limit = call.limit();
             call.rows(
                 &queries::JOURNALS_ERRORS,
-                bind(vec![("size", int(limit as i64)), ("offset", int(call.offset()))]),
+                bind(vec![("size", int(call.fetch())), ("offset", int(call.offset()))]),
                 limit,
             )
         },
@@ -715,14 +725,14 @@ mod test {
             host.last_params(),
             vec![
                 ("account".to_owned(), Param::Str(Some("Assets".to_owned()))),
-                ("limit".to_owned(), Param::Int(Some(5))),
+                ("limit".to_owned(), Param::Int(Some(6))),
                 ("offset".to_owned(), Param::Int(Some(10))),
             ]
         );
         structured(&host, "errors", json!({}));
         assert_eq!(
             host.last_params(),
-            vec![("size".to_owned(), Param::Int(Some(200))), ("offset".to_owned(), Param::Int(Some(0)))]
+            vec![("size".to_owned(), Param::Int(Some(201))), ("offset".to_owned(), Param::Int(Some(0)))]
         );
         structured(
             &host,
@@ -737,7 +747,7 @@ mod test {
                 ("tags".to_owned(), Param::Set(Some(vec!["trip".to_owned()]))),
                 ("from".to_owned(), Param::Date(Some("2024-01-01".to_owned()))),
                 ("to".to_owned(), Param::Date(None)),
-                ("limit".to_owned(), Param::Int(Some(20))),
+                ("limit".to_owned(), Param::Int(Some(21))),
                 ("offset".to_owned(), Param::Int(Some(0))),
             ]
         );
@@ -754,7 +764,13 @@ mod test {
             .unwrap()
             .clone();
         call(&params, &host, &capped).unwrap();
-        assert_eq!(host.last_params()[1], ("limit".to_owned(), Param::Int(Some(7))));
+        assert_eq!(host.last_params()[1], ("limit".to_owned(), Param::Int(Some(8))));
+        // the extra row only tells that more exist: the result is cut at the limit
+        let rows: Vec<Vec<Value>> = (0..8).map(|i| vec![json!(i)]).collect();
+        let host = FakeHost::new().answering(queries::ACCOUNTS_JOURNAL_PAGE.bql, &[("n", "int")], rows);
+        let result = call(&params, &host, &capped).unwrap();
+        assert_eq!(result["structuredContent"]["row_count"], 7);
+        assert_eq!(result["structuredContent"]["truncated"], true);
     }
 
     #[test]

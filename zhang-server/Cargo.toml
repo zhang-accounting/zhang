@@ -56,6 +56,8 @@ chrono = { version = "0.4" }
 
 [dev-dependencies]
 beancount = { version = "0.1", path = "../extensions/beancount" }
+# tests/mcp_plugin.rs: the MCP plugin's tool catalogue, to pin its copied BQL to the built-in queries
+zhang-plugin-mcp = { path = "../plugins/mcp" }
 zhang-testkit = { path = "../zhang-testkit", features = ["server"] }
 webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }
 tower = { version = "0.4", features = ["util"] }
