@@ -3,23 +3,12 @@
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
+/// A typed parameter value a query binds, as the `zhang_query_params` host function reads it (`{"type": "date",
+/// "value": "2026-09-01"}`); `None` binds NULL, which leaves a NULL-able filter out.
+pub use zhang_plugin_sdk::router::Param;
 pub use zhang_plugin_sdk::router::{Column, LedgerInfo, QueryResult};
 pub use zhang_plugin_sdk::{HostError, HostErrorKind};
-
-/// A typed parameter value a query binds. The shape (`{"type": "date", "value": "2026-09-01"}`) is the one the
-/// `zhang_query_params` host function reads; `None` binds NULL, which leaves a NULL-able filter out.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value", rename_all = "lowercase")]
-pub enum Param {
-    Bool(Option<bool>),
-    Int(Option<i64>),
-    Decimal(Option<String>),
-    Str(Option<String>),
-    Date(Option<String>),
-    Set(Option<Vec<String>>),
-}
 
 /// the parameters of one query, by name (`from` for `:from`)
 pub type Params = Vec<(String, Param)>;
@@ -53,21 +42,17 @@ pub struct SdkHost;
 impl Host for SdkHost {
     fn query(&self, bql: &str, params: &Params) -> Result<QueryResult, HostError> {
         if params.is_empty() {
+            // `zhang_query`, which every zhang with router plugins has
             return zhang_plugin_sdk::router::query(bql);
         }
-        // wired to `router::query_with_params` once the host function exists (PR 1 of the stack)
-        Err(HostError::new(
-            HostErrorKind::Unavailable,
-            "this build of zhang-mcp cannot bind query parameters: it needs the zhang_query_params host function",
-        ))
+        let bound = params.iter().fold(zhang_plugin_sdk::router::Params::new(), |bound, (name, param)| {
+            bound.bind(name.clone(), param.clone())
+        });
+        zhang_plugin_sdk::router::query_with_params(bql, &bound)
     }
 
     fn schema(&self) -> Result<Value, HostError> {
-        // wired to `router::schema` once the host function exists (PR 1 of the stack)
-        Err(HostError::new(
-            HostErrorKind::Unavailable,
-            "this build of zhang-mcp cannot read the query schema: it needs the zhang_query_schema host function",
-        ))
+        zhang_plugin_sdk::router::schema()
     }
 
     fn ledger_info(&self) -> Result<LedgerInfo, HostError> {
