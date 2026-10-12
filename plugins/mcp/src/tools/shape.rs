@@ -2,7 +2,7 @@
 //!
 //! A tool that reads rows answers `{columns, rows, row_count, truncated}` with the cell encoding of
 //! `POST /api/query`; a failure of the query or the host is a tool execution error: `isError: true` with the
-//! message as text and **no** `structuredContent` (a client validating `structuredContent` against the tool's
+//! message as text (`query error at line L, column C: …`, or `<kind>: <message>`) and **no** `structuredContent` (a client validating `structuredContent` against the tool's
 //! `outputSchema` would otherwise reject the error itself).
 
 use serde_json::{json, Value};
@@ -20,8 +20,7 @@ impl From<HostError> for ToolError {
         let message = match (error.kind, error.line, error.column) {
             (HostErrorKind::Query, Some(line), Some(column)) => format!("query error at line {line}, column {column}: {}", error.message),
             (HostErrorKind::Query, _, _) => format!("query error: {}", error.message),
-            (HostErrorKind::Unavailable, _, _) => format!("the ledger is not available to this tool: {}", error.message),
-            (kind, _, _) => format!("the ledger host could not answer ({}): {}", kind_name(kind), error.message),
+            (kind, _, _) => format!("{}: {}", kind_name(kind), error.message),
         };
         ToolError { message }
     }
@@ -173,7 +172,9 @@ mod test {
         let limit = HostError::new(HostErrorKind::Query, "the result is too large");
         assert_eq!(ToolError::from(limit).message, "query error: the result is too large");
         let host = HostError::new(HostErrorKind::InvalidInput, "bad parameter");
-        assert_eq!(ToolError::from(host).message, "the ledger host could not answer (invalid_input): bad parameter");
+        assert_eq!(ToolError::from(host).message, "invalid_input: bad parameter");
+        let unavailable = HostError::new(HostErrorKind::Unavailable, "outside a request");
+        assert_eq!(ToolError::from(unavailable).message, "unavailable: outside a request");
         let call = failure(&ToolError { message: "boom".to_owned() });
         assert_eq!(call, json!({"content": [{"type": "text", "text": "boom"}], "isError": true}));
     }

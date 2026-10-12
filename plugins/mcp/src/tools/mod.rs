@@ -242,8 +242,8 @@ pub static TOOLS: [Tool; 12] = [
         name: "net_worth",
         title: "Net worth",
         description: "The net worth, the balance of the Assets and Liabilities accounts, at the end of a day: `units` lists what \
-                      is held per currency, `value` is the total valued in one currency at the prices of that day. This is the \
-                      figure the app's report shows.",
+                      is held per currency, `value` is the same converted into one currency at the prices of that day (a \
+                      commodity without a price stays in its own currency there). This is the figure the app's report shows.",
         args: &[Arg::optional("date", Kind::Date, "the day, YYYY-MM-DD; default today"), CURRENCY],
         output_schema: shape::rows_schema,
         run: |call| {
@@ -263,8 +263,9 @@ pub static TOOLS: [Tool; 12] = [
         name: "spending",
         title: "Spending",
         description: "What an account and its sub-accounts took in a period (default: all of Expenses), grouped by account, by \
-                      month or by currency: `units` per currency and `value` in one currency at the prices of the period's \
-                      last day. Positive numbers are expenses; for Income accounts they are negative.",
+                      month or by currency: `units` per currency and `value` converted into one currency at the prices of the \
+                      period's last day (a commodity without a price stays in its own currency there). Positive numbers are \
+                      expenses; for Income accounts they are negative.",
         args: &[
             Arg::optional("account", Kind::Str, "the account whose subtree to sum; default Expenses"),
             FROM,
@@ -576,10 +577,7 @@ mod test {
         let unavailable = FakeHost { info: None, ..FakeHost::new() };
         let result = run(&unavailable, "ledger_info", json!({})).unwrap();
         assert_eq!(result["isError"], true);
-        assert!(result["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("the ledger is not available to this tool"));
+        assert_eq!(result["content"][0]["text"], "unavailable: no ledger");
     }
 
     #[test]

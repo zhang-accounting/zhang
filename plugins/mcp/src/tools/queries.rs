@@ -146,8 +146,8 @@ ORDER BY number(only(:currency, convert(sum(position), :currency, :to))), accoun
 pub const SPENDING_BY_MONTH: NamedQuery = NamedQuery {
     name: "mcp.spending_by_month",
     builtin: false,
-    bql: "SELECT date_bin('month', date, 2001-01-01) AS month, units(sum(position)) AS units,
-  convert(sum(position), :currency, least(max(date_bin('month', date, 2001-01-01)) + interval('month') - 1, :to)) AS value
+    bql: "SELECT date_bin('1 month', date, 2001-01-01) AS month, units(sum(position)) AS units,
+  convert(sum(position), :currency, least(max(date_bin('1 month', date, 2001-01-01)) + interval('1 month') - 1, :to)) AS value
 WHERE under(account, :account) AND date >= :from AND date <= :to
 GROUP BY month
 ORDER BY month",

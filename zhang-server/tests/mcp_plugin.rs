@@ -422,10 +422,14 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
         inventory(cell(&worth, 0, "units")),
         BTreeMap::from([("CNY".to_owned(), 7750.0), ("USD".to_owned(), -20.0)])
     );
-    assert_eq!(cell(&worth, 0, "value")["currency"], "CNY");
-    assert_eq!(number(&cell(&worth, 0, "value")["number"]), 7610.0);
+    // `value` is the inventory converted into CNY: one position when every commodity has a price
+    assert_eq!(inventory(cell(&worth, 0, "value")), BTreeMap::from([("CNY".to_owned(), 7610.0)]));
     let earlier = structured(&router, "net_worth", json!({"date": "2024-01-31"})).await;
-    assert_eq!(number(&cell(&earlier, 0, "value")["number"]), 11000.0);
+    assert_eq!(inventory(cell(&earlier, 0, "value")), BTreeMap::from([("CNY".to_owned(), 11000.0)]));
+    let usd = structured(&router, "net_worth", json!({"currency": "USD"})).await;
+    let in_usd = inventory(cell(&usd, 0, "value"));
+    assert_eq!(in_usd.keys().collect::<Vec<_>>(), ["USD"]);
+    assert!((in_usd["USD"] - (7750.0 / 7.0 - 20.0)).abs() < 0.01, "{in_usd:?}");
 
     // spending: by account (the app's report), by month, by currency
     let spending = structured(&router, "spending", json!({"from": "2024-02-01", "to": "2024-03-31"})).await;
@@ -435,9 +439,9 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
         inventory(cell(&spending, 0, "units")),
         BTreeMap::from([("CNY".to_owned(), 250.0), ("USD".to_owned(), 20.0)])
     );
-    assert_eq!(number(&cell(&spending, 0, "value")["number"]), 390.0);
+    assert_eq!(inventory(cell(&spending, 0, "value")), BTreeMap::from([("CNY".to_owned(), 390.0)]));
     assert_eq!(cell(&spending, 1, "account"), "Expenses:Rent");
-    assert_eq!(number(&cell(&spending, 1, "value")["number"]), 3000.0);
+    assert_eq!(inventory(cell(&spending, 1, "value")), BTreeMap::from([("CNY".to_owned(), 3000.0)]));
     let monthly = structured(
         &router,
         "spending",
@@ -445,11 +449,11 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
     )
     .await;
     assert_eq!(columns(&monthly), ["month", "units", "value"]);
-    assert_eq!(monthly["rows"].as_array().unwrap().len(), 2);
+    assert_eq!(monthly["rows"].as_array().unwrap().len(), 2, "{monthly}");
     assert_eq!(cell(&monthly, 0, "month"), "2024-02-01");
-    assert_eq!(number(&cell(&monthly, 0, "value")["number"]), 50.0);
+    assert_eq!(inventory(cell(&monthly, 0, "value")), BTreeMap::from([("CNY".to_owned(), 50.0)]));
     assert_eq!(cell(&monthly, 1, "month"), "2024-03-01");
-    assert_eq!(number(&cell(&monthly, 1, "value")["number"]), 340.0);
+    assert_eq!(inventory(cell(&monthly, 1, "value")), BTreeMap::from([("CNY".to_owned(), 340.0)]));
     let by_currency = structured(&router, "spending", json!({"from": "2024-01-01", "to": "2024-03-31", "group_by": "currency"})).await;
     assert_eq!(columns(&by_currency), ["currency", "units", "value"]);
     assert_eq!(cell(&by_currency, 0, "currency"), "CNY");
@@ -498,7 +502,7 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
     let prices = structured(&router, "prices", json!({})).await;
     assert_eq!(columns(&prices), ["currency", "date", "time", "rate"]);
     assert_eq!((cell(&prices, 0, "currency"), cell(&prices, 0, "date")), (&json!("USD"), &json!("2024-03-01")));
-    assert_eq!(number(&cell(&prices, 0, "rate")["number"]), 7.0);
+    assert_eq!(number(cell(&prices, 0, "rate")), 7.0);
     let usd = structured(&router, "prices", json!({"commodity": "USD"})).await;
     assert_eq!(usd["row_count"], 1);
 
@@ -584,7 +588,10 @@ async fn a_modern_session_discovers_and_calls_with_headers_and_meta() {
     assert_eq!(result["resultType"], "complete");
     assert_eq!(result["_meta"][META_SERVER_INFO]["name"], "zhang-mcp");
     assert!(result.get("ttlMs").is_none());
-    assert_eq!(number(&cell(&result["structuredContent"], 0, "value")["number"]), 7610.0);
+    assert_eq!(
+        inventory(cell(&result["structuredContent"], 0, "value")),
+        BTreeMap::from([("CNY".to_owned(), 7610.0)])
+    );
     // the base64 sentinel
     let reply = post(
         &router,

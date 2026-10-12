@@ -124,8 +124,9 @@ dates are strings, amounts `{number, currency}`, inventories `{positions: [{unit
 Errors: an unknown tool, an unknown argument, a missing required argument or a value of the wrong shape → `-32602`
 ("Protocol Errors … Unknown tool, Malformed requests (requests that fail to satisfy CallToolRequest schema)"); a
 failing query, an unavailable host function or a result over the host's cap → `isError: true` with a text such as
-`query error at line 3, column 8: …` ("Tool Execution Errors … They are reported in tool results with `isError:
-true`"), no `structuredContent` (D6).
+`query error at line 3, column 8: …` (or `<kind>: <message>` for a host error without a position, e.g.
+`unavailable: …`) ("Tool Execution Errors … They are reported in tool results with `isError: true`"), no
+`structuredContent` (D6).
 
 | Tool | Arguments | Runs | Parity |
 | --- | --- | --- | --- |
