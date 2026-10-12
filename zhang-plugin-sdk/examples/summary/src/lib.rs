@@ -8,10 +8,11 @@
 //! it serves, behind zhang's authentication:
 //!
 //! - `GET /api/plugins/summary/` an HTML page of every account's balance;
-//! - `GET /api/plugins/summary/balances` the same balances as JSON, for scripts;
+//! - `GET /api/plugins/summary/balances` the same balances as JSON, for scripts, and with
+//!   `?since=YYYY-MM-DD` the balances of the postings from that date on;
 //! - `404` for any other path, and `405` for any other method.
 
-use zhang_plugin_sdk::router::{self, Request, Response};
+use zhang_plugin_sdk::router::{self, Param, Params, Request, Response};
 use zhang_plugin_sdk::serde_json::{json, Value};
 use zhang_plugin_sdk::{clock, plugin, Error};
 
@@ -24,22 +25,38 @@ plugin! {
 /// the balance of every account, as `zhang_query` runs it over the ledger
 const BALANCES: &str = "SELECT account, sum(position) AS balance GROUP BY account ORDER BY account";
 
+/// the balances of the postings from `:since` on. The date is what the user typed, so it is bound
+/// as a parameter, never written into the query
+const BALANCES_SINCE: &str = "SELECT account, sum(position) AS balance WHERE date >= :since GROUP BY account ORDER BY account";
+
 fn route(request: Request) -> Result<Response, Error> {
     if request.method != "GET" {
         return Ok(Response::text("only GET is supported").with_status(405).with_header("allow", "GET"));
     }
     match request.path.as_str() {
         "/" => page(),
-        "/balances" => Response::json(&balances()?),
+        "/balances" => match balances(request.query_param("since")) {
+            Ok(balances) => Response::json(&balances),
+            // a `since` that is not a date is the user's mistake, not the plugin's
+            Err(error) if error.kind == zhang_plugin_sdk::HostErrorKind::Query => Ok(Response::text(error.to_string()).with_status(400)),
+            Err(error) => Err(error.into()),
+        },
         _ => Ok(Response::text(format!("no page at {}", request.path)).with_status(404)),
     }
 }
 
-/// every account with its balance: `[{"account": "Assets:Cash", "balance": "-10 CNY"}]`
-fn balances() -> Result<Vec<Value>, Error> {
-    let result = router::query(BALANCES)?;
+/// every account with its balance: `[{"account": "Assets:Cash", "balance": "-10 CNY"}]`, of the
+/// postings from `since` on when it is given
+fn balances(since: Option<&str>) -> Result<Vec<Value>, zhang_plugin_sdk::HostError> {
+    let result = match since {
+        None => router::query(BALANCES)?,
+        Some(since) => router::query_with_params(BALANCES_SINCE, &Params::new().bind("since", Param::Date(Some(since.to_owned()))))?,
+    };
     let (Some(account), Some(balance)) = (result.column("account"), result.column("balance")) else {
-        return Err(Error::msg("the balance query has no account or balance column"));
+        return Err(zhang_plugin_sdk::HostError::new(
+            zhang_plugin_sdk::HostErrorKind::Other,
+            "the balance query has no account or balance column",
+        ));
     };
     Ok(result
         .rows
@@ -64,7 +81,7 @@ fn inventory_text(cell: &Value) -> String {
 fn page() -> Result<Response, Error> {
     let info = router::ledger_info()?;
     let today = clock::today()?;
-    let rows: String = balances()?
+    let rows: String = balances(None)?
         .iter()
         .map(|row| {
             format!(

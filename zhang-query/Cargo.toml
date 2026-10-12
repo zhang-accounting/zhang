@@ -14,9 +14,10 @@ indexmap = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 nom = "7"
 regex = "1"
+# the parameters of a query given as JSON (`params::from_json`), as the API and plugins give them
+serde_json = { workspace = true }
 uuid = { version = "1", default-features = false }
 
 [dev-dependencies]
 zhang-testkit = { path = "../zhang-testkit", features = ["query"] }
-serde_json = { workspace = true }
 tempfile = "3.20"
