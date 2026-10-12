@@ -6713,6 +6713,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zhang-plugin-mcp"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "serde",
+ "serde_json",
+ "zhang-plugin-sdk",
+]
+
+[[package]]
 name = "zhang-plugin-sdk"
 version = "0.1.0"
 dependencies = [

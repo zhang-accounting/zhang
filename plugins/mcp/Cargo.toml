@@ -1,0 +1,18 @@
+[package]
+name = "zhang-plugin-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "zhang-mcp: an MCP server for a zhang ledger, as a router plugin (read-only tools over BQL)"
+publish = false
+
+[lib]
+# a plugin is a `cdylib` for wasm32-unknown-unknown; the `rlib` lets zhang-server's tests read the tool catalogue
+# natively (the parity test pins every builtin-backed BQL to the server's own text)
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+zhang-plugin-sdk = { path = "../../zhang-plugin-sdk" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# the `=?base64?…?=` sentinel of the `Mcp-Name` header
+base64 = { workspace = true }
