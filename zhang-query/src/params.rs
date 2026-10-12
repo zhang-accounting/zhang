@@ -11,6 +11,7 @@ use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use chrono::{Datelike, NaiveDate};
+use zhang_ast::amount::{number_in_range, MAX_NUMBER_SIZE};
 
 use crate::decimal::to_plain_string;
 use crate::value::{parse_date, DataType, Interval, Value};
@@ -114,37 +115,63 @@ impl Params {
 /// named `bool`, `int`, `decimal`, `str`, `date` and `set` ([`DataType::name`]).
 pub const JSON_TYPES: [DataType; 6] = [DataType::Bool, DataType::Int, DataType::Decimal, DataType::Str, DataType::Date, DataType::Set];
 
-/// A parameter's value of type `ty` from JSON, or what it expects (`"a date string YYYY-MM-DD
-/// or null"`). `null` is NULL for any type; otherwise a `bool` takes a boolean, an `int` an
-/// integer, a `decimal` an integer, a number or a string such as `"12.50"`, a `str` a string, a
-/// `date` a string `YYYY-MM-DD` read as BQL's `date(text)` reads it ([`parse_date`]), and a
-/// `set` a list of strings.
+/// Why a JSON value is not a parameter's value ([`from_json`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonError {
+    /// the value has the wrong shape; what the type expects instead, such as `"a date string
+    /// YYYY-MM-DD or null"`
+    Expected(&'static str),
+    /// a decimal beyond [`MAX_NUMBER_SIZE`], the bound of every number zhang reads: it would be
+    /// compared, summed or written out with as many digits as its exponent says
+    OutOfRange,
+}
+
+impl JsonError {
+    /// the error for the parameter `name`: `parameter :from must be a date string YYYY-MM-DD or
+    /// null`, or `parameter :min is out of range`
+    pub fn for_param(self, name: &str) -> String {
+        match self {
+            JsonError::Expected(expected) => format!("parameter :{name} must be {expected}"),
+            JsonError::OutOfRange => format!("parameter :{name} is out of range"),
+        }
+    }
+}
+
+/// what a `decimal` parameter expects
+const DECIMAL_EXPECTED: &str = "a number, a decimal string such as \"12.50\", or null";
+
+/// A parameter's value of type `ty` from JSON, or why it is not one ([`JsonError`]). `null` is
+/// NULL for any type; otherwise a `bool` takes a boolean, an `int` an integer, a `decimal` an
+/// integer, a number or a string such as `"12.50"`, a `str` a string, a `date` a string
+/// `YYYY-MM-DD` read as BQL's `date(text)` reads it ([`parse_date`]), and a `set` a list of
+/// strings. A decimal is bounded as a number literal in a ledger is ([`MAX_NUMBER_SIZE`] digits,
+/// and an exponent within it either way); beyond that it is out of range.
 ///
 /// ```
 /// use serde_json::json;
-/// use zhang_query::params::from_json;
+/// use zhang_query::params::{from_json, JsonError};
 /// use zhang_query::{DataType, Value};
 ///
 /// assert_eq!(from_json(DataType::Str, &json!("x")), Ok(Value::Str("x".into())));
 /// assert_eq!(from_json(DataType::Int, &json!(null)), Ok(Value::Null));
 /// assert_eq!(from_json(DataType::Decimal, &json!("12.50")).unwrap().to_string(), "12.50");
-/// assert_eq!(from_json(DataType::Date, &json!(20240101)), Err("a date string YYYY-MM-DD or null"));
+/// assert_eq!(from_json(DataType::Date, &json!(20240101)), Err(JsonError::Expected("a date string YYYY-MM-DD or null")));
+/// assert_eq!(from_json(DataType::Decimal, &json!("1e100000000")), Err(JsonError::OutOfRange));
 /// ```
-pub fn from_json(ty: DataType, value: &serde_json::Value) -> Result<Value, &'static str> {
+pub fn from_json(ty: DataType, value: &serde_json::Value) -> Result<Value, JsonError> {
     use serde_json::Value as Json;
     if value.is_null() {
         return Ok(Value::Null);
     }
-    let decimal = |text: &str| BigDecimal::from_str(text.trim()).map(Value::Decimal).ok();
     let parsed = match (ty, value) {
         (DataType::Bool, Json::Bool(it)) => Some(Value::Bool(*it)),
         (DataType::Int, Json::Number(it)) => it.as_i64().map(Value::Int),
         (DataType::Decimal, Json::Number(it)) => match it.as_i64() {
             Some(int) => Some(Value::Decimal(int.into())),
             // the shortest text that reads back as the same double, the number as it was written
-            None => it.as_f64().and_then(|float| decimal(&float.to_string())),
+            None => it.as_f64().map(|float| decimal(&float.to_string())).transpose()?,
         },
-        (DataType::Decimal, Json::String(it)) => decimal(it),
+        (DataType::Decimal, Json::String(it)) => Some(decimal(it)?),
         (DataType::Str, Json::String(it)) => Some(Value::Str(it.clone())),
         // the engine's one text-to-date rule, as `date(text)` reads it
         (DataType::Date, Json::String(it)) => parse_date(it).map(Value::Date),
@@ -155,23 +182,40 @@ pub fn from_json(ty: DataType, value: &serde_json::Value) -> Result<Value, &'sta
             .map(Value::Set),
         _ => None,
     };
-    parsed.ok_or(match ty {
+    parsed.ok_or(JsonError::Expected(match ty {
         DataType::Bool => "a boolean or null",
         DataType::Int => "an integer or null",
-        DataType::Decimal => "a number, a decimal string such as \"12.50\", or null",
+        DataType::Decimal => DECIMAL_EXPECTED,
         DataType::Str => "a string or null",
         DataType::Date => "a date string YYYY-MM-DD or null",
         DataType::Set => "a list of strings or null",
         _ => "of a type a JSON value cannot give",
-    })
+    }))
+}
+
+/// `text` as a decimal, trimmed, within [`MAX_NUMBER_SIZE`]. The digits are counted before the
+/// text is parsed, so that a text of millions of digits is refused as quickly as `1e100000000`,
+/// which parses in no time but would be compared or written out with as many digits as its
+/// exponent says.
+fn decimal(text: &str) -> Result<Value, JsonError> {
+    let text = text.trim();
+    if text.bytes().filter(u8::is_ascii_digit).count() as u64 > MAX_NUMBER_SIZE {
+        return Err(JsonError::OutOfRange);
+    }
+    let number = BigDecimal::from_str(text).map_err(|_| JsonError::Expected(DECIMAL_EXPECTED))?;
+    if !number_in_range(&number) {
+        return Err(JsonError::OutOfRange);
+    }
+    Ok(Value::Decimal(number))
 }
 
 /// Named parameters given as JSON, `(name, type name, value)` each, as a plugin gives them to
 /// `zhang_query_params`: the declared types, to compile the query with
 /// ([`crate::Query::compile_with_params`]), and the values, to execute it with. The type is
 /// one of [`JSON_TYPES`] by name and the value is read by [`from_json`]. An error names the
-/// parameter: `parameter :from must be a date string YYYY-MM-DD or null`, or `parameter :x has
-/// the type "money", which is not one of bool, int, decimal, str, date, set`.
+/// parameter: `parameter :from must be a date string YYYY-MM-DD or null`, `parameter :min is
+/// out of range`, or `parameter :x has the type "money", which is not one of bool, int,
+/// decimal, str, date, set`.
 ///
 /// ```
 /// use serde_json::json;
@@ -190,7 +234,7 @@ pub fn bind_json<'a>(params: impl IntoIterator<Item = (&'a str, &'a str, &'a ser
             let names = JSON_TYPES.map(|ty| ty.name()).join(", ");
             format!("parameter :{name} has the type {type_name:?}, which is not one of {names}")
         })?;
-        let value = from_json(ty, value).map_err(|expected| format!("parameter :{name} must be {expected}"))?;
+        let value = from_json(ty, value).map_err(|error| error.for_param(name))?;
         types = types.bind(name, ty);
         values = values.bind(name, value);
     }
@@ -312,7 +356,7 @@ mod tests {
     use chrono::NaiveDate;
     use serde_json::json;
 
-    use super::{bind_json, from_json, to_bql, JSON_TYPES};
+    use super::{bind_json, from_json, to_bql, JsonError, JSON_TYPES};
     use crate::value::{DataType, Interval, Value};
     use crate::ParamRef;
 
@@ -357,6 +401,10 @@ mod tests {
     #[test]
     fn json_values_bind_with_the_declared_types() {
         let ok = |ty, value| from_json(ty, &value).unwrap();
+        let expected = |ty, value| match from_json(ty, &value) {
+            Err(JsonError::Expected(expected)) => expected,
+            other => panic!("{:?}", other),
+        };
         assert_eq!(ok(DataType::Bool, json!(false)), Value::Bool(false));
         assert_eq!(ok(DataType::Int, json!(-4)), Value::Int(-4));
         assert_eq!(ok(DataType::Decimal, json!(12)).to_string(), "12");
@@ -371,25 +419,45 @@ mod tests {
         for ty in JSON_TYPES {
             assert_eq!(from_json(ty, &json!(null)).unwrap(), Value::Null);
         }
-        assert_eq!(from_json(DataType::Int, &json!(1.5)).unwrap_err(), "an integer or null");
-        assert_eq!(from_json(DataType::Int, &json!(12.0)).unwrap_err(), "an integer or null");
-        assert_eq!(from_json(DataType::Int, &json!(u64::MAX)).unwrap_err(), "an integer or null");
-        assert_eq!(from_json(DataType::Int, &json!("1")).unwrap_err(), "an integer or null");
-        assert_eq!(from_json(DataType::Date, &json!("2024-02-30")).unwrap_err(), "a date string YYYY-MM-DD or null");
+        assert_eq!(expected(DataType::Int, json!(1.5)), "an integer or null");
+        assert_eq!(expected(DataType::Int, json!(12.0)), "an integer or null");
+        assert_eq!(expected(DataType::Int, json!(u64::MAX)), "an integer or null");
+        assert_eq!(expected(DataType::Int, json!("1")), "an integer or null");
+        assert_eq!(expected(DataType::Date, json!("2024-02-30")), "a date string YYYY-MM-DD or null");
+        assert_eq!(expected(DataType::Date, json!("2024-02-01T00:00:00Z")), "a date string YYYY-MM-DD or null");
+        assert_eq!(expected(DataType::Date, json!(20240101)), "a date string YYYY-MM-DD or null");
+        assert_eq!(expected(DataType::Set, json!("a")), "a list of strings or null");
+        assert_eq!(expected(DataType::Set, json!(["a", 1])), "a list of strings or null");
+        assert_eq!(expected(DataType::Bool, json!(1)), "a boolean or null");
         assert_eq!(
-            from_json(DataType::Date, &json!("2024-02-01T00:00:00Z")).unwrap_err(),
-            "a date string YYYY-MM-DD or null"
-        );
-        assert_eq!(from_json(DataType::Date, &json!(20240101)).unwrap_err(), "a date string YYYY-MM-DD or null");
-        assert_eq!(from_json(DataType::Set, &json!("a")).unwrap_err(), "a list of strings or null");
-        assert_eq!(from_json(DataType::Set, &json!(["a", 1])).unwrap_err(), "a list of strings or null");
-        assert_eq!(from_json(DataType::Bool, &json!(1)).unwrap_err(), "a boolean or null");
-        assert_eq!(
-            from_json(DataType::Decimal, &json!("twelve")).unwrap_err(),
+            expected(DataType::Decimal, json!("twelve")),
             "a number, a decimal string such as \"12.50\", or null"
         );
-        assert_eq!(from_json(DataType::Str, &json!(1)).unwrap_err(), "a string or null");
-        assert_eq!(from_json(DataType::Amount, &json!("1 CNY")).unwrap_err(), "of a type a JSON value cannot give");
+        assert_eq!(expected(DataType::Str, json!(1)), "a string or null");
+        assert_eq!(expected(DataType::Amount, json!("1 CNY")), "of a type a JSON value cannot give");
+    }
+
+    /// A `decimal` parameter is bounded as a number literal in a ledger is: a huge exponent, which parses
+    /// in no time but is then compared or written out with as many digits as it says, and a huge digit
+    /// count are both refused, quickly, and the error names the parameter.
+    #[test]
+    fn a_decimal_parameter_is_bounded_as_a_literal_is() {
+        let started = std::time::Instant::now();
+        assert_eq!(from_json(DataType::Decimal, &json!("1e100000000")), Err(JsonError::OutOfRange));
+        assert_eq!(from_json(DataType::Decimal, &json!("1E-100000000")), Err(JsonError::OutOfRange));
+        assert_eq!(from_json(DataType::Decimal, &json!("1e1000000")), Err(JsonError::OutOfRange));
+        let digits = "9".repeat(1_000_000);
+        assert_eq!(from_json(DataType::Decimal, &json!(digits)), Err(JsonError::OutOfRange));
+        assert_eq!(from_json(DataType::Decimal, &json!(format!("0.{digits}"))), Err(JsonError::OutOfRange));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "refused in {:?}", started.elapsed());
+        // the bound itself still reads, as it does in a ledger
+        assert!(from_json(DataType::Decimal, &json!("1e999999")).is_ok());
+        assert!(from_json(DataType::Decimal, &json!("1e-999999")).is_ok());
+        // exponents a double can carry stay within it
+        assert!(from_json(DataType::Decimal, &json!(1e300)).is_ok());
+        assert!(from_json(DataType::Decimal, &json!(5e-324)).is_ok());
+        let huge = json!("1e100000000");
+        assert_eq!(bind_json([("min", "decimal", &huge)]).unwrap_err(), "parameter :min is out of range");
     }
 
     /// A `date` parameter given as text binds exactly the texts BQL's `date(text)` reads (beanquery's

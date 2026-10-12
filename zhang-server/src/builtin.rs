@@ -507,7 +507,7 @@ pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<Bu
             .remove(*name)
             .ok_or_else(|| ServerError::InvalidInput(format!("parameter :{} of {} is missing", name, builtin.name)))?;
         let value = value.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null);
-        let value = from_json(*ty, &value).map_err(|expected| ServerError::InvalidInput(format!("parameter :{} must be {}", name, expected)))?;
+        let value = from_json(*ty, &value).map_err(|error| ServerError::InvalidInput(error.for_param(name)))?;
         params = params.bind(*name, value);
     }
     match values.keys().collect::<BTreeSet<_>>().first() {

@@ -23,7 +23,7 @@ use nom::multi::{many0, many1, many_m_n, separated_list1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 use zhang_ast::account::is_account_component_char;
-use zhang_ast::amount::Amount;
+use zhang_ast::amount::{number_in_range as in_range, Amount};
 use zhang_ast::*;
 use zhang_shared::decimal;
 
@@ -231,7 +231,7 @@ fn date_hour(i: &str) -> IResult<&str, Date> {
 // ---------------------------------------------------------------------------
 
 /// A numeric literal that may contain `,`/`_` group separators, a fractional
-/// part, and an optional scientific-notation exponent. One beyond [`MAX_OPERAND_SIZE`] is out of range
+/// part, and an optional scientific-notation exponent. One beyond [`MAX_NUMBER_SIZE`](zhang_ast::amount::MAX_NUMBER_SIZE) is out of range
 /// ([`OUT_OF_RANGE`]), a failure at the literal, as an operand beyond it is: alone, `1e999999999` reads, and is
 /// then written out in plain notation, or added to a balance, with as many digits as its exponent says.
 fn number(i: &str) -> IResult<&str, BigDecimal> {
@@ -275,22 +275,13 @@ fn binary_operator(operators: &'static str) -> impl Fn(&str) -> IResult<&str, ch
 const DIVISION_BY_ZERO: nom::error::ErrorKind = nom::error::ErrorKind::Fail;
 
 /// The nom error kind of a number literal ([`number`]), or of an operation in an expression ([`number_expr`]) with an
-/// operand, beyond [`MAX_OPERAND_SIZE`].
+/// operand, beyond [`MAX_NUMBER_SIZE`](zhang_ast::amount::MAX_NUMBER_SIZE).
 const OUT_OF_RANGE: nom::error::ErrorKind = nom::error::ErrorKind::TooLarge;
 
-/// The most digits a number may have, written as a literal ([`number`]) or as an operand of `+`, `-`, `*` or `/` in an
-/// expression ([`number_expr`]), and the largest exponent it may have either way: far beyond any number of a ledger
-/// (the decimal context of Python, which beancount computes in, keeps exponents within ±999999 too). `BigDecimal`
-/// does not bound its operations: the exponent of a result overflows, which panics, or gives a wrong number in a
-/// release build, and the sum of numbers far apart, such as `1e-999999999 + 1`, has as many digits as they are
-/// apart; a literal alone is written out, and summed into balances, with as many digits as its exponent says. Beyond
-/// this bound a number is out of range instead.
-const MAX_OPERAND_SIZE: u64 = 999_999;
-
-/// whether `number` is within [`MAX_OPERAND_SIZE`]: its digits, and its exponent either way
-fn in_range(number: &BigDecimal) -> bool {
-    number.fractional_digit_count().unsigned_abs() <= MAX_OPERAND_SIZE && number.digits() <= MAX_OPERAND_SIZE
-}
+// The most digits a number may have, written as a literal ([`number`]) or as an operand of `+`, `-`, `*` or `/` in an
+// expression ([`number_expr`]), and the largest exponent it may have either way, is the bound of every number zhang
+// reads, `zhang_ast::amount::MAX_NUMBER_SIZE` (checked by `number_in_range`, imported as `in_range`):
+// a query parameter is bounded the same way.
 
 /// `lhs operator rhs` for an operator of [`number_expr`], or the nom error kind of why it has no value: a division by
 /// zero ([`DIVISION_BY_ZERO`]) or an operand out of range ([`OUT_OF_RANGE`]), on which `BigDecimal`'s own operators
