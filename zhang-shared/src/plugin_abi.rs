@@ -238,7 +238,8 @@ pub enum HostErrorKind {
     InvalidInput,
     /// router host functions outside a request; on a native (non-WASM) build of a plugin, every host function
     Unavailable,
-    /// `zhang_query`: the query failed to parse, compile or run; see [`HostError::line`] and [`HostError::column`]
+    /// `zhang_query` and `zhang_query_params`: the query failed to parse, compile or run, or a parameter could not
+    /// be bound; see [`HostError::line`] and [`HostError::column`]
     Query,
     /// a kind this side does not know, from a newer zhang, or an answer it cannot read
     #[serde(other)]

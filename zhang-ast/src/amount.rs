@@ -7,6 +7,20 @@ use gotcha_core::Schematic;
 use serde::{Deserialize, Serialize};
 use zhang_shared::decimal::plain_decimal;
 
+/// The most digits a number may have, and the largest exponent it may have either way, wherever zhang reads one: a
+/// literal or an operand of an expression in a ledger, or a parameter of a query. Far beyond any number of a ledger
+/// (the decimal context of Python, which beancount computes in, keeps exponents within ±999999 too). `BigDecimal`
+/// does not bound its operations: the exponent of a result overflows, which panics, or gives a wrong number in a
+/// release build, and the sum of numbers far apart, such as `1e-999999999 + 1`, has as many digits as they are
+/// apart; a number alone is written out, compared, and summed into balances, with as many digits as its exponent
+/// says. Beyond this bound a number is out of range instead.
+pub const MAX_NUMBER_SIZE: u64 = 999_999;
+
+/// whether `number` is within [`MAX_NUMBER_SIZE`]: its digits, and its exponent either way
+pub fn number_in_range(number: &BigDecimal) -> bool {
+    number.fractional_digit_count().unsigned_abs() <= MAX_NUMBER_SIZE && number.digits() <= MAX_NUMBER_SIZE
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "openapi", derive(Schematic))]
 pub struct CalculatedAmount {
