@@ -80,7 +80,7 @@ return M
 | `zhang.read_file(path)`、`zhang.list_dir(path)` | `allowed_paths` 对应的文件函数。无论指令授予什么，router 都没有文件访问权限，所以本版本中它们会抛出 `denied: …`。 |
 | `zhang.str(v)`、`zhang.int(v)`、`zhang.decimal(v)`、`zhang.bool(v)`、`zhang.date(v)`、`zhang.set(v)` | 一个带类型的查询参数。任何类型的 `nil` 都是 NULL。decimal 是 `"12.50"` 这样的字符串或一个整数（Lua 浮点数会被拒绝：`decimal must be a string or an integer, got 12.5`），date 是 `"YYYY-MM-DD"` 字符串，set 是字符串列表。 |
 | `zhang.write.preview(batch)` | 预览一批最多 50 条要追加的指令，每条是一个表，`kind = "transaction"`（字段与 `POST /api/transactions` 相同）或 `kind = "open"`（`date`、`account`、`commodities`、`booking_method`、`metas`）：对每个条目给出张记账写出的文本、它要写入的文件、被拒绝的字段和账本会报告的错误，与 `POST /api/transactions/preview` 完全一致；批次中靠前的 `open` 对它之后的交易生效。每个条目都没有问题时带有 `token`。金额是字符串：批次中任何位置出现非整数浮点数，在发送之前就抛出 `amount `12.3` must be a string (…)`，其他数字由宿主拒绝。见[写入](/zh-cn/developers/writing-plugins/#写入)。 |
-| `zhang.write.commit(batch, token)` | 用令牌提交预览过的批次，一次写入，文本进入文件后返回 `{ file, bytes, entries, generation }`；请求结束后账本重新加载。批次有差异、令牌属于另一个账本代（期间发生了重新加载或提交）、令牌过期（10 分钟）、或在账本重新加载之前再次提交，都抛出 `conflict: …`：重新预览即可。 |
+| `zhang.write.commit(batch, token)` | 用令牌提交预览过的批次，每个文件写一次，文本进入文件后返回 `{ file, bytes, entries, generation }`；请求结束后账本重新加载。把它放在请求的最后一步：它返回之后条目已经记录。批次有差异、令牌属于另一个账本代（期间发生了重新加载或提交）、令牌过期（10 分钟）、或在账本重新加载之前再次提交，都抛出 `conflict: …`：重新预览即可。某个文件无法写入时抛出 `io: …`，并指明已写入和未写入的内容。 |
 
 被宿主拒绝的调用会抛出带宿主消息的 Lua 错误：在某个位置失败的查询是 `query error at line 1, column 8: unknown column`，无法绑定的参数是 `query error: parameter :from must be a date string YYYY-MM-DD or null`，文件是 `denied: …`。不捕获的话，错误让请求以状态 500 失败；用 `pcall` 包住调用就能返回一个干净的状态：
 

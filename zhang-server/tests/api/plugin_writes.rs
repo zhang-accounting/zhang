@@ -43,7 +43,7 @@ fn ledger_with_module(main: &str, module: &str, source: &str, declared: &str, gr
     let scratch = Scratch::with_main(main, "");
     std::fs::write(scratch.dir().join(module), source).unwrap();
     let mut content = format!(
-        "option \"features.plugin\" \"true\"\noption \"operating_currency\" \"USD\"\nplugin \"{}\"\n  writes: \"{}\"\n",
+        "option \"features.plugin\" \"true\"\noption \"operating_currency\" \"USD\"\nplugin \"{}\"\n  writes: \"{}\"\n  timeout: \"20s\"\n",
         scratch.dir().join(module).display(),
         declared.replace('"', "\\\"")
     );
@@ -290,13 +290,22 @@ async fn a_batch_opens_an_account_then_posts_to_it_and_skips_an_open_that_change
     assert_eq!(ok(&committed)["entries"], 1, "only the transaction is written");
     assert_eq!(read(scratch.dir(), "data/2026/10.zhang").matches("open Expenses:Coffee").count(), 1);
     reload_sender.reload_and_wait().await.unwrap();
-    // another commodity set is refused
-    let other = preview(
+    // another commodity set is refused, at any date, and so is an open of a closed account (#803 review, P5)
+    for (date, account, commodities) in [
+        ("2026-10-13", "Expenses:Coffee", json!(["EUR"])),
+        ("1969-01-01", "Expenses:Coffee", json!([])),
+        ("2030-01-01", "Expenses:Food", json!(["EUR"])),
+    ] {
+        let other = preview(&router, json!([{"kind": "open", "date": date, "account": account, "commodities": commodities}])).await;
+        assert_eq!(other["Ok"]["entries"][0]["field_errors"][0]["kind"], "already_open", "{other}");
+    }
+    // and a booking method given twice
+    let twice = preview(
         &router,
-        json!([{"kind": "open", "date": "2026-10-13", "account": "Expenses:Coffee", "commodities": ["EUR"]}]),
+        json!([{"kind": "open", "date": "2026-10-13", "account": "Assets:Broker", "booking_method": "FIFO", "metas": [{"key": "booking_method", "value": "LIFO"}]}]),
     )
     .await;
-    assert_eq!(other["Ok"]["entries"][0]["field_errors"][0]["kind"], "already_open");
+    assert_eq!(twice["Ok"]["entries"][0]["field_errors"][0]["kind"], "invalid_booking_method", "{twice}");
 }
 
 #[tokio::test]
@@ -418,4 +427,196 @@ async fn a_lua_router_previews_and_commits_over_http() {
     let reply = send(&router, json_request(Method::POST, "/api/plugins/router-write/commit", &[], Some(&body))).await;
     let again = reply.json();
     assert!(again["error"].as_str().unwrap().starts_with("conflict: "), "{again}");
+}
+
+/// A write that fails after some of its files landed (#803 review, P2): the files written whole are named with their
+/// entries, the rest is untouched, the ledger reloads and every token is void, so a client retries only what is not
+/// written and nothing is recorded twice. The include of the file that failed dangles until the retry writes it.
+#[tokio::test]
+async fn a_write_that_fails_midway_names_what_landed_and_voids_the_batch() {
+    let scratch = ledger_with("main.zhang", r#"["transaction","open"]"#, &["transaction", "open"]);
+    let (router, _, reload_sender) = server(&scratch, true).await;
+    // the November file cannot be written: a non-empty directory in its place
+    std::fs::create_dir_all(scratch.dir().join("data/2026/11.zhang/blocker")).unwrap();
+    let batch = json!([coffee("2026-10-13", "Expenses:Food"), coffee("2026-11-13", "Expenses:Food")]);
+    let previewed = preview(&router, batch.clone()).await;
+    let token = previewed["Ok"]["token"].clone();
+    assert!(token.is_string(), "{previewed}");
+
+    let (kind, message) = err(&commit(&router, batch.clone(), &token).await);
+    assert_eq!(kind, "io");
+    assert!(
+        message.contains("Already written, do not send again: data/2026/10.zhang (entries 0)"),
+        "{message}"
+    );
+    assert!(message.contains("(and the include in main.zhang)"), "{message}");
+    assert!(message.contains("Not written: data/2026/11.zhang (entries 1)"), "{message}");
+    assert_eq!(read(scratch.dir(), "data/2026/10.zhang").matches("Blue Bottle").count(), 1);
+    // the batch cannot be sent again as it is: the ledger moved on
+    let (kind, _) = err(&commit(&router, batch.clone(), &token).await);
+    assert_eq!(kind, "conflict");
+    // the include of November dangles, and the directory in its place even fails the reload: the ledger served stays
+    // the one before, previews say so, and the write stays pending
+    assert!(reload_sender.reload_and_wait().await.is_err());
+    let (kind, message) = err(&preview(&router, batch.clone()).await);
+    assert_eq!(kind, "conflict");
+    assert!(message.contains("failed to reload after a write"), "{message}");
+    // the owner fixes the disk: the reload lands with the dangling include reported, and only the entry that is not
+    // written is sent again, into the file the include names already
+    std::fs::remove_dir_all(scratch.dir().join("data/2026/11.zhang")).unwrap();
+    reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(journal_payees(&router).await, vec!["Blue Bottle"]);
+    let rest = json!([coffee("2026-11-13", "Expenses:Food")]);
+    let previewed = preview(&router, rest.clone()).await;
+    ok(&commit(&router, rest, &previewed["Ok"]["token"]).await);
+    reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(journal_payees(&router).await.len(), 2);
+    let main = read(scratch.dir(), "main.zhang");
+    assert_eq!(main.matches("include \"data/2026/10.zhang\"").count(), 1, "{main}");
+    assert_eq!(main.matches("include \"data/2026/11.zhang\"").count(), 1, "{main}");
+}
+
+/// The include of a new file is written before the file (#803 review, P3): when the main file cannot be written,
+/// nothing is written, by a plugin or by `POST /api/transactions`, and the retry records the entry once.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_include_that_cannot_be_written_writes_nothing_and_a_retry_records_once() {
+    use std::os::unix::fs::PermissionsExt;
+    for via_api in [false, true] {
+        let scratch = ledger_with("main.zhang", r#"["transaction","open"]"#, &["transaction", "open"]);
+        let (router, _, reload_sender) = server(&scratch, true).await;
+        let main = scratch.dir().join("main.zhang");
+        let batch = json!([coffee("2026-10-13", "Expenses:Food")]);
+        let mut request = batch[0].clone();
+        request.as_object_mut().unwrap().remove("kind");
+        std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&main).is_ok() {
+            eprintln!("skipping: this user reads a file without permissions (root)");
+            return;
+        }
+
+        if via_api {
+            let reply = send(&router, json_request(Method::POST, "/api/transactions", &[], Some(&request))).await;
+            assert_ne!(reply.status, 200, "{}", reply.text());
+            assert!(reply.text().contains("main.zhang"), "{}", reply.text());
+        } else {
+            let previewed = preview(&router, batch.clone()).await;
+            let (kind, message) = err(&commit(&router, batch.clone(), &previewed["Ok"]["token"]).await);
+            assert_eq!(kind, "io");
+            assert!(message.contains("Nothing was written"), "{message}");
+        }
+        assert!(
+            !scratch.dir().join("data/2026/10.zhang").exists(),
+            "via_api={via_api}: the data file is not written without its include"
+        );
+
+        std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let _ = reload_sender.reload_and_wait().await;
+        if via_api {
+            let reply = send(&router, json_request(Method::POST, "/api/transactions", &[], Some(&request))).await;
+            assert_eq!(reply.status, 200, "{}", reply.text());
+        } else {
+            let previewed = preview(&router, batch.clone()).await;
+            ok(&commit(&router, batch.clone(), &previewed["Ok"]["token"]).await);
+        }
+        reload_sender.reload_and_wait().await.unwrap();
+        assert_eq!(journal_payees(&router).await, vec!["Blue Bottle"], "via_api={via_api}");
+        assert_eq!(read(scratch.dir(), "main.zhang").matches("include").count(), 1, "via_api={via_api}");
+    }
+}
+
+/// A write keeps a symbolic link a link and a private file private (#803 review, P6), on the API path as on a
+/// plugin's: the real file behind the link gets the include.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_write_keeps_a_symlinked_main_file_and_a_private_files_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join("real")).unwrap();
+    std::fs::create_dir_all(root.join("ledger/data/2026")).unwrap();
+    std::fs::write(root.join("real/main.zhang"), format!("option \"operating_currency\" \"USD\"\n{OPENS}")).unwrap();
+    std::os::unix::fs::symlink(root.join("real/main.zhang"), root.join("ledger/main.zhang")).unwrap();
+    let private = root.join("ledger/data/2026/10.zhang");
+    std::fs::write(&private, "").unwrap();
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let ledger = Ledger::load(root.join("ledger"), "main.zhang".to_owned(), data_source_for("main.zhang")).unwrap();
+    let ledger = Arc::new(RwLock::new(ledger));
+    let (sender, receiver) = tokio::sync::mpsc::channel(8);
+    let reload_sender = Arc::new(ReloadSender::new(sender));
+    start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+    let router = Router::new()
+        .route("/api/transactions", post(create_new_transaction))
+        .with_state(PluginRouteState::new(SharedLedger(ledger.clone()), reload_sender.clone()));
+    let mut request = coffee("2026-10-13", "Expenses:Food");
+    request.as_object_mut().unwrap().remove("kind");
+
+    let reply = send(&router, json_request(Method::POST, "/api/transactions", &[], Some(&request))).await;
+
+    assert_eq!(reply.status, 200, "{}", reply.text());
+    assert!(
+        std::fs::symlink_metadata(root.join("ledger/main.zhang")).unwrap().file_type().is_symlink(),
+        "the main file stays a link"
+    );
+    assert!(
+        std::fs::read_to_string(root.join("real/main.zhang"))
+            .unwrap()
+            .contains("include \"data/2026/10.zhang\""),
+        "the real file got the include"
+    );
+    assert_eq!(
+        std::fs::metadata(&private).unwrap().permissions().mode() & 0o777,
+        0o600,
+        "the data file stays private"
+    );
+    assert!(std::fs::read_to_string(&private).unwrap().contains("Blue Bottle"));
+}
+
+/// An API write queued behind a plugin's commit reloads first (#803 review, P7): the commit marks the write pending
+/// before the plugin answers, so the write never plans a second include of the file the commit created.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_api_write_queued_behind_a_plugin_commit_sees_the_commit() {
+    let script = r#"
+local M = { name = "router-write", version = "0.1.0", writes = { "transaction" } }
+function M.router(request)
+  local batch = json.decode(request.body).directives
+  local preview = zhang.write.preview(batch)
+  local committed = zhang.write.commit(batch, preview.token)
+  local n = 0
+  for i = 1, 40000000 do n = n + i end
+  return { json = committed }
+end
+return M
+"#;
+    let scratch = ledger_with_module("main.zhang", "router_write.lua", script, r#"["transaction"]"#, &["transaction"]);
+    let (router, _, reload_sender) = server(&scratch, true).await;
+    let batch = json!([coffee("2026-10-13", "Expenses:Food")]);
+    let plugin_router = router.clone();
+    let plugin = tokio::spawn(async move {
+        send(
+            &plugin_router,
+            json_request(Method::POST, "/api/plugins/router-write/x", &[], Some(&json!({"directives": batch}))),
+        )
+        .await
+        .status
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    let mut request = coffee("2026-10-14", "Expenses:Food");
+    request.as_object_mut().unwrap().remove("kind");
+    request["payee"] = json!("Tea House");
+    let api_router = router.clone();
+    let api = tokio::spawn(async move {
+        send(&api_router, json_request(Method::POST, "/api/transactions", &[], Some(&request)))
+            .await
+            .status
+    });
+
+    assert_eq!(plugin.await.unwrap(), 200);
+    assert_eq!(api.await.unwrap(), 200);
+    reload_sender.reload_and_wait().await.unwrap();
+    let main = read(scratch.dir(), "main.zhang");
+    assert_eq!(main.matches("include \"data/2026/10.zhang\"").count(), 1, "{main}");
+    let mut payees = journal_payees(&router).await;
+    payees.sort();
+    assert_eq!(payees, vec!["Blue Bottle", "Tea House"]);
 }

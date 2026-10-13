@@ -399,14 +399,20 @@ fn route(request: Request) -> Result<Response, Error> {
    checks of `POST /api/transactions/preview`: for each entry, the text as the ledger's format writes it (the one a
    commit appends, byte for byte), the file it goes to by the `directive_output_path` option, the fields refused
    (`field_errors`), what the transaction is unbalanced by, and the errors the ledger would report, such as
-   `AccountDoesNotExist`. An `open` of an account already open with the same commodities is `already_open` and
-   written nowhere; with other commodities it is a field error. When every entry is clean and there is something to
-   write, the preview carries a `token`.
+   `AccountDoesNotExist`. An `open` of an account the ledger has an `open` for already, at any date and whether a
+   `close` followed it or not, is `already_open` and written nowhere when the commodities are the same, and a field
+   error on `commodities` otherwise: a plugin opens only accounts the ledger never opened, so it cannot change an
+   account's commodities, back-date them, or re-open a closed account. When every entry is clean and there is
+   something to write, the preview carries a `token`.
 2. **Commit.** `write_commit` takes the same batch with the token. Zhang recomputes the plan, checks the token, and
-   appends the text in one write, as an API write does (a new monthly file is written before its `include` in the main
-   file, and every file is written whole or not at all); the call returns once the text is in the file. After the
-   plugin has answered the request, the ledger is marked stale and reloaded, as after `POST /api/transactions`, and
-   the server logs `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`.
+   appends the text with one write per file, as an API write does: the `include` of a new monthly file goes into the
+   main file first, then the file gets all of its entries at once, and every file is written whole or not at all. The
+   call returns once the text is in the files; the ledger is reloaded, as after `POST /api/transactions`, and the
+   server logs `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`. **Commit as the very
+   last step of a request**: once it returned `Ok`, the entries are recorded, and anything that fails after it makes
+   your caller retry a write that already happened. If a file cannot be written, the `io` error names the entries and
+   files that were written and those that were not, the batch is void (every token with it) and the ledger reloads:
+   tell the user what was recorded, and preview only the rest again.
 3. **The token** is the host's HMAC of the ledger's generation (a counter moved on by every reload and every commit),
    the plugin's name, the files and the exact text, with an expiry 10 minutes out. So a plugin can only commit what
    it was shown, on the ledger it looked at, once: a batch that differs, a token of another generation, an expired
@@ -416,8 +422,9 @@ fn route(request: Request) -> Result<Response, Error> {
 Amounts are strings (`"4.50"`): the host refuses a JSON number anywhere in a batch as `invalid`, naming the field, so
 a float can never change a balance. The host adds no text or metadata of its own; a plugin that wants to mark what it
 wrote adds a tag or metadata to the batch, where the user sees it in the preview. The two-file write (a new monthly
-file and its `include`) has the same guarantee as the web UI: a failure between the two leaves a file no `include`
-names, never an `include` of a missing file.
+file and its `include`) has the same guarantee as the web UI: a failure between the two leaves an `include` of a file
+that is not there yet, which the next load reports as `IncludeNotFound` where the user sees it, never a file no
+`include` names whose entries a retry would silently add twice.
 
 ## ABI v1 reference
 

@@ -90,9 +90,11 @@ pub mod import {
     ///
     /// `zhang_write_commit(input: i64) -> i64` takes the same [`WriteBatch`](super::WriteBatch) as the preview, with its
     /// `token`, and answers `{"Ok": committed}` with a [`WriteCommitted`](super::WriteCommitted) once the text is in the
-    /// file. The host appends exactly what the preview showed, on the ledger the preview looked at: a batch that
-    /// differs, a token of another ledger generation, an expired token, a ledger that is reloading, or a second commit
-    /// in the same generation is a `conflict`, and the plugin previews again.
+    /// files, one write per file. The host appends exactly what the preview showed, on the ledger the preview looked
+    /// at: a batch that differs, a token of another ledger generation, an expired token, a ledger that is reloading,
+    /// or a second commit in the same generation is a `conflict`, and the plugin previews again. A file that could not
+    /// be written is an `io` error naming the entries and files written before it; the batch is void and the ledger
+    /// reloads. Commit as the last step of a request: once it answered `Ok`, the entries are recorded.
     pub const WRITE_COMMIT: &str = "zhang_write_commit";
 }
 
@@ -622,8 +624,9 @@ pub struct WritePreviewEntry {
     /// the errors the ledger would report against the directive once written, `{"error_type", "metas"}`
     #[serde(default)]
     pub errors: Vec<serde_json::Value>,
-    /// an `open`: whether the account is already open with the same commodities, in which case the entry is left out
-    /// of the text (nothing to write); a different set of commodities is a field error on `commodities`
+    /// an `open`: whether the ledger has an `open` of the account already, at any date, with the same commodities, in
+    /// which case the entry is left out of the text (nothing to write); one with another set of commodities is a
+    /// field error on `commodities`. A plugin opens only accounts the ledger never opened
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub already_open: Option<bool>,
 }

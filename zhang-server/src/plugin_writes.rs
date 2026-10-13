@@ -152,7 +152,7 @@ fn invalid(message: String) -> HostError {
 /// cycle). A reload that failed is named: the owner fixes the files
 fn writable_generation(ledger: &Ledger, writes: &PluginWrites, reload_sender: &ReloadSender) -> Result<u64, HostError> {
     let generation = reload_sender.generation();
-    if ledger.stale || writes.last_commit.load(Ordering::SeqCst) == generation {
+    if ledger.stale || reload_sender.write_pending() || writes.last_commit.load(Ordering::SeqCst) == generation {
         let message = match reload_sender.last_failure() {
             Some(failure) => format!(
                 "the ledger failed to reload after a write, so the ledger served is the one loaded before it; fix its files, then preview again: {}",
@@ -210,18 +210,16 @@ pub(crate) fn commit(
     let generation = writable_generation(ledger, writes, reload_sender)?;
     writes.verify(token, generation, plugin, &planned.plan, now())?;
     let entries = planned.directives.len();
-    ledger
-        .data_source
-        .append(ledger, planned.directives)
-        .map_err(|e| HostError::new(HostErrorKind::Io, format!("the ledger's files could not be written: {e}")))?;
+    let appended = ledger.data_source.append_files(ledger, planned.directives);
+    // whatever landed, the files are ahead of the ledger served: every token is void, nothing else is committed
+    // until the ledger reloaded, and the reload is asked for here, before the plugin can answer
     let generation = reload_sender.next_generation();
     writes.last_commit.store(generation, Ordering::SeqCst);
-    let mut files: Vec<String> = vec![];
-    for (path, _) in &planned.plan {
-        if !files.contains(path) {
-            files.push(path.clone());
-        }
-    }
+    reload_sender.mark_written();
+    let files = match appended {
+        Ok(files) => files,
+        Err(failure) => return Err(partial_write(&planned.entries, &failure)),
+    };
     Ok(Commit {
         committed: WriteCommitted {
             file: planned.file,
@@ -232,6 +230,53 @@ pub(crate) fn commit(
         },
         files,
     })
+}
+
+/// The `io` error of a write that failed after `failure.written` landed: it names the entries (by index) and the
+/// files that are in the ledger's files now, and those that are not, so a client tells the user what was recorded
+/// and does not record the whole batch a second time. An `include` line the plan wrote counts with its file
+fn partial_write(entries: &[WritePreviewEntry], failure: &zhang_core::data_source::AppendError) -> HostError {
+    let listed = |predicate: &dyn Fn(&str) -> bool| -> String {
+        let mut files: Vec<String> = vec![];
+        for entry in entries.iter().filter(|entry| entry.text.is_some() && predicate(&entry.file)) {
+            if !files.contains(&entry.file) {
+                files.push(entry.file.clone());
+            }
+        }
+        files
+            .iter()
+            .map(|file| {
+                let indices: Vec<String> = entries
+                    .iter()
+                    .filter(|entry| entry.text.is_some() && &entry.file == file)
+                    .map(|entry| entry.index.to_string())
+                    .collect();
+                format!("{file} (entries {})", indices.join(", "))
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let written = listed(&|file| failure.written.iter().any(|it| it == file));
+    let not_written = listed(&|file| !failure.written.iter().any(|it| it == file));
+    let other_written: Vec<&str> = failure
+        .written
+        .iter()
+        .filter(|file| !entries.iter().any(|entry| &entry.file == *file))
+        .map(String::as_str)
+        .collect();
+    let mut message = format!("the ledger's files could not be written: {}.", failure.error);
+    match written.is_empty() {
+        true => message.push_str(" Nothing was written"),
+        false => message.push_str(&format!(" Already written, do not send again: {written}")),
+    }
+    if !other_written.is_empty() {
+        message.push_str(&format!(" (and the include in {})", other_written.join(", ")));
+    }
+    if !not_written.is_empty() {
+        message.push_str(&format!(". Not written: {not_written}"));
+    }
+    message.push_str(". The ledger reloads; preview the entries that are not written again");
+    HostError::new(HostErrorKind::Io, message)
 }
 
 /// a batch planned on the ledger: what the preview shows and what a commit writes
@@ -265,6 +310,7 @@ fn plan_batch(ledger: &Ledger, directives: &[Value]) -> Result<Planned, HostErro
     let mut entries = vec![];
     let mut to_write = vec![];
     let mut problem = None;
+    // the text of the batch so far: an entry that takes it over the bound is refused before the ledger checks it
     let mut text_len = 0;
     for (index, value) in directives.iter().enumerate() {
         let kind = value["kind"]
@@ -272,10 +318,9 @@ fn plan_batch(ledger: &Ledger, directives: &[Value]) -> Result<Planned, HostErro
             .and_then(WriteKind::parse)
             .ok_or_else(|| invalid(format!("directives[{index}] has no known kind")))?;
         let checked = match kind {
-            WriteKind::Transaction => check_transaction(ledger, index, value.clone(), &overlay)?,
-            WriteKind::Open => check_open(ledger, index, value.clone(), &overlay)?,
+            WriteKind::Transaction => check_transaction(ledger, index, value.clone(), &overlay, &mut text_len)?,
+            WriteKind::Open => check_open(ledger, index, value.clone(), &overlay, &mut text_len)?,
         };
-        text_len += checked.entry.text.as_ref().map(String::len).unwrap_or(0);
         if problem.is_none() {
             problem = checked.problem;
         }
@@ -286,9 +331,6 @@ fn plan_batch(ledger: &Ledger, directives: &[Value]) -> Result<Planned, HostErro
             overlay.push(directive);
         }
         entries.push(checked.entry);
-    }
-    if text_len > MAX_TEXT_LEN {
-        return Err(invalid(format!("the text of the batch is {text_len} bytes, over the limit of {MAX_TEXT_LEN}")));
     }
     let plan = append_plan(ledger, to_write.clone())
         .map_err(|e| invalid(format!("the batch cannot be planned: {e}")))?
@@ -318,9 +360,14 @@ fn file_of(ledger: &Ledger, datetime: Option<chrono::NaiveDateTime>, directive_t
     Ok(slashed(&within))
 }
 
-/// `directive` as the ledger's format writes it
-fn text_of(ledger: &Ledger, directive: Directive) -> Result<String, HostError> {
+/// `directive` as the ledger's format writes it, counted into `text_len`, the text of the batch so far: over
+/// [`MAX_TEXT_LEN`] the batch is refused here, before the ledger checks this entry or sees the next
+fn text_of(ledger: &Ledger, directive: Directive, text_len: &mut usize) -> Result<String, HostError> {
     let bytes = ledger.data_source.export(directive).map_err(export_failed)?;
+    *text_len += bytes.len();
+    if *text_len > MAX_TEXT_LEN {
+        return Err(invalid(format!("the text of the batch is over the limit of {MAX_TEXT_LEN} bytes")));
+    }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -336,7 +383,7 @@ fn field_errors(index: usize, errors: Vec<FieldError>) -> (Vec<Value>, Option<St
 
 /// the entry of the `transaction` at `index`, checked as `POST /api/transactions/preview` checks one, with `overlay`
 /// counted as written before it
-fn check_transaction(ledger: &Ledger, index: usize, value: Value, overlay: &[Directive]) -> Result<Checked, HostError> {
+fn check_transaction(ledger: &Ledger, index: usize, value: Value, overlay: &[Directive], text_len: &mut usize) -> Result<Checked, HostError> {
     let payload: CreateTransactionRequest =
         serde_json::from_value(value).map_err(|e| invalid(format!("directives[{index}] is not a transaction as POST /api/transactions takes one: {e}")))?;
     let at = payload.datetime.in_ledger(&ledger.options.timezone);
@@ -363,7 +410,7 @@ fn check_transaction(ledger: &Ledger, index: usize, value: Value, overlay: &[Dir
             });
         }
     };
-    let text = text_of(ledger, Directive::Transaction(transaction.clone()))?;
+    let text = text_of(ledger, Directive::Transaction(transaction.clone()), text_len)?;
     let check = ledger
         .check_transaction_with(transaction.clone(), None, overlay)
         .map_err(|e| HostError::new(HostErrorKind::Io, format!("the ledger could not check the transaction: {e}")))?;
@@ -394,7 +441,7 @@ fn metas_text(metas: &std::collections::HashMap<String, String>) -> String {
 
 /// the entry of the `open` at `index`: read with the rules of a transaction's fields, then checked against the
 /// account's state at its date, with `overlay` counted as written before it
-fn check_open(ledger: &Ledger, index: usize, value: Value, overlay: &[Directive]) -> Result<Checked, HostError> {
+fn check_open(ledger: &Ledger, index: usize, value: Value, overlay: &[Directive], text_len: &mut usize) -> Result<Checked, HostError> {
     let payload: OpenAccountRequest =
         serde_json::from_value(value).map_err(|e| invalid(format!("directives[{index}] is not an open as a write batch takes one: {e}")))?;
     let datetime = open_date(&payload.date, ledger).ok().map(|date| date.naive_datetime());
@@ -446,7 +493,7 @@ fn check_open(ledger: &Ledger, index: usize, value: Value, overlay: &[Directive]
                 kind: InvalidKind::AlreadyOpen,
                 value: open.commodities.join(", "),
                 message: format!(
-                    "{} is already open {with}, not {requested}: a plugin cannot change the commodities of an open account",
+                    "{} has an open directive already ({with}), not {requested}: a plugin opens only an account the ledger never opened, so it cannot change an account's commodities or re-open a closed one",
                     open.account.name()
                 ),
             },
@@ -459,7 +506,7 @@ fn check_open(ledger: &Ledger, index: usize, value: Value, overlay: &[Directive]
             problem,
         });
     }
-    let text = text_of(ledger, Directive::Open(open.clone()))?;
+    let text = text_of(ledger, Directive::Open(open.clone()), text_len)?;
     Ok(Checked {
         entry: entry(Some(text), vec![], false),
         directive: Some(Directive::Open(open)),
@@ -499,9 +546,20 @@ pub(crate) fn open_from_request(payload: OpenAccountRequest, ledger: &Ledger) ->
     for commodity in &payload.commodities {
         check(TransactionField::Commodities, validate::commodity(commodity, &rules));
     }
+    let meta_given_twice = payload.booking_method.is_some() && payload.metas.iter().any(|meta| meta.key == BOOKING_METHOD_META);
     let meta = metas_from_request(payload.metas, &rules, None);
     check(TransactionField::Metas, meta.as_ref().map(|_| ()).map_err(Clone::clone));
     if let Some(method) = &payload.booking_method {
+        if meta_given_twice {
+            check(
+                TransactionField::Metas,
+                Err(Invalid {
+                    kind: InvalidKind::InvalidBookingMethod,
+                    value: method.clone(),
+                    message: format!("the booking method is given twice, as `booking_method` and as a `{BOOKING_METHOD_META}` meta: give it once"),
+                }),
+            );
+        }
         if BookingMethod::from_str(method).is_err() {
             check(
                 TransactionField::Metas,
@@ -654,12 +712,27 @@ mod test {
         assert_eq!(other["entries"][0]["field_errors"][0]["kind"], "already_open");
         assert_eq!(
             other["entries"][0]["field_errors"][0]["message"],
-            "Expenses:Food is already open with USD, not USD, EUR: a plugin cannot change the commodities of an open account"
+            "Expenses:Food has an open directive already (with USD), not USD, EUR: a plugin opens only an account the ledger never opened, so it cannot change an account's commodities or re-open a closed one"
         );
         let any = ok(&ledger, json!([open(json!({"account": "Assets:Cash", "commodities": ["USD"]}))]));
         assert_eq!(
             any["entries"][0]["field_errors"][0]["message"],
-            "Assets:Cash is already open for any commodity, not USD: a plugin cannot change the commodities of an open account"
+            "Assets:Cash has an open directive already (for any commodity), not USD: a plugin opens only an account the ledger never opened, so it cannot change an account's commodities or re-open a closed one"
+        );
+        // back-dating other commodities onto an opened account is refused too; the booking method is given once
+        let back_dated = ok(
+            &ledger,
+            json!([open(json!({"date": "1969-01-01", "account": "Expenses:Food", "commodities": ["EUR"]}))]),
+        );
+        assert_eq!(back_dated["entries"][0]["field_errors"][0]["kind"], "already_open");
+        let twice = ok(
+            &ledger,
+            json!([open(json!({"booking_method": "FIFO", "metas": [{"key": "booking_method", "value": "LIFO"}]}))]),
+        );
+        assert_eq!(twice["entries"][0]["field_errors"][0]["kind"], "invalid_booking_method");
+        assert!(
+            twice["entries"][0]["field_errors"][0]["message"].as_str().unwrap().contains("given twice"),
+            "{twice}"
         );
         // a wall-clock time is a date and time
         let timed = ok(&ledger, json!([open(json!({"date": "2026-10-13T08:30:00"}))]));
