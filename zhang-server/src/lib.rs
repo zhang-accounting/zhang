@@ -248,6 +248,14 @@ pub struct ReloadSender {
     /// The generation of the ledger served: moved on by every successful reload, and by every commit of a plugin
     /// ([`plugin_writes`]), so a preview token minted for one ledger is void once it changed. Starts at 1
     generation: std::sync::atomic::AtomicU64,
+    /// Whether a write landed in the files that the ledger served does not show yet: set by a plugin's commit under
+    /// the ledger read lock, where it cannot mark the ledger stale itself, and cleared by the next successful reload.
+    /// A write of the API reloads first while it is set ([`SharedLedger::for_writing`]), so a write queued behind a
+    /// plugin's commit never plans against the ledger the commit left behind (a second `include` of its file)
+    written: std::sync::atomic::AtomicBool,
+    /// the fingerprint of the ledger served ([`ledger_fingerprint`]): a reload that loads the same content keeps the
+    /// generation, so a token minted between a write's reload and the file watcher's redundant one stays valid
+    fingerprint: std::sync::Mutex<Option<u64>>,
 }
 
 impl Deref for ReloadSender {
@@ -266,7 +274,35 @@ impl ReloadSender {
             broadcaster: std::sync::OnceLock::new(),
             midnight_reload: std::sync::Mutex::new(None),
             generation: std::sync::atomic::AtomicU64::new(1),
+            written: std::sync::atomic::AtomicBool::new(false),
+            fingerprint: std::sync::Mutex::new(None),
         }
+    }
+
+    /// remember the content of `ledger`, the one served now, so the next reload can tell whether it changed
+    pub fn record_content(&self, ledger: &Ledger) {
+        *self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ledger_fingerprint(ledger));
+    }
+
+    /// whether `ledger`, just loaded, differs in content from the one served before it (always, before the first
+    /// is recorded), remembering it either way
+    fn content_changed(&self, ledger: &Ledger) -> bool {
+        let fingerprint = ledger_fingerprint(ledger);
+        let mut previous = self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = *previous != Some(fingerprint);
+        *previous = Some(fingerprint);
+        changed
+    }
+
+    /// a write landed in the files: the ledger served is behind them until the reload asked for here runs
+    pub fn mark_written(&self) {
+        self.written.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.reload();
+    }
+
+    /// whether a write landed in the files since the ledger served was loaded, see [`ReloadSender::mark_written`]
+    pub fn write_pending(&self) -> bool {
+        self.written.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// the generation of the ledger served, see [`ReloadSender::generation`]
@@ -321,8 +357,13 @@ impl ReloadSender {
         let outcome = match tokio::task::spawn_blocking(ledger.reloader()).await {
             Ok(Ok(reloaded)) => {
                 *ledger = reloaded;
-                // the ledger served changed: every preview token minted for the one before is void
-                self.next_generation();
+                // when the content changed, every preview token minted for the ledger before is void; a reload that
+                // loaded the same content (the file watcher's, after a write's own) keeps the generation and the
+                // tokens. Either way the files it shows are the ones written
+                if self.content_changed(ledger) {
+                    self.next_generation();
+                }
+                self.written.store(false, std::sync::atomic::Ordering::SeqCst);
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
             }
@@ -490,7 +531,11 @@ pub fn start_reload_listener(
 ) {
     reload_sender.broadcaster.set(cloned_broadcaster).ok();
     tokio::spawn(async move {
-        reload_sender.schedule_midnight_reload(&*ledger_for_reload.read().await);
+        {
+            let served = ledger_for_reload.read().await;
+            reload_sender.record_content(&served);
+            reload_sender.schedule_midnight_reload(&served);
+        }
         while let Some(request) = rx.recv().await {
             let mut guard = ledger_for_reload.write().await;
             let outcome = reload_sender.reload_in_place(&mut guard).await;
@@ -501,6 +546,43 @@ pub fn start_reload_listener(
             drop(guard);
         }
     });
+}
+
+/// The fingerprint of what a load produced, which is what a plugin's preview looked at: a hash of every directive's
+/// place and text in its file (the span the loader keeps on each one: file, offsets and the text as written), of
+/// the directives plugins made (no file: their canonical JSON, few), and of the options by key. Two loads of the
+/// same files give the same fingerprint; an edit that changes a directive, or a byte before one (its offsets move),
+/// gives another. Nothing is serialized or read again, so it costs a hash of the text on every data source
+/// (about 2% of a load of 50 000 transactions, where serializing them through JSON cost 70%)
+fn ledger_fingerprint(ledger: &Ledger) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for directive in ledger.directives.iter().chain(&ledger.metas) {
+        let span = &directive.span;
+        match &span.filename {
+            Some(file) => {
+                file.hash(&mut hasher);
+                span.start.hash(&mut hasher);
+                span.end.hash(&mut hasher);
+                span.content.hash(&mut hasher);
+            }
+            // a directive a plugin made: through `serde_json::Value`, whose objects are sorted, so a map it holds
+            // (metadata) hashes the same whatever order its hash map iterates in
+            None => serde_json::to_value(directive)
+                .map(|value| value.to_string())
+                .unwrap_or_default()
+                .hash(&mut hasher),
+        }
+    }
+    // the options come out of a hash map in no fixed order: by key, so two loads list them alike
+    let mut options = ledger.options.all();
+    options.sort_by(|a, b| a.key.cmp(&b.key));
+    for option in options {
+        option.key.hash(&mut hasher);
+        option.value.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// the message a caught panic was raised with, for the log

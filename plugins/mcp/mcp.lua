@@ -279,7 +279,9 @@ local function instructions()
       .. "user the `text` it returns, exactly as it will be written to the ledger, and only once the user agrees call "
       .. "`add_transaction` with the same arguments and the preview's `token`. When a preview reports "
       .. "`AccountDoesNotExist`, do not guess an account name: ask the user, open the account explicitly with "
-      .. "`open_account`, then preview again."
+      .. "`open_account`, dated on or before the earliest transaction that needs it (not today), then preview again. A "
+      .. "ledger keeps one `open` per account: if the account is already opened later than needed, tell the user to "
+      .. "move that open's date in the file rather than opening it again."
   end
   return text
 end
@@ -727,11 +729,13 @@ local COMMITTED = {
 local OPENED = {
   type = "object",
   properties = {
-    recorded = { type = "boolean", description = "false when the account was already open with these commodities (nothing written)" },
-    already_open = { type = "boolean" },
+    recorded = { type = "boolean", description = "false when the account has an open directive already (nothing written)" },
+    already_open = { type = "boolean", description = "true when the ledger already opens this account: a ledger keeps one open per account" },
     account = { type = "string" },
     text = { type = { "string", "null" }, description = "the open directive as written" },
     file = { type = { "string", "null" } },
+    opened_on = { type = { "string", "null" }, description = "when `already_open`: the date of the existing open directive" },
+    message = { type = { "string", "null" }, description = "when `already_open`: what to tell the user (move the open's date in the file to record earlier transactions)" },
   },
   required = { "recorded", "already_open", "account" },
 }
@@ -1099,7 +1103,17 @@ local WRITE_TOOLS = {
       local preview = with_host(function() return write_preview(directives) end)
       local entry = (preview.entries or {})[1] or {}
       if entry.already_open == true then
-        return { recorded = false, already_open = true, account = open.account, text = entry.text, file = preview.file }
+        -- a ledger keeps one open per account: say when it was opened, so that the model can tell the user to move
+        -- that open's date rather than try again (a closed account is the host's own `account_closed` error)
+        local clock = call:clock()
+        local rows = zhang.query_params(Q.accounts_subtree.bql, { account = zhang.str(open.account), date = zhang.date(clock.today), time = zhang.str(clock.time) })
+        local opened_on
+        for _, row in ipairs(rows.rows or {}) do
+          if row[1] == open.account and type(row[2]) == "string" then opened_on = row[2] end
+        end
+        local message = fmt("%s is already opened%s; a ledger keeps one open per account, so nothing was written. To record transactions dated before that open, ask the user to move the open's date in the ledger file.",
+          open.account, opened_on and (" on " .. opened_on) or "")
+        return { recorded = false, already_open = true, account = open.account, opened_on = opened_on, message = message, file = preview.file }
       end
       if preview.ok ~= true or type(preview.token) ~= "string" then
         tool_error("the ledger refuses this open directive (" .. entry_errors_text(entry) .. ")")

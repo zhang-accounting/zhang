@@ -294,6 +294,8 @@ pub enum InvalidKind {
     AlreadyOpen,
     /// a `booking_method` the ledger does not book with (an `open` of a plugin's write batch)
     InvalidBookingMethod,
+    /// an `open` of an account a `close` closed (a plugin's write batch): a plugin does not reopen a closed account
+    AccountClosed,
 }
 
 /// A field of a transaction request, in the order they are checked: those of each posting, then the transaction's.

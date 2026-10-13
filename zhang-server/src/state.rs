@@ -60,7 +60,8 @@ impl SharedLedger {
     /// needs no reload: it holds the lock itself.
     pub async fn for_writing(&self, reload_sender: &Arc<ReloadSender>) -> ServerResult<RwLockWriteGuard<'_, Ledger>> {
         let mut ledger = self.write().await;
-        if ledger.stale {
+        // a plugin's commit marks the sender, not the ledger, as it holds the read lock ([`ReloadSender::mark_written`])
+        if ledger.stale || reload_sender.write_pending() {
             reload_sender.reload_in_place(&mut ledger).await.map_err(ServerError::UnloadableLedger)?;
         }
         Ok(ledger)

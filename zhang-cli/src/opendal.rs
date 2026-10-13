@@ -10,7 +10,7 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, SpanInfo, Spanned};
-use zhang_core::data_source::{DataSource, LedgerFiles, LoadResult, SourceEntry};
+use zhang_core::data_source::{normalize_relative, save_file, DataSource, LedgerFiles, LoadResult, SourceEntry};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{DataType, Dialect};
 use zhang_core::error::{storage_error, Access, StorageFailure};
@@ -165,8 +165,19 @@ impl DataSource for OpendalDataSource {
         }
     }
 
+    /// On the local disk (the `Fs` service) the file is replaced whole or not at all, as [`save_file`] does for every
+    /// local source: a temporary file next to the real file, which keeps a symbolic link a link and the file's
+    /// permissions, renamed over it, so a crash or a full disk mid-write never truncates the file. A remote service
+    /// (an object store, a repository, a WebDAV share) replaces the whole object per write already
     fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         info!("[opendal] save content path={}", path);
+        if let Some(root) = &self.local_root {
+            // the service reads the path relative to its root, a leading `/` dropped; a path climbing out of the
+            // root names no file of the ledger
+            let within = normalize_relative(Path::new(path.trim().trim_start_matches('/')))
+                .ok_or_else(|| ZhangError::CustomError(format!("{path} is not in the ledger's directory")))?;
+            return save_file(&root.join(within), &path, content);
+        }
         let (file, content) = (&path, content.to_vec());
         self.blocking(None, |operator| async move { operator.write(file, content).await.map(drop) })
             .map_err(|e| e.into_zhang_error(&path, Access::Write))
@@ -1560,6 +1571,79 @@ mod test {
         assert_eq!(status, 403, "{}", body);
         let message = body["message"].as_str().unwrap_or_default();
         assert!(message.contains("main.zhang"), "{}", body);
+    }
+
+    /// `zhang serve` on a local directory saves a file whole or not at all, as the core's local source does (#803):
+    /// the temporary file is made next to the real file and renamed over it, so a symbolic link stays a link and its
+    /// target gets the text, a private file keeps its mode, and no temporary file is left behind; a remote service
+    /// replaces the whole object per write already
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_local_save_keeps_a_symlink_and_the_files_mode_and_leaves_no_temporary_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::create_dir_all(root.join("ledger/data/2024")).unwrap();
+        std::fs::write(root.join("real/main.zhang"), OPENS).unwrap();
+        std::os::unix::fs::symlink(root.join("real/main.zhang"), root.join("ledger/main.zhang")).unwrap();
+        let private = root.join("ledger/data/2024/01.zhang");
+        std::fs::write(&private, "").unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let source = local_source(&root.join("ledger"), "main.zhang").await;
+        let ledger = Ledger::load(root.join("ledger"), "main.zhang".to_owned(), source.clone()).unwrap();
+        let coffee = zhang_parse("2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n", None)
+            .unwrap()
+            .remove(0)
+            .data;
+
+        ledger.data_source.append(&ledger, vec![coffee]).expect("the append writes both files");
+        // a path the service reads relative to its root, with a leading `/`, lands in the root too
+        source
+            .save(
+                &ledger,
+                "/data/2024/02.zhang".to_owned(),
+                b"2024-02-01 * \"Shop\" \"Tea\"\n  Assets:Cash -3 CNY\n  Expenses:Food 3 CNY\n",
+            )
+            .expect("a path with a leading slash is saved within the root");
+        let climbing = source
+            .save(&ledger, "../outside.zhang".to_owned(), b"")
+            .expect_err("a path climbing out of the root is refused");
+
+        let link = std::fs::symlink_metadata(root.join("ledger/main.zhang")).unwrap();
+        assert!(link.file_type().is_symlink(), "the main file stays a symbolic link");
+        assert!(
+            std::fs::read_to_string(root.join("real/main.zhang"))
+                .unwrap()
+                .contains("include \"data/2024/01.zhang\""),
+            "its target got the include"
+        );
+        assert_eq!(
+            std::fs::metadata(&private).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "a private file stays private"
+        );
+        assert!(std::fs::read_to_string(&private).unwrap().contains("Coffee"), "the private file got the entry");
+        assert!(
+            std::fs::read_to_string(root.join("ledger/data/2024/02.zhang")).unwrap().contains("Tea"),
+            "the leading slash is dropped"
+        );
+        assert!(climbing.to_string().contains("not in the ledger's directory"), "{}", climbing);
+        assert!(!root.join("outside.zhang").exists(), "nothing is written outside the root");
+        let mut temporary = vec![];
+        for folder in [root.join("real"), root.join("ledger"), root.join("ledger/data/2024")] {
+            for entry in std::fs::read_dir(folder).unwrap() {
+                let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+                if name.ends_with(".tmp") {
+                    temporary.push(name);
+                }
+            }
+        }
+        assert_eq!(temporary, Vec::<String>::new(), "no temporary file is left behind");
+        let reloaded = Ledger::load(root.join("ledger"), "main.zhang".to_owned(), source).expect("the ledger reloads");
+        assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
+        assert_eq!(reloaded.transactions().len(), 1, "the file saved by path alone is not included");
     }
 
     /// `zhang serve` given the root through a symlink, as `/tmp` is on macOS, lists the files it loads by their

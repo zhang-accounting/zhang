@@ -10,8 +10,7 @@ use zhang_ast::{Directive, Open, SpanInfo, Spanned, Transaction};
 
 use super::balance::AccountCommodities;
 use super::validate::Watched;
-use super::{AccountLifecycle, ActiveAccountsStage, ProcessStage, StageContext, ValidateStage};
-use crate::domains::schemas::AccountStatus;
+use super::{ActiveAccountsStage, ProcessStage, StageContext, ValidateStage};
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -30,12 +29,16 @@ pub struct TransactionCheck {
 /// What an `open` would change once written ([`Ledger::check_open`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenCheck {
-    /// whether the account is open at the `open`'s date and time with the same commodities already: writing the
-    /// `open` would change nothing
+    /// whether the ledger has an `open` of the account already, at any date, with the same commodities as this one,
+    /// and no `close` after it: writing the `open` would add nothing a plugin may add
     pub already_open: bool,
-    /// the commodities the account is open with at the `open`'s date and time, when it is open with others than the
-    /// `open` lists (an empty list: any commodity); `None` when it is not open, or open with the same
+    /// the commodities of the account's latest `open`, when the ledger has one with others than this `open` lists
+    /// (an empty list: any commodity) and no `close` after it; `None` when the ledger has no `open` of the account,
+    /// one with the same, or a `close` after it
     pub open_with: Option<Vec<String>>,
+    /// the date of the `close` that closed the account after its latest `open`, when there is one: a plugin does not
+    /// reopen a closed account, and a client tells the user it is closed, not open
+    pub closed: Option<chrono::NaiveDate>,
 }
 
 /// a span no directive of a load has: the candidate of a dry run, and, counting down from it, the directives of a
@@ -89,32 +92,45 @@ impl Ledger {
         })
     }
 
-    /// What an `open` would change, once written: nothing, when the account is open at its date and time with the
-    /// same commodities already (`already_open`); or it would re-open an account that is open with other commodities
-    /// (`open_with`), which the ledger allows but a plugin may not do. `with` are directives not in the ledger that
-    /// count as written before it, as for [`Ledger::check_transaction_with`]. Nothing is written
+    /// What an `open` a plugin wants to write would add: nothing, when the ledger has an `open` of the account already
+    /// with the same commodities (`already_open`); or a second `open` of an account that has one with other
+    /// commodities (`open_with`). The date of the existing `open` does not matter, nor whether a `close` followed it:
+    /// an `open` through a plugin only opens an account the ledger never opened, so it cannot back-date other
+    /// commodities onto an account, or re-open a closed one; the ledger allows both, written by hand. The latest
+    /// `open` of the account decides the commodities. `with` are directives not in the ledger that count as written,
+    /// as for [`Ledger::check_transaction_with`]. Nothing is written
     pub fn check_open(&self, open: &Open, with: &[Directive]) -> OpenCheck {
-        let at = open.date.naive_datetime();
-        let candidate = Spanned::new(Directive::Open(open.clone()), dry_run_span(0));
-        let stream = self.stream_until(candidate, None, with);
-        // every directive before the candidate, which is the last of the stream
-        let mut lifecycle = AccountLifecycle::default();
+        let account = open.account.name();
         let mut commodities = AccountCommodities::default();
-        for directive in &stream[..stream.len() - 1] {
-            lifecycle.apply(&directive.data);
-            commodities.apply(&directive.data);
+        let mut opened = false;
+        let mut closed = None;
+        // every `open` and `close` of the account the ledger holds, in the order of its dates, then the opens of
+        // `with`, in theirs: the latest `open` decides the commodities, a `close` after it that the account is closed
+        let existing = self.directives.iter().map(|it| &it.data).chain(with.iter());
+        for directive in existing {
+            match directive {
+                Directive::Open(existing) if existing.account.name() == account => {
+                    opened = true;
+                    closed = None;
+                    commodities.apply(directive);
+                }
+                Directive::Close(close) if close.account.name() == account => closed = Some(close.date.naive_datetime().date()),
+                _ => {}
+            }
         }
-        if lifecycle.status(open.account.name(), at) != Some(AccountStatus::Open) {
+        if !opened || closed.is_some() {
             return OpenCheck {
                 already_open: false,
                 open_with: None,
+                closed,
             };
         }
-        let open_with = commodities.allowed(open.account.name()).unwrap_or_default();
+        let open_with = commodities.allowed(account).unwrap_or_default();
         let same = open_with.iter().collect::<BTreeSet<_>>() == open.commodities.iter().collect::<BTreeSet<_>>();
         OpenCheck {
             already_open: same,
             open_with: (!same).then(|| open_with.to_vec()),
+            closed: None,
         }
     }
 
@@ -154,6 +170,7 @@ mod test {
     use std::sync::Arc;
 
     use bigdecimal::BigDecimal;
+    use chrono::NaiveDate;
     use indoc::indoc;
     use tempfile::tempdir;
     use zhang_ast::amount::Amount;
@@ -354,7 +371,7 @@ mod test {
     }
 
     #[test]
-    fn an_open_of_an_open_account_is_already_open_with_the_same_commodities() {
+    fn an_open_of_an_opened_account_is_already_open_with_the_same_commodities() {
         let ledger = load(&format!("{LEDGER}1970-01-01 open Assets:Bank USD, EUR\n"));
         let open = |text: &str| match directive(text) {
             Directive::Open(open) => open,
@@ -364,6 +381,7 @@ mod test {
         let not_open = OpenCheck {
             already_open: false,
             open_with: None,
+            closed: None,
         };
         assert_eq!(check("2024-01-02 open Expenses:Coffee"), not_open);
         // the commodities as a set: the order does not matter
@@ -371,14 +389,16 @@ mod test {
             check("2024-01-02 open Assets:Bank EUR, USD"),
             OpenCheck {
                 already_open: true,
-                open_with: None
+                open_with: None,
+                closed: None
             }
         );
         assert_eq!(
             check("2024-01-02 open Assets:Bank USD"),
             OpenCheck {
                 already_open: false,
-                open_with: Some(vec!["USD".to_owned(), "EUR".to_owned()])
+                open_with: Some(vec!["USD".to_owned(), "EUR".to_owned()]),
+                closed: None
             }
         );
         // an account open for any commodity is open with an empty list
@@ -386,20 +406,36 @@ mod test {
             check("2024-01-02 open Assets:Cash USD"),
             OpenCheck {
                 already_open: false,
-                open_with: Some(vec![])
+                open_with: Some(vec![]),
+                closed: None
             }
         );
         assert!(check("2024-01-02 open Assets:Cash").already_open);
-        // once closed, the account can be opened again; before its open it is not open
-        assert_eq!(check("2024-01-02 open Expenses:Food"), not_open);
-        assert_eq!(check("1969-12-31 open Assets:Cash"), not_open);
+        // the date of the existing `open` does not matter: a plugin opens only an account the ledger never opened,
+        // so it cannot back-date other commodities onto one; a closed account is told apart, with the close's date
+        let closed = NaiveDate::from_ymd_opt(2023, 1, 1);
+        assert_eq!(check("2024-01-02 open Expenses:Food").closed, closed, "Expenses:Food is closed, and stays so");
+        assert_eq!(
+            check("2024-01-02 open Expenses:Food USD"),
+            OpenCheck {
+                already_open: false,
+                open_with: None,
+                closed
+            }
+        );
+        assert!(check("1969-12-31 open Assets:Cash").already_open);
+        assert_eq!(
+            check("1969-12-31 open Assets:Bank USD").open_with,
+            Some(vec!["USD".to_owned(), "EUR".to_owned()])
+        );
         // an `open` earlier in the batch counts
         let earlier = directive("2024-01-01 open Expenses:Coffee USD");
         assert_eq!(
             ledger.check_open(&open("2024-01-02 open Expenses:Coffee USD"), std::slice::from_ref(&earlier)),
             OpenCheck {
                 already_open: true,
-                open_with: None
+                open_with: None,
+                closed: None
             }
         );
         assert_eq!(

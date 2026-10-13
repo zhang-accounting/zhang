@@ -1129,5 +1129,32 @@ async fn write_session(dir: TempDir) {
     )
     .await;
     assert_eq!((again["recorded"].as_bool(), again["already_open"].as_bool()), (Some(false), Some(true)));
+    assert_eq!(again["opened_on"], "2024-03-01");
+    assert!(
+        again["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Expenses:Food:Coffee is already opened on 2024-03-01;"),
+        "{again}"
+    );
+    assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);
+    // another commodity set for an opened account is refused by the host, naming the existing open
+    let other = error_text(
+        &router,
+        "open_account",
+        json!({"date": "2024-03-01", "account": "Expenses:Food:Coffee", "commodities": ["USD"]}),
+    )
+    .await;
+    assert!(
+        other.contains("Expenses:Food:Coffee has an open directive already (with CNY), not USD"),
+        "{other}"
+    );
+    assert!(other.contains("cannot change an account's commodities"), "{other}");
+    // a closed account is not reopened: the host's error names the close date for the user
+    let closed = error_text(&router, "open_account", json!({"date": "2024-01-01", "account": "Assets:Old"})).await;
+    assert!(
+        closed.contains("Assets:Old was closed on 2023-12-31: a plugin does not reopen a closed account"),
+        "{closed}"
+    );
     assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);
 }

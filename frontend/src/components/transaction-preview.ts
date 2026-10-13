@@ -31,6 +31,7 @@ export const FIELD_ERROR_KINDS = [
   'invalid_date',
   'already_open',
   'invalid_booking_method',
+  'account_closed',
 ] as const satisfies readonly FieldErrorKind[];
 
 // every kind the server sends is listed above

@@ -143,8 +143,13 @@ errors}`. `add_transaction` rebuilds the same batch, previews it again to report
 with the caller's token, which the host verifies against the recomputed plan (generation, expiry, plugin, files, texts); the host appends the text in one write, bumps the generation (every outstanding
 token dies, replay is impossible) and reloads after the plugin returns. A host `conflict` (the ledger changed, a
 reload is pending, the token expired or was used) is an `isError` that says "the ledger changed, run
-preview_transaction again". `open_account` is one-shot (an `open` changes no balance): preview, `recorded: false,
-already_open: true` when the account is open with the same commodities, else commit with the preview's token.
+preview_transaction again". `open_account` is one-shot (an `open` changes no balance): preview, then commit with the preview's token. A ledger
+keeps one `open` per account, and the host lets a plugin open only an account the ledger never opened: the same
+commodity set answers `recorded: false, already_open: true` with `opened_on` and a message telling the user to move
+that open's date in the file to record earlier transactions (the plugin reads the date through `accounts.subtree`);
+another commodity set is the host's field error naming the existing open, and a closed account the host's
+`account_closed` error ("was closed on <date>: a plugin does not reopen a closed account"), both relayed as the tool's error. The instructions tell
+the model to date a new open on or before the earliest transaction that needs it, not today.
 
 Confirmation design (end-user-safe default): (1) the client's approval prompt, driven by the annotations
 (`readOnlyHint: false` on `add_transaction` and `open_account`; Claude Code and Claude Desktop prompt for non-read-only

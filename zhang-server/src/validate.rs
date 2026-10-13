@@ -191,6 +191,7 @@ fn invalid(kind: InvalidKind, value: &str, rule: &str) -> Invalid {
         InvalidKind::InvalidDate => "date",
         InvalidKind::AlreadyOpen => "commodities",
         InvalidKind::InvalidBookingMethod => "booking method",
+        InvalidKind::AccountClosed => "account",
     };
     Invalid {
         kind,

@@ -2374,7 +2374,8 @@ export interface operations {
                   | 'invalid_flag'
                   | 'invalid_date'
                   | 'already_open'
-                  | 'invalid_booking_method';
+                  | 'invalid_booking_method'
+                  | 'account_closed';
                 /** @description what the create or update answers for it with a 400 */
                 message: string;
                 /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
@@ -2650,7 +2651,8 @@ export interface operations {
                   | 'invalid_flag'
                   | 'invalid_date'
                   | 'already_open'
-                  | 'invalid_booking_method';
+                  | 'invalid_booking_method'
+                  | 'account_closed';
                 /** @description what the create or update answers for it with a 400 */
                 message: string;
                 /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
