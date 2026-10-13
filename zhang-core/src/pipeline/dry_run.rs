@@ -1,14 +1,17 @@
-//! A dry run of one transaction: what the ledger would report against it once written, found by the stages a load checks
-//! it with, without writing it.
+//! A dry run of one transaction, or of one `open`: what the ledger would report against it once written, found by the
+//! stages a load checks it with, without writing it. A batch of directives previewed together is checked one at a
+//! time, each with the earlier ones of the batch counted as written ([`Ledger::check_transaction_with`]).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use zhang_ast::amount::Amount;
 use zhang_ast::error::ErrorKind;
-use zhang_ast::{Directive, SpanInfo, Spanned, Transaction};
+use zhang_ast::{Directive, Open, SpanInfo, Spanned, Transaction};
 
+use super::balance::AccountCommodities;
 use super::validate::Watched;
-use super::{ActiveAccountsStage, ProcessStage, StageContext, ValidateStage};
+use super::{AccountLifecycle, ActiveAccountsStage, ProcessStage, StageContext, ValidateStage};
+use crate::domains::schemas::AccountStatus;
 use crate::ledger::Ledger;
 use crate::ZhangResult;
 
@@ -24,6 +27,27 @@ pub struct TransactionCheck {
     pub unbalanced: Option<Vec<Amount>>,
 }
 
+/// What an `open` would change once written ([`Ledger::check_open`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenCheck {
+    /// whether the account is open at the `open`'s date and time with the same commodities already: writing the
+    /// `open` would change nothing
+    pub already_open: bool,
+    /// the commodities the account is open with at the `open`'s date and time, when it is open with others than the
+    /// `open` lists (an empty list: any commodity); `None` when it is not open, or open with the same
+    pub open_with: Option<Vec<String>>,
+}
+
+/// a span no directive of a load has: the candidate of a dry run, and, counting down from it, the directives of a
+/// batch that count as written before it
+fn dry_run_span(index: usize) -> SpanInfo {
+    SpanInfo {
+        start: usize::MAX - index,
+        end: usize::MAX - index,
+        ..SpanInfo::default()
+    }
+}
+
 impl Ledger {
     /// Check `transaction` as a load of the ledger with it written would: [`ActiveAccountsStage`] and
     /// [`ValidateStage`], the stages that report on a transaction once the plugins ran, run over the directives this
@@ -33,13 +57,16 @@ impl Ledger {
     ///
     /// The transaction is checked as written, before booking: booking completes it as a load would.
     pub fn check_transaction(&self, transaction: Transaction, replaces: Option<&SpanInfo>) -> ZhangResult<TransactionCheck> {
-        // a span no directive of a load has
-        let span = SpanInfo {
-            start: usize::MAX,
-            end: usize::MAX,
-            ..SpanInfo::default()
-        };
-        let stream = self.stream_until(Spanned::new(Directive::Transaction(transaction), span.clone()), replaces);
+        self.check_transaction_with(transaction, replaces, &[])
+    }
+
+    /// [`Ledger::check_transaction`], with the directives `with`, which are not in the ledger, counted as written
+    /// before the transaction: the earlier entries of a batch previewed together, such as the `open` of an account the
+    /// transaction posts to, or a purchase whose lot it sells. Each of them is sorted to its own date and time; among
+    /// the directives of the transaction's date and time, they come before it, in their order
+    pub fn check_transaction_with(&self, transaction: Transaction, replaces: Option<&SpanInfo>, with: &[Directive]) -> ZhangResult<TransactionCheck> {
+        let span = dry_run_span(0);
+        let stream = self.stream_until(Spanned::new(Directive::Transaction(transaction), span.clone()), replaces, with);
         let mut ctx = StageContext::new(&self.options)
             .with_dialect(self.dialect)
             .with_commodities(self.options.operating_currency_commodity().into_iter().collect());
@@ -62,9 +89,39 @@ impl Ledger {
         })
     }
 
-    /// the dated directives of the ledger, sorted as a load sorts them, with `candidate` in place of `replaces` (or
-    /// after them when it is not there), up to and including `candidate`
-    fn stream_until(&self, candidate: Spanned<Directive>, replaces: Option<&SpanInfo>) -> Vec<Spanned<Directive>> {
+    /// What an `open` would change, once written: nothing, when the account is open at its date and time with the
+    /// same commodities already (`already_open`); or it would re-open an account that is open with other commodities
+    /// (`open_with`), which the ledger allows but a plugin may not do. `with` are directives not in the ledger that
+    /// count as written before it, as for [`Ledger::check_transaction_with`]. Nothing is written
+    pub fn check_open(&self, open: &Open, with: &[Directive]) -> OpenCheck {
+        let at = open.date.naive_datetime();
+        let candidate = Spanned::new(Directive::Open(open.clone()), dry_run_span(0));
+        let stream = self.stream_until(candidate, None, with);
+        // every directive before the candidate, which is the last of the stream
+        let mut lifecycle = AccountLifecycle::default();
+        let mut commodities = AccountCommodities::default();
+        for directive in &stream[..stream.len() - 1] {
+            lifecycle.apply(&directive.data);
+            commodities.apply(&directive.data);
+        }
+        if lifecycle.status(open.account.name(), at) != Some(AccountStatus::Open) {
+            return OpenCheck {
+                already_open: false,
+                open_with: None,
+            };
+        }
+        let open_with = commodities.allowed(open.account.name()).unwrap_or_default();
+        let same = open_with.iter().collect::<BTreeSet<_>>() == open.commodities.iter().collect::<BTreeSet<_>>();
+        OpenCheck {
+            already_open: same,
+            open_with: (!same).then(|| open_with.to_vec()),
+        }
+    }
+
+    /// the dated directives of the ledger and `with`, sorted as a load sorts them, with `candidate` in place of
+    /// `replaces` (or after them when it is not there), up to and including `candidate`. The directives of `with` are
+    /// sorted to their dates and times too, before the candidate among those of its date and time
+    fn stream_until(&self, candidate: Spanned<Directive>, replaces: Option<&SpanInfo>, with: &[Directive]) -> Vec<Spanned<Directive>> {
         let span = candidate.span.clone();
         let mut stream = self.directives.clone();
         let position = replaces.and_then(|replaces| {
@@ -72,6 +129,11 @@ impl Ledger {
                 .iter()
                 .position(|it| &it.span == replaces && matches!(it.data, Directive::Transaction(_)))
         });
+        stream.extend(
+            with.iter()
+                .enumerate()
+                .map(|(index, directive)| Spanned::new(directive.clone(), dry_run_span(index + 1))),
+        );
         match position {
             Some(position) => stream[position] = candidate,
             None => stream.push(candidate),
@@ -98,7 +160,7 @@ mod test {
     use zhang_ast::error::ErrorKind;
     use zhang_ast::{Directive, SpanInfo, Transaction};
 
-    use super::TransactionCheck;
+    use super::{OpenCheck, TransactionCheck};
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
@@ -251,6 +313,98 @@ mod test {
         assert_eq!(
             kinds(&sale("2024-01-02", "11")),
             [ErrorKind::NoEnoughCommodityLot, ErrorKind::TransactionCannotInferTradeAmount]
+        );
+    }
+
+    /// the first directive of `text`, as the parser reads it
+    fn directive(text: &str) -> Directive {
+        ZhangDataType {}.transform(text.to_owned(), None).unwrap().remove(0).data
+    }
+
+    #[test]
+    fn a_batch_counts_its_earlier_directives_as_written() {
+        let ledger = load(LEDGER);
+        let coffee = transaction("2024-01-02 * \"coffee\"\n  Assets:Cash -5 USD\n  Expenses:Coffee 5 USD\n");
+        assert_eq!(
+            ledger.check_transaction(coffee.clone(), None).unwrap().errors,
+            vec![(
+                ErrorKind::AccountDoesNotExist,
+                HashMap::from([("account_name".to_owned(), "Expenses:Coffee".to_owned())])
+            )]
+        );
+        // an `open` earlier in the batch counts, at its own date: the same day, or a year before
+        for open in ["2024-01-02 open Expenses:Coffee USD", "2023-01-01 open Expenses:Coffee"] {
+            assert_eq!(
+                ledger.check_transaction_with(coffee.clone(), None, &[directive(open)]).unwrap(),
+                TransactionCheck {
+                    errors: vec![],
+                    unbalanced: Some(vec![])
+                },
+                "{open}"
+            );
+        }
+        // and so does a purchase earlier in the batch, whose lot a later sale takes
+        let buy = directive("2024-01-01 * \"buy\"\n  Assets:Broker 10 AAPL {150 USD}\n  Assets:Cash -1500 USD\n");
+        let sell = transaction("2024-01-02 * \"sell\"\n  Assets:Broker -4 AAPL {}\n  Assets:Cash\n");
+        assert_eq!(
+            kinds(&ledger.check_transaction(sell.clone(), None).unwrap()),
+            [ErrorKind::TransactionCannotInferTradeAmount]
+        );
+        assert_eq!(ledger.check_transaction_with(sell, None, &[buy]).unwrap().errors, vec![]);
+    }
+
+    #[test]
+    fn an_open_of_an_open_account_is_already_open_with_the_same_commodities() {
+        let ledger = load(&format!("{LEDGER}1970-01-01 open Assets:Bank USD, EUR\n"));
+        let open = |text: &str| match directive(text) {
+            Directive::Open(open) => open,
+            other => panic!("not an open: {other:?}"),
+        };
+        let check = |text: &str| ledger.check_open(&open(text), &[]);
+        let not_open = OpenCheck {
+            already_open: false,
+            open_with: None,
+        };
+        assert_eq!(check("2024-01-02 open Expenses:Coffee"), not_open);
+        // the commodities as a set: the order does not matter
+        assert_eq!(
+            check("2024-01-02 open Assets:Bank EUR, USD"),
+            OpenCheck {
+                already_open: true,
+                open_with: None
+            }
+        );
+        assert_eq!(
+            check("2024-01-02 open Assets:Bank USD"),
+            OpenCheck {
+                already_open: false,
+                open_with: Some(vec!["USD".to_owned(), "EUR".to_owned()])
+            }
+        );
+        // an account open for any commodity is open with an empty list
+        assert_eq!(
+            check("2024-01-02 open Assets:Cash USD"),
+            OpenCheck {
+                already_open: false,
+                open_with: Some(vec![])
+            }
+        );
+        assert_eq!(check("2024-01-02 open Assets:Cash").already_open, true);
+        // once closed, the account can be opened again; before its open it is not open
+        assert_eq!(check("2024-01-02 open Expenses:Food"), not_open);
+        assert_eq!(check("1969-12-31 open Assets:Cash"), not_open);
+        // an `open` earlier in the batch counts
+        let earlier = directive("2024-01-01 open Expenses:Coffee USD");
+        assert_eq!(
+            ledger.check_open(&open("2024-01-02 open Expenses:Coffee USD"), &[earlier.clone()]),
+            OpenCheck {
+                already_open: true,
+                open_with: None
+            }
+        );
+        assert_eq!(
+            ledger.check_open(&open("2024-01-02 open Expenses:Coffee"), &[earlier]).open_with,
+            Some(vec!["USD".to_owned()])
         );
     }
 

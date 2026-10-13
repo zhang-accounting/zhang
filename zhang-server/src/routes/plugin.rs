@@ -30,6 +30,8 @@ pub async fn plugin_list(ledger: State<SharedLedger>) -> ApiResult<Vec<PluginEnt
                 allowed_hosts: plugin.capabilities().allowed_hosts.clone(),
             },
             route: Nullable((plugin_types.contains(&PluginType::Router) && served.insert(plugin.name.as_str())).then(|| route_of(&plugin.name))),
+            writes_requested: plugin.declared_writes().iter().map(|kind| kind.name().to_owned()).collect(),
+            writes_granted: plugin.capabilities().allowed_writes.iter().map(|kind| kind.name().to_owned()).collect(),
         })
         .collect_vec();
     ResponseWrapper::json(ret)
@@ -104,11 +106,11 @@ mod test {
         assert_eq!(
             body,
             json!({"data": [
-                {"name": "router-echo", "version": "0.1.0", "plugin_type": ["Router"], "capabilities": no_hosts, "route": "/api/plugins/router-echo"},
-                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": {"allowed_hosts": ["api.frankfurter.dev", "api.example.com"]}, "route": null},
-                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": no_hosts, "route": null},
-                {"name": "router-echo", "version": "0.1.0", "plugin_type": ["Router"], "capabilities": no_hosts, "route": null},
-                {"name": "router-processor", "version": "0.1.0", "plugin_type": ["Router", "Processor"], "capabilities": no_hosts, "route": "/api/plugins/router-processor"},
+                {"name": "router-echo", "version": "0.1.0", "plugin_type": ["Router"], "capabilities": no_hosts, "route": "/api/plugins/router-echo", "writes_requested": [], "writes_granted": []},
+                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": {"allowed_hosts": ["api.frankfurter.dev", "api.example.com"]}, "route": null, "writes_requested": [], "writes_granted": []},
+                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": no_hosts, "route": null, "writes_requested": [], "writes_granted": []},
+                {"name": "router-echo", "version": "0.1.0", "plugin_type": ["Router"], "capabilities": no_hosts, "route": null, "writes_requested": [], "writes_granted": []},
+                {"name": "router-processor", "version": "0.1.0", "plugin_type": ["Router", "Processor"], "capabilities": no_hosts, "route": "/api/plugins/router-processor", "writes_requested": [], "writes_granted": []},
             ]})
         );
     }

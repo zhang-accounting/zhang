@@ -52,6 +52,7 @@ use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
 use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION, QUERY_PARAMS_FUNCTION, QUERY_SCHEMA_FUNCTION};
 use crate::plugin::runtime::InstanceBindings;
+use crate::plugin::write::{self, WriteAccess, WRITE_COMMIT_FUNCTION, WRITE_PREVIEW_FUNCTION};
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
 pub const PLUGIN_META: &str = "plugin";
@@ -204,8 +205,8 @@ struct EmitErrorPayload {
 
 /// the state the host functions of one plugin instance share
 pub(super) struct HostState {
-    /// the plugin's name, given as the `plugin` meta of the errors it reports
-    plugin: String,
+    /// the plugin's name, given as the `plugin` meta of the errors it reports, and bound into its write tokens
+    pub(super) plugin: String,
     /// the span of the plugin's directive, where an error without a usable span of its own is reported
     directive_span: SpanInfo,
     /// the errors the plugin reported, in call order
@@ -226,6 +227,8 @@ pub(super) struct HostState {
     /// what the router host functions reach, the server's query host and the ledger's info; `None` outside
     /// a router call, when they answer that they are unavailable
     pub(super) router: Option<(Arc<dyn RouterHost>, LedgerInfo)>,
+    /// what the plugin may write through the write host functions; `None` outside a router call
+    pub(super) writes: Option<WriteAccess>,
 }
 
 /// the host side of one plugin instance: what its host functions reach and what they collected
@@ -272,6 +275,7 @@ impl PluginHost {
             access: None,
             inputs: vec![],
             router: None,
+            writes: None,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -291,6 +295,13 @@ impl PluginHost {
         self
     }
 
+    /// this host handling a request as a router that may write what `access` allows through
+    /// `zhang_write_preview` and `zhang_write_commit`
+    pub(super) fn with_writes(self, access: WriteAccess) -> Self {
+        self.lock().writes = Some(access);
+        self
+    }
+
     /// every host function zhang offers, linked into a plugin's compiled code and shared by all of its
     /// instances: each call runs with the state of the instance making it, found through `bindings`
     /// (see [`crate::plugin::runtime`]). The router functions are linked into every instance, so a
@@ -305,6 +316,8 @@ impl PluginHost {
             shared(bindings, LEDGER_INFO_FUNCTION, [], [PTR], router::zhang_ledger_info),
             shared(bindings, QUERY_PARAMS_FUNCTION, [PTR], [PTR], router::zhang_query_params),
             shared(bindings, QUERY_SCHEMA_FUNCTION, [], [PTR], router::zhang_query_schema),
+            shared(bindings, WRITE_PREVIEW_FUNCTION, [PTR], [PTR], write::zhang_write_preview),
+            shared(bindings, WRITE_COMMIT_FUNCTION, [PTR], [PTR], write::zhang_write_commit),
         ]
     }
 

@@ -30,6 +30,10 @@
 //!     parameter the query uses but the input does not bind is a `query` error at its position.
 //!   - `zhang_query_schema() -> i64` gives the tables, columns and functions a query can use,
 //!     the `data` that `GET /api/query/schema` answers.
+//!   - `zhang_write_preview(input: i64) -> i64` and `zhang_write_commit(input: i64) -> i64` append
+//!     directives to the ledger, for a plugin that declares writes and whose directive grants them
+//!     with `allowed_writes`; see [`crate::plugin::write`]. They are the one way a router changes the
+//!     ledger's files; the ledger in memory stays as it is until the server reloads it after the call.
 //!
 //!   All of them are only useful while `router` runs. They are linked into every other instance
 //!   of a plugin too (registration, `processor`, `mapper`), so a plugin importing them still
@@ -63,13 +67,14 @@ pub use zhang_shared::plugin_abi::import::{
     LEDGER_INFO as LEDGER_INFO_FUNCTION, QUERY as QUERY_FUNCTION, QUERY_PARAMS as QUERY_PARAMS_FUNCTION, QUERY_SCHEMA as QUERY_SCHEMA_FUNCTION,
 };
 use zhang_shared::plugin_abi::{HostError, HostErrorKind, LedgerInfo};
-pub use zhang_shared::plugin_abi::{QueryWithParams, RawQueryParam};
+pub use zhang_shared::plugin_abi::{QueryWithParams, RawQueryParam, WriteBatch, WriteCommitted, WritePreview};
 
 use crate::clock::LoadClock;
 use crate::ledger::Ledger;
 use crate::plugin::host::{read_input_str, HostState, MESSAGE_META};
 use crate::plugin::http::{PluginRequest, PluginResponse};
 use crate::plugin::store::{PluginStore, RegisteredPlugin};
+use crate::plugin::write::WriteAccess;
 
 /// the most bytes `zhang_query` will read for a plugin's BQL text, and `zhang_query_params` for its
 /// whole JSON input. A query is human-written SQL-like text, so one mebibyte is far beyond any real
@@ -102,6 +107,25 @@ pub trait RouterHost: Send + Sync {
 
     /// the tables, columns and functions a query can use: the `data` of `GET /api/query/schema`
     fn schema(&self) -> Result<Value, QueryFailure>;
+
+    /// Preview `batch`, which `plugin` wants to append, as `POST /api/transactions/preview` previews a transaction:
+    /// validate each directive in order, the earlier ones of the batch counted as written, export its text, choose
+    /// its file by the ledger's policy, and mint a token for [`RouterHost::write_commit`] when every entry is clean.
+    /// The host already checked the phase, the declaration, the grant, the kinds and the bounds that need no ledger
+    /// ([`crate::plugin::write`]); the ledger's own validation, the exported text's size and the error kinds `invalid`
+    /// and `conflict` are this method's. A host that cannot write answers `unavailable`
+    fn write_preview(&self, plugin: &str, batch: &WriteBatch) -> Result<WritePreview, HostError> {
+        let _ = (plugin, batch);
+        Err(HostError::new(HostErrorKind::Unavailable, "this host cannot write to the ledger"))
+    }
+
+    /// Append `batch`, previewed as `token` says, in one `append` of the ledger's data source, once the token is
+    /// verified against the ledger's generation and the batch's text: the text is in the file when this returns
+    /// `Ok`. The caller then marks the ledger stale and asks for a reload, as an API write does
+    fn write_commit(&self, plugin: &str, batch: &WriteBatch, token: &str) -> Result<WriteCommitted, HostError> {
+        let _ = (plugin, batch, token);
+        Err(HostError::new(HostErrorKind::Unavailable, "this host cannot write to the ledger"))
+    }
 }
 
 /// why a router plugin could not answer a request
@@ -134,7 +158,7 @@ impl Display for RouterError {
 impl std::error::Error for RouterError {}
 
 /// what a router host function answers outside a router call, `{"Err": {"kind": "unavailable"}}`
-fn unavailable(function: &str) -> HostError {
+pub(super) fn unavailable(function: &str) -> HostError {
     HostError::new(
         HostErrorKind::Unavailable,
         format!("{function} is only available while the plugin handles a request as a router"),
@@ -142,7 +166,7 @@ fn unavailable(function: &str) -> HostError {
 }
 
 /// write `result` into a new memory block as `{"Ok": ...}` or `{"Err": ...}` and return its offset
-fn answer<T: Serialize>(plugin: &mut CurrentPlugin, outputs: &mut [Val], result: Result<T, HostError>) -> Result<(), extism::Error> {
+pub(super) fn answer<T: Serialize>(plugin: &mut CurrentPlugin, outputs: &mut [Val], result: Result<T, HostError>) -> Result<(), extism::Error> {
     let handle = plugin.memory_new(serde_json::to_string(&result)?)?;
     outputs[0] = plugin.memory_to_val(handle);
     Ok(())
@@ -271,6 +295,14 @@ impl PluginStore {
 }
 
 impl RegisteredPlugin {
+    /// what the plugin may write while it routes: the kinds it declared and the kinds its directive grants
+    pub fn write_access(&self) -> WriteAccess {
+        WriteAccess {
+            declared: self.declared_writes().to_vec(),
+            granted: self.capabilities().allowed_writes.clone(),
+        }
+    }
+
     /// handle `request` in a new instance of the plugin, with the host functions reading `ledger`
     /// through `host`. The caller keeps `ledger` read-locked until this returns.
     ///
@@ -282,7 +314,8 @@ impl RegisteredPlugin {
         // ledger's clock afresh for this request
         let plugin_host = self
             .routing_host(LoadClock::new(ledger.clock()), ledger.options.timezone)
-            .with_router(host, ledger_info(ledger));
+            .with_router(host, ledger_info(ledger))
+            .with_writes(self.write_access());
         // the same manifest as a processor gets: config, allowed hosts and timeout
         let mut plugin = self
             .runtime

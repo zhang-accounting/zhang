@@ -14,11 +14,12 @@ use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
 use crate::options::InMemoryOptions;
 use crate::pipeline::StageContext;
-use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
+use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage, WriteKind};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
 use crate::plugin::lua::{LuaScript, PluginModule};
 use crate::plugin::runtime::{PluginInstance, PluginRuntime};
+use crate::plugin::write::{declared_writes, DeclaredCapabilities};
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -32,20 +33,25 @@ pub struct PluginStore {
 impl PluginStore {
     /// register the plugin `_plugin` declares, whose module is `module`, as parsed into `declaration`; `span` is
     /// the directive's span. `clock` is the clock of the load, which the plugin reads in the ledger timezone
-    /// `timezone`, and `files` what the plugin may read once it runs as a processor or mapper
+    /// `timezone`, `files` what the plugin may read once it runs as a processor or mapper, and `options` the
+    /// ledger's options, part of the config every instance of the plugin gets
     #[allow(clippy::too_many_arguments)]
     pub fn insert_plugin(
         &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+        options: &[OptionDomain],
     ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
 
         // the runtime compiles the module for the settings it is asked for and builds every instance
-        // of the plugin, this registering one included, from the compiled code. A script's module is
-        // the embedded Lua interpreter, and the script rides in the config of every manifest
+        // of the plugin, this registering one included, from the compiled code. Registering uses the
+        // settings every other instance gets, so the plugin's `capabilities` export sees its config and
+        // the compiled code is reused by the first stage run or request. A script's module is the
+        // embedded Lua interpreter, and the script rides in the config of every manifest
         let (module_bytes, script) = module.into_parts();
         let runtime = Arc::new(PluginRuntime::new(module_bytes));
         let timeout = declaration.capabilities.timeout;
-        let manifest = Manifest::default().with_timeout(timeout).with_config(script.iter().flat_map(LuaScript::config));
+        let occurrence = self.occurrences(&declaration.directive.module);
+        let manifest = settings(&declaration, occurrence, options, script.as_ref());
 
         // registering, the file functions deny every path and the router functions answer that they
         // are unavailable
@@ -69,12 +75,12 @@ impl PluginStore {
             .map_err(|e| failed(export::SUPPORTED_TYPE, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
+        let writes = declared_capabilities(&mut plugin, &name, timeout)?;
         let ignored_errors = host.take_errors().len();
         if ignored_errors > 0 {
             warn!("plugin {name} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors");
         }
 
-        let occurrence = self.occurrences(&declaration.directive.module);
         let registered_plugin = RegisteredPlugin {
             name,
             version,
@@ -84,6 +90,7 @@ impl PluginStore {
             span: span.clone(),
             occurrence,
             files,
+            writes,
         };
         if plugin_types.contains(&PluginType::Router) {
             self.add_router(registered_plugin.clone())
@@ -134,6 +141,36 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
     Ok(known)
 }
 
+/// the settings of every instance of the plugin `declaration` declares, the `occurrence`-th of its module: its config
+/// (the ledger's `options`, its own meta, the values the host sets, and a Lua `script` under the reserved keys, so a
+/// script edit compiles anew), its allowed hosts and its timeout. The module itself belongs to the runtime, which
+/// compiles it for these settings
+fn settings(declaration: &PluginDeclaration, occurrence: usize, options: &[OptionDomain], script: Option<&LuaScript>) -> Manifest {
+    let reserved = declaration
+        .host_config(occurrence)
+        .into_iter()
+        .chain(script.into_iter().flat_map(LuaScript::config));
+    let config = declaration.config_with(options, reserved);
+    Manifest::default()
+        .with_config(config.into_iter())
+        // no declared host means the plugin gets no network access at all
+        .with_allowed_hosts(declaration.capabilities.allowed_hosts.iter().cloned())
+        .with_timeout(declaration.capabilities.timeout)
+}
+
+/// the write kinds the plugin's optional `capabilities` export declares, read once while it registers: none without
+/// the export. An export that answers something else fails the load, as `supported_type` would
+fn declared_capabilities(plugin: &mut PluginInstance, name: &str, timeout: Duration) -> ZhangResult<Vec<WriteKind>> {
+    if !plugin.function_exists(export::CAPABILITIES) {
+        return Ok(vec![]);
+    }
+    let declared = plugin
+        .call::<(), WasmJson<DeclaredCapabilities>>(export::CAPABILITIES, ())
+        .map_err(|e| call_error(name, export::CAPABILITIES, timeout, e))?
+        .0;
+    Ok(declared_writes(name, &declared))
+}
+
 /// the error of a failed registration call into a Lua script: the message the interpreter set, which for a
 /// script that does not parse carries `<script>:<line>: ...`; a call stopped at the timeout says so as for a module
 fn script_error(plugin: &str, export: &str, timeout: Duration, error: extism::Error) -> ZhangError {
@@ -172,6 +209,8 @@ pub struct RegisteredPlugin {
     occurrence: usize,
     /// the files the plugin's `allowed_paths` let it read
     files: FileAccess,
+    /// the write kinds the plugin declared in its `capabilities` export, each once
+    writes: Vec<WriteKind>,
 }
 
 impl RegisteredPlugin {
@@ -180,26 +219,20 @@ impl RegisteredPlugin {
         &self.declaration.capabilities
     }
 
+    /// the write kinds the plugin declared in its `capabilities` export; it writes those its directive also grants
+    pub fn declared_writes(&self) -> &[WriteKind] {
+        &self.writes
+    }
+
     /// the Lua script this plugin runs, for a `plugin "x.lua"` directive
     pub fn script(&self) -> Option<&LuaScript> {
         self.script.as_ref()
     }
 
     /// the settings of every instance of the plugin, whatever it runs as: config, allowed hosts and
-    /// timeout. The module itself belongs to the runtime, which compiles it for these settings. A script
-    /// is part of the config, under the reserved keys the host sets, so a script edit compiles anew
+    /// timeout, the ones it registered with ([`settings`])
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
-        let reserved = self
-            .declaration
-            .host_config(self.occurrence)
-            .into_iter()
-            .chain(self.script.iter().flat_map(LuaScript::config));
-        let config = self.declaration.config_with(options, reserved);
-        Manifest::default()
-            .with_config(config.into_iter())
-            // no declared host means the plugin gets no network access at all
-            .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
-            .with_timeout(self.declaration.capabilities.timeout)
+        settings(&self.declaration, self.occurrence, options, self.script.as_ref())
     }
 
     /// the host side of a new instance of this plugin, running as a stage with the context `ctx`, with the
@@ -300,6 +333,7 @@ mod test {
             span: SpanInfo::default(),
             occurrence,
             files: no_files(),
+            writes: vec![],
         }
     }
 
@@ -362,6 +396,7 @@ mod test {
             span: SpanInfo::default(),
             occurrence: 0,
             files: no_files(),
+            writes: vec![],
         };
 
         let manifest = plugin.manifest(&options);
@@ -414,6 +449,7 @@ mod test {
             span: SpanInfo::default(),
             occurrence: 0,
             files: no_files(),
+            writes: vec![],
         };
 
         let config = plugin.manifest(&[]).config;
@@ -442,6 +478,7 @@ mod test {
             span: SpanInfo::default(),
             occurrence: 0,
             files: no_files(),
+            writes: vec![],
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));

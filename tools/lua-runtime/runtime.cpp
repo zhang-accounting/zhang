@@ -1,5 +1,5 @@
 // The Lua interpreter zhang pairs with every `plugin "x.lua"` directive: an Extism plugin exporting the plugin
-// ABI v1 identity functions and `router`, which run the script the host hands over in the config key
+// ABI v1 identity functions, `capabilities` and `router`, which run the script the host hands over in the config key
 // `zhang.script` (named `zhang.script_name` in messages). Lua 5.4.8 (lua.wasm's onelua.c, compiled as C++ so its
 // error handling rides wasm exception handling) and dkjson are linked in; this file is the only glue.
 //
@@ -38,8 +38,10 @@ EXTISM_IMPORT_USER("zhang_query_schema") extern uint64_t host_query_schema(void)
 EXTISM_IMPORT_USER("zhang_read_file") extern uint64_t host_read_file(uint64_t);
 EXTISM_IMPORT_USER("zhang_list_dir") extern uint64_t host_list_dir(uint64_t);
 EXTISM_IMPORT_USER("zhang_emit_error") extern void host_emit_error(uint64_t);
-// writes (D-C): `zhang_write_preview` and `zhang_write_commit` are imported here, bridged below, and surfaced as
-// `zhang.write.preview`/`zhang.write.commit` in the prelude, where the float lint on the batch lives.
+// the write capability: surfaced as `zhang.write.preview`/`zhang.write.commit` in the prelude, where the float lint
+// on the batch lives, for a script that declares `writes` in its module table (the `capabilities` export below)
+EXTISM_IMPORT_USER("zhang_write_preview") extern uint64_t host_write_preview(uint64_t);
+EXTISM_IMPORT_USER("zhang_write_commit") extern uint64_t host_write_commit(uint64_t);
 
 // ---- memory budget --------------------------------------------------------------------------------------------
 // Lua allocates through this function only. A call may hold at most MEMORY_BUDGET bytes of Lua objects; an
@@ -107,6 +109,8 @@ static int bridge_query(lua_State *L) { return call_with_text(L, host_query); }
 static int bridge_query_params(lua_State *L) { return call_with_text(L, host_query_params); }
 static int bridge_read_file(lua_State *L) { return call_with_text(L, host_read_file); }
 static int bridge_list_dir(lua_State *L) { return call_with_text(L, host_list_dir); }
+static int bridge_write_preview(lua_State *L) { return call_with_text(L, host_write_preview); }
+static int bridge_write_commit(lua_State *L) { return call_with_text(L, host_write_commit); }
 
 static int bridge_emit_error(lua_State *L) {
   size_t length;
@@ -139,6 +143,8 @@ static const luaL_Reg BRIDGES[] = {
     {"query_schema", bridge_query_schema},
     {"read_file", bridge_read_file},
     {"list_dir", bridge_list_dir},
+    {"write_preview", bridge_write_preview},
+    {"write_commit", bridge_write_commit},
     {"emit_error", bridge_emit_error},
     {"config", bridge_config},
     {NULL, NULL},
@@ -326,8 +332,47 @@ function zhang.config(key)
   return raw.config(key)
 end
 
--- writes (D-C): zhang.write = {preview = ..., commit = ...} over raw.write_preview/raw.write_commit, with the lint
--- refusing a non-integer float anywhere in a batch ("amount `12.3` must be a string") before it is encoded.
+-- ---- writes: zhang.write.preview(batch) and zhang.write.commit(batch, token) ----------------------------------
+-- A batch is a list of directive tables, each with a `kind` ("transaction" or "open") and the fields of that kind;
+-- amounts are strings. A non-integer float anywhere in a batch is refused before the batch is encoded, so a float
+-- never reaches the ledger, not even rounded; the host refuses every JSON number besides. The host's answer is the
+-- preview or the commit as a table, and its `Err` raises `kind: message`, as every zhang.* function's does.
+local function first_float(value, path)
+  local kind = type(value)
+  if kind == "number" then
+    if math.type(value) == "float" then return path, value end
+  elseif kind == "table" then
+    for key, item in pairs(value) do
+      local at, found = first_float(item, path .. (type(key) == "number" and ("[" .. key .. "]") or ("." .. tostring(key))))
+      if at then return at, found end
+    end
+  end
+  return nil
+end
+
+local function write_input(name, batch, token)
+  if type(batch) ~= "table" then error(name .. " expects the batch as a list of directive tables, got " .. type(batch), 3) end
+  local at, float = first_float(batch, "directives")
+  if at then error(sformat("amount `%s` must be a string (%s)", tostring(float), at), 3) end
+  local directives = json.array()
+  for index, directive in ipairs(batch) do directives[index] = directive end
+  local input = json.object({directives = directives})
+  if token ~= nil then input.token = token end
+  return json.encode(input)
+end
+
+zhang.write = {}
+
+function zhang.write.preview(batch)
+  local value = unwrap(raw.write_preview(write_input("zhang.write.preview", batch)))
+  return value
+end
+
+function zhang.write.commit(batch, token)
+  if type(token) ~= "string" then error("zhang.write.commit expects the token as a string, got " .. type(token), 2) end
+  local value = unwrap(raw.write_commit(write_input("zhang.write.commit", batch, token)))
+  return value
+end
 
 -- ---- the sandbox: a fresh environment over the read-only base; load is text-only ------------------------------
 local env = setmetatable({}, {__index = base})
@@ -379,6 +424,18 @@ elseif entry == "supported_type" then
     declared[#declared + 1] = kind
   end
   return true, json.encode(declared)
+elseif entry == "capabilities" then
+  -- the kinds the script writes, `writes = {"transaction", "open"}` in its module table; nothing without it
+  local writes = module.writes
+  local declared = json.array()
+  if writes ~= nil then
+    if type(writes) ~= "table" then return fail(script_name .. ": `writes` must be a list such as {\"transaction\", \"open\"}, got " .. type(writes)) end
+    for _, kind in ipairs(writes) do
+      if type(kind) ~= "string" then return fail(script_name .. ": `writes` must be a list of strings such as {\"transaction\", \"open\"}, got " .. type(kind)) end
+      declared[#declared + 1] = kind
+    end
+  end
+  return true, json.encode({writes = declared})
 elseif entry == "router" then
   local handler = module.router
   if type(handler) ~= "function" then return fail(script_name .. ": the module table has no `router` function") end
@@ -530,5 +587,6 @@ extern "C" {
 int32_t EXTISM_EXPORTED_FUNCTION(name) { return dispatch("name"); }
 int32_t EXTISM_EXPORTED_FUNCTION(version) { return dispatch("version"); }
 int32_t EXTISM_EXPORTED_FUNCTION(supported_type) { return dispatch("supported_type"); }
+int32_t EXTISM_EXPORTED_FUNCTION(capabilities) { return dispatch("capabilities"); }
 int32_t EXTISM_EXPORTED_FUNCTION(router) { return dispatch("router"); }
 }

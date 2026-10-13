@@ -50,6 +50,7 @@ The script is one chunk that returns a table:
 | `version` | yes | The plugin's version, a string. |
 | `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default. |
 | `router` | for a router | The function that answers a request. |
+| `writes` | no | The kinds of directives the plugin appends with `zhang.write`, `{ "transaction", "open" }`. The ledger owner grants them with `allowed_writes` on the `plugin` directive; without the declaration the write functions raise `unavailable: …`, without the grant `denied: …`. |
 
 Zhang runs the chunk when it loads the ledger, to read the name, the version and the types, and again for every request. Every run starts from scratch, in a fresh interpreter: no global, no table and no upvalue survives from one request to the next, and nothing is shared between plugins.
 
@@ -78,6 +79,8 @@ Anything that is not a table is an invalid response, which Zhang answers with st
 | `zhang.emit_error(message, metas)` | Reports a problem. A request has no error list, so in a router it is only logged; answer the caller in the response instead. |
 | `zhang.read_file(path)`, `zhang.list_dir(path)` | The file functions of `allowed_paths`. A router has no file access, whatever its directive grants, so in this release they raise `denied: …`. |
 | `zhang.str(v)`, `zhang.int(v)`, `zhang.decimal(v)`, `zhang.bool(v)`, `zhang.date(v)`, `zhang.set(v)` | A typed query parameter. `nil` is NULL for any type. A decimal is a string such as `"12.50"`, a date a string `"YYYY-MM-DD"`, a set a list of strings. |
+| `zhang.write.preview(batch)` | Previews a batch of up to 50 directives to append, each a table with `kind = "transaction"` (the fields of `POST /api/transactions`) or `kind = "open"` (`date`, `account`, `commodities`, `booking_method`, `metas`): for each entry the text Zhang writes, the file it goes to, the fields refused and the errors the ledger would report, exactly as `POST /api/transactions/preview` tells them, with an `open` earlier in the batch counting for the transactions after it. `token` is set when every entry is clean. Amounts are strings: a non-integer float anywhere in the batch raises `amount `12.3` must be a string (…)` before anything is sent, and the host refuses every other number. See [writes](/developers/writing-plugins/#writes). |
+| `zhang.write.commit(batch, token)` | Appends the previewed batch with its token, in one write, and gives `{ file, bytes, entries, generation }` once the text is in the file; the ledger reloads after the request. A batch that differs, a token of another ledger generation (a reload or a commit happened since), an expired token (10 minutes), or a second commit before the ledger reloaded raises `conflict: …`: preview again. |
 
 A call the host refuses raises a Lua error with the host's message: `query error at line 1, column 8: unknown column` for a query that fails at a position, `query error: parameter :from must be a date string YYYY-MM-DD or null` for a parameter that cannot be bound, `denied: …` for a file. Uncaught, the error fails the request with status 500; wrap the call in `pcall` to answer a clean status:
 
@@ -116,7 +119,7 @@ Each request runs in a fresh interpreter, so a script cannot keep state between 
 | What happened | What Zhang does |
 |---|---|
 | The script does not parse, returns no module table, or declares a type other than `Router` | The ledger does not load, with the error naming the script and the line (`plugins/food.lua:12: '=' expected near 'end'`). Under `zhang serve`, the previous version of the ledger keeps being served. |
-| `router` raises an error (`error()`, or a host call that failed and was not caught) | Status 500. The message, with the script's line and a traceback, goes to Zhang's log, not to the client. |
+| `router` raises an error (`error()`, or a host call that failed and was not caught) | Status 500. The message, with the script's line and a traceback, goes to Zhang's log, not to the client. A host call that fails raises `kind: message`, such as `denied: …` or `conflict: …`; `pcall` it to answer the caller yourself. |
 | `router` returns something that is not a table | Status 502. |
 | The request runs past the `timeout` | Status 504. |
 | The request allocates more than 64 MiB | Status 500, with the message above in the log. |

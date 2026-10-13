@@ -287,6 +287,13 @@ pub enum InvalidKind {
     InvalidLink,
     BeancountLink,
     InvalidFlag,
+    /// a date that cannot be read (an `open` of a plugin's write batch)
+    InvalidDate,
+    /// an `open` of an account that is open already, with other commodities than the request lists (a plugin's write
+    /// batch): the account's commodities are not changed through a plugin
+    AlreadyOpen,
+    /// a `booking_method` the ledger does not book with (an `open` of a plugin's write batch)
+    InvalidBookingMethod,
 }
 
 /// A field of a transaction request, in the order they are checked: those of each posting, then the transaction's.
@@ -301,6 +308,10 @@ pub enum TransactionField {
     Tags,
     Links,
     Flag,
+    /// an `open` of a plugin's write batch: its `date`
+    Date,
+    /// an `open` of a plugin's write batch: its `commodities`
+    Commodities,
 }
 
 /// An error the ledger would report against a transaction once written.
@@ -419,6 +430,12 @@ pub struct PluginEntity {
     /// where a router plugin serves requests, `/api/plugins/{name}`; null for a plugin that is not a
     /// router, and for a router whose name an earlier router plugin already serves
     pub route: Nullable<String>,
+    /// the kinds of directives the plugin declares it writes, `transaction` or `open`, from its `capabilities`
+    /// export; empty for a plugin that writes nothing
+    pub writes_requested: Vec<String>,
+    /// the kinds of directives its `plugin` directive lets it write, its `allowed_writes` values; it writes the
+    /// kinds in both lists
+    pub writes_granted: Vec<String>,
 }
 
 /// a plugin type this zhang runs

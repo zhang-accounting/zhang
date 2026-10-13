@@ -67,7 +67,10 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
             }
             let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
             let files = crate::plugin::files::FileAccess::new(declaration.capabilities.allowed_paths.clone(), ledger.data_source.clone(), &ledger.entry.0);
-            ledger.plugins.insert_plugin(plugin, module, declaration, span, &clock, timezone, files)?;
+            let options = ledger.options.all();
+            ledger
+                .plugins
+                .insert_plugin(plugin, module, declaration, span, &clock, timezone, files, &options)?;
             // a rebuilt local module makes the ledger stale
             if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, plugin.module.as_str()) {
                 ledger.extra_inputs.insert(input);

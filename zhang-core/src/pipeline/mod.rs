@@ -42,7 +42,7 @@ pub use balance_check::BalanceCheckStage;
 pub use booking::BookingStage;
 use chrono::DateTime;
 use chrono_tz::Tz;
-pub use dry_run::TransactionCheck;
+pub use dry_run::{OpenCheck, TransactionCheck};
 use indexmap::IndexSet;
 use log::debug;
 pub use pad::{serving_pads, PadStage};

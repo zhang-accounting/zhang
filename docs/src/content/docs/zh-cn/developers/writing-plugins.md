@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **路由：** `{name}` 是插件的名称；请求的 `path` 是路由之下的部分。
 - **身份认证：** 这些路由位于张记账自己的登录保护之后，凭据请求头永远不会传给插件。
-- **只读：** router 只能通过 `zhang_query` 和 `zhang_query_params`（BQL）、`zhang_query_schema` 和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本。每个请求都在新的实例中运行，运行期间账本不会重新加载。
+- **只读，除非被授予写入：** router 只能通过 `zhang_query` 和 `zhang_query_params`（BQL）、`zhang_query_schema` 和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本，唯一的例外是插件声明、并由账本所有者授予的[写入](#写入)。每个请求都在新的实例中运行，运行期间账本不会重新加载。
 - **绑定用户输入：** 永远不要把用户输入的内容写进查询文本。`router::query_with_params` 绑定带类型的参数，查询按参数的类型编译：
 
   ```rust
@@ -356,6 +356,46 @@ return M
 
 本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为指令流中的金额以 JSON 数字传递，Lua 会把它们读成浮点数。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
 
+## 写入
+
+当两个开关同时打开时，router 可以分两步向账本追加交易和 `open`：插件**声明**自己写入的种类（`plugin!` 中的 `writes:`，即 `capabilities` 导出），账本所有者在 `plugin` 指令上用 [`allowed_writes`](/zh-cn/reference/directives/plugin/#能力) **授予**它们。没有声明时，写入函数返回 `unavailable`；没有授予，或者某种类没有被授予时，返回 `denied`。
+
+```rust
+use zhang_plugin_sdk::router::{self, PostingWrite, Request, Response, TransactionWrite, UnitWrite, WriteDirective, WriteKind};
+use zhang_plugin_sdk::{plugin, Error};
+
+plugin! {
+    name: "recorder",
+    version: env!("CARGO_PKG_VERSION"),
+    router: route,
+    writes: [WriteKind::Transaction, WriteKind::Open],
+}
+
+fn route(request: Request) -> Result<Response, Error> {
+    let batch = vec![WriteDirective::Transaction(TransactionWrite {
+        datetime: "2026-10-13".into(),
+        payee: "Blue Bottle".into(),
+        narration: Some("coffee".into()),
+        postings: vec![
+            PostingWrite { account: "Expenses:Coffee".into(), unit: Some(UnitWrite::Amount { number: "4.50".into(), commodity: "USD".into() }), ..Default::default() },
+            PostingWrite { account: "Assets:Cash".into(), ..Default::default() },
+        ],
+        ..Default::default()
+    })];
+    let preview = router::write_preview(&batch)?;       // 文本、文件、错误，以及没有问题时的令牌
+    match (request.path.as_str(), preview.token) {
+        ("/commit", Some(token)) => Response::json(&router::write_commit(&batch, &token)?),
+        _ => Response::json(&preview.entries),
+    }
+}
+```
+
+1. **预览。** `write_preview` 接受一批最多 50 条指令，每条要么是与 `POST /api/transactions` 请求体完全相同的 `transaction`，要么是 `open`（`date`、`account`、`commodities`、`booking_method`、`metas`）。张记账按顺序校验它们，批次中靠前的 `open` 对它之后的交易生效，检查项与 `POST /api/transactions/preview` 相同：对每个条目给出账本格式写出的文本（提交时逐字节追加的就是它）、按 `directive_output_path` 选项选定的文件、被拒绝的字段（`field_errors`）、交易的不平衡额，以及账本会报告的错误，例如 `AccountDoesNotExist`。对一个已经以相同商品开立的账户再 `open`，结果是 `already_open`，不会写到任何地方；商品不同则是字段错误。当每个条目都没有问题、并且确实有内容要写时，预览带有 `token`。
+2. **提交。** `write_commit` 接受同一批指令和令牌。张记账重新计算写入计划、检查令牌，然后像 API 写入那样一次性追加文本（新的月份文件先于主文件中的 `include` 写入，每个文件要么整体写入要么不写）；调用返回时文本已经在文件里。插件答复请求之后，账本被标记为过期并重新加载，与 `POST /api/transactions` 之后一样，服务器记录一行日志 `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`。
+3. **令牌**是宿主对账本代（每次重新加载和每次提交都会推进的计数器）、插件名称、文件和精确文本做的 HMAC，并附带 10 分钟后的过期时间。所以插件只能提交它被展示过的内容，只能在它看过的那个账本上提交，并且只能提交一次：批次有差异、令牌属于另一代、令牌过期、账本正在写入后重新加载、或者在那次重新加载之前再提交一次，都是 `conflict`，插件应重新预览。宿主不为预览保存任何状态。
+
+金额是字符串（`"4.50"`）：批次中任何位置出现 JSON 数字，宿主都以 `invalid` 拒绝并指明字段，所以浮点数永远不会改变余额。宿主不会加入自己的文本或元数据；想标记自己写入内容的插件，在批次里加标签或元数据，用户会在预览中看到。两个文件的写入（新的月份文件及其 `include`）与网页界面有同样的保证：两者之间失败时留下的是一个没有被 `include` 的文件，绝不会是一个指向缺失文件的 `include`。
+
 ## ABI v1 参考
 
 本节说明跨越边界传递的内容，供不使用 Rust SDK 编写的插件参考。所有变化都是增量的：字段永远不会被移除或改为必填，所以为较旧张记账编译的插件可以继续工作。
@@ -372,6 +412,7 @@ return M
 | `processor` | 指令流：一个指令数组 | 新的指令流 |
 | `mapper` | 一条指令 | 一个指令数组 |
 | `router` | 请求 | 响应 |
+| `capabilities`（可选） | 无 | `{"writes": ["transaction", "open"]}`，插件用 `zhang_write_preview` 和 `zhang_write_commit` 追加的指令种类；这个版本的张记账不认识的种类会被忽略 |
 
 一条指令是 `zhang-ast` 中 `Spanned<Directive>` 的 serde JSON，并且是 ABI v1 认识的类型：张记账从不把 `pad` 指令交给插件（参见[阶段顺序约定](#阶段顺序约定)）。例如：
 
@@ -415,6 +456,10 @@ return M
 | `zhang_query_params` | `{"bql": "… :from …", "params": {"from": {"type": "date", "value": "2024-01-01"}}}` | 同 `zhang_query` | 同 `zhang_query`；参数问题是一个指明参数名的 `query` 错误 |
 | `zhang_query_schema` | 无 | `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`，即 `GET /api/query/schema` 的 `data` | `unavailable` |
 | `zhang_ledger_info` | 无 | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
+| `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`、`denied`、`invalid_input`、`invalid`、`conflict`、`io` |
+| `zhang_write_commit` | 同上，外加 `"token"` | `{"file", "bytes", "entries", "generation"}` | 同 `zhang_write_preview` |
+
+`zhang_write_preview` 和 `zhang_write_commit` 向账本追加指令，见[写入](#写入)：`transaction` 条目是 `POST /api/transactions` 的请求体加上 `"kind": "transaction"`；`open` 条目是 `{"kind": "open", "date", "account", "commodities"?, "booking_method"?, "metas"?}`。每个条目的 `text`、`field_errors`、`unbalanced` 和 `errors` 与 `POST /api/transactions/preview` 的答复相同。错误类型：在 router 请求之外或插件没有声明写入时是 `unavailable`；指令没有授予任何写入、或没有授予某个条目的种类时是 `denied`（在读取输入之前就检查）；内存块不是批次的 JSON 时是 `invalid_input`；超过 50 条指令、文本超过 64 KiB、条目没有已知的 `kind`、任何位置出现 JSON 数字、或者账本拒绝这批指令（提交时；预览则逐条报告）时是 `invalid`；令牌不属于当前账本代或这批指令、已过期、或账本正在写入后重新加载时是 `conflict`；文件无法写入时是 `io`。
 
 `zhang_query_params` 绑定命名参数（`from` 绑定 `:from`；位置参数 `$1` 不能绑定），插件因此可以绑定用户输入的内容，而不是把它写进 BQL。查询按参数的类型编译。每个参数是 `{"type": "…", "value": …}`，值的写法与 API 的内置查询相同；`null` 或缺少 `value` 对任何类型都表示 NULL：
 
@@ -434,9 +479,9 @@ return M
 - `zhang_emit_error` 在 processor 或 mapper 中把问题报告到错误列表。插件注册期间（`name`、`version`、`supported_type`）报告的内容会被丢弃，在 router 中则只会写入日志。
 - `zhang_now` 在任何地方都可用。在 router 中，它为每个请求重新读取时钟；在注册期间调用它不会让账本依赖于日期。
 - `zhang_read_file` 和 `zhang_list_dir` 在 processor 或 mapper 之外，以及对 `allowed_paths` 未授予的任何路径，都返回 `denied`。
-- `zhang_query`、`zhang_query_params`、`zhang_query_schema` 和 `zhang_ledger_info` 在 router 请求之外返回 `unavailable`。
+- `zhang_query`、`zhang_query_params`、`zhang_query_schema`、`zhang_ledger_info`、`zhang_write_preview` 和 `zhang_write_commit` 在 router 请求之外返回 `unavailable`。
 
-`zhang_query_params` 和 `zhang_query_schema` 晚于 `zhang_query` 加入。新增宿主函数是插件可以忽略的扩展，所以 ABI 版本仍然是 1：不导入它们的插件照常运行，导入了它们的插件在没有它们的张记账上无法加载（见下文）。
+`zhang_query_params`、`zhang_query_schema`、`zhang_write_preview` 和 `zhang_write_commit` 晚于 `zhang_query` 加入。新增宿主函数是插件可以忽略的扩展，所以 ABI 版本仍然是 1：不导入它们的插件照常运行，导入了它们的插件在没有它们的张记账上无法加载（见下文）。
 
 ### 最低版本要求
 
@@ -445,4 +490,5 @@ return M
 | 功能 | 张记账版本 |
 |---|---|
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
-| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、上面所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
+| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
+| `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes` | 0.2.0 之后带有写入能力的发布版 |
