@@ -28,6 +28,9 @@ export const FIELD_ERROR_KINDS = [
   'invalid_link',
   'beancount_link',
   'invalid_flag',
+  'invalid_date',
+  'already_open',
+  'invalid_booking_method',
 ] as const satisfies readonly FieldErrorKind[];
 
 // every kind the server sends is listed above
