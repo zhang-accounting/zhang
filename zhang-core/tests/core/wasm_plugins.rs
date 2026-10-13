@@ -2014,6 +2014,16 @@ mod lua {
             case('f'),
             json!({"error": "parameter :from must be made with zhang.str/int/decimal/bool/date/set or be a {type = ..., value = ...} table"})
         );
+        // a decimal is a string or an integer; a float is refused before it is sent, as in a write batch
+        let refused = case('g');
+        assert!(
+            refused["error"]
+                .as_str()
+                .unwrap()
+                .ends_with("router_query_params.lua:28: decimal must be a string or an integer, got 12.5"),
+            "{refused}"
+        );
+        assert_eq!(case('h'), json!({"echo": "SELECT date WHERE number > :min", "params": {"min": "12"}}));
         // no parameters cross as an empty object, never as an empty array
         assert_eq!(case('n'), json!({"echo": "SELECT date", "params": {}}));
         assert_eq!(case('s'), json!({"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]}));
@@ -2166,6 +2176,17 @@ mod lua {
         );
         let error = load_error("mapper.lua", b"return { name = \"m\", version = \"0.1.0\", types = { \"Mapper\" } }");
         assert!(error.contains("Lua processors and mappers are not supported yet"), "{error}");
+        // any other value is named, and `types` must be a list
+        let error = load_error("lower.lua", b"return { name = \"l\", version = \"0.1.0\", types = { \"router\" } }");
+        assert!(
+            error.contains("unknown plugin type \"router\"; Lua scripts declare types = {\"Router\"}"),
+            "{error}"
+        );
+        let error = load_error("set.lua", b"return { name = \"s\", version = \"0.1.0\", types = { Router = true } }");
+        assert!(
+            error.contains("`types` must be a list such as {\"Router\"}, got a table with keys that are not 1, 2, ..."),
+            "{error}"
+        );
         // `types` defaults to Router, and an empty list registers a plugin that serves nothing
         let (_dir, ledger) = script_ledger("none.lua", b"return { name = \"none\", version = \"0.1.0\", types = {} }", "");
         assert_eq!(registered(&ledger.unwrap()), vec![("none".to_owned(), vec![])]);

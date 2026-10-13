@@ -264,10 +264,18 @@ end
 local zhang = {
   str = constructor("str"),
   int = constructor("int"),
-  decimal = constructor("decimal"),
   bool = constructor("bool"),
   date = constructor("date"),
 }
+
+-- a decimal is a string such as "12.50" or an integer: a Lua float is refused, as the read-side twin of the
+-- write batch's lint, so a rounded value never reaches a query either
+function zhang.decimal(value)
+  if value == nil then value = json.null
+  elseif math.type(value) == "float" then error("decimal must be a string or an integer, got " .. tostring(value), 2)
+  end
+  return {type = "decimal", value = value}
+end
 
 function zhang.set(value)
   if value == nil then value = json.null
@@ -386,7 +394,8 @@ function zhang.write.commit(batch, token)
 end
 
 -- ---- the sandbox: a fresh environment over the read-only base; load is text-only ------------------------------
-local env = setmetatable({}, {__index = base})
+-- the environment's metatable is sealed too: `getmetatable(_ENV)` cannot hand the base back
+local env = setmetatable({}, {__index = base, __metatable = "sandbox"})
 env._G = env
 env.zhang = zhang
 env.json = json
@@ -436,10 +445,15 @@ elseif entry == "supported_type" then
   local types = module.types
   if types == nil then types = {"Router"} end
   if type(types) ~= "table" then return fail(script_name .. ": `types` must be a list such as {\"Router\"}, got " .. type(types)) end
+  local entries = 0
+  for _ in pairs(types) do entries = entries + 1 end
+  if entries ~= #types then return fail(script_name .. ": `types` must be a list such as {\"Router\"}, got a table with keys that are not 1, 2, ...") end
   local declared = json.array()
   for _, kind in ipairs(types) do
-    if kind ~= "Router" then
+    if kind == "Processor" or kind == "Mapper" then
       return fail(script_name .. ": Lua processors and mappers are not supported yet (#698 P1): a directive's amounts cross as JSON numbers and Lua would read them as floats")
+    elseif kind ~= "Router" then
+      return fail(sformat('%s: unknown plugin type %q; Lua scripts declare types = {"Router"}', script_name, tostring(kind)))
     end
     declared[#declared + 1] = kind
   end

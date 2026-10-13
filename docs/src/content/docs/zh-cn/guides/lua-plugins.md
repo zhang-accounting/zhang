@@ -78,7 +78,7 @@ return M
 | `zhang.config(key)` | 一项设置的字符串值，或 `nil`：账本的选项、`plugin` 指令的元数据，以及张记账设置的键（`zhang.abi`、`zhang.plugin`、`zhang.seed`），与 wasm 插件收到的完全一样。 |
 | `zhang.emit_error(message, metas)` | 报告一个问题。请求没有错误列表，所以在 router 中它只会被记录到日志；要告诉调用方，请写进响应。 |
 | `zhang.read_file(path)`、`zhang.list_dir(path)` | `allowed_paths` 对应的文件函数。无论指令授予什么，router 都没有文件访问权限，所以本版本中它们会抛出 `denied: …`。 |
-| `zhang.str(v)`、`zhang.int(v)`、`zhang.decimal(v)`、`zhang.bool(v)`、`zhang.date(v)`、`zhang.set(v)` | 一个带类型的查询参数。任何类型的 `nil` 都是 NULL。decimal 是 `"12.50"` 这样的字符串，date 是 `"YYYY-MM-DD"` 字符串，set 是字符串列表。 |
+| `zhang.str(v)`、`zhang.int(v)`、`zhang.decimal(v)`、`zhang.bool(v)`、`zhang.date(v)`、`zhang.set(v)` | 一个带类型的查询参数。任何类型的 `nil` 都是 NULL。decimal 是 `"12.50"` 这样的字符串或一个整数（Lua 浮点数会被拒绝：`decimal must be a string or an integer, got 12.5`），date 是 `"YYYY-MM-DD"` 字符串，set 是字符串列表。 |
 | `zhang.write.preview(batch)` | 预览一批最多 50 条要追加的指令，每条是一个表，`kind = "transaction"`（字段与 `POST /api/transactions` 相同）或 `kind = "open"`（`date`、`account`、`commodities`、`booking_method`、`metas`）：对每个条目给出张记账写出的文本、它要写入的文件、被拒绝的字段和账本会报告的错误，与 `POST /api/transactions/preview` 完全一致；批次中靠前的 `open` 对它之后的交易生效。每个条目都没有问题时带有 `token`。金额是字符串：批次中任何位置出现非整数浮点数，在发送之前就抛出 `amount `12.3` must be a string (…)`，其他数字由宿主拒绝。见[写入](/zh-cn/developers/writing-plugins/#写入)。 |
 | `zhang.write.commit(batch, token)` | 用令牌提交预览过的批次，一次写入，文本进入文件后返回 `{ file, bytes, entries, generation }`；请求结束后账本重新加载。批次有差异、令牌属于另一个账本代（期间发生了重新加载或提交）、令牌过期（10 分钟）、或在账本重新加载之前再次提交，都抛出 `conflict: …`：重新预览即可。 |
 

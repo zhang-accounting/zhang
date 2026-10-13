@@ -389,14 +389,14 @@ mod test {
                 open_with: Some(vec![])
             }
         );
-        assert_eq!(check("2024-01-02 open Assets:Cash").already_open, true);
+        assert!(check("2024-01-02 open Assets:Cash").already_open);
         // once closed, the account can be opened again; before its open it is not open
         assert_eq!(check("2024-01-02 open Expenses:Food"), not_open);
         assert_eq!(check("1969-12-31 open Assets:Cash"), not_open);
         // an `open` earlier in the batch counts
         let earlier = directive("2024-01-01 open Expenses:Coffee USD");
         assert_eq!(
-            ledger.check_open(&open("2024-01-02 open Expenses:Coffee USD"), &[earlier.clone()]),
+            ledger.check_open(&open("2024-01-02 open Expenses:Coffee USD"), std::slice::from_ref(&earlier)),
             OpenCheck {
                 already_open: true,
                 open_with: None
