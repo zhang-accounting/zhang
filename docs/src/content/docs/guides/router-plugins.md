@@ -5,7 +5,7 @@ sidebar:
   order: 8
 ---
 
-A plugin that declares the `Router` type answers HTTP requests itself, so it can serve a custom report page, a chart's data or a small API next to Zhang's own. Like every plugin it is a WebAssembly module built with [Extism](https://extism.org/). Router plugins can read the ledger but not change it.
+A plugin that declares the `Router` type answers HTTP requests itself, so it can serve a custom report page, a chart's data or a small API next to Zhang's own. Like every plugin it is a WebAssembly module built with [Extism](https://extism.org/), or a Lua script that Zhang runs in its built-in interpreter ([Lua Plugins](/guides/lua-plugins/) has the Lua side of everything on this page). Router plugins can read the ledger but not change it.
 
 ## Use a router plugin
 

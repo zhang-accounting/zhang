@@ -88,6 +88,11 @@ pub mod config {
     pub const PLUGIN: &str = "zhang.plugin";
     /// config key holding the plugin's seed, a decimal `u64`
     pub const SEED: &str = "zhang.seed";
+    /// Config key holding the source of a Lua script plugin (`plugin "x.lua"`), which the host hands to the
+    /// embedded Lua interpreter module instead of a module of the plugin's own. Set only for a script.
+    pub const SCRIPT: &str = "zhang.script";
+    /// config key holding the module path of a Lua script plugin as written, which its messages name
+    pub const SCRIPT_NAME: &str = "zhang.script_name";
 }
 
 /// The plugin's `plugin` directive as written, from the config key [`config::PLUGIN`]. It carries what the flat

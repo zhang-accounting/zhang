@@ -87,7 +87,7 @@ plugin "plugins/receipts.wasm"
 
 同时是 processor 和 mapper 的插件会先运行 processor。张记账不认识的类型会被忽略并给出警告，所以为更新版本的张记账编写的插件仍然可以加载。
 
-每次运行都是新的实例：processor 的一次加载、mapper 的一条指令流、router 的一个请求，各自都从模块的初始状态开始，彼此之间不会残留任何状态。被复用的只有编译结果。每次加载时，张记账在注册插件时编译一次模块，在插件第一次带着完整设置（它的配置、allowed hosts 和 timeout）运行时再编译一次；之后每个实例都从这份编译结果创建，耗时不到一毫秒，而不是再编译一遍。同时进行的运行各自使用自己的一份编译结果，所以一个请求的超时不会打断另一个请求。模块文件或插件收到的配置（它的指令和账本的选项）发生变化后，下一次加载会重新编译。
+每次运行都是新的实例：processor 的一次加载、mapper 的一条指令流、router 的一个请求，各自都从模块的初始状态开始，彼此之间不会残留任何状态。被复用的只有编译结果。每次加载时，张记账只编译一次模块：注册插件时就带着每次运行都会得到的设置（它的配置、allowed hosts 和 timeout）；之后每个实例，包括第一次运行，都从这份编译结果创建，耗时不到一毫秒，而不是再编译一遍。同时进行的运行各自使用自己的一份编译结果，所以一个请求的超时不会打断另一个请求。模块文件或插件收到的配置（它的指令和账本的选项）发生变化后，下一次加载会重新编译。
 
 ## 阶段顺序约定
 
@@ -338,6 +338,23 @@ fn route(request: Request) -> Result<Response, Error> {
 - **安全：** router 的页面由张记账自己的地址提供，所以这类页面上的脚本可以用你的会话调用张记账的 API，包括会修改账本文件的接口。放进 HTML 的所有内容都要转义。
 
 [Router 插件](/zh-cn/guides/router-plugins/)介绍了请求和响应的 JSON、错误状态码以及更多细节。
+
+## Lua 插件
+
+router 插件可以是一个 Lua 脚本而不是模块：`plugin "plugins/report.lua"`。张记账内嵌了一个 Lua 5.4 解释器，它本身就是由仓库中 `tools/lua-runtime` 构建的 wasm 插件；加载时张记账把它和脚本配对：沙箱运行的模块是解释器，脚本通过两个保留配置键交给它，`zhang.script`（源码）和 `zhang.script_name`（指令中写的模块路径，错误消息用它指名）。其余都走 wasm 路径：注册时从脚本返回的模块表读取 `name`、`version` 和 `supported_type`，同名时先声明的 router 提供路由，指令的能力和 `timeout` 照常生效，每个请求都是全新的实例，`GET /api/plugins` 列出脚本自己的名字和版本。
+
+```lua
+local M = { name = "report", version = "0.1.0", types = { "Router" } }
+
+function M.router(request)
+  local balances = zhang.query("SELECT account, sum(position) AS balance GROUP BY account")
+  return { json = balances }
+end
+
+return M
+```
+
+本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为指令流中的金额以 JSON 数字传递，Lua 会把它们读成浮点数。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
 
 ## ABI v1 参考
 

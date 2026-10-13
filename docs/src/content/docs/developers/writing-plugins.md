@@ -87,7 +87,7 @@ A plugin declares what it is in its `supported_type` export, and can be several 
 
 A plugin that is both a processor and a mapper runs its processor first. A type Zhang does not know is ignored with a warning, so a plugin written for a newer Zhang still loads.
 
-Every run is a fresh instance: a processor's load, a mapper's stream and a router's request each start from the module's initial state, and nothing survives from one to the next. What is reused is the compiled code. On every load Zhang compiles a plugin's module when it registers it and once more the first time the plugin runs with its full settings (its config, allowed hosts and timeout); after that each instance is built from the compiled code in a fraction of a millisecond instead of compiling again. Runs happening at the same time each get their own compiled copy, so one request's timeout cannot stop another's. A change to the module file, or to the config the plugin receives (its directive and the ledger's options), takes effect on the next load, which compiles it anew.
+Every run is a fresh instance: a processor's load, a mapper's stream and a router's request each start from the module's initial state, and nothing survives from one to the next. What is reused is the compiled code. On every load Zhang compiles a plugin's module once, when it registers it with the settings every run gets (its config, allowed hosts and timeout); after that each instance, the first run included, is built from the compiled code in a fraction of a millisecond instead of compiling again. Runs happening at the same time each get their own compiled copy, so one request's timeout cannot stop another's. A change to the module file, or to the config the plugin receives (its directive and the ledger's options), takes effect on the next load, which compiles it anew.
 
 ## The stage order contract
 
@@ -338,6 +338,23 @@ fn route(request: Request) -> Result<Response, Error> {
 - **Security:** a router's pages are served from Zhang's own address, so a script on such a page can call Zhang's API, including the endpoints that change your ledger files, with your session. Escape everything you put into HTML.
 
 [Router Plugins](/guides/router-plugins/) has the request and response JSON, the error statuses and the details.
+
+## Lua plugins
+
+A router plugin can be a Lua script instead of a module: `plugin "plugins/report.lua"`. Zhang embeds a Lua 5.4 interpreter, itself a wasm plugin built from `tools/lua-runtime` in the repository, and pairs it with the script at load time: the interpreter is the module the sandbox runs, and the script reaches it through two reserved config keys, `zhang.script` (the source) and `zhang.script_name` (the module path as written, which messages name). Everything else is the wasm path: registration reads `name`, `version` and `supported_type` from the module table the script returns, the first router of a name serves it, the directive's capabilities and `timeout` apply, every request is a fresh instance, and `GET /api/plugins` lists the script's own name and version.
+
+```lua
+local M = { name = "report", version = "0.1.0", types = { "Router" } }
+
+function M.router(request)
+  local balances = zhang.query("SELECT account, sum(position) AS balance GROUP BY account")
+  return { json = balances }
+end
+
+return M
+```
+
+The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. Lua scripts are routers only in this release: a script declaring `Processor` or `Mapper` does not load, because the directive stream carries amounts as JSON numbers and Lua would read them as floats. The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
 
 ## ABI v1 reference
 

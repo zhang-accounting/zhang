@@ -5,7 +5,7 @@ sidebar:
   order: 8
 ---
 
-声明了 `Router` 类型的插件会自己响应 HTTP 请求，因此可以在张记账自身的接口旁边提供自定义报表页面、图表数据或一个小型 API。和所有插件一样，它是用 [Extism](https://extism.org/) 构建的 WebAssembly 模块。Router 插件可以读取账本，但不能修改它。
+声明了 `Router` 类型的插件会自己响应 HTTP 请求，因此可以在张记账自身的接口旁边提供自定义报表页面、图表数据或一个小型 API。和所有插件一样，它是用 [Extism](https://extism.org/) 构建的 WebAssembly 模块，或者是张记账用内置解释器运行的 Lua 脚本（本页内容在 Lua 中的对应写法见 [Lua 插件](/zh-cn/guides/lua-plugins/)）。Router 插件可以读取账本，但不能修改它。
 
 ## 使用 Router 插件
 

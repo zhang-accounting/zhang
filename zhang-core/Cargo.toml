@@ -41,7 +41,9 @@ once_cell = "1.19"
 # Re-verified for 1.30.0: its embedded kernel (src/extism-runtime.wasm, SHA-256 d1389b31…) is
 # byte-identical to 1.8.0's, so the layout is unchanged; `CurrentPlugin::memory_bytes` still reads
 # guest memory without a bounds check, so the host.rs check must stay.
-extism = { version = "=1.30.0", optional = true }
+# `wasmtime-exceptions` only sets `config.wasm_exceptions(true)` on every plugin engine, which the embedded Lua
+# interpreter needs (its error handling is wasm exception handling); a module without EH instructions is unaffected
+extism = { version = "=1.30.0", optional = true, features = ["wasmtime-exceptions"] }
 # the version wasi-common (through extism) already brings in; opens the files plugins read inside their grant
 cap-std = { version = "3.3.0", optional = true }
 semver = "1.0.22"
@@ -54,6 +56,9 @@ libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 indoc = "2"
+# the Lua plugin tests read what a script's `print` writes to the host's log
+tracing = "0.1"
+tracing-subscriber = "0.3"
 serde_json_path = "0.7"
 tempfile = "3.20"
 # the integration tests read the lots as the query engine lists them

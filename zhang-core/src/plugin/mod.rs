@@ -11,6 +11,7 @@ pub mod capabilities;
 pub mod files;
 pub mod host;
 pub mod http;
+pub mod lua;
 pub mod router;
 pub mod runtime;
 pub mod stage;

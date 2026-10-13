@@ -1719,3 +1719,502 @@ fn a_plugin_editing_nothing_it_is_shown_keeps_the_pad() {
     assert_eq!(pads, vec!["Assets:Bank from Equity:Open"]);
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Lua script plugins: the `.lua` fixtures through the same load path, on the vendored interpreter
+// ---------------------------------------------------------------------------------------------------------------
+
+mod lua {
+    use zhang_core::plugin::lua::MAX_SCRIPT_LEN;
+
+    use super::*;
+
+    fn get(path: &str) -> PluginRequest {
+        PluginRequest::new("GET", path, vec![], vec![], vec![])
+    }
+
+    fn json_body(response: &http::Response<Vec<u8>>) -> serde_json::Value {
+        serde_json::from_slice(response.body()).unwrap_or_else(|e| panic!("the body is JSON: {e}: {}", String::from_utf8_lossy(response.body())))
+    }
+
+    /// a ledger declaring the script `name`, written with `source` and the meta lines `meta`, and the outcome of its load
+    fn script_ledger(name: &str, source: &[u8], meta: &str) -> (TempDir, ZhangResult<Ledger>) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(name), source).unwrap();
+        let content = with_plugins(&format!("{}{meta}", plugin(&dir, name)));
+        let ledger = try_load(&dir, &content);
+        (dir, ledger)
+    }
+
+    /// the message of a load that must fail
+    fn load_error(name: &str, source: &[u8]) -> String {
+        let (_dir, ledger) = script_ledger(name, source, "");
+        ledger.err().unwrap_or_else(|| panic!("{name} must not load")).to_string()
+    }
+
+    #[test]
+    fn a_lua_router_answers_with_its_response_and_its_own_identity() {
+        let (dir, ledger) = router_ledger(&["router_echo.lua"]);
+        assert_eq!(registered(&ledger), vec![("router-echo".to_owned(), vec![PluginType::Router])]);
+        assert_eq!(ledger.plugins.router("router-echo").unwrap().version, "0.1.0");
+        let script = ledger.plugins.router("router-echo").unwrap().script().unwrap();
+        assert_eq!(script.name, dir.path().join("router_echo.lua").display().to_string());
+        assert!(script.source.starts_with("-- A router plugin"), "the source as written");
+        let request = PluginRequest::new(
+            "POST",
+            "/sub/path",
+            vec![("k".to_owned(), "v1".to_owned()), ("k".to_owned(), "v2".to_owned())],
+            vec![("X-Custom".to_owned(), "yes".to_owned())],
+            b"{\"amount\": \"10 \\\"CNY\\\"\"}".to_vec(),
+        );
+
+        let response = call(&ledger, "router-echo", &request).unwrap();
+
+        assert_eq!(response.status(), 201);
+        assert_eq!(response.headers()["x-echo"], "lua");
+        assert_eq!(response.headers()["content-type"], "application/json; charset=utf-8");
+        let echoed: PluginRequest = serde_json::from_slice(response.body()).unwrap();
+        assert_eq!(echoed, request);
+    }
+
+    #[test]
+    fn a_script_is_an_input_of_the_load() {
+        // the module is declared by the path the disk resolves the root to, as a relative path would be
+        let dir = ledger_dir(&["router_echo.lua"]);
+        let root = dir.path().canonicalize().unwrap();
+        let content = with_plugins(&format!("plugin \"{}\"\n", root.join("router_echo.lua").display()));
+        std::fs::write(root.join("main.zhang"), content).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root, "main.zhang".to_owned(), source).unwrap();
+
+        // editing the script reloads the ledger under `zhang serve`, as editing a wasm module does
+        assert!(
+            ledger.extra_inputs.contains(&ExtraInput::File("router_echo.lua".into())),
+            "{:?}",
+            ledger.extra_inputs
+        );
+    }
+
+    #[test]
+    fn a_lua_router_reads_the_ledger_through_the_host_and_a_failed_query_raises() {
+        let (_dir, ledger) = router_ledger(&["router_query.lua"]);
+
+        let response = call(&ledger, "router-query", &get("/")).unwrap();
+
+        assert_eq!(response.status(), 200, "the default status");
+        assert_eq!(
+            json_body(&response),
+            json!([
+                {"echo": "SELECT account, sum(position) AS balance GROUP BY account ORDER BY account"},
+                {"title": "Home", "operating_currency": "CNY", "timezone": ledger.options.timezone.name()},
+                {"ok": false, "message": "query error at line 1, column 2: no"},
+            ])
+        );
+        // what it reported with `zhang.emit_error` during the request is only logged
+        assert_eq!(errors(&ledger), vec![]);
+    }
+
+    #[test]
+    fn a_lua_router_binds_query_parameters_through_the_host() {
+        let (_dir, ledger) = router_ledger(&["router_query_params.lua"]);
+        let case = |case: char| json_body(&call(&ledger, "router-query-params", &get(&format!("/{case}"))).unwrap());
+
+        // the constructors make typed parameters; a decimal is a string
+        assert_eq!(
+            case('a'),
+            json!({
+                "echo": "SELECT date, narration WHERE date >= :from AND narration = :who AND number > :min",
+                "params": {"from": "2024-01-01", "who": "'lunch'", "min": "5.5"},
+            })
+        );
+        // nil is NULL, and the query still compiles against the declared type
+        assert_eq!(case('b'), json!({"echo": "SELECT date WHERE narration = :who", "params": {"who": "NULL"}}));
+        // the host's failures raise with the host's text; a positioned one names the position
+        assert_eq!(
+            case('c'),
+            json!({"error": "query error: parameter :who has the type \"money\", which is not one of bool, int, decimal, str, date, set"})
+        );
+        assert_eq!(
+            case('d'),
+            json!({"error": "query error: parameter :from must be a date string YYYY-MM-DD or null"})
+        );
+        assert_eq!(case('e'), json!({"error": "query error at line 1, column 27: parameter :from is not bound"}));
+        assert_eq!(
+            case('f'),
+            json!({"error": "parameter :from must be made with zhang.str/int/decimal/bool/date/set or be a {type = ..., value = ...} table"})
+        );
+        // no parameters cross as an empty object, never as an empty array
+        assert_eq!(case('n'), json!({"echo": "SELECT date", "params": {}}));
+        assert_eq!(case('s'), json!({"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]}));
+    }
+
+    #[test]
+    fn a_lua_router_reads_the_schema_the_time_and_the_ledger_info() {
+        let (_dir, ledger) = router_ledger(&["router_schema.lua"]);
+        assert_eq!(
+            json_body(&call(&ledger, "router-schema", &get("/")).unwrap()),
+            json!({"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]})
+        );
+
+        let dir = ledger_dir(&["router_now.lua"]);
+        let content = format!("option \"timezone\" \"Asia/Shanghai\"\n{}", with_plugins(&plugin(&dir, "router_now.lua")));
+        let ledger = load_with_clock(&dir, &content, Clock::Fixed(fixed_now()));
+        assert_eq!(
+            json_body(&call(&ledger, "router-now", &get("/")).unwrap()),
+            json!({"now": "2024-03-16T00:30:00+08:00", "today": "2024-03-16", "timezone": "Asia/Shanghai"})
+        );
+        // a request is not a load: the ledger does not start depending on the date
+        assert!(!ledger.extra_inputs.contains(&ExtraInput::Clock), "{:?}", ledger.extra_inputs);
+
+        let dir = ledger_dir(&["router_info.lua"]);
+        let content = format!(
+            "option \"features.plugin\" \"true\"\noption \"title\" \"Home\"\n{}  greeting: \"hi\"\n{LEDGER}",
+            plugin(&dir, "router_info.lua")
+        );
+        let ledger = load(&dir, &content);
+        // a config key that is not set is nil, so it is absent from the answer
+        assert_eq!(
+            json_body(&call(&ledger, "router-info", &get("/")).unwrap()),
+            json!({"title": "Home", "operating_currency": "CNY", "timezone": ledger.options.timezone.name(), "greeting": "hi", "abi": "1"})
+        );
+    }
+
+    #[test]
+    fn a_script_reads_its_config_at_the_top_level() {
+        // registration runs the chunk with the settings every request gets: the metas and the options
+        let dir = ledger_dir(&["config_top_level.lua"]);
+        let content = format!(
+            "option \"features.plugin\" \"true\"\noption \"title\" \"Home\"\n{}  greeting: \"hi\"\n{LEDGER}",
+            plugin(&dir, "config_top_level.lua")
+        );
+        let ledger = load(&dir, &content);
+
+        assert_eq!(
+            json_body(&call(&ledger, "config-top-level", &get("/")).unwrap()),
+            json!({"greeting": "HI", "title": "Home"})
+        );
+    }
+
+    #[test]
+    fn a_looping_lua_router_stops_at_its_timeout() {
+        let dir = ledger_dir(&["router_loop.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"500ms\"\n", plugin(&dir, "router_loop.lua"))));
+        let started = Instant::now();
+
+        let result = call(&ledger, "router-loop", &get("/"));
+
+        assert_eq!(result.unwrap_err(), RouterError::Timeout);
+        let elapsed = started.elapsed();
+        assert!(elapsed < Duration::from_secs(10), "the call took {elapsed:?}, not about half a second");
+    }
+
+    #[test]
+    fn lua_router_failures_are_errors_not_panics() {
+        let (_dir, ledger) = router_ledger(&["router_trap.lua", "router_malformed.lua"]);
+
+        // a Lua error names the script's line and carries a traceback, for the server log
+        let failed = call(&ledger, "router-trap", &get("/")).unwrap_err();
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains("router_trap.lua:6: boom") && message.contains("stack traceback:")),
+            "{failed}"
+        );
+        assert_eq!(
+            call(&ledger, "router-malformed", &get("/")).unwrap_err(),
+            RouterError::BadResponse("the response is not a JSON object".to_owned())
+        );
+        // the plugin still serves after a failure
+        assert!(call(&ledger, "router-trap", &get("/")).is_err());
+    }
+
+    #[test]
+    fn a_memory_hog_is_stopped_at_the_budget_with_a_clear_error() {
+        let dir = ledger_dir(&["memory_hog.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "memory_hog.lua"))));
+
+        let failed = call(&ledger, "memory-hog", &get("/")).unwrap_err();
+
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains("memory_hog.lua` exceeded 64 MiB")),
+            "{failed}"
+        );
+    }
+
+    #[test]
+    fn the_budget_is_reported_when_it_is_reached_with_a_deep_stack() {
+        // unwinding from the memory error shrinks the Lua stack; a shrink must not clear the budget flag
+        let dir = ledger_dir(&["memory_hog_deep.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "memory_hog_deep.lua"))));
+
+        let failed = call(&ledger, "memory-hog-deep", &get("/")).unwrap_err();
+
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains("memory_hog_deep.lua` exceeded 64 MiB")),
+            "{failed}"
+        );
+    }
+
+    #[test]
+    fn a_script_that_does_not_parse_fails_the_load_with_its_line() {
+        let dir = ledger_dir(&["syntax_error.lua"]);
+        let error = try_load(&dir, &with_plugins(&plugin(&dir, "syntax_error.lua")))
+            .err()
+            .expect("must not load")
+            .to_string();
+        assert!(error.contains("plugin script "), "{error}");
+        assert!(error.contains("syntax_error.lua:4: unexpected symbol near '='"), "{error}");
+    }
+
+    #[test]
+    fn a_script_that_is_not_utf8_or_too_big_or_of_the_wrong_shape_fails_the_load() {
+        let error = load_error("not_utf8.lua", b"-- latin1: \xE9\nreturn {}");
+        assert!(error.contains("not_utf8.lua is not UTF-8 text: the byte at offset 11 is not UTF-8"), "{error}");
+
+        let mut too_big = b"-- ".to_vec();
+        too_big.resize(MAX_SCRIPT_LEN + 1, b'x');
+        let error = load_error("too_big.lua", &too_big);
+        assert!(error.contains("too_big.lua is 1048577 bytes, over the 1048576 byte limit"), "{error}");
+
+        let error = load_error("no_table.lua", b"return 1");
+        assert!(error.contains("the script must return a module table"), "{error}");
+        let error = load_error("no_name.lua", b"return { version = \"0.1.0\" }");
+        assert!(error.contains("the module table needs a non-empty string `name`"), "{error}");
+        let error = load_error("no_version.lua", b"return { name = \"x\" }");
+        assert!(error.contains("the module table needs a string `version`"), "{error}");
+        let error = load_error(
+            "runtime_error.lua",
+            b"local M = { name = \"x\", version = \"0.1.0\" }\nerror(\"at load\")\nreturn M",
+        );
+        assert!(error.contains("runtime_error.lua:2: at load"), "{error}");
+
+        // a script without a `router` function registers, and fails when a request reaches it
+        let (_dir, ledger) = script_ledger("no_router.lua", b"return { name = \"no-router\", version = \"0.1.0\" }", "");
+        let ledger = ledger.unwrap();
+        let failed = call(&ledger, "no-router", &get("/")).unwrap_err();
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains("the module table has no `router` function")),
+            "{failed}"
+        );
+    }
+
+    #[test]
+    fn a_script_declaring_a_processor_or_mapper_is_refused() {
+        let dir = ledger_dir(&["declares_processor.lua"]);
+        let error = try_load(&dir, &with_plugins(&plugin(&dir, "declares_processor.lua")))
+            .err()
+            .expect("must not load")
+            .to_string();
+        assert!(
+            error.contains(
+                "Lua processors and mappers are not supported yet (#698 P1): a directive's amounts cross as JSON numbers and Lua would read them as floats"
+            ),
+            "{error}"
+        );
+        let error = load_error("mapper.lua", b"return { name = \"m\", version = \"0.1.0\", types = { \"Mapper\" } }");
+        assert!(error.contains("Lua processors and mappers are not supported yet"), "{error}");
+        // a script with no type would serve nothing: an empty list, or a map where a list was meant, is refused
+        for source in [
+            &b"return { name = \"none\", version = \"0.1.0\", types = {} }"[..],
+            b"return { name = \"none\", version = \"0.1.0\", types = { Router = true } }",
+        ] {
+            let error = load_error("none.lua", source);
+            assert!(error.contains("none.lua declares no plugin type; write `types = {\"Router\"}`"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_module_with_another_extension_is_refused_by_name_and_one_without_loads_as_wasm() {
+        let (_dir, ledger) = script_ledger("report.txt", b"return {}", "");
+        let error = ledger.err().expect("must not load").to_string();
+        assert!(error.contains("report.txt is not a `.wasm`/`.wat`/`.lua` module"), "{error}");
+
+        // a path without an extension is a wasm module, as it was before scripts existed
+        let dir = ledger_dir(&["router.wat"]);
+        std::fs::copy(dir.path().join("router.wat"), dir.path().join("router-module")).unwrap();
+        let ledger = load(&dir, &with_plugins(&plugin(&dir, "router-module")));
+        assert_eq!(registered(&ledger), vec![("router-echo".to_owned(), vec![PluginType::Router])]);
+    }
+
+    #[test]
+    fn the_sandbox_hides_what_a_script_must_not_reach() {
+        let (_dir, ledger) = router_ledger(&["sandbox.lua"]);
+
+        let body = json_body(&call(&ledger, "sandbox", &get("/")).unwrap());
+
+        assert_eq!(body["leaked"], json!([]), "{body}");
+        assert_eq!(body["debug_names"], json!(["traceback"]), "{body}");
+        let flags = body
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, value)| value.is_boolean())
+            .map(|(key, value)| (key.as_str(), value.as_bool().unwrap()));
+        let off: Vec<&str> = flags.filter(|(_, on)| !on).map(|(key, _)| key).collect();
+        assert_eq!(off, Vec::<&str>::new(), "{body}");
+        let libraries = body["libraries"].as_object().unwrap();
+        let missing: Vec<&String> = libraries.iter().filter(|(_, on)| !on.as_bool().unwrap()).map(|(key, _)| key).collect();
+        assert_eq!(missing, Vec::<&String>::new(), "{body}");
+    }
+
+    /// a host answering the query of `json_roundtrip.lua` with the values the JSON rules are about
+    struct JsonHost;
+
+    impl RouterHost for JsonHost {
+        fn query(&self, _bql: &str) -> Result<serde_json::Value, QueryFailure> {
+            Ok(json!({"dec": "12.50", "big": 9223372036854775807i64, "empty": {}, "list": []}))
+        }
+
+        fn query_with_params(&self, _bql: &str, _params: &BTreeMap<String, RawQueryParam>) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!()
+        }
+
+        fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn json_round_trips_through_the_bridge_by_the_documented_rules() {
+        let (_dir, ledger) = router_ledger(&["json_roundtrip.lua"]);
+        let posted = json!({"null": null, "big": 4611686018427387904i64, "nul": "a\u{0}b", "empty": {}, "list": [], "dec": "0.10", "nested": {"inner": []}});
+        let request = PluginRequest::new("POST", "/", vec![], vec![], serde_json::to_vec(&posted).unwrap());
+        let plugin = ledger.plugins.router("json-roundtrip").unwrap();
+
+        let response = plugin.execute_as_router(&request, &ledger, Arc::new(JsonHost)).unwrap();
+
+        let body = json_body(&response);
+        assert_eq!(
+            body,
+            json!({
+                "null": null,
+                "posted_null_is_null": true,
+                // decoded objects and arrays keep their kind, empty ones included
+                "posted": posted,
+                "empty_object": {},
+                "empty_table": [],
+                "empty_array": [],
+                "filled_object": {"k": "v"},
+                "big": 4611686018427387904i64,
+                "big_back": 4611686018427387904i64,
+                "big_is_exact": true,
+                "max": 9223372036854775807i64,
+                "min": -9223372036854775808i64,
+                "float": 1.5,
+                "tenth": 0.1,
+                "third": 0.33333333333333,
+                "nul": "a\u{0}b",
+                "nul_back": "a\u{0}b",
+                "nul_back_len": 3,
+                "decimal": "12.50",
+                "decimal_is_string": true,
+                "unicode": "héllo 世界 \u{1F600}",
+                "escaped": "quote\" backslash\\ newline\n tab\t",
+                "yes": true,
+                "no": false,
+                "bad_json": "invalid JSON: no valid JSON value at line 1, column 7",
+                "trailing": "invalid JSON: unexpected data at byte 4",
+            })
+        );
+    }
+
+    #[test]
+    fn identical_requests_give_identical_bytes() {
+        // the string hash seed is fixed at build time, so the key order of an encoded table never changes
+        let (_dir, ledger) = router_ledger(&["json_order.lua"]);
+
+        let first = call(&ledger, "json-order", &get("/a")).unwrap();
+        let second = call(&ledger, "json-order", &get("/a")).unwrap();
+
+        assert_eq!(first.body(), second.body(), "{}", String::from_utf8_lossy(first.body()));
+        let body = json_body(&first);
+        assert_eq!(body.as_object().unwrap().len(), 13);
+        assert_eq!(body["nested"]["t"], json!(7));
+    }
+
+    #[test]
+    fn the_first_declared_script_serves_a_shared_name() {
+        let (_dir, ledger) = router_ledger(&["router_echo.lua", "router_echo_twin.lua"]);
+
+        assert_eq!(
+            registered(&ledger),
+            vec![
+                ("router-echo".to_owned(), vec![PluginType::Router]),
+                ("router-echo".to_owned(), vec![PluginType::Router])
+            ]
+        );
+        assert_eq!(ledger.plugins.routers.len(), 2);
+        assert_eq!(ledger.plugins.router("router-echo").unwrap().version, "0.1.0");
+        let response = call(&ledger, "router-echo", &get("/")).unwrap();
+        assert_eq!(response.status(), 201, "the first declared answers");
+    }
+
+    /// a `tracing` writer collecting what a subscriber writes, so a test reads the host's log
+    #[derive(Clone, Default)]
+    struct Capture(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+        type Writer = Capture;
+
+        fn make_writer(&'a self) -> Capture {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn print_goes_to_the_hosts_log_prefixed_with_the_script() {
+        let (dir, ledger) = router_ledger(&["router_print.lua"]);
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(capture.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::INFO)
+            .finish();
+
+        let response = tracing::subscriber::with_default(subscriber, || call(&ledger, "router-print", &get("/")).unwrap());
+
+        assert_eq!(response.status(), 204);
+        let log = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+        let script = dir.path().join("router_print.lua").display().to_string();
+        assert!(log.contains(&format!("{script}: hello\t42\tnil\ttrue")), "{log}");
+        assert!(
+            log.contains(&format!("{script}: \n")) || log.contains(&format!("{script}:  ")),
+            "an empty print still logs: {log}"
+        );
+    }
+
+    #[test]
+    fn a_lua_router_gets_no_file_access_even_with_allowed_paths() {
+        let dir = documents_dir();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/plugins/router_files.lua"),
+            dir.path().join("router_files.lua"),
+        )
+        .unwrap();
+        let directive = format!(
+            "{}  allowed_paths: \"documents\"\n  read: \"documents/receipt.txt\"\n",
+            plugin(&dir, "router_files.lua")
+        );
+        let ledger = load(&dir, &with_plugins(&directive));
+
+        let body = json_body(&call(&ledger, "router-files", &get("/")).unwrap());
+
+        for call in ["file", "dir"] {
+            let error = body[call]["error"].as_str().unwrap_or_else(|| panic!("{call} must raise: {body}"));
+            assert!(error.starts_with("denied: "), "{error}");
+            assert!(
+                error.contains("files can only be read while the plugin runs as a processor or mapper"),
+                "{error}"
+            );
+        }
+    }
+}

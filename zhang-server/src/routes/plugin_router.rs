@@ -219,6 +219,27 @@ mod test {
     /// the `timeout` of the looping fixture
     const LOOP_TIMEOUT: Duration = Duration::from_millis(500);
 
+    /// a Lua router plugin, served next to the WAT fixtures: it echoes the request and reads the ledger through
+    /// `zhang.query`, `zhang.query_params` and `zhang.ledger_info`, and reports a failed query's message
+    const LUA_ROUTER: &str = r#"
+local M = { name = "lua-report", version = "0.3.0" }
+
+function M.router(request)
+  local rows = zhang.query("SELECT account, sum(position) AS balance GROUP BY account ORDER BY account")
+  local bound = zhang.query_params("SELECT date, narration WHERE date >= :from AND narration = :who AND number > :min", {
+    from = zhang.date("2024-01-01"), who = zhang.str("lunch"), min = zhang.decimal("5.5"),
+  })
+  local ok, failure = pcall(zhang.query, "SELECT nope")
+  return {
+    status = 201,
+    headers = { ["x-echo"] = "lua" },
+    json = { request = request, rows = rows, bound = bound, failure = failure, info = zhang.ledger_info() },
+  }
+end
+
+return M
+"#;
+
     /// A scratch ledger directory under the system temp dir, removed on drop.
     struct ScratchDir(PathBuf);
 
@@ -241,6 +262,8 @@ mod test {
                 content.push_str(&format!("  timeout: \"{}ms\"\n", LOOP_TIMEOUT.as_millis()));
             }
         }
+        std::fs::write(dir.0.join("report.lua"), LUA_ROUTER).unwrap();
+        content.push_str(&format!("plugin \"{}\"\n", dir.0.join("report.lua").display()));
         content.push_str(
             "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n\
              2024-01-02 * \"lunch\"\n  Assets:Cash -10 CNY\n  Expenses:Food 10 CNY\n",
@@ -449,7 +472,76 @@ mod test {
         // and the plugin routes leave the plugin list alone
         let response = send(&app, Request::get("/api/plugins").body(Body::empty()).unwrap()).await;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(json_body(response).await["data"].as_array().unwrap().len(), FIXTURES.len());
+        assert_eq!(json_body(response).await["data"].as_array().unwrap().len(), FIXTURES.len() + 1);
+    }
+
+    #[tokio::test]
+    async fn a_lua_router_is_served_and_listed_under_the_scripts_own_name() {
+        let (_dir, app) = app().await;
+
+        // the listing shows the name and version the script declares, with its route
+        let response = send(&app, Request::get("/api/plugins").body(Body::empty()).unwrap()).await;
+        let listed = json_body(response).await["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|plugin| plugin["name"] == "lua-report")
+            .cloned()
+            .expect("the Lua router is listed");
+        assert_eq!(
+            listed,
+            json!({"name": "lua-report", "version": "0.3.0", "plugin_type": ["Router"], "capabilities": {"allowed_hosts": []}, "route": "/api/plugins/lua-report"})
+        );
+
+        let response = send(
+            &app,
+            Request::get("/api/plugins/lua-report/report/by%20month?k=v1&k=v2&q=a+b%26c")
+                .header("X-Custom", "yes")
+                .header(header::AUTHORIZATION, "Basic dXNlcjpwYXNz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(response.headers()["x-echo"], "lua");
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json; charset=utf-8");
+        let body = json_body(response).await;
+        assert_eq!(
+            body["request"],
+            json!({
+                "method": "GET",
+                "path": "/report/by%20month",
+                "query": {"k": ["v1", "v2"], "q": ["a b&c"]},
+                // the credentials never reach the plugin
+                "headers": {"x-custom": "yes"},
+                "body": "",
+                "body_encoding": "utf8",
+            })
+        );
+        // the ledger is read through the same host as a wasm router, with the same limits
+        assert_eq!(
+            body["rows"],
+            json!({
+                "columns": [{"name": "account", "type": "str"}, {"name": "balance", "type": "inventory"}],
+                "rows": [
+                    ["Assets:Cash", {"positions": [{"units": {"number": "-10", "currency": "CNY"}, "cost": null}]}],
+                    ["Expenses:Food", {"positions": [{"units": {"number": "10", "currency": "CNY"}, "cost": null}]}],
+                ],
+            })
+        );
+        assert_eq!(
+            body["bound"],
+            json!({
+                "columns": [{"name": "date", "type": "date"}, {"name": "narration", "type": "str"}],
+                "rows": [["2024-01-02", "lunch"]],
+            })
+        );
+        assert!(
+            body["failure"].as_str().unwrap().starts_with("query error at line 1, column 8: "),
+            "{}",
+            body["failure"]
+        );
+        assert_eq!(body["info"], json!({"title": "Home", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}));
     }
 
     #[tokio::test]

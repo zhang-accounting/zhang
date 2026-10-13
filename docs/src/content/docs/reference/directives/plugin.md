@@ -5,7 +5,7 @@ sidebar:
   order: 11
 ---
 
-A `plugin` directive loads a WebAssembly plugin into the ledger. The plugin can transform the ledger while it loads,
+A `plugin` directive loads a plugin, a WebAssembly module or a Lua script, into the ledger. The plugin can transform the ledger while it loads,
 report problems in it, or serve pages under `/api/plugins/`. The directive names the module, grants the plugin its
 capabilities and passes it its settings.
 
@@ -19,7 +19,7 @@ plugin "<Module>" ["<Argument>" …]
 
 | Part | Required | Description |
 |---|---|---|
-| `"<Module>"` | yes | The path of the `.wasm` module, relative to the ledger root. An absolute path is accepted only under the ledger root; a module outside it is refused, and the ledger does not load. |
+| `"<Module>"` | yes | The path of the module, relative to the ledger root: a `.wasm` module, a `.wat` module (WebAssembly text) or a `.lua` script (see [Lua Plugins](/guides/lua-plugins/)), by its extension in any letter case. A path without an extension is a wasm module, as before; any other extension is refused by name. An absolute path is accepted only under the ledger root; a module outside it is refused, and the ledger does not load. |
 | `"<Argument>"` | no | Positional arguments, passed to the plugin as written. |
 | `<key>: "<value>"` | no | Metadata lines: the [capabilities](#capabilities) Zhang grants the plugin, and the plugin's own settings. |
 
@@ -157,3 +157,4 @@ A plugin can also read settings that change over time from [`custom`](/reference
 - [Plugins](/guides/plugins/): enabling and trusting plugins.
 - [Writing Plugins](/developers/writing-plugins/): building a plugin with the Rust SDK, and the plugin interface.
 - [Router plugins](/guides/router-plugins/): plugins that serve pages.
+- [Lua Plugins](/guides/lua-plugins/): writing a router plugin as a Lua script.

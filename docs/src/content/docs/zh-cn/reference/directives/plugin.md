@@ -5,7 +5,7 @@ sidebar:
   order: 11
 ---
 
-`plugin` 指令把一个 WebAssembly 插件加载到账本中。插件可以在账本加载时转换账本、报告账本中的问题，或者在 `/api/plugins/` 下提供页面。这条指令指定模块、授予插件能力，并把设置传给插件。
+`plugin` 指令把一个插件（WebAssembly 模块或 Lua 脚本）加载到账本中。插件可以在账本加载时转换账本、报告账本中的问题，或者在 `/api/plugins/` 下提供页面。这条指令指定模块、授予插件能力，并把设置传给插件。
 
 ## 语法
 
@@ -17,7 +17,7 @@ plugin "<Module>" ["<Argument>" …]
 
 | 部分 | 必填 | 说明 |
 |---|---|---|
-| `"<Module>"` | 是 | `.wasm` 模块的路径，相对于账本根目录。绝对路径只有在账本根目录之下才被接受；根目录之外的模块会被拒绝，账本无法加载。 |
+| `"<Module>"` | 是 | 模块的路径，相对于账本根目录：按扩展名（不区分大小写）区分 `.wasm` 模块、`.wat` 模块（WebAssembly 文本）或 `.lua` 脚本（见 [Lua 插件](/zh-cn/guides/lua-plugins/)）。没有扩展名的路径和以前一样是 wasm 模块；其他扩展名会被指名拒绝。绝对路径只有在账本根目录之下才被接受；根目录之外的模块会被拒绝，账本无法加载。 |
 | `"<Argument>"` | 否 | 位置参数，按原样传给插件。 |
 | `<key>: "<value>"` | 否 | 元数据行：张记账授予插件的[能力](#能力)，以及插件自己的设置。 |
 
@@ -116,4 +116,4 @@ plugin "plugins/receipts.wasm"
 
 - [插件](/zh-cn/guides/plugins/)：启用和信任插件。
 - [编写插件](/zh-cn/developers/writing-plugins/)：用 Rust SDK 构建插件，以及插件接口。
-- [Router 插件](/zh-cn/guides/router-plugins/)：提供页面的插件。
+- [Router 插件](/zh-cn/guides/router-plugins/)：提供页面的插件。\n- [Lua 插件](/zh-cn/guides/lua-plugins/)：用 Lua 脚本编写 router 插件。
