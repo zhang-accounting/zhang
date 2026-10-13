@@ -48,7 +48,7 @@ return M
 |---|---|---|
 | `name` | 是 | 插件名，`GET /api/plugins` 列出的名字，也是路由 `/api/plugins/{name}` 中的名字。两个插件同名时，先声明的那个提供路由。 |
 | `version` | 是 | 插件版本，一个字符串。 |
-| `types` | 否 | 插件类型列表。`{ "Router" }` 是唯一可用的值，也是默认值。 |
+| `types` | 否 | 插件类型列表。`{ "Router" }` 是唯一可用的值，也是默认值；没有任何类型的列表，或者把列表写成了映射，都无法加载。 |
 | `router` | router 需要 | 响应请求的函数。 |
 | `writes` | 否 | 插件用 `zhang.write` 追加的指令种类，`{ "transaction", "open" }`。账本所有者在 `plugin` 指令上用 `allowed_writes` 授予它们；没有声明时写入函数抛出 `unavailable: …`，没有授予时抛出 `denied: …`。 |
 

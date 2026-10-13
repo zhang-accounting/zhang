@@ -48,7 +48,7 @@ The script is one chunk that returns a table:
 |---|---|---|
 | `name` | yes | The plugin's name, as `GET /api/plugins` lists it and as the route `/api/plugins/{name}` names it. When two plugins share a name, the first one declared serves the route. |
 | `version` | yes | The plugin's version, a string. |
-| `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default. |
+| `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default; a list with no type, or a map where a list was meant, does not load. |
 | `router` | for a router | The function that answers a request. |
 | `writes` | no | The kinds of directives the plugin appends with `zhang.write`, `{ "transaction", "open" }`. The ledger owner grants them with `allowed_writes` on the `plugin` directive; without the declaration the write functions raise `unavailable: …`, without the grant `denied: …`. |
 

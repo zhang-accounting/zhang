@@ -75,6 +75,13 @@ impl PluginStore {
             .map_err(|e| failed(export::SUPPORTED_TYPE, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
+        // a script with no type serves nothing: `types = {Router = true}` or `{}` yields none, and a plugin that
+        // never runs is a mistake, not a choice (a wasm module keeps today's behaviour, its unknown types are warned)
+        if script.is_some() && plugin_types.is_empty() {
+            return Err(ZhangError::CustomError(format!(
+                "plugin script {plugin_name} declares no plugin type; write `types = {{\"Router\"}}` in its module table"
+            )));
+        }
         let writes = declared_capabilities(&mut plugin, &name, timeout)?;
         let ignored_errors = host.take_errors().len();
         if ignored_errors > 0 {
@@ -299,12 +306,14 @@ mod test {
     use serde_json::json;
     use zhang_ast::{Meta, Plugin, SpanInfo, ZhangString};
 
+    use crate::clock::LoadClock;
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
     use crate::plugin::files::FileAccess;
-    use crate::plugin::lua::LuaScript;
+    use crate::plugin::host::PluginHost;
+    use crate::plugin::lua::{LuaScript, PluginModule};
     use crate::plugin::runtime::PluginRuntime;
     use crate::plugin::store::{call_error, known_plugin_types, script_error, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
@@ -460,6 +469,50 @@ mod test {
         assert_eq!(config["greeting"], "hi");
         assert_eq!(config["zhang.abi"], "1");
         assert!(!registered_as("slow.wasm", &[], 0).manifest(&[]).config.contains_key("zhang.script"));
+    }
+
+    #[test]
+    fn should_register_with_the_settings_every_call_gets_so_the_load_compiles_once() {
+        let directive = Plugin {
+            module: ZhangString::quote("config_echo.wat"),
+            value: vec![],
+            meta: [("greeting", "hi")]
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), ZhangString::quote(value)))
+                .collect(),
+        };
+        let options = [OptionDomain {
+            key: "title".to_owned(),
+            value: "Home".to_owned(),
+        }];
+        let module = PluginModule::Wasm(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
+        let clock = LoadClock::new(crate::clock::Clock::System);
+        let mut store = PluginStore::default();
+        store
+            .insert_plugin(
+                &directive,
+                module,
+                PluginDeclaration::parse(&directive),
+                &SpanInfo::default(),
+                &clock,
+                chrono_tz::UTC,
+                no_files(),
+                &options,
+            )
+            .unwrap();
+        let (plugin, _) = &store.ordered[0];
+
+        // registering compiled once (generation 1) with the config a run gets: the option and the meta
+        assert_eq!(plugin.runtime.pool_state(), (1, 1));
+        let manifest = plugin.manifest(&options);
+        assert_eq!(manifest.config["title"], "Home");
+        assert_eq!(manifest.config["greeting"], "hi");
+        // a run with the same settings reuses that compiled code: the generation does not move
+        let host = PluginHost::new("config-echo", SpanInfo::default(), clock, chrono_tz::UTC);
+        let instance = plugin.runtime.instantiate(manifest, host).unwrap();
+        assert_eq!(plugin.runtime.pool_state(), (0, 1), "the registering compile is the one in use");
+        drop(instance);
+        assert_eq!(plugin.runtime.pool_state(), (1, 1));
     }
 
     #[test]
