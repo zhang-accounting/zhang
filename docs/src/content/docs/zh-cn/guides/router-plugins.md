@@ -17,7 +17,7 @@ option "features.plugin" "true"
 plugin "plugins/report.wasm"
 ```
 
-**设置**页面会列出它，并附有指向其页面的**打开**链接。本页其余部分面向插件作者：请求如何到达插件，以及插件如何响应。
+**设置**页面会列出它，并附有指向其页面的**打开**链接。张记账自己的 [MCP 服务器](/zh-cn/guides/mcp/)就是一个用 Lua 编写的 Router 插件，它的指南介绍了如何安装和连接。本页其余部分面向插件作者：请求如何到达插件，以及插件如何响应。
 
 :::note[编写插件]
 [编写插件](/zh-cn/developers/writing-plugins/)介绍了所有插件类型、`plugin` 指令及其能力，以及 Rust SDK，SDK 的 `router` 模块封装了本页的全部内容。

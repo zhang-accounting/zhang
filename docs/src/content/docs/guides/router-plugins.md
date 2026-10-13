@@ -17,7 +17,7 @@ option "features.plugin" "true"
 plugin "plugins/report.wasm"
 ```
 
-The **Settings** page lists it with an **Open** link to its pages. The rest of this page is for plugin authors: how requests reach the plugin and what it answers.
+The **Settings** page lists it with an **Open** link to its pages. Zhang's own [MCP Server](/guides/mcp/) is a router plugin written in Lua: its guide shows how to install and connect one. The rest of this page is for plugin authors: how requests reach the plugin and what it answers.
 
 :::note[Writing plugins]
 [Writing Plugins](/developers/writing-plugins/) covers every plugin type, the `plugin` directive and its capabilities, and the Rust SDK, whose `router` module wraps everything on this page.

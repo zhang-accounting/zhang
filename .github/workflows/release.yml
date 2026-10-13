@@ -167,6 +167,45 @@ jobs:
           asset_name: zhang-${{ steps.extract_version.outputs.version }}-${{ matrix.target }}${{ env.EXE }}
   
   
+  # the official MCP plugin, `zhang-mcp-<version>.lua`: a release asset on version tags, a workflow artifact otherwise.
+  # It is a Lua script, so nothing is built: the file is copied under its versioned name. On a tag the asset is
+  # uploaded after `create-release` made the release; on the nightly and manual runs the artifact is still produced
+  plugin-mcp:
+    name: Plugin zhang-mcp (lua)
+    needs: create-release
+    if: ${{ !cancelled() && needs.create-release.result != 'failure' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: extract_version
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Name the script
+        run: cp plugins/mcp/mcp.lua zhang-mcp-${{ steps.extract_version.outputs.version }}.lua
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhang-mcp-lua
+          path: zhang-mcp-${{ steps.extract_version.outputs.version }}.lua
+
+      - name: Release
+        uses: svenstaro/upload-release-action@v2
+        # only release if the commit is tagged with version
+        if: startsWith(github.ref_name, 'v') && github.ref_type == 'tag'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: zhang-mcp-${{ steps.extract_version.outputs.version }}.lua
+          tag: ${{ github.ref_name }}
+          asset_name: zhang-mcp-${{ steps.extract_version.outputs.version }}.lua
+
   docker-image-release:
     runs-on: ubuntu-22.04
     needs: publish
@@ -192,6 +231,14 @@ jobs:
         with:
           name: x86_64-unknown-linux-gnu
           path: target/x86_64-unknown-linux-gnu/release
+
+      # the image contexts are the release directories: put the MCP plugin beside each binary for the Dockerfile's COPY
+      - name: Add the MCP plugin to the image contexts
+        run: |
+          for target in aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+            mkdir -p target/$target/release/plugins/mcp
+            cp plugins/mcp/mcp.lua target/$target/release/plugins/mcp/mcp.lua
+          done
 
       - name: podman login
         run: podman login --username ${{ secrets.DOCKERHUB_USERNAME }} --password ${{ secrets.DOCKERHUB_TOKEN }} docker.io

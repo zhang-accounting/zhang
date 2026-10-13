@@ -123,6 +123,10 @@ API 也是如此：`PUT /api/transactions/{id}` 为每条记账行接受同样�
 - 换一个模板就能改变文件布局。`option "directive_output_path" "data/{{year}}.{{ext}}"` 每年一个文件。模板可以使用 `year`、`month`、`month_str`、`day`、`day_str`、`type`（条目的种类）和 `ext`。
 - 在 Beancount 账本中，文件使用主文件的扩展名，例如 `.bean`，并以 Beancount 语法写入，一天中的时间记在 `time` 元数据中。
 
+## 用 AI 助手记录交易
+
+启用 [MCP 服务器](/zh-cn/guides/mcp/)插件及其写入工具后，Claude 等助手可以记录你描述的条目：它会先预览出将要写入的确切文本并展示给你，只有在你同意后才追加到账本，并打上 `#mcp` 标签以便日后查找。账户不会被隐式创建；助手会先问你，再显式开户。
+
 ## 出现问题时
 
 张记账每次加载账本时都会检查它。
