@@ -1067,7 +1067,7 @@ local WRITE_TOOLS = {
         tool_error("the ledger refuses this transaction (" .. entry_errors_text(entry) .. "): fix it, run preview_transaction again and show the user the text")
       end
       if preview.token ~= call.args.token then
-        tool_error("the token is not the one of this transaction on the current ledger: call preview_transaction first and show the user the text, then pass its token")
+        tool_error("the token does not match the current preview of this transaction: the ledger changed since it was issued, or the arguments differ. Run preview_transaction again, show the user the text, then pass its token")
       end
       local committed = with_host(function() return write_commit(directives, call.args.token) end)
       return { recorded = true, text = entry.text, file = committed.file, bytes = committed.bytes, generation = committed.generation }

@@ -193,9 +193,10 @@ From PRD2:
 - `preview_transaction` lifts the single entry's fields (`text`, `field_errors`, `unbalanced`, `errors`) to the top
   level of its result beside `ok`, `file`, `token` (PRD2 §C.2 said "the host's preview object"): one transaction per
   call, so the model never indexes `entries[0]` to find the text it must show.
-- `add_transaction` previews again and compares the token itself before committing, so that a missing, stale or
-  foreign token gets the "preview first and show the user the text" sentence, and only a host `conflict` gets
-  "the ledger changed" (the host binds the token anyway; the plugin's check only chooses the message).
+- `add_transaction` previews again and compares the token itself before committing: a preview with errors is
+  refused with those errors, and a token that is not the current preview's (stale after a reload, or for other
+  arguments) is refused as "the ledger changed since it was issued, or the arguments differ: run preview_transaction
+  again" (the host binds the token anyway; the plugin's check chooses the message and spares a failing commit).
 - A posting without `currency` is in the operating currency (unstated in PRD2; the web UI does the same).
 - `date` of a write tool accepts an optional `HH:MM:SS`.
 

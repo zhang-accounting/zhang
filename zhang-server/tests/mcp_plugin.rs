@@ -14,11 +14,15 @@ use axum::http::Method;
 use axum::Router;
 use serde_json::{json, Value};
 use tempfile::TempDir;
-use zhang_core::data_source::LocalFileSystemDataSource;
+use tokio::sync::RwLock;
+use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ParamRef, ParamTypes, Query};
+use zhang_server::broadcast::Broadcaster;
 use zhang_server::builtin::BUILTINS;
-use zhang_testkit::http::{call, Reply, Settings};
+use zhang_server::{create_server_app, start_reload_listener, ReloadSender};
+use zhang_testkit::http::{call, router_of, serve_config, Reply, Settings};
 
 const ENDPOINT: &str = "/api/plugins/zhang-mcp/mcp";
 const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
@@ -854,4 +858,147 @@ async fn the_write_tools_refuse_floats_and_malformed_postings_before_the_host() 
     )
     .await;
     assert_eq!(text, "the argument `commodities` must be a list of strings");
+}
+
+/// the server as `zhang serve` runs it: the full router plus the reload listener, so that the reload a commit asks
+/// for lands, and a handle to wait for it
+async fn serving(dir: &TempDir, settings: &Settings) -> (Router, Arc<ReloadSender>) {
+    let source: Arc<dyn DataSource> = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    let root = dir.path().canonicalize().unwrap();
+    let ledger = Ledger::load(root.clone(), "main.zhang".to_owned(), source.clone()).unwrap_or_else(|error| panic!("ledger should load: {error}"));
+    let ledger = Arc::new(RwLock::new(ledger));
+    let (sender, receiver) = tokio::sync::mpsc::channel(8);
+    let reload_sender = Arc::new(ReloadSender::new(sender));
+    start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+    let app = create_server_app(
+        serve_config(&root, "main.zhang", source, settings),
+        ledger,
+        Broadcaster::create(),
+        reload_sender.clone(),
+    );
+    (router_of(app).await, reload_sender)
+}
+
+#[tokio::test]
+async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
+    let dir = ledger_dir(GRANTED);
+    let (router, reload) = serving(&dir, &Settings::default()).await;
+
+    // the instructions tell the model the write flow, and the catalogue has fifteen tools
+    let reply = post(&router, &[], &request(1, "initialize", json!({"protocolVersion": "2025-11-25"}))).await;
+    let instructions = reply.json()["result"]["instructions"].as_str().unwrap().to_owned();
+    assert!(
+        instructions.starts_with("This server gives access to the zhang ledger \"Home\""),
+        "{instructions}"
+    );
+    assert!(
+        instructions.contains("`preview_transaction` first") && instructions.contains("`open_account`"),
+        "{instructions}"
+    );
+    let mut expected: Vec<&str> = READ_TOOLS.to_vec();
+    expected.extend(WRITE_TOOLS);
+    assert_eq!(tool_names(&router).await, expected);
+    let reply = post(&router, &[("mcp-protocol-version", "2025-06-18")], &request(3, "tools/list", json!({}))).await;
+    let tools = reply.json()["result"]["tools"].clone();
+    let annotations = |name: &str| tools.as_array().unwrap().iter().find(|tool| tool["name"] == name).unwrap()["annotations"].clone();
+    assert_eq!(
+        annotations("preview_transaction"),
+        json!({"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false})
+    );
+    assert_eq!(
+        annotations("add_transaction"),
+        json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false})
+    );
+    assert_eq!(
+        annotations("open_account"),
+        json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false})
+    );
+
+    // a preview against an account that does not exist: not an error of the tool, a finding for the model
+    let preview = structured(&router, "preview_transaction", coffee(None)).await;
+    assert_eq!(preview["ok"], false);
+    assert!(preview["token"].is_null(), "{preview}");
+    let kinds: Vec<&str> = preview["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|it| it["error_type"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["AccountDoesNotExist"]);
+    assert_eq!(preview["errors"][0]["metas"]["account_name"], "Expenses:Food:Coffee");
+
+    // a made-up token: refused before anything is written
+    let refused = error_text(&router, "add_transaction", coffee(Some("made-up"))).await;
+    assert!(refused.contains("preview_transaction"), "{refused}");
+
+    // open the account explicitly, in one call
+    let opened = structured(
+        &router,
+        "open_account",
+        json!({"date": "2024-03-01", "account": "Expenses:Food:Coffee", "commodities": ["CNY"]}),
+    )
+    .await;
+    assert_eq!((opened["recorded"].as_bool(), opened["already_open"].as_bool()), (Some(true), Some(false)));
+    assert!(opened["text"].as_str().unwrap().contains("open Expenses:Food:Coffee CNY"), "{opened}");
+    reload.reload_and_wait().await.unwrap();
+
+    // the preview is clean now: the exact text, the file by the ledger's policy, a token
+    let preview = structured(&router, "preview_transaction", coffee(None)).await;
+    assert_eq!(preview["ok"], true, "{preview}");
+    let text = preview["text"].as_str().unwrap().to_owned();
+    assert!(text.contains("\"Blue Bottle\" \"coffee\" #mcp"), "{text}");
+    assert!(text.contains("Expenses:Food:Coffee 4.50 CNY"), "{text}");
+    assert_eq!(preview["file"], "data/2024/03.zhang");
+    let token = preview["token"].as_str().expect("a token").to_owned();
+    assert_eq!(preview["errors"], json!([]));
+
+    // the commit: the file holds exactly the previewed text, the main file includes it
+    let added = structured(&router, "add_transaction", coffee(Some(&token))).await;
+    assert_eq!((added["recorded"].as_bool(), added["text"].as_str()), (Some(true), Some(text.as_str())));
+    assert_eq!(added["file"], "data/2024/03.zhang");
+    let written = std::fs::read_to_string(dir.path().join("data/2024/03.zhang")).unwrap();
+    assert!(written.contains(&text), "the file holds the previewed text:\n{written}");
+    assert_eq!(written.matches("Blue Bottle").count(), 1);
+    let main = std::fs::read_to_string(dir.path().join("main.zhang")).unwrap();
+    assert!(main.contains("include \"data/2024/03.zhang\""), "{main}");
+
+    // the same token again: the ledger moved on, so the model is told it changed and to preview again (before the
+    // reload lands the host refuses the stale ledger; after it the token is simply not the current preview's)
+    let replay = error_text(&router, "add_transaction", coffee(Some(&token))).await;
+    assert!(
+        replay.contains("the ledger changed") && replay.contains("preview_transaction again"),
+        "{replay}"
+    );
+    reload.reload_and_wait().await.unwrap();
+    let replay = error_text(&router, "add_transaction", coffee(Some(&token))).await;
+    assert!(
+        replay.contains("the ledger changed") && replay.contains("preview_transaction again"),
+        "{replay}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("data/2024/03.zhang")).unwrap(),
+        written,
+        "nothing else was written"
+    );
+
+    // the reloaded ledger shows the entry through the read tools, tagged
+    let found = structured(&router, "transactions", json!({"keyword": "coffee"})).await;
+    assert_eq!(found["row_count"], 1);
+    assert_eq!(cell(&found, 0, "payee"), "Blue Bottle");
+    assert_eq!(cell(&found, 0, "tags"), &json!(["mcp"]));
+    let tagged = structured(&router, "transactions", json!({"tags": ["mcp"]})).await;
+    assert_eq!(tagged["row_count"], 1);
+    let journal = structured(&router, "journal", json!({"account": "Expenses:Food:Coffee"})).await;
+    assert_eq!(journal["row_count"], 1);
+    assert_eq!(number(cell(&journal, 0, "units")), 4.5);
+
+    // opening an account that is open with the same commodities writes nothing
+    let again = structured(
+        &router,
+        "open_account",
+        json!({"date": "2024-03-01", "account": "Expenses:Food:Coffee", "commodities": ["CNY"]}),
+    )
+    .await;
+    assert_eq!((again["recorded"].as_bool(), again["already_open"].as_bool()), (Some(false), Some(true)));
+    assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);
 }
