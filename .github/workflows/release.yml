@@ -232,14 +232,6 @@ jobs:
           name: x86_64-unknown-linux-gnu
           path: target/x86_64-unknown-linux-gnu/release
 
-      # the image contexts are the release directories: put the MCP plugin beside each binary for the Dockerfile's COPY
-      - name: Add the MCP plugin to the image contexts
-        run: |
-          for target in aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
-            mkdir -p target/$target/release/plugins/mcp
-            cp plugins/mcp/mcp.lua target/$target/release/plugins/mcp/mcp.lua
-          done
-
       - name: podman login
         run: podman login --username ${{ secrets.DOCKERHUB_USERNAME }} --password ${{ secrets.DOCKERHUB_TOKEN }} docker.io
 

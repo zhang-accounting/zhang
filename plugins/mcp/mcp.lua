@@ -490,7 +490,8 @@ local function check(a, value)
   elseif kind == "datetime" then
     if type(value) == "string" then
       local date, time = value:match("^(%d%d%d%d%-%d%d%-%d%d)[ T](%d%d:%d%d:%d%d)$")
-      if date and is_date(date) and is_time(time) then return value end
+      -- the host takes `2026-10-13` or `2026-10-13T08:30:00`
+      if date and is_date(date) and is_time(time) then return date .. "T" .. time end
       if is_date(value) then return value end
     end
     return nil, wrong("a date written YYYY-MM-DD, optionally followed by a time HH:MM:SS")
@@ -940,9 +941,10 @@ local function require_grant(kind)
   end
 end
 
--- the host's write functions; a failure is `<kind>: <message>` as the runtime raises it
-local function write_preview(directives) return zhang.write.preview({ directives = directives }) end
-local function write_commit(directives, token) return zhang.write.commit({ directives = directives, token = token }) end
+-- the host's write functions take the batch as a list of directive tables; a failure is `<kind>: <message>` as the
+-- runtime raises it
+local function write_preview(directives) return zhang.write.preview(directives) end
+local function write_commit(directives, token) return zhang.write.commit(directives, token) end
 
 -- `<kind>: <message>` of a failed host call, or nil when it is something else
 local function host_failure(err)

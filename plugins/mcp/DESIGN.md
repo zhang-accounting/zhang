@@ -221,7 +221,7 @@ results; `server/discover` is `cacheScope: "private"`; the same-host `Origin` ru
 
 ## 8. Follow-ups
 
-- Bundling the script in the binary (`plugin "zhang:mcp"`), PRD2 D-E, so the install is two lines.
+- Bundling the script in the binary (`plugin "zhang:mcp"`), PRD2 D-E: required, the next PR of the stack, so the install is two lines and no file is copied (nor shipped in the Docker image).
 - Resources (`zhang://schema`, `zhang://errors`) and prompts (`monthly-review`, `bql-help`).
 - A body-size cap per plugin in the host (the 1 MiB check runs after the host buffered the body).
 - Rate limiting in the host, if a shared deployment needs it.

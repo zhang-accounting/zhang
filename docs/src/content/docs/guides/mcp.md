@@ -11,7 +11,7 @@ Reading is the default and needs nothing else. Writing is off until you turn on 
 
 ## Install
 
-1. Get `mcp.lua`: `zhang-mcp-<version>.lua` from the [release](https://github.com/zhang-accounting/zhang/releases) of the Zhang you run, or `plugins/mcp/mcp.lua` from the repository at that version. The Docker image carries it at `/usr/share/zhang/plugins/mcp.lua`. Put it into your ledger directory, for example as `plugins/mcp.lua`; the script is read through your ledger's storage, so for a ledger on S3, WebDAV or GitHub, upload it there too.
+1. Get `mcp.lua`: `zhang-mcp-<version>.lua` from the [release](https://github.com/zhang-accounting/zhang/releases) of the Zhang you run, or `plugins/mcp/mcp.lua` from the repository at that version. Put it into your ledger directory, for example as `plugins/mcp.lua`; the script is read through your ledger's storage, so for a ledger on S3, WebDAV or GitHub, upload it there too.
 2. Enable plugins and declare it:
 
    ```zhang
@@ -22,6 +22,10 @@ Reading is the default and needs nothing else. Writing is off until you turn on 
    ```
 
 3. Reload. The **Settings** page lists `zhang-mcp` with an **Open** link, and `GET /api/plugins/zhang-mcp/` describes the server and where its endpoint is.
+
+:::note[Soon: nothing to copy]
+The next release bundles the script inside Zhang: step 1 goes away and the declaration becomes `plugin "zhang:mcp"`. The settings, the tools and everything below stay the same.
+:::
 
 The MCP endpoint is `POST <your zhang url>/api/plugins/zhang-mcp/mcp`, for example `http://localhost:8000/api/plugins/zhang-mcp/mcp`.
 
