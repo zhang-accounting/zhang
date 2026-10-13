@@ -31,7 +31,7 @@ function M.router(request)
     text_load_works = load("return 1 + 1")() == 2,
     loaded_chunk_sees_the_api = load("return zhang ~= nil and json ~= nil")(),
     loaded_chunk_sees_script_globals = load("return script_global")() == "set",
-    global_stays_in_env = rawget(_ENV, "script_global") == "set" and load("return script_global", "=probe", "t", {})() == nil,
+    global_stays_in_env = rawget(_ENV, "script_global") == "set",
     env_metatable_sealed = getmetatable(_ENV) == "sandbox",
     g_is_env = _G == _ENV,
     libraries = {

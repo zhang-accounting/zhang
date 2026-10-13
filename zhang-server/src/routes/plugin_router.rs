@@ -184,14 +184,11 @@ async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest)
         Some(plugin.execute_as_router(&request, &host.ledger, host.clone()))
     })
     .await;
-    // the read lock is released with the task's host: what the plugin committed is in the files, and the ledger
-    // served is marked stale and reloaded, as `wrote` does after an API write
+    // what the plugin committed is in the files, the write is pending on the reload sender and the reload asked
+    // for (the commit did both under the read lock, so a write queued behind this call reloads first): one line
+    // of log per commit
     let commit = committed.lock().unwrap_or_else(PoisonError::into_inner).take();
     if let Some(commit) = commit {
-        let mut ledger = state.ledger.write().await;
-        ledger.stale = true;
-        state.reload_sender.reload();
-        drop(ledger);
         info!(
             "plugin {name} committed {} directives ({} bytes) to {} generation {}",
             commit.committed.entries,
