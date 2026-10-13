@@ -98,10 +98,11 @@ The `json` table is [dkjson](https://dkolf.de/dkjson-lua/) with a few rules fixe
 - **Empty tables.** A Lua table has no kind, so an empty `{}` encodes as `[]`. Use `json.object()`, or `json.object(t)`, for a table that must encode as `{}` even when empty, and `json.array()` for one that must encode as `[]`. What `json.decode` and the host give you keeps its kind: an empty object stays `{}` through a round trip. A response's `headers` is always an object.
 - **Numbers.** Integers are exact up to 2<sup>63</sup>; floats are written with 14 significant digits. **Amounts never travel as numbers**: a query result gives every decimal as a string (`"12.50"`), and a plugin keeps it as a string. Do not `tonumber` an amount to add it up; let the query sum it.
 - **Strings** are bytes. A NUL byte inside a string survives a round trip. A `json` value must be UTF-8 text; send other bytes in `body`.
+- **Key order is stable.** The interpreter's string hash seed is fixed, so `pairs` visits a table's keys in the same order on every request and the same request gives byte-identical JSON. The order is not alphabetical; a client that needs one sorts the keys itself.
 
 ## The sandbox
 
-A script has `string`, `table`, `math`, `utf8`, `coroutine`, the base functions (`pairs`, `ipairs`, `pcall`, `tostring`, `tonumber`, `select`, `setmetatable`, …), `load` for text chunks, `print` (to Zhang's standard output, for development) and `debug.traceback`. It has no `io`, no `os`, no `require` and no `package`, no `dofile` and no `loadfile`, no binary chunks and nothing else of `debug`. A Lua plugin cannot make HTTP requests in this release, even with `allowed_hosts`.
+A script has `string`, `table`, `math`, `utf8`, `coroutine`, the base functions (`pairs`, `ipairs`, `pcall`, `tostring`, `tonumber`, `select`, `setmetatable`, …), `load` for text chunks, `print` and `debug.traceback`. A script has no standard output: `print` writes one line per call to the `zhang serve` log at the info level, prefixed with the script's path (`plugins/food.lua: hello\t42`), which is where a plugin author looks while developing. It has no `io`, no `os`, no `require` and no `package`, no `dofile` and no `loadfile`, no binary chunks and nothing else of `debug`. A Lua plugin cannot make HTTP requests in this release, even with `allowed_hosts`.
 
 Each request runs in a fresh interpreter, so a script cannot keep state between requests or watch another plugin. It cannot read files (a router never can), write files, or reach the network; it reads the ledger through the API above only.
 

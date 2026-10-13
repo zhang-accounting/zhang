@@ -6,7 +6,7 @@ local M = { name = "sandbox", version = "0.1.0" }
 
 -- names that must not be reachable as globals: the raw bridges, the interpreter's locals, the spike's globals
 local hidden = {
-  "now", "query", "query_params", "query_schema", "ledger_info", "read_file", "list_dir", "emit_error", "config",
+  "now", "query", "query_params", "query_schema", "ledger_info", "read_file", "list_dir", "emit_error", "config", "log",
   "raw", "codec", "base", "source", "script_name", "entry", "input", "unwrap", "env",
   "_host_now", "_host_query", "_host_read_file", "_host_emit_error", "_config", "_input", "_json", "_entry",
   "io", "os", "package", "require", "dofile", "loadfile", "loadstring", "module", "newproxy", "gcinfo",

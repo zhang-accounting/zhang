@@ -123,6 +123,14 @@ static int bridge_emit_error(lua_State *L) {
   return 0;
 }
 
+// write argument 1 to the host's log at the info level, where `zhang serve` shows it
+static int bridge_log(lua_State *L) {
+  size_t length;
+  const char *text = luaL_checklstring(L, 1, &length);
+  extism_log(text, length, ExtismLogInfo);
+  return 0;
+}
+
 // the config value of the key in argument 1, or nil: the flat config every plugin gets
 static int bridge_config(lua_State *L) {
   size_t length;
@@ -149,6 +157,7 @@ static const luaL_Reg BRIDGES[] = {
     {"write_commit", bridge_write_commit},
     {"emit_error", bridge_emit_error},
     {"config", bridge_config},
+    {"log", bridge_log},
     {NULL, NULL},
 };
 
@@ -389,6 +398,15 @@ local function sandboxed_load(chunk, name, mode, ...)
   return rawload(chunk, name, "t", (...))
 end
 rawset(base, "load", sandboxed_load)
+
+-- `print` has no stdout to reach: its line goes to the host's log at the info level, prefixed with the
+-- script's name, so a plugin author sees it in the `zhang serve` log
+local function sandboxed_print(...)
+  local parts = {}
+  for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
+  raw.log(script_name .. ": " .. concat(parts, "\t"))
+end
+rawset(base, "print", sandboxed_print)
 setmetatable(base, {
   __newindex = function(_, key) error("the sandbox is read-only: cannot set " .. tostring(key), 2) end,
   __metatable = "sandbox",
