@@ -1072,5 +1072,14 @@ async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
     )
     .await;
     assert_eq!((again["recorded"].as_bool(), again["already_open"].as_bool()), (Some(false), Some(true)));
+    assert_eq!(again["opened_on"], "2024-03-01");
+    assert!(again["closed_on"].is_null());
+    assert!(
+        again["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Expenses:Food:Coffee is already opened on 2024-03-01;"),
+        "{again}"
+    );
     assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);
 }
