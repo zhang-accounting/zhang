@@ -48,8 +48,9 @@ The script is one chunk that returns a table:
 |---|---|---|
 | `name` | yes | The plugin's name, as `GET /api/plugins` lists it and as the route `/api/plugins/{name}` names it. When two plugins share a name, the first one declared serves the route. |
 | `version` | yes | The plugin's version, a string. |
-| `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default. |
+| `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default; a list with no type, or a map where a list was meant, does not load. |
 | `router` | for a router | The function that answers a request. |
+| `writes` | no | The kinds of directives the plugin appends with `zhang.write`, `{ "transaction", "open" }`. The ledger owner grants them with `allowed_writes` on the `plugin` directive; without the declaration the write functions raise `unavailable: …`, without the grant `denied: …`. |
 
 Zhang runs the chunk when it loads the ledger, to read the name, the version and the types, and again for every request. Every run starts from scratch, in a fresh interpreter: no global, no table and no upvalue survives from one request to the next, and nothing is shared between plugins.
 
@@ -77,7 +78,9 @@ Anything that is not a table is an invalid response, which Zhang answers with st
 | `zhang.config(key)` | A setting as a string, or `nil`: the ledger's options, the metas of the `plugin` directive, and the keys Zhang sets (`zhang.abi`, `zhang.plugin`, `zhang.seed`), exactly as a wasm plugin receives them. |
 | `zhang.emit_error(message, metas)` | Reports a problem. A request has no error list, so in a router it is only logged; answer the caller in the response instead. |
 | `zhang.read_file(path)`, `zhang.list_dir(path)` | The file functions of `allowed_paths`. A router has no file access, whatever its directive grants, so in this release they raise `denied: …`. |
-| `zhang.str(v)`, `zhang.int(v)`, `zhang.decimal(v)`, `zhang.bool(v)`, `zhang.date(v)`, `zhang.set(v)` | A typed query parameter. `nil` is NULL for any type. A decimal is a string such as `"12.50"`, a date a string `"YYYY-MM-DD"`, a set a list of strings. |
+| `zhang.str(v)`, `zhang.int(v)`, `zhang.decimal(v)`, `zhang.bool(v)`, `zhang.date(v)`, `zhang.set(v)` | A typed query parameter. `nil` is NULL for any type. A decimal is a string such as `"12.50"` or an integer (a Lua float is refused: `decimal must be a string or an integer, got 12.5`), a date a string `"YYYY-MM-DD"`, a set a list of strings. |
+| `zhang.write.preview(batch)` | Previews a batch of up to 50 directives to append, each a table with `kind = "transaction"` (the fields of `POST /api/transactions`) or `kind = "open"` (`date`, `account`, `commodities`, `booking_method`, `metas`): for each entry the text Zhang writes, the file it goes to, the fields refused and the errors the ledger would report, exactly as `POST /api/transactions/preview` tells them, with an `open` earlier in the batch counting for the transactions after it. `token` is set when every entry is clean. Amounts are strings: a non-integer float anywhere in the batch raises `amount `12.3` must be a string (…)` before anything is sent, and the host refuses every other number. See [writes](/developers/writing-plugins/#writes). |
+| `zhang.write.commit(batch, token)` | Appends the previewed batch with its token, in one write, and gives `{ file, bytes, entries, generation }` once the text is in the file; the ledger reloads after the request. A batch that differs, a token of another ledger generation (a reload or a commit happened since), an expired token (10 minutes), or a second commit before the ledger reloaded raises `conflict: …`: preview again. |
 
 A call the host refuses raises a Lua error with the host's message: `query error at line 1, column 8: unknown column` for a query that fails at a position, `query error: parameter :from must be a date string YYYY-MM-DD or null` for a parameter that cannot be bound, `denied: …` for a file. Uncaught, the error fails the request with status 500; wrap the call in `pcall` to answer a clean status:
 
@@ -95,10 +98,11 @@ The `json` table is [dkjson](https://dkolf.de/dkjson-lua/) with a few rules fixe
 - **Empty tables.** A Lua table has no kind, so an empty `{}` encodes as `[]`. Use `json.object()`, or `json.object(t)`, for a table that must encode as `{}` even when empty, and `json.array()` for one that must encode as `[]`. What `json.decode` and the host give you keeps its kind: an empty object stays `{}` through a round trip. A response's `headers` is always an object.
 - **Numbers.** Integers are exact up to 2<sup>63</sup>; floats are written with 14 significant digits. **Amounts never travel as numbers**: a query result gives every decimal as a string (`"12.50"`), and a plugin keeps it as a string. Do not `tonumber` an amount to add it up; let the query sum it.
 - **Strings** are bytes. A NUL byte inside a string survives a round trip. A `json` value must be UTF-8 text; send other bytes in `body`.
+- **Key order is stable.** The interpreter's string hash seed is fixed, so `pairs` visits a table's keys in the same order on every request and the same request gives byte-identical JSON. The order is not alphabetical; a client that needs one sorts the keys itself.
 
 ## The sandbox
 
-A script has `string`, `table`, `math`, `utf8`, `coroutine`, the base functions (`pairs`, `ipairs`, `pcall`, `tostring`, `tonumber`, `select`, `setmetatable`, …), `load` for text chunks, `print` (to Zhang's standard output, for development) and `debug.traceback`. It has no `io`, no `os`, no `require` and no `package`, no `dofile` and no `loadfile`, no binary chunks and nothing else of `debug`. A Lua plugin cannot make HTTP requests in this release, even with `allowed_hosts`.
+A script has `string`, `table`, `math`, `utf8`, `coroutine`, the base functions (`pairs`, `ipairs`, `pcall`, `tostring`, `tonumber`, `select`, `setmetatable`, …), `load` for text chunks, `print` and `debug.traceback`. A script has no standard output: `print` writes one line per call to the `zhang serve` log at the info level, prefixed with the script's path (`plugins/food.lua: hello\t42`), which is where a plugin author looks while developing. It has no `io`, no `os`, no `require` and no `package`, no `dofile` and no `loadfile`, no binary chunks and nothing else of `debug`. A Lua plugin cannot make HTTP requests in this release, even with `allowed_hosts`.
 
 Each request runs in a fresh interpreter, so a script cannot keep state between requests or watch another plugin. It cannot read files (a router never can), write files, or reach the network; it reads the ledger through the API above only.
 
@@ -116,7 +120,7 @@ Each request runs in a fresh interpreter, so a script cannot keep state between 
 | What happened | What Zhang does |
 |---|---|
 | The script does not parse, returns no module table, or declares a type other than `Router` | The ledger does not load, with the error naming the script and the line (`plugins/food.lua:12: '=' expected near 'end'`). Under `zhang serve`, the previous version of the ledger keeps being served. |
-| `router` raises an error (`error()`, or a host call that failed and was not caught) | Status 500. The message, with the script's line and a traceback, goes to Zhang's log, not to the client. |
+| `router` raises an error (`error()`, or a host call that failed and was not caught) | Status 500. The message, with the script's line and a traceback, goes to Zhang's log, not to the client. A host call that fails raises `kind: message`, such as `denied: …` or `conflict: …`; `pcall` it to answer the caller yourself. |
 | `router` returns something that is not a table | Status 502. |
 | The request runs past the `timeout` | Status 504. |
 | The request allocates more than 64 MiB | Status 500, with the message above in the log. |

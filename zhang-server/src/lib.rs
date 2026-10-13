@@ -36,8 +36,9 @@ use zhang_core::{ZhangError, ZhangResult};
 use crate::auth::{AuthConfig, AuthState, SharedAuth};
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
+use crate::plugin_writes::PluginWrites;
 use crate::response::ResponseWrapper;
-use crate::state::{AppState, ReloadFailure};
+use crate::state::{AppState, ReloadFailure, SharedPluginWrites};
 
 pub mod account_queries;
 pub mod auth;
@@ -47,6 +48,7 @@ pub mod builtin;
 mod cells;
 pub mod error;
 pub mod journals;
+pub mod plugin_writes;
 pub mod report;
 pub mod request;
 pub mod response;
@@ -68,6 +70,8 @@ pub struct ServerApp {
     broadcaster: Arc<Broadcaster>,
     reload_sender: Arc<ReloadSender>,
     auth: Arc<AuthState>,
+    /// what the writes of router plugins share: the key of their preview tokens and the lock of their commits
+    plugin_writes: Arc<PluginWrites>,
 }
 
 impl GotchaApp for ServerApp {
@@ -169,6 +173,7 @@ impl GotchaApp for ServerApp {
             broadcaster: SharedBroadcaster(self.broadcaster.clone()),
             reload_sender: SharedReloadSender(self.reload_sender.clone()),
             auth: SharedAuth(self.auth.clone()),
+            plugin_writes: SharedPluginWrites(self.plugin_writes.clone()),
         })
     }
 }
@@ -240,6 +245,9 @@ pub struct ReloadSender {
     broadcaster: std::sync::OnceLock<Arc<Broadcaster>>,
     /// the reload at the next local midnight of a ledger that depends on the date, replaced on every reload
     midnight_reload: std::sync::Mutex<Option<JoinHandle<()>>>,
+    /// The generation of the ledger served: moved on by every successful reload, and by every commit of a plugin
+    /// ([`plugin_writes`]), so a preview token minted for one ledger is void once it changed. Starts at 1
+    generation: std::sync::atomic::AtomicU64,
 }
 
 impl Deref for ReloadSender {
@@ -257,7 +265,18 @@ impl ReloadSender {
             last_failure: std::sync::RwLock::new(None),
             broadcaster: std::sync::OnceLock::new(),
             midnight_reload: std::sync::Mutex::new(None),
+            generation: std::sync::atomic::AtomicU64::new(1),
         }
+    }
+
+    /// the generation of the ledger served, see [`ReloadSender::generation`]
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// move the generation on, as a commit of a plugin does once its text is in the file: the new generation
+    pub(crate) fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
     }
 
     /// ask for a reload, without waiting for it: a reload already asked for and not started reads the files as
@@ -302,6 +321,8 @@ impl ReloadSender {
         let outcome = match tokio::task::spawn_blocking(ledger.reloader()).await {
             Ok(Ok(reloaded)) => {
                 *ledger = reloaded;
+                // the ledger served changed: every preview token minted for the one before is void
+                self.next_generation();
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
             }
@@ -462,7 +483,9 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
     });
 }
 
-fn start_reload_listener(
+/// Run the reloads `reload_sender` asks for, one at a time, on `ledger_for_reload`, telling `cloned_broadcaster`'s
+/// readers; the task the server starts, which a test of a write path starts too
+pub fn start_reload_listener(
     ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<ReloadRequest>,
 ) {
     reload_sender.broadcaster.set(cloned_broadcaster).ok();
@@ -557,6 +580,7 @@ pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadca
         broadcaster,
         reload_sender,
         auth,
+        plugin_writes: Arc::new(PluginWrites::new()),
     }
 }
 

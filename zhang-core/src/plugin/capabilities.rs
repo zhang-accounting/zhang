@@ -26,6 +26,14 @@
 //!   **Warning:** `allowed_paths` together with `allowed_hosts` lets a plugin send what it reads off the
 //!   machine. A plugin already receives the whole ledger, so grant files and hosts together only to a
 //!   plugin you would trust with both.
+//! - `allowed_writes` (multi-valued) lets a router plugin append directives of these kinds to the ledger
+//!   through the `zhang_write_preview` and `zhang_write_commit` host functions ([`crate::plugin::write`]):
+//!   `transaction` or `open`. No entry means no writes, whatever the plugin declares. Any other value is a
+//!   `ParseInvalidMeta` error on the directive and grants nothing.
+//!
+//!   **Warning:** a plugin granted `allowed_writes` can add entries to the ledger's files. It cannot edit
+//!   or delete anything, and a well-behaved client shows every entry first, but grant it only to a plugin
+//!   you trust.
 //! - `timeout` bounds how long a single call into the plugin may run, [`DEFAULT_TIMEOUT`] without
 //!   it. The value is whole seconds (`"90"`) or a whole number with a unit `ms`, `s`, `m` or `h`
 //!   (`"500ms"`, `"30s"`, `"2m"`), above zero and at most a day. A repeated key keeps its last
@@ -45,7 +53,7 @@
 //!   [`PluginDirectiveConfig`]), and [`SEED_CONFIG_KEY`] (`zhang.seed`) to the plugin's seed (see
 //!   [`plugin_seed`]).
 //!
-//! Every other capability key (`allowed_paths`, `timeout`, `seed`, `stage`) is read here *and*
+//! Every other capability key (`allowed_paths`, `allowed_writes`, `timeout`, `seed`, `stage`) is read here *and*
 //! still passed through as config, so a plugin that already uses a meta key with that name
 //! sees no change, and a plugin can see what it was granted.
 
@@ -56,6 +64,7 @@ use std::time::Duration;
 use log::warn;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::Plugin;
+pub use zhang_shared::plugin_abi::WriteKind;
 
 use crate::domains::schemas::OptionDomain;
 pub use crate::pipeline::PluginStage;
@@ -67,6 +76,9 @@ const ALLOWED_HOSTS_KEY: &str = "allowed_hosts";
 
 /// meta key on a `plugin` directive granting it read access to the given files and directories
 const ALLOWED_PATHS_KEY: &str = "allowed_paths";
+
+/// meta key on a `plugin` directive letting it append directives of the given kinds, a [`WriteKind`] each
+pub const ALLOWED_WRITES_KEY: &str = "allowed_writes";
 
 /// meta key on a `plugin` directive bounding how long a single call into the plugin may run
 const TIMEOUT_KEY: &str = "timeout";
@@ -102,6 +114,8 @@ pub struct PluginCapabilities {
     /// files and directories this plugin may read, relative to the ledger root and cleaned (empty for the
     /// whole root); empty means no file access
     pub allowed_paths: Vec<PathBuf>,
+    /// the kinds of directives this plugin may append, each once, in the order granted; empty means no writes
+    pub allowed_writes: Vec<WriteKind>,
     /// how long a single call into the plugin may run before the host stops it
     pub timeout: Duration,
     /// the `seed` meta, mixed into the plugin's seed; `None` without one
@@ -115,6 +129,7 @@ impl Default for PluginCapabilities {
         PluginCapabilities {
             allowed_hosts: vec![],
             allowed_paths: vec![],
+            allowed_writes: vec![],
             timeout: DEFAULT_TIMEOUT,
             seed: None,
             stage: PluginStage::Booked,
@@ -168,6 +183,20 @@ impl PluginDeclaration {
                         Err(_) => declaration.errors.push(DeclarationError {
                             kind: ErrorKind::ParseInvalidMeta,
                             metas: HashMap::of2("plugin", directive.module.as_str(), ALLOWED_PATHS_KEY, value.clone()),
+                        }),
+                    }
+                    declaration.config.insert(key, value);
+                }
+                ALLOWED_WRITES_KEY => {
+                    match WriteKind::parse(value.trim()) {
+                        Some(kind) => {
+                            if !declaration.capabilities.allowed_writes.contains(&kind) {
+                                declaration.capabilities.allowed_writes.push(kind);
+                            }
+                        }
+                        None => declaration.errors.push(DeclarationError {
+                            kind: ErrorKind::ParseInvalidMeta,
+                            metas: HashMap::of2("plugin", directive.module.as_str(), ALLOWED_WRITES_KEY, value.clone()),
                         }),
                     }
                     declaration.config.insert(key, value);
@@ -305,7 +334,7 @@ mod test {
 
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::{
-        plugin_seed, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig, PluginStage, DEFAULT_TIMEOUT,
+        plugin_seed, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig, PluginStage, WriteKind, DEFAULT_TIMEOUT,
     };
     use crate::utils::hashmap::HashMapOfExt;
 
@@ -492,6 +521,44 @@ mod test {
         // like any other key: the flat config keeps the last value, `zhang.plugin` every value
         assert_eq!(declaration.config, map(&[("allowed_paths", ".")]));
         assert_eq!(declaration.directive.meta["allowed_paths"], vec!["documents", "./statements//2024.csv", "."]);
+    }
+
+    #[test]
+    fn should_read_allowed_writes_once_each_and_still_pass_them_through() {
+        let declaration = PluginDeclaration::parse(&directive(&[
+            ("allowed_writes", "open"),
+            ("allowed_writes", " transaction "),
+            ("allowed_writes", "open"),
+        ]));
+
+        assert_eq!(declaration.capabilities.allowed_writes, vec![WriteKind::Open, WriteKind::Transaction]);
+        assert_eq!(declaration.errors, vec![]);
+        assert_eq!(declaration.config, map(&[("allowed_writes", "open")]));
+        assert_eq!(declaration.directive.meta["allowed_writes"], vec!["open", " transaction ", "open"]);
+    }
+
+    #[test]
+    fn should_grant_no_writes_without_allowed_writes() {
+        let declaration = PluginDeclaration::parse(&directive(&[("allowed_hosts", "api.example.com")]));
+
+        assert_eq!(declaration.capabilities.allowed_writes, Vec::<WriteKind>::new());
+    }
+
+    #[test]
+    fn should_report_an_invalid_allowed_write_and_grant_nothing_for_it() {
+        for value in ["balance", "Transaction", "", "transaction open", "close", "*"] {
+            let declaration = PluginDeclaration::parse(&directive(&[("allowed_writes", value), ("allowed_writes", "open")]));
+
+            assert_eq!(declaration.capabilities.allowed_writes, vec![WriteKind::Open], "value {value:?}");
+            assert_eq!(
+                declaration.errors,
+                vec![DeclarationError {
+                    kind: ErrorKind::ParseInvalidMeta,
+                    metas: HashMap::of2("plugin", "fx-rate.wasm", "allowed_writes", value),
+                }],
+                "value {value:?}"
+            );
+        }
     }
 
     #[test]

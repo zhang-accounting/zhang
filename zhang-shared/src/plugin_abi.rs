@@ -30,6 +30,9 @@ pub mod export {
     pub const MAPPER: &str = "mapper";
     /// answers an HTTP [`Request`](super::Request) with a [`Response`](super::Response)
     pub const ROUTER: &str = "router";
+    /// Optional: what the plugin asks the host for beyond reading, a [`DeclaredCapabilities`](super::DeclaredCapabilities)
+    /// as JSON. The host reads it once, while the plugin registers. A plugin without the export declares nothing.
+    pub const CAPABILITIES: &str = "capabilities";
 }
 
 /// the host functions zhang offers in extism's `extism:host/user` namespace
@@ -74,6 +77,23 @@ pub mod import {
     ///
     /// `zhang_query_schema() -> i64` answers `{"Ok": schema}`.
     pub const QUERY_SCHEMA: &str = "zhang_query_schema";
+    /// The host function a router plugin previews a batch of directives to append to the ledger with.
+    ///
+    /// `zhang_write_preview(input: i64) -> i64` takes the offset of a block holding a [`WriteBatch`](super::WriteBatch)
+    /// as JSON and answers `{"Ok": preview}` with a [`WritePreview`](super::WritePreview): each directive's text as
+    /// the ledger writes it, the file it goes to, what the ledger would report against it, and, when every entry is
+    /// clean, a token for [`WRITE_COMMIT`]. Only a plugin that declares `writes` in its
+    /// [`CAPABILITIES`](super::export::CAPABILITIES) export and whose `plugin` directive grants `allowed_writes` may call
+    /// it; see the error kinds of [`HostErrorKind`](super::HostErrorKind).
+    pub const WRITE_PREVIEW: &str = "zhang_write_preview";
+    /// The host function a router plugin appends a previewed batch with.
+    ///
+    /// `zhang_write_commit(input: i64) -> i64` takes the same [`WriteBatch`](super::WriteBatch) as the preview, with its
+    /// `token`, and answers `{"Ok": committed}` with a [`WriteCommitted`](super::WriteCommitted) once the text is in the
+    /// file. The host appends exactly what the preview showed, on the ledger the preview looked at: a batch that
+    /// differs, a token of another ledger generation, an expired token, a ledger that is reloading, or a second commit
+    /// in the same generation is a `conflict`, and the plugin previews again.
+    pub const WRITE_COMMIT: &str = "zhang_write_commit";
 }
 
 /// the config keys the host sets for every plugin; a `plugin` directive's meta cannot override them
@@ -246,6 +266,12 @@ pub enum HostErrorKind {
     /// `zhang_query` and `zhang_query_params`: the query failed to parse, compile or run, or a parameter could not
     /// be bound; see [`HostError::line`] and [`HostError::column`]
     Query,
+    /// `zhang_write_commit`: the token is not for this ledger generation or this batch, it expired, the ledger is
+    /// reloading after a write, or a commit already happened in this generation: preview again. `zhang_write_preview`
+    /// answers it too while the ledger is reloading
+    Conflict,
+    /// `zhang_write_commit`: the ledger's data source failed to write the file
+    Io,
     /// a kind this side does not know, from a newer zhang, or an answer it cannot read
     #[serde(other)]
     Other,
@@ -395,6 +421,224 @@ pub struct QueryWithParams {
     /// the parameters by name; empty when absent. A parameter the query does not use is ignored
     #[serde(default)]
     pub params: BTreeMap<String, RawQueryParam>,
+}
+
+/// What a plugin's optional [`export::CAPABILITIES`] export answers: `{"writes": ["transaction", "open"]}`, the kinds
+/// of directives it wants to append through `zhang_write_preview` and `zhang_write_commit`. The host reads it while
+/// the plugin registers, ignores a kind it does not know with a warning, and only lets the plugin write the kinds it
+/// declared *and* its `plugin` directive grants with `allowed_writes`. A plugin without the export declares nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclaredCapabilities {
+    /// the write kinds, by name as [`WriteKind`] serializes them
+    #[serde(default)]
+    pub writes: Vec<String>,
+}
+
+/// A kind of directive a plugin may append: the value of an `allowed_writes` meta, of `writes` in
+/// [`DeclaredCapabilities`], and of `kind` in each entry of a [`WriteBatch`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WriteKind {
+    /// a transaction, written as `POST /api/transactions` takes one
+    Transaction,
+    /// an `open` of an account
+    Open,
+}
+
+impl WriteKind {
+    /// every kind, in the order the docs list them
+    pub const ALL: [WriteKind; 2] = [WriteKind::Transaction, WriteKind::Open];
+
+    /// the kind named `name` exactly as it is written on the wire: `transaction` or `open`
+    pub fn parse(name: &str) -> Option<WriteKind> {
+        WriteKind::ALL.into_iter().find(|kind| kind.name() == name)
+    }
+
+    /// the name on the wire
+    pub fn name(self) -> &'static str {
+        match self {
+            WriteKind::Transaction => "transaction",
+            WriteKind::Open => "open",
+        }
+    }
+}
+
+impl Display for WriteKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// The input of `zhang_write_preview` and `zhang_write_commit`: the directives to append, in order, each a JSON
+/// object with a `kind` ([`WriteKind`]) and the fields of that kind, and for a commit the `token` the preview of the
+/// same batch answered. On the wire:
+///
+/// ```json
+/// {"directives": [
+///   {"kind": "open", "date": "2026-10-13", "account": "Expenses:Food:Coffee", "commodities": ["USD"]},
+///   {"kind": "transaction", "datetime": "2026-10-13", "payee": "Blue Bottle", "narration": "coffee",
+///    "postings": [{"account": "Expenses:Food:Coffee", "unit": {"number": "4.50", "commodity": "USD"}},
+///                 {"account": "Assets:Cash"}],
+///    "tags": [], "links": [], "metas": []}
+/// ], "token": null}
+/// ```
+///
+/// A `transaction` entry is what `POST /api/transactions` takes ([`TransactionWrite`] is the typed view); an `open`
+/// entry is an [`OpenWrite`]. Amounts are strings: a JSON number anywhere in the batch is refused as `invalid`, so a
+/// float can never change a balance. At most 50 directives, whose text is at most 64 KiB, in an input of at most 1 MiB.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WriteBatch {
+    /// the directives, each with its `kind`
+    #[serde(default)]
+    pub directives: Vec<serde_json::Value>,
+    /// the token of the preview of this batch; a commit needs it, a preview ignores it
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+/// One directive of a [`WriteBatch`], typed: a plugin written in Rust builds these and the SDK sends them as the JSON
+/// above. The host reads each entry leniently by its `kind`, so a plugin in another language writes the same objects.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum WriteDirective {
+    Transaction(TransactionWrite),
+    Open(OpenWrite),
+}
+
+/// A transaction to append, as `POST /api/transactions` takes one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransactionWrite {
+    /// the ledger's wall-clock date and time, `2026-10-13` or `2026-10-13T08:30:00`
+    pub datetime: String,
+    pub payee: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narration: Option<String>,
+    /// `*` (the default) or `!`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flag: Option<String>,
+    pub postings: Vec<PostingWrite>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub links: Vec<String>,
+    #[serde(default)]
+    pub metas: Vec<MetaWrite>,
+}
+
+/// A posting of a [`TransactionWrite`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostingWrite {
+    pub account: String,
+    /// the units; `None` for the one posting whose units booking infers
+    #[serde(default)]
+    pub unit: Option<UnitWrite>,
+    /// the cost as the ledger writes it, e.g. `{150 USD}`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<String>,
+    /// the price as the ledger writes it, e.g. `@ 6 USD`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price: Option<String>,
+    /// the comment at the end of the posting line, without the `;`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metas: Option<Vec<MetaWrite>>,
+}
+
+/// The units of a [`PostingWrite`]: an amount with its number as a string, or the text as the ledger writes it
+/// (`4.50 USD`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UnitWrite {
+    Amount {
+        /// the number as text, keeping its scale: `"4.50"`
+        number: String,
+        commodity: String,
+    },
+    Text(String),
+}
+
+/// A metadata entry of a write, `key: "value"`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetaWrite {
+    pub key: String,
+    pub value: String,
+}
+
+/// An `open` to append: `2026-10-13 open Expenses:Food:Coffee USD`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenWrite {
+    /// the date, `2026-10-13`, or a wall-clock date and time
+    pub date: String,
+    pub account: String,
+    /// the commodities the account may hold; none for any
+    #[serde(default)]
+    pub commodities: Vec<String>,
+    /// the `booking_method` metadata, e.g. `FIFO`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub booking_method: Option<String>,
+    #[serde(default)]
+    pub metas: Vec<MetaWrite>,
+}
+
+/// What `zhang_write_preview` answers inside `Ok`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritePreview {
+    /// whether every entry is clean: no field error, no unbalanced amount, no error the ledger would report. Only then
+    /// is there a `token`
+    pub ok: bool,
+    /// the file the first directive is appended to, by its path within the ledger, chosen by the ledger's
+    /// `directive_output_path` option; each entry names its own
+    pub file: String,
+    /// the generation of the ledger the preview looked at: it moves on every reload and every commit
+    pub generation: u64,
+    pub entries: Vec<WritePreviewEntry>,
+    /// the token `zhang_write_commit` takes for this batch, on this ledger generation, for 10 minutes; `null` unless
+    /// `ok`, or when there is nothing to write (every `open` is `already_open`)
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+/// One entry of a [`WritePreview`], in the order of the batch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WritePreviewEntry {
+    /// the index of the directive in the batch
+    pub index: usize,
+    pub kind: String,
+    /// the file the directive is appended to, by its path within the ledger
+    pub file: String,
+    /// the directive as the ledger's format writes it, exactly the text a commit appends; `null` while a field is
+    /// invalid, and for an `open` that is `already_open`
+    #[serde(default)]
+    pub text: Option<String>,
+    /// the fields the host refuses, as `POST /api/transactions/preview` lists them: `{"posting", "field", "kind",
+    /// "value", "message"}`
+    #[serde(default)]
+    pub field_errors: Vec<serde_json::Value>,
+    /// a transaction: what it is unbalanced by once booked, as the preview API tells it; `null` when booking cannot
+    /// complete it or a field is invalid
+    #[serde(default)]
+    pub unbalanced: Option<serde_json::Value>,
+    /// the errors the ledger would report against the directive once written, `{"error_type", "metas"}`
+    #[serde(default)]
+    pub errors: Vec<serde_json::Value>,
+    /// an `open`: whether the account is already open with the same commodities, in which case the entry is left out
+    /// of the text (nothing to write); a different set of commodities is a field error on `commodities`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub already_open: Option<bool>,
+}
+
+/// What `zhang_write_commit` answers inside `Ok`: the text is in the file.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WriteCommitted {
+    /// the file the first directive was appended to, by its path within the ledger
+    pub file: String,
+    /// how many bytes were appended to the ledger's files, the framing newlines and any `include` line counted
+    pub bytes: usize,
+    /// how many directives were appended
+    pub entries: usize,
+    /// the generation of the ledger after the commit: every token minted before is void
+    pub generation: u64,
 }
 
 /// Request headers carrying the user's credentials for zhang itself, or for a proxy in front of it. A plugin sits

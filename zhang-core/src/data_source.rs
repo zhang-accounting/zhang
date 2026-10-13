@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use chrono::Datelike;
 use log::{debug, warn};
 use minijinja::{context, Environment};
-use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
+use zhang_ast::{Directive, DirectiveType, Include, SpanInfo, Spanned, ZhangString};
 
 use crate::data_type::{document_path_in_file, DataType, Dialect};
 use crate::error::{storage_error, Access, IoErrorIntoZhangError};
@@ -188,8 +188,15 @@ pub struct MissingInclude {
 /// directive), `year`, `month`, `month_str` and `day`, `day_str` (zero-padded) and `ext`, the extension of the main
 /// file (`zhang` without one)
 pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangResult<PathBuf> {
+    output_file(ledger, directive.datetime(), directive.directive_type())
+}
+
+/// [`directive_output_file`] for a directive of the kind `directive_type` dated `datetime` (`None` for one without a
+/// date), before the directive exists: where a directive a request describes would go, even one the request cannot
+/// build yet
+pub fn output_file(ledger: &Ledger, datetime: Option<chrono::NaiveDateTime>, directive_type: DirectiveType) -> ZhangResult<PathBuf> {
     let (entry, main_file_endpoint) = &ledger.entry;
-    let Some(datetime) = directive.datetime() else {
+    let Some(datetime) = datetime else {
         return Ok(entry.join(main_file_endpoint));
     };
     let date = datetime.date();
@@ -204,7 +211,7 @@ pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangRes
     })?;
     let path = template
         .render(context! {
-            type => directive.directive_type().to_string(),
+            type => directive_type.to_string(),
             year => date.year(),
             month => date.month(),
             month_str => date.format("%m").to_string(),
@@ -218,9 +225,11 @@ pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangRes
 
 /// What an append of `directives` to `ledger` writes, in order: each directive as it is written there
 /// ([`written_into`]), with the file it is appended to, by its path within the ledger as [`DataSource::get`] takes it.
-/// That is the file [`directive_output_file`] gives it. The main file gets an `include` of that file first, once per
-/// append, unless the ledger loaded it already. A file outside the ledger's directory is an error, and nothing is
-/// written: a source writes nothing there, and an `include` of it would name no file of the ledger.
+/// That is the file [`directive_output_file`] gives it. The main file gets an `include` of a file the ledger did not
+/// load, once per append, right after the first directive written to that file: a write that fails between the two
+/// leaves a file no `include` names, which the next append includes, rather than an `include` of a file that is not
+/// there. A file outside the ledger's directory is an error, and nothing is written: a source writes nothing there,
+/// and an `include` of it would name no file of the ledger.
 pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<Vec<(String, Directive)>> {
     let within = |file: &Path| {
         ledger
@@ -234,6 +243,8 @@ pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<V
     let mut plan = vec![];
     for directive in directives {
         let file = within(&directive_output_file(ledger, &directive)?)?;
+        let directive = written_into(ledger, directive, &file);
+        plan.push((slashed(&file), directive));
         if !included.contains(&file) {
             let include = Directive::Include(Include {
                 file: ZhangString::QuoteString(slashed(&file)),
@@ -241,8 +252,6 @@ pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<V
             plan.push((slashed(&main), include));
             included.push(file.clone());
         }
-        let directive = written_into(ledger, directive, &file);
-        plan.push((slashed(&file), directive));
     }
     Ok(plan)
 }
@@ -685,6 +694,9 @@ impl DataSource for LocalFileSystemDataSource {
         Ok(files.finish())
     }
 
+    /// The file is written whole or not at all: the content goes to a temporary file in the same directory, flushed to
+    /// the disk, which is then renamed over the file. A crash or a full disk while writing leaves the file as it was,
+    /// never half written; the temporary file is removed when the write fails before the rename
     fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         let file = self
             .resolve(&path)
@@ -693,8 +705,34 @@ impl DataSource for LocalFileSystemDataSource {
         if let Some(folder) = file.parent() {
             std::fs::create_dir_all(folder).map_err(failed)?;
         }
-        std::fs::write(&file, content).map_err(failed)
+        write_atomically(&file, content).map_err(failed)
     }
+}
+
+/// Write `content` to `file` whole or not at all: into a temporary file next to it, flushed to the disk, then renamed
+/// over `file`, which replaces it in one step on POSIX systems and on Windows. The temporary file is removed when a
+/// step before the rename fails, so a failed write leaves nothing behind
+fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// tells the temporary files of one process apart
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let name = file.file_name().and_then(|it| it.to_str()).unwrap_or("file");
+    let temp = file.with_file_name(format!(".{name}.{}-{}.tmp", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
+    let written = (|| {
+        let mut writer = std::fs::File::create(&temp)?;
+        writer.write_all(content)?;
+        writer.sync_all()
+    })();
+    if let Err(error) = written {
+        std::fs::remove_file(&temp).ok();
+        return Err(error);
+    }
+    std::fs::rename(&temp, file).inspect_err(|_| {
+        std::fs::remove_file(&temp).ok();
+    })
 }
 
 /// an entry of a directory, as [`DataSource::list`] lists it
@@ -1018,6 +1056,70 @@ mod test {
         let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
         assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
         assert_eq!(reloaded.transactions().len(), 2);
+    }
+
+    /// An append writes the data file before the `include` of it in the main file, so a failure in between leaves a file
+    /// no `include` names, not an `include` of a file that is not there: here the main file cannot be read for the
+    /// `include`, and the transaction is in its file all the same. The next append includes the file
+    #[cfg(unix)]
+    #[test]
+    fn an_append_writes_the_data_file_before_its_include() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main.zhang");
+        std::fs::write(&main, "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
+        std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&main).is_ok() {
+            eprintln!("skipping: this user reads a file without permissions (root)");
+            return;
+        }
+
+        let error = ledger.data_source.append(&ledger, coffee()).expect_err("the include cannot be written");
+
+        std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(error.to_string().contains("main.zhang"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("data/2024/01.zhang")).unwrap().trim(),
+            "2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food"
+        );
+        assert!(!std::fs::read_to_string(&main).unwrap().contains("include"), "the main file is as it was");
+        assert!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .all(|entry| !entry.unwrap().file_name().to_string_lossy().ends_with(".tmp")),
+            "no temporary file is left behind"
+        );
+    }
+
+    /// A save writes the file whole or not at all: when the write cannot be completed, here because a directory is in
+    /// the file's place, what was there stays as it was and no temporary file is left behind
+    #[test]
+    fn a_save_that_cannot_complete_leaves_the_file_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), OPENS).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+        // a non-empty directory where the file would be: the rename over it fails, after the temporary file is written
+        std::fs::create_dir_all(root.join("data/2024/01.zhang/inside")).unwrap();
+
+        let error = ledger
+            .data_source
+            .save(&ledger, "data/2024/01.zhang".to_owned(), b"2024-01-15 * \"coffee\"\n")
+            .expect_err("the file cannot be written");
+
+        assert!(error.to_string().contains("01.zhang"), "{error}");
+        assert!(root.join("data/2024/01.zhang/inside").is_dir(), "what was in the file's place stays");
+        let leftovers: Vec<_> = std::fs::read_dir(root.join("data/2024"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert_eq!(leftovers, Vec::<String>::new(), "no temporary file is left behind");
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap(), OPENS, "nothing was included");
     }
 
     /// A file starting with a UTF-8 byte order mark, as some Windows editors save it, loads (#505): the mark is

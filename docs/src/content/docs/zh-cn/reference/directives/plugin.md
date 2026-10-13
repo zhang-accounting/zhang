@@ -5,7 +5,7 @@ sidebar:
   order: 11
 ---
 
-`plugin` 指令把一个 WebAssembly 插件加载到账本中。插件可以在账本加载时转换账本、报告账本中的问题，或者在 `/api/plugins/` 下提供页面。这条指令指定模块、授予插件能力，并把设置传给插件。
+`plugin` 指令把一个插件（WebAssembly 模块或 Lua 脚本）加载到账本中。插件可以在账本加载时转换账本、报告账本中的问题，或者在 `/api/plugins/` 下提供页面。这条指令指定模块、授予插件能力，并把设置传给插件。
 
 ## 语法
 
@@ -17,7 +17,7 @@ plugin "<Module>" ["<Argument>" …]
 
 | 部分 | 必填 | 说明 |
 |---|---|---|
-| `"<Module>"` | 是 | 模块的路径，相对于账本根目录：按扩展名（不区分大小写）区分 `.wasm` 模块、`.wat` 模块（WebAssembly 文本）或 `.lua` 脚本（见 [Lua 插件](/zh-cn/guides/lua-plugins/)）；其他扩展名会被指名拒绝。绝对路径只有在账本根目录之下才被接受；根目录之外的模块会被拒绝，账本无法加载。 |
+| `"<Module>"` | 是 | 模块的路径，相对于账本根目录：按扩展名（不区分大小写）区分 `.wasm` 模块、`.wat` 模块（WebAssembly 文本）或 `.lua` 脚本（见 [Lua 插件](/zh-cn/guides/lua-plugins/)）。没有扩展名的路径和以前一样是 wasm 模块；其他扩展名会被指名拒绝。绝对路径只有在账本根目录之下才被接受；根目录之外的模块会被拒绝，账本无法加载。 |
 | `"<Argument>"` | 否 | 位置参数，按原样传给插件。 |
 | `<key>: "<value>"` | 否 | 元数据行：张记账授予插件的[能力](#能力)，以及插件自己的设置。 |
 
@@ -56,6 +56,7 @@ plugin "plugins/receipts.wasm"
 |---|---|---|
 | `allowed_hosts` | 向这些主机发送 HTTP 请求。多个主机就重复这个键。 | 不能访问网络 |
 | `allowed_paths` | 以只读方式访问账本中的这些文件和目录。多个就重复这个键。 | 不能访问文件 |
+| `allowed_writes` | 通过 router 插件的预览和提交，向账本追加这些种类的指令：`"transaction"` 或 `"open"`。两种都要就重复这个键。 | 不能写入 |
 | `timeout` | 对插件的一次调用最多可以运行多久。 | 60 秒 |
 | `seed` | 不授予任何东西。任意文本，混入插件生成随机值所用的种子。 | 无 |
 | `stage` | 插件在加载账本时运行的阶段：`"booked"`，在张记账完成记账之后；或 `"raw"`，在记账之前。 | `"booked"` |
@@ -72,6 +73,12 @@ plugin "plugins/receipts.wasm"
 
 :::danger[同时授予文件和网络]
 同时获得 `allowed_paths` 和 `allowed_hosts` 的插件，可以把它读到的内容发送到你的机器之外。插件本来就会收到整个账本，所以只有对你在这两方面都信任的插件，才同时授予文件和主机。
+:::
+
+**`allowed_writes`**：每个值是插件可以追加的一种指令：`"transaction"` 或 `"open"`。它只对声明了自己会写入该种类的插件生效（插件的 `capabilities` 导出；Lua 脚本的 `writes` 表），并且只在插件作为 router 处理请求时生效。插件先预览一批指令，张记账用与 `POST /api/transactions/preview` 完全相同的方式校验它们，按 `POST /api/transactions` 的方式写入由 `directive_output_path` 选项选定的文件；然后插件用预览给出的令牌提交同一批指令。其他值会报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta)，并且不授予任何东西。宿主函数见[写入](/zh-cn/developers/writing-plugins/#写入)；每个插件申请的（`writes_requested`）和被授予的（`writes_granted`）写入种类见 `GET /api/plugins`。
+
+:::danger[写入]
+获得 `allowed_writes` 的插件可以往你的账本里添加条目。它不能修改或删除任何内容，而且行为良好的客户端会先把每个条目展示给你，但仍然只对你信任的插件授予它。
 :::
 
 **`timeout`**：整数秒（`"90"`），或者带单位 `ms`、`s`、`m` 或 `h` 的整数（`"500ms"`、`"30s"`、`"2m"`）。它必须大于零，且不超过一天。无效的值会报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta)，插件使用默认值。如果一个键重复出现，以它的最后一个值为准。
@@ -104,7 +111,7 @@ plugin "plugins/receipts.wasm"
 
 | 错误 | 触发条件 |
 |---|---|
-| [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) | `timeout`、`allowed_paths` 或 `stage` 的值无效。错误指向这条 `plugin` 指令。 |
+| [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) | `timeout`、`allowed_paths`、`allowed_writes` 或 `stage` 的值无效。错误指向这条 `plugin` 指令。 |
 | [`PluginError`](/zh-cn/reference/error-codes/#pluginerror) | 插件报告了账本中的问题。 |
 
 ## Beancount 兼容性
@@ -116,4 +123,4 @@ plugin "plugins/receipts.wasm"
 
 - [插件](/zh-cn/guides/plugins/)：启用和信任插件。
 - [编写插件](/zh-cn/developers/writing-plugins/)：用 Rust SDK 构建插件，以及插件接口。
-- [Router 插件](/zh-cn/guides/router-plugins/)：提供页面的插件。
+- [Router 插件](/zh-cn/guides/router-plugins/)：提供页面的插件。\n- [Lua 插件](/zh-cn/guides/lua-plugins/)：用 Lua 脚本编写 router 插件。

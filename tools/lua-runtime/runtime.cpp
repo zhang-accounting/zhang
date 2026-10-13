@@ -1,5 +1,5 @@
 // The Lua interpreter zhang pairs with every `plugin "x.lua"` directive: an Extism plugin exporting the plugin
-// ABI v1 identity functions and `router`, which run the script the host hands over in the config key
+// ABI v1 identity functions, `capabilities` and `router`, which run the script the host hands over in the config key
 // `zhang.script` (named `zhang.script_name` in messages). Lua 5.4.8 (lua.wasm's onelua.c, compiled as C++ so its
 // error handling rides wasm exception handling) and dkjson are linked in; this file is the only glue.
 //
@@ -38,8 +38,10 @@ EXTISM_IMPORT_USER("zhang_query_schema") extern uint64_t host_query_schema(void)
 EXTISM_IMPORT_USER("zhang_read_file") extern uint64_t host_read_file(uint64_t);
 EXTISM_IMPORT_USER("zhang_list_dir") extern uint64_t host_list_dir(uint64_t);
 EXTISM_IMPORT_USER("zhang_emit_error") extern void host_emit_error(uint64_t);
-// writes (D-C): `zhang_write_preview` and `zhang_write_commit` are imported here, bridged below, and surfaced as
-// `zhang.write.preview`/`zhang.write.commit` in the prelude, where the float lint on the batch lives.
+// the write capability: surfaced as `zhang.write.preview`/`zhang.write.commit` in the prelude, where the float lint
+// on the batch lives, for a script that declares `writes` in its module table (the `capabilities` export below)
+EXTISM_IMPORT_USER("zhang_write_preview") extern uint64_t host_write_preview(uint64_t);
+EXTISM_IMPORT_USER("zhang_write_commit") extern uint64_t host_write_commit(uint64_t);
 
 // ---- memory budget --------------------------------------------------------------------------------------------
 // Lua allocates through this function only. A call may hold at most MEMORY_BUDGET bytes of Lua objects; an
@@ -69,9 +71,11 @@ static void *budget_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
   void *next = realloc(ptr, nsize);
   if (!next) return NULL;
   budget->used = budget->used - old + nsize;
-  // Lua retries a failed allocation after a full collection: a success after that means the budget was
-  // not exceeded after all, so a later unrelated error is not reported as the budget
-  budget->exceeded = false;
+  // Lua retries a failed allocation after a full collection: a growth that succeeds after that means the
+  // budget was not exceeded after all, so a later unrelated error is not reported as the budget. Only a
+  // growth clears the flag: unwinding from the memory error shrinks the Lua stack (a realloc to a smaller
+  // size), and that must not hide the budget message
+  if (nsize > old) budget->exceeded = false;
   return next;
 }
 
@@ -107,6 +111,8 @@ static int bridge_query(lua_State *L) { return call_with_text(L, host_query); }
 static int bridge_query_params(lua_State *L) { return call_with_text(L, host_query_params); }
 static int bridge_read_file(lua_State *L) { return call_with_text(L, host_read_file); }
 static int bridge_list_dir(lua_State *L) { return call_with_text(L, host_list_dir); }
+static int bridge_write_preview(lua_State *L) { return call_with_text(L, host_write_preview); }
+static int bridge_write_commit(lua_State *L) { return call_with_text(L, host_write_commit); }
 
 static int bridge_emit_error(lua_State *L) {
   size_t length;
@@ -114,6 +120,14 @@ static int bridge_emit_error(lua_State *L) {
   ExtismHandle input = extism_alloc_buf(payload, length);
   host_emit_error(input);
   extism_free(input);
+  return 0;
+}
+
+// write argument 1 to the host's log at the info level, where `zhang serve` shows it
+static int bridge_log(lua_State *L) {
+  size_t length;
+  const char *text = luaL_checklstring(L, 1, &length);
+  extism_log(text, length, ExtismLogInfo);
   return 0;
 }
 
@@ -139,8 +153,11 @@ static const luaL_Reg BRIDGES[] = {
     {"query_schema", bridge_query_schema},
     {"read_file", bridge_read_file},
     {"list_dir", bridge_list_dir},
+    {"write_preview", bridge_write_preview},
+    {"write_commit", bridge_write_commit},
     {"emit_error", bridge_emit_error},
     {"config", bridge_config},
+    {"log", bridge_log},
     {NULL, NULL},
 };
 
@@ -247,10 +264,18 @@ end
 local zhang = {
   str = constructor("str"),
   int = constructor("int"),
-  decimal = constructor("decimal"),
   bool = constructor("bool"),
   date = constructor("date"),
 }
+
+-- a decimal is a string such as "12.50" or an integer: a Lua float is refused, as the read-side twin of the
+-- write batch's lint, so a rounded value never reaches a query either
+function zhang.decimal(value)
+  if value == nil then value = json.null
+  elseif math.type(value) == "float" then error("decimal must be a string or an integer, got " .. tostring(value), 2)
+  end
+  return {type = "decimal", value = value}
+end
 
 function zhang.set(value)
   if value == nil then value = json.null
@@ -326,11 +351,51 @@ function zhang.config(key)
   return raw.config(key)
 end
 
--- writes (D-C): zhang.write = {preview = ..., commit = ...} over raw.write_preview/raw.write_commit, with the lint
--- refusing a non-integer float anywhere in a batch ("amount `12.3` must be a string") before it is encoded.
+-- ---- writes: zhang.write.preview(batch) and zhang.write.commit(batch, token) ----------------------------------
+-- A batch is a list of directive tables, each with a `kind` ("transaction" or "open") and the fields of that kind;
+-- amounts are strings. A non-integer float anywhere in a batch is refused before the batch is encoded, so a float
+-- never reaches the ledger, not even rounded; the host refuses every JSON number besides. The host's answer is the
+-- preview or the commit as a table, and its `Err` raises `kind: message`, as every zhang.* function's does.
+local function first_float(value, path)
+  local kind = type(value)
+  if kind == "number" then
+    if math.type(value) == "float" then return path, value end
+  elseif kind == "table" then
+    for key, item in pairs(value) do
+      local at, found = first_float(item, path .. (type(key) == "number" and ("[" .. key .. "]") or ("." .. tostring(key))))
+      if at then return at, found end
+    end
+  end
+  return nil
+end
+
+local function write_input(name, batch, token)
+  if type(batch) ~= "table" then error(name .. " expects the batch as a list of directive tables, got " .. type(batch), 3) end
+  local at, float = first_float(batch, "directives")
+  if at then error(sformat("amount `%s` must be a string (%s)", tostring(float), at), 3) end
+  local directives = json.array()
+  for index, directive in ipairs(batch) do directives[index] = directive end
+  local input = json.object({directives = directives})
+  if token ~= nil then input.token = token end
+  return json.encode(input)
+end
+
+zhang.write = {}
+
+function zhang.write.preview(batch)
+  local value = unwrap(raw.write_preview(write_input("zhang.write.preview", batch)))
+  return value
+end
+
+function zhang.write.commit(batch, token)
+  if type(token) ~= "string" then error("zhang.write.commit expects the token as a string, got " .. type(token), 2) end
+  local value = unwrap(raw.write_commit(write_input("zhang.write.commit", batch, token)))
+  return value
+end
 
 -- ---- the sandbox: a fresh environment over the read-only base; load is text-only ------------------------------
-local env = setmetatable({}, {__index = base})
+-- the environment's metatable is sealed too: `getmetatable(_ENV)` cannot hand the base back
+local env = setmetatable({}, {__index = base, __metatable = "sandbox"})
 env._G = env
 env.zhang = zhang
 env.json = json
@@ -342,6 +407,15 @@ local function sandboxed_load(chunk, name, mode, ...)
   return rawload(chunk, name, "t", (...))
 end
 rawset(base, "load", sandboxed_load)
+
+-- `print` has no stdout to reach: its line goes to the host's log at the info level, prefixed with the
+-- script's name, so a plugin author sees it in the `zhang serve` log
+local function sandboxed_print(...)
+  local parts = {}
+  for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
+  raw.log(script_name .. ": " .. concat(parts, "\t"))
+end
+rawset(base, "print", sandboxed_print)
 setmetatable(base, {
   __newindex = function(_, key) error("the sandbox is read-only: cannot set " .. tostring(key), 2) end,
   __metatable = "sandbox",
@@ -371,14 +445,31 @@ elseif entry == "supported_type" then
   local types = module.types
   if types == nil then types = {"Router"} end
   if type(types) ~= "table" then return fail(script_name .. ": `types` must be a list such as {\"Router\"}, got " .. type(types)) end
+  local entries = 0
+  for _ in pairs(types) do entries = entries + 1 end
+  if entries ~= #types then return fail(script_name .. ": `types` must be a list such as {\"Router\"}, got a table with keys that are not 1, 2, ...") end
   local declared = json.array()
   for _, kind in ipairs(types) do
-    if kind ~= "Router" then
+    if kind == "Processor" or kind == "Mapper" then
       return fail(script_name .. ": Lua processors and mappers are not supported yet (#698 P1): a directive's amounts cross as JSON numbers and Lua would read them as floats")
+    elseif kind ~= "Router" then
+      return fail(sformat('%s: unknown plugin type %q; Lua scripts declare types = {"Router"}', script_name, tostring(kind)))
     end
     declared[#declared + 1] = kind
   end
   return true, json.encode(declared)
+elseif entry == "capabilities" then
+  -- the kinds the script writes, `writes = {"transaction", "open"}` in its module table; nothing without it
+  local writes = module.writes
+  local declared = json.array()
+  if writes ~= nil then
+    if type(writes) ~= "table" then return fail(script_name .. ": `writes` must be a list such as {\"transaction\", \"open\"}, got " .. type(writes)) end
+    for _, kind in ipairs(writes) do
+      if type(kind) ~= "string" then return fail(script_name .. ": `writes` must be a list of strings such as {\"transaction\", \"open\"}, got " .. type(kind)) end
+      declared[#declared + 1] = kind
+    end
+  end
+  return true, json.encode({writes = declared})
 elseif entry == "router" then
   local handler = module.router
   if type(handler) ~= "function" then return fail(script_name .. ": the module table has no `router` function") end
@@ -530,5 +621,6 @@ extern "C" {
 int32_t EXTISM_EXPORTED_FUNCTION(name) { return dispatch("name"); }
 int32_t EXTISM_EXPORTED_FUNCTION(version) { return dispatch("version"); }
 int32_t EXTISM_EXPORTED_FUNCTION(supported_type) { return dispatch("supported_type"); }
+int32_t EXTISM_EXPORTED_FUNCTION(capabilities) { return dispatch("capabilities"); }
 int32_t EXTISM_EXPORTED_FUNCTION(router) { return dispatch("router"); }
 }

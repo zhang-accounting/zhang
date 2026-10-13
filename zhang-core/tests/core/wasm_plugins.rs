@@ -25,13 +25,14 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::outcome::Detail;
-use zhang_core::plugin::capabilities::{plugin_seed, PluginStage};
+use zhang_core::plugin::capabilities::{plugin_seed, PluginStage, WriteKind};
 use zhang_core::plugin::http::PluginRequest;
-use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost};
+use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost, WriteBatch, WriteCommitted, WritePreview};
 use zhang_core::plugin::PluginType;
 use zhang_core::ZhangResult;
 use zhang_query::params::{bind_json, to_bql};
 use zhang_query::{ParamRef, Query, QueryError};
+use zhang_shared::plugin_abi::HostError;
 
 const LEDGER: &str = indoc! {r#"
     1970-01-01 commodity CNY
@@ -541,6 +542,27 @@ impl RouterHost for FakeHost {
 
     fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
         Ok(json!({"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]}))
+    }
+
+    /// echoes the plugin and the batch: the token is the batch's directives as JSON
+    fn write_preview(&self, plugin: &str, batch: &WriteBatch) -> Result<WritePreview, HostError> {
+        Ok(WritePreview {
+            ok: true,
+            file: format!("{plugin}.zhang"),
+            generation: 1,
+            entries: vec![],
+            token: Some(serde_json::Value::Array(batch.directives.clone()).to_string()),
+        })
+    }
+
+    /// echoes the token as the file
+    fn write_commit(&self, plugin: &str, batch: &WriteBatch, token: &str) -> Result<WriteCommitted, HostError> {
+        Ok(WriteCommitted {
+            file: format!("{plugin}:{token}"),
+            bytes: 0,
+            entries: batch.directives.len(),
+            generation: 2,
+        })
     }
 }
 
@@ -1720,6 +1742,155 @@ fn a_plugin_editing_nothing_it_is_shown_keeps_the_pad() {
     assert!(errors.is_empty(), "{errors:?}");
 }
 
+// --- writes: `zhang_write_preview` and `zhang_write_commit` ------------------------------------------------------
+
+/// a ledger declaring `router_write.wat` with the `writes` config `declared` (its `capabilities` export) and the
+/// `allowed_writes` grants `granted`
+fn write_ledger(declared: Option<&str>, granted: &[&str]) -> (TempDir, Ledger) {
+    let dir = ledger_dir(&["router_write.wat"]);
+    let mut directive = plugin(&dir, "router_write.wat");
+    if let Some(declared) = declared {
+        directive.push_str(&format!("  writes: \"{}\"\n", declared.replace('"', "\\\"")));
+    }
+    for grant in granted {
+        directive.push_str(&format!("  allowed_writes: \"{grant}\"\n"));
+    }
+    let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}"));
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the processor passed the stream through");
+    (dir, ledger)
+}
+
+/// what `router-write` answers for the request path `/{case}` with `body`: the raw host function result
+fn write_case(ledger: &Ledger, case: &str, body: &str) -> serde_json::Value {
+    let request = PluginRequest::new("POST", format!("/{case}"), vec![], vec![], body.as_bytes().to_vec());
+    let response = call(ledger, "router-write", &request).unwrap();
+    assert_eq!(response.status(), 200);
+    serde_json::from_slice(response.body()).unwrap_or_else(|e| panic!("not JSON ({e}): {}", String::from_utf8_lossy(response.body())))
+}
+
+const OPEN_BATCH: &str = r#"{"directives": [{"kind": "open", "date": "2024-01-02", "account": "Expenses:Coffee"}]}"#;
+
+#[test]
+fn router_writes_through_the_host_what_it_declares_and_is_granted() {
+    let (_dir, ledger) = write_ledger(Some(r#"["transaction", "open"]"#), &["open", "transaction"]);
+    assert_eq!(
+        ledger.plugins.router("router-write").unwrap().declared_writes(),
+        &[WriteKind::Transaction, WriteKind::Open]
+    );
+
+    let batch = r#"{"directives": [{"kind": "open", "date": "2024-01-02", "account": "Expenses:Coffee"}, {"kind": "transaction", "payee": "a \"quoted\" payee\nnext line", "postings": [{"account": "Assets:Cash", "unit": {"number": "4.50", "commodity": "USD"}}]}]}"#;
+    let preview = write_case(&ledger, "preview", batch);
+    let directives = json!([
+        {"kind": "open", "date": "2024-01-02", "account": "Expenses:Coffee"},
+        {"kind": "transaction", "payee": "a \"quoted\" payee\nnext line", "postings": [{"account": "Assets:Cash", "unit": {"number": "4.50", "commodity": "USD"}}]},
+    ]);
+    assert_eq!(
+        preview,
+        json!({"Ok": {"ok": true, "file": "router-write.zhang", "generation": 1, "entries": [], "token": directives.to_string()}})
+    );
+    let commit = write_case(&ledger, "commit", &json!({"directives": directives, "token": "t0k"}).to_string());
+    assert_eq!(commit, json!({"Ok": {"file": "router-write:t0k", "bytes": 0, "entries": 2, "generation": 2}}));
+}
+
+#[test]
+fn router_writes_are_unavailable_without_a_declaration_and_denied_without_a_grant() {
+    // declared nothing: the `capabilities` export answers no writes
+    let (_dir, ledger) = write_ledger(None, &["open", "transaction"]);
+    assert_eq!(ledger.plugins.router("router-write").unwrap().declared_writes(), &[]);
+    assert_eq!(
+        write_case(&ledger, "preview", OPEN_BATCH),
+        json!({"Err": {"kind": "unavailable", "message": "plugin did not declare writes: its `capabilities` export lists no `writes`"}})
+    );
+    // declared, but the directive grants nothing: denied before the input is looked at
+    let (_dir, ledger) = write_ledger(Some(r#"["open"]"#), &[]);
+    assert_eq!(
+        write_case(&ledger, "commit", "not even json"),
+        json!({"Err": {"kind": "denied", "message": "plugin is not granted the writes it declares (open): add `allowed_writes: \"open\"` to its plugin directive"}})
+    );
+    // granted a kind the batch does not use
+    let (_dir, ledger) = write_ledger(Some(r#"["transaction", "open"]"#), &["open"]);
+    let transaction = r#"{"directives": [{"kind": "transaction", "payee": "x"}]}"#;
+    assert_eq!(
+        write_case(&ledger, "preview", transaction),
+        json!({"Err": {"kind": "denied", "message": "plugin is not granted transaction writes: add `allowed_writes: \"transaction\"` to its plugin directive"}})
+    );
+    assert_eq!(write_case(&ledger, "preview", OPEN_BATCH)["Ok"]["ok"], json!(true));
+    // granted a kind the plugin did not declare
+    let (_dir, ledger) = write_ledger(Some(r#"["open"]"#), &["open", "transaction"]);
+    assert_eq!(
+        write_case(&ledger, "preview", transaction),
+        json!({"Err": {"kind": "denied", "message": "plugin did not declare transaction writes: its `capabilities` export lists open"}})
+    );
+    // a declared kind this zhang does not know is ignored
+    let (_dir, ledger) = write_ledger(Some(r#"["balance", "open"]"#), &["open"]);
+    assert_eq!(ledger.plugins.router("router-write").unwrap().declared_writes(), &[WriteKind::Open]);
+    assert_eq!(write_case(&ledger, "preview", OPEN_BATCH)["Ok"]["ok"], json!(true));
+}
+
+#[test]
+fn router_write_input_that_cannot_be_read_is_invalid_input() {
+    let (_dir, ledger) = write_ledger(Some(r#"["open"]"#), &["open"]);
+
+    let not_json = write_case(&ledger, "x", "");
+    assert_eq!(not_json["Err"]["kind"], json!("invalid_input"), "{not_json}");
+    assert!(
+        not_json["Err"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("the input is not a JSON object {\"directives\": ["),
+        "{not_json}"
+    );
+    // a block over the cap is never read
+    assert_eq!(
+        write_case(&ledger, "g", ""),
+        json!({"Err": {"kind": "invalid_input", "message": "the input is 1048577 bytes, over the 1048576 byte limit"}})
+    );
+    // a forged block header, which would crash a host trusting it, and no block at all
+    let forged = write_case(&ledger, "f", "");
+    assert_eq!(forged["Err"]["kind"], json!("invalid_input"), "{forged}");
+    assert_eq!(
+        write_case(&ledger, "n", ""),
+        json!({"Err": {"kind": "invalid_input", "message": "the input is not a memory block"}})
+    );
+}
+
+#[test]
+fn router_write_refuses_a_batch_over_its_bounds_before_the_ledger_sees_it() {
+    let (_dir, ledger) = write_ledger(Some(r#"["transaction", "open"]"#), &["open", "transaction"]);
+    let invalid = |case: &str, body: &str| {
+        let answer = write_case(&ledger, case, body);
+        assert_eq!(answer["Err"]["kind"], json!("invalid"), "{answer}");
+        answer["Err"]["message"].as_str().unwrap().to_owned()
+    };
+
+    let open = json!({"kind": "open", "date": "2024-01-02", "account": "Expenses:Coffee"});
+    assert_eq!(
+        invalid("preview", &json!({"directives": vec![open.clone(); 51]}).to_string()),
+        "the batch holds 51 directives, over the limit of 50"
+    );
+    assert_eq!(invalid("preview", r#"{"directives": []}"#), "the batch holds no directive");
+    assert_eq!(
+        invalid("preview", r#"{"directives": [{"kind": "balance"}]}"#),
+        "directives[0] has the kind \"balance\", which is not one of transaction, open"
+    );
+    assert_eq!(
+        invalid(
+            "preview",
+            r#"{"directives": [{"kind": "transaction", "postings": [{"account": "Assets:Cash", "unit": {"number": 4.5, "commodity": "USD"}}]}]}"#
+        ),
+        "directives[0].postings[0].unit.number is the number 4.5: write amounts as strings, such as \"4.5\", so nothing is rounded"
+    );
+    assert_eq!(
+        invalid("commit", OPEN_BATCH),
+        "the batch has no token: preview it first, and commit it with the preview's token"
+    );
+    // exactly the limit reaches the host
+    assert_eq!(
+        write_case(&ledger, "preview", &json!({"directives": vec![open; 50]}).to_string())["Ok"]["ok"],
+        json!(true)
+    );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Lua script plugins: the `.lua` fixtures through the same load path, on the vendored interpreter
 // ---------------------------------------------------------------------------------------------------------------
@@ -1843,6 +2014,17 @@ mod lua {
             case('f'),
             json!({"error": "parameter :from must be made with zhang.str/int/decimal/bool/date/set or be a {type = ..., value = ...} table"})
         );
+        // a decimal is a string or an integer; a float is refused before it is sent, as in a write batch
+        let refused = case('g');
+        assert!(
+            refused["error"]
+                .as_str()
+                .unwrap()
+                .ends_with("router_query_params.lua:28: decimal must be a string or an integer, got 12.5"),
+            "{refused}"
+        );
+        // (the fake host writes a bound decimal as BQL, where an integer-valued one carries a trailing dot)
+        assert_eq!(case('h'), json!({"echo": "SELECT date WHERE number > :min", "params": {"min": "12."}}));
         // no parameters cross as an empty object, never as an empty array
         assert_eq!(case('n'), json!({"echo": "SELECT date", "params": {}}));
         assert_eq!(case('s'), json!({"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]}));
@@ -1876,6 +2058,22 @@ mod lua {
         assert_eq!(
             json_body(&call(&ledger, "router-info", &get("/")).unwrap()),
             json!({"title": "Home", "operating_currency": "CNY", "timezone": ledger.options.timezone.name(), "greeting": "hi", "abi": "1"})
+        );
+    }
+
+    #[test]
+    fn a_script_reads_its_config_at_the_top_level() {
+        // registration runs the chunk with the settings every request gets: the metas and the options
+        let dir = ledger_dir(&["config_top_level.lua"]);
+        let content = format!(
+            "option \"features.plugin\" \"true\"\noption \"title\" \"Home\"\n{}  greeting: \"hi\"\n{LEDGER}",
+            plugin(&dir, "config_top_level.lua")
+        );
+        let ledger = load(&dir, &content);
+
+        assert_eq!(
+            json_body(&call(&ledger, "config-top-level", &get("/")).unwrap()),
+            json!({"greeting": "HI", "title": "Home"})
         );
     }
 
@@ -1919,6 +2117,20 @@ mod lua {
 
         assert!(
             matches!(&failed, RouterError::Failed(message) if message.contains("memory_hog.lua` exceeded 64 MiB")),
+            "{failed}"
+        );
+    }
+
+    #[test]
+    fn the_budget_is_reported_when_it_is_reached_with_a_deep_stack() {
+        // unwinding from the memory error shrinks the Lua stack; a shrink must not clear the budget flag
+        let dir = ledger_dir(&["memory_hog_deep.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "memory_hog_deep.lua"))));
+
+        let failed = call(&ledger, "memory-hog-deep", &get("/")).unwrap_err();
+
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains("memory_hog_deep.lua` exceeded 64 MiB")),
             "{failed}"
         );
     }
@@ -1981,16 +2193,33 @@ mod lua {
         );
         let error = load_error("mapper.lua", b"return { name = \"m\", version = \"0.1.0\", types = { \"Mapper\" } }");
         assert!(error.contains("Lua processors and mappers are not supported yet"), "{error}");
-        // `types` defaults to Router, and an empty list registers a plugin that serves nothing
-        let (_dir, ledger) = script_ledger("none.lua", b"return { name = \"none\", version = \"0.1.0\", types = {} }", "");
-        assert_eq!(registered(&ledger.unwrap()), vec![("none".to_owned(), vec![])]);
+        // any other value is named, and `types` must be a list: the dispatcher refuses a map before registration
+        let error = load_error("lower.lua", b"return { name = \"l\", version = \"0.1.0\", types = { \"router\" } }");
+        assert!(
+            error.contains("unknown plugin type \"router\"; Lua scripts declare types = {\"Router\"}"),
+            "{error}"
+        );
+        let error = load_error("set.lua", b"return { name = \"s\", version = \"0.1.0\", types = { Router = true } }");
+        assert!(
+            error.contains("`types` must be a list such as {\"Router\"}, got a table with keys that are not 1, 2, ..."),
+            "{error}"
+        );
+        // a script with no type would serve nothing: an empty list is refused at registration
+        let error = load_error("none.lua", b"return { name = \"none\", version = \"0.1.0\", types = {} }");
+        assert!(error.contains("none.lua declares no plugin type; write `types = {\"Router\"}`"), "{error}");
     }
 
     #[test]
-    fn a_module_with_another_extension_is_refused_by_name() {
+    fn a_module_with_another_extension_is_refused_by_name_and_one_without_loads_as_wasm() {
         let (_dir, ledger) = script_ledger("report.txt", b"return {}", "");
         let error = ledger.err().expect("must not load").to_string();
         assert!(error.contains("report.txt is not a `.wasm`/`.wat`/`.lua` module"), "{error}");
+
+        // a path without an extension is a wasm module, as it was before scripts existed
+        let dir = ledger_dir(&["router.wat"]);
+        std::fs::copy(dir.path().join("router.wat"), dir.path().join("router-module")).unwrap();
+        let ledger = load(&dir, &with_plugins(&plugin(&dir, "router-module")));
+        assert_eq!(registered(&ledger), vec![("router-echo".to_owned(), vec![PluginType::Router])]);
     }
 
     #[test]
@@ -2076,6 +2305,20 @@ mod lua {
     }
 
     #[test]
+    fn identical_requests_give_identical_bytes() {
+        // the string hash seed is fixed at build time, so the key order of an encoded table never changes
+        let (_dir, ledger) = router_ledger(&["json_order.lua"]);
+
+        let first = call(&ledger, "json-order", &get("/a")).unwrap();
+        let second = call(&ledger, "json-order", &get("/a")).unwrap();
+
+        assert_eq!(first.body(), second.body(), "{}", String::from_utf8_lossy(first.body()));
+        let body = json_body(&first);
+        assert_eq!(body.as_object().unwrap().len(), 13);
+        assert_eq!(body["nested"]["t"], json!(7));
+    }
+
+    #[test]
     fn the_first_declared_script_serves_a_shared_name() {
         let (_dir, ledger) = router_ledger(&["router_echo.lua", "router_echo_twin.lua"]);
 
@@ -2090,6 +2333,137 @@ mod lua {
         assert_eq!(ledger.plugins.router("router-echo").unwrap().version, "0.1.0");
         let response = call(&ledger, "router-echo", &get("/")).unwrap();
         assert_eq!(response.status(), 201, "the first declared answers");
+    }
+
+    /// a ledger declaring `router_write.lua` with the `writes` config `declared` (a JSON list, its `capabilities`
+    /// export) and the `allowed_writes` grants `granted`
+    fn lua_write_ledger(declared: Option<&str>, granted: &[&str]) -> (TempDir, Ledger) {
+        let dir = ledger_dir(&["router_write.lua"]);
+        let mut directive = plugin(&dir, "router_write.lua");
+        if let Some(declared) = declared {
+            directive.push_str(&format!("  writes: \"{}\"\n", declared.replace('"', "\\\"")));
+        }
+        for grant in granted {
+            directive.push_str(&format!("  allowed_writes: \"{grant}\"\n"));
+        }
+        let ledger = load(&dir, &with_plugins(&directive));
+        (dir, ledger)
+    }
+
+    /// what `router-write` (the script) answers for the request path `/{case}` with `body`: the host's answer as
+    /// the script decoded it, or `{"error": ...}`
+    fn lua_write_case(ledger: &Ledger, case: &str, body: &str) -> serde_json::Value {
+        let request = PluginRequest::new("POST", format!("/{case}"), vec![], vec![], body.as_bytes().to_vec());
+        let response = call(ledger, "router-write", &request).unwrap();
+        assert_eq!(response.status(), 200);
+        json_body(&response)
+    }
+
+    #[test]
+    fn a_lua_router_previews_and_commits_through_the_host() {
+        let (_dir, ledger) = lua_write_ledger(Some(r#"["transaction", "open"]"#), &["open", "transaction"]);
+        // the module table's `writes` is the `capabilities` export
+        assert_eq!(
+            ledger.plugins.router("router-write").unwrap().declared_writes(),
+            &[WriteKind::Transaction, WriteKind::Open]
+        );
+        let batch = json!([
+            {"kind": "open", "date": "2024-01-02", "account": "Expenses:Coffee", "commodities": ["USD"]},
+            {"kind": "transaction", "datetime": "2024-01-02", "payee": "a \"quoted\" payee", "postings": [{"account": "Assets:Cash", "unit": {"number": "4.50", "commodity": "USD"}}], "tags": [], "links": [], "metas": []},
+        ]);
+
+        // the fake host echoes the batch as the token: what the script sent is what the host read
+        let preview = lua_write_case(&ledger, "preview", &json!({"directives": batch}).to_string());
+        assert_eq!(
+            preview,
+            json!({"ok": true, "file": "router-write.zhang", "generation": 1, "entries": [], "token": batch.to_string()})
+        );
+        let commit = lua_write_case(&ledger, "commit", &json!({"directives": batch, "token": "t0k"}).to_string());
+        assert_eq!(commit, json!({"file": "router-write:t0k", "bytes": 0, "entries": 2, "generation": 2}));
+
+        // the lint refuses a float before the host sees it, naming where it is; the host refuses an integer
+        let float = lua_write_case(&ledger, "f", "");
+        let message = float["error"].as_str().unwrap_or_else(|| panic!("{float}"));
+        assert!(
+            message.contains("amount `12.3` must be a string (directives[1].postings[1].unit.number)"),
+            "{message}"
+        );
+        let integer = lua_write_case(&ledger, "i", "");
+        let message = integer["error"].as_str().unwrap_or_else(|| panic!("{integer}"));
+        assert!(message.contains("invalid: directives[0].metas[0].value is the number 3"), "{message}");
+        let empty = lua_write_case(&ledger, "e", "");
+        assert!(empty["error"].as_str().unwrap().contains("invalid: the batch holds no directive"), "{empty}");
+        let no_token = lua_write_case(&ledger, "x", "");
+        assert!(
+            no_token["error"]
+                .as_str()
+                .unwrap()
+                .contains("zhang.write.commit expects the token as a string, got number"),
+            "{no_token}"
+        );
+
+        // without `writes` in the module table the script declares nothing; without the grant it is denied
+        let (_dir, ledger) = lua_write_ledger(None, &["open"]);
+        assert_eq!(ledger.plugins.router("router-write").unwrap().declared_writes(), &[]);
+        let undeclared = lua_write_case(&ledger, "preview", &json!({"directives": [{"kind": "open"}]}).to_string());
+        assert!(
+            undeclared["error"].as_str().unwrap().contains("unavailable: plugin did not declare writes"),
+            "{undeclared}"
+        );
+        let (_dir, ledger) = lua_write_ledger(Some(r#"["open"]"#), &[]);
+        let denied = lua_write_case(&ledger, "preview", &json!({"directives": [{"kind": "open"}]}).to_string());
+        assert!(
+            denied["error"]
+                .as_str()
+                .unwrap()
+                .contains("denied: plugin is not granted the writes it declares (open)"),
+            "{denied}"
+        );
+    }
+
+    /// a `tracing` writer collecting what a subscriber writes, so a test reads the host's log
+    #[derive(Clone, Default)]
+    struct Capture(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+        type Writer = Capture;
+
+        fn make_writer(&'a self) -> Capture {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn print_goes_to_the_hosts_log_prefixed_with_the_script() {
+        let (dir, ledger) = router_ledger(&["router_print.lua"]);
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(capture.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::INFO)
+            .finish();
+
+        let response = tracing::subscriber::with_default(subscriber, || call(&ledger, "router-print", &get("/")).unwrap());
+
+        assert_eq!(response.status(), 204);
+        let log = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+        let script = dir.path().join("router_print.lua").display().to_string();
+        assert!(log.contains(&format!("{script}: hello\t42\tnil\ttrue")), "{log}");
+        assert!(
+            log.contains(&format!("{script}: \n")) || log.contains(&format!("{script}:  ")),
+            "an empty print still logs: {log}"
+        );
     }
 
     #[test]

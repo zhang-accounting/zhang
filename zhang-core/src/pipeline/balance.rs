@@ -238,6 +238,11 @@ impl AccountCommodities {
         }
     }
 
+    /// the commodities `account` is restricted to by its latest `open`; `None` when it may hold any, or never was opened
+    pub fn allowed(&self, account: &str) -> Option<&[String]> {
+        self.allowed.get(account).map(Vec::as_slice)
+    }
+
     /// `CommodityNotAllowed` if the account was opened with a list of commodities that does not include
     /// `commodity`, as in beancount: a posting, a balance assertion or a padding in it is invalid. `None` if the
     /// account lists none (it holds any commodity), or never was opened. Only the account itself is restricted,

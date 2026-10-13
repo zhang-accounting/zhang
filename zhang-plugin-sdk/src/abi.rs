@@ -6,13 +6,13 @@
 //! functions answer [`HostErrorKind::Unavailable`](crate::HostErrorKind::Unavailable), so plugin logic can be
 //! unit tested natively.
 
-pub(crate) use zhang_shared::plugin_abi::import::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE};
+pub(crate) use zhang_shared::plugin_abi::import::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW};
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
     use extism_pdk::Memory;
 
-    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE};
+    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW};
     use crate::error::{HostError, HostErrorKind};
 
     #[link(wasm_import_module = "extism:host/user")]
@@ -25,6 +25,8 @@ mod imp {
         fn zhang_ledger_info() -> u64;
         fn zhang_query_params(input: u64) -> u64;
         fn zhang_query_schema() -> u64;
+        fn zhang_write_preview(input: u64) -> u64;
+        fn zhang_write_commit(input: u64) -> u64;
     }
 
     pub(crate) fn config_get(key: &str) -> Option<String> {
@@ -87,11 +89,19 @@ mod imp {
         // SAFETY: the host function takes nothing and returns the offset of a memory block
         answer(QUERY_SCHEMA, unsafe { zhang_query_schema() })
     }
+
+    pub(crate) fn write_preview(input: &[u8]) -> Result<Vec<u8>, HostError> {
+        call_with(WRITE_PREVIEW, input, zhang_write_preview)
+    }
+
+    pub(crate) fn write_commit(input: &[u8]) -> Result<Vec<u8>, HostError> {
+        call_with(WRITE_COMMIT, input, zhang_write_commit)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
-    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE};
+    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW};
     use crate::error::{outside_zhang, HostError};
 
     pub(crate) fn config_get(_key: &str) -> Option<String> {
@@ -126,6 +136,14 @@ mod imp {
 
     pub(crate) fn query_schema() -> Result<Vec<u8>, HostError> {
         Err(outside_zhang(QUERY_SCHEMA))
+    }
+
+    pub(crate) fn write_preview(_input: &[u8]) -> Result<Vec<u8>, HostError> {
+        Err(outside_zhang(WRITE_PREVIEW))
+    }
+
+    pub(crate) fn write_commit(_input: &[u8]) -> Result<Vec<u8>, HostError> {
+        Err(outside_zhang(WRITE_COMMIT))
     }
 }
 

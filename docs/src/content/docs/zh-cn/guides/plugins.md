@@ -54,6 +54,7 @@ plugin "plugins/large_expense.wasm"
 |---|---|---|
 | `allowed_hosts` | 向这些主机发送 HTTP 请求。有多个主机时重复这个键。 | 无网络访问 |
 | `allowed_paths` | 读取账本中的这些文件和目录。有多个时重复这个键。 | 无文件访问 |
+| `allowed_writes` | 在处理请求时（比如一个记账助手）往你的账本文件里添加这些种类的条目：`"transaction"` 或 `"open"`。两种都要就重复这个键。 | 不能写入 |
 | `timeout` | 每次调用最多运行这么久：整秒数（`"90"`），或带单位 `ms`、`s`、`m` 或 `h` 的数字（`"500ms"`、`"2m"`），最长一天 | 60 秒 |
 | `seed` | 不增加任何权限。可以是任意文本：它会改变插件派生随机值所用的种子。 | 默认种子 |
 
@@ -75,6 +76,12 @@ plugin "plugins/receipts.wasm"
 - 绝对路径或包含 `..` 的值不授予任何权限。
 - 只有 processor 和 mapper 能读取文件。对于本地账本，插件读取过的文件发生变化时，`zhang serve` 会重新加载。
 
+关于 `allowed_writes`：
+
+- 它只对声明了自己会写入的 router 插件生效（由插件作者决定），并且只限于你授予的种类：只获得 `"transaction"` 的插件不能开立账户。
+- 插件添加的条目经过与你在网页界面记录时完全相同的检查，写进同一个文件，并且按插件预览时的样子原样追加为文本：不修改也不删除任何内容，张记账也不会额外加入任何东西。每次写入后账本会重新加载，就像你自己写入之后一样，服务器也会为每次写入记录一行日志。
+- 为人设计的插件会在添加之前把每个条目展示给你。只对你信任的插件授予写入。
+
 张记账无法使用的值，例如 `timeout: "soon"`，会在 `plugin` 指令上报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) 错误，插件则使用默认值。
 
 :::danger[同时授予文件和网络访问]
@@ -89,7 +96,7 @@ plugin "plugins/receipts.wasm"
 
 - 网络访问，`allowed_hosts` 中的主机除外；
 - 读取文件，`allowed_paths` 在账本根目录内授予的除外；
-- 写入文件，包括你的账本文件；
+- 写入文件，包括你的账本文件，`allowed_writes` 授予的那几种追加除外；
 - 运行超过 `timeout`。
 
 Router 插件的页面由张记账自己的地址提供。这样的页面上的脚本可以凭你浏览器的会话调用张记账的 API，包括修改账本文件的接口。
@@ -99,7 +106,7 @@ Router 插件的页面由张记账自己的地址提供。这样的页面上的�
 ## 查看已加载的插件
 
 - **设置**页面按运行顺序列出已加载的插件，包括它们的名称、版本和类型。Router 插件附有指向其页面的链接。
-- `GET /api/plugins` 以 JSON 返回同样的列表，并附上每个插件被授予的 `allowed_hosts` 以及每个 Router 插件的路由。要检查 `allowed_paths` 和 `timeout`，请阅读账本中的 `plugin` 指令。
+- `GET /api/plugins` 以 JSON 返回同样的列表，并附上每个插件被授予的 `allowed_hosts`、每个 Router 插件的路由，以及每个插件申请的（`writes_requested`）和被授予的（`writes_granted`）写入种类。要检查 `allowed_paths` 和 `timeout`，请阅读账本中的 `plugin` 指令。
 
 ## 插件出错时
 

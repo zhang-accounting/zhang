@@ -129,6 +129,13 @@ impl PluginRuntime {
     /// is in use (or the settings changed since the last call, which drops the idle ones). Within a
     /// load that is a compilation at registration, whose manifest has the timeout only, and one more
     /// at the first stage run or router request, which carry the full config
+    /// how many compiled plugins are idle, and the pool's generation, which moves only when the settings change
+    #[cfg(test)]
+    pub(crate) fn pool_state(&self) -> (usize, u64) {
+        let pool = lock(&self.pool);
+        (pool.idle.len(), pool.generation)
+    }
+
     pub fn instantiate(&self, manifest: Manifest, host: PluginHost) -> Result<PluginInstance, extism::Error> {
         debug_assert!(manifest.wasm.is_empty(), "the runtime owns the module bytes");
         let timeout = manifest.timeout_ms.map(Duration::from_millis);
@@ -261,8 +268,7 @@ mod tests {
 
     /// how many compiled plugins are idle, and the pool's generation
     fn pool_state(runtime: &PluginRuntime) -> (usize, u64) {
-        let pool = lock(&runtime.pool);
-        (pool.idle.len(), pool.generation)
+        runtime.pool_state()
     }
 
     #[test]

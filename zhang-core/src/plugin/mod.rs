@@ -16,3 +16,4 @@ pub mod router;
 pub mod runtime;
 pub mod stage;
 pub mod store;
+pub mod write;

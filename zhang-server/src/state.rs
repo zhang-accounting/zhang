@@ -11,6 +11,7 @@ use zhang_core::ZhangError;
 use crate::auth::SharedAuth;
 use crate::broadcast::Broadcaster;
 use crate::error::ServerError;
+use crate::plugin_writes::PluginWrites;
 use crate::{ReloadSender, ServerResult};
 
 /// Why the last reload failed, kept while the ledger served is the one loaded before it (#492): `/api/info` shows
@@ -97,12 +98,68 @@ impl Deref for SharedReloadSender {
     }
 }
 
+/// what the writes of router plugins share, see [`PluginWrites`]
+#[derive(Clone)]
+pub struct SharedPluginWrites(pub Arc<PluginWrites>);
+
+impl Deref for SharedPluginWrites {
+    type Target = Arc<PluginWrites>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// The state of the router plugin routes (`/api/plugins/{name}/...`): the ledger a plugin reads, and what a commit of
+/// its writes needs, the reload sender (the generation, the reload after a commit) and the plugin writes. A test
+/// serves the routes with it as the state; the server's [`AppState`] gives one
+#[derive(Clone)]
+pub struct PluginRouteState {
+    pub ledger: SharedLedger,
+    pub reload_sender: SharedReloadSender,
+    pub writes: SharedPluginWrites,
+}
+
+impl PluginRouteState {
+    /// the routes over `ledger` with `reload_sender` and fresh plugin writes (a random token key)
+    pub fn new(ledger: SharedLedger, reload_sender: Arc<ReloadSender>) -> PluginRouteState {
+        PluginRouteState {
+            ledger,
+            reload_sender: SharedReloadSender(reload_sender),
+            writes: SharedPluginWrites(Arc::new(PluginWrites::new())),
+        }
+    }
+}
+
+impl FromRef<PluginRouteState> for SharedLedger {
+    fn from_ref(input: &PluginRouteState) -> Self {
+        input.ledger.clone()
+    }
+}
+
+impl FromRef<PluginRouteState> for SharedReloadSender {
+    fn from_ref(input: &PluginRouteState) -> Self {
+        input.reload_sender.clone()
+    }
+}
+
+impl FromRef<GotchaContext<AppState, ()>> for PluginRouteState {
+    fn from_ref(input: &GotchaContext<AppState, ()>) -> Self {
+        PluginRouteState {
+            ledger: input.state.ledger.clone(),
+            reload_sender: input.state.reload_sender.clone(),
+            writes: input.state.plugin_writes.clone(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub ledger: SharedLedger,
     pub broadcaster: SharedBroadcaster,
     pub reload_sender: SharedReloadSender,
     pub auth: SharedAuth,
+    pub plugin_writes: SharedPluginWrites,
 }
 
 impl FromRef<GotchaContext<AppState, ()>> for SharedLedger {
