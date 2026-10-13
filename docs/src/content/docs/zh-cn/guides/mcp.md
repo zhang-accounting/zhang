@@ -11,7 +11,7 @@ sidebar:
 
 ## 安装
 
-1. 获取 `mcp.lua`：从你所运行的张记账版本的 [release](https://github.com/zhang-accounting/zhang/releases) 下载 `zhang-mcp-<version>.lua`，或取该版本仓库中的 `plugins/mcp/mcp.lua`。把它放进账本目录，例如 `plugins/mcp.lua`；脚本通过账本的存储读取，所以存放在 S3、WebDAV 或 GitHub 上的账本也要把它上传到那里。
+1. 获取 `mcp.lua`：从你所运行的张记账版本的 [release](https://github.com/zhang-accounting/zhang/releases) 下载 `zhang-mcp-<version>.lua`，或取该版本仓库中的 `plugins/mcp/mcp.lua`。把它放进账本目录，例如 `plugins/mcp.lua`。这种复制文件的安装方式面向本地文件系统上的账本；存放在 S3、WebDAV 或 GitHub 上的账本通过自己的存储读取脚本，需要把它上传到那里——下文的内置形式正是为了省掉这一步。
 2. 启用插件并声明它：
 
    ```zhang
@@ -23,8 +23,8 @@ sidebar:
 
 3. 重新加载。**设置**页面会列出 `zhang-mcp` 并附有**打开**链接；`GET /api/plugins/zhang-mcp/` 会描述这个服务器及其端点所在。
 
-:::note[计划中：内置插件]
-计划提供内置的 `plugin "zhang:mcp"`，届时第 1 步将不再需要；设置、工具和下文的一切都保持不变。
+:::note[随下一个改动到来：内置插件]
+下一个改动会把脚本内置在张记账中：第 1 步将不再需要，声明变为 `plugin "zhang:mcp"`，对任何一种账本存储都适用。设置、工具和下文的一切都保持不变。
 :::
 
 MCP 端点是 `POST <你的张记账地址>/api/plugins/zhang-mcp/mcp`，例如 `http://localhost:8000/api/plugins/zhang-mcp/mcp`。

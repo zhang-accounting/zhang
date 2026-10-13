@@ -11,7 +11,7 @@ Reading is the default and needs nothing else. Writing is off until you turn on 
 
 ## Install
 
-1. Get `mcp.lua`: `zhang-mcp-<version>.lua` from the [release](https://github.com/zhang-accounting/zhang/releases) of the Zhang you run, or `plugins/mcp/mcp.lua` from the repository at that version. Put it into your ledger directory, for example as `plugins/mcp.lua`; the script is read through your ledger's storage, so for a ledger on S3, WebDAV or GitHub, upload it there too.
+1. Get `mcp.lua`: `zhang-mcp-<version>.lua` from the [release](https://github.com/zhang-accounting/zhang/releases) of the Zhang you run, or `plugins/mcp/mcp.lua` from the repository at that version. Put it into your ledger directory, for example as `plugins/mcp.lua`. This file-copy install is for a ledger on the local file system; a ledger on S3, WebDAV or GitHub reads the script through its own storage, so you would have to upload it there, which is what the bundled form below removes.
 2. Enable plugins and declare it:
 
    ```zhang
@@ -23,8 +23,8 @@ Reading is the default and needs nothing else. Writing is off until you turn on 
 
 3. Reload. The **Settings** page lists `zhang-mcp` with an **Open** link, and `GET /api/plugins/zhang-mcp/` describes the server and where its endpoint is.
 
-:::note[Planned: a bundled plugin]
-A bundled `plugin "zhang:mcp"` is planned, which removes step 1; the settings, the tools and everything below stay the same.
+:::note[Coming with the next change: a bundled plugin]
+The next change bundles the script inside Zhang: step 1 goes away and the declaration becomes `plugin "zhang:mcp"`, for every kind of ledger storage. The settings, the tools and everything below stay the same.
 :::
 
 The MCP endpoint is `POST <your zhang url>/api/plugins/zhang-mcp/mcp`, for example `http://localhost:8000/api/plugins/zhang-mcp/mcp`.
