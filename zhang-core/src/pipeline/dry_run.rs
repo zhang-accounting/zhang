@@ -29,12 +29,16 @@ pub struct TransactionCheck {
 /// What an `open` would change once written ([`Ledger::check_open`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenCheck {
-    /// whether the ledger has an `open` of the account already, at any date, closed since or not, with the same
-    /// commodities as this one: writing the `open` would add nothing a plugin may add
+    /// whether the ledger has an `open` of the account already, at any date, with the same commodities as this one,
+    /// and no `close` after it: writing the `open` would add nothing a plugin may add
     pub already_open: bool,
     /// the commodities of the account's latest `open`, when the ledger has one with others than this `open` lists
-    /// (an empty list: any commodity); `None` when the ledger has no `open` of the account, or one with the same
+    /// (an empty list: any commodity) and no `close` after it; `None` when the ledger has no `open` of the account,
+    /// one with the same, or a `close` after it
     pub open_with: Option<Vec<String>>,
+    /// the date of the `close` that closed the account after its latest `open`, when there is one: a plugin does not
+    /// reopen a closed account, and a client tells the user it is closed, not open
+    pub closed: Option<chrono::NaiveDate>,
 }
 
 /// a span no directive of a load has: the candidate of a dry run, and, counting down from it, the directives of a
@@ -99,21 +103,26 @@ impl Ledger {
         let account = open.account.name();
         let mut commodities = AccountCommodities::default();
         let mut opened = false;
-        // every `open` of the account the ledger holds, in the order of its dates, then those of `with`, in theirs:
-        // the latest decides the commodities
+        let mut closed = None;
+        // every `open` and `close` of the account the ledger holds, in the order of its dates, then the opens of
+        // `with`, in theirs: the latest `open` decides the commodities, a `close` after it that the account is closed
         let existing = self.directives.iter().map(|it| &it.data).chain(with.iter());
         for directive in existing {
-            if let Directive::Open(existing) = directive {
-                if existing.account.name() == account {
+            match directive {
+                Directive::Open(existing) if existing.account.name() == account => {
                     opened = true;
+                    closed = None;
                     commodities.apply(directive);
                 }
+                Directive::Close(close) if close.account.name() == account => closed = Some(close.date.naive_datetime().date()),
+                _ => {}
             }
         }
-        if !opened {
+        if !opened || closed.is_some() {
             return OpenCheck {
                 already_open: false,
                 open_with: None,
+                closed,
             };
         }
         let open_with = commodities.allowed(account).unwrap_or_default();
@@ -121,6 +130,7 @@ impl Ledger {
         OpenCheck {
             already_open: same,
             open_with: (!same).then(|| open_with.to_vec()),
+            closed: None,
         }
     }
 
@@ -160,6 +170,7 @@ mod test {
     use std::sync::Arc;
 
     use bigdecimal::BigDecimal;
+    use chrono::NaiveDate;
     use indoc::indoc;
     use tempfile::tempdir;
     use zhang_ast::amount::Amount;
@@ -370,6 +381,7 @@ mod test {
         let not_open = OpenCheck {
             already_open: false,
             open_with: None,
+            closed: None,
         };
         assert_eq!(check("2024-01-02 open Expenses:Coffee"), not_open);
         // the commodities as a set: the order does not matter
@@ -377,14 +389,16 @@ mod test {
             check("2024-01-02 open Assets:Bank EUR, USD"),
             OpenCheck {
                 already_open: true,
-                open_with: None
+                open_with: None,
+                closed: None
             }
         );
         assert_eq!(
             check("2024-01-02 open Assets:Bank USD"),
             OpenCheck {
                 already_open: false,
-                open_with: Some(vec!["USD".to_owned(), "EUR".to_owned()])
+                open_with: Some(vec!["USD".to_owned(), "EUR".to_owned()]),
+                closed: None
             }
         );
         // an account open for any commodity is open with an empty list
@@ -392,14 +406,23 @@ mod test {
             check("2024-01-02 open Assets:Cash USD"),
             OpenCheck {
                 already_open: false,
-                open_with: Some(vec![])
+                open_with: Some(vec![]),
+                closed: None
             }
         );
         assert!(check("2024-01-02 open Assets:Cash").already_open);
-        // the date of the existing `open` does not matter, nor a `close` since: a plugin opens only an account the
-        // ledger never opened, so it cannot back-date other commodities onto one, or re-open a closed one
-        assert!(check("2024-01-02 open Expenses:Food").already_open, "Expenses:Food is closed, and stays so");
-        assert_eq!(check("2024-01-02 open Expenses:Food USD").open_with, Some(vec![]));
+        // the date of the existing `open` does not matter: a plugin opens only an account the ledger never opened,
+        // so it cannot back-date other commodities onto one; a closed account is told apart, with the close's date
+        let closed = NaiveDate::from_ymd_opt(2023, 1, 1);
+        assert_eq!(check("2024-01-02 open Expenses:Food").closed, closed, "Expenses:Food is closed, and stays so");
+        assert_eq!(
+            check("2024-01-02 open Expenses:Food USD"),
+            OpenCheck {
+                already_open: false,
+                open_with: None,
+                closed
+            }
+        );
         assert!(check("1969-12-31 open Assets:Cash").already_open);
         assert_eq!(
             check("1969-12-31 open Assets:Bank USD").open_with,
@@ -411,7 +434,8 @@ mod test {
             ledger.check_open(&open("2024-01-02 open Expenses:Coffee USD"), std::slice::from_ref(&earlier)),
             OpenCheck {
                 already_open: true,
-                open_with: None
+                open_with: None,
+                closed: None
             }
         );
         assert_eq!(
