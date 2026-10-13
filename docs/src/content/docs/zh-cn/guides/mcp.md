@@ -1,31 +1,28 @@
 ---
 title: MCP 服务器
-description: 通过 zhang-mcp 插件让 Claude 等 AI 助手读取你的账本，并记录你认可的条目：一个 Lua 脚本，提供余额、支出、流水、BQL 和交易等 MCP 工具。
+description: 通过张记账内置的 MCP 插件 zhang-mcp，让 Claude 等 AI 助手读取你的账本，并记录你认可的条目：提供余额、支出、流水、BQL 和交易等工具。
 sidebar:
   order: 10
 ---
 
-[MCP](https://modelcontextprotocol.io/)（Model Context Protocol）是 Claude Code、Claude.ai 等 AI 助手和 LLM 客户端调用工具的协议。`zhang-mcp` 是张记账的 MCP 服务器，以 [Lua 插件](/zh-cn/guides/lua-plugins/)的形式提供：一个文件 `mcp.lua`，复制进账本即可。声明之后，助手就能通过运行和网页界面相同的查询来回答"上个月我在吃饭上花了多少"或"我的净资产是多少"这样的问题；如果你允许，它还能在向你展示将要写入的确切文本之后，记录你描述的条目。
+[MCP](https://modelcontextprotocol.io/)（Model Context Protocol）是 Claude Code、Claude.ai 等 AI 助手和 LLM 客户端调用工具的协议。`zhang-mcp` 是张记账的 MCP 服务器，一个内置在张记账中的 [Lua 插件](/zh-cn/guides/lua-plugins/)：在账本里写两行就能启用，无需下载或复制任何文件。声明之后，助手就能通过运行和网页界面相同的查询来回答"上个月我在吃饭上花了多少"或"我的净资产是多少"这样的问题；如果你允许，它还能在向你展示将要写入的确切文本之后，记录你描述的条目。
 
 读取是默认的，不需要别的设置。写入默认关闭，需要打开两个开关（见下文）；即使打开，插件也只能追加条目，永远不能修改或删除任何内容，而且行为良好的客户端会在每一条之前征求你的同意。
 
 ## 安装
 
-1. 获取 `mcp.lua`：从你所运行的张记账版本的 [release](https://github.com/zhang-accounting/zhang/releases) 下载 `zhang-mcp-<version>.lua`，或取该版本仓库中的 `plugins/mcp/mcp.lua`。把它放进账本目录，例如 `plugins/mcp.lua`。这种复制文件的安装方式面向本地文件系统上的账本；存放在 S3、WebDAV 或 GitHub 上的账本通过自己的存储读取脚本，需要把它上传到那里——下文的内置形式正是为了省掉这一步。
-2. 启用插件并声明它：
+启用插件并声明内置插件，写在账本的任意文件中：
 
-   ```zhang
-   option "features.plugin" "true"
+```zhang
+option "features.plugin" "true"
 
-   plugin "plugins/mcp.lua"
-     timeout: "20s"
-   ```
+plugin "zhang:mcp"
+  timeout: "20s"
+```
 
-3. 重新加载。**设置**页面会列出 `zhang-mcp` 并附有**打开**链接；`GET /api/plugins/zhang-mcp/` 会描述这个服务器及其端点所在。
+重新加载。**设置**页面会列出 `zhang-mcp` 并附有**打开**链接；`GET /api/plugins/zhang-mcp/` 会描述这个服务器及其端点所在。
 
-:::note[随下一个改动到来：内置插件]
-下一个改动会把脚本内置在张记账中：第 1 步将不再需要，声明变为 `plugin "zhang:mcp"`，对任何一种账本存储都适用。设置、工具和下文的一切都保持不变。
-:::
+`zhang:mcp` 指的是内置在张记账程序里的那份插件。它不从账本的存储读取任何内容，所以放在本地目录的账本，和放在 S3 或 R2、WebDAV、GitHub 上的账本（往里面复制文件很麻烦）用起来完全一样。它的版本就是随你的张记账发布的版本，升级张记账即升级它。内置不会给它任何额外权限：它能读写的只有它的 `plugin` 指令所允许的内容，和一份脚本文件副本完全相同。想修改脚本，请[运行你自己的副本](#运行你自己的副本)。
 
 MCP 端点是 `POST <你的张记账地址>/api/plugins/zhang-mcp/mcp`，例如 `http://localhost:8000/api/plugins/zhang-mcp/mcp`。
 
@@ -40,7 +37,19 @@ MCP 端点是 `POST <你的张记账地址>/api/plugins/zhang-mcp/mcp`，例如 
 | `write_tag` | `add_transaction` 给每条记录的条目加上的标签，便于日后查找；`""` 关闭 | `"mcp"` |
 | `allowed_writes` | 张记账自己的授权，每种一行：`"transaction"` 和 `"open"`。没有它，无论 `allow_writes` 怎么设，写入工具都无法写入 | 无 |
 
-这个插件需要随它一起发布的张记账或更新的版本：它是一个 Lua 脚本，写入时还依赖该版本的插件写入能力。在更老的张记账上，账本会加载失败，错误中会指出脚本或缺失的宿主函数。
+### 运行你自己的副本
+
+想改变插件的行为（它给模型的指令、某个工具、某条查询），就改为运行脚本的一份副本，而不是内置的那份：
+
+1. 获取 `mcp.lua`：从你所运行的张记账版本的 [release](https://github.com/zhang-accounting/zhang/releases) 下载 `zhang-mcp-<version>.lua`，或取该版本仓库中的 `plugins/mcp/mcp.lua`。把它放进账本目录，例如 `plugins/mcp.lua`；脚本通过账本的存储读取，所以存放在 S3、WebDAV 或 GitHub 上的账本也要把它上传到那里。
+2. 用它的路径代替 `zhang:mcp` 来声明，设置保持不变：
+
+   ```zhang
+   plugin "plugins/mcp.lua"
+     timeout: "20s"
+   ```
+
+对于本地磁盘上的账本，在 `zhang serve` 下编辑这个文件会重新加载账本。副本需要随它一起发布的张记账或更新的版本：它是一个 Lua 脚本，写入时还依赖该版本的插件写入能力。在更老的张记账上，账本会加载失败，错误中会指出脚本或缺失的宿主函数。在插件内置之前发布的张记账会对 `plugin "zhang:mcp"` 回答 "plugin module not found: zhang:mcp"；在那样的版本上请运行副本。
 
 ## 连接客户端
 
@@ -120,14 +129,14 @@ npx @modelcontextprotocol/inspector --cli http://localhost:8000/api/plugins/zhan
 两个开关，缺一不可，都写在 `plugin` 指令里：
 
 ```zhang
-plugin "plugins/mcp.lua"
+plugin "zhang:mcp"
   timeout: "20s"
   allow_writes: "true"              ; 插件列出它的写入工具
   allowed_writes: "transaction"     ; 张记账允许这个插件追加交易
   allowed_writes: "open"            ; ……以及 open 指令
 ```
 
-`allow_writes` 是插件自己的设置：没有它，写入工具根本不会被列出，所以只读部署永远不会把它们展示给模型。`allowed_writes` 是张记账的授权，和 `allowed_paths`、`allowed_hosts` 是同一类行：没有它，（`allow_writes` 打开时）工具会被列出，但每次调用都会回答应该添加的那一行。只把它授予你信任的那份 `mcp.lua`：见 `plugin` 指令的[能力](/zh-cn/reference/directives/plugin/)。
+`allow_writes` 是插件自己的设置：没有它，写入工具根本不会被列出，所以只读部署永远不会把它们展示给模型。`allowed_writes` 是张记账的授权，和 `allowed_paths`、`allowed_hosts` 是同一类行：没有它，（`allow_writes` 打开时）工具会被列出，但每次调用都会回答应该添加的那一行。内置插件和副本的授权方式相同；只有在你信任副本的代码时才把授权给它：见 `plugin` 指令的[能力](/zh-cn/reference/directives/plugin/)。
 
 一笔交易是这样被记录的：
 
@@ -155,6 +164,7 @@ token 的有效期是十分钟，并且只对一个账本状态有效：在此�
 | `405` | 客户端尝试打开 GET 流（较老的客户端可能尝试一次，然后继续用 POST） | 无需处理：服务器不提供流 |
 | `504 {"message": "plugin zhang-mcp ran longer than its timeout"}` | 一条查询运行超过了插件的 `timeout` | 提高 `timeout`，或缩小查询 |
 | 账本加载失败，错误提到 `mcp.lua` 或某个宿主函数 | 张记账比插件旧 | 升级张记账，或使用你的张记账版本自带的插件 |
+| 账本加载失败："plugin module not found: zhang:mcp" | 这个张记账发布于插件内置之前 | 升级张记账，或[运行](#运行你自己的副本)你的张记账版本自带的插件副本 |
 | 客户端说服务器需要 OAuth | 在配置请求头之前它收到了 `401` | 先配置请求头；张记账的 `401` 不带 OAuth 元数据 |
 | 助手说它没有记录交易的工具 | `allow_writes` 关闭（打开时写入工具总会被列出） | 加上[记录条目](#记录条目)中的那几行并重新加载 |
 | 助手说张记账不允许插件写入交易或开户 | `allow_writes` 已打开，但缺少对应种类的 `allowed_writes` 行 | 加上错误信息中指出的那一行并重新加载 |

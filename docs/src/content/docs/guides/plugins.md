@@ -35,6 +35,7 @@ plugin "plugins/large_expense.wasm"
 - Some metadata keys are not settings but **capabilities** you grant the plugin, described [below](#grant-capabilities).
 - Plugins run in the order they are declared. A module declared twice runs twice.
 - Zhang reads each module from the ledger's storage every time the ledger loads, and keeps no copy of it. When a module on the local disk changes, `zhang serve` reloads the ledger.
+- A module written `zhang:<name>` is a plugin built into Zhang, with no file to copy: `plugin "zhang:mcp"` is the [MCP Server](/guides/mcp/). See [Bundled plugins](/reference/directives/plugin/#bundled-plugins).
 
 ## What plugins do
 
@@ -42,7 +43,7 @@ A plugin declares what it is, and can be several of these at once:
 
 - A **processor** receives every entry of the ledger and returns the entries Zhang goes on with. It can add, change or remove entries, or only check them and report problems.
 - A **mapper** does the same one entry at a time.
-- A **router** serves pages and data under `/api/plugins/{name}`, such as a custom report. See [Router Plugins](/guides/router-plugins/). A router can be written as a Lua script, with nothing to compile: see [Lua Plugins](/guides/lua-plugins/). Zhang ships one such script: the [MCP Server](/guides/mcp/), which lets an AI assistant read the ledger and, if you allow it, record entries.
+- A **router** serves pages and data under `/api/plugins/{name}`, such as a custom report. See [Router Plugins](/guides/router-plugins/). A router can be written as a Lua script, with nothing to compile: see [Lua Plugins](/guides/lua-plugins/). Zhang has one such script built in, declared as `plugin "zhang:mcp"`: the [MCP Server](/guides/mcp/), which lets an AI assistant read the ledger and, if you allow it, record entries.
 
 What a processor or mapper changes exists only while the ledger is loaded. Your files stay as they are.
 

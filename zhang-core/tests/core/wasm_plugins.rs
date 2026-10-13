@@ -2492,3 +2492,174 @@ mod lua {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Bundled plugins: `plugin "zhang:mcp"` loads the repository's `plugins/mcp/mcp.lua` from the binary
+// ---------------------------------------------------------------------------------------------------------------
+
+mod bundled {
+    use std::sync::Mutex;
+
+    use zhang_core::data_source::LedgerFiles;
+    use zhang_core::ZhangError;
+
+    use super::*;
+
+    /// where the in-memory ledger says it is: a path no disk has
+    const ROOT: &str = "/in-memory/ledger";
+
+    /// a source holding the ledger's files in memory, as remote storage (S3 or R2 through opendal, WebDAV, GitHub)
+    /// does: no local root, every file fetched with `get` by its path within the ledger, which it records
+    struct InMemory {
+        files: HashMap<String, Vec<u8>>,
+        asked: Mutex<Vec<String>>,
+    }
+
+    impl DataSource for InMemory {
+        fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+            self.asked.lock().unwrap().push(path.clone());
+            self.files.get(&path).cloned().ok_or(ZhangError::FileNotFound)
+        }
+
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+            let mut files = LedgerFiles::new(entry, &endpoint);
+            while let Some(file) = files.next(|_| Ok(vec![]))? {
+                let content = self.get(file.path());
+                files.read(file, content, &ZhangDataType {})?;
+            }
+            Ok(files.finish())
+        }
+    }
+
+    /// the repository's `plugins/mcp/mcp.lua`, as it is on disk now
+    fn repository_script() -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugins/mcp/mcp.lua");
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    }
+
+    /// an in-memory ledger whose main file declares `plugin_lines`, holding the extra files `files`
+    fn in_memory(plugin_lines: &str, files: &[(&str, &[u8])]) -> Arc<InMemory> {
+        let main = format!("option \"features.plugin\" \"true\"\noption \"title\" \"Home\"\n{plugin_lines}{LEDGER}");
+        let mut all: HashMap<String, Vec<u8>> = files.iter().map(|(path, content)| (path.to_string(), content.to_vec())).collect();
+        all.insert("main.zhang".to_owned(), main.into_bytes());
+        Arc::new(InMemory {
+            files: all,
+            asked: Mutex::new(vec![]),
+        })
+    }
+
+    fn load_in_memory(source: &Arc<InMemory>) -> ZhangResult<Ledger> {
+        Ledger::load(PathBuf::from(ROOT), "main.zhang".to_owned(), source.clone())
+    }
+
+    fn asked(source: &InMemory) -> Vec<String> {
+        source.asked.lock().unwrap().clone()
+    }
+
+    /// a JSON-RPC request to the plugin's MCP endpoint
+    fn mcp(body: serde_json::Value) -> PluginRequest {
+        let headers = vec![("Content-Type".to_owned(), "application/json".to_owned())];
+        PluginRequest::new("POST", "/mcp", vec![], headers, serde_json::to_vec(&body).unwrap())
+    }
+
+    fn answer(response: &http::Response<Vec<u8>>) -> serde_json::Value {
+        assert_eq!(response.status(), 200, "{}", String::from_utf8_lossy(response.body()));
+        serde_json::from_slice(response.body()).unwrap()
+    }
+
+    #[test]
+    fn the_bundled_mcp_plugin_loads_from_a_source_holding_only_the_ledger_and_serves_mcp() {
+        let source = in_memory("plugin \"zhang:mcp\"\n  timeout: \"20s\"\n", &[]);
+
+        let ledger = load_in_memory(&source).unwrap_or_else(|e| panic!("ledger should load: {e}"));
+
+        // nothing but the main file was read: the plugin came from the binary
+        assert_eq!(asked(&source), ["main.zhang"]);
+        assert_eq!(registered(&ledger), vec![("zhang-mcp".to_owned(), vec![PluginType::Router])]);
+        let plugin = ledger.plugins.router("zhang-mcp").unwrap();
+        let script = plugin.script().expect("a Lua script");
+        assert_eq!(script.name, "zhang:mcp", "messages name the module as written");
+        assert_eq!(script.source, repository_script(), "the repository's file, unchanged");
+        // an embedded module changes only with the binary: it is no input of the load
+        assert!(ledger.extra_inputs.is_empty(), "{:?}", ledger.extra_inputs);
+        // bundling grants nothing: the plugin declares writes, its directive grants none
+        assert_eq!(plugin.declared_writes(), [WriteKind::Transaction, WriteKind::Open]);
+        assert!(plugin.capabilities().allowed_writes.is_empty());
+
+        let initialized = answer(
+            &call(
+                &ledger,
+                "zhang-mcp",
+                &mcp(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})),
+            )
+            .unwrap(),
+        );
+        assert_eq!(initialized["id"], 1);
+        assert_eq!(initialized["result"]["protocolVersion"], "2025-06-18");
+        assert_eq!(initialized["result"]["serverInfo"]["name"], "zhang-mcp");
+        let instructions = initialized["result"]["instructions"].as_str().unwrap();
+        assert!(instructions.contains("read-only access to the zhang ledger \"Home\""), "{instructions}");
+
+        let listed = answer(&call(&ledger, "zhang-mcp", &mcp(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))).unwrap());
+        let tools = listed["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect_vec();
+        assert_eq!(tools.len(), 12, "the read tools, no write tool without the grant: {tools:?}");
+        assert!(tools.contains(&"net_worth") && !tools.contains(&"add_transaction"), "{tools:?}");
+    }
+
+    #[test]
+    fn the_bundled_plugin_takes_its_grant_and_settings_from_its_directive() {
+        let directive = "plugin \"zhang:mcp\"\n  allow_writes: \"true\"\n  allowed_writes: \"transaction\"\n";
+        let source = in_memory(directive, &[]);
+
+        let ledger = load_in_memory(&source).unwrap();
+
+        let plugin = ledger.plugins.router("zhang-mcp").unwrap();
+        assert_eq!(plugin.capabilities().allowed_writes, [WriteKind::Transaction]);
+        let listed = answer(&call(&ledger, "zhang-mcp", &mcp(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))).unwrap());
+        assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 15, "{listed}");
+    }
+
+    #[test]
+    fn an_unknown_bundled_plugin_fails_the_load_listing_the_bundled_ones() {
+        let source = in_memory("plugin \"zhang:nope\"\n", &[("zhang:nope", b"return {}")]);
+
+        let error = load_in_memory(&source).err().expect("must not load").to_string();
+
+        assert!(
+            error.contains("plugin module zhang:nope is not a plugin bundled with this zhang; the bundled plugins are zhang:mcp"),
+            "{error}"
+        );
+        assert_eq!(asked(&source), ["main.zhang"], "a `zhang:` module is never read from the ledger");
+    }
+
+    #[test]
+    fn a_module_without_the_prefix_is_still_a_file_of_the_ledger() {
+        let script = repository_script();
+
+        // on remote storage: a relative path, and a file whose name starts with `zhang:` declared as `./zhang:...`
+        for (module, file) in [("zhang-mcp.lua", "zhang-mcp.lua"), ("./zhang:mcp.lua", "zhang:mcp.lua")] {
+            let source = in_memory(&format!("plugin \"{module}\"\n"), &[(file, script.as_bytes())]);
+            let ledger = load_in_memory(&source).unwrap_or_else(|e| panic!("{module} should load: {e}"));
+            assert_eq!(asked(&source), ["main.zhang", file], "{module}");
+            assert_eq!(registered(&ledger), vec![("zhang-mcp".to_owned(), vec![PluginType::Router])]);
+            assert_eq!(ledger.plugins.router("zhang-mcp").unwrap().script().unwrap().name, module);
+            assert!(ledger.extra_inputs.contains(&ExtraInput::File(file.into())), "{:?}", ledger.extra_inputs);
+        }
+
+        // on the local disk, by a path relative to the ledger root
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("zhang-mcp.lua"), &script).unwrap();
+        let ledger = load(&dir, &with_plugins("plugin \"zhang-mcp.lua\"\n"));
+        assert_eq!(registered(&ledger), vec![("zhang-mcp".to_owned(), vec![PluginType::Router])]);
+        assert!(
+            ledger.extra_inputs.contains(&ExtraInput::File("zhang-mcp.lua".into())),
+            "{:?}",
+            ledger.extra_inputs
+        );
+    }
+}

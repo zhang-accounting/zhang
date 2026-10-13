@@ -18,7 +18,7 @@ The owner's (PRD2 §1):
 
 | # | Decision | Where it binds |
 | --- | --- | --- |
-| D1 | No wasm authored by users: plugins are Lua scripts; the execution boundary stays Extism/wasm (the interpreter is the only wasm, embedded in zhang). | one file, `mcp.lua`, copied into the ledger; nothing to build, nothing to install |
+| D1 | No wasm authored by users: plugins are Lua scripts; the execution boundary stays Extism/wasm (the interpreter is the only wasm, embedded in zhang). | one file, `mcp.lua`, bundled in zhang as `plugin "zhang:mcp"` (or copied into the ledger); nothing to build, nothing to install |
 | D2 | Lua, **and** writes. | §5 |
 | D3 | Amount arithmetic stays exact; never Lua floats; decimals travel as strings. | every amount in a tool argument or result is a string; a number is refused before the host sees it |
 | D4 | The MCP server is a Lua plugin replacing #799; it reuses #799's language-independent assets (BQL texts, tool catalogue, transport and era rules, review fixes, e2e sessions) and the parameterised-query host functions. | §2-4 |
@@ -168,7 +168,7 @@ the inferred-amount posting; one without `currency` takes the operating currency
 
 ```zhang
 option "features.plugin" "true"
-plugin "plugins/mcp.lua"
+plugin "zhang:mcp"                                ; the bundled copy; a copy in the ledger is declared by its path
   timeout: "20s"                                  ; the host's: how long one request may run (default 60s)
   allowed_origins: "https://ledger.example.com"   ; comma-separated or repeated; absent = loopback same-host only
   max_rows: "500"                                 ; the cap of every tool's limit; default 1000
@@ -177,6 +177,16 @@ plugin "plugins/mcp.lua"
   allowed_writes: "transaction"                   ; the host's grant
   allowed_writes: "open"
 ```
+
+Distribution (PRD2 §F, D-E): the script is bundled in the zhang binary and declared as `plugin "zhang:mcp"`. A
+`zhang:` module resolves to an entry of the host's small table of bundled plugins (`zhang-core/src/plugin/bundled.rs`:
+name → the repository file, embedded with `include_bytes!` under `plugin_runtime`) instead of a file read through the
+ledger's data source, so the install is the same two lines on a local disk and on remote storage (the owner's ledger
+is on R2 through opendal, where copying a file in is the painful step). The bundled copy is this file unchanged: the
+same identity (`zhang-mcp`), the same metas, the same grant (`allowed_writes` on the directive; bundling grants
+nothing); it is no `ExtraInput` of the load and its version moves with the binary. Messages and `zhang.script_name`
+name it `zhang:mcp`. A copy declared by its path (`plugin "plugins/mcp.lua"`) keeps working and is the way to
+customise it; the release asset `zhang-mcp-<version>.lua` stays for that.
 
 Repeated keys are read from `zhang.plugin` (the directive as JSON), so `allowed_origins` and `allowed_writes` may be
 repeated; the flat config is the fallback. Bounds: the plugin `timeout`; 10 s per BQL and the host's value cap; the
@@ -229,7 +239,6 @@ results; `server/discover` is `cacheScope: "private"`; the same-host `Origin` ru
 
 ## 8. Follow-ups
 
-- Bundling the script in the binary (`plugin "zhang:mcp"`), PRD2 D-E: required, the next PR of the stack, so the install is two lines and no file is copied (nor shipped in the Docker image).
 - Resources (`zhang://schema`, `zhang://errors`) and prompts (`monthly-review`, `bql-help`).
 - A body-size cap per plugin in the host (the 1 MiB check runs after the host buffered the body).
 - Rate limiting in the host, if a shared deployment needs it.

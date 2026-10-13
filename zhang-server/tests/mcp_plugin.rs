@@ -4,7 +4,8 @@
 //! built-in query to the server's own text (read through the plugin's hidden `GET /queries` route), the write
 //! sessions (preview → open → preview → add → the file holds the text → a replay conflicts) and the read-only ones.
 //!
-//! No build step: the script runs on the Lua interpreter the host embeds.
+//! No build step: the script runs on the Lua interpreter the host embeds. The legacy, modern and write sessions also
+//! run against `plugin "zhang:mcp"`, the copy of the script built into zhang, with no file in the ledger.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -107,17 +108,45 @@ plugin "{module}"
   Expenses:Food 200 CNY
 "#;
 
+/// how the fixture ledger gets the plugin
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Install {
+    /// a copy of the script under `plugins/`, declared by its path
+    Copied,
+    /// the copy built into zhang, declared as `plugin "zhang:mcp"`: no file in the ledger
+    Bundled,
+}
+
 /// a ledger directory with the script under `plugins/` and the fixture as `main.zhang`, `metas` being extra meta
 /// lines of the `plugin` directive (indented, newline-terminated)
 fn ledger_dir(metas: &str) -> TempDir {
+    ledger_dir_with(Install::Copied, metas)
+}
+
+/// [`ledger_dir`], with the plugin installed as `install` says
+fn ledger_dir_with(install: Install, metas: &str) -> TempDir {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("plugins")).unwrap();
-    let copied = dir.path().join("plugins").join("mcp.lua");
-    std::fs::copy(script(), &copied).unwrap_or_else(|e| panic!("cannot copy {}: {e}", script().display()));
-    // a local ledger resolves a module against the working directory, so declare it by absolute path
-    let absolute = dir.path().canonicalize().unwrap().join("plugins").join("mcp.lua");
-    let ledger = LEDGER.replace("{module}", &absolute.display().to_string()).replace("{metas}\n", metas);
+    let module = match install {
+        Install::Copied => {
+            std::fs::create_dir_all(dir.path().join("plugins")).unwrap();
+            let copied = dir.path().join("plugins").join("mcp.lua");
+            std::fs::copy(script(), &copied).unwrap_or_else(|e| panic!("cannot copy {}: {e}", script().display()));
+            // a local ledger resolves a module against the working directory, so declare it by absolute path
+            let absolute = dir.path().canonicalize().unwrap().join("plugins").join("mcp.lua");
+            absolute.display().to_string()
+        }
+        Install::Bundled => "zhang:mcp".to_owned(),
+    };
+    let ledger = LEDGER.replace("{module}", &module).replace("{metas}\n", metas);
     std::fs::write(dir.path().join("main.zhang"), ledger).unwrap();
+    dir
+}
+
+/// a ledger directory declaring the bundled plugin, which holds no copy of the script
+fn bundled_ledger_dir(metas: &str) -> TempDir {
+    let dir = ledger_dir_with(Install::Bundled, metas);
+    let files: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    assert_eq!(files, ["main.zhang"], "nothing but the main file");
     dir
 }
 
@@ -296,7 +325,16 @@ async fn the_plugin_queries_are_the_builtins_or_compile_like_them() {
 
 #[tokio::test]
 async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
-    let dir = ledger_dir("");
+    legacy_session(ledger_dir("")).await;
+}
+
+/// the same session against `plugin "zhang:mcp"`: the bundled copy is the repository's script
+#[tokio::test]
+async fn a_legacy_session_against_the_bundled_plugin() {
+    legacy_session(bundled_ledger_dir("")).await;
+}
+
+async fn legacy_session(dir: TempDir) {
     let router = server(&dir, &Settings::default()).await;
 
     // the plugin's own page
@@ -659,7 +697,16 @@ async fn a_legacy_session_initializes_lists_and_calls_every_tool() {
 
 #[tokio::test]
 async fn a_modern_session_discovers_and_calls_with_headers_and_meta() {
-    let dir = ledger_dir("");
+    modern_session(ledger_dir("")).await;
+}
+
+/// the same session against `plugin "zhang:mcp"`
+#[tokio::test]
+async fn a_modern_session_against_the_bundled_plugin() {
+    modern_session(bundled_ledger_dir("")).await;
+}
+
+async fn modern_session(dir: TempDir) {
     let router = server(&dir, &Settings::default()).await;
     let meta = json!({META_VERSION: "2026-07-28", META_CAPABILITIES: {}, "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "0"}});
 
@@ -937,7 +984,17 @@ async fn serving(dir: &TempDir, settings: &Settings) -> (Router, Arc<ReloadSende
 
 #[tokio::test]
 async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
-    let dir = ledger_dir(GRANTED);
+    write_session(ledger_dir(GRANTED)).await;
+}
+
+/// the same session against `plugin "zhang:mcp"` with the same grant: the reloads after each commit load the bundled
+/// copy again, and the grant comes from the directive as for a file
+#[tokio::test]
+async fn a_write_session_against_the_bundled_plugin() {
+    write_session(bundled_ledger_dir(GRANTED)).await;
+}
+
+async fn write_session(dir: TempDir) {
     let (router, reload) = serving(&dir, &Settings::default()).await;
 
     // the instructions tell the model the write flow, and the catalogue has fifteen tools

@@ -19,7 +19,7 @@ plugin "<Module>" ["<Argument>" …]
 
 | Part | Required | Description |
 |---|---|---|
-| `"<Module>"` | yes | The path of the module, relative to the ledger root: a `.wasm` module, a `.wat` module (WebAssembly text) or a `.lua` script (see [Lua Plugins](/guides/lua-plugins/)), by its extension in any letter case. A path without an extension is a wasm module, as before; any other extension is refused by name. An absolute path is accepted only under the ledger root; a module outside it is refused, and the ledger does not load. |
+| `"<Module>"` | yes | The path of the module, relative to the ledger root: a `.wasm` module, a `.wat` module (WebAssembly text) or a `.lua` script (see [Lua Plugins](/guides/lua-plugins/)), by its extension in any letter case. A path without an extension is a wasm module, as before; any other extension is refused by name. An absolute path is accepted only under the ledger root; a module outside it is refused, and the ledger does not load. `zhang:<name>` names a plugin built into Zhang instead of a file: see [Bundled plugins](#bundled-plugins). |
 | `"<Argument>"` | no | Positional arguments, passed to the plugin as written. |
 | `<key>: "<value>"` | no | Metadata lines: the [capabilities](#capabilities) Zhang grants the plugin, and the plugin's own settings. |
 
@@ -52,6 +52,30 @@ plugin "plugins/receipts.wasm"
 The first plugin may send HTTP requests to `api.frankfurter.dev`, each call into it may run for 30 seconds, and it
 receives the setting `base_currency`. The second may read the files under `documents` and the file
 `statements/2024.csv`.
+
+## Bundled plugins
+
+A module written `zhang:<name>` is a plugin built into Zhang. It is loaded from the Zhang binary, so there is no file
+to copy and nothing is read from the ledger's storage: the same two lines work for a ledger on the local disk and for
+one on S3, WebDAV or GitHub. This Zhang bundles:
+
+| Module | Plugin | Guide |
+|---|---|---|
+| `zhang:mcp` | `zhang-mcp`, an MCP server that lets an AI assistant read the ledger and, if you allow it, record entries. A Lua script, the repository's `plugins/mcp/mcp.lua` | [MCP Server](/guides/mcp/) |
+
+```zhang
+plugin "zhang:mcp"
+  timeout: "20s"
+```
+
+A bundled plugin is declared, granted and configured like any other: the metadata lines of its directive grant its
+[capabilities](#capabilities) and pass its settings, and being bundled grants it nothing. It is the version that
+shipped with the Zhang running it, and updating Zhang updates it; editing your ledger never changes it. An unknown
+name, such as `zhang:nope`, stops the load with an error listing the bundled plugins. To change a bundled plugin, run
+a copy of its file instead, declared by its path.
+
+The `zhang:` prefix is reserved: a module starting with it is never read as a file. A file of the ledger whose name
+starts with `zhang:` is declared as `./zhang:…`.
 
 ## Capabilities
 
