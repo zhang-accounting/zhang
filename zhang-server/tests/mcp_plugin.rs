@@ -1073,7 +1073,6 @@ async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
     .await;
     assert_eq!((again["recorded"].as_bool(), again["already_open"].as_bool()), (Some(false), Some(true)));
     assert_eq!(again["opened_on"], "2024-03-01");
-    assert!(again["closed_on"].is_null());
     assert!(
         again["message"]
             .as_str()
@@ -1093,19 +1092,11 @@ async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
         other.contains("Expenses:Food:Coffee has an open directive already (with CNY), not USD"),
         "{other}"
     );
-    assert!(other.contains("cannot change an account's commodities or re-open a closed one"), "{other}");
-    // a closed account keeps its one open: nothing written, and the answer names both dates for the user
-    let closed = structured(&router, "open_account", json!({"date": "2024-01-01", "account": "Assets:Old"})).await;
-    assert_eq!((closed["recorded"].as_bool(), closed["already_open"].as_bool()), (Some(false), Some(true)));
-    assert_eq!(
-        (closed["opened_on"].as_str(), closed["closed_on"].as_str()),
-        (Some("1970-01-01"), Some("2023-12-31"))
-    );
+    assert!(other.contains("cannot change an account's commodities"), "{other}");
+    // a closed account is not reopened: the host's error names the close date for the user
+    let closed = error_text(&router, "open_account", json!({"date": "2024-01-01", "account": "Assets:Old"})).await;
     assert!(
-        closed["message"]
-            .as_str()
-            .unwrap()
-            .starts_with("Assets:Old is already opened on 1970-01-01 (closed on 2023-12-31);"),
+        closed.contains("Assets:Old was closed on 2023-12-31: a plugin does not reopen a closed account"),
         "{closed}"
     );
     assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);

@@ -145,9 +145,10 @@ token dies, replay is impossible) and reloads after the plugin returns. A host `
 reload is pending, the token expired or was used) is an `isError` that says "the ledger changed, run
 preview_transaction again". `open_account` is one-shot (an `open` changes no balance): preview, then commit with the preview's token. A ledger
 keeps one `open` per account, and the host lets a plugin open only an account the ledger never opened: the same
-commodity set answers `recorded: false, already_open: true` with `opened_on`, `closed_on` and a message telling the
-user to move that open's date in the file to record earlier transactions (the plugin reads the dates through
-`accounts.subtree`); another commodity set is the host's field error naming the existing open. The instructions tell
+commodity set answers `recorded: false, already_open: true` with `opened_on` and a message telling the user to move
+that open's date in the file to record earlier transactions (the plugin reads the date through `accounts.subtree`);
+another commodity set is the host's field error naming the existing open, and a closed account the host's
+`account_closed` error ("was closed on <date>: a plugin does not reopen a closed account"), both relayed as the tool's error. The instructions tell
 the model to date a new open on or before the earliest transaction that needs it, not today.
 
 Confirmation design (end-user-safe default): (1) the client's approval prompt, driven by the annotations

@@ -735,7 +735,6 @@ local OPENED = {
     text = { type = { "string", "null" }, description = "the open directive as written" },
     file = { type = { "string", "null" } },
     opened_on = { type = { "string", "null" }, description = "when `already_open`: the date of the existing open directive" },
-    closed_on = { type = { "string", "null" }, description = "when `already_open`: the date the account was closed, if it was" },
     message = { type = { "string", "null" }, description = "when `already_open`: what to tell the user (move the open's date in the file to record earlier transactions)" },
   },
   required = { "recorded", "already_open", "account" },
@@ -1104,20 +1103,17 @@ local WRITE_TOOLS = {
       local preview = with_host(function() return write_preview(directives) end)
       local entry = (preview.entries or {})[1] or {}
       if entry.already_open == true then
-        -- a ledger keeps one open per account: say when it was opened (and closed), so that the model can tell the
-        -- user to move that open's date rather than try again
+        -- a ledger keeps one open per account: say when it was opened, so that the model can tell the user to move
+        -- that open's date rather than try again (a closed account is the host's own `account_closed` error)
         local clock = call:clock()
         local rows = zhang.query_params(Q.accounts_subtree.bql, { account = zhang.str(open.account), date = zhang.date(clock.today), time = zhang.str(clock.time) })
-        local opened_on, closed_on = nil, nil
+        local opened_on
         for _, row in ipairs(rows.rows or {}) do
-          if row[1] == open.account then
-            opened_on = type(row[2]) == "string" and row[2] or nil
-            closed_on = type(row[3]) == "string" and row[3] or nil
-          end
+          if row[1] == open.account and type(row[2]) == "string" then opened_on = row[2] end
         end
-        local message = fmt("%s is already opened%s%s; a ledger keeps one open per account, so nothing was written. To record transactions dated before that open, ask the user to move the open's date in the ledger file.",
-          open.account, opened_on and (" on " .. opened_on) or "", closed_on and (" (closed on " .. closed_on .. ")") or "")
-        return { recorded = false, already_open = true, account = open.account, opened_on = opened_on, closed_on = closed_on, message = message, file = preview.file }
+        local message = fmt("%s is already opened%s; a ledger keeps one open per account, so nothing was written. To record transactions dated before that open, ask the user to move the open's date in the ledger file.",
+          open.account, opened_on and (" on " .. opened_on) or "")
+        return { recorded = false, already_open = true, account = open.account, opened_on = opened_on, message = message, file = preview.file }
       end
       if preview.ok ~= true or type(preview.token) ~= "string" then
         tool_error("the ledger refuses this open directive (" .. entry_errors_text(entry) .. ")")
