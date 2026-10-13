@@ -112,7 +112,7 @@ after `to`, a numeric amount, an empty `bql`) → `isError: true` with a text na
 | `errors` | `limit`, `offset` | `journals.errors` (`:size` = limit + 1) | builtin | read-only |
 | `prices` | `commodity`, `currency` (default operating) | `commodities.latest_prices` or `commodities.latest_price` | builtin | read-only |
 | `preview_transaction` | `date` (required, optional time), `payee`, `narration` (required), `postings` (required: `account`, `amount` string, `currency`, `cost`, `price`), `tags`, `links`, `flag`, `metas` | `zhang.write.preview` of one transaction, `write_tag` added to `tags` | the web UI's preview | `readOnlyHint: true, idempotentHint: true` |
-| `add_transaction` | the same + `token` (required) | re-preview, compare the token, `zhang.write.commit` | the web UI's append | `readOnlyHint: false, destructiveHint: false, idempotentHint: false` |
+| `add_transaction` | the same + `token` (required) | re-preview for the errors, `zhang.write.commit` with the caller's token (verified by the host) | the web UI's append | `readOnlyHint: false, destructiveHint: false, idempotentHint: false` |
 | `open_account` | `date`, `account` (required), `commodities`, `booking_method` | `zhang.write.preview` of one `open`, then `zhang.write.commit` unless `already_open` | — | `readOnlyHint: false, destructiveHint: false, idempotentHint: true` |
 
 "read-only" = `{readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false}`; every tool has
@@ -138,9 +138,8 @@ The flow and the token: `preview_transaction` sends one `transaction` directive 
 validates it exactly as `POST /api/transactions/preview` does, exports the text, chooses the file by the ledger's
 `directive_output_path`, and mints a token bound to the ledger generation, the plugin, the file and the exact text,
 valid ten minutes, only when the entry is clean. The tool answers `{ok, text, file, token, field_errors, unbalanced,
-errors}`. `add_transaction` rebuilds the same batch, previews it again, requires the given token to be the one of that
-preview (so a missing, stale or foreign token is an `isError` that says to preview first and show the user the text),
-then `zhang.write.commit`s with it; the host appends the text in one write, bumps the generation (every outstanding
+errors}`. `add_transaction` rebuilds the same batch, previews it again to report errors precisely, then `zhang.write.commit`s
+with the caller's token, which the host verifies against the recomputed plan (generation, expiry, plugin, files, texts); the host appends the text in one write, bumps the generation (every outstanding
 token dies, replay is impossible) and reloads after the plugin returns. A host `conflict` (the ledger changed, a
 reload is pending, the token expired or was used) is an `isError` that says "the ledger changed, run
 preview_transaction again". `open_account` is one-shot (an `open` changes no balance): preview, `recorded: false,
@@ -193,10 +192,12 @@ From PRD2:
 - `preview_transaction` lifts the single entry's fields (`text`, `field_errors`, `unbalanced`, `errors`) to the top
   level of its result beside `ok`, `file`, `token` (PRD2 §C.2 said "the host's preview object"): one transaction per
   call, so the model never indexes `entries[0]` to find the text it must show.
-- `add_transaction` previews again and compares the token itself before committing: a preview with errors is
-  refused with those errors, and a token that is not the current preview's (stale after a reload, or for other
-  arguments) is refused as "the ledger changed since it was issued, or the arguments differ: run preview_transaction
-  again" (the host binds the token anyway; the plugin's check chooses the message and spares a failing commit).
+- `add_transaction` previews again only to name the ledger's errors precisely; the token itself is verified by the
+  host alone on commit (a token embeds its expiry in seconds, so two previews of the same text in different seconds
+  mint different tokens: a plugin-side comparison would refuse any token older than a second, the normal case for a
+  model). The host's `conflict` is turned into a distinct remedy: an expired token ("the preview expired, run
+  preview_transaction again"), other arguments ("the arguments differ from the transaction this token was previewed
+  for"), a token the server never issued, or a changed ledger ("the ledger changed since the preview").
 - A posting without `currency` is in the operating currency (unstated in PRD2; the web UI does the same).
 - `date` of a write tool accepts an optional `HH:MM:SS`.
 

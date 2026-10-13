@@ -952,6 +952,22 @@ async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
     let token = preview["token"].as_str().expect("a token").to_owned();
     assert_eq!(preview["errors"], json!([]));
 
+    // a model takes longer than a second between the preview and the commit, and a token embeds its expiry in
+    // seconds: the token of the preview must still be the one the commit takes
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    // the same token with other arguments: refused by the host (the plan differs), nothing written
+    let mut pricier = coffee(Some(&token));
+    pricier["postings"][0]["amount"] = json!("5.00");
+    let changed = error_text(&router, "add_transaction", pricier).await;
+    assert!(
+        changed.contains("the arguments differ") && changed.contains("preview_transaction again"),
+        "{changed}"
+    );
+    assert!(
+        !std::fs::read_to_string(dir.path().join("data/2024/03.zhang")).unwrap().contains("Blue Bottle"),
+        "nothing was written"
+    );
+
     // the commit: the file holds exactly the previewed text, the main file includes it
     let added = structured(&router, "add_transaction", coffee(Some(&token))).await;
     assert_eq!((added["recorded"].as_bool(), added["text"].as_str()), (Some(true), Some(text.as_str())));

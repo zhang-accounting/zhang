@@ -958,6 +958,14 @@ local function with_host(run)
   if ok then return result end
   local kind, message = host_failure(result)
   if kind == "conflict" then
+    -- the host names what differs between the token and the batch it is asked to commit; each case has its own remedy
+    if message:find("expired", 1, true) then
+      tool_error("the preview expired (a token is valid for 10 minutes): run preview_transaction again, show the user the text, then add_transaction with the new token")
+    elseif message:find("not the one the token was minted for", 1, true) then
+      tool_error("the arguments differ from the transaction this token was previewed for (" .. message .. "): run preview_transaction again with these arguments, show the user the text, then pass its token")
+    elseif message:find("not a preview token", 1, true) then
+      tool_error("the token is not one this server issued: call preview_transaction first, show the user the text, then pass its token")
+    end
     tool_error("the ledger changed since the preview (" .. message .. "): run preview_transaction again, show the user the new text, then add_transaction with the new token")
   elseif kind == "denied" then
     tool_error("the host refused the write (" .. message .. "): check the `allowed_writes` lines of the plugin directive")
@@ -1061,13 +1069,13 @@ local WRITE_TOOLS = {
     with_token(TRANSACTION_ARGS), COMMITTED, function(call)
       require_grant("transaction")
       local directives = { transaction_directive(call) }
+      -- previewed again only to name the ledger's errors precisely; the token itself is verified by the host on
+      -- commit (it embeds its expiry, so two previews of the same text in different seconds mint different tokens:
+      -- comparing tokens here would refuse any token older than a second)
       local preview = with_host(function() return write_preview(directives) end)
       local entry = (preview.entries or {})[1] or {}
       if preview.ok ~= true then
         tool_error("the ledger refuses this transaction (" .. entry_errors_text(entry) .. "): fix it, run preview_transaction again and show the user the text")
-      end
-      if preview.token ~= call.args.token then
-        tool_error("the token does not match the current preview of this transaction: the ledger changed since it was issued, or the arguments differ. Run preview_transaction again, show the user the text, then pass its token")
       end
       local committed = with_host(function() return write_commit(directives, call.args.token) end)
       return { recorded = true, text = entry.text, file = committed.file, bytes = committed.bytes, generation = committed.generation }
