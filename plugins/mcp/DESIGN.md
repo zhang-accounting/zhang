@@ -132,7 +132,8 @@ Two switches, both required: the plugin's `allow_writes: "true"` (lists the thre
 deployment never shows them to the model) and the host's `allowed_writes: "transaction"` / `allowed_writes: "open"`
 (the generic grant of PRD2 §B, the same shape as `allowed_paths`). With `allow_writes` on but a kind not granted, the
 tool is listed and answers an `isError` naming the exact meta line to add (actionable for the owner, harmless for the
-model). Without any grant, or without `allow_writes`, the three names are unknown tools (`-32602`).
+model). Without `allow_writes` the three names are unknown tools (`-32602`), whatever the grant; with it they are always
+listed, so the owner who turned writes on gets the missing grant line relayed by the model instead of "no such tool".
 
 The flow and the token: `preview_transaction` sends one `transaction` directive to `zhang.write.preview`; the host
 validates it exactly as `POST /api/transactions/preview` does, exports the text, chooses the file by the ledger's

@@ -473,6 +473,9 @@ local function check_postings(a, value)
       end
     end
     if type(posting.account) ~= "string" or trim(posting.account) == "" then return nil, fmt("the argument `%s.account` is required", where) end
+    if type(posting.currency) == "string" and type(posting.amount) ~= "string" then
+      return nil, fmt("the argument `%s.currency` needs an `amount`: a posting without an amount is the one the ledger infers, in any commodity", where)
+    end
   end
   return true
 end
@@ -925,14 +928,13 @@ local TOOLS = {
 }
 
 -- ---- write tools: preview, add, open over the host's write capability (allowed_writes) ----------------------------
--- Listed only when the directive says allow_writes: "true" AND the host granted allowed_writes; otherwise they are
--- unknown tools. The host validates a batch exactly as POST /api/transactions/preview does and mints a token bound
+-- Listed when the directive says allow_writes: "true"; otherwise they are unknown tools. A kind the host did not
+-- grant with allowed_writes answers an isError naming the line to add. The host validates a batch exactly as POST /api/transactions/preview does and mints a token bound
 -- to the ledger state and the exact text; commit needs that token, so the model can only record what it showed.
 
-local function granted_any()
-  return next(CONFIG.granted) ~= nil
-end
-function writes_enabled() return CONFIG.allow_writes and granted_any() end
+-- with allow_writes on the write tools are always listed: a kind the host did not grant answers with the line to add,
+-- so the owner who turned writes on gets the fix relayed by the model instead of "no such tool"
+function writes_enabled() return CONFIG.allow_writes end
 
 -- a tool error naming the exact meta line to add when `kind` is not granted
 local function require_grant(kind)
@@ -986,7 +988,7 @@ local function entry_errors_text(entry)
   end
   if is_array(entry.unbalanced) and #entry.unbalanced > 0 then
     local amounts = {}
-    for _, it in ipairs(entry.unbalanced) do amounts[#amounts + 1] = tostring(it.number) .. " " .. tostring(it.currency) end
+    for _, it in ipairs(entry.unbalanced) do amounts[#amounts + 1] = tostring(it.number) .. " " .. tostring(it.commodity) end
     parts[#parts + 1] = "unbalanced by " .. concat(amounts, ", ")
   end
   return concat(parts, "; ")

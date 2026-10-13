@@ -11,7 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use axum::http::Method;
+use axum::body::Body;
+use axum::http::{Method, Request};
 use axum::Router;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -23,7 +24,7 @@ use zhang_query::{DataType, ParamRef, ParamTypes, Query};
 use zhang_server::broadcast::Broadcaster;
 use zhang_server::builtin::BUILTINS;
 use zhang_server::{create_server_app, start_reload_listener, ReloadSender};
-use zhang_testkit::http::{call, router_of, serve_config, Reply, Settings};
+use zhang_testkit::http::{call, router_of, send, serve_config, Reply, Settings};
 
 const ENDPOINT: &str = "/api/plugins/zhang-mcp/mcp";
 const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
@@ -655,6 +656,43 @@ async fn legacy_session(dir: TempDir) {
     assert_eq!(reply.status, 202);
     let reply = call(&router, Method::GET, "/api/plugins/zhang-mcp/nope", &[], None).await;
     assert_eq!(reply.status, 404);
+
+    // #799's transport coverage, pinned: a body over 1 MiB, a body that is not JSON, `Origin: null`, the same loopback
+    // host by address, a loopback origin against another loopback host, and an id beyond 64 bits
+    let oversize = post(
+        &router,
+        &[],
+        &json!({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"pad": "x".repeat(1024 * 1024)}}),
+    )
+    .await;
+    assert_eq!((oversize.status.as_u16(), oversize.json()["error"]["code"].as_i64()), (413, Some(-32600)));
+    let not_json = Request::builder()
+        .method(Method::POST)
+        .uri(ENDPOINT)
+        .header("content-type", "application/json")
+        .body(Body::from("{nope"))
+        .unwrap();
+    let not_json = send(&router, not_json).await;
+    assert_eq!((not_json.status.as_u16(), not_json.json()["error"]["code"].as_i64()), (400, Some(-32700)));
+    assert!(not_json.json().get("id").is_none());
+    let null_origin = post(&router, &[("origin", "null"), ("host", "localhost:8000")], &request(8, "ping", json!({}))).await;
+    assert_eq!(null_origin.status, 403);
+    let by_address = post(
+        &router,
+        &[("origin", "http://127.0.0.1:8000"), ("host", "127.0.0.1:8000")],
+        &request(8, "ping", json!({})),
+    )
+    .await;
+    assert_eq!(by_address.status, 200, "{}", by_address.text());
+    let other_loopback = post(
+        &router,
+        &[("origin", "http://[::1]:8000"), ("host", "127.0.0.1:8000")],
+        &request(8, "ping", json!({})),
+    )
+    .await;
+    assert_eq!(other_loopback.status, 403);
+    let huge_id = post(&router, &[], &json!({"jsonrpc": "2.0", "id": 9223372036854775808u64, "method": "ping"})).await;
+    assert_eq!((huge_id.status.as_u16(), huge_id.json()["error"]["code"].as_i64()), (400, Some(-32600)));
 }
 
 #[tokio::test]
@@ -725,6 +763,19 @@ async fn modern_session(dir: TempDir) {
     )
     .await;
     assert_eq!(reply.status, 200);
+
+    // a Mcp-Name that claims base64 but is not
+    let bad_name = post(
+        &router,
+        &[
+            ("mcp-protocol-version", "2026-07-28"),
+            ("mcp-method", "tools/call"),
+            ("mcp-name", "=?base64?***?="),
+        ],
+        &request(3, "tools/call", json!({"name": "net_worth", "_meta": meta})),
+    )
+    .await;
+    assert_eq!((bad_name.status.as_u16(), bad_name.json()["error"]["code"].as_i64()), (400, Some(-32020)));
 
     // the error paths, each with the id of the request
     let mismatch = post(
@@ -850,17 +901,17 @@ async fn without_the_grant_the_write_tools_are_hidden_and_with_allow_writes_alon
     .await;
     assert_eq!(reply.json()["error"]["code"], -32602);
 
-    // `allow_writes` on, no grant: listed, and every call says which meta line to add
+    // `allow_writes` on, no grant: listed, and every call says which meta line to add (the owner turned writes on,
+    // so the model relays the missing grant instead of claiming it has no write tool)
     let dir = ledger_dir("  allow_writes: \"true\"\n");
     let router = server(&dir, &Settings::default()).await;
-    assert_eq!(tool_names(&router).await, READ_TOOLS);
-    let reply = post(
-        &router,
-        &[],
-        &request(4, "tools/call", json!({"name": "preview_transaction", "arguments": coffee(None)})),
-    )
-    .await;
-    assert_eq!(reply.json()["error"]["code"], -32602, "no grant at all: the tools stay hidden");
+    let mut expected: Vec<&str> = READ_TOOLS.to_vec();
+    expected.extend(WRITE_TOOLS);
+    assert_eq!(tool_names(&router).await, expected);
+    let denied = error_text(&router, "preview_transaction", coffee(None)).await;
+    assert!(denied.contains("allowed_writes: \"transaction\""), "{denied}");
+    let denied = error_text(&router, "open_account", json!({"date": "2024-03-20", "account": "Expenses:Food:Coffee"})).await;
+    assert!(denied.contains("allowed_writes: \"open\""), "{denied}");
 
     // `allow_writes` on, only `open` granted: listed, and the transaction tools name the missing line
     let dir = ledger_dir("  allow_writes: \"true\"\n  allowed_writes: \"open\"\n");
@@ -905,6 +956,11 @@ async fn the_write_tools_refuse_floats_and_malformed_postings_before_the_host() 
     )
     .await;
     assert_eq!(text, "the argument `commodities` must be a list of strings");
+    // a currency without an amount is not silently dropped: the inferred posting has no commodity
+    let mut currency_only = coffee(None);
+    currency_only["postings"][1]["currency"] = json!("CNY");
+    let text = error_text(&router, "preview_transaction", currency_only).await;
+    assert!(text.starts_with("the argument `postings[2].currency` needs an `amount`"), "{text}");
 }
 
 /// the server as `zhang serve` runs it: the full router plus the reload listener, so that the reload a commit asks
