@@ -762,8 +762,9 @@ impl DataSource for LocalFileSystemDataSource {
 /// symbolic links followed, so a link stays a link and its target gets the content), which gets the file's
 /// permissions (and, on unix, its owner, as far as this process may), is flushed to the disk and renamed over the
 /// real file, which replaces it in one step on POSIX systems and on Windows. The temporary file is removed when a
-/// step fails. Only where the temporary file cannot be made at all, or the rename is refused (a directory this
-/// process may not add to, a file system without rename), is the file written in place, as a plain write would:
+/// step fails. Only where the directory refuses the temporary file for want of permission, or the rename is refused
+/// (a directory this process may not add to, a file system without rename), is the file written in place, as a
+/// plain write would:
 /// a write or flush that fails, a full or failing disk, leaves the file as it was and is the error, since a plain
 /// write would truncate the file and fail the same way ([`falls_back_in_place`])
 fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
@@ -826,21 +827,22 @@ enum SaveStep {
     Rename,
 }
 
-/// Whether a plain write of the file takes over after `step` failed with `error`. Only when the directory refuses a
-/// temporary file (any failure to create it), or the rename is refused (not allowed, the file busy, or across file
-/// systems): the file is still as it was, and the plain write is what every source did before. Never after the
-/// content could not be written or flushed (a full or failing disk, `ENOSPC`, `EIO`): the plain write would truncate
-/// the file and fail the same way, and the file is left untouched for the user instead
+/// Whether a plain write of the file takes over after `step` failed with `error`. Only when the directory refuses
+/// the temporary file for want of permission (`EACCES`, `EPERM`), or the rename is refused (not allowed, the file
+/// busy, or across file systems): the file is still as it was, and the plain write is what every source did
+/// before. Never when the disk or a quota is full or the disk fails (`ENOSPC`, `EDQUOT`, `EIO`), at any step: the
+/// plain write would truncate the file and fail the same way, and the file is left untouched for the user instead
 fn falls_back_in_place(step: SaveStep, error: &std::io::Error) -> bool {
-    // the unix codes, the same on Linux and macOS; Windows reports a refused rename as a permission error
+    // the unix codes, the same on Linux and macOS; Windows reports a refusal as a permission error
     const EPERM: i32 = 1;
     const EACCES: i32 = 13;
     const EBUSY: i32 = 16;
     const EXDEV: i32 = 18;
+    let refused = error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(EPERM | EACCES));
     match step {
-        SaveStep::Create => true,
+        SaveStep::Create => refused,
         SaveStep::Write => false,
-        SaveStep::Rename => error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(EPERM | EACCES | EBUSY | EXDEV)),
+        SaveStep::Rename => refused || matches!(error.raw_os_error(), Some(EBUSY | EXDEV)),
     }
 }
 
@@ -1313,17 +1315,30 @@ mod test {
         use super::{falls_back_in_place, SaveStep};
 
         let (enospc, eio, eacces, eperm, ebusy, exdev) = (28, 5, 13, 1, 16, 18);
-        assert!(falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(eacces)));
-        assert!(
-            falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(enospc)),
-            "any failure to create: the file is untouched"
-        );
-        for code in [enospc, eio, eacces] {
+        // EDQUOT: 69 on macOS, 122 on Linux
+        let full: [i32; 4] = [enospc, eio, 69, 122];
+        for code in [eacces, eperm] {
             assert!(
-                !falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(code)),
-                "a failed write never rewrites the file in place"
+                falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
+                "a refused temporary file: {code}"
             );
         }
+        assert!(falls_back_in_place(SaveStep::Create, &Error::from(ErrorKind::PermissionDenied)));
+        for code in full {
+            assert!(
+                !falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
+                "a full disk or quota: {code}"
+            );
+            assert!(
+                !falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(code)),
+                "a failed write never rewrites in place: {code}"
+            );
+            assert!(
+                !falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
+                "a rename the disk failed: {code}"
+            );
+        }
+        assert!(!falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(eacces)));
         for code in [eperm, eacces, ebusy, exdev] {
             assert!(
                 falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
@@ -1331,12 +1346,6 @@ mod test {
             );
         }
         assert!(falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::PermissionDenied)));
-        for code in [enospc, eio] {
-            assert!(
-                !falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
-                "a rename the disk failed: {code}"
-            );
-        }
         assert!(!falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::NotFound)));
     }
 
