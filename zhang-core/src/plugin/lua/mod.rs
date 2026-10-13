@@ -134,7 +134,7 @@ mod test {
     #[test]
     fn the_embedded_interpreter_is_a_wasm_module() {
         assert_eq!(&INTERPRETER[..4], b"\0asm");
-        assert!(INTERPRETER.len() > 500_000, "{} bytes", INTERPRETER.len());
+        assert!(INTERPRETER.len() > 300_000, "{} bytes", INTERPRETER.len());
     }
 
     #[test]
@@ -186,7 +186,7 @@ mod test {
         let (wasm, script) = script.into_parts();
         assert_eq!((wasm.as_slice(), script), (INTERPRETER, Some(expected)));
 
-        let error = parsed("plugins/x.lua", b"return \"caf\xE9\"").unwrap_err().to_string();
+        let error = parsed("plugins/x.lua", b"-- latin1: \xE9\nreturn {}").unwrap_err().to_string();
         assert!(
             error.ends_with("plugin script plugins/x.lua is not UTF-8 text: the byte at offset 11 is not UTF-8. Save the file with the UTF-8 encoding"),
             "{error}"

@@ -226,8 +226,8 @@ local M = { name = "lua-report", version = "0.3.0" }
 
 function M.router(request)
   local rows = zhang.query("SELECT account, sum(position) AS balance GROUP BY account ORDER BY account")
-  local bound = zhang.query_params("SELECT date, narration WHERE date >= :from AND narration = :who", {
-    from = zhang.date("2024-01-01"), who = zhang.str("lunch"),
+  local bound = zhang.query_params("SELECT date, narration WHERE date >= :from AND narration = :who AND number > :min", {
+    from = zhang.date("2024-01-01"), who = zhang.str("lunch"), min = zhang.decimal("5.5"),
   })
   local ok, failure = pcall(zhang.query, "SELECT nope")
   return {
