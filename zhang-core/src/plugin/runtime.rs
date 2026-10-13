@@ -157,6 +157,7 @@ impl PluginRuntime {
             lease: Lease {
                 compiled: Some(compiled),
                 in_call: false,
+                spent: false,
                 generation,
                 timeout,
                 pool: self.pool.clone(),
@@ -185,9 +186,10 @@ pub struct PluginInstance {
 struct Lease {
     /// taken when the lease drops
     compiled: Option<CompiledPlugin>,
-    /// set while a call runs and cleared once it returned in time, so a call that unwinds or ends
-    /// near its timeout leaves it set and the lease is spent: its engine is not reused
+    /// set while a call runs and cleared once it returned, so a call that unwinds leaves it set
     in_call: bool,
+    /// set once a call of this instance ended near its timeout; it stays set
+    spent: bool,
     generation: u64,
     timeout: Option<Duration>,
     pool: Arc<Mutex<Pool>>,
@@ -196,7 +198,8 @@ struct Lease {
 impl Drop for Lease {
     fn drop(&mut self) {
         let Some(compiled) = self.compiled.take() else { return };
-        if self.in_call {
+        // the engine's epoch may still be bumped by a call's timer: not reused
+        if self.in_call || self.spent {
             return;
         }
         let mut pool = lock(&self.pool);
@@ -221,8 +224,11 @@ impl PluginInstance {
         self.lease.in_call = true;
         let started = Instant::now();
         let result = self.plugin.call(name, input);
-        if self.lease.timeout.is_none_or(|timeout| started.elapsed() + near_timeout(timeout) < timeout) {
-            self.lease.in_call = false;
+        self.lease.in_call = false;
+        // a call ending near its timeout spends the lease for good: a later call of this instance
+        // (a mapper makes one per directive) returning in time does not make the engine safe again
+        if self.lease.timeout.is_some_and(|timeout| started.elapsed() + near_timeout(timeout) >= timeout) {
+            self.lease.spent = true;
         }
         result
     }
@@ -315,6 +321,8 @@ mod tests {
         let manifest = Manifest::default().with_timeout(Duration::from_millis(200));
         let mut plugin = runtime.instantiate(manifest, host("2026-10-05T00:00:00Z")).unwrap();
         assert_eq!(plugin.call::<_, String>("router", "{}").unwrap_err().to_string(), "timeout");
+        // a quick call of the same instance afterwards does not make its engine safe again
+        assert_eq!(plugin.call::<_, String>("name", ()).unwrap(), "\"router-loop\"");
         drop(plugin);
         assert_eq!(pool_state(&runtime), (0, 1), "an engine whose epoch may still be bumped is not reused");
     }
