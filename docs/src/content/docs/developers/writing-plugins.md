@@ -87,6 +87,8 @@ A plugin declares what it is in its `supported_type` export, and can be several 
 
 A plugin that is both a processor and a mapper runs its processor first. A type Zhang does not know is ignored with a warning, so a plugin written for a newer Zhang still loads.
 
+Every run is a fresh instance: a processor's load, a mapper's stream and a router's request each start from the module's initial state, and nothing survives from one to the next. What is shared is the compiled code. Zhang compiles a plugin's module once when it registers it, on every load, and builds each instance from that in a fraction of a millisecond instead of compiling again. A change to the module file, or to the config the plugin receives (its directive and the ledger's options), takes effect on the next load, which compiles it anew.
+
 ## The stage order contract
 
 While Zhang loads a ledger, the directive stream runs through these stages, in this order:
