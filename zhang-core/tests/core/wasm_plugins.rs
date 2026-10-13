@@ -727,6 +727,56 @@ fn a_request_timing_out_does_not_interrupt_a_concurrent_one() {
 }
 
 #[test]
+fn a_panicking_host_call_does_not_hand_its_engine_to_the_next_request() {
+    /// a host whose query panics, as a bug in the query engine would, or else takes this long
+    struct Host(Option<Duration>);
+    impl RouterHost for Host {
+        fn query(&self, _bql: &str) -> Result<serde_json::Value, QueryFailure> {
+            let Some(duration) = self.0 else { panic!("a bug in the host") };
+            std::thread::sleep(duration);
+            Ok(json!({"slept_ms": duration.as_millis() as u64}))
+        }
+
+        fn query_with_params(&self, _bql: &str, _params: &BTreeMap<String, RawQueryParam>) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+
+        fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+    }
+    let dir = ledger_dir(&["router_query.wat"]);
+    let ledger = load(
+        &dir,
+        &format!(
+            "option \"features.plugin\" \"true\"\n{}  timeout: \"1s\"\n{LEDGER}",
+            plugin(&dir, "router_query.wat")
+        ),
+    );
+    let router = ledger.plugins.router("router-query").unwrap();
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+    // one normal request, so the panicking one leases a compiled plugin the pool would get back
+    assert_eq!(
+        router
+            .execute_as_router(&request, &ledger, Arc::new(Host(Some(Duration::ZERO))))
+            .unwrap()
+            .status(),
+        200
+    );
+    // the panic unwinds through extism before it stops the call's timer (the server's
+    // `spawn_blocking` catches it in production), so the engine's epoch is still bumped at 1 s
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        router.execute_as_router(&request, &ledger, Arc::new(Host(None)))
+    }));
+    assert!(panicked.is_err(), "the host panic unwinds through the call");
+    std::thread::sleep(Duration::from_millis(400));
+    // the next request needs 0.8 s of its own 1 s and runs across the panicked call's deadline
+    let next = router.execute_as_router(&request, &ledger, Arc::new(Host(Some(Duration::from_millis(800)))));
+    let next = next.unwrap_or_else(|e| panic!("the next request must not be stopped by the panicked call's timer: {e}"));
+    assert_eq!(next.status(), 200);
+}
+
+#[test]
 fn reloading_a_changed_module_replaces_its_compiled_code() {
     let (dir, mut ledger) = router_ledger(&["router.wat"]);
     let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);

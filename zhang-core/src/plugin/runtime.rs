@@ -34,11 +34,18 @@ use crate::plugin::host::PluginHost;
 /// a plugin never holds more than this many engines once the burst is over
 const IDLE_LIMIT: usize = 4;
 
-/// how close to its timeout a call may end and still return its compiled plugin to the pool. extism's
-/// timer bumps the engine's epoch at the deadline from its own thread, so a call ending within a
-/// moment of its deadline can be followed by a late bump that would stop the next instance on that
-/// engine. Such a call's compiled plugin is dropped instead; the next call compiles afresh
-const NEAR_TIMEOUT: Duration = Duration::from_millis(100);
+/// the least margin before its timeout a call must end with to return its compiled plugin to the
+/// pool; see [`near_timeout`]
+const NEAR_TIMEOUT_FLOOR: Duration = Duration::from_millis(100);
+
+/// how close to `timeout` a call may end and still return its compiled plugin to the pool: a tenth
+/// of the timeout, and at least [`NEAR_TIMEOUT_FLOOR`]. extism's timer bumps the engine's epoch at
+/// the deadline from its own thread, so a call ending within a moment of its deadline can be
+/// followed by a late bump that would stop the next instance on that engine. Such a call's compiled
+/// plugin is dropped instead; the next call compiles afresh
+fn near_timeout(timeout: Duration) -> Duration {
+    (timeout / 10).max(NEAR_TIMEOUT_FLOOR)
+}
 
 /// what the host functions of one instance reach: the host of the call it runs
 pub(super) struct InstanceContext {
@@ -149,6 +156,7 @@ impl PluginRuntime {
             _context: context,
             lease: Lease {
                 compiled: Some(compiled),
+                in_call: false,
                 generation,
                 timeout,
                 pool: self.pool.clone(),
@@ -175,8 +183,11 @@ pub struct PluginInstance {
 
 /// the compiled plugin an instance was built from, returned to the pool when the instance drops
 struct Lease {
-    /// none once the lease is spent: a call ran up to its timeout on this engine
+    /// taken when the lease drops
     compiled: Option<CompiledPlugin>,
+    /// set while a call runs and cleared once it returned in time, so a call that unwinds or ends
+    /// near its timeout leaves it set and the lease is spent: its engine is not reused
+    in_call: bool,
     generation: u64,
     timeout: Option<Duration>,
     pool: Arc<Mutex<Pool>>,
@@ -185,6 +196,9 @@ struct Lease {
 impl Drop for Lease {
     fn drop(&mut self) {
         let Some(compiled) = self.compiled.take() else { return };
+        if self.in_call {
+            return;
+        }
         let mut pool = lock(&self.pool);
         // settings changed under the lease, or enough are idle already: drop it
         if pool.generation == self.generation && pool.idle.len() < IDLE_LIMIT {
@@ -201,10 +215,14 @@ impl PluginInstance {
 
     /// call the export `name` with `input`
     pub fn call<'a, 'b, T: extism::ToBytes<'a>, U: extism::FromBytes<'b>>(&'b mut self, name: impl AsRef<str>, input: T) -> Result<U, extism::Error> {
+        // the lease is spent unless the call returns in time: a call that panics (in a host function
+        // or in wasmtime) unwinds through extism before it stops the call's timer, so the engine's
+        // epoch is still bumped at the deadline, which would stop the next instance on that engine
+        self.lease.in_call = true;
         let started = Instant::now();
         let result = self.plugin.call(name, input);
-        if self.lease.timeout.is_some_and(|timeout| started.elapsed() + NEAR_TIMEOUT >= timeout) {
-            self.lease.compiled = None;
+        if self.lease.timeout.is_none_or(|timeout| started.elapsed() + near_timeout(timeout) < timeout) {
+            self.lease.in_call = false;
         }
         result
     }
