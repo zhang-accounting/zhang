@@ -23,8 +23,8 @@ sidebar:
 
 3. 重新加载。**设置**页面会列出 `zhang-mcp` 并附有**打开**链接；`GET /api/plugins/zhang-mcp/` 会描述这个服务器及其端点所在。
 
-:::note[即将到来：无需复制文件]
-下一个版本会把脚本内置在张记账中：第 1 步将不再需要，声明变为 `plugin "zhang:mcp"`。设置、工具和下文的一切都保持不变。
+:::note[计划中：内置插件]
+计划提供内置的 `plugin "zhang:mcp"`，届时第 1 步将不再需要；设置、工具和下文的一切都保持不变。
 :::
 
 MCP 端点是 `POST <你的张记账地址>/api/plugins/zhang-mcp/mcp`，例如 `http://localhost:8000/api/plugins/zhang-mcp/mcp`。

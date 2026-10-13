@@ -8,7 +8,7 @@ written. It runs inside zhang's Lua plugin runtime: nothing to build, nothing to
 ## Install
 
 1. Copy `mcp.lua` into your ledger, for example as `plugins/mcp.lua`. A release ships it as `zhang-mcp-<version>.lua`.
-   (The next release bundles the script: `plugin "zhang:mcp"`, with no file to copy.)
+   (A bundled `plugin "zhang:mcp"` is planned, with no file to copy.)
 2. Declare it:
 
    ```zhang

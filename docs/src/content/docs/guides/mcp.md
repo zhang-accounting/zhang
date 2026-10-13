@@ -23,8 +23,8 @@ Reading is the default and needs nothing else. Writing is off until you turn on 
 
 3. Reload. The **Settings** page lists `zhang-mcp` with an **Open** link, and `GET /api/plugins/zhang-mcp/` describes the server and where its endpoint is.
 
-:::note[Soon: nothing to copy]
-The next release bundles the script inside Zhang: step 1 goes away and the declaration becomes `plugin "zhang:mcp"`. The settings, the tools and everything below stay the same.
+:::note[Planned: a bundled plugin]
+A bundled `plugin "zhang:mcp"` is planned, which removes step 1; the settings, the tools and everything below stay the same.
 :::
 
 The MCP endpoint is `POST <your zhang url>/api/plugins/zhang-mcp/mcp`, for example `http://localhost:8000/api/plugins/zhang-mcp/mcp`.
