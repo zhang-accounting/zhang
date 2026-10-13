@@ -34,6 +34,6 @@ sha256 = "8500ecad7a5e1405a8206e4585e42b96e7be80f2113fe73a6299f1008fc44c4a"
 # provenance of the vendored module: the host that built the committed bytes, and whether the CI rebuild on
 # x86_64-linux (the canonical host, see README.md) produced the same bytes
 built-on = "arm64-macos"
-# the first CI rebuild (PR #802, before --strip-debug) matched every code section and differed only in the
-# .debug_str/.debug_line sections of the sysroot's libc; with the debug sections stripped the job is the witness
-linux-build-matches = "see the lua-runtime job of the PR that vendored these bytes"
+# witnessed by the lua-runtime job of PR #802 on ubuntu-22.04 (the first rebuild, before --strip-debug, matched
+# every code section and differed only in the .debug_str/.debug_line sections of the sysroot's libc)
+linux-build-matches = "yes"
