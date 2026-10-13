@@ -253,6 +253,9 @@ pub struct ReloadSender {
     /// A write of the API reloads first while it is set ([`SharedLedger::for_writing`]), so a write queued behind a
     /// plugin's commit never plans against the ledger the commit left behind (a second `include` of its file)
     written: std::sync::atomic::AtomicBool,
+    /// the fingerprint of the ledger served ([`ledger_fingerprint`]): a reload that loads the same content keeps the
+    /// generation, so a token minted between a write's reload and the file watcher's redundant one stays valid
+    fingerprint: std::sync::Mutex<Option<u64>>,
 }
 
 impl Deref for ReloadSender {
@@ -272,7 +275,23 @@ impl ReloadSender {
             midnight_reload: std::sync::Mutex::new(None),
             generation: std::sync::atomic::AtomicU64::new(1),
             written: std::sync::atomic::AtomicBool::new(false),
+            fingerprint: std::sync::Mutex::new(None),
         }
+    }
+
+    /// remember the content of `ledger`, the one served now, so the next reload can tell whether it changed
+    pub fn record_content(&self, ledger: &Ledger) {
+        *self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ledger_fingerprint(ledger));
+    }
+
+    /// whether `ledger`, just loaded, differs in content from the one served before it (always, before the first
+    /// is recorded), remembering it either way
+    fn content_changed(&self, ledger: &Ledger) -> bool {
+        let fingerprint = ledger_fingerprint(ledger);
+        let mut previous = self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = *previous != Some(fingerprint);
+        *previous = Some(fingerprint);
+        changed
     }
 
     /// a write landed in the files: the ledger served is behind them until the reload asked for here runs
@@ -338,9 +357,12 @@ impl ReloadSender {
         let outcome = match tokio::task::spawn_blocking(ledger.reloader()).await {
             Ok(Ok(reloaded)) => {
                 *ledger = reloaded;
-                // the ledger served changed: every preview token minted for the one before is void, and the files
-                // it shows are the ones written
-                self.next_generation();
+                // when the content changed, every preview token minted for the ledger before is void; a reload that
+                // loaded the same content (the file watcher's, after a write's own) keeps the generation and the
+                // tokens. Either way the files it shows are the ones written
+                if self.content_changed(ledger) {
+                    self.next_generation();
+                }
                 self.written.store(false, std::sync::atomic::Ordering::SeqCst);
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
@@ -509,7 +531,11 @@ pub fn start_reload_listener(
 ) {
     reload_sender.broadcaster.set(cloned_broadcaster).ok();
     tokio::spawn(async move {
-        reload_sender.schedule_midnight_reload(&*ledger_for_reload.read().await);
+        {
+            let served = ledger_for_reload.read().await;
+            reload_sender.record_content(&served);
+            reload_sender.schedule_midnight_reload(&served);
+        }
         while let Some(request) = rx.recv().await {
             let mut guard = ledger_for_reload.write().await;
             let outcome = reload_sender.reload_in_place(&mut guard).await;
@@ -520,6 +546,43 @@ pub fn start_reload_listener(
             drop(guard);
         }
     });
+}
+
+/// The fingerprint of what a load produced: a hash of the ledger's directives, undated directives and options as the
+/// server serves them, which is what a plugin's preview looked at. Two loads of the same files give the same
+/// fingerprint; an edit that changes a directive, or a byte before one (its span moves), gives another. No file is
+/// read again, so it costs the same on every data source. The JSON goes through `serde_json::Value`, whose objects
+/// are sorted, so a map a directive holds (metadata) hashes the same whatever order its hash map iterates in
+fn ledger_fingerprint(ledger: &Ledger) -> u64 {
+    use std::hash::Hasher;
+
+    /// writes the JSON into the hasher instead of a buffer
+    struct Hashing(std::collections::hash_map::DefaultHasher);
+
+    impl std::io::Write for Hashing {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.write(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut hashing = Hashing(std::collections::hash_map::DefaultHasher::new());
+    // the options come out of a hash map in no fixed order: by key, so two loads list them alike
+    let mut options = ledger.options.all();
+    options.sort_by(|a, b| a.key.cmp(&b.key));
+    // a failure here would only make the fingerprint differ, which bumps the generation, the safe side
+    for part in [
+        serde_json::to_value(&ledger.directives),
+        serde_json::to_value(&ledger.metas),
+        serde_json::to_value(options),
+    ] {
+        serde_json::to_writer(&mut hashing, &part.unwrap_or(serde_json::Value::Null)).ok();
+    }
+    hashing.0.finish()
 }
 
 /// the message a caught panic was raised with, for the log

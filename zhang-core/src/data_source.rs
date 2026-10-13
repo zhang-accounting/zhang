@@ -762,8 +762,10 @@ impl DataSource for LocalFileSystemDataSource {
 /// symbolic links followed, so a link stays a link and its target gets the content), which gets the file's
 /// permissions (and, on unix, its owner, as far as this process may), is flushed to the disk and renamed over the
 /// real file, which replaces it in one step on POSIX systems and on Windows. The temporary file is removed when a
-/// step fails. Where the temporary file cannot be made or renamed (a directory this process may not add to, a file
-/// system without rename), the file is written in place, as a plain write would
+/// step fails. Only where the temporary file cannot be made at all, or the rename is refused (a directory this
+/// process may not add to, a file system without rename), is the file written in place, as a plain write would:
+/// a write or flush that fails, a full or failing disk, leaves the file as it was and is the error, since a plain
+/// write would truncate the file and fail the same way ([`falls_back_in_place`])
 fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -775,8 +777,12 @@ fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
     let existing = std::fs::metadata(&target).ok();
     let name = target.file_name().and_then(|it| it.to_str()).unwrap_or("file");
     let temp = target.with_file_name(format!(".{name}.{}-{}.tmp", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
+    let mut writer = match std::fs::File::create(&temp) {
+        Ok(writer) => writer,
+        Err(error) if falls_back_in_place(SaveStep::Create, &error) => return std::fs::write(&target, content),
+        Err(error) => return Err(error),
+    };
     let written = (|| {
-        let mut writer = std::fs::File::create(&temp)?;
         if let Some(existing) = &existing {
             writer.set_permissions(existing.permissions())?;
             #[cfg(unix)]
@@ -787,19 +793,54 @@ fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
             }
         }
         writer.write_all(content)?;
-        writer.sync_all()?;
-        std::fs::rename(&temp, &target)
+        writer.sync_all()
     })();
-    match written {
+    drop(writer);
+    if let Err(error) = written {
+        std::fs::remove_file(&temp).ok();
+        return match falls_back_in_place(SaveStep::Write, &error) {
+            true => std::fs::write(&target, content),
+            false => Err(error),
+        };
+    }
+    match std::fs::rename(&temp, &target) {
         Ok(()) => Ok(()),
         Err(error) => {
             std::fs::remove_file(&temp).ok();
-            // the directory refuses a temporary file, or the rename: the plain write every source did before
-            match std::fs::write(&target, content) {
-                Ok(()) => Ok(()),
-                Err(_) => Err(error),
+            match falls_back_in_place(SaveStep::Rename, &error) {
+                true => std::fs::write(&target, content),
+                false => Err(error),
             }
         }
+    }
+}
+
+/// a step of [`write_atomically`] that can fail
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveStep {
+    /// creating the temporary file
+    Create,
+    /// writing the content to it and flushing it to the disk
+    Write,
+    /// renaming it over the file
+    Rename,
+}
+
+/// Whether a plain write of the file takes over after `step` failed with `error`. Only when the directory refuses a
+/// temporary file (any failure to create it), or the rename is refused (not allowed, the file busy, or across file
+/// systems): the file is still as it was, and the plain write is what every source did before. Never after the
+/// content could not be written or flushed (a full or failing disk, `ENOSPC`, `EIO`): the plain write would truncate
+/// the file and fail the same way, and the file is left untouched for the user instead
+fn falls_back_in_place(step: SaveStep, error: &std::io::Error) -> bool {
+    // the unix codes, the same on Linux and macOS; Windows reports a refused rename as a permission error
+    const EPERM: i32 = 1;
+    const EACCES: i32 = 13;
+    const EBUSY: i32 = 16;
+    const EXDEV: i32 = 18;
+    match step {
+        SaveStep::Create => true,
+        SaveStep::Write => false,
+        SaveStep::Rename => error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(EPERM | EACCES | EBUSY | EXDEV)),
     }
 }
 
@@ -1261,6 +1302,42 @@ mod test {
         let whole = Ledger::load_with_data_source(root, "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
         assert!(whole.errors.is_empty(), "{:?}", whole.errors);
         assert_eq!(whole.transactions().len(), 5);
+    }
+
+    /// A plain write takes over only where no temporary file can be made or the rename is refused; a disk that
+    /// refuses the content (full, failing) leaves the file as it was and is the error (#803 review)
+    #[test]
+    fn a_save_falls_back_to_a_plain_write_only_when_the_temporary_file_is_refused() {
+        use std::io::{Error, ErrorKind};
+
+        use super::{falls_back_in_place, SaveStep};
+
+        let (enospc, eio, eacces, eperm, ebusy, exdev) = (28, 5, 13, 1, 16, 18);
+        assert!(falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(eacces)));
+        assert!(
+            falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(enospc)),
+            "any failure to create: the file is untouched"
+        );
+        for code in [enospc, eio, eacces] {
+            assert!(
+                !falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(code)),
+                "a failed write never rewrites the file in place"
+            );
+        }
+        for code in [eperm, eacces, ebusy, exdev] {
+            assert!(
+                falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
+                "a refused rename: {code}"
+            );
+        }
+        assert!(falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::PermissionDenied)));
+        for code in [enospc, eio] {
+            assert!(
+                !falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
+                "a rename the disk failed: {code}"
+            );
+        }
+        assert!(!falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::NotFound)));
     }
 
     /// A save keeps a symbolic link a link and writes its target, and keeps the file's permissions (#803 review):

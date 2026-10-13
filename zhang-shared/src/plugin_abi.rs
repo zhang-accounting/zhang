@@ -592,7 +592,8 @@ pub struct WritePreview {
     /// the file the first directive is appended to, by its path within the ledger, chosen by the ledger's
     /// `directive_output_path` option; each entry names its own
     pub file: String,
-    /// the generation of the ledger the preview looked at: it moves on every reload and every commit
+    /// the generation of the ledger the preview looked at: it moves on every commit and every reload that loaded
+    /// other content than the ledger served before (a reload of unchanged files keeps it, and the tokens with it)
     pub generation: u64,
     pub entries: Vec<WritePreviewEntry>,
     /// the token `zhang_write_commit` takes for this batch, on this ledger generation, for 10 minutes; `null` unless

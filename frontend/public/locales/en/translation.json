@@ -532,7 +532,8 @@
         "invalid_flag": "“{{value}}” is not a flag: use *, !, #, &, ?, % or an uppercase letter.",
         "invalid_date": "“{{value}}” is not a date: write 2024-01-02, or the ledger's wall-clock time as 2024-01-02T07:00:00.",
         "already_open": "The account is already open with other commodities than “{{value}}”: a plugin cannot change the commodities of an open account.",
-        "invalid_booking_method": "“{{value}}” is not a booking method: use STRICT, FIFO, LIFO, AVERAGE, AVERAGE_ONLY or NONE."
+        "invalid_booking_method": "“{{value}}” is not a booking method: use STRICT, FIFO, LIFO, AVERAGE, AVERAGE_ONLY or NONE.",
+        "account_closed": "“{{value}}” is closed: a plugin does not reopen a closed account."
       },
       "posting_account": "Posting {{index}} account",
       "posting_amount": "Posting {{index}} amount",

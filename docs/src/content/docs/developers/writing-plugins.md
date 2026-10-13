@@ -399,11 +399,12 @@ fn route(request: Request) -> Result<Response, Error> {
    checks of `POST /api/transactions/preview`: for each entry, the text as the ledger's format writes it (the one a
    commit appends, byte for byte), the file it goes to by the `directive_output_path` option, the fields refused
    (`field_errors`), what the transaction is unbalanced by, and the errors the ledger would report, such as
-   `AccountDoesNotExist`. An `open` of an account the ledger has an `open` for already, at any date and whether a
-   `close` followed it or not, is `already_open` and written nowhere when the commodities are the same, and a field
-   error on `commodities` otherwise: a plugin opens only accounts the ledger never opened, so it cannot change an
-   account's commodities, back-date them, or re-open a closed account. When every entry is clean and there is
-   something to write, the preview carries a `token`.
+   `AccountDoesNotExist`. An `open` of an account the ledger has an `open` for already, at any date, is
+   `already_open` and written nowhere when the commodities are the same, and a field error on `commodities`
+   otherwise; an `open` of an account a `close` closed is a field error on `account` (`account_closed`, naming the
+   close's date): a plugin opens only accounts the ledger never opened, so it cannot change an account's
+   commodities, back-date them, or reopen a closed account. When every entry is clean and there is something to
+   write, the preview carries a `token`.
 2. **Commit.** `write_commit` takes the same batch with the token. Zhang recomputes the plan, checks the token, and
    appends the text with one write per file, as an API write does: the `include` of a new monthly file goes into the
    main file first, then the file gets all of its entries at once, and every file is written whole or not at all. The
@@ -413,7 +414,7 @@ fn route(request: Request) -> Result<Response, Error> {
    your caller retry a write that already happened. If a file cannot be written, the `io` error names the entries and
    files that were written and those that were not, the batch is void (every token with it) and the ledger reloads:
    tell the user what was recorded, and preview only the rest again.
-3. **The token** is the host's HMAC of the ledger's generation (a counter moved on by every reload and every commit),
+3. **The token** is the host's HMAC of the ledger's generation (a counter moved on by every commit and by every reload that loaded other content than before; the file watcher's reload of unchanged files keeps it),
    the plugin's name, the files and the exact text, with an expiry 10 minutes out. So a plugin can only commit what
    it was shown, on the ledger it looked at, once: a batch that differs, a token of another generation, an expired
    token, a ledger that is reloading after a write, or a second commit before that reload is a `conflict`, and the

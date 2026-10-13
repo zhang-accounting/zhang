@@ -209,11 +209,12 @@ async fn a_preview_is_the_api_preview_and_a_commit_appends_exactly_it_then_reloa
     // the reload the commit asked for lands (and the one waited for here, after it), and the journal shows the entry
     reload_sender.reload_and_wait().await.unwrap();
     assert_eq!(journal_payees(&router).await, vec!["Blue Bottle"]);
-    // every reload moved the generation on, so the token is void: the ledger changed since the preview
+    // the commit and the reload that showed its text moved the generation on (the second reload, of the same
+    // content, did not), so the token is void: the ledger changed since the preview
     let (kind, message) = err(&commit(&router, batch, &previewed["token"]).await);
     assert_eq!(kind, "conflict");
-    assert!(message.contains("it is at generation 4, the token is for generation 1"), "{message}");
-    assert_eq!(ok(&preview(&router, json!([coffee("2026-10-14", "Expenses:Food")])).await)["generation"], 4);
+    assert!(message.contains("it is at generation 3, the token is for generation 1"), "{message}");
+    assert_eq!(ok(&preview(&router, json!([coffee("2026-10-14", "Expenses:Food")])).await)["generation"], 3);
 }
 
 #[tokio::test]
@@ -299,6 +300,25 @@ async fn a_batch_opens_an_account_then_posts_to_it_and_skips_an_open_that_change
         let other = preview(&router, json!([{"kind": "open", "date": date, "account": account, "commodities": commodities}])).await;
         assert_eq!(other["Ok"]["entries"][0]["field_errors"][0]["kind"], "already_open", "{other}");
     }
+    // an account that was closed is told apart, with the close's date
+    scratch.write(
+        "main.zhang",
+        &format!(
+            "{}1970-01-01 open Expenses:Old USD\n2025-12-31 close Expenses:Old\n",
+            read(scratch.dir(), "main.zhang")
+        ),
+    );
+    reload_sender.reload_and_wait().await.unwrap();
+    let closed = preview(
+        &router,
+        json!([{"kind": "open", "date": "2026-10-13", "account": "Expenses:Old", "commodities": ["USD"]}]),
+    )
+    .await;
+    assert_eq!(closed["Ok"]["entries"][0]["field_errors"][0]["kind"], "account_closed", "{closed}");
+    assert_eq!(
+        closed["Ok"]["entries"][0]["field_errors"][0]["message"],
+        "Expenses:Old was closed on 2025-12-31: a plugin does not reopen a closed account"
+    );
     // and a booking method given twice
     let twice = preview(
         &router,
@@ -619,4 +639,39 @@ return M
     let mut payees = journal_payees(&router).await;
     payees.sort();
     assert_eq!(payees, vec!["Blue Bottle", "Tea House"]);
+}
+
+/// The generation means "the content changed" (#803, found by D-D under `zhang serve`): a reload that loads the same
+/// files, the file watcher's after a write's own, keeps a token minted in between valid; an edit on disk voids it.
+#[tokio::test]
+async fn a_reload_of_unchanged_files_keeps_a_token_and_an_edit_on_disk_voids_it() {
+    let scratch = ledger_with("main.zhang", r#"["transaction","open"]"#, &["transaction", "open"]);
+    let (router, _, reload_sender) = server(&scratch, true).await;
+    let batch = json!([coffee("2026-10-13", "Expenses:Food")]);
+    let previewed = preview(&router, batch.clone()).await;
+    ok(&commit(&router, batch.clone(), &previewed["Ok"]["token"]).await);
+    reload_sender.reload_and_wait().await.unwrap();
+    let generation = ok(&preview(&router, json!([coffee("2026-10-14", "Expenses:Food")])).await)["generation"].clone();
+
+    // a token minted now survives a reload that finds the files as they are
+    let later = json!([coffee("2026-10-15", "Expenses:Food")]);
+    let previewed = preview(&router, later.clone()).await;
+    let token = previewed["Ok"]["token"].clone();
+    reload_sender.reload_and_wait().await.unwrap();
+    reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(ok(&preview(&router, later.clone()).await)["generation"], generation, "nothing changed");
+    ok(&commit(&router, later, &token).await);
+    reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(journal_payees(&router).await.len(), 2);
+
+    // an edit on disk, then its reload, voids a token minted before it
+    let stale = json!([coffee("2026-10-16", "Expenses:Food")]);
+    let previewed = preview(&router, stale.clone()).await;
+    let token = previewed["Ok"]["token"].clone();
+    let main = read(scratch.dir(), "main.zhang");
+    scratch.write("main.zhang", &format!("{main}1970-01-01 open Expenses:Tea USD\n"));
+    reload_sender.reload_and_wait().await.unwrap();
+    let (kind, message) = err(&commit(&router, stale, &token).await);
+    assert_eq!(kind, "conflict");
+    assert!(message.contains("the ledger changed since the preview"), "{message}");
 }
