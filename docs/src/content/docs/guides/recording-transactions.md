@@ -123,6 +123,10 @@ Zhang appends what you record in the web UI to a file chosen by the entry's date
 - A different template changes the layout. `option "directive_output_path" "data/{{year}}.{{ext}}"` keeps one file per year. The template can use `year`, `month`, `month_str`, `day`, `day_str`, `type` (the kind of entry) and `ext`.
 - In a beancount ledger the file has the main file's extension, such as `.bean`, and is written in beancount syntax, with the time of day in a `time` metadata entry.
 
+## Record a transaction with an AI assistant
+
+With the [MCP Server](/guides/mcp/) plugin and its write tools enabled, an assistant such as Claude can record an entry you describe: it previews the exact text first, shows it to you, and appends it only after you agree, tagged `#mcp` so you can find it later. Accounts are never created implicitly; the assistant asks you and opens them explicitly.
+
 ## When something is wrong
 
 Zhang checks the ledger every time it loads it.
