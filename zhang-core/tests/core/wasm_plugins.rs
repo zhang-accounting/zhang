@@ -2090,6 +2090,20 @@ mod lua {
     }
 
     #[test]
+    fn identical_requests_give_identical_bytes() {
+        // the string hash seed is fixed at build time, so the key order of an encoded table never changes
+        let (_dir, ledger) = router_ledger(&["json_order.lua"]);
+
+        let first = call(&ledger, "json-order", &get("/a")).unwrap();
+        let second = call(&ledger, "json-order", &get("/a")).unwrap();
+
+        assert_eq!(first.body(), second.body(), "{}", String::from_utf8_lossy(first.body()));
+        let body = json_body(&first);
+        assert_eq!(body.as_object().unwrap().len(), 13);
+        assert_eq!(body["nested"]["t"], json!(7));
+    }
+
+    #[test]
     fn the_first_declared_script_serves_a_shared_name() {
         let (_dir, ledger) = router_ledger(&["router_echo.lua", "router_echo_twin.lua"]);
 
@@ -2104,6 +2118,51 @@ mod lua {
         assert_eq!(ledger.plugins.router("router-echo").unwrap().version, "0.1.0");
         let response = call(&ledger, "router-echo", &get("/")).unwrap();
         assert_eq!(response.status(), 201, "the first declared answers");
+    }
+
+    /// a `tracing` writer collecting what a subscriber writes, so a test reads the host's log
+    #[derive(Clone, Default)]
+    struct Capture(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+        type Writer = Capture;
+
+        fn make_writer(&'a self) -> Capture {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn print_goes_to_the_hosts_log_prefixed_with_the_script() {
+        let (dir, ledger) = router_ledger(&["router_print.lua"]);
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(capture.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::INFO)
+            .finish();
+
+        let response = tracing::subscriber::with_default(subscriber, || call(&ledger, "router-print", &get("/")).unwrap());
+
+        assert_eq!(response.status(), 204);
+        let log = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+        let script = dir.path().join("router_print.lua").display().to_string();
+        assert!(log.contains(&format!("{script}: hello\t42\tnil\ttrue")), "{log}");
+        assert!(
+            log.contains(&format!("{script}: \n")) || log.contains(&format!("{script}:  ")),
+            "an empty print still logs: {log}"
+        );
     }
 
     #[test]

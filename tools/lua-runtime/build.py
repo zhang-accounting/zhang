@@ -88,6 +88,10 @@ def main():
             "-D_WASI_EMULATED_PROCESS_CLOCKS",
             "-DLUA_USE_JUMPTABLE=0",
             "-DMAKE_LIB",
+            # a fixed string-hash seed: Lua's default mixes the clock in, which makes `pairs` and so the order of
+            # JSON keys differ per request. Identical requests must give byte-identical responses; hash flooding
+            # is no concern inside a 64 MiB budget with a timeout
+            "-Dluai_makeseed(L)=0u",
             "-I" + str(lua),
             "-I" + str(lua / "wasi"),
             "-I" + str(tools),

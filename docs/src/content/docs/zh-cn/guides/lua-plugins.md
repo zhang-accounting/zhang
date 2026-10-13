@@ -95,10 +95,11 @@ if not ok then return { status = 400, json = { error = result } } end
 - **空表。** Lua 的表没有种类之分，所以空的 `{}` 会编码成 `[]`。需要即使为空也编码成 `{}` 的表，用 `json.object()` 或 `json.object(t)`；必须编码成 `[]` 的用 `json.array()`。`json.decode` 和宿主给你的值会保留种类：空对象在往返中仍是 `{}`。响应的 `headers` 永远是对象。
 - **数字。** 整数在 2<sup>63</sup> 以内精确；浮点数以 14 位有效数字写出。**金额从不以数字传递**：查询结果中的每个小数都是字符串（`"12.50"`），插件也应保持为字符串。不要对金额 `tonumber` 后再相加，让查询来求和。
 - **字符串**是字节。字符串内的 NUL 字节在往返中保留。`json` 值必须是 UTF-8 文本；其他字节请放在 `body` 中发送。
+- **键的顺序是稳定的。** 解释器的字符串哈希种子是固定的，所以 `pairs` 在每个请求中都以相同的顺序遍历表的键，相同的请求得到字节完全相同的 JSON。这个顺序不是字母序；需要字母序的客户端请自行排序。
 
 ## 沙箱
 
-脚本拥有 `string`、`table`、`math`、`utf8`、`coroutine`、基础函数（`pairs`、`ipairs`、`pcall`、`tostring`、`tonumber`、`select`、`setmetatable` 等）、只加载文本代码块的 `load`、`print`（输出到张记账的标准输出，供开发时使用）和 `debug.traceback`。它没有 `io`、没有 `os`、没有 `require` 和 `package`、没有 `dofile` 和 `loadfile`、不能加载二进制代码块，`debug` 的其他部分也没有。本版本中 Lua 插件不能发起 HTTP 请求，即使有 `allowed_hosts` 也不行。
+脚本拥有 `string`、`table`、`math`、`utf8`、`coroutine`、基础函数（`pairs`、`ipairs`、`pcall`、`tostring`、`tonumber`、`select`、`setmetatable` 等）、只加载文本代码块的 `load`、`print` 和 `debug.traceback`。脚本没有标准输出：`print` 每次调用向 `zhang serve` 的日志写入一行，级别为 info，并以脚本路径作为前缀（`plugins/food.lua: hello\t42`），开发时在那里查看。它没有 `io`、没有 `os`、没有 `require` 和 `package`、没有 `dofile` 和 `loadfile`、不能加载二进制代码块，`debug` 的其他部分也没有。本版本中 Lua 插件不能发起 HTTP 请求，即使有 `allowed_hosts` 也不行。
 
 每个请求都在全新的解释器中运行，所以脚本不能在请求之间保留状态，也看不到其他插件。它不能读文件（router 从来不能）、不能写文件、不能访问网络；它只通过上面的 API 读取账本。
 
