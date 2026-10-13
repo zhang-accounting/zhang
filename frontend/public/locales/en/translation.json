@@ -529,7 +529,10 @@
         "beancount_tag": "Beancount does not accept the tag “{{value}}”: it holds only ASCII letters, digits, “-”, “_”, “/” and “.”.",
         "invalid_link": "“{{value}}” is not a link: it cannot be empty or hold spaces, quotes, “:”, brackets or commas.",
         "beancount_link": "Beancount does not accept the link “{{value}}”: it holds only ASCII letters, digits, “-”, “_”, “/” and “.”.",
-        "invalid_flag": "“{{value}}” is not a flag: use *, !, #, &, ?, % or an uppercase letter."
+        "invalid_flag": "“{{value}}” is not a flag: use *, !, #, &, ?, % or an uppercase letter.",
+        "invalid_date": "“{{value}}” is not a date: write 2024-01-02, or the ledger's wall-clock time as 2024-01-02T07:00:00.",
+        "already_open": "The account is already open with other commodities than “{{value}}”: a plugin cannot change the commodities of an open account.",
+        "invalid_booking_method": "“{{value}}” is not a booking method: use STRICT, FIFO, LIFO, AVERAGE, AVERAGE_ONLY or NONE."
       },
       "posting_account": "Posting {{index}} account",
       "posting_amount": "Posting {{index}} amount",
