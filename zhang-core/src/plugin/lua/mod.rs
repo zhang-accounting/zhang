@@ -59,7 +59,14 @@ impl PluginModule {
     /// the module `module`, as written in its directive, read with `fetch`. The extension decides what it is
     /// before anything is read, so a wrong extension is refused by name even when no such file exists
     pub fn parse(module: &str, fetch: impl FnOnce() -> ZhangResult<Vec<u8>>) -> ZhangResult<PluginModule> {
-        let kind = module_kind(module)?;
+        PluginModule::parse_as(module, module, fetch)
+    }
+
+    /// the module written `module` in its directive whose content is that of the file `file`, read with `fetch`:
+    /// the extension of `file` decides what it is, and messages name `module`. A bundled plugin (`zhang:mcp`) is
+    /// read this way, as the file of the repository it is built from
+    pub fn parse_as(module: &str, file: &str, fetch: impl FnOnce() -> ZhangResult<Vec<u8>>) -> ZhangResult<PluginModule> {
+        let kind = module_kind(file)?;
         let bytes = fetch()?;
         match kind {
             ModuleKind::Wasm => Ok(PluginModule::Wasm(bytes)),

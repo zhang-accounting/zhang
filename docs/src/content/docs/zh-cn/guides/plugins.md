@@ -35,6 +35,7 @@ plugin "plugins/large_expense.wasm"
 - 有些元数据键不是设置，而是你授予插件的**能力**，见[下文](#授予能力)。
 - 插件按声明的顺序运行。声明两次的模块会运行两次。
 - 每次加载账本时，张记账都从账本的存储中读取每个模块，不保留副本。本地磁盘上的模块发生变化时，`zhang serve` 会重新加载账本。
+- 写成 `zhang:<name>` 的模块是内置在张记账中的插件，无需复制文件：`plugin "zhang:mcp"` 就是 [MCP 服务器](/zh-cn/guides/mcp/)。见[内置插件](/zh-cn/reference/directives/plugin/#内置插件)。
 
 ## 插件能做什么
 
@@ -42,7 +43,7 @@ plugin "plugins/large_expense.wasm"
 
 - **processor** 接收账本的所有条目，返回张记账接下来使用的条目。它可以添加、修改或删除条目，也可以只检查条目并报告问题。
 - **mapper** 做同样的事，但一次处理一个条目。
-- **router** 在 `/api/plugins/{name}` 下提供页面和数据，例如自定义报表。见 [Router 插件](/zh-cn/guides/router-plugins/)。router 也可以用 Lua 脚本编写，无需编译：见 [Lua 插件](/zh-cn/guides/lua-plugins/)。张记账自带一个这样的脚本：[MCP 服务器](/zh-cn/guides/mcp/)，让 AI 助手读取账本，并在你允许时记录条目。
+- **router** 在 `/api/plugins/{name}` 下提供页面和数据，例如自定义报表。见 [Router 插件](/zh-cn/guides/router-plugins/)。router 也可以用 Lua 脚本编写，无需编译：见 [Lua 插件](/zh-cn/guides/lua-plugins/)。张记账内置了一个这样的脚本，用 `plugin "zhang:mcp"` 声明：[MCP 服务器](/zh-cn/guides/mcp/)，让 AI 助手读取账本，并在你允许时记录条目。
 
 由 processor 或 mapper 所做的修改只在账本加载期间存在。你的文件保持原样。
 

@@ -1,31 +1,28 @@
 ---
 title: MCP Server
-description: Let an AI assistant such as Claude read your ledger, and record entries you approve, through the zhang-mcp plugin, a Lua script with MCP tools for balances, spending, journals, BQL and transactions.
+description: Let an AI assistant such as Claude read your ledger, and record entries you approve, through zhang-mcp, the MCP plugin built into Zhang, with tools for balances, spending, journals, BQL and transactions.
 sidebar:
   order: 10
 ---
 
-[MCP](https://modelcontextprotocol.io/) (the Model Context Protocol) is how AI assistants such as Claude Code, Claude.ai and other LLM clients call tools. `zhang-mcp` is Zhang's MCP server, shipped as a [Lua plugin](/guides/lua-plugins/): one file, `mcp.lua`, that you copy into your ledger. Once declared, an assistant can answer questions like "how much did I spend on food last month" or "what is my net worth" by running the same queries the web UI runs, and, if you allow it, record an entry you describe after showing you exactly what it will write.
+[MCP](https://modelcontextprotocol.io/) (the Model Context Protocol) is how AI assistants such as Claude Code, Claude.ai and other LLM clients call tools. `zhang-mcp` is Zhang's MCP server, a [Lua plugin](/guides/lua-plugins/) built into Zhang: two lines in your ledger turn it on, with no file to download or copy. Once declared, an assistant can answer questions like "how much did I spend on food last month" or "what is my net worth" by running the same queries the web UI runs, and, if you allow it, record an entry you describe after showing you exactly what it will write.
 
 Reading is the default and needs nothing else. Writing is off until you turn on two switches (below); even then the plugin can only append entries, never edit or delete anything, and a well-behaved client asks you before each one.
 
 ## Install
 
-1. Get `mcp.lua`: `zhang-mcp-<version>.lua` from the [release](https://github.com/zhang-accounting/zhang/releases) of the Zhang you run, or `plugins/mcp/mcp.lua` from the repository at that version. Put it into your ledger directory, for example as `plugins/mcp.lua`; the script is read through your ledger's storage, so for a ledger on S3, WebDAV or GitHub, upload it there too.
-2. Enable plugins and declare it:
+Enable plugins and declare the bundled plugin, in any file of your ledger:
 
-   ```zhang
-   option "features.plugin" "true"
+```zhang
+option "features.plugin" "true"
 
-   plugin "plugins/mcp.lua"
-     timeout: "20s"
-   ```
+plugin "zhang:mcp"
+  timeout: "20s"
+```
 
-3. Reload. The **Settings** page lists `zhang-mcp` with an **Open** link, and `GET /api/plugins/zhang-mcp/` describes the server and where its endpoint is.
+Reload. The **Settings** page lists `zhang-mcp` with an **Open** link, and `GET /api/plugins/zhang-mcp/` describes the server and where its endpoint is.
 
-:::note[Soon: nothing to copy]
-The next release bundles the script inside Zhang: step 1 goes away and the declaration becomes `plugin "zhang:mcp"`. The settings, the tools and everything below stay the same.
-:::
+`zhang:mcp` names the copy of the plugin built into your Zhang binary. Nothing is read from your ledger's storage, so it works the same for a ledger in a local directory and for one on S3 or R2, WebDAV or GitHub, where copying a file in is a chore. It is the version that shipped with your Zhang, and updating Zhang updates it. Being built in grants it nothing: it reads and writes only what its `plugin` directive allows, exactly as a copy of the file would. To change the script, [run your own copy](#run-your-own-copy).
 
 The MCP endpoint is `POST <your zhang url>/api/plugins/zhang-mcp/mcp`, for example `http://localhost:8000/api/plugins/zhang-mcp/mcp`.
 
@@ -40,7 +37,19 @@ The settings of the `plugin` directive:
 | `write_tag` | the tag `add_transaction` puts on every entry it records, so you can find them later; `""` disables it | `"mcp"` |
 | `allowed_writes` | Zhang's own grant, one line per kind: `"transaction"` and `"open"`. Without it the write tools cannot write, whatever `allow_writes` says | none |
 
-The plugin needs the Zhang it ships with, or newer: it is a Lua script and, for writes, uses the plugin write capability of that release. On an older Zhang the ledger fails to load with an error naming the script or a missing host function.
+### Run your own copy
+
+To change what the plugin does (its instructions to the model, a tool, a query), run a copy of the script instead of the built-in one:
+
+1. Get `mcp.lua`: `zhang-mcp-<version>.lua` from the [release](https://github.com/zhang-accounting/zhang/releases) of the Zhang you run, or `plugins/mcp/mcp.lua` from the repository at that version. Put it into your ledger directory, for example as `plugins/mcp.lua`; the script is read through your ledger's storage, so for a ledger on S3, WebDAV or GitHub, upload it there too.
+2. Declare it by its path instead of `zhang:mcp`, with the same settings:
+
+   ```zhang
+   plugin "plugins/mcp.lua"
+     timeout: "20s"
+   ```
+
+For a ledger on the local disk, editing the file reloads it under `zhang serve`. A copy needs the Zhang it ships with, or newer: it is a Lua script and, for writes, uses the plugin write capability of that release. On an older Zhang the ledger fails to load with an error naming the script or a missing host function. A Zhang released before the plugin was built in answers `plugin "zhang:mcp"` with "plugin module not found: zhang:mcp"; run a copy there.
 
 ## Connect a client
 
@@ -120,14 +129,14 @@ The named queries are the [built-in queries](/reference/builtin-queries/) of the
 Two switches, both needed, both in the `plugin` directive:
 
 ```zhang
-plugin "plugins/mcp.lua"
+plugin "zhang:mcp"
   timeout: "20s"
   allow_writes: "true"              ; the plugin lists its write tools
   allowed_writes: "transaction"     ; Zhang lets this plugin append transactions
   allowed_writes: "open"            ; ... and open directives
 ```
 
-`allow_writes` is the plugin's own setting: without it the write tools are not even listed, so a read-only deployment never shows them to the model. `allowed_writes` is Zhang's grant, the same kind of line as `allowed_paths` or `allowed_hosts`: without it the tools are listed (when `allow_writes` is on) but every call answers with the exact line to add. Grant it only to a copy of `mcp.lua` you trust: see the [capabilities](/reference/directives/plugin/) of the `plugin` directive.
+`allow_writes` is the plugin's own setting: without it the write tools are not even listed, so a read-only deployment never shows them to the model. `allowed_writes` is Zhang's grant, the same kind of line as `allowed_paths` or `allowed_hosts`: without it the tools are listed (when `allow_writes` is on) but every call answers with the exact line to add. The grant is the same for the built-in plugin and for a copy; grant it to a copy only when you trust the copy's code: see the [capabilities](/reference/directives/plugin/) of the `plugin` directive.
 
 How a transaction gets recorded:
 
@@ -155,6 +164,7 @@ Accounts are never created on the fly. When the preview reports `AccountDoesNotE
 | `405` | the client opened a GET stream (older clients may try it once, then continue with POST) | nothing: the server offers no stream |
 | `504 {"message": "plugin zhang-mcp ran longer than its timeout"}` | a query ran longer than the plugin's `timeout` | raise `timeout`, or narrow the query |
 | the ledger does not load, naming `mcp.lua` or a host function | the Zhang is older than the plugin | upgrade Zhang, or use the plugin of your Zhang's release |
+| the ledger does not load: "plugin module not found: zhang:mcp" | the Zhang was released before the plugin was built in | upgrade Zhang, or [run a copy](#run-your-own-copy) of the plugin of your Zhang's release |
 | the client says the server needs OAuth | it got a `401` before any header was configured | configure the header first; Zhang's `401` carries no OAuth metadata |
 | the assistant says it has no tool to record a transaction | `allow_writes` is off, or no `allowed_writes` line grants anything | add the lines of [Recording entries](#recording-entries) and reload |
 | `add_transaction` answers that the plugin may not write transactions | `allow_writes` is on but the grant is missing | the message names the `allowed_writes` line to add |
