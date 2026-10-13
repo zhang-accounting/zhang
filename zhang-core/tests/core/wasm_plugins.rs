@@ -2023,7 +2023,8 @@ mod lua {
                 .ends_with("router_query_params.lua:28: decimal must be a string or an integer, got 12.5"),
             "{refused}"
         );
-        assert_eq!(case('h'), json!({"echo": "SELECT date WHERE number > :min", "params": {"min": "12"}}));
+        // (the fake host writes a bound decimal as BQL, where an integer-valued one carries a trailing dot)
+        assert_eq!(case('h'), json!({"echo": "SELECT date WHERE number > :min", "params": {"min": "12."}}));
         // no parameters cross as an empty object, never as an empty array
         assert_eq!(case('n'), json!({"echo": "SELECT date", "params": {}}));
         assert_eq!(case('s'), json!({"tables": [{"name": "postings"}], "functions": [{"name": "sum"}]}));
