@@ -32,20 +32,25 @@ pub struct PluginStore {
 impl PluginStore {
     /// register the plugin `_plugin` declares, whose module is `module`, as parsed into `declaration`; `span` is
     /// the directive's span. `clock` is the clock of the load, which the plugin reads in the ledger timezone
-    /// `timezone`, and `files` what the plugin may read once it runs as a processor or mapper
+    /// `timezone`, `files` what the plugin may read once it runs as a processor or mapper, and `options` the
+    /// ledger's options, part of the config every instance of the plugin gets
     #[allow(clippy::too_many_arguments)]
     pub fn insert_plugin(
         &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+        options: &[OptionDomain],
     ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
 
         // the runtime compiles the module for the settings it is asked for and builds every instance
-        // of the plugin, this registering one included, from the compiled code. A script's module is
-        // the embedded Lua interpreter, and the script rides in the config of every manifest
+        // of the plugin, this registering one included, from the compiled code. Registering uses the
+        // settings every other instance gets, so the plugin's `capabilities` export sees its config and
+        // the compiled code is reused by the first stage run or request. A script's module is the
+        // embedded Lua interpreter, and the script rides in the config of every manifest
         let (module_bytes, script) = module.into_parts();
         let runtime = Arc::new(PluginRuntime::new(module_bytes));
         let timeout = declaration.capabilities.timeout;
-        let manifest = Manifest::default().with_timeout(timeout).with_config(script.iter().flat_map(LuaScript::config));
+        let occurrence = self.occurrences(&declaration.directive.module);
+        let manifest = settings(&declaration, occurrence, options, script.as_ref());
 
         // registering, the file functions deny every path and the router functions answer that they
         // are unavailable
@@ -69,12 +74,18 @@ impl PluginStore {
             .map_err(|e| failed(export::SUPPORTED_TYPE, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
+        // a script with no type serves nothing: `types = {Router = true}` or `{}` yields none, and a plugin that
+        // never runs is a mistake, not a choice (a wasm module keeps today's behaviour, its unknown types are warned)
+        if script.is_some() && plugin_types.is_empty() {
+            return Err(ZhangError::CustomError(format!(
+                "plugin script {plugin_name} declares no plugin type; write `types = {{\"Router\"}}` in its module table"
+            )));
+        }
         let ignored_errors = host.take_errors().len();
         if ignored_errors > 0 {
             warn!("plugin {name} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors");
         }
 
-        let occurrence = self.occurrences(&declaration.directive.module);
         let registered_plugin = RegisteredPlugin {
             name,
             version,
@@ -134,6 +145,23 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
     Ok(known)
 }
 
+/// the settings of every instance of the plugin `declaration` declares, the `occurrence`-th of its module: its config
+/// (the ledger's `options`, its own meta, the values the host sets, and a Lua `script` under the reserved keys, so a
+/// script edit compiles anew), its allowed hosts and its timeout. The module itself belongs to the runtime, which
+/// compiles it for these settings
+fn settings(declaration: &PluginDeclaration, occurrence: usize, options: &[OptionDomain], script: Option<&LuaScript>) -> Manifest {
+    let reserved = declaration
+        .host_config(occurrence)
+        .into_iter()
+        .chain(script.into_iter().flat_map(LuaScript::config));
+    let config = declaration.config_with(options, reserved);
+    Manifest::default()
+        .with_config(config.into_iter())
+        // no declared host means the plugin gets no network access at all
+        .with_allowed_hosts(declaration.capabilities.allowed_hosts.iter().cloned())
+        .with_timeout(declaration.capabilities.timeout)
+}
+
 /// the error of a failed registration call into a Lua script: the message the interpreter set, which for a
 /// script that does not parse carries `<script>:<line>: ...`; a call stopped at the timeout says so as for a module
 fn script_error(plugin: &str, export: &str, timeout: Duration, error: extism::Error) -> ZhangError {
@@ -186,20 +214,9 @@ impl RegisteredPlugin {
     }
 
     /// the settings of every instance of the plugin, whatever it runs as: config, allowed hosts and
-    /// timeout. The module itself belongs to the runtime, which compiles it for these settings. A script
-    /// is part of the config, under the reserved keys the host sets, so a script edit compiles anew
+    /// timeout, the ones it registered with ([`settings`])
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
-        let reserved = self
-            .declaration
-            .host_config(self.occurrence)
-            .into_iter()
-            .chain(self.script.iter().flat_map(LuaScript::config));
-        let config = self.declaration.config_with(options, reserved);
-        Manifest::default()
-            .with_config(config.into_iter())
-            // no declared host means the plugin gets no network access at all
-            .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
-            .with_timeout(self.declaration.capabilities.timeout)
+        settings(&self.declaration, self.occurrence, options, self.script.as_ref())
     }
 
     /// the host side of a new instance of this plugin, running as a stage with the context `ctx`, with the
@@ -266,12 +283,14 @@ mod test {
     use serde_json::json;
     use zhang_ast::{Meta, Plugin, SpanInfo, ZhangString};
 
+    use crate::clock::LoadClock;
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
     use crate::plugin::files::FileAccess;
-    use crate::plugin::lua::LuaScript;
+    use crate::plugin::host::PluginHost;
+    use crate::plugin::lua::{LuaScript, PluginModule};
     use crate::plugin::runtime::PluginRuntime;
     use crate::plugin::store::{call_error, known_plugin_types, script_error, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
@@ -424,6 +443,50 @@ mod test {
         assert_eq!(config["greeting"], "hi");
         assert_eq!(config["zhang.abi"], "1");
         assert!(!registered_as("slow.wasm", &[], 0).manifest(&[]).config.contains_key("zhang.script"));
+    }
+
+    #[test]
+    fn should_register_with_the_settings_every_call_gets_so_the_load_compiles_once() {
+        let directive = Plugin {
+            module: ZhangString::quote("config_echo.wat"),
+            value: vec![],
+            meta: [("greeting", "hi")]
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), ZhangString::quote(value)))
+                .collect(),
+        };
+        let options = [OptionDomain {
+            key: "title".to_owned(),
+            value: "Home".to_owned(),
+        }];
+        let module = PluginModule::Wasm(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
+        let clock = LoadClock::new(crate::clock::Clock::System);
+        let mut store = PluginStore::default();
+        store
+            .insert_plugin(
+                &directive,
+                module,
+                PluginDeclaration::parse(&directive),
+                &SpanInfo::default(),
+                &clock,
+                chrono_tz::UTC,
+                no_files(),
+                &options,
+            )
+            .unwrap();
+        let (plugin, _) = &store.ordered[0];
+
+        // registering compiled once (generation 1) with the config a run gets: the option and the meta
+        assert_eq!(plugin.runtime.pool_state(), (1, 1));
+        let manifest = plugin.manifest(&options);
+        assert_eq!(manifest.config["title"], "Home");
+        assert_eq!(manifest.config["greeting"], "hi");
+        // a run with the same settings reuses that compiled code: the generation does not move
+        let host = PluginHost::new("config-echo", SpanInfo::default(), clock, chrono_tz::UTC);
+        let instance = plugin.runtime.instantiate(manifest, host).unwrap();
+        assert_eq!(plugin.runtime.pool_state(), (0, 1), "the registering compile is the one in use");
+        drop(instance);
+        assert_eq!(plugin.runtime.pool_state(), (1, 1));
     }
 
     #[test]

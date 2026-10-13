@@ -9,8 +9,9 @@
 //! Everything else (registration, the first-declared-wins rule, `GET /api/plugins`, the timeout, the host
 //! functions) is the wasm path, unchanged.
 //!
-//! A module is a script by its extension: `.lua`, in any letter case. `.wasm` and `.wat` are wasm modules, and
-//! any other extension is refused with an error naming the three, so a typo never reaches extism as a module.
+//! A module is a script by its extension: `.lua`, in any letter case. `.wasm` and `.wat` are wasm modules, and so
+//! is a path without an extension, as before this round; any other extension is refused with an error naming the
+//! three, so a typo never reaches extism as a module.
 //! A script is validated here before the interpreter sees it: UTF-8 (the error names the first bad byte) and at
 //! most [`MAX_SCRIPT_LEN`]; its syntax is checked when registration runs the chunk through the interpreter's
 //! `name` export, where a Lua syntax error becomes a load error carrying `<script>:<line>: ...`.
@@ -109,7 +110,8 @@ impl LuaScript {
 }
 
 /// what the module `module` is by its extension, compared in any letter case: `.lua` is a script, `.wasm` and
-/// `.wat` are wasm modules, anything else is refused. For a URL the query and fragment are not part of the name
+/// `.wat` are wasm modules, and so is a path without an extension (ledgers written before `.lua` existed keep
+/// loading); any other extension is refused. For a URL the query and fragment are not part of the name
 fn module_kind(module: &str) -> ZhangResult<ModuleKind> {
     let path = match module.contains("://") {
         true => module.split(['?', '#']).next().unwrap_or(module),
@@ -119,8 +121,8 @@ fn module_kind(module: &str) -> ZhangResult<ModuleKind> {
     let extension = name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());
     match extension.as_deref() {
         Some("lua") => Ok(ModuleKind::Lua),
-        Some("wasm") | Some("wat") => Ok(ModuleKind::Wasm),
-        _ => Err(ZhangError::CustomError(format!(
+        Some("wasm") | Some("wat") | None => Ok(ModuleKind::Wasm),
+        Some(_) => Err(ZhangError::CustomError(format!(
             "plugin module {module} is not a `.wasm`/`.wat`/`.lua` module: a plugin is a wasm module (`.wasm`, or `.wat` text) or a Lua script (`.lua`)"
         ))),
     }
@@ -148,14 +150,23 @@ mod test {
         ] {
             assert_eq!(module_kind(module).unwrap(), ModuleKind::Lua, "{module}");
         }
-        for module in ["plugins/echo.wasm", "echo.WAT", "https://example.com/plugin.wasm?token=1", "dir.lua/echo.wasm"] {
+        for module in [
+            "plugins/echo.wasm",
+            "echo.WAT",
+            "https://example.com/plugin.wasm?token=1",
+            "dir.lua/echo.wasm",
+            // no extension at all: a wasm module, as before
+            "plugins/echo",
+            "beancount.plugins.auto_accounts/module",
+            "lua",
+        ] {
             assert_eq!(module_kind(module).unwrap(), ModuleKind::Wasm, "{module}");
         }
     }
 
     #[test]
     fn another_extension_is_refused_naming_the_three() {
-        for module in ["plugins/x.txt", "plugins/x", "x.lua.bak", "plugins/", "lua"] {
+        for module in ["plugins/x.txt", "x.lua.bak", "plugins/report.luna", "beancount.plugins.auto_accounts"] {
             let error = module_kind(module).unwrap_err().to_string();
             assert!(
                 error.contains(&format!("plugin module {module} is not a `.wasm`/`.wat`/`.lua` module")),

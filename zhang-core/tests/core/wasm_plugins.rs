@@ -1880,6 +1880,22 @@ mod lua {
     }
 
     #[test]
+    fn a_script_reads_its_config_at_the_top_level() {
+        // registration runs the chunk with the settings every request gets: the metas and the options
+        let dir = ledger_dir(&["config_top_level.lua"]);
+        let content = format!(
+            "option \"features.plugin\" \"true\"\noption \"title\" \"Home\"\n{}  greeting: \"hi\"\n{LEDGER}",
+            plugin(&dir, "config_top_level.lua")
+        );
+        let ledger = load(&dir, &content);
+
+        assert_eq!(
+            json_body(&call(&ledger, "config-top-level", &get("/")).unwrap()),
+            json!({"greeting": "HI", "title": "Home"})
+        );
+    }
+
+    #[test]
     fn a_looping_lua_router_stops_at_its_timeout() {
         let dir = ledger_dir(&["router_loop.lua"]);
         let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"500ms\"\n", plugin(&dir, "router_loop.lua"))));
@@ -1995,16 +2011,27 @@ mod lua {
         );
         let error = load_error("mapper.lua", b"return { name = \"m\", version = \"0.1.0\", types = { \"Mapper\" } }");
         assert!(error.contains("Lua processors and mappers are not supported yet"), "{error}");
-        // `types` defaults to Router, and an empty list registers a plugin that serves nothing
-        let (_dir, ledger) = script_ledger("none.lua", b"return { name = \"none\", version = \"0.1.0\", types = {} }", "");
-        assert_eq!(registered(&ledger.unwrap()), vec![("none".to_owned(), vec![])]);
+        // a script with no type would serve nothing: an empty list, or a map where a list was meant, is refused
+        for source in [
+            &b"return { name = \"none\", version = \"0.1.0\", types = {} }"[..],
+            b"return { name = \"none\", version = \"0.1.0\", types = { Router = true } }",
+        ] {
+            let error = load_error("none.lua", source);
+            assert!(error.contains("none.lua declares no plugin type; write `types = {\"Router\"}`"), "{error}");
+        }
     }
 
     #[test]
-    fn a_module_with_another_extension_is_refused_by_name() {
+    fn a_module_with_another_extension_is_refused_by_name_and_one_without_loads_as_wasm() {
         let (_dir, ledger) = script_ledger("report.txt", b"return {}", "");
         let error = ledger.err().expect("must not load").to_string();
         assert!(error.contains("report.txt is not a `.wasm`/`.wat`/`.lua` module"), "{error}");
+
+        // a path without an extension is a wasm module, as it was before scripts existed
+        let dir = ledger_dir(&["router.wat"]);
+        std::fs::copy(dir.path().join("router.wat"), dir.path().join("router-module")).unwrap();
+        let ledger = load(&dir, &with_plugins(&plugin(&dir, "router-module")));
+        assert_eq!(registered(&ledger), vec![("router-echo".to_owned(), vec![PluginType::Router])]);
     }
 
     #[test]

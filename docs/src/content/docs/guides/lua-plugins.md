@@ -48,7 +48,7 @@ The script is one chunk that returns a table:
 |---|---|---|
 | `name` | yes | The plugin's name, as `GET /api/plugins` lists it and as the route `/api/plugins/{name}` names it. When two plugins share a name, the first one declared serves the route. |
 | `version` | yes | The plugin's version, a string. |
-| `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default. |
+| `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default; a list with no type, or a map where a list was meant, does not load. |
 | `router` | for a router | The function that answers a request. |
 
 Zhang runs the chunk when it loads the ledger, to read the name, the version and the types, and again for every request. Every run starts from scratch, in a fresh interpreter: no global, no table and no upvalue survives from one request to the next, and nothing is shared between plugins.
