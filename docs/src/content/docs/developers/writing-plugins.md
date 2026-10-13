@@ -407,11 +407,15 @@ fn route(request: Request) -> Result<Response, Error> {
    write, the preview carries a `token`.
 2. **Commit.** `write_commit` takes the same batch with the token. Zhang recomputes the plan, checks the token, and
    appends the text with one write per file, as an API write does: the `include` of a new monthly file goes into the
-   main file first, then the file gets all of its entries at once, and every file is written whole or not at all. The
-   call returns once the text is in the files; the ledger is reloaded, as after `POST /api/transactions`, and the
-   server logs `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`. **Commit as the very
-   last step of a request**: once it returned `Ok`, the entries are recorded, and anything that fails after it makes
-   your caller retry a write that already happened. If a file cannot be written, the `io` error names the entries and
+   main file first, then the file gets all of its entries at once. On a local directory a file is replaced
+   atomically (the text goes to a temporary file next to it, renamed over it; a symbolic link stays a link and the
+   file keeps its permissions), so a crash or a full disk mid-write leaves the file as it was; on an object store
+   (S3, GitHub, WebDAV) each file is replaced whole, per object. A batch spanning several files is not atomic across
+   them: the files are written one after the other. The call returns once the text is in the files; the ledger is
+   reloaded, as after `POST /api/transactions`, and the server logs
+   `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`. **Commit as the very last step
+   of a request**: once it returned `Ok`, the entries are recorded, and anything that fails after it makes your
+   caller retry a write that already happened. If a file cannot be written, the `io` error names the entries and
    files that were written and those that were not, the batch is void (every token with it) and the ledger reloads:
    tell the user what was recorded, and preview only the rest again.
 3. **The token** is the host's HMAC of the ledger's generation (a counter moved on by every commit and by every reload that loaded other content than before; the file watcher's reload of unchanged files keeps it),

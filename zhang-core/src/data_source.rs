@@ -335,8 +335,9 @@ pub fn path_in_ledger(root: &Path, path: &Path) -> Option<PathBuf> {
 }
 
 /// a relative `path` normalized lexically (no `.` or `..` components, no empty ones); `None` when it is absolute or
-/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way
-pub(crate) fn normalize_relative(relative: &Path) -> Option<PathBuf> {
+/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way, and a source writing to
+/// the local disk keeps a write within its root with it
+pub fn normalize_relative(relative: &Path) -> Option<PathBuf> {
     let mut normalized = PathBuf::new();
     for component in relative.components() {
         match component {
@@ -742,20 +743,28 @@ impl DataSource for LocalFileSystemDataSource {
         Ok(files.finish())
     }
 
-    /// The file is written whole or not at all when the directory allows it: the content goes to a temporary file
-    /// next to the file (the real file, behind any symbolic link, which stays a link), with the file's permissions,
-    /// flushed to the disk, then renamed over the file; a crash or a full disk while writing leaves the file as it
-    /// was. Where no temporary file can be made or renamed, the file is written in place, as before
+    /// The file is written whole or not at all when the directory allows it ([`save_file`])
     fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         let file = self
             .resolve(&path)
             .ok_or_else(|| ZhangError::CustomError(format!("{path} is not in the ledger's directory")))?;
-        let failed = |error: std::io::Error| storage_error(&path, Access::Write, error.kind().into(), error);
-        if let Some(folder) = file.parent() {
-            std::fs::create_dir_all(folder).map_err(failed)?;
-        }
-        write_atomically(&file, content).map_err(failed)
+        save_file(&file, &path, content)
     }
+}
+
+/// Write `content` to `file` on the local disk, the file at `path` of a ledger, whole or not at all when the directory
+/// allows it: the content goes to a temporary file next to the file (the real file, behind any symbolic link, which
+/// stays a link), with the file's permissions, flushed to the disk, then renamed over the file
+/// ([`write_atomically`]); a crash or a full disk while writing leaves the file as it was. Where no temporary file
+/// can be made or renamed, the file is written in place, as before. The directories the file needs are made. The
+/// error names `path`, as the ledger knows the file, and a refusal is [`ZhangError::WriteRefused`]; every source
+/// writing to the local disk saves through here, so a file is replaced the same way whichever way the ledger is served
+pub fn save_file(file: &Path, path: &str, content: &[u8]) -> ZhangResult<()> {
+    let failed = |error: std::io::Error| storage_error(path, Access::Write, error.kind().into(), error);
+    if let Some(folder) = file.parent() {
+        std::fs::create_dir_all(folder).map_err(failed)?;
+    }
+    write_atomically(file, content).map_err(failed)
 }
 
 /// Write `content` to `file` whole or not at all: into a temporary file next to the real file (`file` with its
