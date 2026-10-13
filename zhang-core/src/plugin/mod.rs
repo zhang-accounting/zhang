@@ -12,5 +12,6 @@ pub mod files;
 pub mod host;
 pub mod http;
 pub mod router;
+pub mod runtime;
 pub mod stage;
 pub mod store;

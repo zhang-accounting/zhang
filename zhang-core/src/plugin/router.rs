@@ -43,7 +43,8 @@
 //!
 //! # Isolation
 //!
-//! Every request runs in a new instance of the plugin, so no state survives between requests. The
+//! Every request runs in a new instance of the plugin, so no state survives between requests; only
+//! the compiled code is shared, through the plugin's [`crate::plugin::runtime::PluginRuntime`]. The
 //! instance gets the same config, `allowed_hosts` and timeout as the plugin's processor: a call
 //! running longer than the timeout is stopped and answered as [`RouterError::Timeout`]. The caller
 //! holds the ledger's read lock for the whole call, so the ledger cannot reload under the plugin,
@@ -53,7 +54,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, PoisonError};
 
-use extism::{CurrentPlugin, Plugin as WasmPlugin, UserData, Val};
+use extism::{CurrentPlugin, UserData, Val};
 use log::{debug, warn};
 use serde::Serialize;
 use serde_json::Value;
@@ -283,7 +284,10 @@ impl RegisteredPlugin {
             .routing_host(LoadClock::new(ledger.clock()), ledger.options.timezone)
             .with_router(host, ledger_info(ledger));
         // the same manifest as a processor gets: config, allowed hosts and timeout
-        let mut plugin = WasmPlugin::new(self.manifest(&options), plugin_host.functions(), true).map_err(|e| RouterError::Load(format!("{e:#}")))?;
+        let mut plugin = self
+            .runtime
+            .instantiate(self.manifest(&options), plugin_host.clone())
+            .map_err(|e| RouterError::Load(format!("{e:#}")))?;
         if !plugin.function_exists(ROUTER_EXPORT) {
             return Err(RouterError::NoRouterExport);
         }

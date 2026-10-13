@@ -601,6 +601,70 @@ fn router_reads_the_ledger_through_host_functions_only_while_routing() {
     assert_eq!(errors(&ledger), vec![]);
 }
 
+#[test]
+fn concurrent_router_calls_use_their_own_query_hosts() {
+    /// a host answering every query with the marker of its own request, once every request is inside
+    /// the host at the same time
+    struct PerRequestHost {
+        marker: usize,
+        barrier: Arc<std::sync::Barrier>,
+    }
+    impl RouterHost for PerRequestHost {
+        fn query(&self, _bql: &str) -> Result<serde_json::Value, QueryFailure> {
+            // the calls overlap inside the host: the host functions the instances share must neither
+            // hold a lock while a query runs nor answer with another request's host
+            self.barrier.wait();
+            Ok(json!({"marker": self.marker}))
+        }
+
+        fn query_with_params(&self, _bql: &str, _params: &BTreeMap<String, RawQueryParam>) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+
+        fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+    }
+    let (_dir, ledger) = router_ledger(&["router_query.wat"]);
+    let barrier = Arc::new(std::sync::Barrier::new(4));
+    std::thread::scope(|scope| {
+        for marker in 0..4 {
+            let ledger = &ledger;
+            let barrier = barrier.clone();
+            scope.spawn(move || {
+                let router = ledger.plugins.router("router-query").unwrap();
+                let host = Arc::new(PerRequestHost { marker, barrier });
+                let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+                let response = router.execute_as_router(&request, ledger, host).unwrap();
+                let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+                assert_eq!(body[0], json!({"Ok": {"marker": marker}}));
+            });
+        }
+    });
+    assert_eq!(errors(&ledger), vec![], "router errors cannot leak into the ledger");
+}
+
+#[test]
+fn reloading_a_changed_module_replaces_its_compiled_code() {
+    let (dir, mut ledger) = router_ledger(&["router.wat"]);
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+    assert_eq!(call(&ledger, "router-echo", &request).unwrap().headers()["x-echo"], "router");
+    let old_plugin = ledger.plugins.router("router-echo").unwrap().clone();
+
+    let module = dir.path().join("router.wat");
+    let original = std::fs::read_to_string(&module).unwrap();
+    // the replacement has the same length, which keeps the fixture's data offsets valid
+    let changed = original.replace(r#"\"x-echo\":\"router\""#, r#"\"x-echo\":\"newone\""#);
+    assert_ne!(original, changed);
+    std::fs::write(module, changed).unwrap();
+    ledger.reload().unwrap();
+
+    assert_eq!(call(&ledger, "router-echo", &request).unwrap().headers()["x-echo"], "newone");
+    // a registration taken before the reload owns its own module and compiled code, and still runs
+    let old_response = old_plugin.execute_as_router(&request, &ledger, Arc::new(FakeHost)).unwrap();
+    assert_eq!(old_response.headers()["x-echo"], "router");
+}
+
 /// what `router-query-params` answers for the request path `/{case}`: the raw host function result
 fn query_params_case(ledger: &Ledger, case: char) -> serde_json::Value {
     let request = PluginRequest::new("GET", format!("/{case}"), vec![], vec![], vec![]);
