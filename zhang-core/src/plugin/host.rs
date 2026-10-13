@@ -26,7 +26,9 @@
 //!   plugin while it registers (`name`, `version`, `supported_type`) or handles a request as a router.
 //!
 //! Every plugin instance gets its own [`PluginHost`]. It keeps what the host functions collect while
-//! the instance runs, until the stage running the plugin hands it to the pipeline.
+//! the instance runs, until the stage running the plugin hands it to the pipeline. The host functions
+//! themselves are linked once, when the plugin's module is compiled, and find the host of the
+//! instance calling them through its instance id (see [`crate::plugin::runtime`]).
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -35,7 +37,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use chrono::{DateTime, SecondsFormat};
 use chrono_tz::Tz;
 use extism::convert::MemoryHandle;
-use extism::{CurrentPlugin, Function, UserData, Val, ValType, EXTISM_USER_MODULE, PTR};
+use extism::{CurrentPlugin, Function, UserData, Val, ValType, PTR};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use zhang_ast::error::ErrorKind;
@@ -49,6 +51,7 @@ use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
 use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION, QUERY_PARAMS_FUNCTION, QUERY_SCHEMA_FUNCTION};
+use crate::plugin::runtime::InstanceBindings;
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
 pub const PLUGIN_META: &str = "plugin";
@@ -225,10 +228,14 @@ pub(super) struct HostState {
     pub(super) router: Option<(Arc<dyn RouterHost>, LedgerInfo)>,
 }
 
-/// the host side of one plugin instance: the host functions to link into it and what they collected
+/// the host side of one plugin instance: what its host functions reach and what they collected
+#[derive(Clone)]
 pub struct PluginHost {
     state: Arc<Mutex<HostState>>,
 }
+
+/// the implementation of a host function, given the state of the instance calling it
+type HostFunction = fn(&mut CurrentPlugin, &[Val], &mut [Val], UserData<HostState>) -> Result<(), extism::Error>;
 
 impl PluginHost {
     /// the host of an instance running as a stage: `clock` is the clock of the load, in the ledger timezone
@@ -284,28 +291,21 @@ impl PluginHost {
         self
     }
 
-    /// every host function zhang offers, bound to this host. The router functions are linked into every
-    /// instance, so a plugin importing them still loads; outside a router call they answer that they are
-    /// unavailable
-    pub fn functions(&self) -> Vec<Function> {
+    /// every host function zhang offers, linked into a plugin's compiled code and shared by all of its
+    /// instances: each call runs with the state of the instance making it, found through `bindings`
+    /// (see [`crate::plugin::runtime`]). The router functions are linked into every instance, so a
+    /// plugin importing them still loads; outside a router call they answer that they are unavailable
+    pub(super) fn functions_for_instances(bindings: &InstanceBindings) -> Vec<Function> {
         vec![
-            self.bound(EMIT_ERROR, [PTR], [], emit_error),
-            self.bound(NOW, [], [PTR], zhang_now),
-            self.bound(READ_FILE, [PTR], [PTR], read_file),
-            self.bound(LIST_DIR, [PTR], [PTR], list_dir),
-            self.bound(QUERY_FUNCTION, [PTR], [PTR], router::zhang_query),
-            self.bound(LEDGER_INFO_FUNCTION, [], [PTR], router::zhang_ledger_info),
-            self.bound(QUERY_PARAMS_FUNCTION, [PTR], [PTR], router::zhang_query_params),
-            self.bound(QUERY_SCHEMA_FUNCTION, [], [PTR], router::zhang_query_schema),
+            shared(bindings, EMIT_ERROR, [PTR], [], emit_error),
+            shared(bindings, NOW, [], [PTR], zhang_now),
+            shared(bindings, READ_FILE, [PTR], [PTR], read_file),
+            shared(bindings, LIST_DIR, [PTR], [PTR], list_dir),
+            shared(bindings, QUERY_FUNCTION, [PTR], [PTR], router::zhang_query),
+            shared(bindings, LEDGER_INFO_FUNCTION, [], [PTR], router::zhang_ledger_info),
+            shared(bindings, QUERY_PARAMS_FUNCTION, [PTR], [PTR], router::zhang_query_params),
+            shared(bindings, QUERY_SCHEMA_FUNCTION, [], [PTR], router::zhang_query_schema),
         ]
-    }
-
-    /// the host function `function`, named `name`, bound to this host's state
-    fn bound<F>(&self, name: &str, inputs: impl IntoIterator<Item = ValType>, outputs: impl IntoIterator<Item = ValType>, function: F) -> Function
-    where
-        F: 'static + Fn(&mut CurrentPlugin, &[Val], &mut [Val], UserData<HostState>) -> Result<(), extism::Error> + Sync + Send,
-    {
-        Function::new(name, inputs, outputs, UserData::Rust(self.state.clone()), function).with_namespace(EXTISM_USER_MODULE)
     }
 
     fn lock(&self) -> MutexGuard<'_, HostState> {
@@ -340,6 +340,15 @@ impl PluginHost {
             ctx.add_input(input);
         }
     }
+}
+
+/// the host function `name` implemented by `function`, running with the state of the instance calling it
+fn shared(
+    bindings: &InstanceBindings, name: &str, params: impl IntoIterator<Item = ValType>, results: impl IntoIterator<Item = ValType>, function: HostFunction,
+) -> Function {
+    bindings.function(name, params, results, move |context, plugin, inputs, outputs| {
+        function(plugin, inputs, outputs, UserData::Rust(context.host.state.clone()))
+    })
 }
 
 /// `zhang_emit_error(payload)`. It never traps: a payload it cannot read is reported as an invalid payload

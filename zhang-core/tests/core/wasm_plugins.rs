@@ -601,6 +601,202 @@ fn router_reads_the_ledger_through_host_functions_only_while_routing() {
     assert_eq!(errors(&ledger), vec![]);
 }
 
+/// a meeting point for `parties` threads that gives up after `timeout`, so a request that never
+/// arrives fails the test instead of hanging it
+struct Rendezvous {
+    parties: usize,
+    arrived: std::sync::Mutex<usize>,
+    complete: std::sync::Condvar,
+}
+
+impl Rendezvous {
+    fn new(parties: usize) -> Self {
+        Rendezvous {
+            parties,
+            arrived: std::sync::Mutex::new(0),
+            complete: std::sync::Condvar::new(),
+        }
+    }
+
+    /// wait until every party arrived; `false` when `timeout` passed first
+    fn wait(&self, timeout: Duration) -> bool {
+        let mut arrived = self.arrived.lock().unwrap();
+        *arrived += 1;
+        if *arrived >= self.parties {
+            self.complete.notify_all();
+            return true;
+        }
+        let (_arrived, result) = self.complete.wait_timeout_while(arrived, timeout, |arrived| *arrived < self.parties).unwrap();
+        !result.timed_out()
+    }
+}
+
+#[test]
+fn concurrent_router_calls_use_their_own_query_hosts() {
+    /// a host answering every query with the marker of its own request, once every request is inside
+    /// the host at the same time
+    struct PerRequestHost {
+        marker: usize,
+        rendezvous: Arc<Rendezvous>,
+    }
+    impl RouterHost for PerRequestHost {
+        fn query(&self, _bql: &str) -> Result<serde_json::Value, QueryFailure> {
+            // the calls overlap inside the host: the host functions the instances share must neither
+            // hold a lock while a query runs nor answer with another request's host
+            if !self.rendezvous.wait(Duration::from_secs(10)) {
+                return Err(QueryFailure {
+                    message: "the requests did not overlap inside the host within 10 s".to_owned(),
+                    line: None,
+                    column: None,
+                });
+            }
+            Ok(json!({"marker": self.marker}))
+        }
+
+        fn query_with_params(&self, _bql: &str, _params: &BTreeMap<String, RawQueryParam>) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+
+        fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+    }
+    let (_dir, ledger) = router_ledger(&["router_query.wat"]);
+    let rendezvous = Arc::new(Rendezvous::new(4));
+    std::thread::scope(|scope| {
+        for marker in 0..4 {
+            let ledger = &ledger;
+            let rendezvous = rendezvous.clone();
+            scope.spawn(move || {
+                let router = ledger.plugins.router("router-query").unwrap();
+                let host = Arc::new(PerRequestHost { marker, rendezvous });
+                let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+                let response = router.execute_as_router(&request, ledger, host).unwrap();
+                let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
+                assert_eq!(body[0], json!({"Ok": {"marker": marker}}));
+            });
+        }
+    });
+    assert_eq!(errors(&ledger), vec![], "router errors cannot leak into the ledger");
+}
+
+#[test]
+fn a_request_timing_out_does_not_interrupt_a_concurrent_one() {
+    /// a host whose every query takes this long
+    struct SlowHost(Duration);
+    impl RouterHost for SlowHost {
+        fn query(&self, _bql: &str) -> Result<serde_json::Value, QueryFailure> {
+            std::thread::sleep(self.0);
+            Ok(json!({"slept_ms": self.0.as_millis() as u64}))
+        }
+
+        fn query_with_params(&self, _bql: &str, _params: &BTreeMap<String, RawQueryParam>) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+
+        fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+    }
+    let dir = ledger_dir(&["router_query.wat"]);
+    let ledger = load(
+        &dir,
+        &format!(
+            "option \"features.plugin\" \"true\"\n{}  timeout: \"1s\"\n{LEDGER}",
+            plugin(&dir, "router_query.wat")
+        ),
+    );
+    let router = ledger.plugins.router("router-query").unwrap();
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+    // the slow request is stuck in its host for 2.2 s, so its instance is stopped at 1 s; the quick
+    // one starts at 0.6 s and runs 0.6 s, so the slow one's deadline passes while it runs, well
+    // inside its own 1 s. extism stops a call by bumping its engine's epoch: with one compiled
+    // plugin (one engine) per registration the quick request would be stopped too
+    let (slow, quick, quick_took) = std::thread::scope(|scope| {
+        let slow = scope.spawn(|| router.execute_as_router(&request, &ledger, Arc::new(SlowHost(Duration::from_millis(2200)))));
+        std::thread::sleep(Duration::from_millis(600));
+        let started = Instant::now();
+        let quick = router.execute_as_router(&request, &ledger, Arc::new(SlowHost(Duration::from_millis(600))));
+        (slow.join().unwrap(), quick, started.elapsed())
+    });
+    assert_eq!(slow.unwrap_err(), RouterError::Timeout);
+    let quick = quick.unwrap_or_else(|e| panic!("the quick request must not be stopped by the slow one's timeout: {e} (after {quick_took:?})"));
+    assert_eq!(quick.status(), 200);
+    let body: serde_json::Value = serde_json::from_slice(quick.body()).unwrap();
+    assert_eq!(body[0], json!({"Ok": {"slept_ms": 600}}));
+}
+
+#[test]
+fn a_panicking_host_call_does_not_hand_its_engine_to_the_next_request() {
+    /// a host whose query panics, as a bug in the query engine would, or else takes this long
+    struct Host(Option<Duration>);
+    impl RouterHost for Host {
+        fn query(&self, _bql: &str) -> Result<serde_json::Value, QueryFailure> {
+            let Some(duration) = self.0 else { panic!("a bug in the host") };
+            std::thread::sleep(duration);
+            Ok(json!({"slept_ms": duration.as_millis() as u64}))
+        }
+
+        fn query_with_params(&self, _bql: &str, _params: &BTreeMap<String, RawQueryParam>) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+
+        fn schema(&self) -> Result<serde_json::Value, QueryFailure> {
+            unreachable!("the fixture only calls zhang_query")
+        }
+    }
+    let dir = ledger_dir(&["router_query.wat"]);
+    let ledger = load(
+        &dir,
+        &format!(
+            "option \"features.plugin\" \"true\"\n{}  timeout: \"1s\"\n{LEDGER}",
+            plugin(&dir, "router_query.wat")
+        ),
+    );
+    let router = ledger.plugins.router("router-query").unwrap();
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+    // one normal request, so the panicking one leases a compiled plugin the pool would get back
+    assert_eq!(
+        router
+            .execute_as_router(&request, &ledger, Arc::new(Host(Some(Duration::ZERO))))
+            .unwrap()
+            .status(),
+        200
+    );
+    // the panic unwinds through extism before it stops the call's timer (the server's
+    // `spawn_blocking` catches it in production), so the engine's epoch is still bumped at 1 s
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        router.execute_as_router(&request, &ledger, Arc::new(Host(None)))
+    }));
+    assert!(panicked.is_err(), "the host panic unwinds through the call");
+    std::thread::sleep(Duration::from_millis(400));
+    // the next request needs 0.8 s of its own 1 s and runs across the panicked call's deadline
+    let next = router.execute_as_router(&request, &ledger, Arc::new(Host(Some(Duration::from_millis(800)))));
+    let next = next.unwrap_or_else(|e| panic!("the next request must not be stopped by the panicked call's timer: {e}"));
+    assert_eq!(next.status(), 200);
+}
+
+#[test]
+fn reloading_a_changed_module_replaces_its_compiled_code() {
+    let (dir, mut ledger) = router_ledger(&["router.wat"]);
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+    assert_eq!(call(&ledger, "router-echo", &request).unwrap().headers()["x-echo"], "router");
+    let old_plugin = ledger.plugins.router("router-echo").unwrap().clone();
+
+    let module = dir.path().join("router.wat");
+    let original = std::fs::read_to_string(&module).unwrap();
+    // the replacement has the same length, which keeps the fixture's data offsets valid
+    let changed = original.replace(r#"\"x-echo\":\"router\""#, r#"\"x-echo\":\"newone\""#);
+    assert_ne!(original, changed);
+    std::fs::write(module, changed).unwrap();
+    ledger.reload().unwrap();
+
+    assert_eq!(call(&ledger, "router-echo", &request).unwrap().headers()["x-echo"], "newone");
+    // a registration taken before the reload owns its own module and compiled code, and still runs
+    let old_response = old_plugin.execute_as_router(&request, &ledger, Arc::new(FakeHost)).unwrap();
+    assert_eq!(old_response.headers()["x-echo"], "router");
+}
+
 /// what `router-query-params` answers for the request path `/{case}`: the raw host function result
 fn query_params_case(ledger: &Ledger, case: char) -> serde_json::Value {
     let request = PluginRequest::new("GET", format!("/{case}"), vec![], vec![], vec![]);

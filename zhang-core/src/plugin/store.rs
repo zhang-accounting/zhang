@@ -1,10 +1,11 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono_tz::Tz;
 #[cfg(feature = "plugin_runtime")]
 use extism::convert::Json as WasmJson;
 #[cfg(feature = "plugin_runtime")]
-use extism::{Manifest, Plugin as WasmPlugin, Wasm};
+use extism::Manifest;
 use log::{info, warn};
 use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
 use zhang_shared::plugin_abi::export;
@@ -16,6 +17,7 @@ use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
+use crate::plugin::runtime::{PluginInstance, PluginRuntime};
 use crate::plugin::PluginType;
 use crate::{ZhangError, ZhangResult};
 
@@ -36,15 +38,18 @@ impl PluginStore {
     ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
 
-        let wasm = Wasm::data(module_bytes.clone());
+        // the runtime compiles the module for the settings it is asked for and builds every instance
+        // of the plugin, this registering one included, from the compiled code
+        let runtime = Arc::new(PluginRuntime::new(module_bytes));
         let timeout = declaration.capabilities.timeout;
-        let manifest = Manifest::new([wasm]).with_timeout(timeout);
+        let manifest = Manifest::default().with_timeout(timeout);
 
         // registering, the file functions deny every path and the router functions answer that they
         // are unavailable
         let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
-        let mut plugin =
-            WasmPlugin::new(manifest, host.functions(), true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+        let mut plugin = runtime
+            .instantiate(manifest, host.clone())
+            .map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>(export::NAME, ())
             .map_err(|e| call_error(&plugin_name, export::NAME, timeout, e))?
@@ -67,7 +72,7 @@ impl PluginStore {
         let registered_plugin = RegisteredPlugin {
             name,
             version,
-            module_bytes,
+            runtime,
             declaration,
             span: span.clone(),
             occurrence,
@@ -138,8 +143,9 @@ fn call_error(plugin: &str, export: &str, timeout: Duration, error: extism::Erro
 pub struct RegisteredPlugin {
     pub name: String,
     pub version: String,
-    /// the wasm module, kept in memory so executions don't re-read the cache file
-    module_bytes: Vec<u8>,
+    /// the plugin's module and its compiled code, shared by every clone of this registration and every
+    /// instance they build (see [`PluginRuntime`])
+    pub(super) runtime: Arc<PluginRuntime>,
     /// the capabilities and config declared by the plugin's directive
     declaration: PluginDeclaration,
     /// the span of the plugin's directive, where the errors it reports go unless they carry a span
@@ -156,11 +162,11 @@ impl RegisteredPlugin {
         &self.declaration.capabilities
     }
 
-    /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts and timeout
+    /// the settings of every instance of the plugin, whatever it runs as: config, allowed hosts and
+    /// timeout. The module itself belongs to the runtime, which compiles it for these settings
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
         let config = self.declaration.config_with(options, self.declaration.host_config(self.occurrence));
-        let wasm = Wasm::data(self.module_bytes.clone());
-        Manifest::new([wasm])
+        Manifest::default()
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
             .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
@@ -180,10 +186,12 @@ impl RegisteredPlugin {
         PluginHost::routing(self.name.clone(), self.span.clone(), clock, timezone)
     }
 
-    /// a new instance of the plugin, with the host functions of `host` linked in
-    pub fn load_as_plugin(&self, options: &InMemoryOptions, host: &PluginHost) -> ZhangResult<WasmPlugin> {
+    /// a new instance of the plugin, whose host functions reach `host`
+    pub fn load_as_plugin(&self, options: &InMemoryOptions, host: &PluginHost) -> ZhangResult<PluginInstance> {
         info!("loading plugin {} {}", self.name, self.version);
-        let plugin = WasmPlugin::new(self.manifest(&options.all()), host.functions(), true)
+        let plugin = self
+            .runtime
+            .instantiate(self.manifest(&options.all()), host.clone())
             .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
 
         Ok(plugin)
@@ -234,6 +242,7 @@ mod test {
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
     use crate::plugin::files::FileAccess;
+    use crate::plugin::runtime::PluginRuntime;
     use crate::plugin::store::{call_error, known_plugin_types, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
 
@@ -255,7 +264,7 @@ mod test {
         RegisteredPlugin {
             name: "slow".to_owned(),
             version: "0.1.0".to_owned(),
-            module_bytes: vec![],
+            runtime: Arc::new(PluginRuntime::new(vec![])),
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence,
@@ -316,7 +325,7 @@ mod test {
         let plugin = RegisteredPlugin {
             name: "fx-rate".to_owned(),
             version: "0.1.0".to_owned(),
-            module_bytes: vec![],
+            runtime: Arc::new(PluginRuntime::new(vec![])),
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,
@@ -360,7 +369,7 @@ mod test {
         let plugin = RegisteredPlugin {
             name: "offline".to_owned(),
             version: "0.1.0".to_owned(),
-            module_bytes: vec![],
+            runtime: Arc::new(PluginRuntime::new(vec![])),
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,
