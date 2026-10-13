@@ -1082,4 +1082,31 @@ async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
         "{again}"
     );
     assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);
+    // another commodity set for an opened account is refused by the host, naming the existing open
+    let other = error_text(
+        &router,
+        "open_account",
+        json!({"date": "2024-03-01", "account": "Expenses:Food:Coffee", "commodities": ["USD"]}),
+    )
+    .await;
+    assert!(
+        other.contains("Expenses:Food:Coffee has an open directive already (with CNY), not USD"),
+        "{other}"
+    );
+    assert!(other.contains("cannot change an account's commodities or re-open a closed one"), "{other}");
+    // a closed account keeps its one open: nothing written, and the answer names both dates for the user
+    let closed = structured(&router, "open_account", json!({"date": "2024-01-01", "account": "Assets:Old"})).await;
+    assert_eq!((closed["recorded"].as_bool(), closed["already_open"].as_bool()), (Some(false), Some(true)));
+    assert_eq!(
+        (closed["opened_on"].as_str(), closed["closed_on"].as_str()),
+        (Some("1970-01-01"), Some("2023-12-31"))
+    );
+    assert!(
+        closed["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Assets:Old is already opened on 1970-01-01 (closed on 2023-12-31);"),
+        "{closed}"
+    );
+    assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);
 }

@@ -156,8 +156,8 @@ Accounts are never created on the fly. When the preview reports `AccountDoesNotE
 | `504 {"message": "plugin zhang-mcp ran longer than its timeout"}` | a query ran longer than the plugin's `timeout` | raise `timeout`, or narrow the query |
 | the ledger does not load, naming `mcp.lua` or a host function | the Zhang is older than the plugin | upgrade Zhang, or use the plugin of your Zhang's release |
 | the client says the server needs OAuth | it got a `401` before any header was configured | configure the header first; Zhang's `401` carries no OAuth metadata |
-| the assistant says it has no tool to record a transaction | `allow_writes` is off, or no `allowed_writes` line grants anything | add the lines of [Recording entries](#recording-entries) and reload |
-| `add_transaction` answers that the plugin may not write transactions | `allow_writes` is on but the grant is missing | the message names the `allowed_writes` line to add |
+| the assistant says it has no tool to record a transaction | `allow_writes` is off (with it on, the write tools are always listed) | add the lines of [Recording entries](#recording-entries) and reload |
+| the assistant says Zhang does not let the plugin write transactions, or open accounts | `allow_writes` is on but the `allowed_writes` line for that kind is missing | add the line the message names and reload |
 | `add_transaction` answers that the ledger changed | something was written since the preview, or the token is older than ten minutes, or it was already used | let the assistant preview again and show you the new text |
 
 ## Security
