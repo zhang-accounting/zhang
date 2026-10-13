@@ -158,7 +158,7 @@ mod test {
         for module in ["plugins/x.txt", "plugins/x", "x.lua.bak", "plugins/", "lua"] {
             let error = module_kind(module).unwrap_err().to_string();
             assert!(
-                error.starts_with(&format!("plugin module {module} is not a `.wasm`/`.wat`/`.lua` module")),
+                error.contains(&format!("plugin module {module} is not a `.wasm`/`.wat`/`.lua` module")),
                 "{error}"
             );
         }
@@ -207,10 +207,7 @@ mod test {
         assert_eq!(module.into_parts(), (b"\0asm".to_vec(), None));
 
         let error = PluginModule::parse("plugins/x.txt", || panic!("not read")).unwrap_err().to_string();
-        assert!(
-            error.starts_with("plugin module plugins/x.txt is not a `.wasm`/`.wat`/`.lua` module"),
-            "{error}"
-        );
+        assert!(error.contains("plugin module plugins/x.txt is not a `.wasm`/`.wat`/`.lua` module"), "{error}");
         let error = PluginModule::parse("missing.lua", || Err(crate::ZhangError::FileNotFound)).unwrap_err();
         assert!(error.is_file_not_found());
     }

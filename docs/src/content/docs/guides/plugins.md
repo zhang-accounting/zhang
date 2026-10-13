@@ -21,7 +21,7 @@ option "features.plugin" "true"
 
 ## Add a plugin
 
-Copy the plugin's `.wasm` file into your ledger directory, for example into `plugins/`, and declare it:
+Copy the plugin's file, a `.wasm` module or a `.lua` script, into your ledger directory, for example into `plugins/`, and declare it:
 
 ```zhang
 option "features.plugin" "true"
@@ -42,7 +42,7 @@ A plugin declares what it is, and can be several of these at once:
 
 - A **processor** receives every entry of the ledger and returns the entries Zhang goes on with. It can add, change or remove entries, or only check them and report problems.
 - A **mapper** does the same one entry at a time.
-- A **router** serves pages and data under `/api/plugins/{name}`, such as a custom report. See [Router Plugins](/guides/router-plugins/).
+- A **router** serves pages and data under `/api/plugins/{name}`, such as a custom report. See [Router Plugins](/guides/router-plugins/). A router can be written as a Lua script, with nothing to compile: see [Lua Plugins](/guides/lua-plugins/).
 
 What a processor or mapper changes exists only while the ledger is loaded. Your files stay as they are.
 

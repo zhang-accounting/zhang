@@ -165,7 +165,8 @@ function json.decode(text)
   if type(text) ~= "string" then error("json.decode expects a string, got " .. type(text), 2) end
   local value, position, err = codec.decode(text, 1, codec.null, objectmeta, arraymeta)
   if err then error("invalid JSON: " .. err, 2) end
-  if sfind(text, "%S", position) then error("invalid JSON: unexpected data at byte " .. position, 2) end
+  local extra = sfind(text, "%S", position)
+  if extra then error("invalid JSON: unexpected data at byte " .. extra, 2) end
   return value
 end
 

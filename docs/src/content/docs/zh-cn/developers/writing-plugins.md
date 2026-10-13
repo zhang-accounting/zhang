@@ -339,6 +339,23 @@ fn route(request: Request) -> Result<Response, Error> {
 
 [Router 插件](/zh-cn/guides/router-plugins/)介绍了请求和响应的 JSON、错误状态码以及更多细节。
 
+## Lua 插件
+
+router 插件可以是一个 Lua 脚本而不是模块：`plugin "plugins/report.lua"`。张记账内嵌了一个 Lua 5.4 解释器，它本身就是由仓库中 `tools/lua-runtime` 构建的 wasm 插件；加载时张记账把它和脚本配对：沙箱运行的模块是解释器，脚本通过两个保留配置键交给它，`zhang.script`（源码）和 `zhang.script_name`（指令中写的模块路径，错误消息用它指名）。其余都走 wasm 路径：注册时从脚本返回的模块表读取 `name`、`version` 和 `supported_type`，同名时先声明的 router 提供路由，指令的能力和 `timeout` 照常生效，每个请求都是全新的实例，`GET /api/plugins` 列出脚本自己的名字和版本。
+
+```lua
+local M = { name = "report", version = "0.1.0", types = { "Router" } }
+
+function M.router(request)
+  local balances = zhang.query("SELECT account, sum(position) AS balance GROUP BY account")
+  return { json = balances }
+end
+
+return M
+```
+
+本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为指令流中的金额以 JSON 数字传递，Lua 会把它们读成浮点数。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
+
 ## ABI v1 参考
 
 本节说明跨越边界传递的内容，供不使用 Rust SDK 编写的插件参考。所有变化都是增量的：字段永远不会被移除或改为必填，所以为较旧张记账编译的插件可以继续工作。
