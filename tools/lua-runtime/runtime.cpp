@@ -69,6 +69,9 @@ static void *budget_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
   void *next = realloc(ptr, nsize);
   if (!next) return NULL;
   budget->used = budget->used - old + nsize;
+  // Lua retries a failed allocation after a full collection: a success after that means the budget was
+  // not exceeded after all, so a later unrelated error is not reported as the budget
+  budget->exceeded = false;
   return next;
 }
 
@@ -388,7 +391,9 @@ elseif entry == "router" then
     return true, encoded and text or "null"
   end
   local wire = json.object()
-  wire.status = response.status
+  local status = response.status
+  if math.type(status) == "float" and math.tointeger(status) then status = math.tointeger(status) end
+  wire.status = status
   local headers, has_content_type = json.object(), false
   if type(response.headers) == "table" then
     for name, value in pairs(response.headers) do

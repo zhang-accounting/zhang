@@ -423,7 +423,7 @@ mod test {
         assert_eq!(config["zhang.script_name"], "plugins/report.lua");
         assert_eq!(config["greeting"], "hi");
         assert_eq!(config["zhang.abi"], "1");
-        assert!(registered_as("slow.wasm", &[], 0).manifest(&[]).config.get("zhang.script").is_none());
+        assert!(!registered_as("slow.wasm", &[], 0).manifest(&[]).config.contains_key("zhang.script"));
     }
 
     #[test]

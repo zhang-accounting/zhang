@@ -1804,7 +1804,7 @@ mod lua {
 
     #[test]
     fn a_script_that_is_not_utf8_or_too_big_or_of_the_wrong_shape_fails_the_load() {
-        let error = load_error("not_utf8.lua", b"return \"caf\xE9\"");
+        let error = load_error("not_utf8.lua", b"-- latin1: \xE9\nreturn {}");
         assert!(error.contains("not_utf8.lua is not UTF-8 text: the byte at offset 11 is not UTF-8"), "{error}");
 
         let mut too_big = b"-- ".to_vec();
