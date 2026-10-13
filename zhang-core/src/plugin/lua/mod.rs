@@ -134,7 +134,7 @@ mod test {
     #[test]
     fn the_embedded_interpreter_is_a_wasm_module() {
         assert_eq!(&INTERPRETER[..4], b"\0asm");
-        assert!(INTERPRETER.len() > 500_000, "{} bytes", INTERPRETER.len());
+        assert!(INTERPRETER.len() > 300_000, "{} bytes", INTERPRETER.len());
     }
 
     #[test]

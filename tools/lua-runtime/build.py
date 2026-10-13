@@ -96,6 +96,10 @@ def main():
             "-mexec-model=reactor",
             f"-Wl,-z,stack-size={STACK_SIZE}",
             "-Wl,--export-dynamic",
+            # no DWARF: the sysroot's prebuilt libc objects carry debug sections with the build paths of each
+            # wasi-sdk host asset, which made the macOS and Linux builds differ (and weighed 380 KiB); the `name`
+            # section stays, so a trap still names the function
+            "-Wl,--strip-debug",
             "-x", "c++", lua / "onelua.c", HERE / "runtime.cpp",
             "-x", "none", build / "pdk.o",
             "-lwasi-emulated-signal",

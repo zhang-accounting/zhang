@@ -43,6 +43,9 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
   sets `wasm_exceptions(true)` on the engine.
 - **An Extism reactor.** `-mexec-model=reactor`: the host calls the exports, nothing runs at start. The 8 MiB stack is
   lua.wasm's default, which its test suite is witnessed against.
+- **No debug sections.** `-Wl,--strip-debug` drops the DWARF the sysroot's prebuilt libc objects carry (each
+  wasi-sdk host asset builds its libc with its own paths, which made a macOS and a Linux build differ by a few
+  hundred bytes of `.debug_str`/`.debug_line` while every code section matched); the `name` section stays.
 - **dkjson embedded.** `build.py` writes dkjson into a generated `json_lua.h` as a C string; the prelude in `runtime.cpp`
   wraps it as the `json` library (shared object/array markers, a fixed `null`, strict decoding). User scripts are never
   built into the module.
