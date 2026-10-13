@@ -36,8 +36,9 @@ use zhang_core::{ZhangError, ZhangResult};
 use crate::auth::{AuthConfig, AuthState, SharedAuth};
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
+use crate::plugin_writes::PluginWrites;
 use crate::response::ResponseWrapper;
-use crate::state::{AppState, ReloadFailure};
+use crate::state::{AppState, ReloadFailure, SharedPluginWrites};
 
 pub mod account_queries;
 pub mod auth;
@@ -47,6 +48,7 @@ pub mod builtin;
 mod cells;
 pub mod error;
 pub mod journals;
+pub mod plugin_writes;
 pub mod report;
 pub mod request;
 pub mod response;
@@ -68,6 +70,8 @@ pub struct ServerApp {
     broadcaster: Arc<Broadcaster>,
     reload_sender: Arc<ReloadSender>,
     auth: Arc<AuthState>,
+    /// what the writes of router plugins share: the key of their preview tokens and the lock of their commits
+    plugin_writes: Arc<PluginWrites>,
 }
 
 impl GotchaApp for ServerApp {
@@ -169,6 +173,7 @@ impl GotchaApp for ServerApp {
             broadcaster: SharedBroadcaster(self.broadcaster.clone()),
             reload_sender: SharedReloadSender(self.reload_sender.clone()),
             auth: SharedAuth(self.auth.clone()),
+            plugin_writes: SharedPluginWrites(self.plugin_writes.clone()),
         })
     }
 }
@@ -240,6 +245,17 @@ pub struct ReloadSender {
     broadcaster: std::sync::OnceLock<Arc<Broadcaster>>,
     /// the reload at the next local midnight of a ledger that depends on the date, replaced on every reload
     midnight_reload: std::sync::Mutex<Option<JoinHandle<()>>>,
+    /// The generation of the ledger served: moved on by every successful reload, and by every commit of a plugin
+    /// ([`plugin_writes`]), so a preview token minted for one ledger is void once it changed. Starts at 1
+    generation: std::sync::atomic::AtomicU64,
+    /// Whether a write landed in the files that the ledger served does not show yet: set by a plugin's commit under
+    /// the ledger read lock, where it cannot mark the ledger stale itself, and cleared by the next successful reload.
+    /// A write of the API reloads first while it is set ([`SharedLedger::for_writing`]), so a write queued behind a
+    /// plugin's commit never plans against the ledger the commit left behind (a second `include` of its file)
+    written: std::sync::atomic::AtomicBool,
+    /// the fingerprint of the ledger served ([`ledger_fingerprint`]): a reload that loads the same content keeps the
+    /// generation, so a token minted between a write's reload and the file watcher's redundant one stays valid
+    fingerprint: std::sync::Mutex<Option<u64>>,
 }
 
 impl Deref for ReloadSender {
@@ -257,7 +273,46 @@ impl ReloadSender {
             last_failure: std::sync::RwLock::new(None),
             broadcaster: std::sync::OnceLock::new(),
             midnight_reload: std::sync::Mutex::new(None),
+            generation: std::sync::atomic::AtomicU64::new(1),
+            written: std::sync::atomic::AtomicBool::new(false),
+            fingerprint: std::sync::Mutex::new(None),
         }
+    }
+
+    /// remember the content of `ledger`, the one served now, so the next reload can tell whether it changed
+    pub fn record_content(&self, ledger: &Ledger) {
+        *self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ledger_fingerprint(ledger));
+    }
+
+    /// whether `ledger`, just loaded, differs in content from the one served before it (always, before the first
+    /// is recorded), remembering it either way
+    fn content_changed(&self, ledger: &Ledger) -> bool {
+        let fingerprint = ledger_fingerprint(ledger);
+        let mut previous = self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = *previous != Some(fingerprint);
+        *previous = Some(fingerprint);
+        changed
+    }
+
+    /// a write landed in the files: the ledger served is behind them until the reload asked for here runs
+    pub fn mark_written(&self) {
+        self.written.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.reload();
+    }
+
+    /// whether a write landed in the files since the ledger served was loaded, see [`ReloadSender::mark_written`]
+    pub fn write_pending(&self) -> bool {
+        self.written.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// the generation of the ledger served, see [`ReloadSender::generation`]
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// move the generation on, as a commit of a plugin does once its text is in the file: the new generation
+    pub(crate) fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
     }
 
     /// ask for a reload, without waiting for it: a reload already asked for and not started reads the files as
@@ -302,6 +357,13 @@ impl ReloadSender {
         let outcome = match tokio::task::spawn_blocking(ledger.reloader()).await {
             Ok(Ok(reloaded)) => {
                 *ledger = reloaded;
+                // when the content changed, every preview token minted for the ledger before is void; a reload that
+                // loaded the same content (the file watcher's, after a write's own) keeps the generation and the
+                // tokens. Either way the files it shows are the ones written
+                if self.content_changed(ledger) {
+                    self.next_generation();
+                }
+                self.written.store(false, std::sync::atomic::Ordering::SeqCst);
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
             }
@@ -462,12 +524,18 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
     });
 }
 
-fn start_reload_listener(
+/// Run the reloads `reload_sender` asks for, one at a time, on `ledger_for_reload`, telling `cloned_broadcaster`'s
+/// readers; the task the server starts, which a test of a write path starts too
+pub fn start_reload_listener(
     ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<ReloadRequest>,
 ) {
     reload_sender.broadcaster.set(cloned_broadcaster).ok();
     tokio::spawn(async move {
-        reload_sender.schedule_midnight_reload(&*ledger_for_reload.read().await);
+        {
+            let served = ledger_for_reload.read().await;
+            reload_sender.record_content(&served);
+            reload_sender.schedule_midnight_reload(&served);
+        }
         while let Some(request) = rx.recv().await {
             let mut guard = ledger_for_reload.write().await;
             let outcome = reload_sender.reload_in_place(&mut guard).await;
@@ -478,6 +546,43 @@ fn start_reload_listener(
             drop(guard);
         }
     });
+}
+
+/// The fingerprint of what a load produced, which is what a plugin's preview looked at: a hash of every directive's
+/// place and text in its file (the span the loader keeps on each one: file, offsets and the text as written), of
+/// the directives plugins made (no file: their canonical JSON, few), and of the options by key. Two loads of the
+/// same files give the same fingerprint; an edit that changes a directive, or a byte before one (its offsets move),
+/// gives another. Nothing is serialized or read again, so it costs a hash of the text on every data source
+/// (about 2% of a load of 50 000 transactions, where serializing them through JSON cost 70%)
+fn ledger_fingerprint(ledger: &Ledger) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for directive in ledger.directives.iter().chain(&ledger.metas) {
+        let span = &directive.span;
+        match &span.filename {
+            Some(file) => {
+                file.hash(&mut hasher);
+                span.start.hash(&mut hasher);
+                span.end.hash(&mut hasher);
+                span.content.hash(&mut hasher);
+            }
+            // a directive a plugin made: through `serde_json::Value`, whose objects are sorted, so a map it holds
+            // (metadata) hashes the same whatever order its hash map iterates in
+            None => serde_json::to_value(directive)
+                .map(|value| value.to_string())
+                .unwrap_or_default()
+                .hash(&mut hasher),
+        }
+    }
+    // the options come out of a hash map in no fixed order: by key, so two loads list them alike
+    let mut options = ledger.options.all();
+    options.sort_by(|a, b| a.key.cmp(&b.key));
+    for option in options {
+        option.key.hash(&mut hasher);
+        option.value.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// the message a caught panic was raised with, for the log
@@ -557,6 +662,7 @@ pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadca
         broadcaster,
         reload_sender,
         auth,
+        plugin_writes: Arc::new(PluginWrites::new()),
     }
 }
 

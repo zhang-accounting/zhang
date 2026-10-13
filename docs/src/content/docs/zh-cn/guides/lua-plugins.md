@@ -50,6 +50,7 @@ return M
 | `version` | 是 | 插件版本，一个字符串。 |
 | `types` | 否 | 插件类型列表。`{ "Router" }` 是唯一可用的值，也是默认值；没有任何类型的列表，或者把列表写成了映射，都无法加载。 |
 | `router` | router 需要 | 响应请求的函数。 |
+| `writes` | 否 | 插件用 `zhang.write` 追加的指令种类，`{ "transaction", "open" }`。账本所有者在 `plugin` 指令上用 `allowed_writes` 授予它们；没有声明时写入函数抛出 `unavailable: …`，没有授予时抛出 `denied: …`。 |
 
 张记账加载账本时运行这个代码块以读取名字、版本和类型，之后每个请求再运行一次。每次运行都从头开始，在一个全新的解释器里：全局变量、表和 upvalue 都不会从一个请求残留到下一个请求，插件之间也不共享任何东西。
 
@@ -77,7 +78,9 @@ return M
 | `zhang.config(key)` | 一项设置的字符串值，或 `nil`：账本的选项、`plugin` 指令的元数据，以及张记账设置的键（`zhang.abi`、`zhang.plugin`、`zhang.seed`），与 wasm 插件收到的完全一样。 |
 | `zhang.emit_error(message, metas)` | 报告一个问题。请求没有错误列表，所以在 router 中它只会被记录到日志；要告诉调用方，请写进响应。 |
 | `zhang.read_file(path)`、`zhang.list_dir(path)` | `allowed_paths` 对应的文件函数。无论指令授予什么，router 都没有文件访问权限，所以本版本中它们会抛出 `denied: …`。 |
-| `zhang.str(v)`、`zhang.int(v)`、`zhang.decimal(v)`、`zhang.bool(v)`、`zhang.date(v)`、`zhang.set(v)` | 一个带类型的查询参数。任何类型的 `nil` 都是 NULL。decimal 是 `"12.50"` 这样的字符串，date 是 `"YYYY-MM-DD"` 字符串，set 是字符串列表。 |
+| `zhang.str(v)`、`zhang.int(v)`、`zhang.decimal(v)`、`zhang.bool(v)`、`zhang.date(v)`、`zhang.set(v)` | 一个带类型的查询参数。任何类型的 `nil` 都是 NULL。decimal 是 `"12.50"` 这样的字符串或一个整数（Lua 浮点数会被拒绝：`decimal must be a string or an integer, got 12.5`），date 是 `"YYYY-MM-DD"` 字符串，set 是字符串列表。 |
+| `zhang.write.preview(batch)` | 预览一批最多 50 条要追加的指令，每条是一个表，`kind = "transaction"`（字段与 `POST /api/transactions` 相同）或 `kind = "open"`（`date`、`account`、`commodities`、`booking_method`、`metas`）：对每个条目给出张记账写出的文本、它要写入的文件、被拒绝的字段和账本会报告的错误，与 `POST /api/transactions/preview` 完全一致；批次中靠前的 `open` 对它之后的交易生效。每个条目都没有问题时带有 `token`。金额是字符串：批次中任何位置出现非整数浮点数，在发送之前就抛出 `amount `12.3` must be a string (…)`，其他数字由宿主拒绝。见[写入](/zh-cn/developers/writing-plugins/#写入)。 |
+| `zhang.write.commit(batch, token)` | 用令牌提交预览过的批次，每个文件写一次，文本进入文件后返回 `{ file, bytes, entries, generation }`；请求结束后账本重新加载。把它放在请求的最后一步：它返回之后条目已经记录。批次有差异、令牌属于另一个账本代（期间发生了重新加载或提交）、令牌过期（10 分钟）、或在账本重新加载之前再次提交，都抛出 `conflict: …`：重新预览即可。某个文件无法写入时抛出 `io: …`，并指明已写入和未写入的内容。 |
 
 被宿主拒绝的调用会抛出带宿主消息的 Lua 错误：在某个位置失败的查询是 `query error at line 1, column 8: unknown column`，无法绑定的参数是 `query error: parameter :from must be a date string YYYY-MM-DD or null`，文件是 `denied: …`。不捕获的话，错误让请求以状态 500 失败；用 `pcall` 包住调用就能返回一个干净的状态：
 
@@ -117,7 +120,7 @@ if not ok then return { status = 400, json = { error = result } } end
 | 发生了什么 | 张记账的处理 |
 |---|---|
 | 脚本无法解析、没有返回模块表，或声明了 `Router` 以外的类型 | 账本无法加载，错误指出脚本和行号（`plugins/food.lua:12: '=' expected near 'end'`）。在 `zhang serve` 下，继续提供上一个版本的账本。 |
-| `router` 抛出错误（`error()`，或没有捕获的失败宿主调用） | 状态 500。消息连同脚本行号和调用栈进入张记账的日志，不会发给客户端。 |
+| `router` 抛出错误（`error()`，或没有捕获的失败宿主调用） | 状态 500。消息连同脚本行号和调用栈进入张记账的日志，不会发给客户端。失败的宿主调用抛出 `kind: message`，例如 `denied: …` 或 `conflict: …`；用 `pcall` 捕获后可以自己答复调用方。 |
 | `router` 返回的不是表 | 状态 502。 |
 | 请求超过 `timeout` | 状态 504。 |
 | 请求分配超过 64 MiB | 状态 500，日志中有上面的消息。 |

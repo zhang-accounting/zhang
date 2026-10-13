@@ -17,6 +17,7 @@ mod journals_engine;
 mod open_commodities;
 mod paging_contract;
 mod plain_numbers;
+mod plugin_writes;
 mod posting_metadata;
 mod query_zhang_tables;
 mod string_escaping;

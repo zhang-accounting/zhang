@@ -6677,6 +6677,8 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror 2.0.21",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
  "zhang-ast",
  "zhang-query",

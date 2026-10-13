@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use chrono::Datelike;
 use log::{debug, warn};
 use minijinja::{context, Environment};
-use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
+use zhang_ast::{Directive, DirectiveType, Include, SpanInfo, Spanned, ZhangString};
 
 use crate::data_type::{document_path_in_file, DataType, Dialect};
 use crate::error::{storage_error, Access, IoErrorIntoZhangError};
@@ -73,13 +73,37 @@ where
     }
 
     /// Append `directives` to the files of `ledger` ([`append_plan`]): every source appends alike, reading each file
-    /// with [`DataSource::get`] and writing it back with [`DataSource::save`]
+    /// with [`DataSource::get`] and writing it back with [`DataSource::save`], once per file ([`DataSource::append_files`])
     fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        for (path, directive) in append_plan(ledger, directives)? {
-            let content = appended(self.get(path.clone()), &path, &self.export(directive)?)?;
-            self.save(ledger, path, &content)?;
+        self.append_files(ledger, directives).map(|_| ()).map_err(|failure| failure.error)
+    }
+
+    /// Append `directives` to the files of `ledger`, one write per file: every directive planned for a file
+    /// ([`append_plan`]) goes into it at once, in the plan's order of files, so a file is either as it was or holds
+    /// all of its new text. The files written, in order; or, when a read or a write fails, [`AppendError`] with the
+    /// error and the files written whole before it: the caller tells what landed, and the rest was not touched
+    fn append_files(&self, ledger: &Ledger, directives: Vec<Directive>) -> Result<Vec<String>, AppendError> {
+        let untouched = |error: ZhangError| AppendError { error, written: vec![] };
+        // every text first, so an export that fails writes nothing
+        let mut files: Vec<(String, Vec<Vec<u8>>)> = vec![];
+        for (path, directive) in append_plan(ledger, directives).map_err(untouched)? {
+            let text = self.export(directive).map_err(untouched)?;
+            match files.iter_mut().find(|(file, _)| *file == path) {
+                Some((_, texts)) => texts.push(text),
+                None => files.push((path, vec![text])),
+            }
         }
-        Ok(())
+        let mut written = vec![];
+        for (path, texts) in files {
+            let failed = |error: ZhangError| AppendError {
+                error,
+                written: written.clone(),
+            };
+            let content = appended(self.get(path.clone()), &path, &texts).map_err(failed)?;
+            self.save(ledger, path.clone(), &content).map_err(failed)?;
+            written.push(path);
+        }
+        Ok(written)
     }
 
     /// The content of the file at `path`, relative to the ledger root and written with `/`, or `None` when there is
@@ -188,8 +212,15 @@ pub struct MissingInclude {
 /// directive), `year`, `month`, `month_str` and `day`, `day_str` (zero-padded) and `ext`, the extension of the main
 /// file (`zhang` without one)
 pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangResult<PathBuf> {
+    output_file(ledger, directive.datetime(), directive.directive_type())
+}
+
+/// [`directive_output_file`] for a directive of the kind `directive_type` dated `datetime` (`None` for one without a
+/// date), before the directive exists: where a directive a request describes would go, even one the request cannot
+/// build yet
+pub fn output_file(ledger: &Ledger, datetime: Option<chrono::NaiveDateTime>, directive_type: DirectiveType) -> ZhangResult<PathBuf> {
     let (entry, main_file_endpoint) = &ledger.entry;
-    let Some(datetime) = directive.datetime() else {
+    let Some(datetime) = datetime else {
         return Ok(entry.join(main_file_endpoint));
     };
     let date = datetime.date();
@@ -204,7 +235,7 @@ pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangRes
     })?;
     let path = template
         .render(context! {
-            type => directive.directive_type().to_string(),
+            type => directive_type.to_string(),
             year => date.year(),
             month => date.month(),
             month_str => date.format("%m").to_string(),
@@ -218,9 +249,12 @@ pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangRes
 
 /// What an append of `directives` to `ledger` writes, in order: each directive as it is written there
 /// ([`written_into`]), with the file it is appended to, by its path within the ledger as [`DataSource::get`] takes it.
-/// That is the file [`directive_output_file`] gives it. The main file gets an `include` of that file first, once per
-/// append, unless the ledger loaded it already. A file outside the ledger's directory is an error, and nothing is
-/// written: a source writes nothing there, and an `include` of it would name no file of the ledger.
+/// That is the file [`directive_output_file`] gives it. The main file gets an `include` of a file the ledger did not
+/// load first, once per append: a write that fails between the two leaves an `include` of a file that is not there,
+/// which the next load reports as `IncludeNotFound` where the user sees it, never a file no `include` names, whose
+/// entries a retry would add a second time without anyone noticing. A file outside the ledger's directory is an
+/// error, and nothing is written: a source writes nothing there, and an `include` of it would name no file of the
+/// ledger.
 pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<Vec<(String, Directive)>> {
     let within = |file: &Path| {
         ledger
@@ -229,8 +263,17 @@ pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<V
             .ok_or_else(|| ZhangError::CustomError(format!("{} is not in the ledger's directory", file.display())))
     };
     let main = within(&ledger.entry.0.join(&ledger.entry.1))?;
-    // the files the ledger loaded, and those this append includes
+    // the files the ledger loaded, those an `include` names that are not there yet (a write that stopped after its
+    // include, reported as `IncludeNotFound`: the file this append creates is included already), and those this
+    // append includes
     let mut included: Vec<PathBuf> = ledger.visited_files.iter().filter_map(|it| ledger.path_in_ledger(it)).collect();
+    included.extend(
+        ledger
+            .errors
+            .iter()
+            .filter(|error| error.error_type == zhang_ast::error::ErrorKind::IncludeNotFound)
+            .filter_map(|error| error.metas.get("path").map(PathBuf::from)),
+    );
     let mut plan = vec![];
     for directive in directives {
         let file = within(&directive_output_file(ledger, &directive)?)?;
@@ -247,16 +290,30 @@ pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<V
     Ok(plan)
 }
 
-/// the content of the file at `path`, whose content is `existing` (none when it is not there), with `directive`
+/// An append that failed: the error, and the files it had written whole before, by their paths within the ledger,
+/// in order. The files after the failure were not touched
+#[derive(Debug)]
+pub struct AppendError {
+    pub error: ZhangError,
+    pub written: Vec<String>,
+}
+
+/// the content of the file at `path`, whose content is `existing` (none when it is not there), with each of `texts`
 /// appended on a line of its own; the byte order mark the file may start with stays ([`FileText`])
-fn appended(existing: ZhangResult<Vec<u8>>, path: &str, directive: &[u8]) -> ZhangResult<Vec<u8>> {
+fn appended(existing: ZhangResult<Vec<u8>>, path: &str, texts: &[Vec<u8>]) -> ZhangResult<Vec<u8>> {
     let content = match existing {
         Ok(content) => FileText::decode(content, path)?,
         // a file this append creates
         Err(error) if error.is_file_not_found() => FileText::new(String::new()),
         Err(error) => return Err(error),
     };
-    Ok([content.into_bytes().as_slice(), b"\n", directive, b"\n"].concat())
+    let mut bytes = content.into_bytes();
+    for text in texts {
+        bytes.extend_from_slice(b"\n");
+        bytes.extend_from_slice(text);
+        bytes.extend_from_slice(b"\n");
+    }
+    Ok(bytes)
 }
 
 /// `path`, a file or directory of the ledger whose root is `root`, by its path within the ledger: the path a
@@ -278,8 +335,9 @@ pub fn path_in_ledger(root: &Path, path: &Path) -> Option<PathBuf> {
 }
 
 /// a relative `path` normalized lexically (no `.` or `..` components, no empty ones); `None` when it is absolute or
-/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way
-pub(crate) fn normalize_relative(relative: &Path) -> Option<PathBuf> {
+/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way, and a source writing to
+/// the local disk keeps a write within its root with it
+pub fn normalize_relative(relative: &Path) -> Option<PathBuf> {
     let mut normalized = PathBuf::new();
     for component in relative.components() {
         match component {
@@ -685,16 +743,135 @@ impl DataSource for LocalFileSystemDataSource {
         Ok(files.finish())
     }
 
+    /// The file is written whole or not at all when the directory allows it ([`save_file`])
     fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         let file = self
             .resolve(&path)
             .ok_or_else(|| ZhangError::CustomError(format!("{path} is not in the ledger's directory")))?;
-        let failed = |error: std::io::Error| storage_error(&path, Access::Write, error.kind().into(), error);
-        if let Some(folder) = file.parent() {
-            std::fs::create_dir_all(folder).map_err(failed)?;
-        }
-        std::fs::write(&file, content).map_err(failed)
+        save_file(&file, &path, content)
     }
+}
+
+/// Write `content` to `file` on the local disk, the file at `path` of a ledger, whole or not at all when the directory
+/// allows it: the content goes to a temporary file next to the file (the real file, behind any symbolic link, which
+/// stays a link), with the file's permissions, flushed to the disk, then renamed over the file
+/// ([`write_atomically`]); a crash or a full disk while writing leaves the file as it was. Where no temporary file
+/// can be made or renamed, the file is written in place, as before. The directories the file needs are made. The
+/// error names `path`, as the ledger knows the file, and a refusal is [`ZhangError::WriteRefused`]; every source
+/// writing to the local disk saves through here, so a file is replaced the same way whichever way the ledger is served
+pub fn save_file(file: &Path, path: &str, content: &[u8]) -> ZhangResult<()> {
+    let failed = |error: std::io::Error| storage_error(path, Access::Write, error.kind().into(), error);
+    if let Some(folder) = file.parent() {
+        std::fs::create_dir_all(folder).map_err(failed)?;
+    }
+    write_atomically(file, content).map_err(failed)
+}
+
+/// Write `content` to `file` whole or not at all: into a temporary file next to the real file (`file` with its
+/// symbolic links followed, so a link stays a link and its target gets the content), which gets the file's
+/// permissions (and, on unix, its owner, as far as this process may), is flushed to the disk and renamed over the
+/// real file, which replaces it in one step on POSIX systems and on Windows. The temporary file is removed when a
+/// step fails. Only where the directory refuses the temporary file for want of permission, or the rename is refused
+/// (a directory this process may not add to, a file system without rename), is the file written in place, as a
+/// plain write would:
+/// a write or flush that fails, a full or failing disk, leaves the file as it was and is the error, since a plain
+/// write would truncate the file and fail the same way ([`falls_back_in_place`])
+fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// tells the temporary files of one process apart
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let target = resolve_links(file);
+    let existing = std::fs::metadata(&target).ok();
+    let name = target.file_name().and_then(|it| it.to_str()).unwrap_or("file");
+    let temp = target.with_file_name(format!(".{name}.{}-{}.tmp", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
+    let mut writer = match std::fs::File::create(&temp) {
+        Ok(writer) => writer,
+        Err(error) if falls_back_in_place(SaveStep::Create, &error) => return std::fs::write(&target, content),
+        Err(error) => return Err(error),
+    };
+    let written = (|| {
+        if let Some(existing) = &existing {
+            writer.set_permissions(existing.permissions())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                // best effort: only root may give a file away, and the owner is the same process otherwise
+                std::os::unix::fs::chown(&temp, Some(existing.uid()), Some(existing.gid())).ok();
+            }
+        }
+        writer.write_all(content)?;
+        writer.sync_all()
+    })();
+    drop(writer);
+    if let Err(error) = written {
+        std::fs::remove_file(&temp).ok();
+        return match falls_back_in_place(SaveStep::Write, &error) {
+            true => std::fs::write(&target, content),
+            false => Err(error),
+        };
+    }
+    match std::fs::rename(&temp, &target) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            std::fs::remove_file(&temp).ok();
+            match falls_back_in_place(SaveStep::Rename, &error) {
+                true => std::fs::write(&target, content),
+                false => Err(error),
+            }
+        }
+    }
+}
+
+/// a step of [`write_atomically`] that can fail
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveStep {
+    /// creating the temporary file
+    Create,
+    /// writing the content to it and flushing it to the disk
+    Write,
+    /// renaming it over the file
+    Rename,
+}
+
+/// Whether a plain write of the file takes over after `step` failed with `error`. Only when the directory refuses
+/// the temporary file for want of permission (`EACCES`, `EPERM`), or the rename is refused (not allowed, the file
+/// busy, or across file systems): the file is still as it was, and the plain write is what every source did
+/// before. Never when the disk or a quota is full or the disk fails (`ENOSPC`, `EDQUOT`, `EIO`), at any step: the
+/// plain write would truncate the file and fail the same way, and the file is left untouched for the user instead
+fn falls_back_in_place(step: SaveStep, error: &std::io::Error) -> bool {
+    // the unix codes, the same on Linux and macOS; Windows reports a refusal as a permission error
+    const EPERM: i32 = 1;
+    const EACCES: i32 = 13;
+    const EBUSY: i32 = 16;
+    const EXDEV: i32 = 18;
+    let refused = error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(EPERM | EACCES));
+    match step {
+        SaveStep::Create => refused,
+        SaveStep::Write => false,
+        SaveStep::Rename => refused || matches!(error.raw_os_error(), Some(EBUSY | EXDEV)),
+    }
+}
+
+/// `file` with its symbolic links followed, as far as they lead to something: the real file a write replaces, so
+/// the link itself stays. A link that leads nowhere is followed to where it points, which the write then creates
+fn resolve_links(file: &Path) -> PathBuf {
+    let mut path = file.to_path_buf();
+    for _ in 0..32 {
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let Ok(link) = std::fs::read_link(&path) else { break };
+                path = match link.is_absolute() {
+                    true => link,
+                    false => path.parent().unwrap_or(Path::new("")).join(link),
+                };
+            }
+            _ => break,
+        }
+    }
+    path
 }
 
 /// an entry of a directory, as [`DataSource::list`] lists it
@@ -1018,6 +1195,232 @@ mod test {
         let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
         assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
         assert_eq!(reloaded.transactions().len(), 2);
+    }
+
+    /// An append writes the `include` of a new data file into the main file before the data file, and each file
+    /// once: when the main file cannot be written (here: not even read), nothing is written at all, so a retry adds
+    /// nothing twice; an include that lands without its file would be a visible `IncludeNotFound`, never a silent
+    /// duplicate. The retry, once the file is writable again, writes both
+    #[cfg(unix)]
+    #[test]
+    fn an_append_writes_the_include_before_the_data_file_and_nothing_when_the_main_file_refuses() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main.zhang");
+        std::fs::write(&main, "1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
+        std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&main).is_ok() {
+            eprintln!("skipping: this user reads a file without permissions (root)");
+            return;
+        }
+
+        let failure = ledger.data_source.append_files(&ledger, coffee()).expect_err("the include cannot be written");
+
+        std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(failure.error.to_string().contains("main.zhang"), "{}", failure.error);
+        assert_eq!(failure.written, Vec::<String>::new(), "the main file comes first, so nothing landed");
+        assert!(
+            !dir.path().join("data/2024/01.zhang").exists(),
+            "the data file is not written without its include"
+        );
+        assert!(!std::fs::read_to_string(&main).unwrap().contains("include"), "the main file is as it was");
+        assert!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .all(|entry| !entry.unwrap().file_name().to_string_lossy().ends_with(".tmp")),
+            "no temporary file is left behind"
+        );
+        let written = ledger.data_source.append_files(&ledger, coffee()).unwrap();
+        assert_eq!(written, vec!["main.zhang".to_owned(), "data/2024/01.zhang".to_owned()]);
+        assert_eq!(std::fs::read_to_string(&main).unwrap().matches("include \"data/2024/01.zhang\"").count(), 1);
+    }
+
+    /// An append writes each file once, with every directive planned for it, and reports what it wrote: of two
+    /// directives for one new file the include goes to the main file first, then both texts to the file in one
+    /// write. When a later file cannot be written, the files before it are whole and named, the rest untouched
+    #[test]
+    fn an_append_writes_each_file_once_and_names_what_it_wrote_before_a_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), OPENS).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+        let directives = |text: &str| -> Vec<Directive> {
+            ZhangDataType {}
+                .transform(text.to_owned(), None)
+                .unwrap()
+                .into_iter()
+                .map(|it| it.data)
+                .collect()
+        };
+        let january = "2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n2024-01-16 * \"tea\"\n  Assets:Cash -3 CNY\n  Expenses:Food\n";
+
+        let written = ledger.data_source.append_files(&ledger, directives(january)).unwrap();
+
+        assert_eq!(written, vec!["main.zhang".to_owned(), "data/2024/01.zhang".to_owned()]);
+        let file = std::fs::read_to_string(root.join("data/2024/01.zhang")).unwrap();
+        assert_eq!(
+            file,
+            "\n2024-01-15 * \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n\n2024-01-16 * \"tea\"\n  Assets:Cash -3 CNY\n  Expenses:Food\n"
+        );
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap().matches("include").count(), 1);
+
+        // a February file that cannot be written: January and its include land, February does not, and the error
+        // names both
+        let reloaded = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
+        std::fs::create_dir_all(root.join("data/2024/02.zhang/blocker")).unwrap();
+        let both = format!("{january}2024-02-01 * \"lunch\"\n  Assets:Cash -9 CNY\n  Expenses:Food\n");
+        let failure = reloaded
+            .data_source
+            .append_files(&reloaded, directives(&both))
+            .expect_err("February cannot be written");
+        assert!(failure.error.to_string().contains("02.zhang"), "{}", failure.error);
+        // January is included already, so its file comes first; then the main file, for the include of February
+        assert_eq!(failure.written, vec!["data/2024/01.zhang".to_owned(), "main.zhang".to_owned()]);
+        assert_eq!(
+            std::fs::read_to_string(root.join("data/2024/01.zhang")).unwrap().matches("coffee").count(),
+            2,
+            "January was written again, whole"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("main.zhang"))
+                .unwrap()
+                .matches("include \"data/2024/02.zhang\"")
+                .count(),
+            1
+        );
+
+        // the include of February dangles until February is written: a reload reports it, and the retry writes the
+        // file without a second include
+        std::fs::remove_dir_all(root.join("data/2024/02.zhang")).unwrap();
+        let dangling = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
+        assert_eq!(dangling.errors.iter().filter(|it| it.error_type == ErrorKind::IncludeNotFound).count(), 1);
+        let written = dangling
+            .data_source
+            .append_files(&dangling, directives("2024-02-01 * \"lunch\"\n  Assets:Cash -9 CNY\n  Expenses:Food\n"))
+            .unwrap();
+        assert_eq!(written, vec!["data/2024/02.zhang".to_owned()]);
+        assert_eq!(
+            std::fs::read_to_string(root.join("main.zhang"))
+                .unwrap()
+                .matches("include \"data/2024/02.zhang\"")
+                .count(),
+            1
+        );
+        let whole = Ledger::load_with_data_source(root, "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
+        assert!(whole.errors.is_empty(), "{:?}", whole.errors);
+        assert_eq!(whole.transactions().len(), 5);
+    }
+
+    /// A plain write takes over only where no temporary file can be made or the rename is refused; a disk that
+    /// refuses the content (full, failing) leaves the file as it was and is the error (#803 review)
+    #[test]
+    fn a_save_falls_back_to_a_plain_write_only_when_the_temporary_file_is_refused() {
+        use std::io::{Error, ErrorKind};
+
+        use super::{falls_back_in_place, SaveStep};
+
+        let (enospc, eio, eacces, eperm, ebusy, exdev) = (28, 5, 13, 1, 16, 18);
+        // EDQUOT: 69 on macOS, 122 on Linux
+        let full: [i32; 4] = [enospc, eio, 69, 122];
+        for code in [eacces, eperm] {
+            assert!(
+                falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
+                "a refused temporary file: {code}"
+            );
+        }
+        assert!(falls_back_in_place(SaveStep::Create, &Error::from(ErrorKind::PermissionDenied)));
+        for code in full {
+            assert!(
+                !falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
+                "a full disk or quota: {code}"
+            );
+            assert!(
+                !falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(code)),
+                "a failed write never rewrites in place: {code}"
+            );
+            assert!(
+                !falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
+                "a rename the disk failed: {code}"
+            );
+        }
+        assert!(!falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(eacces)));
+        for code in [eperm, eacces, ebusy, exdev] {
+            assert!(
+                falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
+                "a refused rename: {code}"
+            );
+        }
+        assert!(falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::PermissionDenied)));
+        assert!(!falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::NotFound)));
+    }
+
+    /// A save keeps a symbolic link a link and writes its target, and keeps the file's permissions (#803 review):
+    /// the temporary file is made next to the real file, with its mode, and renamed over it
+    #[cfg(unix)]
+    #[test]
+    fn a_save_keeps_a_symlink_and_the_files_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::create_dir_all(root.join("ledger/data/2024")).unwrap();
+        std::fs::write(root.join("real/main.zhang"), OPENS).unwrap();
+        std::os::unix::fs::symlink(root.join("real/main.zhang"), root.join("ledger/main.zhang")).unwrap();
+        let private = root.join("ledger/data/2024/01.zhang");
+        std::fs::write(&private, "").unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.join("ledger"), "main.zhang".to_owned(), source).unwrap();
+
+        ledger.data_source.append(&ledger, coffee()).unwrap();
+
+        let link = std::fs::symlink_metadata(root.join("ledger/main.zhang")).unwrap();
+        assert!(link.file_type().is_symlink(), "the main file stays a symbolic link");
+        assert!(
+            std::fs::read_to_string(root.join("real/main.zhang"))
+                .unwrap()
+                .contains("include \"data/2024/01.zhang\""),
+            "its target got the include"
+        );
+        assert_eq!(
+            std::fs::metadata(&private).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "a private file stays private"
+        );
+        assert!(std::fs::read_to_string(&private).unwrap().contains("coffee"));
+    }
+
+    /// A save writes the file whole or not at all: when the write cannot be completed, here because a directory is in
+    /// the file's place, what was there stays as it was and no temporary file is left behind
+    #[test]
+    fn a_save_that_cannot_complete_leaves_the_file_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), OPENS).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+        // a non-empty directory where the file would be: the rename over it fails, after the temporary file is written
+        std::fs::create_dir_all(root.join("data/2024/01.zhang/inside")).unwrap();
+
+        let error = ledger
+            .data_source
+            .save(&ledger, "data/2024/01.zhang".to_owned(), b"2024-01-15 * \"coffee\"\n")
+            .expect_err("the file cannot be written");
+
+        assert!(error.to_string().contains("01.zhang"), "{error}");
+        assert!(root.join("data/2024/01.zhang/inside").is_dir(), "what was in the file's place stays");
+        let leftovers: Vec<_> = std::fs::read_dir(root.join("data/2024"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert_eq!(leftovers, Vec::<String>::new(), "no temporary file is left behind");
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap(), OPENS, "nothing was included");
     }
 
     /// A file starting with a UTF-8 byte order mark, as some Windows editors save it, loads (#505): the mark is

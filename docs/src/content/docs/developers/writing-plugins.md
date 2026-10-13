@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **Route:** `{name}` is the plugin's name; the request's `path` is the part below the route.
 - **Authentication:** the routes sit behind Zhang's own sign-in, and the credential headers never reach the plugin.
-- **Read-only:** a router reads the ledger only through `zhang_query` and `zhang_query_params` (BQL), `zhang_query_schema` and `zhang_ledger_info`; no host function changes it. Every request runs in a fresh instance, and the ledger does not reload while it runs.
+- **Read-only, unless granted writes:** a router reads the ledger only through `zhang_query` and `zhang_query_params` (BQL), `zhang_query_schema` and `zhang_ledger_info`; no host function changes it, except the [writes](#writes) a plugin declares and the ledger owner grants. Every request runs in a fresh instance, and the ledger does not reload while it runs.
 - **Bind user input:** never write what a user typed into a query's text. `router::query_with_params` binds typed parameters, and the query is compiled against their types:
 
   ```rust
@@ -356,6 +356,81 @@ return M
 
 The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. Lua scripts are routers only in this release: a script declaring `Processor` or `Mapper` does not load, because the directive stream carries amounts as JSON numbers and Lua would read them as floats. The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
 
+## Writes
+
+A router may append transactions and `open`s to the ledger, in two steps, when two switches are on: the plugin
+**declares** the kinds it writes (`writes:` in `plugin!`, the `capabilities` export), and the ledger owner **grants**
+them on the `plugin` directive with [`allowed_writes`](/reference/directives/plugin/#capabilities). Without the
+declaration the write functions answer `unavailable`; without the grant, or for a kind not granted, `denied`.
+
+```rust
+use zhang_plugin_sdk::router::{self, PostingWrite, Request, Response, TransactionWrite, UnitWrite, WriteDirective, WriteKind};
+use zhang_plugin_sdk::{plugin, Error};
+
+plugin! {
+    name: "recorder",
+    version: env!("CARGO_PKG_VERSION"),
+    router: route,
+    writes: [WriteKind::Transaction, WriteKind::Open],
+}
+
+fn route(request: Request) -> Result<Response, Error> {
+    let batch = vec![WriteDirective::Transaction(TransactionWrite {
+        datetime: "2026-10-13".into(),
+        payee: "Blue Bottle".into(),
+        narration: Some("coffee".into()),
+        postings: vec![
+            PostingWrite { account: "Expenses:Coffee".into(), unit: Some(UnitWrite::Amount { number: "4.50".into(), commodity: "USD".into() }), ..Default::default() },
+            PostingWrite { account: "Assets:Cash".into(), ..Default::default() },
+        ],
+        ..Default::default()
+    })];
+    let preview = router::write_preview(&batch)?;       // the text, the file, the errors, and a token when clean
+    match (request.path.as_str(), preview.token) {
+        ("/commit", Some(token)) => Response::json(&router::write_commit(&batch, &token)?),
+        _ => Response::json(&preview.entries),
+    }
+}
+```
+
+1. **Preview.** `write_preview` takes a batch of up to 50 directives, each a `transaction` exactly as
+   `POST /api/transactions` takes one, or an `open` (`date`, `account`, `commodities`, `booking_method`, `metas`).
+   Zhang validates them in order, an `open` earlier in the batch counting for the transactions after it, with the
+   checks of `POST /api/transactions/preview`: for each entry, the text as the ledger's format writes it (the one a
+   commit appends, byte for byte), the file it goes to by the `directive_output_path` option, the fields refused
+   (`field_errors`), what the transaction is unbalanced by, and the errors the ledger would report, such as
+   `AccountDoesNotExist`. An `open` of an account the ledger has an `open` for already, at any date, is
+   `already_open` and written nowhere when the commodities are the same, and a field error on `commodities`
+   otherwise; an `open` of an account a `close` closed is a field error on `account` (`account_closed`, naming the
+   close's date): a plugin opens only accounts the ledger never opened, so it cannot change an account's
+   commodities, back-date them, or reopen a closed account. When every entry is clean and there is something to
+   write, the preview carries a `token`.
+2. **Commit.** `write_commit` takes the same batch with the token. Zhang recomputes the plan, checks the token, and
+   appends the text with one write per file, as an API write does: the `include` of a new monthly file goes into the
+   main file first, then the file gets all of its entries at once. On a local directory a file is replaced
+   atomically (the text goes to a temporary file next to it, renamed over it; a symbolic link stays a link and the
+   file keeps its permissions), so a crash or a full disk mid-write leaves the file as it was; on an object store
+   (S3, GitHub, WebDAV) each file is replaced whole, per object. A batch spanning several files is not atomic across
+   them: the files are written one after the other. The call returns once the text is in the files; the ledger is
+   reloaded, as after `POST /api/transactions`, and the server logs
+   `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`. **Commit as the very last step
+   of a request**: once it returned `Ok`, the entries are recorded, and anything that fails after it makes your
+   caller retry a write that already happened. If a file cannot be written, the `io` error names the entries and
+   files that were written and those that were not, the batch is void (every token with it) and the ledger reloads:
+   tell the user what was recorded, and preview only the rest again.
+3. **The token** is the host's HMAC of the ledger's generation (a counter moved on by every commit and by every reload that loaded other content than before; the file watcher's reload of unchanged files keeps it),
+   the plugin's name, the files and the exact text, with an expiry 10 minutes out. So a plugin can only commit what
+   it was shown, on the ledger it looked at, once: a batch that differs, a token of another generation, an expired
+   token, a ledger that is reloading after a write, or a second commit before that reload is a `conflict`, and the
+   plugin previews again. The host keeps no state per preview.
+
+Amounts are strings (`"4.50"`): the host refuses a JSON number anywhere in a batch as `invalid`, naming the field, so
+a float can never change a balance. The host adds no text or metadata of its own; a plugin that wants to mark what it
+wrote adds a tag or metadata to the batch, where the user sees it in the preview. The two-file write (a new monthly
+file and its `include`) has the same guarantee as the web UI: a failure between the two leaves an `include` of a file
+that is not there yet, which the next load reports as `IncludeNotFound` where the user sees it, never a file no
+`include` names whose entries a retry would silently add twice.
+
 ## ABI v1 reference
 
 This is what crosses the boundary, for plugins written without the Rust SDK. Every change is additive: a field is never removed or made required, so a plugin compiled for an older Zhang keeps working.
@@ -372,6 +447,7 @@ Inputs and outputs are Extism plug-in input and output, as JSON.
 | `processor` | the stream: an array of directives | the new stream |
 | `mapper` | one directive | an array of directives |
 | `router` | the request | the response |
+| `capabilities` (optional) | none | `{"writes": ["transaction", "open"]}`, the kinds of directives the plugin appends with `zhang_write_preview` and `zhang_write_commit`; a kind this Zhang does not know is ignored |
 
 A directive is the serde JSON of `zhang-ast`'s `Spanned<Directive>`, of a kind ABI v1 knows: Zhang never hands a plugin a `pad` directive (see [the stage order contract](#the-stage-order-contract)). For example:
 
@@ -415,6 +491,18 @@ They live in the `extism:host/user` namespace. Arguments and results are `i64` o
 | `zhang_query_params` | `{"bql": "… :from …", "params": {"from": {"type": "date", "value": "2024-01-01"}}}` | as `zhang_query` | as `zhang_query`; a parameter problem is a `query` error naming the parameter |
 | `zhang_query_schema` | none | `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`, the `data` of `GET /api/query/schema` | `unavailable` |
 | `zhang_ledger_info` | none | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
+| `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`, `denied`, `invalid_input`, `invalid`, `conflict`, `io` |
+| `zhang_write_commit` | the same, with `"token"` | `{"file", "bytes", "entries", "generation"}` | as `zhang_write_preview` |
+
+`zhang_write_preview` and `zhang_write_commit` append directives to the ledger, see [writes](#writes): a `transaction`
+entry is the body of `POST /api/transactions` with `"kind": "transaction"`; an `open` entry is `{"kind": "open", "date",
+"account", "commodities"?, "booking_method"?, "metas"?}`. Every entry's `text`, `field_errors`, `unbalanced` and
+`errors` are what `POST /api/transactions/preview` answers. The error kinds: `unavailable` outside a router request or
+when the plugin declared no writes, `denied` when the directive grants nothing or not the kind of an entry (checked
+before the input is read), `invalid_input` when the block is not the JSON of a batch, `invalid` for more than 50
+directives, more than 64 KiB of text, an entry without a known `kind`, a JSON number anywhere, or a batch the ledger
+refuses (on a commit; a preview reports those per entry), `conflict` when the token is not for this ledger generation
+or batch, expired, or the ledger is reloading after a write, and `io` when the file could not be written.
 
 `zhang_query_params` binds named parameters (`from` binds `:from`; positional `$1` parameters cannot be bound), so a plugin binds what a user typed instead of writing it into the BQL. The query is compiled against the parameters' types. Each parameter is `{"type": "…", "value": …}`, with the value as the API's built-in queries take theirs; `null`, or no `value`, is NULL for any type:
 
@@ -434,9 +522,9 @@ Where they work:
 - `zhang_emit_error` reports into the error list from a processor or mapper. While the plugin registers (`name`, `version`, `supported_type`) what it reports is dropped, and in a router it is only logged.
 - `zhang_now` works everywhere. In a router it reads the clock afresh for each request, and a call while registering does not make the ledger depend on the date.
 - `zhang_read_file` and `zhang_list_dir` answer `denied` outside a processor or mapper, and for any path `allowed_paths` does not grant.
-- `zhang_query`, `zhang_query_params`, `zhang_query_schema` and `zhang_ledger_info` answer `unavailable` outside a router request.
+- `zhang_query`, `zhang_query_params`, `zhang_query_schema`, `zhang_ledger_info`, `zhang_write_preview` and `zhang_write_commit` answer `unavailable` outside a router request.
 
-`zhang_query_params` and `zhang_query_schema` were added after `zhang_query`. A new host function is an addition a plugin can ignore, so the ABI version stays 1: a plugin that does not import them runs unchanged, and one that does fails to load, as below, on a Zhang without them.
+`zhang_query_params`, `zhang_query_schema`, `zhang_write_preview` and `zhang_write_commit` were added after `zhang_query`. A new host function is an addition a plugin can ignore, so the ABI version stays 1: a plugin that does not import them runs unchanged, and one that does fails to load, as below, on a Zhang without them.
 
 ### Minimum Zhang version
 
@@ -445,4 +533,5 @@ Where they work:
 | Feature | Zhang |
 |---|---|
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
-| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, every host function above, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
+| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
+| `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes` | the release after 0.2.0 with the write capability |
