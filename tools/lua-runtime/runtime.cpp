@@ -71,9 +71,11 @@ static void *budget_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
   void *next = realloc(ptr, nsize);
   if (!next) return NULL;
   budget->used = budget->used - old + nsize;
-  // Lua retries a failed allocation after a full collection: a success after that means the budget was
-  // not exceeded after all, so a later unrelated error is not reported as the budget
-  budget->exceeded = false;
+  // Lua retries a failed allocation after a full collection: a growth that succeeds after that means the
+  // budget was not exceeded after all, so a later unrelated error is not reported as the budget. Only a
+  // growth clears the flag: unwinding from the memory error shrinks the Lua stack (a realloc to a smaller
+  // size), and that must not hide the budget message
+  if (nsize > old) budget->exceeded = false;
   return next;
 }
 

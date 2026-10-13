@@ -2095,6 +2095,20 @@ mod lua {
     }
 
     #[test]
+    fn the_budget_is_reported_when_it_is_reached_with_a_deep_stack() {
+        // unwinding from the memory error shrinks the Lua stack; a shrink must not clear the budget flag
+        let dir = ledger_dir(&["memory_hog_deep.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "memory_hog_deep.lua"))));
+
+        let failed = call(&ledger, "memory-hog-deep", &get("/")).unwrap_err();
+
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains("memory_hog_deep.lua` exceeded 64 MiB")),
+            "{failed}"
+        );
+    }
+
+    #[test]
     fn a_script_that_does_not_parse_fails_the_load_with_its_line() {
         let dir = ledger_dir(&["syntax_error.lua"]);
         let error = try_load(&dir, &with_plugins(&plugin(&dir, "syntax_error.lua")))
