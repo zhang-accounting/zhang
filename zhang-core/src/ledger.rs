@@ -102,6 +102,11 @@ pub struct Ledger {
     /// in the order first recorded. A change to any of them makes the ledger stale
     pub extra_inputs: IndexSet<ExtraInput>,
 
+    /// the files the `include`s reported as `IncludeNotFound` look for, by their paths within the ledger, as the load
+    /// resolved them against the file holding the `include`; a pattern that matches no file looks for none. An
+    /// append counts them as included ([`append_plan`](crate::data_source::append_plan))
+    pub missing_files: Vec<PathBuf>,
+
     pub options: InMemoryOptions,
 
     /// the dated directives, processed: in the order zhang checks and books them ([`Ledger::sort_directives_datetime`]),
@@ -323,6 +328,7 @@ impl Ledger {
             dialect: context.dialect,
             visited_files: context.visited_files,
             extra_inputs: IndexSet::new(),
+            missing_files: vec![],
             directives: vec![],
             metas: vec![],
             outcomes: vec![],
@@ -370,8 +376,9 @@ impl Ledger {
     fn report_missing_includes(&mut self, missing_includes: Vec<MissingInclude>) {
         for missing in missing_includes {
             self.report(ErrorKind::IncludeNotFound, &missing.span, HashMap::from([("path".to_owned(), missing.path)]));
-            if let Some(input) = missing.file.and_then(|file| ExtraInput::ledger_file(&self.entry.0, &file)) {
-                self.extra_inputs.insert(input);
+            if let Some(ExtraInput::File(file)) = missing.file.and_then(|file| ExtraInput::ledger_file(&self.entry.0, &file)) {
+                self.missing_files.push(file.clone());
+                self.extra_inputs.insert(ExtraInput::File(file));
             }
         }
     }
