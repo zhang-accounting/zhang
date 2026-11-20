@@ -288,15 +288,20 @@ impl ReloadSender {
         self.tombstones.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// remember the content of `ledger`, the one served now, so the next reload can tell whether it changed
+    /// remember the content of `ledger`, the one served now, so the next reload can tell whether it changed. This
+    /// computes its fingerprint where it is called: from async code, prefer the listener's way, on a blocking thread
     pub fn record_content(&self, ledger: &Ledger) {
-        *self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ledger_fingerprint(ledger));
+        self.record_fingerprint(ledger_fingerprint(ledger));
     }
 
-    /// whether `ledger`, just loaded, differs in content from the one served before it (always, before the first
-    /// is recorded), remembering it either way
-    fn content_changed(&self, ledger: &Ledger) -> bool {
-        let fingerprint = ledger_fingerprint(ledger);
+    /// remember `fingerprint` ([`ledger_fingerprint`]) as that of the ledger served now
+    fn record_fingerprint(&self, fingerprint: u64) {
+        *self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(fingerprint);
+    }
+
+    /// whether the ledger just loaded, whose fingerprint is `fingerprint`, differs in content from the one served
+    /// before it (always, before the first is recorded), remembering it either way
+    fn content_changed(&self, fingerprint: u64) -> bool {
         let mut previous = self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let changed = *previous != Some(fingerprint);
         *previous = Some(fingerprint);
@@ -353,11 +358,20 @@ impl ReloadSender {
     pub(crate) async fn reload_in_place(self: &Arc<Self>, ledger: &mut Ledger) -> Result<(), ReloadFailure> {
         info!("start reloading...");
         let start_time = Instant::now();
-        let outcome = match tokio::task::spawn_blocking(ledger.reloader()).await {
-            Ok(Ok(reloaded)) => {
+        // the fingerprint is computed with the load, on the blocking thread: with a processor plugin it is a pass over
+        // every directive, which must not run on an async worker while the caller holds the ledger's write lock
+        let reload = ledger.reloader();
+        let loaded = tokio::task::spawn_blocking(move || {
+            reload().map(|reloaded| {
+                let fingerprint = ledger_fingerprint(&reloaded);
+                (reloaded, fingerprint)
+            })
+        });
+        let outcome = match loaded.await {
+            Ok(Ok((reloaded, fingerprint))) => {
                 *ledger = reloaded;
                 // a reload that loaded the same content (the file watcher's, after a write's own) keeps the generation
-                if self.content_changed(ledger) {
+                if self.content_changed(fingerprint) {
                     self.next_generation();
                 }
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
@@ -531,9 +545,17 @@ pub fn start_reload_listener(
     reload_sender.broadcaster.set(cloned_broadcaster).ok();
     tokio::spawn(async move {
         {
-            let served = ledger_for_reload.read().await;
-            reload_sender.record_content(&served);
-            reload_sender.schedule_midnight_reload(&served);
+            // the fingerprint of the ledger served first, on a blocking thread as every other one is
+            let served = ledger_for_reload.clone().read_owned().await;
+            let fingerprinted = tokio::task::spawn_blocking(move || (ledger_fingerprint(&served), served)).await;
+            match fingerprinted {
+                Ok((fingerprint, served)) => {
+                    reload_sender.record_fingerprint(fingerprint);
+                    reload_sender.schedule_midnight_reload(&served);
+                }
+                // nothing recorded: the first reload then counts as a change, which only voids tokens early
+                Err(failure) => error!("the fingerprint of the ledger served could not be computed: {failure}"),
+            }
         }
         while let Some(request) = rx.recv().await {
             let mut guard = ledger_for_reload.write().await;
@@ -562,17 +584,67 @@ pub fn start_reload_listener(
 /// Two loads of the same input give the same fingerprint. Without such plugins nothing is serialized or read again:
 /// it costs a hash of the text (3.5 ms against a load of 426 ms for 50 000 transactions, where serializing them
 /// through JSON cost 364 ms). With them, the JSON pass is the price of the guarantee, as each of their stages already
-/// passes every directive through JSON. Not a cryptographic hash: it tells a reload of the same input from a change,
-/// nothing more
+/// passes every directive through JSON; it is streamed into the hasher wherever the order of a directive's maps is
+/// fixed (about a quarter of the cost of the sorted form). A reload computes it on its blocking thread, with the load.
+/// Not a cryptographic hash: it tells a reload of the same input from a change, nothing more
 fn ledger_fingerprint(ledger: &Ledger) -> u64 {
     use std::hash::{Hash, Hasher};
 
     use zhang_core::plugin::PluginType;
 
-    // through `serde_json::Value`, whose objects are sorted, so a map (metadata) hashes the same whatever order its
-    // hash map iterates in
+    // through `serde_json::Value`, whose objects are sorted, so a hash map or set hashes the same whatever order it
+    // iterates in: an error's metas, the tags and links of a note or a document
     fn canonical(value: impl serde::Serialize) -> String {
         serde_json::to_value(value).map(|value| value.to_string()).unwrap_or_default()
+    }
+
+    /// the bytes a writer gets, fed to a hasher as they come
+    struct HashWriter<'a, H: Hasher>(&'a mut H);
+
+    impl<H: Hasher> std::io::Write for HashWriter<'_, H> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.write(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // the tags and links of a note or a document, hash sets, sorted: serialized, a set is an array in the order the
+    // set iterates in, which every load picks anew
+    fn sort_sets(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(fields) => {
+                for (key, field) in fields.iter_mut() {
+                    if let (true, serde_json::Value::Array(items)) = (key == "tags" || key == "links", &mut *field) {
+                        items.sort_by_key(|item| item.to_string());
+                    }
+                    sort_sets(field);
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(sort_sets),
+            _ => {}
+        }
+    }
+
+    // a directive as JSON, streamed into the hasher where its maps keep their order (metadata is an ordered map), a
+    // quarter of the cost of the sorted form; a note or a document holds hash sets, so it takes the sorted form with
+    // its sets sorted
+    fn hash_directive<H: Hasher>(directive: &zhang_ast::Spanned<zhang_ast::Directive>, hasher: &mut H) {
+        match &directive.data {
+            zhang_ast::Directive::Note(_) | zhang_ast::Directive::Document(_) => {
+                let mut value = serde_json::to_value(directive).unwrap_or_default();
+                sort_sets(&mut value);
+                value.to_string().hash(hasher)
+            }
+            _ => {
+                serde_json::to_writer(HashWriter(&mut *hasher), directive).ok();
+                // no JSON text holds this byte: it ends one directive before the next begins
+                hasher.write_u8(0xff);
+            }
+        }
     }
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -591,7 +663,7 @@ fn ledger_fingerprint(ledger: &Ledger) -> u64 {
                 span.content.hash(&mut hasher);
             }
             // a directive a plugin made, or any directive once a plugin could have changed it
-            _ => canonical(directive).hash(&mut hasher),
+            _ => hash_directive(directive, &mut hasher),
         }
     }
     if transformed {
@@ -1162,14 +1234,18 @@ mod generation_test {
         }
     }
 
-    /// Directives without a file, as plugins make them, hash by their content and stably: their metadata is a hash
-    /// map that every load fills in another order, and two loads of the same directives still give one fingerprint;
-    /// a value changed in them gives another
+    /// Directives without a file, as plugins make them, hash by their content and stably: two loads of the same
+    /// directives give one fingerprint, a note's tags and links included, which are hash sets every load fills in
+    /// another order; a value changed in them gives another
     #[test]
     fn directives_without_a_file_hash_stably() {
         let keys = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
         let metas: String = keys.iter().map(|key| format!("  {key}: \"{key}\"\n")).collect();
-        let content = format!("1970-01-01 open Assets:A\n1970-01-01 open Income:X\n2024-06-01 * \"seed\"\n{metas}  Assets:A 50 CNY\n  Income:X -50 CNY\n");
+        let tags: String = keys.iter().map(|key| format!(" #{key} ^{key}")).collect();
+        let content = format!(
+            "1970-01-01 open Assets:A\n1970-01-01 open Income:X\n2024-06-01 * \"seed\"\n{metas}  Assets:A 50 CNY\n  Income:X -50 CNY\n\
+             2024-06-02 note Assets:A \"tagged\"{tags}\n"
+        );
         let fingerprint = |content: &str| {
             let source = Arc::new(Unfiled { content: content.to_owned() });
             let ledger = Ledger::load(PathBuf::from("/unfiled"), "main.zhang".to_owned(), source).expect("load ledger");
@@ -1186,6 +1262,7 @@ mod generation_test {
             first,
             "a value changed in their metadata"
         );
+        assert_ne!(fingerprint(&content.replace("#golf", "#golfing")), first, "a tag of the note changed");
     }
 }
 
