@@ -81,9 +81,22 @@ function M.router(request)
   eq("no dup", E({[1] = 1, ["01"] = 2, ["1.0"] = 3, [2] = 4}), '{"1":1,"2":4,"01":2,"1.0":3}')
   -- the markers: sealed, a look-alike for getmetatable, swappable by json.object/json.array only
   eq("marker kind object", getmetatable(json.object()).__jsontype, "object"); eq("marker kind array", getmetatable(json.array()).__jsontype, "array")
-  local lookalike = getmetatable(json.object()); lookalike.__mode = "v"
-  local held = D('{"a":{"b":1}}'); collectgarbage(); collectgarbage(); lookalike.__mode = nil
+  local lookalike = getmetatable(json.object())
+  err("lookalike read-only", function() lookalike.__jsontype = "array" end, "the json markers are read-only")
+  err("lookalike no mode", function() lookalike.__mode = "v" end, "the json markers are read-only")
+  err("lookalike sealed", function() setmetatable(lookalike, nil) end, "cannot change a protected metatable")
+  eq("lookalike kind kept", getmetatable(D("{}")).__jsontype, "object")
+  err("decoded sealed", function() setmetatable(D("{}"), {}) end, "cannot change a protected metatable")
+  err("array() sealed", function() setmetatable(json.array(), {}) end, "cannot change a protected metatable")
+  local copied = setmetatable({}, {__index = {fallback = 1}}); for k, v in pairs(D('{"a":2}')) do copied[k] = v end
+  eq("copy first", copied.a + copied.fallback, 3)
+  -- rawset can shadow a look-alike's fields, but not the markers themselves: decoded data stays strong
+  rawset(lookalike, "__mode", "v")
+  local held = D('{"a":{"b":1}}'); collectgarbage(); collectgarbage()
   eq("sealed marker stays strong", E(held), '{"a":{"b":1}}')
+  local shadow, alive = {}, {}; for i = 1, 50 do alive[i] = {i}; shadow["s" .. i] = alive[i] end
+  eq("weak lookalike written whole", #E(setmetatable(shadow, lookalike)) > 300, true)
+  rawset(lookalike, "__mode", nil)
   eq("reobject", E(json.object(D("[]"))), "{}"); eq("rearray", E(json.array(D("{}"))), "[]"); eq("object(false)", E(json.object(false)), "{}")
   err("protected", function() return json.object(setmetatable({}, {__metatable = "locked"})) end, "cannot change a protected metatable")
   err("object(1)", function() return json.object(1) end, "table expected, got number")

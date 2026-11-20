@@ -18,7 +18,8 @@
 //   deep document grows neither the C nor the wasm stack; every byte they allocate is a Lua object, under the call's
 //   memory budget, so a refused allocation is Lua's own memory error.
 // - the markers: `json.object` and `json.array` set shared metatables, sealed with __metatable (getmetatable gives a
-//   look-alike table), so a script cannot make every decoded document weak through them.
+//   read-only look-alike), so a script cannot make every decoded document weak through them, nor setmetatable a
+//   marked table.
 
 #include <math.h>
 #include <stdint.h>
@@ -38,10 +39,12 @@ namespace {
 const int MAX_DEPTH = 1000;
 static_assert(MAX_DEPTH == 1000, "the error messages and the Lua plugins guide name the limit");
 
-// the upvalues of encode and decode: json.null and the shared metatables marking objects and arrays
+// the upvalues of encode and decode: json.null, the shared metatables marking objects and arrays, and the look-alike
+// getmetatable gives for the object marker (json_open)
 const int NULL_VALUE = lua_upvalueindex(1);
 const int OBJECT_META = lua_upvalueindex(2);
 const int ARRAY_META = lua_upvalueindex(3);
+const int OBJECT_LOOKALIKE = lua_upvalueindex(4);
 
 const char HEX[] = "0123456789abcdef";
 
@@ -342,8 +345,10 @@ void push_key(lua_State *L, const Key &key) {
 }
 
 // What the metatable of the table at `index` says: whether it carries the object marker (the shared metatable of
-// json.object() and of decoded objects, or any metatable whose __jsontype is "object", as dkjson read it), and whether
-// the table is weak (a string __mode, as the collector reads it). The shared metatables are sealed and never weak.
+// json.object() and of decoded objects, its look-alike, or any metatable whose __jsontype is "object", as dkjson read
+// it), and whether the table is weak (a string __mode, as the collector reads it). Every read is raw, so no Lua code
+// runs. The shared metatables are sealed out of a script's reach and never weak; a look-alike is checked like any
+// other metatable, since rawset can still give it a __mode.
 void inspect_metatable(lua_State *L, int index, bool *marked, bool *weak) {
   *marked = *weak = false;
   if (!lua_getmetatable(L, index)) return;
@@ -354,7 +359,7 @@ void inspect_metatable(lua_State *L, int index, bool *marked, bool *weak) {
     lua_rawget(L, -2);
     size_t length;
     const char *kind = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : NULL;
-    *marked = kind && length == 6 && memcmp(kind, "object", 6) == 0;
+    *marked = lua_rawequal(L, -2, OBJECT_LOOKALIKE) || (kind && length == 6 && memcmp(kind, "object", 6) == 0);
     lua_pop(L, 1);
     lua_pushliteral(L, "__mode");
     lua_rawget(L, -2);
@@ -958,46 +963,66 @@ int json_mark(lua_State *L) {
   return 1;
 }
 
-// push a marker metatable, {__jsontype = kind}, sealed: getmetatable gives a look-alike, {__jsontype = kind}, so a
-// script reads the kind but cannot reach the metatable itself (to make every decoded document weak, say)
+// the __newindex of a look-alike
+int read_only(lua_State *L) { return luaL_error(L, "the json markers are read-only"); }
+
+// Push a marker metatable, {__jsontype = kind}, sealed with __metatable: getmetatable gives a look-alike instead, so a
+// script reads the kind but cannot reach the metatable itself (to make every decoded document weak, say) nor
+// setmetatable a marked table. The look-alike is an empty table reading __jsontype through __index and raising on
+// assignment through __newindex, with its own metatable protected; only rawset can still shadow its __jsontype, for
+// the script's own reads, as the encoder knows each marker, and the object marker's look-alike, by identity.
 void push_marker(lua_State *L, const char *kind) {
   lua_createtable(L, 0, 2);
   lua_pushstring(L, kind);
   lua_setfield(L, -2, "__jsontype");
+  lua_newtable(L);
+  lua_createtable(L, 0, 3);
   lua_createtable(L, 0, 1);
   lua_pushstring(L, kind);
   lua_setfield(L, -2, "__jsontype");
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, read_only);
+  lua_setfield(L, -2, "__newindex");
+  lua_pushliteral(L, "json marker");
+  lua_setfield(L, -2, "__metatable");
+  lua_setmetatable(L, -2);
   lua_setfield(L, -2, "__metatable");
 }
 
 }  // namespace
 
-// Push the `json` table: `null`, `encode` and `decode` (closures over null and the two markers), and `object` and
-// `array` (closures over their marker and both markers).
+// Push the `json` table: `null`, `encode` and `decode` (closures over null), and `object` and `array` (closures over
+// their marker), each closure's next upvalues being the two markers and the object marker's look-alike.
 int json_open(lua_State *L) {
   lua_createtable(L, 0, 5);
+  int json = lua_gettop(L);
   // json.null: a table of its own, which decoding gives for null and encoding writes as null
   lua_newtable(L);
   lua_createtable(L, 0, 1);
   lua_pushliteral(L, "json.null");
   lua_setfield(L, -2, "__name");
   lua_setmetatable(L, -2);
+  int null = lua_gettop(L);
   push_marker(L, "object");
+  int object = lua_gettop(L);
   push_marker(L, "array");
-  // stack: json, null, objectmeta, arraymeta
+  int array = lua_gettop(L);
   const struct {
     const char *name;
     lua_CFunction function;
-    int first;  // the stack index of its first upvalue, then the two markers
-  } closures[] = {{"encode", json_encode, -3}, {"decode", json_decode, -3}, {"object", json_mark, -2}, {"array", json_mark, -1}};
+    int first;  // the stack index of its first upvalue
+  } closures[] = {{"encode", json_encode, null}, {"decode", json_decode, null}, {"object", json_mark, object}, {"array", json_mark, array}};
   for (const auto &closure : closures) {
     lua_pushvalue(L, closure.first);
-    lua_pushvalue(L, -3);
-    lua_pushvalue(L, -3);
-    lua_pushcclosure(L, closure.function, 3);
-    lua_setfield(L, -5, closure.name);
+    lua_pushvalue(L, object);
+    lua_pushvalue(L, array);
+    lua_pushliteral(L, "__metatable");
+    lua_rawget(L, object);
+    lua_pushcclosure(L, closure.function, 4);
+    lua_setfield(L, json, closure.name);
   }
-  lua_pop(L, 2);
-  lua_setfield(L, -2, "null");
+  lua_pushvalue(L, null);
+  lua_setfield(L, json, "null");
+  lua_settop(L, json);
   return 1;
 }

@@ -85,8 +85,8 @@ userdata, so the budget counts them and refuses them with Lua's own memory error
 it runs, so no finalizer changes a table it is writing. The encoder points into the string keys of the table it
 writes; a growth the budget refuses still runs Lua's emergency collection, which clears a weak table's garbage
 values and frees their keys, so a weak table (a string `__mode`) is written from a strong copy. The object and array
-markers are sealed with `__metatable` (`getmetatable` gives a look-alike), so no script can make every decoded document
-weak through them. A table holding a number key and the same key as a string raises rather than writing the key
+markers are sealed with `__metatable` (`getmetatable` gives a read-only look-alike), so no script can make every decoded
+document weak through them, nor `setmetatable` a marked table (a plugin copies decoded data to attach methods). A table holding a number key and the same key as a string raises rather than writing the key
 twice. Numbers: an integer within 64 bits is exact both ways; a float is decoded with Clinger's exact fast path or
 wasi-libc's `strtod`, and written with `%.15g`, `%.16g` or `%.17g`, the first that reads back as the same float (the
 shortest form for a normal float; a subnormal may get more digits than it needs).
