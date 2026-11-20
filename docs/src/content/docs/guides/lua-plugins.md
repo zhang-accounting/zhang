@@ -93,13 +93,7 @@ if not ok then return { status = 400, json = { error = result } } end
 
 ### API versions
 
-`zhang.api_version` is raised by every release that adds to the `zhang` table, so a script that wants something newer checks the version first and answers a clear error on an older Zhang instead of failing on a `nil` call:
-
-```lua
-if (zhang.api_version or 0) < 1 then
-  return { status = 501, json = { error = "this plugin needs Zhang with Lua API version 1 or later" } }
-end
-```
+`zhang.api_version` is 1 in every Zhang that runs Lua scripts, so a script using the API above needs no check. A release that adds to the `zhang` table raises the version and lists what it added below; a script that uses such an addition compares the version first, for example `if zhang.api_version < 2 then return { status = 501, json = { error = "this plugin needs Lua API version 2" } } end`, and answers that clear error on an older Zhang instead of failing on a `nil` call.
 
 | Version | Added |
 |---|---|

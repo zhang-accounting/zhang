@@ -30,7 +30,7 @@ MCP 端点是 `POST <你的张记账地址>/api/plugins/zhang-mcp/mcp`，例如 
 
 | 元数据 | 含义 | 默认值 |
 |---|---|---|
-| `timeout` | 一个请求最多可以运行多久，见[插件](/zh-cn/guides/plugins/#授予能力) | 60 秒；`"20s"` 足够 |
+| `timeout` | 一个请求最多可以运行多久，见[插件](/zh-cn/guides/plugins/#授予能力) | 30 秒，即服务器的上限（`ZHANG_PLUGIN_MAX_TIMEOUT`，运维方可以调高）；`"20s"` 足够 |
 | `allowed_origins` | 允许调用端点的浏览器来源（`scheme://host[:port]`），用逗号分隔（`"https://ledger.example.com, http://localhost:5173"`）或重复该键。不设置时，只有张记账自己在 `localhost` 或 `127.0.0.1` 上提供的页面可以调用；部署在域名或反向代理之后的张记账要在这里列出那个地址 | 无 |
 | `max_rows` | 任何工具最多返回的行数 | `"1000"` |
 | `write_tag` | `add_transaction` 给每条记录的条目加上的标签，便于日后查找；`""` 关闭 | `"mcp"` |

@@ -174,7 +174,7 @@ the inferred-amount posting; one without `currency` takes the operating currency
 ```zhang
 option "features.plugin" "true"
 plugin "zhang:mcp"                                ; the bundled copy; a copy in the ledger is declared by its path
-  timeout: "20s"                                  ; the host's: how long one request may run (default 60s)
+  timeout: "20s"                                  ; the host's: how long one request may run (default 30s, the server's cap)
   allowed_origins: "https://ledger.example.com"   ; comma-separated or repeated; absent = loopback same-host only
   max_rows: "500"                                 ; the cap of every tool's limit; default 1000
   write_tag: "mcp"                                ; the tag add_transaction adds; "" disables

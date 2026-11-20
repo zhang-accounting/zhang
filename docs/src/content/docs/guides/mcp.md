@@ -30,7 +30,7 @@ The settings of the `plugin` directive:
 
 | Metadata | Meaning | Default |
 |---|---|---|
-| `timeout` | how long one request may run, see [Using Plugins](/guides/plugins/#grant-capabilities) | 60 seconds; `"20s"` is plenty |
+| `timeout` | how long one request may run, see [Using Plugins](/guides/plugins/#grant-capabilities) | 30 seconds, the server's cap (`ZHANG_PLUGIN_MAX_TIMEOUT`, which the operator may raise); `"20s"` is plenty |
 | `allowed_origins` | browser origins (`scheme://host[:port]`) allowed to call the endpoint, comma-separated (`"https://ledger.example.com, http://localhost:5173"`) or the key repeated. Without it, only a page served by Zhang itself on `localhost` or `127.0.0.1` may call it; a Zhang behind a domain or a reverse proxy lists that address here | none |
 | `max_rows` | the most rows any tool returns | `"1000"` |
 | `write_tag` | the tag `add_transaction` puts on every entry it records, so you can find them later; `""` disables it | `"mcp"` |
