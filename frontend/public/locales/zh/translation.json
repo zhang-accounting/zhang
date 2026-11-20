@@ -695,6 +695,13 @@
     "sign_out_failed": "退出登录失败",
     "app_returning": "正在返回 App…",
     "app_return_failed": "无法返回 App：{{message}}",
-    "app_continue_in_browser": "在浏览器中继续"
+    "app_continue_in_browser": "在浏览器中继续",
+    "app_consent_title": "以 {{user}} 的身份登录 App？",
+    "app_consent_title_no_user": "登录 App？",
+    "app_consent_target": "有 App 请求此服务器的登录会话，登录后将返回：",
+    "app_consent_warning": "只有在你刚刚亲自从 App 发起登录时才继续：该 App 会获得此浏览器的登录会话。",
+    "app_consent_continue": "继续",
+    "app_consent_cancel": "取消",
+    "app_consent_cancelled": "App 未登录。你可以关闭此页面。"
   }
 }

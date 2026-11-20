@@ -714,6 +714,13 @@
     "sign_out_failed": "Could not sign out",
     "app_returning": "Returning to the app…",
     "app_return_failed": "Could not return to the app: {{message}}",
-    "app_continue_in_browser": "Continue in the browser"
+    "app_continue_in_browser": "Continue in the browser",
+    "app_consent_title": "Sign in to the app as {{user}}?",
+    "app_consent_title_no_user": "Sign in to the app?",
+    "app_consent_target": "An app asks for a session of this server. It returns to:",
+    "app_consent_warning": "Continue only if you just started signing in from the app yourself: the app gets the session of this browser.",
+    "app_consent_continue": "Continue",
+    "app_consent_cancel": "Cancel",
+    "app_consent_cancelled": "The app was not signed in. You can close this page."
   }
 }

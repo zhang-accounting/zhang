@@ -1,7 +1,7 @@
 // The return paths of the login page and the app URL of the mobile app login handoff, run with Node's built-in runner: pnpm run test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appHandoffParams, appReturnTo, returnPath } from './auth-paths.ts';
+import { appHandoffParams, appReturnTo, appTarget, handoffNeedsConsent, returnPath } from './auth-paths.ts';
 
 const SCHEMES = ['zhang-app'];
 
@@ -38,6 +38,19 @@ test("the app's PKCE challenge and state ride along as they are", () => {
   assert.deepEqual(appHandoffParams('?code_challenge=abc&code_challenge_method=plain'), { code_challenge: 'abc', code_challenge_method: 'plain' });
   assert.deepEqual(appHandoffParams('?code_challenge=abc'), { code_challenge: 'abc' });
   assert.deepEqual(appHandoffParams('?next=/accounts&code=planted'), {});
+});
+
+test('a session the browser already had needs a click before the app gets a code', () => {
+  assert.equal(handoffNeedsConsent(false), true);
+  // the user just signed in on this page, with the password, a passkey or the first passkey
+  assert.equal(handoffNeedsConsent(true), false);
+});
+
+test('the consent step names the scheme and host the code goes to', () => {
+  assert.equal(appTarget('zhang-app://auth/callback'), 'zhang-app://auth');
+  assert.equal(appTarget('ZHANG-APP://auth/callback?x=1#y'), 'zhang-app://auth');
+  assert.equal(appTarget('my-app://evil.example.com/cb'), 'my-app://evil.example.com');
+  assert.equal(appTarget('my-app:/callback'), 'my-app:');
 });
 
 test('the web return path stays on the same origin', () => {

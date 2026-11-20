@@ -125,7 +125,7 @@ docker run --name zhang \
 移动 App 无法直接使用任意域名的通行密钥，所以它在系统浏览器（iOS 的 `ASWebAuthenticationSession`、Android 的 Custom Tabs）中打开服务器自己的登录页登录，通行密钥和密码都和网页上一样可用，再通过一次性 code 拿到会话：
 
 1. App 生成随机的 code verifier 和随机的 state，打开 `https://zhang.example.com/login?return_to=zhang-app://auth/callback&code_challenge=…&code_challenge_method=S256&state=…`，其中 `code_challenge` 是 code verifier 的 SHA-256 的 base64url（[PKCE](https://www.rfc-editor.org/rfc/rfc7636)；`return_to` 自带查询参数时需要 URL 编码）。
-2. 用通行密钥或密码登录，或者注册第一个通行密钥。浏览器已经登录时跳过这一步。
+2. 用通行密钥或密码登录，或者注册第一个通行密钥。浏览器已经登录时，页面改为询问**以 <用户> 的身份登录 App？**，并显示 code 将发往的 scheme 和主机（`zhang-app://auth`），点击**继续**后才往下进行。
 3. 登录页显示**正在返回 App…**，通过 `POST /api/auth/app/code` 向服务器申请一次性 code（同时转交 challenge 和 state），然后打开 `zhang-app://auth/callback?code=…&state=…`。
 4. App 确认 state 与自己发出的一致，把 code 和 code verifier 发给 `POST /api/auth/app/exchange`，换到会话 token，之后每个请求都带上 `Authorization: Bearer <token>`。
 
@@ -156,7 +156,8 @@ docker run --name zhang \
 安全说明：
 
 - code 只能兑换一次，60 秒内有效，并且绑定申请它的会话：该会话失效（例如它的通行密钥被移除）后 code 也随之失效。code 保存在内存中，服务器重启会丢弃尚未兑换的 code。
-- 同一设备上的其他 App 也可以注册 `zhang-app` scheme 并收到这次跳转。有了 PKCE，它拿到的只是 code，拿不到从未离开 App 的 code verifier，因此无法兑换；state 则让 App 能确认这次跳转对应的是自己发起的登录。
+- 同一设备上的其他 App 也可以注册 `zhang-app` scheme。PKCE 保护的是真正的 App 发起的登录：即使其他 App 收到了这次跳转，它拿到的也只是 code，拿不到从未离开真正 App 的 code verifier，因此无法兑换；state 则让真正的 App 能拒绝不属于自己发起的登录的跳转。
+- PKCE 无法分辨是哪个 App 发起了登录。注册了该 scheme 的 App 可以用自己的 verifier 发起自己的登录，只要你在那个页面上登录或点击**继续**，它就能拿到会话（客户端冒充，[RFC 8252 第 8.6 节](https://www.rfc-editor.org/rfc/rfc8252#section-8.6)）。因此已经登录的浏览器在把会话交给 App 之前会先询问：只有在你刚刚亲自从 App 发起登录时才登录或点击**继续**，并核对页面显示的 scheme 和主机。真正的 App 在私密浏览会话中打开登录页，所以通常看到的是登录表单，而不是这个询问。
 - 只会跳转到允许的 scheme 的 App 地址，登录页不能被用来把浏览器重定向到其他网站。
 - 兑换失败会计入[登录失败次数限制](#登录失败次数限制)。
 - token 就是浏览器的会话 token：有效期与浏览器会话相同（从登录起 30 天），失效条件也相同：`ZHANG_AUTH` 或 `ZHANG_SESSION_SECRET` 改变，或者它的通行密钥被移除。由于会话不保存在服务器上，退出登录（无论在浏览器还是 App 中）都不会吊销已经交给 App 的 token；要结束所有会话，请修改 `ZHANG_SESSION_SECRET`。

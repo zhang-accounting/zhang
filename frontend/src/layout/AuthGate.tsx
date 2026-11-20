@@ -6,9 +6,9 @@ import { Navigate, useLocation } from 'react-router';
 import { onUnauthorized } from '@/api/fetcher';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { LOGIN_PATH, appHandoffParams, appReturnTo, loginUrl, returnPath } from '@/lib/auth-paths';
+import { LOGIN_PATH, appHandoffParams, appReturnTo, handoffNeedsConsent, loginUrl, returnPath } from '@/lib/auth-paths';
 import Login from '@/pages/Login';
-import { authLockedAtom, authStateAtom, loadAuthStatusAtom, resetLedgerStateAtom, signedOutAtom } from '@/states/auth';
+import { authLockedAtom, authStateAtom, loadAuthStatusAtom, resetLedgerStateAtom, signedInOnThisPageAtom, signedOutAtom } from '@/states/auth';
 import { AppHandoff } from './AppHandoff';
 import { AuthScreen } from './AuthScreen';
 
@@ -17,13 +17,15 @@ import { AuthScreen } from './AuthScreen';
  * (the requested path rides along in `?next=`); a 401 from any ledger API call (session expired) brings it back. The children
  * (shell, SSE connection, ledger atoms) are unmounted while signed out, so the SSE stream starts after sign-in and stops on
  * sign-out. Opened by the mobile app as `/login?return_to=<app url>` (with its PKCE challenge and state), the login page hands the
- * session off to the app once signed in (or right away when already signed in) instead of entering the web app, see `AppHandoff`.
+ * session off to the app once signed in (after a "Sign in to the app as <user>?" click when the browser was signed in already)
+ * instead of entering the web app, see `AppHandoff`.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const location = useLocation();
   const state = useAtomValue(authStateAtom);
   const locked = useAtomValue(authLockedAtom);
+  const signedInOnThisPage = useAtomValue(signedInOnThisPageAtom);
   const loadStatus = useSetAtom(loadAuthStatusAtom);
   const signedOut = useSetAtom(signedOutAtom);
   const resetLedgerState = useSetAtom(resetLedgerStateAtom);
@@ -76,7 +78,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
   if (onLoginRoute) {
     const returnTo = state.status.enabled && state.status.app_login ? appReturnTo(location.search, state.status.app_return_schemes) : null;
-    if (returnTo) return <AppHandoff returnTo={returnTo} params={appHandoffParams(location.search)} />;
+    if (returnTo) {
+      return (
+        <AppHandoff
+          returnTo={returnTo}
+          params={appHandoffParams(location.search)}
+          user={state.status.user}
+          needsConsent={handoffNeedsConsent(signedInOnThisPage)}
+        />
+      );
+    }
     return <Navigate to={returnPath(location.search)} replace />;
   }
   return children;

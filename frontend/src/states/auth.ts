@@ -62,10 +62,17 @@ export const loadAuthStatusAtom = atom(null, async (get, set, options?: { quiet?
   set(authStateAtom, { phase: 'ready', status, reason: current.phase === 'ready' ? current.reason : undefined });
 });
 
+/**
+ * The session was created on this page, by a sign-in the user just made (not one the browser already had when the page
+ * loaded). The mobile app login handoff creates the code right away only then, see `AppHandoff`.
+ */
+export const signedInOnThisPageAtom = atom(false);
+
 /** Sign-in succeeded (password or passkey). */
 export const signedInAtom = atom(null, (get, set) => {
   const state = get(authStateAtom);
   if (state.phase !== 'ready') return;
+  set(signedInOnThisPageAtom, true);
   set(authStateAtom, { phase: 'ready', status: { ...state.status, authenticated: true } });
   void set(loadAuthStatusAtom, { quiet: true });
 });
@@ -75,6 +82,7 @@ export const signedOutAtom = atom(null, (get, set, reason: LockReason) => {
   const state = get(authStateAtom);
   if (state.phase !== 'ready') return;
   if (reason === 'expired' && state.status.enabled && !state.status.authenticated) return; // already on the login page
+  set(signedInOnThisPageAtom, false);
   set(authStateAtom, { phase: 'ready', status: { ...state.status, enabled: true, authenticated: false }, reason });
   void set(loadAuthStatusAtom, { quiet: true });
 });

@@ -33,6 +33,26 @@ export function appReturnTo(search: string, schemes: readonly string[] | undefin
   return schemes.some((allowed) => allowed.toLowerCase() === scheme) ? returnTo : null;
 }
 
+/** Scheme and host of the app URL (`zhang-app://auth`), shown when the handoff asks for consent; the scheme alone without a host. */
+export function appTarget(returnTo: string) {
+  try {
+    const url = new URL(returnTo);
+    return url.host ? `${url.protocol}//${url.host}` : url.protocol;
+  } catch {
+    return returnTo;
+  }
+}
+
+/**
+ * Whether the handoff asks "Sign in to the app as <user>?" before it creates the code. Right after a sign-in on this page the
+ * user just acted, so the code is created at once; a session the browser already had needs the click. Otherwise any app that
+ * registered the scheme could open the login page in a browser sharing that session and get a session token without the user
+ * noticing (client impersonation, RFC 8252 section 8.6), which PKCE does not prevent: that app brings its own verifier.
+ */
+export function handoffNeedsConsent(signedInOnThisPage: boolean) {
+  return !signedInOnThisPage;
+}
+
 /** Query parameters of the login page the app passes on to the code: its PKCE challenge (RFC 7636) and its `state`. */
 export const APP_HANDOFF_PARAMS = ['code_challenge', 'code_challenge_method', 'state'] as const;
 
