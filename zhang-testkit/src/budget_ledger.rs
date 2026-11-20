@@ -1,4 +1,4 @@
-//! Generated ledgers for the budget baseline of #698 (P0, `zhang-server/tests/budget_baseline.rs`): a household's
+//! Generated ledgers for the budget baseline of #698 (P0, `zhang-cli/examples/budget_baseline.rs`): a household's
 //! ledger of a given number of transactions over a number of months, with a given number of budgets, and the same
 //! ledger without any budget directive or `budget` metadata.
 //!

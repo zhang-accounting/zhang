@@ -34,6 +34,8 @@ reqwest = { version = "0.13", default-features = false }
 chrono = "0.4"
 
 [dev-dependencies]
+# the generated ledgers and the HTTP harness of the budget baseline (`examples/budget_baseline.rs`)
+zhang-testkit = { path = "../zhang-testkit", features = ["server"] }
 gotcha = { workspace = true }
 axum = { workspace = true }
 jsonpath-rust = "0.5"
