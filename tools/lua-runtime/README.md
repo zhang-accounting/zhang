@@ -10,11 +10,12 @@ This directory is everything needed to rebuild it, byte for byte:
 
 | file | role |
 | --- | --- |
-| `vendor/` | the sources, in the tree: Lua 5.4.8 as lua.wasm 0.2.0's `onelua.c` with its wasm shim, dkjson 2.11 and the Extism C PDK header, with their licenses, their provenance and any local change (`vendor/README.md`) and the sha256 of every file (`vendor/SHA256SUMS`) |
+| `vendor/` | the sources, in the tree: Lua 5.4.8 as lua.wasm 0.2.0's `onelua.c` with its wasm shim and the Extism C PDK header, with their licenses, their provenance and any local change (`vendor/README.md`) and the sha256 of every file (`vendor/SHA256SUMS`) |
 | `PINS.toml` | the one download, wasi-sdk 34.0 (clang 23) for `arm64-macos` and `x86_64-linux`, with its URL and sha256; and the upstream URL, version and sha256 of each vendored source |
 | `prepare.py` | fetches and verifies the wasi-sdk into a directory outside the repo (`--tools`), picking this host's (`--host` overrides) |
-| `build.py` | the one-command build: checks `vendor/` against `vendor/SHA256SUMS`, compiles `runtime.cpp`, the vendored `onelua.c` and `pdk.c` into the module, writes `<out>.sha256` |
+| `build.py` | the one-command build: checks `vendor/` against `vendor/SHA256SUMS`, compiles `runtime.cpp`, `json.cpp`, the vendored `onelua.c` and `pdk.c` into the module, writes `<out>.sha256` |
 | `runtime.cpp` | the dispatcher: the host-function bridges, the memory budget, the `zhang`/`json` Lua API, the sandbox and the dispatch of each export (sections: imports, memory budget, bridges, prelude, exports) |
+| `json.cpp` | the JSON codec of the `json` table, over the Lua C API (see [The JSON codec](#the-json-codec)) |
 | `pdk.c` | the translation unit defining the Extism C PDK |
 | `seed.h` | the random string-hash seed of every Lua state, included ahead of the C++ sources |
 
@@ -51,11 +52,10 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
   hundred bytes of `.debug_str`/`.debug_line` while every code section matched); the `name` section stays.
 - **A random hash seed.** `seed.h` defines `luai_makeseed` with 32 bits of WASI randomness per Lua state, where Lua's
   default would mix the clock with addresses that are the same on every wasm run, so keys cannot be crafted to
-  collide. `pairs` order therefore changes from run to run; the vendored dkjson writes an object's keys sorted, so
+  collide. `pairs` order therefore changes from run to run; `json.cpp` writes an object's keys sorted, so
   identical values still encode to identical JSON.
-- **dkjson embedded.** `build.py` writes the vendored dkjson into a generated `json_lua.h` as a C string; the prelude in `runtime.cpp`
-  wraps it as the `json` library (shared object/array markers, a fixed `null`, strict decoding). User scripts are never
-  built into the module.
+- **The JSON codec in C.** `json.cpp` is compiled with the rest; the prelude in `runtime.cpp` exposes it as the `json`
+  library (shared object/array markers, a fixed `null`). User scripts are never built into the module.
 
 ## Canonical bytes and CI
 
@@ -65,6 +65,31 @@ fails unless it matches the vendored checksum. The Linux build is the canonical 
 host differs from CI's, download the job's artifact, vendor it, run the Lua fixtures (`cargo test -p zhang-core
 --features plugin_runtime`) against it and commit. `[artifact]` in `PINS.toml` records which host built the vendored
 bytes and whether the Linux build matched.
+
+## The JSON codec
+
+`json.cpp` is the `json` table of every script: about 900 lines of C++ over the Lua C API, written for this runtime.
+It replaced dkjson 2.11 (pure Lua, about 3 MB/s, patched here to sort keys) and keeps its rules; the Lua plugins guide
+(`docs/src/content/docs/guides/lua-plugins.md`, "JSON") is the contract. Why not a library:
+
+- **lua-cjson** (MIT) would need patches to most of its encoder and part of its decoder to keep the rules: sorted
+  keys, `[]` for an empty table, sparse arrays as objects, a table as `json.null`, the object marker, errors with a
+  line and a column, UTF-8 checks (it passes bytes through both ways) and round-trip float digits; and it allocates
+  with `malloc`, outside the memory budget.
+- **yyjson** and **cJSON** (MIT) parse into a tree of their own, which a Lua table would copy: 2–4 times the text in
+  memory on top of the result, under a 64 MiB budget. cJSON keeps numbers as doubles, so 64-bit integers lose digits.
+
+The codec reads and writes in one pass, straight between the text and Lua values, with an explicit stack instead of
+recursion (1000 levels at most, so a deep document grows neither the C nor the wasm stack). Its buffers are Lua
+userdata, so the budget counts them and refuses them with Lua's own memory error, and the collector is paused while
+it runs, so no finalizer changes a table it is writing. Numbers: an integer within 64 bits is exact both ways; a
+float is decoded with Clinger's exact fast path or wasi-libc's `strtod`, and written with `%.15g`, `%.16g` or `%.17g`,
+the first that reads back as the same float.
+
+Before it replaced dkjson it was checked natively against JSONTestSuite (every `y_` document accepted, every `n_`
+refused) and against the patched dkjson on random documents (byte-identical output wherever the rules did not
+change). `zhang-core/tests/plugins/json_rules.lua` holds its rules as checks that run inside the module; change it with
+the codec.
 
 ## Changing the runtime
 

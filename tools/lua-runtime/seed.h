@@ -3,8 +3,7 @@
 // clock's seconds with three addresses, and in wasm the addresses are the same on every run: a script, or the JSON
 // a host answer carries, could be crafted with keys that all collide in one hash chain (hash flooding). Each
 // lua_newstate takes 32 random bits from WASI instead; the clock's nanoseconds stand in should the host refuse
-// randomness. Nothing depends on the order `pairs` visits keys in: dkjson writes an object's keys sorted
-// (vendor/README.md).
+// randomness. Nothing depends on the order `pairs` visits keys in: json.cpp writes an object's keys sorted.
 #ifndef ZHANG_LUA_SEED_H
 #define ZHANG_LUA_SEED_H
 
