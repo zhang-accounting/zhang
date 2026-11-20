@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Sandbox every router plugin response (`Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-downloads`, `X-Content-Type-Options: nosniff`) and send only an allowlist of its headers (`content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow`, and a `location` on Zhang's own origin), with a `cache-control` that is always `private`. A plugin's page could run scripts with the owner's session and set cookies on Zhang's origin.
+- Forward only an allowlist of request headers to router plugins, so proxy identity headers (`cf-access-jwt-assertion`, `x-auth-request-*`, `tailscale-user-*`, `x-forwarded-*`) no longer reach them.
+- Limit router plugin requests: a body of 4 MiB (`ZHANG_PLUGIN_MAX_BODY`, 413), 4 requests at once per plugin (`ZHANG_PLUGIN_MAX_CONCURRENCY`; up to 16 more wait up to 5 seconds, then 503 with `Retry-After`) and 30 seconds per request.
+- Limit the memory of every plugin instance to 256 MiB (`ZHANG_PLUGIN_MAX_MEMORY`).
+- Escape control characters in the plugin text Zhang logs, so a plugin cannot forge log lines.
+
 ## [0.2.0] - 2026-10-02
 
 ### Added

@@ -49,8 +49,8 @@ The plugin exports a function named `router`. Its input is the request as JSON:
 
 - `path` is the part below the plugin's route, with its percent-encoding as sent.
 - `query` maps each key to all its values, in order.
-- Header names are lower case, and the values of a repeated header are joined with `, `. The credential headers `authorization`, `proxy-authorization` and `cookie`, which carry your session, are never passed to a plugin.
-- `body_encoding` is `utf8` when the body is valid UTF-8, and `base64` otherwise.
+- Header names are lower case, and the values of a repeated header are joined with `, `. Only these headers reach the plugin: `accept`, `accept-language`, `content-type`, `host`, `if-modified-since`, `if-none-match`, `origin` and `user-agent`, and for an [MCP](https://modelcontextprotocol.io/) endpoint `last-event-id`, `mcp-method`, `mcp-name`, `mcp-protocol-version` and `mcp-session-id`. Every other header is dropped: the credentials of your session (`authorization`, `cookie`), and the identity headers a proxy in front of Zhang adds, such as `cf-access-jwt-assertion`, `x-auth-request-*`, `tailscale-user-*` and `x-forwarded-*`, so a plugin cannot send them elsewhere.
+- `body_encoding` is `utf8` when the body is valid UTF-8, and `base64` otherwise. The body is at most 4 MiB (see [Limits](#limits)).
 
 Its output is the response as JSON. Every field is optional:
 
@@ -65,7 +65,41 @@ Its output is the response as JSON. Every field is optional:
 
 - `status` defaults to `200`.
 - Without a `content-type` header the response is `text/plain; charset=utf-8`. Any content type works, so a plugin can return JSON, an HTML page or, with `"body_encoding": "base64"`, an image.
-- Zhang sets `content-length`, `transfer-encoding` and `connection` itself and ignores them in the plugin's headers.
+- Zhang sends only these headers of the plugin: `content-type`, `cache-control` (always made `private`, see below), `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow` (for a `405`), and `location` when it stays on Zhang: a relative URL such as `/api/plugins/report/by-month`, `by-month` or `?year=2024`. It drops every other header, such as `set-cookie`, `content-security-policy`, `access-control-*`, `clear-site-data` or `refresh`, and a `location` with a scheme or a host (`https://…`, `//…`). The response is still sent, without them.
+- Zhang adds the headers of the [sandbox](#pages-are-sandboxed) to every response.
+
+## Pages are sandboxed
+
+A router plugin's pages are served from Zhang's own address, so Zhang sandboxes every response the plugin sends, whatever it is:
+
+```http
+Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-downloads
+X-Content-Type-Options: nosniff
+```
+
+The browser shows such a page with an opaque origin instead of Zhang's. Its scripts run, but not as Zhang: they cannot read Zhang's cookies or storage, and the browser treats their requests to Zhang as coming from another site, so with sign-in enabled they carry no session and cannot use Zhang's API. A plugin's page cannot sign in as you, rewrite your ledger files or create an app login for itself.
+
+For a plugin author this means:
+
+- Put the page's scripts, styles and images into the page itself (inline, or as `data:` URLs). With sign-in enabled, the page cannot load more from Zhang, its own routes included, and its scripts cannot fetch the plugin's JSON.
+- Links, and forms with `method="get"`, navigate the whole page to another page of the plugin and keep working. Links can open new tabs, which are sandboxed too, and download what they point at, such as a CSV export with `content-disposition: attachment`.
+- `X-Content-Type-Options: nosniff` keeps a browser from reading text or JSON as HTML or script: send an HTML page as `text/html`.
+- `Cache-Control` always says `private`: Zhang adds it, and drops `public` and `s-maxage`, so a CDN or proxy in front of Zhang never keeps a page made for a signed-in user. The browser still caches it as the rest of the header says.
+
+The sandbox does not stop a page from navigating its tab elsewhere, with a link, a `<meta http-equiv="refresh">` or `location.href`. A plugin can send you from Zhang's address to a page that looks like Zhang's sign-in and asks for your password: check the address bar before you type a password, and only install plugins you trust.
+
+## Limits
+
+The server bounds every router plugin, whatever its `plugin` directive asks for. The operator sets the limits with environment variables when starting `zhang serve`:
+
+| Limit | Default | Set with | When it is reached |
+|---|---|---|---|
+| Size of a request body | 4 MiB | `ZHANG_PLUGIN_MAX_BODY` | 413, before the plugin runs |
+| Requests one plugin handles at once | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | up to 16 more wait up to 5 seconds for their turn; beyond that, 503 with `Retry-After: 1` |
+| Time one request runs | the plugin's `timeout`, at most 30 seconds | the `timeout` meta, for less | 504 |
+| Memory of one plugin instance | 256 MiB | `ZHANG_PLUGIN_MAX_MEMORY` | 500 |
+
+Sizes are written as `4MiB`, `512KiB` or a number of bytes. A request holds the ledger's read lock for as long as the plugin runs, and while a write to the ledger waits for that lock, no other request is served: that is why a request may run for 30 seconds at most, even when the plugin's `timeout` is longer.
 
 ## Reading the ledger: `zhang_query`
 
@@ -101,18 +135,20 @@ These functions answer only while `router` runs. A plugin that is also a `Proces
 
 ## Isolation and errors
 
-Every request runs in a fresh instance of the plugin, so nothing is kept between requests. The plugin gets the same config, `allowed_hosts` and `timeout` as its processor: a request running longer than 60 seconds, or the `timeout` meta of its `plugin` directive, is stopped. It cannot read files, whatever its `allowed_paths`: `zhang_read_file` and `zhang_list_dir` answer `denied` in a router. While it runs the ledger does not reload.
+Every request runs in a fresh instance of the plugin, so nothing is kept between requests. The plugin gets the same config and `allowed_hosts` as its processor: a request running longer than the `timeout` meta of its `plugin` directive, and at most 30 seconds, is stopped. It cannot read files, whatever its `allowed_paths`: `zhang_read_file` and `zhang_list_dir` answer `denied` in a router. While it runs the ledger does not reload.
 
 When the plugin cannot answer, Zhang responds with JSON `{"message": "..."}` and logs the details:
 
 | Status | Meaning |
 |---|---|
 | 404 | No router plugin has that name. |
+| 413 | The request body is larger than the limit. |
 | 501 | The plugin declares `Router` but does not export `router`. |
 | 502 | The plugin returned something that is not a valid response. |
+| 503 | The plugin already handles as many requests as it may. Try again after the `Retry-After` seconds. |
 | 504 | The plugin ran longer than its timeout. |
-| 500 | The plugin trapped, returned an error or could not be loaded. |
+| 500 | The plugin trapped, returned an error, ran out of memory or could not be loaded. |
 
 :::danger[Only install plugins you trust]
-A router plugin's pages are served from Zhang's own address. A script on such a page can call Zhang's API, including the endpoints that change your ledger files, with your browser's session.
+The sandbox keeps a plugin's pages away from your session, but a router plugin still reads your whole ledger and decides what its pages show. A page can also send what it shows to another site, for example as the address of an image: your browser makes that request, not the plugin, so `allowed_hosts` does not limit it.
 :::

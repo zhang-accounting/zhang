@@ -26,7 +26,7 @@ use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::{Ledger, LedgerProcessContext};
-use zhang_server::routes::plugin_router::{route_to_plugin, ROUTE};
+use zhang_server::routes::plugin_router::{route_to_plugin, PluginRouteState, ROUTE};
 use zhang_server::state::SharedLedger;
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
@@ -354,7 +354,7 @@ async fn the_summary_router_queries_the_ledger_and_answers_html_and_json() {
     let ledger = load(&dir, &SUMMARY_LEDGER.replace("{module}", &module_path(&dir, &examples.summary)));
     let app = Router::new()
         .route(ROUTE, any(route_to_plugin))
-        .with_state(SharedLedger(Arc::new(RwLock::new(ledger))));
+        .with_state(PluginRouteState::new(SharedLedger(Arc::new(RwLock::new(ledger)))));
 
     let (status, content_type, body) = send(&app, Request::get("/api/plugins/summary/balances").body(Body::empty()).unwrap()).await;
     assert_eq!((status, content_type.as_str()), (StatusCode::OK, "application/json"));

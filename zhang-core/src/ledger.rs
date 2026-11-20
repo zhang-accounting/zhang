@@ -29,6 +29,7 @@ use crate::pipeline::{
     builtin_stages, run_pipeline, AccountLifecycle, AccountUse, AssertionOutcome, AssertionOutcomes, BookingStage, FinalValidation, PluginStage, ProcessStage,
     StageContext,
 };
+use crate::plugin_policy::PluginPolicy;
 use crate::process::budget::{DefinedBudget, ForeignAmount};
 use crate::process::commodity::commodity_precision;
 use crate::utils::id::FromSpan;
@@ -157,6 +158,9 @@ pub struct Ledger {
 
     #[cfg(feature = "plugin_runtime")]
     pub plugins: crate::plugin::store::PluginStore,
+
+    /// what the operator lets the ledger's plugins use, whatever its `plugin` directives ask for; a reload keeps it
+    pub plugin_policy: Arc<PluginPolicy>,
 }
 
 pub struct LedgerProcessContext {
@@ -242,6 +246,14 @@ impl Ledger {
     /// [`Ledger::load`] with the current time read from `clock`: [`Clock::Fixed`] pins "today" for the
     /// load, its reloads and everything that asks the ledger for the time ([`Ledger::now`])
     pub fn load_with_clock(entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>, clock: Clock) -> ZhangResult<Ledger> {
+        Ledger::load_with_policy(entry, endpoint, data_source, clock, Arc::new(PluginPolicy::default()))
+    }
+
+    /// [`Ledger::load_with_clock`] with the plugins bounded by `plugin_policy`, the operator's, instead of the
+    /// default policy; its reloads keep it
+    pub fn load_with_policy(
+        entry: PathBuf, endpoint: String, data_source: Arc<dyn DataSource>, clock: Clock, plugin_policy: Arc<PluginPolicy>,
+    ) -> ZhangResult<Ledger> {
         let dialect = Dialect::of(&endpoint)?;
         let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
         Ledger::process_loaded(
@@ -254,6 +266,7 @@ impl Ledger {
                 clock,
             },
             load_result.missing_includes,
+            plugin_policy,
         )
     }
 
@@ -303,7 +316,7 @@ impl Ledger {
         self.lifecycle.reference_error(account, at, usage)
     }
 
-    fn init(context: LedgerProcessContext) -> (Self, SplitDirectives) {
+    fn init(context: LedgerProcessContext, plugin_policy: Arc<PluginPolicy>) -> (Self, SplitDirectives) {
         let ledger = Self {
             options: InMemoryOptions::default(),
             entry: context.entry,
@@ -328,18 +341,24 @@ impl Ledger {
             stale: false,
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
+            plugin_policy,
         };
         let split = SplitDirectives::new(context.directives, context.dialect);
         (ledger, split)
     }
 
     pub fn process(context: LedgerProcessContext) -> ZhangResult<Ledger> {
-        Ledger::process_loaded(context, vec![])
+        Ledger::process_with_policy(context, Arc::new(PluginPolicy::default()))
+    }
+
+    /// [`Ledger::process`] with the plugins bounded by `plugin_policy` instead of the default policy
+    pub fn process_with_policy(context: LedgerProcessContext, plugin_policy: Arc<PluginPolicy>) -> ZhangResult<Ledger> {
+        Ledger::process_loaded(context, vec![], plugin_policy)
     }
 
     /// [`Ledger::process`] of what a data source loaded, with the `include`s it found naming no file
-    fn process_loaded(context: LedgerProcessContext, missing_includes: Vec<MissingInclude>) -> ZhangResult<Ledger> {
-        let (mut ret_ledger, split) = Ledger::init(context);
+    fn process_loaded(context: LedgerProcessContext, missing_includes: Vec<MissingInclude>, plugin_policy: Arc<PluginPolicy>) -> ZhangResult<Ledger> {
+        let (mut ret_ledger, split) = Ledger::init(context, plugin_policy);
         ret_ledger.report_missing_includes(missing_includes);
         ret_ledger.handle_options(&split.options_directives)?;
         ret_ledger.finish_process(split)
@@ -389,18 +408,18 @@ impl Ledger {
         Ok(self)
     }
 
-    /// load the ledger again from its source, with the same clock
+    /// load the ledger again from its source, with the same clock and plugin policy
     pub fn reload(&mut self) -> ZhangResult<()> {
         *self = self.reloader()()?;
         Ok(())
     }
 
-    /// The load of this ledger again, from its source as it is then, with the same clock, to run where the caller
-    /// likes: a server runs it on a blocking thread, and keeps this ledger until it succeeds
+    /// The load of this ledger again, from its source as it is then, with the same clock and plugin policy, to run
+    /// where the caller likes: a server runs it on a blocking thread, and keeps this ledger until it succeeds
     pub fn reloader(&self) -> impl FnOnce() -> ZhangResult<Ledger> + Send + 'static {
         let (entry, endpoint) = self.entry.clone();
-        let (data_source, clock) = (self.data_source.clone(), self.clock.clock());
-        move || Ledger::load_with_clock(entry, endpoint, data_source, clock)
+        let (data_source, clock, plugin_policy) = (self.data_source.clone(), self.clock.clock(), self.plugin_policy.clone());
+        move || Ledger::load_with_policy(entry, endpoint, data_source, clock, plugin_policy)
     }
 
     /// the booking method every account books with at the end of the stream, as booking resolves the

@@ -48,6 +48,7 @@ use crate::clock::LoadClock;
 use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
+use crate::plugin::log_safe;
 use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION};
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
@@ -374,7 +375,7 @@ fn plugin_error(plugin: &str, directive_span: &SpanInfo, payload: Option<&[u8]>)
             (payload.message, span, payload.metas.unwrap_or_default())
         }
         Err(e) => {
-            warn!("plugin {plugin} called {EMIT_ERROR} with an invalid payload: {e}");
+            warn!("plugin {} called {EMIT_ERROR} with an invalid payload: {}", log_safe(plugin), log_safe(&e));
             (
                 format!("the plugin called {EMIT_ERROR} with an invalid payload: {e}"),
                 directive_span.clone(),
@@ -397,13 +398,19 @@ fn well_formed_span(plugin: &str, span: serde_json::Value) -> Option<SpanInfo> {
         Ok(span) if span.start <= span.end => Some(span),
         Ok(span) => {
             warn!(
-                "plugin {plugin} reported an error on a span ending before it starts ({}..{}); using its directive's span",
-                span.start, span.end
+                "plugin {} reported an error on a span ending before it starts ({}..{}); using its directive's span",
+                log_safe(plugin),
+                span.start,
+                span.end
             );
             None
         }
         Err(e) => {
-            warn!("plugin {plugin} reported an error on a span that is not well-formed ({e}); using its directive's span");
+            warn!(
+                "plugin {} reported an error on a span that is not well-formed ({}); using its directive's span",
+                log_safe(plugin),
+                log_safe(&e.to_string())
+            );
             None
         }
     }

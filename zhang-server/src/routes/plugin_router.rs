@@ -2,29 +2,46 @@
 //! router plugin of that name. See [`zhang_core::plugin::router`] for the plugin side.
 //!
 //! The routes sit with the rest of the API, behind the same authentication. A request runs the
-//! plugin on a blocking thread, under the ledger read lock. When the plugin cannot answer, the
-//! response is a JSON `{"message": "..."}` with:
+//! plugin on a blocking thread, under the ledger read lock. What the plugin answers is sent with only
+//! the headers zhang allows and sandboxed (see [`zhang_core::plugin::http::SECURITY_HEADERS`]), and the
+//! plugin sees only the request headers zhang forwards
+//! ([`zhang_core::plugin::http::FORWARDED_REQUEST_HEADERS`]).
+//!
+//! The routes are bounded by [`PluginRouteLimits`]: the body of a request, and how many requests a
+//! plugin handles at once. When the plugin cannot answer, the response is a JSON `{"message": "..."}`
+//! with:
 //! - 404 when no router plugin has that name
+//! - 413 when the request body is larger than [`PluginRouteLimits::max_body`]
 //! - 501 when the plugin does not export `router`
 //! - 502 when it returns something that is not a valid response
+//! - 503, with `Retry-After`, when the plugin already handles [`PluginRouteLimits::max_concurrency`]
+//!   requests and either [`PluginRouteLimits::max_waiting`] more wait for their turn or the turn did not
+//!   come within [`PluginRouteLimits::max_wait`]
 //! - 504 when it runs longer than its timeout
-//! - 500 when it traps, returns an error or cannot be loaded
+//! - 500 when it traps, returns an error, runs out of memory or cannot be loaded
 //!
 //! The details go to the log.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use axum::body::{Body, Bytes};
-use axum::extract::State;
-use axum::http::{HeaderMap, Method, StatusCode, Uri};
+use axum::extract::{FromRef, State};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use http_body_util::{BodyExt, LengthLimitError, Limited};
 use log::error;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
-use tokio::sync::OwnedRwLockReadGuard;
+use tokio::sync::{OwnedRwLockReadGuard, OwnedSemaphorePermit, Semaphore};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::http::PluginRequest;
-use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
+use zhang_core::plugin::log_safe;
+use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost, ROUTER_MAX_TIMEOUT};
+use zhang_core::plugin_policy::{PluginPolicy, Size};
 use zhang_query::{Params, Query, QueryError};
 
 use crate::error::error_response;
@@ -54,6 +71,176 @@ const SEGMENT: &AsciiSet = &CONTROLS
     .add(b'/')
     .add(b'%');
 
+/// the largest request body a router plugin receives by default, see [`PluginRouteLimits::max_body`]
+pub const DEFAULT_MAX_BODY: usize = 4 * 1024 * 1024;
+
+/// how many requests a router plugin handles at once by default, see [`PluginRouteLimits::max_concurrency`]
+pub const DEFAULT_MAX_CONCURRENCY: usize = 4;
+
+/// how many requests may wait for a busy router plugin by default, see [`PluginRouteLimits::max_waiting`]
+pub const DEFAULT_MAX_WAITING: usize = 16;
+
+/// how long a request waits for a busy router plugin by default, see [`PluginRouteLimits::max_wait`]
+pub const DEFAULT_MAX_WAIT: Duration = Duration::from_secs(5);
+
+/// the environment variable setting [`PluginRouteLimits::max_body`]
+pub const MAX_BODY_ENV: &str = "ZHANG_PLUGIN_MAX_BODY";
+
+/// the environment variable setting [`PluginRouteLimits::max_concurrency`]
+pub const MAX_CONCURRENCY_ENV: &str = "ZHANG_PLUGIN_MAX_CONCURRENCY";
+
+/// how long a client is told to wait before it tries again a plugin that is busy, in seconds
+const RETRY_AFTER_SECONDS: &str = "1";
+
+/// What the plugin routes take, set when the server starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PluginRouteLimits {
+    /// the largest request body, in bytes, a router plugin receives; a larger one is answered 413 before the plugin
+    /// runs. The plugin gets the body inside a JSON document, as text or as base64, so it holds it a few times over:
+    /// this keeps a request well inside the plugin's memory limit
+    pub max_body: usize,
+    /// how many requests one router plugin handles at once. Every request holds a blocking thread, a plugin
+    /// instance (up to its memory limit) and the ledger's read lock
+    pub max_concurrency: usize,
+    /// how many more requests of a router plugin that handles `max_concurrency` wait for their turn, so that an MCP
+    /// client's parallel tool calls are not refused; one more is answered 503 with `Retry-After` at once. A waiting
+    /// request holds no lock and no thread
+    pub max_waiting: usize,
+    /// how long a request waits for its turn before it is answered 503 with `Retry-After`
+    pub max_wait: Duration,
+}
+
+impl Default for PluginRouteLimits {
+    fn default() -> Self {
+        PluginRouteLimits {
+            max_body: DEFAULT_MAX_BODY,
+            max_concurrency: DEFAULT_MAX_CONCURRENCY,
+            max_waiting: DEFAULT_MAX_WAITING,
+            max_wait: DEFAULT_MAX_WAIT,
+        }
+    }
+}
+
+impl Display for PluginRouteLimits {
+    /// the limits as the server logs them when it starts
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "router plugins take a body of at most {} ({MAX_BODY_ENV}) and {} requests at once each ({MAX_CONCURRENCY_ENV}), with {} more waiting up to {:?}",
+            Size(self.max_body as u64),
+            self.max_concurrency,
+            self.max_waiting,
+            self.max_wait
+        )
+    }
+}
+
+/// The requests of one router plugin: those it handles, and those waiting for their turn.
+struct Gate {
+    /// [`PluginRouteLimits::max_concurrency`] permits, one per request the plugin handles
+    permits: Arc<Semaphore>,
+    /// how many requests wait for a permit
+    waiting: AtomicUsize,
+}
+
+/// one request waiting at a [`Gate`]; it stops counting when it gets its turn, gives up, or its client goes away
+struct Waiting(Arc<Gate>);
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.0.waiting.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The state of the plugin routes: their limits, and the requests each router plugin handles now.
+pub struct PluginRoutes {
+    limits: PluginRouteLimits,
+    /// a [`Gate`] per router plugin, by name. A name gets one on its first request that a router plugin serves, so
+    /// the map holds the router plugins the server served at most
+    gates: Mutex<HashMap<String, Arc<Gate>>>,
+}
+
+impl PluginRoutes {
+    pub fn new(limits: PluginRouteLimits) -> Self {
+        PluginRoutes {
+            limits,
+            gates: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// A permit for one more request of the router plugin `name`, held until the plugin returns. When the plugin
+    /// already handles as many as it may, the request waits for its turn, as one of at most
+    /// [`PluginRouteLimits::max_waiting`] and for at most [`PluginRouteLimits::max_wait`]; `None` when it cannot
+    async fn acquire(&self, name: &str) -> Option<OwnedSemaphorePermit> {
+        let gate = self
+            .gates
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(name.to_owned())
+            .or_insert_with(|| {
+                Arc::new(Gate {
+                    permits: Arc::new(Semaphore::new(self.limits.max_concurrency)),
+                    waiting: AtomicUsize::new(0),
+                })
+            })
+            .clone();
+        if let Ok(permit) = gate.permits.clone().try_acquire_owned() {
+            return Some(permit);
+        }
+        let waiting = Waiting(gate.clone());
+        if gate.waiting.fetch_add(1, Ordering::SeqCst) >= self.limits.max_waiting {
+            return None;
+        }
+        let permit = tokio::time::timeout(self.limits.max_wait, gate.permits.clone().acquire_owned()).await;
+        drop(waiting);
+        permit.ok()?.ok()
+    }
+}
+
+/// What the plugin routes read: the ledger, and their own state.
+#[derive(Clone)]
+pub struct PluginRouteState {
+    pub ledger: SharedLedger,
+    pub routes: Arc<PluginRoutes>,
+}
+
+impl PluginRouteState {
+    /// the state of the plugin routes over `ledger`, with the default limits
+    pub fn new(ledger: SharedLedger) -> Self {
+        PluginRouteState {
+            ledger,
+            routes: Arc::new(PluginRoutes::new(PluginRouteLimits::default())),
+        }
+    }
+}
+
+impl FromRef<PluginRouteState> for SharedLedger {
+    fn from_ref(state: &PluginRouteState) -> Self {
+        state.ledger.clone()
+    }
+}
+
+/// What the operator lets plugins use, set when the server starts: the policy every plugin of the served ledger runs
+/// under, and the limits of the plugin routes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginSettings {
+    pub policy: PluginPolicy,
+    pub routes: PluginRouteLimits,
+}
+
+impl Display for PluginSettings {
+    /// the settings as the server logs them when it starts
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "plugins run with {}, and for at most {}s per request when they serve a route; {}",
+            self.policy,
+            ROUTER_MAX_TIMEOUT.as_secs(),
+            self.routes
+        )
+    }
+}
+
 /// where the router plugin named `name` serves requests: `/api/plugins/{name}`
 pub fn route_of(name: &str) -> String {
     format!("{ROUTE_PREFIX}{}", utf8_percent_encode(name, SEGMENT))
@@ -70,17 +257,46 @@ fn split_route(path: &str) -> Option<(String, String)> {
     Some((name, below.to_owned()))
 }
 
+/// the body of a request, read up to `max_body` bytes; `None` when it is larger
+async fn read_body(body: Body, max_body: usize) -> Result<Option<Bytes>, Response> {
+    match Limited::new(body, max_body).collect().await {
+        Ok(collected) => Ok(Some(collected.to_bytes())),
+        Err(e) if e.downcast_ref::<LengthLimitError>().is_some() => Ok(None),
+        Err(e) => Err(error_response(StatusCode::BAD_REQUEST, format!("the request body cannot be read: {e}"))),
+    }
+}
+
 /// Route a request to the router plugin its path names.
-pub async fn route_to_plugin(State(ledger): State<SharedLedger>, method: Method, uri: Uri, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn route_to_plugin(State(state): State<PluginRouteState>, method: Method, uri: Uri, headers: HeaderMap, body: Body) -> Response {
     let Some((name, path)) = split_route(uri.path()) else {
         return error_response(StatusCode::NOT_FOUND, "this is not the route of a router plugin".to_owned());
+    };
+    let max_body = state.routes.limits.max_body;
+    let too_large = || {
+        error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "the request body is larger than the {} a router plugin takes ({MAX_BODY_ENV})",
+                Size(max_body as u64)
+            ),
+        )
+    };
+    // a declared length over the limit is refused before anything is read
+    let declared = headers.get(header::CONTENT_LENGTH).and_then(|it| it.to_str().ok()?.parse::<u64>().ok());
+    if declared.is_some_and(|length| length > max_body as u64) {
+        return too_large();
+    }
+    let body = match read_body(body, max_body).await {
+        Ok(Some(body)) => body,
+        Ok(None) => return too_large(),
+        Err(response) => return response,
     };
     let query = form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes()).into_owned();
     let headers = headers
         .iter()
         .map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()));
     let request = PluginRequest::new(method.as_str(), path, query, headers, body.to_vec());
-    dispatch(ledger, name, request).await
+    dispatch(state, name, request).await
 }
 
 /// the [`RouterHost`] of one request: it owns the ledger read lock until the plugin returns
@@ -109,25 +325,48 @@ impl RouterHost for ServerRouterHost {
     }
 }
 
-async fn dispatch(ledger: SharedLedger, name: String, request: PluginRequest) -> Response {
-    // the plugin runs under the read lock, so the ledger cannot reload while it reads it
+async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest) -> Response {
+    // the read lock is held for the look-up only: a request waiting for its turn below must not hold it, since a
+    // writer queued behind it would keep every other reader of the server waiting too
+    if state.ledger.read().await.plugins.router(&name).is_none() {
+        return error_response(StatusCode::NOT_FOUND, format!("no router plugin is named {name}"));
+    }
+    // a busy plugin makes a few requests wait a few seconds for their turn, and answers any more 503 at once
+    let Some(permit) = state.routes.acquire(&name).await else {
+        let mut response = error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "plugin {name} is busy: it already handles {} requests ({MAX_CONCURRENCY_ENV}); try again later",
+                state.routes.limits.max_concurrency
+            ),
+        );
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static(RETRY_AFTER_SECONDS));
+        return response;
+    };
+    // the plugin runs under the read lock, so the ledger cannot reload while it reads it; a reload that removed the
+    // plugin while the request waited answers 404 below
     let host = Arc::new(ServerRouterHost {
-        ledger: ledger.0.clone().read_owned().await,
+        ledger: state.ledger.0.clone().read_owned().await,
         max_result_values: max_result_values(),
     });
     let summary = format!("{} {}", request.method, request.path);
     let plugin_name = name.clone();
-    // instantiating and running a plugin is CPU-bound and may block, so it stays off the async workers
+    // instantiating and running a plugin is CPU-bound and may block, so it stays off the async workers. The permit
+    // goes with the call: a client that goes away does not stop the plugin, so the plugin still counts until it returns
     let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         let plugin = host.ledger.plugins.router(&plugin_name)?;
         Some(plugin.execute_as_router(&request, &host.ledger, host.clone()))
     })
     .await;
+    let logged = log_safe(&name);
     match result {
         Ok(Some(Ok(response))) => response.map(Body::from).into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, format!("no router plugin is named {name}")),
         Ok(Some(Err(e))) => {
-            error!("router plugin {name} could not answer {summary}: {e}");
+            error!("router plugin {logged} could not answer {}: {e}", log_safe(&summary));
             let (status, message) = match e {
                 RouterError::NoRouterExport => (StatusCode::NOT_IMPLEMENTED, format!("plugin {name} does not export `router`")),
                 RouterError::BadResponse(reason) => (StatusCode::BAD_GATEWAY, format!("plugin {name} returned an invalid response: {reason}")),
@@ -138,7 +377,7 @@ async fn dispatch(ledger: SharedLedger, name: String, request: PluginRequest) ->
             error_response(status, message)
         }
         Err(e) => {
-            error!("router plugin {name} could not answer {summary}: the task failed: {e}");
+            error!("router plugin {logged} could not answer {}: the task failed: {e}", log_safe(&summary));
             error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("plugin {name} failed while handling the request"))
         }
     }
@@ -165,18 +404,19 @@ mod test {
     use zhang_core::ledger::{Ledger, LedgerProcessContext};
     use zhang_core::plugin::router::RouterHost;
 
-    use super::{route_of, route_to_plugin, split_route, ServerRouterHost, ROUTE};
+    use super::{route_of, route_to_plugin, split_route, PluginRouteLimits, PluginRouteState, PluginRoutes, ServerRouterHost, ROUTE};
     use crate::routes::plugin::plugin_list;
     use crate::state::SharedLedger;
 
     /// the WAT fixtures of zhang-core's plugin tests, see `zhang-core/tests/wasm_plugins.rs`
-    const FIXTURES: [(&str, &str); 6] = [
+    const FIXTURES: [(&str, &str); 7] = [
         ("router.wat", include_str!("../../../zhang-core/tests/plugins/router.wat")),
         ("router_query.wat", include_str!("../../../zhang-core/tests/plugins/router_query.wat")),
         ("router_no_export.wat", include_str!("../../../zhang-core/tests/plugins/router_no_export.wat")),
         ("router_malformed.wat", include_str!("../../../zhang-core/tests/plugins/router_malformed.wat")),
         ("router_trap.wat", include_str!("../../../zhang-core/tests/plugins/router_trap.wat")),
         ("router_loop.wat", include_str!("../../../zhang-core/tests/plugins/router_loop.wat")),
+        ("router_hostile.wat", include_str!("../../../zhang-core/tests/plugins/router_hostile.wat")),
     ];
 
     /// the `timeout` of the looping fixture
@@ -193,6 +433,11 @@ mod test {
 
     /// the plugin list and the plugin routes, as the server registers them, over a ledger declaring every fixture
     async fn app() -> (ScratchDir, Router) {
+        app_with(PluginRouteLimits::default()).await
+    }
+
+    /// [`app`] with the plugin routes bounded by `limits`
+    async fn app_with(limits: PluginRouteLimits) -> (ScratchDir, Router) {
         let dir = ScratchDir(std::env::temp_dir().join(format!("zhang-plugin-router-{}", uuid::Uuid::new_v4())));
         std::fs::create_dir_all(&dir.0).unwrap();
         let mut content = "option \"features.plugin\" \"true\"\noption \"title\" \"Home\"\noption \"timezone\" \"Asia/Shanghai\"\n".to_owned();
@@ -214,7 +459,10 @@ mod test {
         let router = Router::new()
             .route("/api/plugins", get(plugin_list))
             .route(ROUTE, any(route_to_plugin))
-            .with_state(SharedLedger(Arc::new(RwLock::new(ledger))));
+            .with_state(PluginRouteState {
+                ledger: SharedLedger(Arc::new(RwLock::new(ledger))),
+                routes: Arc::new(PluginRoutes::new(limits)),
+            });
         (dir, router)
     }
 
@@ -235,22 +483,34 @@ mod test {
             &app,
             Request::get("/api/plugins/router-echo/report/by%20month?k=v1&k=v2&q=a+b%26c")
                 .header("X-Custom", "yes")
+                .header(header::ACCEPT, "text/html")
+                .header(header::ORIGIN, "http://localhost:8000")
+                .header("Mcp-Session-Id", "s1")
                 .header(header::AUTHORIZATION, "Basic dXNlcjpwYXNz")
+                .header(header::COOKIE, "zhang_session=secret")
+                .header("Cf-Access-Jwt-Assertion", "eyJ.secret")
+                .header("X-Auth-Request-Email", "owner@example.com")
+                .header("Tailscale-User-Login", "owner@example.com")
+                .header("X-Forwarded-For", "10.0.0.1")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await;
         assert_eq!(response.status(), StatusCode::CREATED);
-        assert_eq!(response.headers()["x-echo"], "router");
+        assert!(response.headers().get("x-echo").is_none(), "a header zhang does not allow is dropped");
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+        assert_eq!(
+            response.headers()[header::CONTENT_SECURITY_POLICY],
+            "sandbox allow-scripts allow-forms allow-popups allow-downloads"
+        );
         assert_eq!(
             json_body(response).await,
             json!({
                 "method": "GET",
                 "path": "/report/by%20month",
                 "query": {"k": ["v1", "v2"], "q": ["a b&c"]},
-                // the credentials never reach the plugin
-                "headers": {"x-custom": "yes"},
+                // only the allowlisted headers reach the plugin: no credentials, no proxy identity
+                "headers": {"accept": "text/html", "origin": "http://localhost:8000", "mcp-session-id": "s1"},
                 "body": "",
                 "body_encoding": "utf8",
             })
@@ -387,6 +647,127 @@ mod test {
             host(4).query("SELECT account ORDER BY account").unwrap(),
             json!({"columns": [{"name": "account", "type": "str"}], "rows": [["Assets:Cash"], ["Expenses:Food"]]})
         );
+    }
+
+    #[tokio::test]
+    async fn a_hostile_response_is_sent_sandboxed_without_its_headers() {
+        let (_dir, app) = app().await;
+
+        let response = send(&app, Request::get("/api/plugins/router-hostile/").body(Body::empty()).unwrap()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response
+            .headers()
+            .iter()
+            .filter(|(name, _)| *name != header::CONTENT_LENGTH)
+            .map(|(name, value)| format!("{name}: {}", value.to_str().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            headers,
+            vec![
+                "cache-control: private, no-store",
+                "content-type: text/html; charset=utf-8",
+                "content-security-policy: sandbox allow-scripts allow-forms allow-popups allow-downloads",
+                "x-content-type-options: nosniff",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_body_over_the_limit_is_refused_before_the_plugin_runs() {
+        let (_dir, app) = app_with(PluginRouteLimits {
+            max_body: 1024,
+            ..PluginRouteLimits::default()
+        })
+        .await;
+
+        // at the limit, the plugin answers
+        let response = send(&app, Request::post("/api/plugins/router-echo").body(Body::from(vec![b'a'; 1024])).unwrap()).await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        // one byte more, declared or streamed, is 413
+        let expected = json!({"message": "the request body is larger than the 1 KiB a router plugin takes (ZHANG_PLUGIN_MAX_BODY)"});
+        let response = send(&app, Request::post("/api/plugins/router-echo").body(Body::from(vec![b'a'; 1025])).unwrap()).await;
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(json_body(response).await, expected);
+        let chunks = futures_util::stream::iter([Ok::<_, std::io::Error>(vec![b'a'; 1000]), Ok(vec![b'a'; 25])]);
+        let response = send(&app, Request::post("/api/plugins/router-echo").body(Body::from_stream(chunks)).unwrap()).await;
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(json_body(response).await, expected);
+        let response = send(
+            &app,
+            Request::post("/api/plugins/router-echo")
+                .header(header::CONTENT_LENGTH, "1000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    /// send `path` of `app` in the background
+    fn spawn_get(app: &Router, path: &'static str) -> tokio::task::JoinHandle<Response> {
+        let app = app.clone();
+        tokio::spawn(async move { send(&app, Request::get(path).body(Body::empty()).unwrap()).await })
+    }
+
+    #[tokio::test]
+    async fn a_busy_plugin_queues_a_few_requests_and_answers_more_503_with_retry_after() {
+        let (_dir, app) = app_with(PluginRouteLimits {
+            max_concurrency: 1,
+            max_waiting: 1,
+            max_wait: LOOP_TIMEOUT * 4,
+            ..PluginRouteLimits::default()
+        })
+        .await;
+
+        // the looping plugin handles the first request until its timeout, and the second waits for its turn
+        let first = spawn_get(&app, "/api/plugins/router-loop/a");
+        tokio::time::sleep(LOOP_TIMEOUT / 5).await;
+        let second = spawn_get(&app, "/api/plugins/router-loop/b");
+        tokio::time::sleep(LOOP_TIMEOUT / 5).await;
+
+        // a third finds the queue full
+        let started = Instant::now();
+        let busy = send(&app, Request::get("/api/plugins/router-loop/c").body(Body::empty()).unwrap()).await;
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < LOOP_TIMEOUT, "refused at once, after {:?}", started.elapsed());
+        assert_eq!(busy.headers()[header::RETRY_AFTER], "1");
+        assert_eq!(
+            json_body(busy).await,
+            json!({"message": "plugin router-loop is busy: it already handles 1 requests (ZHANG_PLUGIN_MAX_CONCURRENCY); try again later"})
+        );
+        // another plugin is not held up
+        let response = send(&app, Request::get("/api/plugins/router-echo").body(Body::empty()).unwrap()).await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        // the waiting request got its turn once the first was over, and ran to its own timeout
+        assert_eq!(first.await.unwrap().status(), StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(second.await.unwrap().status(), StatusCode::GATEWAY_TIMEOUT);
+        let response = send(&app, Request::get("/api/plugins/router-loop/d").body(Body::empty()).unwrap()).await;
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn a_request_whose_turn_does_not_come_in_time_is_answered_503() {
+        let wait = LOOP_TIMEOUT / 5;
+        let (_dir, app) = app_with(PluginRouteLimits {
+            max_concurrency: 1,
+            max_wait: wait,
+            ..PluginRouteLimits::default()
+        })
+        .await;
+        let first = spawn_get(&app, "/api/plugins/router-loop/a");
+        tokio::time::sleep(LOOP_TIMEOUT / 10).await;
+
+        let started = Instant::now();
+        let busy = send(&app, Request::get("/api/plugins/router-loop/b").body(Body::empty()).unwrap()).await;
+
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(busy.headers()[header::RETRY_AFTER], "1");
+        let waited = started.elapsed();
+        assert!(waited >= wait && waited < LOOP_TIMEOUT, "answered after {waited:?}, not after waiting {wait:?}");
+        assert_eq!(first.await.unwrap().status(), StatusCode::GATEWAY_TIMEOUT);
     }
 
     #[test]

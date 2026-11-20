@@ -19,6 +19,7 @@ pub mod outcome;
 pub mod pipeline;
 #[cfg(feature = "plugin_runtime")]
 pub mod plugin;
+pub mod plugin_policy;
 pub(crate) mod process;
 
 pub mod features;

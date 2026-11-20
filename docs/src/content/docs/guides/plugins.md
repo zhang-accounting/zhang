@@ -90,9 +90,10 @@ What the sandbox prevents:
 - network access, except to the hosts in `allowed_hosts`;
 - reading files, except those `allowed_paths` grants inside the ledger root;
 - writing files, including your ledger files;
-- running longer than its `timeout`.
+- running longer than its `timeout`;
+- using more memory than the server allows, 256 MiB per plugin instance unless the `ZHANG_PLUGIN_MAX_MEMORY` environment variable of `zhang serve` sets another size (such as `512MiB`).
 
-A router plugin's pages are served from Zhang's own address. A script on such a page can call Zhang's API, including the endpoints that change your ledger files, with your browser's session.
+A router plugin's pages are served from Zhang's own address, but [sandboxed](/guides/router-plugins/#pages-are-sandboxed): a script on such a page cannot use your browser's session to call Zhang's API.
 
 Only declare plugins you trust, ideally ones whose source you can read, and grant each one only what it needs.
 
@@ -104,7 +105,7 @@ Only declare plugins you trust, ideally ones whose source you can read, and gran
 ## When a plugin goes wrong
 
 - A problem a plugin reports appears in the ledger's error list as a [`PluginError`](/reference/error-codes/#pluginerror), with the plugin's name and message, on the entry the plugin points at or on its `plugin` directive. The ledger still loads.
-- A plugin that fails, by returning an error, crashing or running past its timeout, stops the whole ledger from loading, and so does a module that cannot be loaded, such as a path where no module is. When Zhang starts, it exits with the error. While it is running, it keeps serving the last version that loaded and only logs the error: the web UI shows no error. A timeout message says which call ran too long; raise the plugin's `timeout` if it needs more time.
+- A plugin that fails, by returning an error, crashing, running past its timeout or out of memory, stops the whole ledger from loading, and so does a module that cannot be loaded, such as a path where no module is. When Zhang starts, it exits with the error. While it is running, it keeps serving the last version that loaded and only logs the error: the web UI shows no error. A timeout message says which call ran too long; raise the plugin's `timeout` if it needs more time. An out-of-memory message names the limit; raise `ZHANG_PLUGIN_MAX_MEMORY` if the plugin needs more, for example to process a very large ledger.
 
 ## Plugins, pads and balance assertions
 

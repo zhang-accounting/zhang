@@ -60,5 +60,6 @@ zhang update --verbose
 - 交易必须按商品分别平衡，并以该商品的精度计算。混用多种商品或价格却不平衡的交易，会报告为 [`UnbalancedTransaction`](/zh-cn/reference/error-codes/#unbalancedtransaction)。
 - 使用不受支持的记账方法（`NONE`、`AVERAGE`、`AVERAGE_ONLY`）或无效记账方法的账户，会带着一个错误、以默认方法加载，而不是让加载中止。见[记账方法](/zh-cn/reference/directives/account/)。
 - 浏览器的密码弹窗被登录页面取代，并且可以使用通行密钥。脚本可以继续以 HTTP Basic 请求头发送密码，见[身份认证](/zh-cn/deployment/authentication/)。
+- [Router 插件](/zh-cn/guides/router-plugins/)的页面在沙箱中运行：页面中的脚本不能再使用你的会话，从张记账加载脚本、样式、图片或 JSON 的页面需要把它们内联。插件只会收到允许列表中的请求头，也只能发送允许列表中的响应头；一个请求最多运行 30 秒；每个插件实例最多使用 256 MiB 内存，除非 `ZHANG_PLUGIN_MAX_MEMORY` 允许更多。
 
 [错误码](/zh-cn/reference/error-codes/)解释了每种错误的修复方法。

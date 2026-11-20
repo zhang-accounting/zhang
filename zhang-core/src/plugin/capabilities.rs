@@ -187,8 +187,9 @@ impl PluginDeclaration {
                 _ => {
                     if key.starts_with(RESERVED_CONFIG_PREFIX) {
                         warn!(
-                            "plugin {}: the meta key {key} is reserved for the host (prefix {RESERVED_CONFIG_PREFIX}); a value the host sets for it wins",
-                            directive.module.as_str()
+                            "plugin {}: the meta key {} is reserved for the host (prefix {RESERVED_CONFIG_PREFIX}); a value the host sets for it wins",
+                            crate::plugin::log_safe(directive.module.as_str()),
+                            crate::plugin::log_safe(&key)
                         );
                     }
                     declaration.config.insert(key, value);
