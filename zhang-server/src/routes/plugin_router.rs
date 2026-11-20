@@ -15,7 +15,8 @@
 //! - 501 when the plugin does not export `router`
 //! - 502 when it returns something that is not a valid response
 //! - 503, with `Retry-After`, when the plugin already handles [`PluginRouteLimits::max_concurrency`]
-//!   requests
+//!   requests and either [`PluginRouteLimits::max_waiting`] more wait for their turn or the turn did not
+//!   come within [`PluginRouteLimits::max_wait`]
 //! - 504 when it runs longer than its timeout
 //! - 500 when it traps, returns an error, runs out of memory or cannot be loaded
 //!
@@ -23,7 +24,9 @@
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use axum::body::{Body, Bytes};
 use axum::extract::{FromRef, State};
@@ -74,6 +77,12 @@ pub const DEFAULT_MAX_BODY: usize = 4 * 1024 * 1024;
 /// how many requests a router plugin handles at once by default, see [`PluginRouteLimits::max_concurrency`]
 pub const DEFAULT_MAX_CONCURRENCY: usize = 4;
 
+/// how many requests may wait for a busy router plugin by default, see [`PluginRouteLimits::max_waiting`]
+pub const DEFAULT_MAX_WAITING: usize = 16;
+
+/// how long a request waits for a busy router plugin by default, see [`PluginRouteLimits::max_wait`]
+pub const DEFAULT_MAX_WAIT: Duration = Duration::from_secs(5);
+
 /// the environment variable setting [`PluginRouteLimits::max_body`]
 pub const MAX_BODY_ENV: &str = "ZHANG_PLUGIN_MAX_BODY";
 
@@ -90,10 +99,15 @@ pub struct PluginRouteLimits {
     /// runs. The plugin gets the body inside a JSON document, as text or as base64, so it holds it a few times over:
     /// this keeps a request well inside the plugin's memory limit
     pub max_body: usize,
-    /// how many requests one router plugin handles at once; one more is answered 503 with `Retry-After` at once,
-    /// rather than queued. Every request holds a blocking thread, a plugin instance (up to its memory limit) and
-    /// the ledger's read lock
+    /// how many requests one router plugin handles at once. Every request holds a blocking thread, a plugin
+    /// instance (up to its memory limit) and the ledger's read lock
     pub max_concurrency: usize,
+    /// how many more requests of a router plugin that handles `max_concurrency` wait for their turn, so that an MCP
+    /// client's parallel tool calls are not refused; one more is answered 503 with `Retry-After` at once. A waiting
+    /// request holds no lock and no thread
+    pub max_waiting: usize,
+    /// how long a request waits for its turn before it is answered 503 with `Retry-After`
+    pub max_wait: Duration,
 }
 
 impl Default for PluginRouteLimits {
@@ -101,6 +115,8 @@ impl Default for PluginRouteLimits {
         PluginRouteLimits {
             max_body: DEFAULT_MAX_BODY,
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
+            max_waiting: DEFAULT_MAX_WAITING,
+            max_wait: DEFAULT_MAX_WAIT,
         }
     }
 }
@@ -110,40 +126,74 @@ impl Display for PluginRouteLimits {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "router plugins take a body of at most {} ({MAX_BODY_ENV}) and {} requests at once each ({MAX_CONCURRENCY_ENV})",
+            "router plugins take a body of at most {} ({MAX_BODY_ENV}) and {} requests at once each ({MAX_CONCURRENCY_ENV}), with {} more waiting up to {:?}",
             Size(self.max_body as u64),
-            self.max_concurrency
+            self.max_concurrency,
+            self.max_waiting,
+            self.max_wait
         )
+    }
+}
+
+/// The requests of one router plugin: those it handles, and those waiting for their turn.
+struct Gate {
+    /// [`PluginRouteLimits::max_concurrency`] permits, one per request the plugin handles
+    permits: Arc<Semaphore>,
+    /// how many requests wait for a permit
+    waiting: AtomicUsize,
+}
+
+/// one request waiting at a [`Gate`]; it stops counting when it gets its turn, gives up, or its client goes away
+struct Waiting(Arc<Gate>);
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.0.waiting.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
 /// The state of the plugin routes: their limits, and the requests each router plugin handles now.
 pub struct PluginRoutes {
     limits: PluginRouteLimits,
-    /// a semaphore of [`PluginRouteLimits::max_concurrency`] permits per router plugin, by name. A name gets one on
-    /// its first request that a router plugin serves, so the map holds the router plugins the server served at most
-    in_flight: Mutex<HashMap<String, Arc<Semaphore>>>,
+    /// a [`Gate`] per router plugin, by name. A name gets one on its first request that a router plugin serves, so
+    /// the map holds the router plugins the server served at most
+    gates: Mutex<HashMap<String, Arc<Gate>>>,
 }
 
 impl PluginRoutes {
     pub fn new(limits: PluginRouteLimits) -> Self {
         PluginRoutes {
             limits,
-            in_flight: Mutex::new(HashMap::new()),
+            gates: Mutex::new(HashMap::new()),
         }
     }
 
-    /// a permit for one more request of the router plugin `name`, held until the plugin returns; `None` when it
-    /// already handles as many as it may
-    fn try_acquire(&self, name: &str) -> Option<OwnedSemaphorePermit> {
-        let semaphore = self
-            .in_flight
+    /// A permit for one more request of the router plugin `name`, held until the plugin returns. When the plugin
+    /// already handles as many as it may, the request waits for its turn, as one of at most
+    /// [`PluginRouteLimits::max_waiting`] and for at most [`PluginRouteLimits::max_wait`]; `None` when it cannot
+    async fn acquire(&self, name: &str) -> Option<OwnedSemaphorePermit> {
+        let gate = self
+            .gates
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(name.to_owned())
-            .or_insert_with(|| Arc::new(Semaphore::new(self.limits.max_concurrency)))
+            .or_insert_with(|| {
+                Arc::new(Gate {
+                    permits: Arc::new(Semaphore::new(self.limits.max_concurrency)),
+                    waiting: AtomicUsize::new(0),
+                })
+            })
             .clone();
-        semaphore.try_acquire_owned().ok()
+        if let Ok(permit) = gate.permits.clone().try_acquire_owned() {
+            return Some(permit);
+        }
+        let waiting = Waiting(gate.clone());
+        if gate.waiting.fetch_add(1, Ordering::SeqCst) >= self.limits.max_waiting {
+            return None;
+        }
+        let permit = tokio::time::timeout(self.limits.max_wait, gate.permits.clone().acquire_owned()).await;
+        drop(waiting);
+        permit.ok()?.ok()
     }
 }
 
@@ -276,20 +326,17 @@ impl RouterHost for ServerRouterHost {
 }
 
 async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest) -> Response {
-    // the plugin runs under the read lock, so the ledger cannot reload while it reads it
-    let host = Arc::new(ServerRouterHost {
-        ledger: state.ledger.0.clone().read_owned().await,
-        max_result_values: max_result_values(),
-    });
-    if host.ledger.plugins.router(&name).is_none() {
+    // the read lock is held for the look-up only: a request waiting for its turn below must not hold it, since a
+    // writer queued behind it would keep every other reader of the server waiting too
+    if state.ledger.read().await.plugins.router(&name).is_none() {
         return error_response(StatusCode::NOT_FOUND, format!("no router plugin is named {name}"));
     }
-    // a busy plugin is answered at once: queueing would hold the read lock and a blocking thread per waiting request
-    let Some(permit) = state.routes.try_acquire(&name) else {
+    // a busy plugin makes a few requests wait a few seconds for their turn, and answers any more 503 at once
+    let Some(permit) = state.routes.acquire(&name).await else {
         let mut response = error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             format!(
-                "plugin {name} already handles {} requests ({MAX_CONCURRENCY_ENV}); try again later",
+                "plugin {name} is busy: it already handles {} requests ({MAX_CONCURRENCY_ENV}); try again later",
                 state.routes.limits.max_concurrency
             ),
         );
@@ -298,6 +345,12 @@ async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest)
             .insert(header::RETRY_AFTER, HeaderValue::from_static(RETRY_AFTER_SECONDS));
         return response;
     };
+    // the plugin runs under the read lock, so the ledger cannot reload while it reads it; a reload that removed the
+    // plugin while the request waited answers 404 below
+    let host = Arc::new(ServerRouterHost {
+        ledger: state.ledger.0.clone().read_owned().await,
+        max_result_values: max_result_values(),
+    });
     let summary = format!("{} {}", request.method, request.path);
     let plugin_name = name.clone();
     // instantiating and running a plugin is CPU-bound and may block, so it stays off the async workers. The permit
@@ -652,37 +705,69 @@ mod test {
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
+    /// send `path` of `app` in the background
+    fn spawn_get(app: &Router, path: &'static str) -> tokio::task::JoinHandle<Response> {
+        let app = app.clone();
+        tokio::spawn(async move { send(&app, Request::get(path).body(Body::empty()).unwrap()).await })
+    }
+
     #[tokio::test]
-    async fn a_busy_plugin_answers_503_with_retry_after() {
+    async fn a_busy_plugin_queues_a_few_requests_and_answers_more_503_with_retry_after() {
         let (_dir, app) = app_with(PluginRouteLimits {
             max_concurrency: 1,
+            max_waiting: 1,
+            max_wait: LOOP_TIMEOUT * 4,
             ..PluginRouteLimits::default()
         })
         .await;
 
-        // the looping plugin holds its only permit until its timeout; the first request takes it while the test sleeps
-        let looping = tokio::spawn({
-            let app = app.clone();
-            async move { send(&app, Request::get("/api/plugins/router-loop/x").body(Body::empty()).unwrap()).await }
-        });
+        // the looping plugin handles the first request until its timeout, and the second waits for its turn
+        let first = spawn_get(&app, "/api/plugins/router-loop/a");
+        tokio::time::sleep(LOOP_TIMEOUT / 5).await;
+        let second = spawn_get(&app, "/api/plugins/router-loop/b");
         tokio::time::sleep(LOOP_TIMEOUT / 5).await;
 
-        let busy = send(&app, Request::get("/api/plugins/router-loop/y").body(Body::empty()).unwrap()).await;
-
+        // a third finds the queue full
+        let started = Instant::now();
+        let busy = send(&app, Request::get("/api/plugins/router-loop/c").body(Body::empty()).unwrap()).await;
         assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < LOOP_TIMEOUT, "refused at once, after {:?}", started.elapsed());
         assert_eq!(busy.headers()[header::RETRY_AFTER], "1");
         assert_eq!(
             json_body(busy).await,
-            json!({"message": "plugin router-loop already handles 1 requests (ZHANG_PLUGIN_MAX_CONCURRENCY); try again later"})
+            json!({"message": "plugin router-loop is busy: it already handles 1 requests (ZHANG_PLUGIN_MAX_CONCURRENCY); try again later"})
         );
         // another plugin is not held up
         let response = send(&app, Request::get("/api/plugins/router-echo").body(Body::empty()).unwrap()).await;
         assert_eq!(response.status(), StatusCode::CREATED);
 
-        // once the first request is over, the plugin takes requests again
-        assert_eq!(looping.await.unwrap().status(), StatusCode::GATEWAY_TIMEOUT);
-        let response = send(&app, Request::get("/api/plugins/router-loop/z").body(Body::empty()).unwrap()).await;
+        // the waiting request got its turn once the first was over, and ran to its own timeout
+        assert_eq!(first.await.unwrap().status(), StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(second.await.unwrap().status(), StatusCode::GATEWAY_TIMEOUT);
+        let response = send(&app, Request::get("/api/plugins/router-loop/d").body(Body::empty()).unwrap()).await;
         assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn a_request_whose_turn_does_not_come_in_time_is_answered_503() {
+        let wait = LOOP_TIMEOUT / 5;
+        let (_dir, app) = app_with(PluginRouteLimits {
+            max_concurrency: 1,
+            max_wait: wait,
+            ..PluginRouteLimits::default()
+        })
+        .await;
+        let first = spawn_get(&app, "/api/plugins/router-loop/a");
+        tokio::time::sleep(LOOP_TIMEOUT / 10).await;
+
+        let started = Instant::now();
+        let busy = send(&app, Request::get("/api/plugins/router-loop/b").body(Body::empty()).unwrap()).await;
+
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(busy.headers()[header::RETRY_AFTER], "1");
+        let waited = started.elapsed();
+        assert!(waited >= wait && waited < LOOP_TIMEOUT, "answered after {waited:?}, not after waiting {wait:?}");
+        assert_eq!(first.await.unwrap().status(), StatusCode::GATEWAY_TIMEOUT);
     }
 
     #[test]

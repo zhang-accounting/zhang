@@ -282,6 +282,7 @@ mod test {
                 routes: PluginRouteLimits {
                     max_body: MIB as usize,
                     max_concurrency: 2,
+                    ..PluginRouteLimits::default()
                 },
             })
         );
