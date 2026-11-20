@@ -60,6 +60,7 @@ Some changes do not trigger a reload:
 
 - A new file that matches a wildcard include, such as `include "data/*.zhang"`, is loaded with the next reload only. Use the reload button, or save one of the ledger's files.
 - Changes in `.zhang/` and `.cache/` inside the ledger folder, and in files that are not part of the ledger.
+- Edits made by another machine to a ledger folder on a network mount (NFS, SMB, a folder shared from a NAS): file watching only sees the changes made through the machine Zhang runs on. Reload with the reload button, or with `POST /api/reload`, after such an edit; a script can call it when it is done writing.
 
 The folder can be named any way: `zhang serve .`, a relative path such as `zhang serve ../ledger`, or a path through a symbolic link such as `/tmp/…` on macOS. Zhang resolves it to its real location when it starts, and watches that.
 

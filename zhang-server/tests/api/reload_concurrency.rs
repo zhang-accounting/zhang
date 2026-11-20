@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use axum::extract::{Path as UrlPath, State};
 use axum::http::{Method, StatusCode};
+use axum::response::IntoResponse;
 use axum::routing::any;
 use axum::{Json, Router};
 use serde_json::{json, Value};
@@ -20,13 +21,13 @@ use zhang_core::data_source::{DataSource, LoadResult, SourceEntry};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin_policy::{PluginLevel, PluginPolicy};
 use zhang_core::{ZhangError, ZhangResult};
-use zhang_server::broadcast::Broadcaster;
+use zhang_server::broadcast::{BroadcastEvent, Broadcaster};
 use zhang_server::request::JournalRequest;
-use zhang_server::routes::common::get_basic_info;
+use zhang_server::routes::common::{get_basic_info, sse};
 use zhang_server::routes::plugin_router::{route_to_plugin, PluginRouteState, ROUTE};
 use zhang_server::routes::transaction::{create_new_transaction, delete_single_transaction, get_journals, update_single_transaction};
 use zhang_server::routes::{IdempotencyKey, IfMatch, Query as UrlQuery, RequiredIfMatch};
-use zhang_server::state::{SharedLedger, SharedReloadSender};
+use zhang_server::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use zhang_server::{on_file_events, start_reload_listener, watch, ReloadSender};
 use zhang_testkit::fixtures::data_source_for;
 use zhang_testkit::http::{answer, json_request, respond, send, Answer};
@@ -574,7 +575,7 @@ async fn an_edit_during_a_reload_to_a_file_it_newly_includes_is_served() {
         let edit = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Data(notify::event::DataChange::Content))).add_path(data.clone());
         tokio::spawn(async move {
             let roots = watch::watch_roots(served.scratch.dir());
-            on_file_events(&served.ledger, &served.reload_sender, &roots, &[edit]).await
+            on_file_events(&served.ledger, &served.reload_sender, &roots, &[Ok(edit)]).await
         })
     };
     waits(&watcher, "the watcher").await;
@@ -689,4 +690,93 @@ async fn the_watchers_reload_after_a_write_loads_only_an_edit_outside() {
     served.reload_sender.reload_and_wait().await.unwrap();
     assert_eq!(loads(), before + 7, "the watcher's reload loads while the last reload failed");
     assert!(served.reload_sender.last_failure().is_none());
+}
+
+/// An update whose client goes away while the update reloads: the version it replaced is a tombstone already,
+/// recorded with the write, so once an edit outside restores the transaction as it was, the update sent again with that
+/// version is refused (#818) rather than applied a second time
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_update_whose_client_goes_away_while_it_reloads_keeps_its_tombstone() {
+    let coffee_text = "\n2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n";
+    let served = Served::with_main(&format!("{OPENS}{coffee_text}"));
+    let original = served.read("main.zhang");
+    let coffee = served.transactions().await.pop().expect("a transaction");
+    let (id, version) = (coffee["id"].as_str().unwrap().to_owned(), coffee["version"].as_str().unwrap().to_owned());
+    let tea = || {
+        json!({
+            "datetime": "2024-01-02T12:00:00", "payee": "Cafe", "narration": "tea",
+            "postings": [{"account": "Assets:Cash", "unit": "-4 CNY"}, {"account": "Expenses:Food", "unit": null}],
+            "metas": [], "tags": [], "links": [],
+        })
+    };
+    served.gate.close();
+    let update = {
+        let (served, id, version, tea) = (served.clone(), id.clone(), version.clone(), tea());
+        tokio::spawn(async move { served.update(&id, &version, tea).await })
+    };
+    served.gate.a_load_waits().await;
+    // the client goes away: its request is dropped during the reload
+    update.abort();
+    assert!(update.await.unwrap_err().is_cancelled());
+    assert!(served.read("main.zhang").contains("\"tea\""), "the update is in the files");
+    served.gate.open();
+    let uuid = uuid::Uuid::parse_str(&id).unwrap();
+    assert!(
+        served.reload_sender.tombstones().contains(uuid, &version),
+        "the version replaced is a tombstone"
+    );
+
+    // an edit outside undoes the update: the coffee is back, at its place, with its id and its version
+    served.scratch.write("main.zhang", &original);
+    let (status, body) = served.update(&id, &version, tea()).await;
+    assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{body}");
+    assert_eq!(served.read("main.zhang"), original, "nothing is written");
+}
+
+/// The file watcher reports that it lost events (its queue overflowed: a rescan), or an error: any change may be
+/// hidden, so the ledger is reloaded, though no event names a file of it
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_watcher_that_lost_events_reloads() {
+    let served = Served::with_main(OPENS);
+    let roots = watch::watch_roots(served.scratch.dir());
+    let loads = || served.gate.loads.load(Ordering::SeqCst);
+    let rescan = || Ok(notify::Event::new(notify::EventKind::Other).set_flag(notify::event::Flag::Rescan));
+    let failed = || Err(notify::Error::generic("the watcher failed"));
+    for (lost, account) in [(rescan(), "Expenses:Tea"), (failed(), "Expenses:Coffee")] {
+        // an edit outside, which the watcher did not report
+        let main = served.read("main.zhang");
+        served.scratch.write("main.zhang", &format!("{main}1970-01-01 open {account}\n"));
+        let before = loads();
+        on_file_events(&served.ledger, &served.reload_sender, &roots, &[lost]).await;
+        // a reload that loads, after the watcher's: the listener runs them in turn
+        served.reload_sender.reload_and_wait().await.unwrap();
+        assert_eq!(loads(), before + 2, "the watcher's reload loads, then the one after it");
+        assert!(served.accounts().await.contains(&account.to_owned()), "the edit is served");
+    }
+    // nothing lost, nothing changed: no reload
+    let before = loads();
+    on_file_events(&served.ledger, &served.reload_sender, &roots, &[]).await;
+    served.reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(loads(), before + 1);
+}
+
+/// An SSE client that does not read and would miss a reload event is let go: its stream gives what its buffer holds,
+/// then ends, so the client connects again and fetches anew
+#[tokio::test]
+async fn the_stream_of_an_sse_client_that_would_miss_a_reload_ends() {
+    let broadcaster = Broadcaster::create();
+    let stream = sse(State(SharedBroadcaster(broadcaster.clone()))).await.into_response();
+    for _ in 0..10 {
+        broadcaster.broadcast(BroadcastEvent::Reload).await;
+    }
+    assert_eq!(broadcaster.client_number().await, 0, "the client is let go");
+    let body = tokio::time::timeout(Duration::from_secs(10), axum::body::to_bytes(stream.into_body(), usize::MAX))
+        .await
+        .expect("the stream ends")
+        .expect("the stream");
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(text.contains("\"type\":\"Connected\""), "{text}");
+    // the buffer holds 10 events: `Connected`, a ping maybe, and the reloads
+    let reloads = text.matches("\"type\":\"Reload\"").count();
+    assert!((8..=9).contains(&reloads), "{text}");
 }
