@@ -786,6 +786,44 @@ async fn long_arguments_are_capped_and_whitespace_is_trimmed_in_linear_time() {
     assert_eq!(reply.status, 403, "{}", reply.text());
 }
 
+/// The `query` tool asks the engine for no more rows than it returns: a SELECT without a LIMIT of its own gets one
+/// appended (one row over the tool's `limit`, to tell `truncated`), after an ORDER BY and a trailing comment too. A
+/// query with its own LIMIT runs as written and is cut, and an error is the query's own, at its own position, also
+/// when the appended line is what the parser trips on (#804 review)
+#[tokio::test]
+async fn the_query_tool_pushes_its_limit_into_the_bql() {
+    let dir = ledger_dir("");
+    let router = server(&dir, &Settings::default()).await;
+    let accounts = |rows: &Value| -> Vec<String> { rows["rows"].as_array().unwrap().iter().map(|row| row[0].as_str().unwrap().to_owned()).collect() };
+
+    let first = structured(&router, "query", json!({"bql": "SELECT account FROM #accounts ORDER BY account", "limit": 2})).await;
+    assert_eq!(accounts(&first), vec!["Assets:Bank", "Assets:Cash"]);
+    assert_eq!((&first["row_count"], &first["truncated"]), (&json!(2), &json!(true)));
+    let last = structured(
+        &router,
+        "query",
+        json!({"bql": "SELECT account FROM #accounts ORDER BY account DESC -- newest first", "limit": 1}),
+    )
+    .await;
+    assert_eq!(accounts(&last), vec!["Liabilities:Card"]);
+    let all = structured(&router, "query", json!({"bql": "SELECT account FROM #accounts", "limit": 50})).await;
+    assert_eq!((&all["row_count"], &all["truncated"]), (&json!(8), &json!(false)));
+    let own = structured(
+        &router,
+        "query",
+        json!({"bql": "SELECT account FROM #accounts ORDER BY account LIMIT 3", "limit": 2}),
+    )
+    .await;
+    assert_eq!(accounts(&own), vec!["Assets:Bank", "Assets:Cash"]);
+    assert_eq!(own["truncated"], true);
+
+    let message = error_text(&router, "query", json!({"bql": "SELECT nope FROM #accounts"})).await;
+    assert!(message.starts_with("query error at line 1, column 8: "), "{message}");
+    // the parser trips on the appended line: the query runs as written, and its own error is told
+    let message = error_text(&router, "query", json!({"bql": "SELECT account FROM #accounts WHERE"})).await;
+    assert!(message.starts_with("query error at line 1, column "), "{message}");
+}
+
 /// Of several problems in a call, the first by name is told, the same on every call: the interpreter seeds its string
 /// hash at random, so the order `pairs` visits the arguments in changes from one request to the next
 #[tokio::test]

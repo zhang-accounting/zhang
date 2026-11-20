@@ -632,6 +632,27 @@ LIMIT :limit OFFSET :offset]])
 -- structuredContent; a failure is isError: true with the message as text and no structuredContent (a client
 -- validating structuredContent against the outputSchema would otherwise reject the error itself).
 
+-- The result of the model's `bql`, `fetch` rows asked for (one more than the tool's limit, to tell `truncated`). A SELECT
+-- without a LIMIT of its own gets `LIMIT <fetch>` on a line after it, so the engine stops early (without ORDER BY) and
+-- the host encodes, and the script decodes, no more rows than that: decoding a whole ledger's postings to keep 200 of
+-- them took 5 s at 100 000 transactions. A query the line cannot extend (its own LIMIT, a PIVOT, a statement other
+-- than SELECT, a trailing `;`, or the word LIMIT in a string) runs as written and is cut here, and so does one whose
+-- error is on the appended line; any other error is the query's own, at the position it has in the text as written.
+local function query_rows(bql, fetch)
+  local text = trim(bql)
+  local upper = text:upper()
+  local extendable = upper:find("^SELECT%f[^%w_]") ~= nil and text:sub(-1) ~= ";"
+    and not upper:find("%f[%w_]LIMIT%f[^%w_]") and not upper:find("%f[%w_]PIVOT%f[^%w_]")
+  if extendable then
+    local ok, result = pcall(zhang.query, text .. "\nLIMIT " .. fetch)
+    if ok then return result end
+    local line = tonumber(error_text(result):match("^query error at line (%d+),"))
+    local _, breaks = text:gsub("\n", "\n")
+    if line ~= breaks + 2 then error(result, 0) end
+  end
+  return zhang.query(bql)
+end
+
 -- structuredContent of a rows tool: the result, at most `limit` rows
 local function shape_rows(result, limit)
   local rows, kept = result.rows or json.array(), json.array()
@@ -797,7 +818,7 @@ local TOOLS = {
     { required("bql", "str", "the query text", { max = MAX_BQL }), LIMIT }, ROWS, function(call)
       local limit = call:limit()
       if trim(call.args.bql) == "" then tool_error("the argument `bql` must not be empty") end
-      return shape_rows(zhang.query(call.args.bql), limit)
+      return shape_rows(query_rows(call.args.bql, call:fetch()), limit)
     end),
   tool("accounts", "Accounts",
     "The accounts of the ledger with their open and close dates, alias and status now. Give `prefix` for one account and "
