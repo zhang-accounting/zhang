@@ -185,7 +185,12 @@ async fn a_padding_whose_difference_has_too_many_digits_is_refused() {
     };
     let (status, body) = respond(create_account_balance(State(ledger.clone()), reload(), UrlPath(("Assets:Cash".to_owned(),)), Json(pad("1e999"))).await).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body["message"].as_str().unwrap().contains("it has 1001 digits"), "{body}");
+    let message = body["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("the pad difference of Assets:Cash in CNY, the balance asked for minus the one held, is out of range")
+            && message.contains("it has 1001 digits"),
+        "{body}"
+    );
     assert_eq!(scratch.read("main.bean"), main, "nothing is written");
     assert!(!scratch.dir().join("data").exists(), "nothing is written");
 

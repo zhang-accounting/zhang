@@ -318,8 +318,18 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date) -> Serv
     for row in &rows {
         let Some(source) = &row.pad else { continue };
         let difference = &row.amount.number - expected(row.account.name(), &row.amount.commodity)?;
-        // computed, and written as the padding's units: bounded as a number of the request is
-        crate::validate::number(&difference)?;
+        // computed, and written as the padding's units: bounded as a number of the request is, and told as what it is
+        let digits = crate::validate::written_digits(&difference);
+        if digits > crate::validate::MAX_WRITTEN_DIGITS {
+            return Err(refused(format!(
+                "the pad difference of {account} in {commodity}, the balance asked for minus the one held, is out of range: \
+                 written out in full it has {digits} digits, before and after its point together, and a number a write \
+                 writes has at most {max}",
+                account = row.account.name(),
+                commodity = row.amount.commodity,
+                max = crate::validate::MAX_WRITTEN_DIGITS,
+            )));
+        }
         if !difference.is_zero() {
             append.push(padding(
                 now.clone(),
