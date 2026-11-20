@@ -14,6 +14,7 @@ mod day_order;
 mod error_bodies;
 mod error_lines;
 mod journals_engine;
+mod number_bounds;
 mod open_commodities;
 mod paging_contract;
 mod plain_numbers;
