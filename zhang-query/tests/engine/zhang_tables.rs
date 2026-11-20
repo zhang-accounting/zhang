@@ -351,9 +351,10 @@ fn errors_come_by_file_then_position() {
         ])
     );
     // meta() reads what zhang records about the error, and metas lists it all, sorted by key
+    // every error at a transaction names it, the unknown account the fold reports as the unbalanced one
     assert_eq!(
         query("SELECT kind FROM #errors WHERE meta('txn_id') IS NOT NULL"),
-        rows(&[&["UnbalancedTransaction"]])
+        rows(&[&["AccountDoesNotExist"], &["UnbalancedTransaction"]])
     );
     assert_eq!(
         query("SELECT kind, metas FROM #errors WHERE kind IN ('AccountBalanceCheckError', 'MultipleOperatingCurrencyDetect')"),

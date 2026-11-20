@@ -788,7 +788,11 @@ impl Ledger {
     }
 
     /// give every transaction the load accepted the errors reported at its place, the file and the offset of its
-    /// directive: the first of the transactions sharing a place takes them, in the order zhang processed the ledger
+    /// directive: the first of the transactions sharing a place takes them, in the order zhang processed the ledger.
+    /// Each of them names the transaction in its `txn_id` meta, those the fold reported (an account that does not
+    /// exist or is closed) as those of the stages: an error's id is its own, so `txn_id` is what links it to the
+    /// transaction. One that names a transaction already, as the stages' errors of a transaction sharing a place with
+    /// others do, keeps it
     fn place_errors(&mut self) {
         /// the place of `span`, its file compared as a string, as ids are derived from it
         fn place(span: &SpanInfo) -> (Option<&OsStr>, usize) {
@@ -800,10 +804,15 @@ impl Ledger {
                 at_place.entry(place(span)).or_default().push(index);
             }
         }
+        let mut named = vec![];
         for (directive, outcome) in self.directives.iter().zip(&mut self.outcomes) {
-            if let Detail::Transaction { errors, .. } = &mut outcome.detail {
+            if let Detail::Transaction { id, errors } = &mut outcome.detail {
                 *errors = at_place.remove(&place(&directive.span)).unwrap_or_default();
+                named.extend(errors.iter().map(|index| (*index, *id)));
             }
+        }
+        for (index, id) in named {
+            self.errors[index].metas.entry(TXN_ID.to_owned()).or_insert_with(|| id.to_string());
         }
     }
 
@@ -1421,6 +1430,51 @@ mod test {
         std::fs::write(example, content).unwrap();
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
+    }
+
+    /// Every error at a transaction names it in `txn_id`, those the fold reports included (an account that does not
+    /// exist, or is closed), which carried none: before, their id was the transaction's, which linked them to it
+    #[test]
+    fn every_error_of_a_transaction_names_it() {
+        let ledger = load_from_temp_str(indoc! {r#"
+            option "operating_currency" "USD"
+            1970-01-01 open Assets:Cash
+            1970-01-01 open Expenses:Old
+            2024-01-01 close Expenses:Old
+            2024-01-02 * "lunch"
+              Expenses:Missing 1 USD
+              Assets:Cash -1 USD
+            2024-01-03 * "dinner"
+              Expenses:Old 2 USD
+              Assets:Cash -2 USD
+        "#});
+        let id_of = |narration: &str| {
+            let (id, _) = ledger
+                .transactions()
+                .into_iter()
+                .find(|(_, transaction)| {
+                    [&transaction.payee, &transaction.narration]
+                        .into_iter()
+                        .any(|text| text.as_ref().map(|it| it.as_str()) == Some(narration))
+                })
+                .unwrap_or_else(|| panic!("no transaction {narration}"));
+            id.to_string()
+        };
+        let named = |kind: ErrorKind| -> Vec<Option<String>> {
+            ledger
+                .errors
+                .iter()
+                .filter(|error| error.error_type == kind)
+                .map(|error| error.metas.get(crate::constants::TXN_ID).cloned())
+                .collect()
+        };
+
+        assert_eq!(named(ErrorKind::AccountDoesNotExist), vec![Some(id_of("lunch"))]);
+        assert_eq!(named(ErrorKind::AccountClosed), vec![Some(id_of("dinner"))]);
+        // the transaction lists them, and the error keeps an id of its own
+        for error in ledger.errors.iter().filter(|error| error.metas.contains_key(crate::constants::TXN_ID)) {
+            assert_ne!(error.id, error.metas[crate::constants::TXN_ID], "{error:?}");
+        }
     }
 
     /// No two errors of a load share an id, two of one kind at one directive included, and a reload of the same files
@@ -3068,13 +3122,16 @@ mod test {
         }
 
         /// reported errors in store order, with the first line of their span and their metas
+        /// the errors with the first line of their span and their metas but `txn_id`, which every error at a
+        /// transaction carries (`every_error_of_a_transaction_names_it`)
         fn errors(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
             ledger
                 .errors
                 .iter()
                 .map(|it| {
                     let span = it.span.as_ref().and_then(|span| span.content.lines().next()).unwrap_or_default();
-                    (it.error_type.clone(), span.to_owned(), it.metas.clone().into_iter().collect())
+                    let metas = it.metas.clone().into_iter().filter(|(key, _)| key != crate::constants::TXN_ID).collect();
+                    (it.error_type.clone(), span.to_owned(), metas)
                 })
                 .collect_vec()
         }
