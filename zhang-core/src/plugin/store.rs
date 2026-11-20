@@ -379,6 +379,8 @@ mod test {
                 r#"{"module":"fx-rate.wasm","args":["positional"],"meta":{"allowed_hosts":["api.frankfurter.dev","api.example.com"],"base_currency":["USD"],"operating_currency":["EUR"],"tag":["first","second"],"zhang.mine":["kept"]}}"#,
             ),
             ("zhang.seed", "1811957226761548848"),
+            ("zhang.allowed_hosts", r#"["api.frankfurter.dev","api.example.com"]"#),
+            ("zhang.timeout_ms", "60000"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))

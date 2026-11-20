@@ -86,7 +86,8 @@ const SEED_KEY: &str = "seed";
 const STAGE_KEY: &str = "stage";
 
 pub use zhang_shared::plugin_abi::config::{
-    ABI as ABI_CONFIG_KEY, PLUGIN as PLUGIN_CONFIG_KEY, RESERVED_PREFIX as RESERVED_CONFIG_PREFIX, SEED as SEED_CONFIG_KEY,
+    ABI as ABI_CONFIG_KEY, ALLOWED_HOSTS as ALLOWED_HOSTS_CONFIG_KEY, PLUGIN as PLUGIN_CONFIG_KEY, RESERVED_PREFIX as RESERVED_CONFIG_PREFIX,
+    SEED as SEED_CONFIG_KEY, TIMEOUT_MS as TIMEOUT_MS_CONFIG_KEY,
 };
 /// The plugin's directive as written, which the plugin receives as JSON under the config key
 /// [`PLUGIN_CONFIG_KEY`] (`zhang.plugin`): its positional arguments and every value of its meta keys.
@@ -225,16 +226,20 @@ impl PluginDeclaration {
     }
 
     /// the config values the host sets under [`RESERVED_CONFIG_PREFIX`] for this plugin:
-    /// [`ABI_CONFIG_KEY`], [`PLUGIN_CONFIG_KEY`] and [`SEED_CONFIG_KEY`]. `occurrence` is the number of
-    /// `plugin` directives before this one declaring the same module. Pass them to
-    /// [`PluginDeclaration::config_with`]
+    /// [`ABI_CONFIG_KEY`], [`PLUGIN_CONFIG_KEY`], [`SEED_CONFIG_KEY`], and the capabilities the plugin has, which the
+    /// operator's policy may have bounded ([`PluginCapabilities::bound_by`]): [`ALLOWED_HOSTS_CONFIG_KEY`] and
+    /// [`TIMEOUT_MS_CONFIG_KEY`]. `occurrence` is the number of `plugin` directives before this one declaring the same
+    /// module. Pass them to [`PluginDeclaration::config_with`]
     pub fn host_config(&self, occurrence: usize) -> Vec<(String, String)> {
         let directive = serde_json::to_string(&self.directive).expect("strings, arrays and maps of strings always serialize to JSON");
         let seed = plugin_seed(&self.directive.module, occurrence, self.capabilities.seed.as_deref());
+        let allowed_hosts = serde_json::to_string(&self.capabilities.allowed_hosts).expect("strings always serialize to JSON");
         vec![
             (ABI_CONFIG_KEY.to_owned(), ABI_VERSION.to_string()),
             (PLUGIN_CONFIG_KEY.to_owned(), directive),
             (SEED_CONFIG_KEY.to_owned(), seed.to_string()),
+            (ALLOWED_HOSTS_CONFIG_KEY.to_owned(), allowed_hosts),
+            (TIMEOUT_MS_CONFIG_KEY.to_owned(), self.capabilities.timeout.as_millis().to_string()),
         ]
     }
 
@@ -772,6 +777,8 @@ mod test {
                     r#"{"module":"fx-rate.wasm","args":["USD","strict \"mode\""],"meta":{"allowed_hosts":["b.example","a.example"],"base_currency":["USD"],"tag":["first","second"]}}"#
                 ),
                 ("zhang.seed", "1811957226761548848"),
+                ("zhang.allowed_hosts", r#"["b.example","a.example"]"#),
+                ("zhang.timeout_ms", "60000"),
             ])
         );
     }
@@ -786,8 +793,28 @@ mod test {
                 ("zhang.abi", "1"),
                 ("zhang.plugin", r#"{"module":"fx-rate.wasm","args":[],"meta":{}}"#),
                 ("zhang.seed", "1811957226761548848"),
+                ("zhang.allowed_hosts", "[]"),
+                ("zhang.timeout_ms", "60000"),
             ])
         );
+    }
+
+    #[test]
+    fn should_hand_the_plugin_the_capabilities_the_policy_left_it() {
+        let mut declaration = PluginDeclaration::parse(&directive(&[("allowed_hosts", "*"), ("timeout", "2m")]));
+        let policy = PluginPolicy {
+            allowed_hosts: vec!["api.example.com".to_owned()],
+            ..PluginPolicy::default()
+        };
+        declaration.capabilities.bound_by(&policy, declaration.declares_timeout());
+
+        let config = declaration.config_with(&[], declaration.host_config(0));
+
+        assert_eq!(config["zhang.allowed_hosts"], r#"["api.example.com"]"#);
+        assert_eq!(config["zhang.timeout_ms"], "30000");
+        // what the directive asked for stays where it always was
+        assert_eq!(config["timeout"], "2m");
+        assert!(config["zhang.plugin"].contains(r#""allowed_hosts":["*"]"#), "{}", config["zhang.plugin"]);
     }
 
     #[test]
@@ -804,6 +831,8 @@ mod test {
                     r#"{"module":"fx-rate.wasm","args":[],"meta":{"zhang.abi":["0"],"zhang.plugin":["from meta"],"zhang.seed":["7"]}}"#
                 ),
                 ("zhang.seed", "1811957226761548848"),
+                ("zhang.allowed_hosts", "[]"),
+                ("zhang.timeout_ms", "60000"),
             ])
         );
     }
