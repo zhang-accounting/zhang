@@ -308,11 +308,17 @@ impl Ledger {
     }
 
     /// The values of the metadata `key` of the `open` of `account` in effect at the wall-clock time `at` in the ledger's
-    /// timezone ([`AccountLifecycle::open_meta_values`]): those of its latest `open` at or before `at`, each once, so a
-    /// later `open` replaces them and a `close` changes nothing. Empty when that `open` has no `key`, `None` before the
-    /// account's first `open`.
+    /// timezone ([`AccountLifecycle::open_meta_values`]): those of its latest `open` at or before `at`, each once and
+    /// sorted (a set), so a later `open` replaces them and a `close` changes nothing. Empty when that `open` has no
+    /// `key`, `None` before the account's first `open`.
     pub fn open_meta_values_at(&self, account: &str, key: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
         self.lifecycle.open_meta_values(account, key, at)
+    }
+
+    /// The accounts of every value of the metadata `key`: for each value, the accounts an `open` gives it to, at any
+    /// time ([`AccountLifecycle::open_meta_accounts`]).
+    pub fn open_meta_accounts(&self, key: &str) -> HashMap<String, BTreeSet<String>> {
+        self.lifecycle.open_meta_accounts(key)
     }
 
     /// The budgets a posting of `account` at the wall-clock time `at` in the ledger's timezone counts in: an alias of
@@ -323,9 +329,10 @@ impl Ledger {
         self.open_meta_values_at(account, "budget", at)
     }
 
-    /// The accounts of every budget: those an `open` names it in with its `budget` metadata, at any time.
+    /// The accounts of every budget: those an `open` names it in with its `budget` metadata, at any time. An alias of
+    /// [`Ledger::open_meta_accounts`] with the key `budget`.
     pub fn budget_accounts(&self) -> HashMap<String, BTreeSet<String>> {
-        self.lifecycle.open_meta_accounts("budget")
+        self.open_meta_accounts("budget")
     }
 
     /// The error a directive dated `at`, at the wall-clock time of the ledger's timezone, would raise by using `account`
