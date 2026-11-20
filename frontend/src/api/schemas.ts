@@ -306,6 +306,13 @@ export interface paths {
      * @description Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
      * of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
      * gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
+     *
+     * With an `Idempotency-Key` header, the key identifies the client's action, not the transaction it sends: the
+     * transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the same key,
+     * whatever its body, writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`. The
+     * ledger is looked up while the create holds it to write, as every write does, and as reloaded after the write
+     * before it: two creates with one key, sent at once, write once. A request with the header and its own
+     * `idempotency-key` in `metas` is refused; without the header, that is metadata like any other.
      */
     post: operations['create_new_transaction'];
   };
@@ -2277,8 +2284,21 @@ export interface operations {
    * @description Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
    * of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
    * gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
+   *
+   * With an `Idempotency-Key` header, the key identifies the client's action, not the transaction it sends: the
+   * transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the same key,
+   * whatever its body, writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`. The
+   * ledger is looked up while the create holds it to write, as every write does, and as reloaded after the write
+   * before it: two creates with one key, sent at once, write once. A request with the header and its own
+   * `idempotency-key` in `metas` is refused; without the header, that is metadata like any other.
    */
   create_new_transaction: {
+    parameters: {
+      header?: {
+        /** @description what identifies the client's action: a create sent again with the key of a transaction the ledger has writes nothing, and answers that transaction, with `Idempotency-Replayed: true`. 1 to 128 characters from `A`-`Z`, `a`-`z`, `0`-`9`, `.`, `_`, `~` and `-`, such as a UUID */
+        'Idempotency-Key'?: string;
+      };
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -2348,6 +2368,10 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          /** @description `true` when the answer is the transaction an earlier request with the same `Idempotency-Key` wrote, and nothing was written; absent otherwise */
+          'Idempotency-Replayed'?: string;
+        };
         content: {
           'application/json': {
             data: {
