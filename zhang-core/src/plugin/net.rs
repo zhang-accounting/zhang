@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, PoisonError};
 use std::time::Duration;
 
@@ -60,8 +61,13 @@ pub struct HttpRequest {
 }
 
 /// Whether a request may go to `ip`: not to an unspecified, loopback, private, shared (CGNAT), link-local,
-/// documentation, benchmarking, multicast, broadcast or reserved address, nor to an IPv6 address standing for such an
-/// IPv4 one (mapped, NAT64, 6to4) or for a tunnel (Teredo), nor to IPv6 unique-local and site-local addresses.
+/// documentation, benchmarking, multicast, broadcast or reserved address, nor to Azure's host address
+/// `168.63.129.16`, nor to an IPv6 address standing for such an IPv4 one (mapped, well-known NAT64, 6to4) or for an
+/// IPv4 address a local translator picks (other NAT64 prefixes, IPv4-translated) or a tunnel (Teredo), nor to IPv6
+/// unique-local and site-local addresses.
+///
+/// Every other address counts as public, the server's own public address too: a plugin allowed `*` can reach a port
+/// of the server's own machine through it, and any port of an allowed host. Allow only the hosts a plugin needs.
 pub fn is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => is_public_v4(ip),
@@ -71,12 +77,18 @@ pub fn is_public(ip: IpAddr) -> bool {
             }
             let s = ip.segments();
             let embedded = |high: u16, low: u16| Ipv4Addr::from((u32::from(high) << 16) | u32::from(low));
-            // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) reach the IPv4 address they embed
+            // the well-known NAT64 prefix (64:ff9b::/96) and 6to4 (2002::/16) reach the IPv4 address they embed
             if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
                 return is_public_v4(embedded(s[6], s[7]));
             }
             if s[0] == 0x2002 {
                 return is_public_v4(embedded(s[1], s[2]));
+            }
+            // the rest of 64:ff9b::/32, such as the local-use NAT64 prefix 64:ff9b:1::/48, and IPv4-translated
+            // addresses (::ffff:0:0/96, SIIT) reach an IPv4 address too, embedded where the local translator puts it,
+            // which an address alone does not tell: none of them is taken as public
+            if s[..2] == [0x64, 0xff9b] || s[..6] == [0, 0, 0, 0, 0xffff, 0] {
+                return false;
             }
             let not_public = ip.is_unspecified()
                 || ip.is_loopback()
@@ -105,6 +117,7 @@ fn is_public_v4(ip: Ipv4Addr) -> bool {
         || (o[0] == 192 && o[1] == 0 && o[2] == 0) // 192.0.0/24, IETF protocol assignments
         || ip.is_documentation() // 192.0.2/24, 198.51.100/24, 203.0.113/24
         || (o[0] == 198 && (o[1] & 0xfe) == 18) // 198.18/15, benchmarking
+        || o == [168, 63, 129, 16] // Azure's host address (wire server, DNS, health probes), a metadata service
         || o[0] >= 224; // multicast 224/4, reserved 240/4, broadcast
     !not_public
 }
@@ -125,16 +138,45 @@ impl Resolver for Checked {
     }
 }
 
-/// the addresses `host` resolves to on `port`, within `timeout` when there is one
+/// the most name lookups of plugins that may run at once, see [`resolve`]
+const MAX_LOOKUPS: usize = 8;
+
+/// how many name lookups of plugins run now, on their own threads
+static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
+
+/// one lookup of [`LOOKUPS`], counted until its thread ends
+struct Lookup;
+
+impl Lookup {
+    /// a lookup, if fewer than [`MAX_LOOKUPS`] run
+    fn start() -> Option<Lookup> {
+        let running = LOOKUPS.fetch_add(1, Ordering::SeqCst);
+        let lookup = Lookup;
+        (running < MAX_LOOKUPS).then_some(lookup)
+    }
+}
+
+impl Drop for Lookup {
+    fn drop(&mut self) {
+        LOOKUPS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The addresses `host` resolves to on `port`, within `timeout` when there is one. A lookup cannot be interrupted, so
+/// it runs on its own thread, which is left behind when the lookup takes longer than the call has left. At most
+/// [`MAX_LOOKUPS`] of them run at once: a resolver that never answers holds that many threads, not one per call.
 fn resolve(host: &str, port: u16, timeout: Option<Duration>) -> Result<Vec<SocketAddr>, String> {
     let target = (host.to_owned(), port);
     let lookup = move || target.to_socket_addrs().map(Iterator::collect::<Vec<_>>);
     let addresses = match timeout {
         None => lookup(),
         Some(timeout) => {
-            // a lookup cannot be interrupted: it runs on its own thread, which is left behind when it takes too long
+            let running = Lookup::start().ok_or_else(|| format!("cannot resolve {host}: {MAX_LOOKUPS} name lookups are still running"))?;
             let (sender, receiver) = mpsc::sync_channel(1);
-            std::thread::spawn(move || sender.send(lookup()).ok());
+            std::thread::spawn(move || {
+                let _running = running;
+                sender.send(lookup()).ok()
+            });
             receiver.recv_timeout(timeout).map_err(|_| "timeout".to_owned())?
         }
     };
@@ -295,6 +337,13 @@ mod test {
             "::ffff:127.0.0.1",
             "::ffff:169.254.169.254",
             "64:ff9b::a9fe:a9fe",
+            "64:ff9b:1::a9fe:a9fe",
+            "64:ff9b:1:fffe::808:808",
+            "64:ff9b:0:1::808:808",
+            "::ffff:0:a9fe:a9fe",
+            "::ffff:0:808:808",
+            "168.63.129.16",
+            "::ffff:168.63.129.16",
             "2002:7f00:1::",
             "2001::1",
             "2001:db8::1",
@@ -343,6 +392,17 @@ mod test {
     }
 
     const TIMEOUT: Option<Duration> = Some(Duration::from_secs(5));
+
+    #[test]
+    fn should_run_at_most_a_few_name_lookups_at_once() {
+        let lookups = (0..super::MAX_LOOKUPS).map(|_| super::Lookup::start()).collect::<Vec<_>>();
+        // a lookup of another test may hold one; when this test holds them all, no more starts
+        if lookups.iter().all(Option::is_some) {
+            assert!(super::Lookup::start().is_none());
+        }
+        drop(lookups);
+        assert!(super::Lookup::start().is_some(), "a lookup ending frees its place");
+    }
 
     #[test]
     fn should_refuse_a_host_outside_the_allowed_hosts_and_other_schemes() {
