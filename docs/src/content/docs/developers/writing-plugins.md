@@ -467,6 +467,48 @@ of the load, and makes the ledger depend on the date: `zhang serve` analyses it 
 
 What an analyzer published belongs to the load that ran it: a reload, and a write, analyse the ledger again.
 
+### With the Rust SDK
+
+`plugin!` takes the analysis and the manifest after the other handlers. `zhang_plugin_sdk::analysis` has the types of
+the manifest, the records and the output, and `convert`; the queries are those of `router`; `zhang_plugin_sdk::decimal`
+adds up exactly, as Zhang does:
+
+```rust
+use zhang_plugin_sdk::analysis::{Diagnostic, Input, Manifest, Output, Target};
+use zhang_plugin_sdk::{plugin, router, serde_json, Error};
+
+plugin! {
+    name: "shop",
+    version: env!("CARGO_PKG_VERSION"),
+    analyzer: analyze,
+    manifest: manifest,
+}
+
+fn manifest() -> Manifest {
+    serde_json::from_str(include_str!("../manifest.json")).expect("the manifest is JSON")
+}
+
+fn analyze(input: Input) -> Result<Output, Error> {
+    let sold = router::query("SELECT account, sum(number) AS sold WHERE account ~ '^Income:Shop' GROUP BY account")?;
+    let mut output = Output::default();
+    for record in &input.records {
+        if record.fields["values"].as_array().is_none_or(|values| values.is_empty()) {
+            output.diagnostics.push(Diagnostic {
+                kind: "UnknownItem".into(),
+                target: Target { seq: Some(record.seq), ..Target::default() },
+                ..Diagnostic::default()
+            });
+        }
+    }
+    // ... the rows of the tables, from `input` and `sold`
+    Ok(output)
+}
+```
+
+`zhang-plugin-sdk/examples/budget` is a whole analyzer: Zhang's budgets, their tables and their errors, computed from
+the budget records and queries. Zhang's tests run it in place of the native budget code and check that it answers the
+budget pages alike, its errors included, with the same ids.
+
 ## Lua plugins
 
 A router plugin can be a Lua script instead of a module: `plugin "plugins/report.lua"`. Zhang embeds a Lua 5.4 interpreter, itself a wasm plugin built from `tools/lua-runtime` in the repository, and pairs it with the script at load time: the interpreter is the module the sandbox runs, and the script reaches it through two reserved config keys, `zhang.script` (the source) and `zhang.script_name` (the module path as written, which messages name). Everything else is the wasm path: registration reads `name`, `version` and `supported_type` from the module table the script returns, the first router of a name serves it (a later one is reported), the directive's capabilities and `timeout` apply, every request is a fresh instance, and `GET /api/plugins` lists the script's own name and version.
