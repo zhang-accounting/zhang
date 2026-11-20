@@ -30,7 +30,7 @@ A router plugin serves `/api/plugins/{name}` and every path below it, for any HT
 - `/api/plugins/report` and `/api/plugins/report/` reach the plugin with the path `/`.
 - `/api/plugins/report/by-month?year=2024` reaches it with the path `/by-month` and the query `{"year": ["2024"]}`.
 
-The routes sit behind the same [authentication](/deployment/authentication/) as the rest of the API: with sign-in enabled, a request needs a session (or the Basic header a script sends), whatever its method. When two router plugins have the same name, the first one declared serves the route and Zhang logs a warning.
+The routes sit behind the same [authentication](/deployment/authentication/) as the rest of the API: with sign-in enabled, a request needs a session (or the Basic header a script sends), whatever its method. When two router plugins have the same name, a bundled plugin included, the first one declared serves the route and the later one serves nothing: Zhang reports it as a [`PluginError`](/reference/error-codes/#pluginerror) on its directive, naming both, so a route never answers with other code than you meant without you seeing it. A module that is also a processor or mapper may be declared twice to run twice; its first declaration serves the route, and that is not reported.
 
 ## The `router` export
 
@@ -157,6 +157,8 @@ When the plugin cannot answer, Zhang responds with JSON `{"message": "..."}` and
 | 503 | The plugin already handles as many requests as it may. Try again after the `Retry-After` seconds. |
 | 504 | The plugin ran longer than its timeout. |
 | 500 | The plugin trapped, returned an error, ran out of memory or could not be loaded. |
+
+**A failure after a write.** A plugin that [writes](/developers/writing-plugins/#writes) may fail after its commit landed, for example by running past its timeout while it builds its answer. Its own answer is lost, so the status is still the failure's, but the entries are recorded: the response has the header `zhang-plugin-committed` (the ledger generation the commit moved to) and, next to `message`, a `committed` object with the `file` of the first entry, every file written (`files`), `bytes`, `entries` and `generation`. A client seeing it tells the user the entries are recorded and does not send them again. The risk that remains is a client that does not show the body: an MCP client, for one, may hand the model only the failure, and a model that then previews and commits the same entries again records them twice. The same token is refused, but a new preview mints a new one.
 
 :::danger[Only install plugins you trust]
 The sandbox keeps a plugin's pages away from your session, but a router plugin still reads your whole ledger and decides what its pages show. A page can also send what it shows to another site, for example as the address of an image: your browser makes that request, not the plugin, so `allowed_hosts` does not limit it.

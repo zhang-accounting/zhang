@@ -26,6 +26,14 @@
 //!   **Warning:** `allowed_paths` together with `allowed_hosts` lets a plugin send what it reads off the
 //!   machine. A plugin already receives the whole ledger, so grant files and hosts together only to a
 //!   plugin you would trust with both.
+//! - `allowed_writes` (multi-valued) lets a router plugin append directives of these kinds to the ledger
+//!   through the `zhang_write_preview` and `zhang_write_commit` host functions ([`crate::plugin::write`]):
+//!   `transaction` or `open`. No entry means no writes, whatever the plugin declares. Any other value is a
+//!   `ParseInvalidMeta` error on the directive and grants nothing.
+//!
+//!   **Warning:** a plugin granted `allowed_writes` can add entries to the ledger's files. It cannot edit
+//!   or delete anything, and a well-behaved client shows every entry first, but grant it only to a plugin
+//!   you trust.
 //! - `timeout` bounds how long a single call into the plugin may run, [`DEFAULT_TIMEOUT`] without
 //!   it. The value is whole seconds (`"90"`) or a whole number with a unit `ms`, `s`, `m` or `h`
 //!   (`"500ms"`, `"30s"`, `"2m"`), above zero and at most a day. A repeated key keeps its last
@@ -46,10 +54,10 @@
 //!   [`plugin_seed`]).
 //!
 //! What a directive grants is not all a plugin gets: the operator's
-//! [`PluginPolicy`](crate::plugin_policy::PluginPolicy) bounds `allowed_hosts` and `timeout`
+//! [`PluginPolicy`](crate::plugin_policy::PluginPolicy) bounds `allowed_hosts`, `timeout` and `allowed_writes`
 //! ([`PluginCapabilities::bound_by`]), and the load reports what a directive asked for beyond it.
 //!
-//! Every other capability key (`allowed_paths`, `timeout`, `seed`, `stage`) is read here *and*
+//! Every other capability key (`allowed_paths`, `allowed_writes`, `timeout`, `seed`, `stage`) is read here *and*
 //! still passed through as config, so a plugin that already uses a meta key with that name
 //! sees no change, and a plugin can see what it was granted.
 
@@ -60,11 +68,12 @@ use std::time::Duration;
 use log::warn;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::Plugin;
+pub use zhang_shared::plugin_abi::WriteKind;
 
 use crate::domains::schemas::OptionDomain;
 pub use crate::pipeline::PluginStage;
 use crate::plugin::files::clean_path;
-use crate::plugin_policy::{parse_timeout, PluginPolicy, ALLOWED_HOSTS_ENV, MAX_TIMEOUT_ENV};
+use crate::plugin_policy::{parse_timeout, PluginPolicy, ALLOWED_HOSTS_ENV, LEVEL_ENV, MAX_TIMEOUT_ENV};
 use crate::utils::hashmap::HashMapOfExt;
 
 /// meta key on a `plugin` directive granting it HTTP access to the given hosts
@@ -72,6 +81,9 @@ const ALLOWED_HOSTS_KEY: &str = "allowed_hosts";
 
 /// meta key on a `plugin` directive granting it read access to the given files and directories
 const ALLOWED_PATHS_KEY: &str = "allowed_paths";
+
+/// meta key on a `plugin` directive letting it append directives of the given kinds, a [`WriteKind`] each
+pub const ALLOWED_WRITES_KEY: &str = "allowed_writes";
 
 /// meta key on a `plugin` directive bounding how long a single call into the plugin may run
 const TIMEOUT_KEY: &str = "timeout";
@@ -86,8 +98,8 @@ const SEED_KEY: &str = "seed";
 const STAGE_KEY: &str = "stage";
 
 pub use zhang_shared::plugin_abi::config::{
-    ABI as ABI_CONFIG_KEY, ALLOWED_HOSTS as ALLOWED_HOSTS_CONFIG_KEY, PLUGIN as PLUGIN_CONFIG_KEY, RESERVED_PREFIX as RESERVED_CONFIG_PREFIX,
-    SEED as SEED_CONFIG_KEY, TIMEOUT_MS as TIMEOUT_MS_CONFIG_KEY,
+    ABI as ABI_CONFIG_KEY, ALLOWED_HOSTS as ALLOWED_HOSTS_CONFIG_KEY, ALLOWED_WRITES as ALLOWED_WRITES_CONFIG_KEY, PLUGIN as PLUGIN_CONFIG_KEY,
+    RESERVED_PREFIX as RESERVED_CONFIG_PREFIX, SEED as SEED_CONFIG_KEY, TIMEOUT_MS as TIMEOUT_MS_CONFIG_KEY,
 };
 /// The plugin's directive as written, which the plugin receives as JSON under the config key
 /// [`PLUGIN_CONFIG_KEY`] (`zhang.plugin`): its positional arguments and every value of its meta keys.
@@ -105,6 +117,8 @@ pub struct PluginCapabilities {
     /// files and directories this plugin may read, relative to the ledger root and cleaned (empty for the
     /// whole root); empty means no file access
     pub allowed_paths: Vec<PathBuf>,
+    /// the kinds of directives this plugin may append, each once, in the order granted; empty means no writes
+    pub allowed_writes: Vec<WriteKind>,
     /// how long a single call into the plugin may run before the host stops it
     pub timeout: Duration,
     /// the `seed` meta, mixed into the plugin's seed; `None` without one
@@ -118,6 +132,7 @@ impl Default for PluginCapabilities {
         PluginCapabilities {
             allowed_hosts: vec![],
             allowed_paths: vec![],
+            allowed_writes: vec![],
             timeout: DEFAULT_TIMEOUT,
             seed: None,
             stage: PluginStage::Booked,
@@ -180,6 +195,20 @@ impl PluginDeclaration {
                     }
                     declaration.config.insert(key, value);
                 }
+                ALLOWED_WRITES_KEY => {
+                    match WriteKind::parse(value.trim()) {
+                        Some(kind) => {
+                            if !declaration.capabilities.allowed_writes.contains(&kind) {
+                                declaration.capabilities.allowed_writes.push(kind);
+                            }
+                        }
+                        None => declaration.errors.push(DeclarationError {
+                            kind: ErrorKind::ParseInvalidMeta,
+                            metas: HashMap::of2("plugin", directive.module.as_str(), ALLOWED_WRITES_KEY, value.clone()),
+                        }),
+                    }
+                    declaration.config.insert(key, value);
+                }
                 TIMEOUT_KEY => {
                     timeout = Some(value.clone());
                     declaration.config.insert(key, value);
@@ -227,19 +256,22 @@ impl PluginDeclaration {
 
     /// the config values the host sets under [`RESERVED_CONFIG_PREFIX`] for this plugin:
     /// [`ABI_CONFIG_KEY`], [`PLUGIN_CONFIG_KEY`], [`SEED_CONFIG_KEY`], and the capabilities the plugin has, which the
-    /// operator's policy may have bounded ([`PluginCapabilities::bound_by`]): [`ALLOWED_HOSTS_CONFIG_KEY`] and
-    /// [`TIMEOUT_MS_CONFIG_KEY`]. `occurrence` is the number of `plugin` directives before this one declaring the same
+    /// operator's policy may have bounded ([`PluginCapabilities::bound_by`]): [`ALLOWED_HOSTS_CONFIG_KEY`],
+    /// [`TIMEOUT_MS_CONFIG_KEY`] and [`ALLOWED_WRITES_CONFIG_KEY`]. `occurrence` is the number of `plugin` directives before this one declaring the same
     /// module. Pass them to [`PluginDeclaration::config_with`]
     pub fn host_config(&self, occurrence: usize) -> Vec<(String, String)> {
         let directive = serde_json::to_string(&self.directive).expect("strings, arrays and maps of strings always serialize to JSON");
         let seed = plugin_seed(&self.directive.module, occurrence, self.capabilities.seed.as_deref());
         let allowed_hosts = serde_json::to_string(&self.capabilities.allowed_hosts).expect("strings always serialize to JSON");
+        let allowed_writes: Vec<&str> = self.capabilities.allowed_writes.iter().map(|kind| kind.name()).collect();
+        let allowed_writes = serde_json::to_string(&allowed_writes).expect("strings always serialize to JSON");
         vec![
             (ABI_CONFIG_KEY.to_owned(), ABI_VERSION.to_string()),
             (PLUGIN_CONFIG_KEY.to_owned(), directive),
             (SEED_CONFIG_KEY.to_owned(), seed.to_string()),
             (ALLOWED_HOSTS_CONFIG_KEY.to_owned(), allowed_hosts),
             (TIMEOUT_MS_CONFIG_KEY.to_owned(), self.capabilities.timeout.as_millis().to_string()),
+            (ALLOWED_WRITES_CONFIG_KEY.to_owned(), allowed_writes),
         ]
     }
 
@@ -358,9 +390,10 @@ impl PluginCapabilities {
     /// - `timeout` is at most [`PluginPolicy::max_timeout`]; the default, which a directive did not write
     ///   (`timeout_declared` false), is lowered without a word.
     ///
-    /// A capability to write to the ledger, once plugins have one, is bounded here too: cleared unless
-    /// [`PluginPolicy::allows_writes`], and reported as a [`CapabilityReduced`] naming
-    /// [`LEVEL_ENV`](crate::plugin_policy::LEVEL_ENV).
+    /// - `allowed_writes` is cleared unless [`PluginPolicy::allows_writes`] (`ZHANG_PLUGINS=write`), and reported as a
+    ///   [`CapabilityReduced`] naming [`LEVEL_ENV`]: the plugin loads, and writes nothing. The write functions ask the
+    ///   policy again at write time ([`crate::plugin::write::WriteAccess`]), so the ceiling is one setting checked
+    ///   twice, never two mechanisms.
     pub fn bound_by(&mut self, policy: &PluginPolicy, timeout_declared: bool) -> Vec<CapabilityReduced> {
         let mut reduced = vec![];
         let mut hosts: Vec<String> = vec![];
@@ -401,6 +434,17 @@ impl PluginCapabilities {
             }
             self.timeout = policy.max_timeout;
         }
+
+        if !policy.allows_writes() && !self.allowed_writes.is_empty() {
+            let requested: Vec<String> = self.allowed_writes.iter().map(|kind| kind.name().to_owned()).collect();
+            reduced.push(CapabilityReduced {
+                capability: ALLOWED_WRITES_KEY,
+                requested: listed(&requested),
+                granted: listed(&[]),
+                setting: LEVEL_ENV,
+            });
+            self.allowed_writes.clear();
+        }
         reduced
     }
 }
@@ -417,9 +461,9 @@ mod test {
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::{
         host_allowed, pattern_within, plugin_seed, CapabilityReduced, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig,
-        PluginStage, DEFAULT_TIMEOUT,
+        PluginStage, WriteKind, DEFAULT_TIMEOUT,
     };
-    use crate::plugin_policy::PluginPolicy;
+    use crate::plugin_policy::{PluginLevel, PluginPolicy};
     use crate::utils::hashmap::HashMapOfExt;
 
     #[test]
@@ -458,6 +502,7 @@ mod test {
         let mut capabilities = PluginCapabilities {
             allowed_hosts: vec!["api.example.com".to_owned(), "*".to_owned()],
             timeout: Duration::from_secs(600),
+            allowed_writes: vec![WriteKind::Transaction, WriteKind::Open],
             ..PluginCapabilities::default()
         };
         let policy = PluginPolicy {
@@ -469,6 +514,7 @@ mod test {
 
         assert_eq!(capabilities.allowed_hosts, vec!["api.example.com", "rates.example"]);
         assert_eq!(capabilities.timeout, Duration::from_secs(30));
+        assert_eq!(capabilities.allowed_writes, vec![]);
         assert_eq!(
             reduced,
             vec![
@@ -483,6 +529,12 @@ mod test {
                     requested: "600s".to_owned(),
                     granted: "30s".to_owned(),
                     setting: "ZHANG_PLUGIN_MAX_TIMEOUT",
+                },
+                CapabilityReduced {
+                    capability: "allowed_writes",
+                    requested: "transaction, open".to_owned(),
+                    granted: "none".to_owned(),
+                    setting: "ZHANG_PLUGINS",
                 },
             ]
         );
@@ -506,12 +558,24 @@ mod test {
         let granted = PluginCapabilities {
             allowed_hosts: vec!["api.example.com".to_owned()],
             timeout: Duration::from_secs(10),
+            allowed_writes: vec![WriteKind::Open],
             ..PluginCapabilities::default()
         };
         let mut capabilities = granted.clone();
 
         assert_eq!(capabilities.bound_by(&PluginPolicy::unrestricted(), true), vec![]);
         assert_eq!(capabilities, granted);
+        // `write` is the level that keeps the grant; `read`, the default, is the one that clears it
+        let write = PluginPolicy {
+            level: PluginLevel::Write,
+            ..PluginPolicy::default()
+        };
+        let mut capabilities = PluginCapabilities {
+            allowed_writes: vec![WriteKind::Open],
+            ..PluginCapabilities::default()
+        };
+        assert_eq!(capabilities.bound_by(&write, false), vec![]);
+        assert_eq!(capabilities.allowed_writes, vec![WriteKind::Open]);
         // the default timeout is lowered silently when the directive did not write it
         let mut capabilities = PluginCapabilities::default();
         assert_eq!(capabilities.bound_by(&PluginPolicy::default(), false), vec![]);
@@ -714,6 +778,44 @@ mod test {
     }
 
     #[test]
+    fn should_read_allowed_writes_once_each_and_still_pass_them_through() {
+        let declaration = PluginDeclaration::parse(&directive(&[
+            ("allowed_writes", "open"),
+            ("allowed_writes", " transaction "),
+            ("allowed_writes", "open"),
+        ]));
+
+        assert_eq!(declaration.capabilities.allowed_writes, vec![WriteKind::Open, WriteKind::Transaction]);
+        assert_eq!(declaration.errors, vec![]);
+        assert_eq!(declaration.config, map(&[("allowed_writes", "open")]));
+        assert_eq!(declaration.directive.meta["allowed_writes"], vec!["open", " transaction ", "open"]);
+    }
+
+    #[test]
+    fn should_grant_no_writes_without_allowed_writes() {
+        let declaration = PluginDeclaration::parse(&directive(&[("allowed_hosts", "api.example.com")]));
+
+        assert_eq!(declaration.capabilities.allowed_writes, Vec::<WriteKind>::new());
+    }
+
+    #[test]
+    fn should_report_an_invalid_allowed_write_and_grant_nothing_for_it() {
+        for value in ["balance", "Transaction", "", "transaction open", "close", "*"] {
+            let declaration = PluginDeclaration::parse(&directive(&[("allowed_writes", value), ("allowed_writes", "open")]));
+
+            assert_eq!(declaration.capabilities.allowed_writes, vec![WriteKind::Open], "value {value:?}");
+            assert_eq!(
+                declaration.errors,
+                vec![DeclarationError {
+                    kind: ErrorKind::ParseInvalidMeta,
+                    metas: HashMap::of2("plugin", "fx-rate.wasm", "allowed_writes", value),
+                }],
+                "value {value:?}"
+            );
+        }
+    }
+
+    #[test]
     fn should_grant_no_file_access_without_allowed_paths() {
         let declaration = PluginDeclaration::parse(&directive(&[("allowed_hosts", "api.example.com")]));
 
@@ -779,6 +881,7 @@ mod test {
                 ("zhang.seed", "1811957226761548848"),
                 ("zhang.allowed_hosts", r#"["b.example","a.example"]"#),
                 ("zhang.timeout_ms", "60000"),
+                ("zhang.allowed_writes", "[]"),
             ])
         );
     }
@@ -795,13 +898,15 @@ mod test {
                 ("zhang.seed", "1811957226761548848"),
                 ("zhang.allowed_hosts", "[]"),
                 ("zhang.timeout_ms", "60000"),
+                ("zhang.allowed_writes", "[]"),
             ])
         );
     }
 
     #[test]
     fn should_hand_the_plugin_the_capabilities_the_policy_left_it() {
-        let mut declaration = PluginDeclaration::parse(&directive(&[("allowed_hosts", "*"), ("timeout", "2m")]));
+        let directive = directive(&[("allowed_hosts", "*"), ("timeout", "2m"), ("allowed_writes", "transaction")]);
+        let mut declaration = PluginDeclaration::parse(&directive);
         let policy = PluginPolicy {
             allowed_hosts: vec!["api.example.com".to_owned()],
             ..PluginPolicy::default()
@@ -812,6 +917,16 @@ mod test {
 
         assert_eq!(config["zhang.allowed_hosts"], r#"["api.example.com"]"#);
         assert_eq!(config["zhang.timeout_ms"], "30000");
+        assert_eq!(config["zhang.allowed_writes"], "[]");
+        // the operator who allows writes leaves the grant whole
+        let mut declaration = PluginDeclaration::parse(&directive);
+        let write = PluginPolicy {
+            level: PluginLevel::Write,
+            ..PluginPolicy::default()
+        };
+        declaration.capabilities.bound_by(&write, declaration.declares_timeout());
+        let config = declaration.config_with(&[], declaration.host_config(0));
+        assert_eq!(config["zhang.allowed_writes"], r#"["transaction"]"#);
         // what the directive asked for stays where it always was
         assert_eq!(config["timeout"], "2m");
         assert!(config["zhang.plugin"].contains(r#""allowed_hosts":["*"]"#), "{}", config["zhang.plugin"]);
@@ -833,6 +948,7 @@ mod test {
                 ("zhang.seed", "1811957226761548848"),
                 ("zhang.allowed_hosts", "[]"),
                 ("zhang.timeout_ms", "60000"),
+                ("zhang.allowed_writes", "[]"),
             ])
         );
     }

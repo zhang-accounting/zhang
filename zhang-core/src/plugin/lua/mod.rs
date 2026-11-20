@@ -6,7 +6,7 @@
 //! (`zhang.script`, the source) and [`SCRIPT_NAME_CONFIG_KEY`] (`zhang.script_name`, the module path as written,
 //! for messages). The interpreter exports the plugin ABI v1 identity functions and `router`, which run the script:
 //! the chunk returns a module table `{name, version, types, router}`, so a script's name and version are its own.
-//! Everything else (registration, the first-declared-wins rule, `GET /api/plugins`, the timeout, the host
+//! Everything else (registration, the first router of a name serving it, `GET /api/plugins`, the timeout, the host
 //! functions) is the wasm path, unchanged.
 //!
 //! A module is a script by its extension: `.lua`, in any letter case. `.wasm` and `.wat` are wasm modules, and so

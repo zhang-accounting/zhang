@@ -11,6 +11,7 @@ use zhang_core::ZhangError;
 use crate::auth::SharedAuth;
 use crate::broadcast::Broadcaster;
 use crate::error::ServerError;
+use crate::plugin_writes::PluginWrites;
 use crate::routes::plugin_router::{PluginRouteState, PluginRoutes};
 use crate::{ReloadSender, ServerResult};
 
@@ -60,7 +61,8 @@ impl SharedLedger {
     /// needs no reload: it holds the lock itself.
     pub async fn for_writing(&self, reload_sender: &Arc<ReloadSender>) -> ServerResult<RwLockWriteGuard<'_, Ledger>> {
         let mut ledger = self.write().await;
-        if ledger.stale {
+        // a plugin's commit marks the sender, not the ledger, as it holds the read lock ([`ReloadSender::mark_written`])
+        if ledger.stale || reload_sender.write_pending() {
             reload_sender.reload_in_place(&mut ledger).await.map_err(ServerError::UnloadableLedger)?;
         }
         Ok(ledger)
@@ -116,6 +118,18 @@ impl Deref for SharedReloadSender {
     }
 }
 
+/// what the writes of router plugins share, see [`PluginWrites`]
+#[derive(Clone)]
+pub struct SharedPluginWrites(pub Arc<PluginWrites>);
+
+impl Deref for SharedPluginWrites {
+    type Target = Arc<PluginWrites>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub ledger: SharedLedger,
@@ -124,6 +138,8 @@ pub struct AppState {
     pub auth: SharedAuth,
     /// the limits of the router plugins' routes, and the requests each plugin handles now
     pub plugin_routes: Arc<PluginRoutes>,
+    /// what the writes of router plugins share: the key of their preview tokens and the lock of their commits
+    pub plugin_writes: SharedPluginWrites,
 }
 
 impl FromRef<GotchaContext<AppState, ()>> for SharedLedger {
@@ -148,6 +164,8 @@ impl FromRef<GotchaContext<AppState, ()>> for PluginRouteState {
         PluginRouteState {
             ledger: input.state.ledger.clone(),
             routes: input.state.plugin_routes.clone(),
+            reload_sender: input.state.reload_sender.clone(),
+            writes: input.state.plugin_writes.clone(),
         }
     }
 }

@@ -609,6 +609,10 @@ plugin; the plugin may add metas of its own. The error points at the directive t
 `plugin` directive when it names none. [Writing Plugins](/developers/writing-plugins/#reporting-errors) shows how a
 plugin reports one.
 
+Zhang reports one itself on the `plugin` directive of a router plugin named like a router plugin declared before it:
+the first one serves `/api/plugins/<name>`, and this one serves nothing (`message` names both). Remove one of the two
+directives. A module that is also a processor or mapper, declared twice to run twice, is not reported.
+
 For example, a plugin that requires a payee on every transaction reports `message: "payee is missing"` on this
 transaction:
 
@@ -643,10 +647,11 @@ the server allows*
 
 A [`plugin`](/reference/directives/plugin/) directive grants more than the server allows (see
 [What the server allows](/reference/directives/plugin/#what-the-server-allows)): more hosts in `allowed_hosts` than
-`ZHANG_PLUGIN_ALLOWED_HOSTS` allows, or a `timeout` longer than `ZHANG_PLUGIN_MAX_TIMEOUT`. The plugin still loads and
-runs with what the server allows, so a plugin reaching a host it may not reach fails its call, and one running longer
-than the server's limit is stopped. Metas: `plugin` (the module as written), `capability` (`allowed_hosts` or
-`timeout`), `requested` (what the directive grants), `granted` (what the plugin gets, `none` for nothing) and `setting`
+`ZHANG_PLUGIN_ALLOWED_HOSTS` allows, a `timeout` longer than `ZHANG_PLUGIN_MAX_TIMEOUT`, or `allowed_writes` on a
+server that does not let plugins write (`ZHANG_PLUGINS` is not `write`). The plugin still loads and runs with what the
+server allows, so a plugin reaching a host it may not reach fails its call, one running longer than the server's limit
+is stopped, and a write is denied. Metas: `plugin` (the module as written), `capability` (`allowed_hosts`, `timeout` or
+`allowed_writes`), `requested` (what the directive grants), `granted` (what the plugin gets, `none` for nothing) and `setting`
 (the environment variable of `zhang serve` that sets the server's limit).
 
 For example, without `ZHANG_PLUGIN_ALLOWED_HOSTS`, this directive is reported with `requested: api.frankfurter.dev`

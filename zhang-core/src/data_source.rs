@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use chrono::Datelike;
 use log::{debug, warn};
 use minijinja::{context, Environment};
-use zhang_ast::{Directive, Include, SpanInfo, Spanned, ZhangString};
+use zhang_ast::{Directive, DirectiveType, Include, SpanInfo, Spanned, ZhangString};
 
 use crate::data_type::{document_path_in_file, DataType, Dialect};
 use crate::error::{storage_error, Access, IoErrorIntoZhangError};
@@ -212,8 +212,15 @@ pub struct MissingInclude {
 /// directive), `year`, `month`, `month_str` and `day`, `day_str` (zero-padded) and `ext`, the extension of the main
 /// file (`zhang` without one)
 pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangResult<PathBuf> {
+    output_file(ledger, directive.datetime(), directive.directive_type())
+}
+
+/// [`directive_output_file`] for a directive of the kind `directive_type` dated `datetime` (`None` for one without a
+/// date), before the directive exists: where a directive a request describes would go, even one the request cannot
+/// build yet
+pub fn output_file(ledger: &Ledger, datetime: Option<chrono::NaiveDateTime>, directive_type: DirectiveType) -> ZhangResult<PathBuf> {
     let (entry, main_file_endpoint) = &ledger.entry;
-    let Some(datetime) = directive.datetime() else {
+    let Some(datetime) = datetime else {
         return Ok(entry.join(main_file_endpoint));
     };
     let date = datetime.date();
@@ -228,7 +235,7 @@ pub fn directive_output_file(ledger: &Ledger, directive: &Directive) -> ZhangRes
     })?;
     let path = template
         .render(context! {
-            type => directive.directive_type().to_string(),
+            type => directive_type.to_string(),
             year => date.year(),
             month => date.month(),
             month_str => date.format("%m").to_string(),

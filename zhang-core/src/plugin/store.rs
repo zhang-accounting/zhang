@@ -14,11 +14,12 @@ use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
 use crate::options::InMemoryOptions;
 use crate::pipeline::StageContext;
-use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
+use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage, WriteKind};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
 use crate::plugin::lua::{LuaScript, PluginModule};
 use crate::plugin::runtime::{PluginInstance, PluginRuntime};
+use crate::plugin::write::{declared_writes, DeclaredCapabilities};
 use crate::plugin::{log_safe, PluginType};
 use crate::plugin_policy::{PluginPolicy, Size, MAX_MEMORY_ENV};
 use crate::{ZhangError, ZhangResult};
@@ -34,12 +35,14 @@ impl PluginStore {
     /// register the plugin `_plugin` declares, whose module is `module`, as parsed into `declaration`; `span` is
     /// the directive's span. `clock` is the clock of the load, which the plugin reads in the ledger timezone
     /// `timezone`, `files` what the plugin may read once it runs as a processor or mapper, `options` the ledger's
-    /// options, part of the config every instance of the plugin gets, and `policy` what the operator lets it use
+    /// options, part of the config every instance of the plugin gets, and `policy` what the operator lets it use. The
+    /// answer is the problem to report on the directive, if any: a router named like an earlier one
+    /// ([`PluginStore::add_router`])
     #[allow(clippy::too_many_arguments)]
     pub fn insert_plugin(
         &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
         options: &[OptionDomain], policy: Arc<PluginPolicy>,
-    ) -> ZhangResult<()> {
+    ) -> ZhangResult<Option<String>> {
         let plugin_name = _plugin.module.as_str().to_string();
 
         // the runtime compiles the module for the settings it is asked for and builds every instance
@@ -82,6 +85,7 @@ impl PluginStore {
                 "plugin script {plugin_name} declares no plugin type; write `types = {{\"Router\"}}` in its module table"
             )));
         }
+        let writes = declared_capabilities(&mut plugin, &name, timeout, &policy)?;
         let ignored_errors = host.take_errors().len();
         if ignored_errors > 0 {
             warn!(
@@ -100,13 +104,18 @@ impl PluginStore {
             occurrence,
             files,
             policy,
+            writes,
         };
-        if plugin_types.contains(&PluginType::Router) {
-            self.add_router(registered_plugin.clone())
-        }
+        let conflict = match plugin_types.contains(&PluginType::Router) {
+            true => {
+                let stages = plugin_types.iter().any(|it| matches!(it, PluginType::Processor | PluginType::Mapper));
+                self.add_router(registered_plugin.clone(), stages)
+            }
+            false => None,
+        };
         self.ordered.push((registered_plugin, plugin_types));
 
-        Ok(())
+        Ok(conflict)
     }
 
     /// how many plugins registered so far declare `module`, as written
@@ -172,6 +181,19 @@ fn settings(declaration: &PluginDeclaration, occurrence: usize, options: &[Optio
         .with_memory_max(policy.max_memory_pages())
 }
 
+/// the write kinds the plugin's optional `capabilities` export declares, read once while it registers: none without
+/// the export. An export that answers something else fails the load, as `supported_type` would
+fn declared_capabilities(plugin: &mut PluginInstance, name: &str, timeout: Duration, policy: &PluginPolicy) -> ZhangResult<Vec<WriteKind>> {
+    if !plugin.function_exists(export::CAPABILITIES) {
+        return Ok(vec![]);
+    }
+    let declared = plugin
+        .call::<(), WasmJson<DeclaredCapabilities>>(export::CAPABILITIES, ())
+        .map_err(|e| call_error(name, export::CAPABILITIES, timeout, policy, e))?
+        .0;
+    Ok(declared_writes(name, &declared))
+}
+
 /// the error of a failed registration call into a Lua script: the message the interpreter set, which for a
 /// script that does not parse carries `<script>:<line>: ...`; a call stopped at the timeout or out of memory says
 /// so as for a module
@@ -224,6 +246,8 @@ pub struct RegisteredPlugin {
     files: FileAccess,
     /// what the operator lets the plugin use
     policy: Arc<PluginPolicy>,
+    /// the write kinds the plugin declared in its `capabilities` export, each once
+    writes: Vec<WriteKind>,
 }
 
 impl RegisteredPlugin {
@@ -241,6 +265,16 @@ impl RegisteredPlugin {
     /// interpreter (the script is [`RegisteredPlugin::script`])
     pub fn module_bytes(&self) -> &[u8] {
         self.runtime.module_bytes()
+    }
+
+    /// the write kinds the plugin declared in its `capabilities` export; it writes those its directive also grants
+    pub fn declared_writes(&self) -> &[WriteKind] {
+        &self.writes
+    }
+
+    /// the module of the plugin's directive, as written
+    pub fn module(&self) -> &str {
+        &self.declaration.directive.module
     }
 
     /// the Lua script this plugin runs, for a `plugin "x.lua"` directive
@@ -366,6 +400,7 @@ mod test {
             occurrence,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         }
     }
 
@@ -429,6 +464,7 @@ mod test {
             occurrence: 0,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         };
 
         let manifest = plugin.manifest(&options);
@@ -449,6 +485,7 @@ mod test {
             ("zhang.seed", "1811957226761548848"),
             ("zhang.allowed_hosts", r#"["api.frankfurter.dev","api.example.com"]"#),
             ("zhang.timeout_ms", "60000"),
+            ("zhang.allowed_writes", "[]"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
@@ -484,6 +521,7 @@ mod test {
             occurrence: 0,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         };
 
         let config = plugin.manifest(&[]).config;
@@ -513,7 +551,7 @@ mod test {
         let module = PluginModule::Wasm(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
         let clock = LoadClock::new(crate::clock::Clock::System);
         let mut store = PluginStore::default();
-        store
+        let conflict = store
             .insert_plugin(
                 &directive,
                 module,
@@ -526,6 +564,7 @@ mod test {
                 Arc::new(PluginPolicy::default()),
             )
             .unwrap();
+        assert_eq!(conflict, None);
         let (plugin, _) = &store.ordered[0];
 
         // registering compiled once (generation 1) with the config a run gets: the option and the meta
@@ -558,6 +597,7 @@ mod test {
             occurrence: 0,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));

@@ -1705,6 +1705,16 @@ export interface operations {
                */
               route: string | null;
               version: string;
+              /**
+               * @description the kinds of directives its `plugin` directive lets it write, its `allowed_writes` values; it writes the
+               * kinds in both lists
+               */
+              writes_granted: string[];
+              /**
+               * @description the kinds of directives the plugin declares it writes, `transaction` or `open`, from its `capabilities`
+               * export; empty for a plugin that writes nothing
+               */
+              writes_requested: string[];
             }[];
           };
         };
@@ -2523,7 +2533,7 @@ export interface operations {
                */
               field_errors: {
                 /** @enum {string} */
-                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag' | 'date' | 'commodities';
                 /**
                  * @description why it cannot be written, for a client to tell in its own words with `value`
                  * @enum {string}
@@ -2541,7 +2551,11 @@ export interface operations {
                   | 'beancount_tag'
                   | 'invalid_link'
                   | 'beancount_link'
-                  | 'invalid_flag';
+                  | 'invalid_flag'
+                  | 'invalid_date'
+                  | 'already_open'
+                  | 'invalid_booking_method'
+                  | 'account_closed';
                 /** @description what the create or update answers for it with a 400 */
                 message: string;
                 /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */
@@ -2879,7 +2893,7 @@ export interface operations {
                */
               field_errors: {
                 /** @enum {string} */
-                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag';
+                field: 'unit' | 'cost' | 'price' | 'account' | 'metas' | 'tags' | 'links' | 'flag' | 'date' | 'commodities';
                 /**
                  * @description why it cannot be written, for a client to tell in its own words with `value`
                  * @enum {string}
@@ -2897,7 +2911,11 @@ export interface operations {
                   | 'beancount_tag'
                   | 'invalid_link'
                   | 'beancount_link'
-                  | 'invalid_flag';
+                  | 'invalid_flag'
+                  | 'invalid_date'
+                  | 'already_open'
+                  | 'invalid_booking_method'
+                  | 'account_closed';
                 /** @description what the create or update answers for it with a 400 */
                 message: string;
                 /** @description the posting it is a field of, counting from 0; `null` for a field of the transaction */

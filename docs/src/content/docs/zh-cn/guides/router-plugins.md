@@ -30,7 +30,7 @@ Router 插件服务 `/api/plugins/{name}` 及其下的所有路径，接受任�
 - `/api/plugins/report` 和 `/api/plugins/report/` 以路径 `/` 到达插件。
 - `/api/plugins/report/by-month?year=2024` 以路径 `/by-month` 和查询参数 `{"year": ["2024"]}` 到达插件。
 
-这些路由与 API 的其余部分使用同样的[身份认证](/zh-cn/deployment/authentication/)：启用登录后，无论使用什么方法，请求都需要会话（或脚本发送的 Basic 请求头）。当两个 Router 插件同名时，由先声明的那个提供该路由，张记账会记录一条警告。
+这些路由与 API 的其余部分使用同样的[身份认证](/zh-cn/deployment/authentication/)：启用登录后，无论使用什么方法，请求都需要会话（或脚本发送的 Basic 请求头）。两个 Router 插件同名时（内置插件也一样），先声明的那个提供该路由，后声明的那个不提供任何路由：张记账在它的指令上报告一个 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)，指明两者，所以路由不会在你不知情的情况下由你意料之外的代码回答。同时也是 processor 或 mapper 的模块可以声明两次来运行两次；由它的第一条声明提供路由，这不会被报告。
 
 ## `router` 导出函数
 
@@ -157,6 +157,8 @@ pub fn router(request: String) -> FnResult<String> {
 | 503 | 插件已经在处理它能同时处理的最多请求数。请在 `Retry-After` 秒之后重试。 |
 | 504 | 插件运行超过了超时时间。 |
 | 500 | 插件触发了 trap、返回了错误、内存不足或无法加载。 |
+
+**写入之后的失败。** [写入](/zh-cn/developers/writing-plugins/#写入)的插件可能在提交已经完成之后失败，例如在构建回答时运行超过了超时时间。它自己的回答已经丢失，所以状态码仍然是失败的状态码，但条目已经记录：响应带有 `zhang-plugin-committed` 头（提交推进到的账本代），并在 `message` 旁边带有 `committed` 对象，包括第一个条目的 `file`、写入的每个文件（`files`）、`bytes`、`entries` 和 `generation`。客户端看到它时，应告诉用户条目已经记录，不要再次发送。剩下的风险在于不展示响应体的客户端：例如 MCP 客户端可能只把失败交给模型，模型若随后重新预览并提交同样的条目，就会记录两次。同一个 token 会被拒绝，但新的预览会签发新的 token。
 
 :::danger[只安装你信任的插件]
 沙箱让插件的页面碰不到你的会话，但 Router 插件仍然能读取你的整个账本，并决定它的页面显示什么。页面还可以把它显示的内容发往其他网站，例如作为一张图片的地址：发出这个请求的是你的浏览器而不是插件，所以 `allowed_hosts` 限制不了它。

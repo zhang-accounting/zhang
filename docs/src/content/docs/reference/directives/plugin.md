@@ -62,6 +62,7 @@ allows ([below](#what-the-server-allows)). These metadata keys are capabilities:
 |---|---|---|
 | `allowed_hosts` | HTTP requests to these hosts, within the hosts the server allows. Repeat the key for several hosts. | no network access |
 | `allowed_paths` | Read-only access to these files and directories of the ledger. Repeat the key for several. | no file access |
+| `allowed_writes` | Appending directives of these kinds to the ledger, through a router plugin's preview and commit: `"transaction"` or `"open"`. Repeat the key for both. Only when the server allows writes (`ZHANG_PLUGINS=write`). | no writes |
 | `timeout` | How long one call into the plugin may run, at most what the server allows. | 60 seconds, at most the server's limit (30 seconds unless set) |
 | `seed` | Nothing. Any text, mixed into the seed the plugin derives its random values from. | none |
 | `stage` | Where the plugin runs while the ledger loads: `"booked"`, after Zhang has booked the transactions, or `"raw"`, before. | `"booked"` |
@@ -91,6 +92,22 @@ counts as public: grant only the hosts a plugin needs, and `*` only to a plugin 
 :::danger[Files and network together]
 A plugin granted both `allowed_paths` and `allowed_hosts` can send what it reads off your machine. A plugin already
 receives the whole ledger, so grant files and hosts together only to a plugin you would trust with both.
+:::
+
+**`allowed_writes`.** Each value is a kind of directive the plugin may append: `"transaction"` or `"open"`. It only
+takes effect for a plugin that declares it writes that kind (its `capabilities` export; a Lua script's `writes`
+table), and only while the plugin handles a request as a router. The plugin previews a batch of directives, which
+Zhang validates exactly as `POST /api/transactions/preview` does and writes exactly as `POST /api/transactions` would,
+into the file the `directive_output_path` option chooses, and then commits the same batch with the preview's token.
+Any other value is reported as [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) and grants nothing. See
+[writes](/developers/writing-plugins/#writes) for the host functions, and `GET /api/plugins` for what each plugin
+requested (`writes_requested`) and was granted (`writes_granted`).
+
+:::danger[Writes]
+A plugin granted `allowed_writes` can add entries to your ledger. It cannot edit or delete anything. A well-behaved
+plugin shows you every entry before it commits it, but Zhang cannot check that it did: the preview token only stops a
+commit on a ledger that changed since the preview, and a plugin can preview and commit in one request. Grant it only
+to a plugin you trust.
 :::
 
 **`timeout`.** Whole seconds (`"90"`), or a whole number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"30s"`,
@@ -167,8 +184,8 @@ instead, and no plugin runs. `zhang serve` logs these settings when it starts.
 
 | Error | When |
 |---|---|
-| [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | A `timeout`, `allowed_paths` or `stage` value is invalid. The error points at the `plugin` directive. |
-| [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) | The directive grants more hosts or a longer timeout than the server allows. The plugin runs with what the server allows. |
+| [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | A `timeout`, `allowed_paths`, `allowed_writes` or `stage` value is invalid. The error points at the `plugin` directive. |
+| [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) | The directive grants more hosts, a longer timeout, or writes beyond what the server allows. The plugin runs with what the server allows. |
 | [`PluginsDisabled`](/reference/error-codes/#pluginsdisabled) | The server runs with plugins off. The plugin is not loaded. |
 | [`PluginError`](/reference/error-codes/#pluginerror) | The plugin reports a problem in the ledger. |
 

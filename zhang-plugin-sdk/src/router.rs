@@ -6,8 +6,21 @@
 //!
 //! Every request runs in a fresh plugin instance: nothing survives between requests. The ledger is read-only:
 //! [`query`] and [`query_with_params`] run BQL over it, [`schema`] lists what a query can use, [`ledger_info`]
-//! describes the ledger, and no host function changes it. All of them answer
-//! [`HostErrorKind::Unavailable`](crate::HostErrorKind::Unavailable) outside a request, e.g. in a processor.
+//! describes the ledger, and no host function changes it, with one exception a plugin opts into and the ledger owner
+//! grants: [`write_preview`] and [`write_commit`] append transactions and `open`s to the ledger's files (see
+//! "Writes" below). All of them answer [`HostErrorKind::Unavailable`](crate::HostErrorKind::Unavailable) outside a
+//! request, e.g. in a processor.
+//!
+//! # Writes
+//!
+//! A plugin that declares `writes` in [`plugin!`](crate::plugin) and whose `plugin` directive grants them with
+//! `allowed_writes` appends directives in two steps: [`write_preview`] validates a batch exactly as
+//! `POST /api/transactions/preview` would, shows the text the ledger writes, the file it goes to and what the ledger
+//! would report, and mints a token when every entry is clean; [`write_commit`] appends the same batch with that
+//! token, in one write, and the server reloads the ledger once the request is answered. A token is bound to the
+//! ledger as it was previewed: after a reload, a commit or another change, or after 10 minutes, the commit is a
+//! [`HostErrorKind::Conflict`](crate::HostErrorKind::Conflict) and the plugin previews again. Amounts are strings
+//! ([`UnitWrite::Amount`]): the host refuses a JSON number anywhere in a batch, so no float ever reaches the ledger.
 //!
 //! **Security:** a router's pages are served from zhang's own address, so a script on such a page can call
 //! zhang's whole API with the user's session. Never echo untrusted input into HTML unescaped. Never write what a
@@ -16,7 +29,10 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-pub use zhang_shared::plugin_abi::{Encoding as BodyEncoding, LedgerInfo, QueryParam as Param, Request, Response};
+pub use zhang_shared::plugin_abi::{
+    Encoding as BodyEncoding, LedgerInfo, MetaWrite, OpenWrite, PostingWrite, QueryParam as Param, Request, Response, TransactionWrite, UnitWrite, WriteBatch,
+    WriteCommitted, WriteDirective, WriteKind, WritePreview, WritePreviewEntry,
+};
 
 use crate::abi;
 use crate::error::{host_result, HostError};
@@ -138,6 +154,61 @@ pub fn ledger_info() -> Result<LedgerInfo, HostError> {
     host_result(abi::LEDGER_INFO, &abi::ledger_info()?)
 }
 
+/// the batch of `directives` as the host reads it, with `token` for a commit
+fn batch(directives: &[WriteDirective], token: Option<&str>) -> Result<Vec<u8>, HostError> {
+    let encode = |e: serde_json::Error| HostError::new(crate::HostErrorKind::Invalid, format!("cannot encode the batch: {e}"));
+    let directives = directives.iter().map(serde_json::to_value).collect::<Result<Vec<_>, _>>().map_err(encode)?;
+    serde_json::to_vec(&WriteBatch {
+        directives,
+        token: token.map(str::to_owned),
+    })
+    .map_err(encode)
+}
+
+/// Preview `directives` to append to the ledger: each one validated in order (an `open` earlier in the batch counts
+/// for the transactions after it), its text as the ledger writes it, the file it goes to, and what the ledger would
+/// report against it; `token` is set when every entry is clean. The plugin must declare `writes` in [`plugin!`] and
+/// its directive must grant them, else [`HostErrorKind::Denied`](crate::HostErrorKind::Denied) (or
+/// [`Unavailable`](crate::HostErrorKind::Unavailable) without the declaration). At most 50 directives, whose text is
+/// at most 64 KiB.
+///
+/// ```no_run
+/// use zhang_plugin_sdk::router::{self, OpenWrite, PostingWrite, TransactionWrite, UnitWrite, WriteDirective};
+///
+/// let batch = vec![
+///     WriteDirective::Open(OpenWrite { date: "2026-10-13".into(), account: "Expenses:Coffee".into(), commodities: vec!["USD".into()], ..Default::default() }),
+///     WriteDirective::Transaction(TransactionWrite {
+///         datetime: "2026-10-13".into(),
+///         payee: "Blue Bottle".into(),
+///         narration: Some("coffee".into()),
+///         postings: vec![
+///             PostingWrite { account: "Expenses:Coffee".into(), unit: Some(UnitWrite::Amount { number: "4.50".into(), commodity: "USD".into() }), ..Default::default() },
+///             PostingWrite { account: "Assets:Cash".into(), ..Default::default() },
+///         ],
+///         ..Default::default()
+///     }),
+/// ];
+/// let preview = router::write_preview(&batch)?;
+/// if let Some(token) = &preview.token {
+///     let committed = router::write_commit(&batch, token)?;
+///     assert_eq!(committed.entries, 2);
+/// }
+/// # Ok::<(), zhang_plugin_sdk::HostError>(())
+/// ```
+pub fn write_preview(directives: &[WriteDirective]) -> Result<WritePreview, HostError> {
+    host_result(abi::WRITE_PREVIEW, &abi::write_preview(&batch(directives, None)?)?)
+}
+
+/// Append `directives`, previewed with [`write_preview`], with the `token` the preview answered: the text is in the
+/// file when this returns, and the ledger reloads once the request is answered. A batch that differs from the
+/// previewed one, a token of another ledger generation (a reload or a commit happened since), an expired token, or
+/// a second commit before the ledger reloaded is a [`HostErrorKind::Conflict`](crate::HostErrorKind::Conflict):
+/// preview again. A batch the ledger refuses is [`Invalid`](crate::HostErrorKind::Invalid), a file that cannot be
+/// written [`Io`](crate::HostErrorKind::Io).
+pub fn write_commit(directives: &[WriteDirective], token: &str) -> Result<WriteCommitted, HostError> {
+    host_result(abi::WRITE_COMMIT, &abi::write_commit(&batch(directives, Some(token))?)?)
+}
+
 #[cfg(test)]
 mod test {
     use serde_json::json;
@@ -239,5 +310,94 @@ mod test {
         // natively the host functions are unavailable
         assert_eq!(super::query_with_params("SELECT 1", &params).unwrap_err().kind, HostErrorKind::Unavailable);
         assert_eq!(super::schema().unwrap_err().kind, HostErrorKind::Unavailable);
+    }
+}
+
+#[cfg(test)]
+mod write_test {
+    use serde_json::json;
+
+    use super::{batch, OpenWrite, PostingWrite, TransactionWrite, UnitWrite, WriteDirective, WritePreview};
+    use crate::error::{host_result, HostErrorKind};
+
+    #[test]
+    fn should_write_the_batch_zhang_reads_with_amounts_as_strings() {
+        let directives = vec![
+            WriteDirective::Open(OpenWrite {
+                date: "2026-10-13".into(),
+                account: "Expenses:Coffee".into(),
+                commodities: vec!["USD".into()],
+                booking_method: Some("FIFO".into()),
+                ..Default::default()
+            }),
+            WriteDirective::Transaction(TransactionWrite {
+                datetime: "2026-10-13".into(),
+                payee: "Blue Bottle".into(),
+                narration: Some("coffee".into()),
+                postings: vec![
+                    PostingWrite {
+                        account: "Expenses:Coffee".into(),
+                        unit: Some(UnitWrite::Amount {
+                            number: "4.50".into(),
+                            commodity: "USD".into(),
+                        }),
+                        comment: Some("morning".into()),
+                        ..Default::default()
+                    },
+                    PostingWrite {
+                        account: "Assets:Cash".into(),
+                        ..Default::default()
+                    },
+                ],
+                tags: vec!["mcp".into()],
+                ..Default::default()
+            }),
+        ];
+        let encoded: serde_json::Value = serde_json::from_slice(&batch(&directives, Some("t0k")).unwrap()).unwrap();
+        assert_eq!(
+            encoded,
+            json!({
+                "directives": [
+                    {"kind": "open", "date": "2026-10-13", "account": "Expenses:Coffee", "commodities": ["USD"], "booking_method": "FIFO", "metas": []},
+                    {"kind": "transaction", "datetime": "2026-10-13", "payee": "Blue Bottle", "narration": "coffee",
+                     "postings": [
+                        {"account": "Expenses:Coffee", "unit": {"number": "4.50", "commodity": "USD"}, "comment": "morning"},
+                        {"account": "Assets:Cash", "unit": null},
+                     ],
+                     "tags": ["mcp"], "links": [], "metas": []},
+                ],
+                "token": "t0k",
+            })
+        );
+        let preview: serde_json::Value = serde_json::from_slice(&batch(&directives, None).unwrap()).unwrap();
+        assert!(preview.get("token").is_none(), "a preview sends no token");
+        // natively the host functions are unavailable
+        assert_eq!(super::write_preview(&directives).unwrap_err().kind, HostErrorKind::Unavailable);
+        assert_eq!(super::write_commit(&directives, "t0k").unwrap_err().kind, HostErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn should_read_a_preview_and_the_write_error_kinds() {
+        let preview: WritePreview = host_result(
+            "zhang_write_preview",
+            br#"{"Ok": {"ok": false, "file": "data/2026/10.zhang", "generation": 17, "entries": [
+                {"index": 0, "kind": "transaction", "file": "data/2026/10.zhang", "text": "2026-10-13 * \"x\"", "field_errors": [], "unbalanced": [],
+                 "errors": [{"error_type": "AccountDoesNotExist", "metas": {"account_name": "Expenses:Coffee"}}]},
+                {"index": 1, "kind": "open", "file": "data/2026/10.zhang", "text": null, "errors": [], "already_open": true}
+            ], "token": null}}"#,
+        )
+        .unwrap();
+        assert!(!preview.ok);
+        assert_eq!((preview.generation, preview.token), (17, None));
+        assert_eq!(preview.entries[0].errors[0]["error_type"], "AccountDoesNotExist");
+        assert_eq!(preview.entries[1].already_open, Some(true));
+        let conflict = host_result::<WritePreview>("zhang_write_commit", br#"{"Err": {"kind": "conflict", "message": "preview again"}}"#).unwrap_err();
+        assert_eq!(conflict.kind, HostErrorKind::Conflict);
+        assert_eq!(
+            host_result::<WritePreview>("zhang_write_commit", br#"{"Err": {"kind": "io", "message": "disk full"}}"#)
+                .unwrap_err()
+                .kind,
+            HostErrorKind::Io
+        );
     }
 }

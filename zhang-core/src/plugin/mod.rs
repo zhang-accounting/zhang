@@ -19,6 +19,7 @@ pub mod router;
 pub mod runtime;
 pub mod stage;
 pub mod store;
+pub mod write;
 
 /// `text` from a plugin (its name, a message, an error) made safe to put into a log line: every control character
 /// (a newline, a carriage return, an escape sequence) and every character that changes the direction or the line of
