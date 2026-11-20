@@ -1234,3 +1234,182 @@ async fn write_session(dir: TempDir) {
     );
     assert_eq!(std::fs::read_to_string(dir.path().join("main.zhang")).unwrap(), main);
 }
+
+// ---- the latency of the Lua runtime's JSON path (#698's codec gate): a benchmark, not a test -------------------------
+
+/// A router timing the `json` table on a query-result-shaped document of `mb` megabytes, built without the codec:
+/// `op=encode` encodes the table `n` times, `op=decode` decodes the text `n` times. `n=0` times the building alone.
+const BENCH_JSON: &str = r##"
+local M = { name = "bench-json", version = "0.1.0" }
+local ACCOUNTS = { "Expenses:Food:Groceries", "Expenses:Food:Dining", "Expenses:Transport:Metro", "Assets:Bank:Checking", "Liabilities:Card:Visa" }
+local PAYEES = { "Market", "Cafe 小馆", 'Metro "Line 2"', "Landlord", "Bookshop / Café" }
+local COLUMNS = '"columns":["date","account","amount","payee","id","cleared","note","share"]'
+
+local function value(rows)
+  local t = {}
+  for i = 1, rows do
+    t[i] = { string.format("2024-%02d-%02d", i % 12 + 1, i % 28 + 1), ACCOUNTS[i % 5 + 1],
+      { number = string.format("%d.%02d", i % 1000, i % 100), currency = "CNY" }, PAYEES[i % 5 + 1], i, i % 2 == 0,
+      json.null, (i % 8) / 4 }
+  end
+  return { columns = { "date", "account", "amount", "payee", "id", "cleared", "note", "share" }, rows = t }
+end
+
+local function text(rows)
+  local parts = {}
+  for i = 1, rows do
+    parts[i] = string.format('["2024-%02d-%02d","%s",{"currency":"CNY","number":"%d.%02d"},"%s",%d,%s,null,%.2f]',
+      i % 12 + 1, i % 28 + 1, ACCOUNTS[i % 5 + 1], i % 1000, i % 100, (PAYEES[i % 5 + 1]:gsub('"', '\\"')), i,
+      tostring(i % 2 == 0), (i % 8) / 4)
+  end
+  return "{" .. COLUMNS .. ',"rows":[' .. table.concat(parts, ",") .. "]}"
+end
+
+function M.router(request)
+  local op, mb, n = request.query.op[1], tonumber(request.query.mb[1]), math.tointeger(tonumber(request.query.n[1]))
+  local rows = math.floor(mb * 1e6 / 100)
+  local bytes = 0
+  if op == "encode" then
+    local doc = value(rows)
+    for _ = 1, n do bytes = #json.encode(doc) end
+  else
+    local doc = text(rows)
+    bytes = #doc
+    for _ = 1, n do json.decode(doc) end
+  end
+  return { json = { rows = rows, bytes = bytes } }
+end
+
+return M
+"##;
+
+/// A router answering the postings a query returns, as they come from the host: decoded, then encoded as the response.
+const BENCH_BIG: &str = r##"
+local M = { name = "bench-big", version = "0.1.0" }
+
+function M.router(request)
+  return { json = zhang.query("SELECT date, account, payee, narration, position LIMIT " .. request.query.limit[1]) }
+end
+
+return M
+"##;
+
+const BENCH_ACCOUNTS: [&str; 6] = [
+    "Assets:Bank",
+    "Expenses:Food:Groceries",
+    "Expenses:Food:Dining",
+    "Expenses:Transport",
+    "Expenses:Rent",
+    "Expenses:Books",
+];
+
+/// a ledger of `transactions` two-posting transactions with `plugin "zhang:mcp"` and the two bench routers
+fn bench_ledger(transactions: usize) -> TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::write(root.join("bench_json.lua"), BENCH_JSON).unwrap();
+    std::fs::write(root.join("bench_big.lua"), BENCH_BIG).unwrap();
+    let mut text = String::from("option \"features.plugin\" \"true\"\noption \"operating_currency\" \"CNY\"\n");
+    text += "plugin \"zhang:mcp\"\n  timeout: \"30s\"\n";
+    for script in ["bench_json.lua", "bench_big.lua"] {
+        text += &format!("plugin \"{}\"\n  timeout: \"30s\"\n", root.join(script).display());
+    }
+    text += "1970-01-01 commodity CNY\n";
+    for account in BENCH_ACCOUNTS {
+        text += &format!("1970-01-01 open {account}\n");
+    }
+    for i in 0..transactions {
+        let date = format!("{}-{:02}-{:02}", 2000 + i * 26 / transactions.max(1), i % 12 + 1, i % 28 + 1);
+        let expense = BENCH_ACCOUNTS[1 + i % 5];
+        text += &format!(
+            "\n{date} * \"Payee {}\" \"purchase {i}\"\n  {expense} {}.{:02} CNY\n  Assets:Bank\n",
+            i % 50,
+            1 + i % 500,
+            i % 100
+        );
+    }
+    std::fs::write(root.join("main.zhang"), text).unwrap();
+    dir
+}
+
+/// the median of the wall times of `runs` calls of `f`, in milliseconds, and the last call's result
+async fn median_ms<T, F: std::future::Future<Output = T>>(runs: usize, mut f: impl FnMut() -> F) -> (f64, T) {
+    let mut times = Vec::new();
+    let mut last = None;
+    for _ in 0..runs {
+        let start = std::time::Instant::now();
+        last = Some(f().await);
+        times.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    (times[runs / 2], last.unwrap())
+}
+
+/// The numbers of #698's codec gate: `json` throughput inside the interpreter on 1 MB and 10 MB documents, the MCP
+/// `query` tool on 10,000 and 100,000 transactions (a query the tool limits, and one that brings every posting back
+/// to the script), and a Lua router answering a large query result. Not a test: run it in release,
+/// `cargo test --release -p zhang-server --test mcp_plugin -- --ignored --nocapture lua_json_latency`.
+#[tokio::test]
+#[ignore]
+async fn lua_json_latency() {
+    for transactions in [10_000usize, 100_000] {
+        let dir = bench_ledger(transactions);
+        let start = std::time::Instant::now();
+        let router = server(&dir, &Settings::default()).await;
+        println!("{transactions} transactions: loaded in {:.0} ms", start.elapsed().as_secs_f64() * 1000.0);
+
+        if transactions == 10_000 {
+            for (mb, n) in [(1, 5), (10, 1)] {
+                for op in ["decode", "encode"] {
+                    let (building, timed) = (
+                        format!("/api/plugins/bench-json/?op={op}&mb={mb}&n=0"),
+                        format!("/api/plugins/bench-json/?op={op}&mb={mb}&n={n}"),
+                    );
+                    let (base, _) = median_ms(3, || call(&router, Method::GET, &building, &[], None)).await;
+                    let (with, reply) = median_ms(3, || call(&router, Method::GET, &timed, &[], None)).await;
+                    if reply.status != 200 {
+                        println!("  json.{op} {mb} MB: failed, {} {}", reply.status, reply.text());
+                        continue;
+                    }
+                    let bytes = reply.json()["bytes"].as_f64().unwrap();
+                    let per_call = (with - base) / n as f64;
+                    println!(
+                        "  json.{op} {mb} MB ({bytes} bytes): {per_call:.1} ms, {:.1} MB/s",
+                        bytes / 1e6 / (per_call / 1000.0)
+                    );
+                }
+            }
+        }
+
+        for (label, bql) in [
+            (
+                "query tool, LIMIT appended by the tool (200 rows back)",
+                "SELECT date, account, payee, position",
+            ),
+            ("query tool, every posting back to the script", "SELECT date, account, payee LIMIT 10000000"),
+        ] {
+            let call = request(9, "tools/call", json!({"name": "query", "arguments": {"bql": bql}}));
+            let (ms, reply) = median_ms(5, || post(&router, &[("mcp-protocol-version", "2025-11-25")], &call)).await;
+            let structured = &reply.body["result"]["structuredContent"];
+            if reply.status == 200 && structured.is_object() {
+                println!(
+                    "  {label}: {ms:.1} ms ({} rows, truncated {})",
+                    structured["row_count"], structured["truncated"]
+                );
+            } else {
+                println!("  {label}: {} after {ms:.1} ms: {}", reply.status, reply.text());
+            }
+        }
+
+        for limit in [10_000usize, 50_000, 100_000] {
+            let uri = format!("/api/plugins/bench-big/?limit={limit}");
+            let (ms, reply) = median_ms(3, || call(&router, Method::GET, &uri, &[], None)).await;
+            if reply.status == 200 {
+                let rows = reply.json()["rows"].as_array().map_or(0, Vec::len);
+                println!("  router returning {rows} postings ({} bytes): {ms:.1} ms", reply.text().len());
+            } else {
+                println!("  router returning up to {limit} postings: {} after {ms:.1} ms", reply.status);
+            }
+        }
+    }
+}
