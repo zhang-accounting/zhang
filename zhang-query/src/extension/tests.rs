@@ -10,7 +10,7 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 
 use super::*;
-use crate::catalog::Catalog;
+use crate::catalog::{Catalog, TableRef};
 use crate::params::Params;
 use crate::projector::{set_membership, Projection};
 use crate::table::{Dataset, RowRef};
@@ -255,6 +255,12 @@ fn a_query_of_an_extensions_data_runs_only_on_a_catalog_with_its_digest() {
 
 #[test]
 fn a_query_compiled_once_reads_the_rows_of_the_ledger_it_runs_on() {
+    // the tables of a provider, and postings with its label column, are tables the catalog owns and shares: a compiled
+    // query keeps handles to them, never their rows
+    let catalog = Catalog::standard();
+    for table in ["budget_definitions", "budgets", "postings"] {
+        assert!(matches!(catalog.find(table), Some(TableRef::Shared(_))), "{table}");
+    }
     let today = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
     let text = |name: &str| {
         format!(
@@ -349,7 +355,7 @@ fn a_label_column_holds_the_labels_whose_predicate_holds() {
     assert_eq!(unindexed, rows);
     let (indexed, unindexed) = labels_of("number / :min >= 0 AND account IN :accounts", &labels);
     assert_eq!(indexed, None, "a conjunct that may fail comes first");
-    // a predicate that fails on a row does not hold there: 12.50 / 0 for `food`
+    // a predicate that is NULL on a row does not hold there: 12.50 / 0 for `food`
     let food = |rows: &[(String, Vec<String>)]| rows.iter().map(|(_, set)| set.contains(&"food".to_owned())).collect::<Vec<_>>();
     assert_eq!(food(&unindexed), [false, false, false, false, false]);
     let (_, by_label) = labels_of("account IN :accounts AND :label != 'big' AND number >= :min", &labels);
@@ -391,4 +397,17 @@ fn the_budgets_column_reads_in_place_as_its_value() {
         seen.push(set.into_iter().collect::<Vec<_>>().join(","));
     }
     assert_eq!(seen, ["Food,Treats", "", "Food", ""]);
+}
+
+/// A label predicate that fails with an error is a provider's bug: a debug build panics (a release build reads the label
+/// as not holding).
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "the predicate of shop_tags fails for the label '('")]
+fn a_label_predicate_that_fails_panics_in_a_debug_build() {
+    let label = Label {
+        label: "(".to_owned(),
+        params: Params::new().bind("accounts", Value::Null).bind("min", Value::Null),
+    };
+    labels_of("account ~ :label", &[label]);
 }

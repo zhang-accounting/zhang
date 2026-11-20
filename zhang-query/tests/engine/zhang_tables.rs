@@ -958,3 +958,62 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
         .unwrap();
     assert_eq!(result.rows.len(), 2);
 }
+
+/// The two implementations of the one rule of budget membership agree, until P3.2 computes `#budgets` activity through
+/// the label predicate of `postings.budgets` (RFC #698): on every fixture ledger, for every budget and month, the postings
+/// whose `budgets` hold the budget, converted to its commodity and counted with the sign activity counts them with, add
+/// up to that month's `activity` in `#budgets`.
+#[test]
+fn the_postings_of_a_budgets_month_add_up_to_its_activity_on_every_fixture_ledger() {
+    use std::collections::BTreeMap;
+
+    use bigdecimal::{BigDecimal, Zero};
+    use zhang_query::ParamTypes;
+
+    let budgets = Query::compile("SELECT name, currency FROM #budget_definitions").unwrap();
+    let activity = Query::compile_with_params(
+        "SELECT date, number(activity) FROM #budgets WHERE name = :name",
+        &ParamTypes::new().bind("name", DataType::Str),
+    )
+    .unwrap();
+    let postings = Query::compile_with_params(
+        "SELECT yearmonth(date) AS month, sum(possign(number(convert(position, :currency, date)), account)) \
+         WHERE :name IN budgets GROUP BY month",
+        &ParamTypes::new().bind("name", DataType::Str).bind("currency", DataType::Str),
+    )
+    .unwrap();
+    let by_month = |rows: Vec<Vec<Value>>| {
+        rows.into_iter()
+            .map(|row| match (&row[0], &row[1]) {
+                (Value::Date(month), Value::Decimal(number)) => (*month, number.clone()),
+                other => panic!("a month and a number: {other:?}"),
+            })
+            .collect::<BTreeMap<NaiveDate, BigDecimal>>()
+    };
+    let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+    let mut checked = 0;
+    for fixture in zhang_testkit::fixtures::every_fixture_ledger() {
+        let ledger = fixture.ledger();
+        for budget in budgets.execute_at(&ledger, &Params::new(), today).unwrap().rows {
+            let (Value::Str(name), Value::Str(currency)) = (&budget[0], &budget[1]) else {
+                panic!("{}: a budget {budget:?}", fixture.name)
+            };
+            let params = Params::new().bind("name", name.as_str()).bind("currency", currency.as_str());
+            let months = by_month(activity.execute_at(&ledger, &params, today).unwrap().rows);
+            let sums = by_month(postings.execute_at(&ledger, &params, today).unwrap().rows);
+            for (month, sum) in &sums {
+                assert_eq!(
+                    months.get(month),
+                    Some(sum),
+                    "{}: budget {name}, {month}: the postings add up to {sum}",
+                    fixture.name
+                );
+            }
+            for (month, number) in months.iter().filter(|(_, number)| !number.is_zero()) {
+                assert_eq!(sums.get(month), Some(number), "{}: budget {name}, {month}: activity {number}", fixture.name);
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 10, "{checked} budgets");
+}

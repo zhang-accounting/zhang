@@ -11,7 +11,8 @@
 //!   row's value in that column, found in an index built once per execution;
 //! - `:x IN <column>` (and `'x' IN <column>`) evaluates the predicate of the label `x` only.
 //!
-//! A predicate that fails with an error on a row does not hold there.
+//! A predicate that fails with an error on a row does not hold there; a debug build (the tests) panics instead, since a
+//! provider's predicate has no business failing.
 
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap};
@@ -187,7 +188,17 @@ impl<'a> Labels<'a> {
             let label = &self.labels[at];
             crate::optimizer::bind_expr(&self.column.predicate, &label.params.clone().bind("label", label.label.as_str()))
         });
-        matches!(bound.eval(&env), Ok(Value::Bool(true)))
+        match bound.eval(&env) {
+            Ok(value) => value == Value::Bool(true),
+            Err(err) => {
+                debug_assert!(
+                    false,
+                    "the predicate of {} fails for the label '{}': {}",
+                    self.column.name, self.labels[at].label, err.message
+                );
+                false
+            }
+        }
     }
 }
 
