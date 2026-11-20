@@ -149,6 +149,29 @@ fn invalid(message: String) -> HostError {
     HostError::new(HostErrorKind::Invalid, message)
 }
 
+/// `error` as the plugin is told it: the ledger's directory on the server's disk is cut out of the message, so a
+/// file reads as the ledger names it (`data/2026/10.zhang`) and the directory as "the ledger's directory". A plugin
+/// may send what it is told elsewhere (a wasm plugin granted `allowed_hosts`); where the server keeps its files is
+/// not its business. The ledger's own errors name files within the ledger already; this catches what an io error or
+/// a data source adds
+fn relayed(ledger: &Ledger, mut error: HostError) -> HostError {
+    let root = &ledger.entry.0;
+    let mut roots = vec![root.display().to_string()];
+    if let Ok(canonical) = root.canonicalize() {
+        roots.push(canonical.display().to_string());
+    }
+    // the longer first, so a root that is a prefix of the other does not leave a piece of it behind
+    roots.sort_by_key(|it| std::cmp::Reverse(it.len()));
+    for root in roots.iter().filter(|it| it.len() > 1) {
+        let root = root.trim_end_matches(std::path::MAIN_SEPARATOR);
+        error.message = error
+            .message
+            .replace(&format!("{root}{}", std::path::MAIN_SEPARATOR), "")
+            .replace(root, "the ledger's directory");
+    }
+    error
+}
+
 /// The generation of the ledger served, when a plugin may write on it: not while it is stale, or a write is pending
 /// on the reload sender (a write of the API or a plugin is waiting for the reload that follows it: one commit per
 /// reload cycle). A reload that failed is named: the owner fixes the files
@@ -172,6 +195,10 @@ fn writable_generation(ledger: &Ledger, reload_sender: &ReloadSender) -> Result<
 pub(crate) fn preview(
     ledger: &Ledger, writes: &PluginWrites, reload_sender: &ReloadSender, plugin: &str, directives: &[Value],
 ) -> Result<WritePreview, HostError> {
+    previewed(ledger, writes, reload_sender, plugin, directives).map_err(|error| relayed(ledger, error))
+}
+
+fn previewed(ledger: &Ledger, writes: &PluginWrites, reload_sender: &ReloadSender, plugin: &str, directives: &[Value]) -> Result<WritePreview, HostError> {
     let generation = writable_generation(ledger, reload_sender)?;
     let planned = plan_batch(ledger, directives)?;
     let token = (planned.problem.is_none() && !planned.plan.is_empty()).then(|| writes.mint(generation, plugin, &planned.plan, now()));
@@ -197,6 +224,12 @@ pub(crate) struct Commit {
 /// generation moves on, and the write is marked pending on the reload sender with the reload asked for, here, so
 /// nothing can plan against the ledger the commit left behind.
 pub(crate) fn commit(
+    ledger: &Ledger, writes: &PluginWrites, reload_sender: &ReloadSender, plugin: &str, directives: &[Value], token: &str,
+) -> Result<Commit, HostError> {
+    committed(ledger, writes, reload_sender, plugin, directives, token).map_err(|error| relayed(ledger, error))
+}
+
+fn committed(
     ledger: &Ledger, writes: &PluginWrites, reload_sender: &ReloadSender, plugin: &str, directives: &[Value], token: &str,
 ) -> Result<Commit, HostError> {
     writable_generation(ledger, reload_sender)?;
@@ -355,10 +388,14 @@ fn export_failed(error: zhang_core::ZhangError) -> HostError {
 /// the file a directive of `directive_type` dated `datetime` goes to, by its path within the ledger
 fn file_of(ledger: &Ledger, datetime: Option<chrono::NaiveDateTime>, directive_type: DirectiveType) -> Result<String, HostError> {
     let file = output_file(ledger, datetime, directive_type).map_err(|e| invalid(format!("the ledger's directive_output_path option cannot be used: {e}")))?;
-    let within = ledger
-        .path_in_ledger(&file)
-        .filter(|it| !it.as_os_str().is_empty())
-        .ok_or_else(|| invalid(format!("{} is not in the ledger's directory", file.display())))?;
+    // the file by the option's own text, never by where it is on the server's disk
+    let within = ledger.path_in_ledger(&file).filter(|it| !it.as_os_str().is_empty()).ok_or_else(|| {
+        invalid(format!(
+            "the ledger's directive_output_path option {:?} puts this {} directive outside the ledger's directory",
+            ledger.options.directive_output_path,
+            directive_type.to_string().to_lowercase()
+        ))
+    })?;
     Ok(slashed(&within))
 }
 
@@ -758,6 +795,34 @@ mod test {
         // a wall-clock time is a date and time
         let timed = ok(&ledger, json!([open(json!({"date": "2026-10-13T08:30:00"}))]));
         assert_eq!(timed["entries"][0]["text"], "2026-10-13 08:30:00 open Assets:Bank");
+    }
+
+    /// What a plugin is told names files as the ledger does, never by where the server keeps them: an io error's
+    /// path loses the ledger's directory, and a `directive_output_path` leading out of the ledger is named by the
+    /// option's text (#803 review)
+    #[test]
+    fn an_error_a_plugin_is_told_names_no_directory_of_the_server() {
+        let scratch = Scratch::zhang(LEDGER);
+        let ledger = scratch.ledger().unwrap();
+        let root = ledger.entry.0.display().to_string();
+        let error = super::HostError::new(
+            super::HostErrorKind::Io,
+            format!("cannot write {root}/data/2026/10.zhang: Is a directory; {root} is full"),
+        );
+        assert_eq!(
+            super::relayed(&ledger, error).message,
+            "cannot write data/2026/10.zhang: Is a directory; the ledger's directory is full"
+        );
+
+        let outside = Scratch::zhang(&format!("option \"directive_output_path\" \"../elsewhere/{{{{year}}}}.zhang\"\n{LEDGER}"));
+        let ledger = outside.ledger().unwrap();
+        let answer = preview(&ledger, json!([{"kind": "open", "date": "2026-10-13", "account": "Assets:Bank"}]));
+        let message = answer["Err"]["message"].as_str().unwrap_or_else(|| panic!("{answer}"));
+        assert_eq!(
+            message,
+            "the ledger's directive_output_path option \"../elsewhere/{{year}}.zhang\" puts this open directive outside the ledger's directory"
+        );
+        assert!(!message.contains(&ledger.entry.0.display().to_string()), "{message}");
     }
 
     #[test]
