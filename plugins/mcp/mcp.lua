@@ -954,7 +954,9 @@ function writes_enabled() return next(CONFIG.granted) ~= nil end
 -- a tool error naming the exact meta line to add when `kind` is not granted
 local function require_grant(kind)
   if not CONFIG.granted[kind] then
-    tool_error(fmt('this zhang does not let the plugin write %ss: add `  allowed_writes: "%s"` under the `plugin "…mcp.lua"` directive of the ledger (and reload)', kind, kind))
+    -- the module as its directive names it: `zhang:mcp` for the bundled plugin, the path of a copy
+    local module = zhang.config("zhang.script_name") or "mcp.lua"
+    tool_error(fmt('this zhang does not let the plugin write %ss: add `  allowed_writes: "%s"` under the `plugin "%s"` directive of the ledger (and reload)', kind, kind, module))
   end
 end
 

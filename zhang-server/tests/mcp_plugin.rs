@@ -881,6 +881,9 @@ async fn without_a_grant_the_write_tools_are_hidden_and_with_one_the_others_name
     assert_eq!(tool_names(&router).await, expected);
     let denied = error_text(&router, "preview_transaction", coffee(None)).await;
     assert!(denied.contains("allowed_writes: \"transaction\""), "{denied}");
+    // the directive named as the ledger writes it, the copy's path here (`zhang:mcp` for the bundled plugin)
+    let module = dir.path().canonicalize().unwrap().join("plugins").join("mcp.lua");
+    assert!(denied.contains(&format!("under the `plugin \"{}\"` directive", module.display())), "{denied}");
     let denied = error_text(&router, "add_transaction", coffee(Some("x"))).await;
     assert!(denied.contains("allowed_writes: \"transaction\""), "{denied}");
 }
