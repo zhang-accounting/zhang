@@ -6764,6 +6764,7 @@ dependencies = [
  "gotcha",
  "gotcha_core",
  "hmac",
+ "http-body-util",
  "indexmap 2.14.2",
  "itertools 0.15.0",
  "log",
