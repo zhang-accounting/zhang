@@ -65,7 +65,7 @@ Its output is the response as JSON. Every field is optional:
 
 - `status` defaults to `200`.
 - Without a `content-type` header the response is `text/plain; charset=utf-8`. Any content type works, so a plugin can return JSON, an HTML page or, with `"body_encoding": "base64"`, an image.
-- Zhang sends only these headers of the plugin: `content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow` (for a `405`), and `location` when it stays on Zhang: a relative URL such as `/api/plugins/report/by-month`, `by-month` or `?year=2024`. It drops every other header, such as `set-cookie`, `content-security-policy`, `access-control-*`, `clear-site-data` or `refresh`, and a `location` with a scheme or a host (`https://…`, `//…`). The response is still sent, without them.
+- Zhang sends only these headers of the plugin: `content-type`, `cache-control` (always made `private`, see below), `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow` (for a `405`), and `location` when it stays on Zhang: a relative URL such as `/api/plugins/report/by-month`, `by-month` or `?year=2024`. It drops every other header, such as `set-cookie`, `content-security-policy`, `access-control-*`, `clear-site-data` or `refresh`, and a `location` with a scheme or a host (`https://…`, `//…`). The response is still sent, without them.
 - Zhang adds the headers of the [sandbox](#pages-are-sandboxed) to every response.
 
 ## Pages are sandboxed
@@ -84,6 +84,9 @@ For a plugin author this means:
 - Put the page's scripts, styles and images into the page itself (inline, or as `data:` URLs). With sign-in enabled, the page cannot load more from Zhang, its own routes included, and its scripts cannot fetch the plugin's JSON.
 - Links, and forms with `method="get"`, navigate the whole page to another page of the plugin and keep working. Links can open new tabs, which are sandboxed too, and download what they point at, such as a CSV export with `content-disposition: attachment`.
 - `X-Content-Type-Options: nosniff` keeps a browser from reading text or JSON as HTML or script: send an HTML page as `text/html`.
+- `Cache-Control` always says `private`: Zhang adds it, and drops `public` and `s-maxage`, so a CDN or proxy in front of Zhang never keeps a page made for a signed-in user. The browser still caches it as the rest of the header says.
+
+The sandbox does not stop a page from navigating its tab elsewhere, with a link, a `<meta http-equiv="refresh">` or `location.href`. A plugin can send you from Zhang's address to a page that looks like Zhang's sign-in and asks for your password: check the address bar before you type a password, and only install plugins you trust.
 
 ## Limits
 
@@ -92,7 +95,7 @@ The server bounds every router plugin, whatever its `plugin` directive asks for.
 | Limit | Default | Set with | When it is reached |
 |---|---|---|---|
 | Size of a request body | 4 MiB | `ZHANG_PLUGIN_MAX_BODY` | 413, before the plugin runs |
-| Requests one plugin handles at once | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | 503 with `Retry-After: 1`, at once |
+| Requests one plugin handles at once | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | up to 16 more wait up to 5 seconds for their turn; beyond that, 503 with `Retry-After: 1` |
 | Time one request runs | the plugin's `timeout`, at most 30 seconds | the `timeout` meta, for less | 504 |
 | Memory of one plugin instance | 256 MiB | `ZHANG_PLUGIN_MAX_MEMORY` | 500 |
 

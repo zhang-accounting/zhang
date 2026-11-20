@@ -65,7 +65,7 @@ Router 插件服务 `/api/plugins/{name}` 及其下的所有路径，接受任�
 
 - `status` 默认为 `200`。
 - 没有 `content-type` 头时，响应的类型是 `text/plain; charset=utf-8`。任何内容类型都可以，因此插件可以返回 JSON、HTML 页面，或者配合 `"body_encoding": "base64"` 返回图片。
-- 张记账只发送插件的这些响应头：`content-type`、`cache-control`、`etag`、`last-modified`、`content-disposition`、`content-language`、`vary`、`allow`（用于 `405`），以及停留在张记账内的 `location`：相对 URL，例如 `/api/plugins/report/by-month`、`by-month` 或 `?year=2024`。其他响应头都会被丢弃，例如 `set-cookie`、`content-security-policy`、`access-control-*`、`clear-site-data` 或 `refresh`，带协议或主机的 `location`（`https://…`、`//…`）也会被丢弃。响应仍然会发送，只是不带这些头。
+- 张记账只发送插件的这些响应头：`content-type`、`cache-control`（总是改为 `private`，见下文）、`etag`、`last-modified`、`content-disposition`、`content-language`、`vary`、`allow`（用于 `405`），以及停留在张记账内的 `location`：相对 URL，例如 `/api/plugins/report/by-month`、`by-month` 或 `?year=2024`。其他响应头都会被丢弃，例如 `set-cookie`、`content-security-policy`、`access-control-*`、`clear-site-data` 或 `refresh`，带协议或主机的 `location`（`https://…`、`//…`）也会被丢弃。响应仍然会发送，只是不带这些头。
 - 张记账给每个响应加上[沙箱](#页面在沙箱中运行)的响应头。
 
 ## 页面在沙箱中运行
@@ -84,6 +84,9 @@ X-Content-Type-Options: nosniff
 - 把页面的脚本、样式和图片放进页面本身（内联，或者用 `data:` URL）。启用登录后，页面无法再从张记账加载其他内容，包括插件自己的路由，它的脚本也无法获取插件的 JSON。
 - 链接以及 `method="get"` 的表单会让整个页面跳转到插件的另一个页面，可以正常使用。链接可以打开新标签页（新标签页同样在沙箱中），也可以下载它指向的内容，例如带 `content-disposition: attachment` 的 CSV 导出。
 - `X-Content-Type-Options: nosniff` 让浏览器不会把文本或 JSON 当作 HTML 或脚本：HTML 页面请以 `text/html` 发送。
+- `Cache-Control` 总是包含 `private`：张记账会加上它，并去掉 `public` 和 `s-maxage`，所以张记账前面的 CDN 或代理永远不会缓存为已登录用户生成的页面。浏览器仍按该响应头的其余部分缓存它。
+
+沙箱不能阻止页面把它所在的标签页导航到别处，无论是通过链接、`<meta http-equiv="refresh">` 还是 `location.href`。插件可以把你从张记账的地址带到一个看起来像张记账登录页、要求你输入密码的页面：输入密码前请检查地址栏，并且只安装你信任的插件。
 
 ## 限制
 
@@ -92,7 +95,7 @@ X-Content-Type-Options: nosniff
 | 限制 | 默认值 | 设置方式 | 达到时 |
 |---|---|---|---|
 | 请求体大小 | 4 MiB | `ZHANG_PLUGIN_MAX_BODY` | 413，插件不会运行 |
-| 一个插件同时处理的请求数 | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | 立即返回 503，带 `Retry-After: 1` |
+| 一个插件同时处理的请求数 | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | 最多再有 16 个请求排队等待最多 5 秒；超出时返回 503，带 `Retry-After: 1` |
 | 一个请求的运行时间 | 插件的 `timeout`，最多 30 秒 | `timeout` 元数据，可以更短 | 504 |
 | 一个插件实例的内存 | 256 MiB | `ZHANG_PLUGIN_MAX_MEMORY` | 500 |
 
