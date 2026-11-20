@@ -4,7 +4,10 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use zhang_ast::error::ErrorKind;
+use zhang_ast::Directive;
 use zhang_core::data_type::Dialect;
+use zhang_testkit::budget_ledger::{Spec, MAX_BUDGETS};
 use zhang_testkit::fixtures::{every_fixture_ledger, fava_demo, fixture_dir, fixture_ledger, integration_tests_dir, load_dir, oracle_ledgers};
 use zhang_testkit::ledger::{load_ledger, load_text, Scratch};
 use zhang_testkit::{golden, XorShift};
@@ -145,4 +148,99 @@ fn a_golden_file_passes_when_equal_and_reads_back_as_json() {
     golden::assert_json(&path, &value);
     assert_eq!(golden::read_json(&path), value);
     golden::assert_text(&path, &(serde_json::to_string_pretty(&value).unwrap() + "\n"));
+}
+
+/// the lines of a generated file but its budget directives, their metadata and the `budget` metadata of the `open`s,
+/// without the blank lines
+fn without_budget_lines(text: &str) -> Vec<&str> {
+    let mut kept = vec![];
+    let mut in_budget = false;
+    for line in text.lines().filter(|line| !line.is_empty()) {
+        if line.starts_with("  ") {
+            if !in_budget && !line.starts_with("  budget: ") {
+                kept.push(line);
+            }
+            continue;
+        }
+        in_budget = line.contains(" budget ") || line.contains(" budget-");
+        if !in_budget {
+            kept.push(line);
+        }
+    }
+    kept
+}
+
+#[test]
+fn a_generated_ledger_is_the_same_for_the_same_spec() {
+    let spec = Spec::new(600, 12).with_months(12);
+    let (first, second) = (spec.generate(), spec.generate());
+    assert_eq!(first.files(), second.files());
+    assert_eq!(first.sha256(), second.sha256());
+    assert_eq!(
+        first.files().iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+        ["2021.zhang", "main.zhang"]
+    );
+    let other = spec.with_seed(7).generate();
+    assert_ne!(first.sha256(), other.sha256());
+    // the requested number of transactions, the routine ones included
+    let transactions = first.files().iter().map(|(_, text)| text.matches(" * \"").count()).sum::<usize>();
+    assert_eq!(transactions, 600);
+}
+
+#[test]
+fn a_generated_ledger_without_budgets_differs_only_in_its_budget_lines() {
+    let spec = Spec::new(800, MAX_BUDGETS).with_months(24);
+    let with = spec.generate();
+    let without = spec.without_budgets().generate();
+    let fewer = Spec { budgets: 5, ..spec }.generate();
+    assert_ne!(with.sha256(), without.sha256());
+    for (((path, with), (_, without)), (_, fewer)) in with.files().iter().zip(without.files()).zip(fewer.files()) {
+        assert!(!without.contains("budget"), "{path} of the ledger without budgets names a budget");
+        assert_eq!(
+            without_budget_lines(with),
+            without.lines().filter(|line| !line.is_empty()).collect::<Vec<_>>(),
+            "{path}"
+        );
+        assert_eq!(without_budget_lines(fewer), without_budget_lines(with), "{path}");
+    }
+}
+
+#[test]
+fn a_generated_ledger_loads_with_every_budget_case_and_no_budget_error() {
+    let spec = Spec::new(1500, MAX_BUDGETS).with_months(12);
+    for spec in [spec, spec.without_budgets()] {
+        let scratch = spec.generate().scratch();
+        let ledger = scratch.ledger_at(spec.clock()).unwrap_or_else(|error| panic!("{}: {error}", spec.name()));
+        let kinds = ledger.errors.iter().map(|error| error.error_type.clone()).collect::<Vec<_>>();
+        // the reopened accounts are closed with a balance; nothing else is wrong
+        assert!(
+            kinds.len() <= 2 && kinds.iter().all(|kind| *kind == ErrorKind::CloseNonZeroAccount),
+            "{}: {kinds:?}",
+            spec.name()
+        );
+        let count = |kind: fn(&Directive) -> bool| ledger.directives.iter().filter(|it| kind(&it.data)).count();
+        let budgets = (
+            count(|it| matches!(it, Directive::Budget(_))),
+            count(|it| matches!(it, Directive::BudgetClose(_))),
+            count(|it| matches!(it, Directive::BudgetAdd(_))) > 0,
+            count(|it| matches!(it, Directive::BudgetTransfer(_))) > 0,
+        );
+        match spec.with_budgets {
+            true => assert_eq!(budgets, (MAX_BUDGETS, 4, true, true)),
+            false => assert_eq!(budgets, (0, 0, false, false)),
+        }
+        assert_eq!(ledger.today(), spec.last_day());
+    }
+}
+
+/// The digests `docs/src/content/docs/developers/budget-baseline.md` records: a change of the generator changes the
+/// ledgers of the baseline, whose numbers then no longer hold.
+#[test]
+fn the_baseline_ledgers_are_the_ones_the_baseline_page_records() {
+    let spec = Spec::new(10_000, 30);
+    assert_eq!(spec.generate().sha256(), "b46b01f46a38a81a4650f480bb141b4f4e2589b5a40d9e3f03d5b0bd7b1907d2");
+    assert_eq!(
+        spec.without_budgets().generate().sha256(),
+        "e1cc6c76b2b925d2c12b602b6b725fb76d8f95bacc85382423eb70c554914962"
+    );
 }

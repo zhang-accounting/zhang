@@ -6608,6 +6608,7 @@ dependencies = [
  "zhang-ast",
  "zhang-core",
  "zhang-server",
+ "zhang-testkit",
 ]
 
 [[package]]
@@ -6657,10 +6658,10 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror 2.0.21",
- "ureq",
- "url",
  "tracing",
  "tracing-subscriber",
+ "ureq",
+ "url",
  "uuid",
  "zhang-ast",
  "zhang-query",
@@ -6803,6 +6804,7 @@ dependencies = [
  "chrono",
  "gotcha",
  "serde_json",
+ "sha2 0.11.0",
  "tempfile",
  "tokio",
  "tower 0.4.13",

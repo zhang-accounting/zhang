@@ -54,6 +54,7 @@ The web UI tests are plain `node --test` files next to the code they test (`fron
 | the beancount oracle ledgers | `fixtures::oracle_ledgers` |
 | a ledger of either format from a directory | `fixtures::load_dir` |
 | a reproducible random source | `XorShift` |
+| a household's ledger of any size from a seed, with budgets or without, the same byte for byte for a spec | `budget_ledger` |
 | the dialect scenarios: random transactions and text layouts, where metadata landed | `dialect` |
 | a golden file | `golden::assert_text`, `golden::assert_json` |
 | a beanquery case set, run and compared under one set of rules (feature `query`) | `oracle` |
@@ -69,6 +70,7 @@ cargo nextest run -p zhang-query        # one crate
 cargo nextest run -E 'test(journals)'   # tests whose name matches
 cargo test --doc                        # the doctests (nextest does not run them)
 cargo test -p zhang-core                # zhang-core alone, without the plugin runtime
+cargo run --release -p zhang --example budget_baseline   # the budget baseline, not a test: see Budget Baseline
 cd frontend && pnpm test                # the web UI
 ```
 

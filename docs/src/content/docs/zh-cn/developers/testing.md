@@ -54,6 +54,7 @@ sidebar:
 | beancount 参照账本 | `fixtures::oracle_ledgers` |
 | 从目录按格式加载账本 | `fixtures::load_dir` |
 | 可复现的随机源 | `XorShift` |
+| 由种子生成的任意规模的家庭账本，带预算或不带预算，同一规格逐字节相同 | `budget_ledger` |
 | 方言场景：随机交易与文本布局、元数据落在哪里 | `dialect` |
 | 黄金文件 | `golden::assert_text`、`golden::assert_json` |
 | 用同一套规则运行并比对一组 beanquery 用例（feature `query`） | `oracle` |
@@ -69,6 +70,7 @@ cargo nextest run -p zhang-query        # 一个 crate
 cargo nextest run -E 'test(journals)'   # 名字匹配的测试
 cargo test --doc                        # 文档测试（nextest 不运行它们）
 cargo test -p zhang-core                # 单独运行 zhang-core，不带插件运行时
+cargo run --release -p zhang --example budget_baseline   # 预算基线，不是测试：见预算基线页面
 cd frontend && pnpm test                # 网页界面
 ```
 
