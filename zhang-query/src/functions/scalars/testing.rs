@@ -107,7 +107,8 @@ impl Fixture<'_> {
         std::fs::write(dir.path().join("main.zhang"), self.ledger()).expect("write ledger");
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         let ledger = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), Arc::new(source)).expect("cannot load ledger");
-        let data = Dataset::new(&ledger, self.context.today.and_time(self.context.time), Projection::all());
+        let all = Projection::all();
+        let data = Dataset::new(&ledger, self.context.today.and_time(self.context.time), &all);
         f(&data, data.rows.first().map(RowRef::Posting))
     }
 }

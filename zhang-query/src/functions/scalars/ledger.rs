@@ -72,7 +72,8 @@ fn values_set(values: Option<&BTreeSet<String>>) -> Value {
 }
 
 /// `open_meta_values(account, key, date)` and `open_meta_values(account, key, date, time)`: every value of the metadata
-/// `key` of the account's `open` in effect at the start of the date, or at its time of day (a zhang extension). That is
+/// `key` of the account's `open` in effect at the start of the date, or at its time of day (a zhang extension), as a set
+/// (each value once, sorted). That is
 /// its latest `open` at or before then, by the ledger's account lifecycle, so a later `open` replaces the values and a
 /// `close` keeps them. Empty before its first `open`, and when that `open` has no `key`.
 pub(super) fn open_meta_values(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {

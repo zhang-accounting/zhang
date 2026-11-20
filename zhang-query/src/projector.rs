@@ -190,7 +190,7 @@ pub(crate) fn project(plan: &Plan) -> Projection {
     let columns = plan.table.columns().iter().enumerate();
     Projection::of_columns(
         plan.table.clone(),
-        columns.filter(|(_, column)| referenced.contains(column.name)).map(|(index, _)| index),
+        columns.filter(|(_, column)| referenced.contains(column.name.as_ref())).map(|(index, _)| index),
     )
 }
 
@@ -227,6 +227,12 @@ impl Projection {
         *column.table() == self.table && self.columns.contains(column.index())
     }
 
+    /// Whether the column `name` (case-insensitive) of the projected table is projected: what a row source asks to
+    /// skip the work of a column no expression reads.
+    pub fn contains_named(&self, name: &str) -> bool {
+        self.table.column(name).is_some_and(|column| self.columns.contains(column.index()))
+    }
+
     /// The projected column names, in name order (like [`Plan::referenced_columns`]).
     pub fn names(&self) -> Vec<&str> {
         let mut names = self
@@ -235,7 +241,7 @@ impl Projection {
             .iter()
             .enumerate()
             .filter(|(index, _)| self.columns.contains(*index))
-            .map(|(_, column)| column.name)
+            .map(|(_, column)| column.name.as_ref())
             .collect::<Vec<_>>();
         names.sort_unstable();
         names
@@ -282,6 +288,7 @@ pub(crate) fn set_membership<'r, 'a>(expr: &'r CExpr, env: &Env<'r, 'a>) -> Opti
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -294,7 +301,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::executor::{execute, Budget, RegexCache};
     use crate::params::{ParamTypes, Params};
-    use crate::table::{column, ColumnDef, Dataset, Limits, Record, Rows, Scope, Table, COLUMNS};
+    use crate::table::{column, ColumnDef, Dataset, Limits, Names, Record, Rows, Scope, Table, COLUMNS};
     use crate::value::DataType;
     use crate::Query;
 
@@ -396,7 +403,8 @@ option "operating_currency" "USD"
     fn run(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
         let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let data = Dataset::new(ledger, today.and_time(chrono::NaiveTime::MIN), projection.unwrap_or(query.projection));
+        let projection = projection.unwrap_or_else(|| query.projection.clone());
+        let data = Dataset::new(ledger, today.and_time(chrono::NaiveTime::MIN), &projection);
         let rows = execute(&query.plan, &data, &Params::new(), None).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
         // the Debug form keeps decimal scales, so equal strings are identical results
         format!("{rows:?}")
@@ -442,10 +450,11 @@ option "operating_currency" "USD"
         let query = Query::compile_in(catalog, sql, &ParamTypes::default()).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
         let mut budget = Budget::new(None);
+        let projection = projection.unwrap_or_else(|| query.projection.clone());
         let data = Dataset::build(
             ledger,
             today.and_time(chrono::NaiveTime::MIN),
-            projection.unwrap_or(query.projection),
+            &projection,
             &Scope::All,
             None,
             &mut Limits::new(None, &mut budget),
@@ -493,11 +502,8 @@ option "operating_currency" "USD"
     #[test]
     fn borrowed_columns_agree_with_their_values() {
         let ledger = load_text(LEDGER);
-        let data = Dataset::new(
-            &ledger,
-            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap().and_time(chrono::NaiveTime::MIN),
-            Projection::all(),
-        );
+        let all = Projection::all();
+        let data = Dataset::new(&ledger, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap().and_time(chrono::NaiveTime::MIN), &all);
         let params = Params::new();
         let regexes = RegexCache::default();
         let needles = ["food", "travel", "receipt-1", "Assets:Bank", "Income:Gains", "Expenses:Food", "x"];
@@ -534,10 +540,10 @@ option "operating_currency" "USD"
     /// A test-only table with more columns than a `u64` has bits: `c0` to `c69`, three rows
     /// (`r0` to `r2`), and the cell of column `cN` in row `rM` is `'rM.N'`.
     static WIDE: Table = Table {
-        name: "wide",
-        description: "A test-only table with 70 columns.",
-        columns: WIDE_COLUMNS,
-        wildcard: &["c0", "c64", "c69"],
+        name: Cow::Borrowed("wide"),
+        description: Cow::Borrowed("A test-only table with 70 columns."),
+        columns: Cow::Borrowed(WIDE_COLUMNS),
+        wildcard: Names::Static(&["c0", "c64", "c69"]),
         rows: Rows::Records(wide_rows),
     };
 

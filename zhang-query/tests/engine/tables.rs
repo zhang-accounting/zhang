@@ -220,7 +220,7 @@ fn the_schema_describes_every_table() {
     assert_eq!(schema.tables[0].name, "postings");
     assert_eq!(schema.tables[0].columns, schema.columns);
     let prices = schema.tables.iter().find(|table| table.name == "prices").unwrap();
-    let columns = prices.columns.iter().map(|column| (column.name, column.ty)).collect::<Vec<_>>();
+    let columns = prices.columns.iter().map(|column| (column.name.as_str(), column.ty)).collect::<Vec<_>>();
     assert_eq!(
         columns,
         vec![
@@ -240,7 +240,7 @@ fn the_schema_describes_every_table() {
             ("metas", DataType::Metas)
         ]
     );
-    let names = schema.tables.iter().map(|table| table.name).collect::<Vec<_>>();
+    let names = schema.tables.iter().map(|table| table.name.as_str()).collect::<Vec<_>>();
     assert_eq!(
         names,
         vec![

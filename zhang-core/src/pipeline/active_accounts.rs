@@ -141,7 +141,7 @@ impl AccountLifecycle {
     }
 
     /// The values of the metadata `key` of the `open` of `account` in effect at the wall-clock time `at`: its latest
-    /// `open` at or before `at`, each value once. A later `open` replaces them, so an account closed and opened again
+    /// `open` at or before `at`, each value once, as a sorted set. A later `open` replaces them, so an account closed and opened again
     /// with other values has those from the time of its reopening on; a `close` changes nothing. Empty when that `open`
     /// has no `key`, `None` before the account's first `open` (and for an account never opened).
     ///

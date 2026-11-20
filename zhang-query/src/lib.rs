@@ -121,7 +121,7 @@ impl Query {
     /// of `catalog`: `FROM #name` names one of them, and a query without it reads the catalog's
     /// `postings` table. [`Query::compile_with_params`] compiles against [`Catalog::core`].
     pub fn compile_in(catalog: &Catalog, query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
-        let select = parser::parse(query)?;
+        let select = parser::parse_in(query, catalog.postings())?;
         let plan = compiler::compile(catalog, query, &select, params).map_err(|err| err.resolve(query))?;
         let mut plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
         projector::plan_running(&mut plan);
@@ -140,7 +140,7 @@ impl Query {
     /// compare it with [`Query::compile_with_params`], which must return the same results.
     #[cfg(test)]
     pub(crate) fn compile_naive(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
-        let select = parser::parse(query)?;
+        let select = parser::parse_in(query, Catalog::core().postings())?;
         let plan = compiler::compile(Catalog::core(), query, &select, params).map_err(|err| err.resolve(query))?;
         let plan = optimizer::optimize_naive(plan).map_err(|err| err.resolve(query))?;
         let projection = projector::project(&plan);
@@ -328,11 +328,11 @@ impl Query {
                 let scope = self.plan.execution.scope.as_ref().map(|scope| scope.resolve(params)).unwrap_or_default();
                 let until = self.plan.execution.until.as_ref().map(|until| until.resolve(params, today));
                 let mut limits = table::Limits::new(deadline.as_ref(), &mut budget);
-                table::Dataset::build(ledger, now, self.projection.clone(), &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
+                table::Dataset::build(ledger, now, &self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
             }
             Some(period) => {
                 equity = period::EquityAccounts::from_options(&ledger.options.values);
-                let data = table::Dataset::postings(ledger, cache, now, self.projection.clone(), &table::Scope::All);
+                let data = table::Dataset::postings(ledger, cache, now, &self.projection, &table::Scope::All);
                 period.apply(data, ledger, &equity)
             }
         };
@@ -412,17 +412,17 @@ pub fn execute_with_params(ledger: &Ledger, query: &str, params: &Params) -> Res
 /// A column of a table, for documentation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnDoc {
-    pub name: &'static str,
+    pub name: String,
     pub ty: DataType,
-    pub description: &'static str,
+    pub description: String,
 }
 
 /// A table a query can read with `FROM #name`, for documentation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableDoc {
     /// the name, without `#`
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub columns: Vec<ColumnDoc>,
 }
 
@@ -448,26 +448,28 @@ pub struct Schema {
     pub keywords: Vec<&'static str>,
 }
 
-fn column_docs(table: &table::Table) -> Vec<ColumnDoc> {
+fn column_docs(table: &catalog::TableRef) -> Vec<ColumnDoc> {
     table
-        .columns
+        .columns()
         .iter()
         .map(|column| ColumnDoc {
-            name: column.name,
+            name: column.name.to_string(),
             ty: column.ty,
-            description: column.description,
+            description: column.description.to_string(),
         })
         .collect()
 }
 
-/// Describe every table and every function overload.
+/// Describe every table of the core catalog ([`Catalog::core`]) and every function overload.
 pub fn schema() -> Schema {
-    let columns = column_docs(&table::POSTINGS);
-    let tables = table::tables()
+    let catalog = Catalog::core();
+    let columns = column_docs(catalog.postings());
+    let tables = catalog
+        .tables()
         .iter()
         .map(|table| TableDoc {
-            name: table.name,
-            description: table.description,
+            name: table.name().to_owned(),
+            description: table.description().to_owned(),
             columns: column_docs(table),
         })
         .collect();

@@ -174,7 +174,7 @@ pub(crate) fn journal(keyword: Span, account: Option<Expr>, at: Option<AtFunctio
 #[cfg(test)]
 mod tests {
     use crate::ast::{Expr, Select, Targets};
-    use crate::parser::parse;
+    use crate::parser::tests::parse;
 
     fn same_exprs(a: &[Expr], b: &[Expr]) -> bool {
         a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.same_as(b))

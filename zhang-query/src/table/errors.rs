@@ -40,15 +40,15 @@ use zhang_ast::SpanInfo;
 use zhang_core::domains::schemas::ErrorDomain;
 use zhang_core::ledger::Ledger;
 
-use super::{ledger_file, ColumnDef, Record, Rows, Table};
+use super::{ledger_file, ColumnDef, Names, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
 pub(super) static ERRORS: Table = Table {
-    name: "errors",
-    description: "One row per ledger error, as the errors page lists them; ordered by file, then position in the file.",
-    columns: COLUMNS,
-    wildcard: &["file", "date", "kind", "account", "message"],
+    name: Cow::Borrowed("errors"),
+    description: Cow::Borrowed("One row per ledger error, as the errors page lists them; ordered by file, then position in the file."),
+    columns: Cow::Borrowed(COLUMNS),
+    wildcard: Names::Static(&["file", "date", "kind", "account", "message"]),
     rows: Rows::Records(rows),
 };
 
@@ -150,7 +150,7 @@ fn rows<'a>(ledger: &'a Ledger, projection: &Projection) -> Vec<Record<'a>> {
         })
         .collect::<Vec<_>>();
 
-    if projects(projection, "date") {
+    if projection.contains_named("date") {
         // (file, start) of the erroneous directives -> their date
         let mut dates: HashMap<(Option<&Path>, usize), Option<NaiveDate>> = errors
             .iter()
@@ -179,11 +179,6 @@ fn rows<'a>(ledger: &'a Ledger, projection: &Projection) -> Vec<Record<'a>> {
         a.file().cmp(&b.file()).then_with(|| start(a).cmp(&start(b)))
     });
     errors.into_iter().map(Record::Error).collect()
-}
-
-/// Whether the column `name` of this table is projected.
-fn projects(projection: &Projection, name: &str) -> bool {
-    ERRORS.column_ref(name).is_some_and(|column| projection.contains(&column))
 }
 
 fn ledger_error<'r, 'a>(record: &'r Record<'a>) -> Option<&'r LedgerError<'a>> {

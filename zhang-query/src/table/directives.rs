@@ -23,7 +23,7 @@ use zhang_core::outcome::Detail;
 
 use super::entries::{DATE, DAY, FILENAME, ID, LINKS, META, METAS, MONTH, SEQ, TAGS, TIME, TIMESTAMP, TYPE, YEAR};
 use super::postings::time_value;
-use super::{ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Record, Rows, Table};
+use super::{ledger_file, render_meta, ColumnDef, Dataset, LedgerCache, Names, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
@@ -97,11 +97,13 @@ pub(super) fn directive_timestamp(data: &Dataset<'_>, directive: &Spanned<Direct
 // #balances
 
 pub(super) static BALANCES: Table = Table {
-    name: "balances",
-    description: "One row per balance assertion (balance, and balance with pad), in ledger order, with the account's \
+    name: Cow::Borrowed("balances"),
+    description: Cow::Borrowed(
+        "One row per balance assertion (balance, and balance with pad), in ledger order, with the account's \
                   true balance at the assertion and whether the assertion holds.",
-    columns: BALANCE_COLUMNS,
-    wildcard: &["date", "account", "amount", "tolerance", "discrepancy"],
+    ),
+    columns: Cow::Borrowed(BALANCE_COLUMNS),
+    wildcard: Names::Static(&["date", "account", "amount", "tolerance", "discrepancy"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| assertion(it).is_some())),
 };
 
@@ -200,10 +202,10 @@ static BALANCE_COLUMNS: &[ColumnDef] = &[
 // #notes
 
 pub(super) static NOTES: Table = Table {
-    name: "notes",
-    description: "One row per note directive, in ledger order.",
-    columns: NOTE_COLUMNS,
-    wildcard: &["date", "account", "comment", "tags", "links"],
+    name: Cow::Borrowed("notes"),
+    description: Cow::Borrowed("One row per note directive, in ledger order."),
+    columns: Cow::Borrowed(NOTE_COLUMNS),
+    wildcard: Names::Static(&["date", "account", "comment", "tags", "links"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Note(_)))),
 };
 
@@ -241,10 +243,10 @@ static NOTE_COLUMNS: &[ColumnDef] = &[
 // #events
 
 pub(super) static EVENTS: Table = Table {
-    name: "events",
-    description: "One row per event directive, in ledger order.",
-    columns: EVENT_COLUMNS,
-    wildcard: &["date", "type", "description"],
+    name: Cow::Borrowed("events"),
+    description: Cow::Borrowed("One row per event directive, in ledger order."),
+    columns: Cow::Borrowed(EVENT_COLUMNS),
+    wildcard: Names::Static(&["date", "type", "description"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Event(_)))),
 };
 
@@ -279,11 +281,13 @@ static EVENT_COLUMNS: &[ColumnDef] = &[
 // #documents
 
 pub(super) static DOCUMENTS: Table = Table {
-    name: "documents",
-    description: "One row per document directive, in ledger order, then one row per document a transaction or one of its \
+    name: Cow::Borrowed("documents"),
+    description: Cow::Borrowed(
+        "One row per document directive, in ledger order, then one row per document a transaction or one of its \
                   postings names in its `document` metadata, in ledger order.",
-    columns: DOCUMENT_COLUMNS,
-    wildcard: &["date", "account", "filename", "tags", "links"],
+    ),
+    columns: Cow::Borrowed(DOCUMENT_COLUMNS),
+    wildcard: Names::Static(&["date", "account", "filename", "tags", "links"]),
     rows: Rows::Records(document_rows),
 };
 
@@ -536,10 +540,10 @@ static DOCUMENT_COLUMNS: &[ColumnDef] = &[
 // #commodities
 
 pub(super) static COMMODITIES: Table = Table {
-    name: "commodities",
-    description: "One row per commodity directive, in ledger order.",
-    columns: COMMODITY_COLUMNS,
-    wildcard: &["meta", "date", "name"],
+    name: Cow::Borrowed("commodities"),
+    description: Cow::Borrowed("One row per commodity directive, in ledger order."),
+    columns: Cow::Borrowed(COMMODITY_COLUMNS),
+    wildcard: Names::Static(&["meta", "date", "name"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Commodity(_)))),
 };
 

@@ -466,7 +466,7 @@ fn the_schema_describes_the_zhang_tables() {
             .find(|table| table.name == name)
             .unwrap_or_else(|| panic!("no table {}", name));
         assert!(!table.description.is_empty());
-        table.columns.iter().map(|column| (column.name, column.ty)).collect::<Vec<_>>()
+        table.columns.iter().map(|column| (column.name.as_str(), column.ty)).collect::<Vec<_>>()
     };
     assert_eq!(
         columns("budgets"),

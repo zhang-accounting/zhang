@@ -51,6 +51,7 @@ use crate::ast::{
     ArithOp, BinaryOp, Count, CountValue, Expr, ExprKind, FromClause, InTarget, Literal, LogicalOp, OrderItem, Period, Select, TableName, Target, Targets,
     UnaryOp,
 };
+use crate::catalog::TableRef;
 use crate::error::{QueryError, QueryErrorKind, Span};
 use crate::params::ParamRef;
 use crate::statements::{self, AtFunction};
@@ -219,19 +220,26 @@ fn too_deep(i: &str) -> NomErr<PError<'_>> {
 
 pub(crate) struct Parser<'s> {
     src: &'s str,
+    /// the `postings` table of the catalog the query is parsed for: a bare name after `FROM` that is one of its
+    /// columns is a filter, not a table (see [`Parser::table_name`])
+    postings: &'s TableRef,
     /// current recursion depth
     depth: Cell<usize>,
 }
 
-/// Parse a complete query.
-pub(crate) fn parse(src: &str) -> Result<Select, QueryError> {
+/// Parse a complete query for a catalog whose `postings` table is `postings`.
+pub(crate) fn parse_in(src: &str, postings: &TableRef) -> Result<Select, QueryError> {
     if src.len() > MAX_QUERY_LENGTH {
         return Err(QueryError::new(
             QueryErrorKind::Parse,
             format!("the query is too long ({} bytes; at most {} are accepted)", src.len(), MAX_QUERY_LENGTH),
         ));
     }
-    let parser = Parser { src, depth: Cell::new(0) };
+    let parser = Parser {
+        src,
+        postings,
+        depth: Cell::new(0),
+    };
     match parser.statement(src) {
         Ok((_, select)) => Ok(select),
         Err(NomErr::Error(err)) | Err(NomErr::Failure(err)) => {
@@ -564,7 +572,7 @@ impl<'s> Parser<'s> {
         let next = skip_ws(rest);
         let alone = next.is_empty() || next.starts_with(';') || FOLLOWS_TABLE.iter().chain(&MODIFIERS).any(|word| is_keyword(rest, word));
         let keyword = RESERVED.contains(&lower.as_str()) || MODIFIERS.contains(&lower.as_str());
-        if !alone || keyword || crate::table::POSTINGS.column(name).is_some() {
+        if !alone || keyword || self.postings.column(name).is_some() {
             return Ok(None);
         }
         let span = Span::new(start, self.offset(rest));
@@ -1175,7 +1183,12 @@ impl<'s> Parser<'s> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    /// Parse a complete query for the tables of the core catalog.
+    pub(crate) fn parse(src: &str) -> Result<Select, QueryError> {
+        parse_in(src, crate::catalog::Catalog::core().postings())
+    }
+
     /// [`KEYWORDS`] lists exactly the words the parser reads as keywords: those it matches with `keyword` or
     /// `is_keyword`, the reserved words and the literal keywords, but `print`, which it only reads to refuse it.
     #[test]

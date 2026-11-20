@@ -104,34 +104,36 @@ use zhang_core::ledger::Ledger;
 
 use super::directives::date_of;
 use super::postings::{time_value, MaybeOwned, Row};
-use super::{ledger_file, ColumnDef, Dataset, Generation, LedgerCache, Limits, Record, Rows, Table};
+use super::{ledger_file, ColumnDef, Dataset, Generation, LedgerCache, Limits, Names, Record, Rows, Table};
 use crate::error::{LocatedError, QueryErrorKind};
 use crate::prices::PriceMap;
 use crate::projector::Projection;
 use crate::value::{first_of_month, month_index, Cost, DataType, Position, Value};
 
 pub(super) static BUDGETS: Table = Table {
-    name: "budgets",
-    description: "One row per budget per month, from the budget's first month through its last entry, the ledger's last month with a transaction or the current month, whichever is latest, with the assigned, activity and available amounts the budget pages show, in the budget's commodity; ordered by name, then month.",
-    columns: COLUMNS,
-    wildcard: &["name", "date", "assigned", "activity", "available"],
+    name: Cow::Borrowed("budgets"),
+    description: Cow::Borrowed("One row per budget per month, from the budget's first month through its last entry, the ledger's last month with a transaction or the current month, whichever is latest, with the assigned, activity and available amounts the budget pages show, in the budget's commodity; ordered by name, then month."),
+    columns: Cow::Borrowed(COLUMNS),
+    wildcard: Names::Static(&["name", "date", "assigned", "activity", "available"]),
     rows: Rows::Generated(rows),
 };
 
 pub(super) static BUDGET_DEFINITIONS: Table = Table {
-    name: "budget_definitions",
-    description: "One row per budget, as its directives define it: its commodity, display name, category, the accounts of its activity and the date and time it is closed; ordered by name. It has no months, so it reads no transaction.",
-    columns: DEFINITION_COLUMNS,
-    wildcard: &["name", "date", "currency", "alias", "category", "accounts", "close", "close_time"],
+    name: Cow::Borrowed("budget_definitions"),
+    description: Cow::Borrowed("One row per budget, as its directives define it: its commodity, display name, category, the accounts of its activity and the date and time it is closed; ordered by name. It has no months, so it reads no transaction."),
+    columns: Cow::Borrowed(DEFINITION_COLUMNS),
+    wildcard: Names::Static(&["name", "date", "currency", "alias", "category", "accounts", "close", "close_time"]),
     rows: Rows::Records(definition_rows),
 };
 
 pub(super) static BUDGET_EVENTS: Table = Table {
-    name: "budget_events",
-    description: "One row per effect of a budget directive, in ledger order: the amount a budget-add assigns, the amount a \
+    name: Cow::Borrowed("budget_events"),
+    description: Cow::Borrowed(
+        "One row per effect of a budget directive, in ledger order: the amount a budget-add assigns, the amount a \
                   budget-transfer moves out of one budget and into another, and a budget-close.",
-    columns: EVENT_COLUMNS,
-    wildcard: &["name", "date", "time", "timestamp", "type", "amount"],
+    ),
+    columns: Cow::Borrowed(EVENT_COLUMNS),
+    wildcard: Names::Static(&["name", "date", "time", "timestamp", "type", "amount"]),
     rows: Rows::Records(event_rows),
 };
 
@@ -516,10 +518,10 @@ impl Series<'_, '_> {
 fn rows<'a>(ledger: &'a Ledger, generation: Generation, projection: &Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
     let Budgets { budgets, events } = budgets(ledger);
     let last_transaction = last_transaction(ledger);
-    let wants_activity = ["activity", "assigned", "available"].into_iter().any(|name| projects(projection, name));
-    let wants_added = ["added", "assigned", "available"].into_iter().any(|name| projects(projection, name));
+    let wants_activity = ["activity", "assigned", "available"].into_iter().any(|name| projection.contains_named(name));
+    let wants_added = ["added", "assigned", "available"].into_iter().any(|name| projection.contains_named(name));
 
-    let mut accounts = if wants_activity || projects(projection, "accounts") {
+    let mut accounts = if wants_activity || projection.contains_named("accounts") {
         budget_accounts(ledger)
     } else {
         HashMap::new()
@@ -656,11 +658,6 @@ fn too_many_months(err: LocatedError, ledger: &Ledger, all: &[Series<'_, '_>]) -
     }
 }
 
-/// Whether the column `name` of this table is projected.
-fn projects(projection: &Projection, name: &str) -> bool {
-    BUDGETS.column_ref(name).is_some_and(|column| projection.contains(&column))
-}
-
 /// The accounts of every budget: those whose `open` has a `budget` metadata entry naming it, at
 /// any time. Every entry counts, so an account whose `open` names two budgets is an account of
 /// both (#479 decision 7); the load keeps only the last value of a repeated key.
@@ -760,9 +757,10 @@ pub(crate) struct BudgetDefinition<'a> {
 }
 
 fn definition_rows<'a>(ledger: &'a Ledger, projection: &Projection) -> Vec<Record<'a>> {
-    let mut accounts = match BUDGET_DEFINITIONS.column_ref("accounts") {
-        Some(column) if projection.contains(&column) => budget_accounts(ledger),
-        _ => HashMap::new(),
+    let mut accounts = if projection.contains_named("accounts") {
+        budget_accounts(ledger)
+    } else {
+        HashMap::new()
     };
     let mut budgets = budgets(ledger).budgets.into_values().collect::<Vec<_>>();
     budgets.sort_by(|a, b| a.name.cmp(b.name));

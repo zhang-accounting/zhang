@@ -708,8 +708,7 @@ impl Compiler<'_> {
             Targets::Wildcard => self
                 .table
                 .wildcard()
-                .iter()
-                .map(|name| (Expr::new(ExprKind::Column((*name).to_owned()), Span::default()), Some((*name).to_owned())))
+                .map(|name| (Expr::new(ExprKind::Column(name.to_owned()), Span::default()), Some(name.to_owned())))
                 .collect(),
             Targets::List(targets) => targets.iter().map(|it| (it.expr.clone(), it.alias.clone())).collect(),
         };
@@ -1441,7 +1440,7 @@ fn column_ref(table: &TableRef, name: &str, span: Span, mode: Mode, info: &mut E
             if table.is_postings() {
                 err(format!("unknown column '{}'{}", name, hint), span)
             } else {
-                let columns = table.columns().iter().map(|column| column.name).collect::<Vec<_>>();
+                let columns = table.columns().iter().map(|column| column.name.as_ref()).collect::<Vec<_>>();
                 err(
                     format!(
                         "unknown column '{}' in #{} (its columns are {}){}",
@@ -2036,7 +2035,7 @@ mod tests {
             .stack_size(2 << 20)
             .spawn(move || {
                 let src = "SELECT a FROM #accounts";
-                let mut select = crate::parser::parse(src).unwrap();
+                let mut select = crate::parser::tests::parse(src).unwrap();
                 let name = vec!["a"; parts].join(".");
                 let Targets::List(targets) = &mut select.targets else { panic!() };
                 targets[0].expr = Expr::new(ExprKind::Column(name.clone()), Span::new(7, 7 + name.len()));
