@@ -11,6 +11,10 @@ sidebar:
 The numbers were taken on a build machine shared with other jobs. They are given for two runs, and they vary between runs and within one. Compare the plugin with the native implementation by running both in the same session, as [Reproduce](#reproduce) shows, rather than with this page alone.
 :::
 
+:::note[The comparison point]
+The numbers of [After #840/#841](#after-840841), taken on 2026-11-21 on `main` at `1e8bf3e6`, are the baseline for G1 and P4: the budget plugin will run on that server. The sections before it are the first baseline, taken with #836 on `main` at `9c156c7b`, kept as they were.
+:::
+
 ## The ledgers
 
 `zhang_testkit::budget_ledger` generates a household's ledger from a seed, a number of transactions, a number of budgets and a number of months. The baseline uses seed 698, 60 months (January 2021 to December 2025) and 30 budgets:
@@ -188,6 +192,119 @@ For the design of phase P1 and the comparison of phase P4:
 - **The pages need little, the computation reads much.** The pages' answers are 0.8 KB for a budget's detail, 5 KB for a month's list, 6 to 68 KB for a budget's month and 55 to 57 KB for a year in BQL. Reading the postings of the linked accounts row by row is 10.2 MB of JSON with 100,000 transactions; sums per account, month and currency are 29 times smaller. Such sums are not enough on their own: a `budget-close` with a time, a reopened account and the order of the load decide within a day.
 - **The spread is in the `#budgets` requests.** Within a run with 100,000 transactions, the 30 samples of a `#budgets` request spread over 19 to 28 ms from the fastest to the slowest, and their p95 is 13 to 17 ms above their p50; those of `interval`, timed in the same rounds, spread over 3 to 5 ms.
 
+## After #840/#841
+
+Measured on 2026-11-21 on `main` at `1e8bf3e6`, with the bench as this section describes it. Besides #840 (a reload loads outside the ledger's write lock) and #841 (the file watcher's reload after a write loads nothing when the files hold what the ledger was loaded from), `main` has by then #842 (fixes of the budget contract), #843 to #845 (the budget tables served by a native provider whose snapshot of a ledger is built by its first budget query and kept), #846 (the reload events and the file watcher hardened) and #847. The ledgers, their digests and the counts of [Data volume](#data-volume) are unchanged.
+
+**These are the baseline for G1 and P4 from now on: the budget plugin will run on this server.** The sections above remain the record of the first baseline (#836, `main` at `9c156c7b`); compare with them only to see what #840 to #847 changed.
+
+### What each number covers now
+
+- **Load**: as before, the first load on a blocking thread, through `OpendalDataSource`, with the fixed clock.
+- **Reload, back to back**: `reload_and_wait` through the reload listener, 20 in a row. A reload takes the write cycle (it waits for the writes and reloads before it), waits for the ledger the reload before it replaced to be freed, loads the files and computes the fingerprint holding no lock (readers read the ledger served meanwhile), takes the ledger's write lock only to swap the new ledger in (it waits for the readers in flight), and tells the readers. The replaced ledger is freed afterwards on a blocking thread: not in its own reload's time, but in the next one's when that one comes at once, as here. Before, the whole reload held the write lock, and the old ledger was dropped in it.
+- **Reload, spaced**: the same, 20 times, each after a pause of 1 s, so that no freeing is left to wait for: the load, the fingerprint and the swap.
+- **Cold and warm requests**: the same timers. The first budget query of a loaded ledger now also builds the budget provider's snapshot of it, which the later ones read.
+- **Write**: `POST /api/transactions`, as before, but its load runs with no lock held and only the swap takes the write lock; the ledger it replaced is freed afterwards. **A write now costs one load**: in all 40 timed writes the reload the file watcher asked for afterwards loaded nothing.
+- **Reader during the write** (new): a reader sends `budgets.month` back to back while the write runs; the longest. It includes the first read after the swap, which builds the budget snapshot of the new ledger.
+- **The file watcher's turn**: the watcher ignores reads now, and gathers events until none came for 500 ms (2 s at most); a write gave it a batch of 6 events (the file created, written, its metadata, renamed). It asks the reload listener for a reload that loads only when a file changed; the listener takes the write cycle, reads the ledger's files again and compares their SHA-256 with what the load read, and loads nothing. *Turn*: from the write's answer to that skip. *Check*: from the watcher's ask to the skip, waiting for the write cycle included. Writers wait for the check, readers do not.
+- **Reader during the watcher's turn** (the "reader stall" of before): the longest `budgets.month` sent back to back from the answer until the turn is over.
+- **Concurrent readers**: the same 8 readers; while writing, each write waits for the watcher's turn of the one before.
+
+One run (A) of the whole bench, with the node's load average at 1.9 to 15.6 over one minute. Times in milliseconds.
+
+### Load and reload
+
+| Ledger | Load | Back to back p50 | Back to back p95 | Spaced p50 | Spaced p95 | Spaced min – max |
+|---|---:|---:|---:|---:|---:|---:|
+| 10,000 transactions, with budgets | 192 | 162 | 171 | 163 | 244 | 145 – 252 |
+| 10,000 transactions, without budgets | 147 | 156 | 163 | 142 | 184 | 137 – 189 |
+| 100,000 transactions, with budgets | 1,606 | 1,947 | 2,001 | 1,832 | 1,883 | 1,725 – 1,889 |
+| 100,000 transactions, without budgets | 1,588 | 1,913 | 1,965 | 1,799 | 1,823 | 1,671 – 1,834 |
+
+### Requests
+
+30 warm samples; the cold ones are 5 per kind, given as minimum / median / maximum.
+
+| Request | 10k p50 | 10k p95 | 10k cold | 100k min | 100k p50 | 100k p95 | 100k max | 100k cold | Bytes 10k / 100k |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `month` | 2.34 | 3.40 | 42 / 46 / 61 | 1.8 | 3.8 | 4.4 | 4.7 | 360 / 393 / 501 | 4,917 / 5,107 |
+| `month_first` | 0.29 | 0.59 | 39 / 47 / 56 | 0.2 | 0.3 | 0.9 | 0.9 | 343 / 363 / 394 | 4,510 / 4,697 |
+| `detail` | 0.37 | 0.72 | 37 / 50 / 56 | 0.4 | 0.4 | 0.8 | 0.9 | 290 / 372 / 499 | 835 / 838 |
+| `interval` | 5.34 | 6.94 | 36 / 47 / 58 | 60.8 | 63.7 | 65.8 | 67.2 | 283 / 358 / 529 | 6,375 / 68,018 |
+| `bql_year` | 1.40 | 1.66 | 41 / 53 / 61 | 1.2 | 2.2 | 2.9 | 2.9 | 336 / 417 / 491 | 54,917 / 57,209 |
+
+### Writes
+
+20 timed writes, on the ledgers with budgets.
+
+| | 10k min | p50 | p95 | max | 100k min | p50 | p95 | max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Write | 155 | 176 | 200 | 232 | 1,624 | 1,798 | 1,878 | 1,917 |
+| Reader during the write | 2.8 | 4.5 | 42.7 | 50.5 | 137 | 227 | 458 | 467 |
+| The watcher's turn, from the answer | 340 | 372 | 388 | 391 | 58 | 135 | 252 | 255 |
+| The watcher's check | 32 | 36 | 40 | 42 | 58 | 135 | 252 | 255 |
+| Reader during the watcher's turn | 1.2 | 4.6 | 41.7 | 41.9 | 1.1 | 2.4 | 4.3 | 6.0 |
+
+With 100,000 transactions the watcher's events come in while the write still loads, so its turn starts as the write answers and is the check alone.
+
+**Noise of the 10,000-transaction write.** The writes alone (`ZHANG_BUDGET_BASELINE_ONLY=writes`) were run 5 more times, each in a process of its own, one after the other, with the node's load average under 2:
+
+| Run | 1 | 2 | 3 | 4 | 5 |
+|---|---:|---:|---:|---:|---:|
+| p50 | 204 | 172 | 187 | 184 | 193 |
+| p95 | 230 | 208 | 228 | 222 | 245 |
+| min – max | 153 – 236 | 149 – 221 | 158 – 235 | 158 – 228 | 159 – 247 |
+
+The p50 of a run moved between 172 and 204 ms (median 187), and within a run the 20 writes spread over 70 to 88 ms, their p95 25 to 52 ms above their p50. A difference of less than about 30 ms between two p50s of the 10,000-transaction write is within this noise: compare writes over several runs, alternating the builds.
+
+### Concurrent readers
+
+8 readers, each sending the five kinds of request in turn; while writing, 10 transactions over 5.5 s (10k) and 20.8 s (100k).
+
+| | Reads | Min | p50 | p95 | Max |
+|---|---:|---:|---:|---:|---:|
+| 10,000 transactions, nothing written | 400 | 0.19 | 1.23 | 4.89 | 12.15 |
+| 10,000 transactions, while writing | 26,657 | 0.16 | 1.18 | 4.55 | 46.78 |
+| 10,000 transactions, the writes meanwhile | 10 | 165.8 | 177.4 | 191.2 | 191.2 |
+| 100,000 transactions, nothing written | 400 | 0.17 | 1.70 | 48.36 | 89.25 |
+| 100,000 transactions, while writing | 15,649 | 0.14 | 1.54 | 43.50 | 330.39 |
+| 100,000 transactions, the writes meanwhile | 10 | 1,679 | 1,904 | 2,168 | 2,168 |
+
+### Memory
+
+In MiB, read at the end of each step.
+
+| Ledger | RSS before the load | Peak of the load | RSS after the load | Peak after the reloads | Peak after the requests | Peak after the data volume queries | Peak after the writes | Peak at the end |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10,000 transactions, with budgets | 16 | 94 | 94 | 206 | 279 | 288 | 285 | 496 |
+| 10,000 transactions, without budgets | 16 | 104 | 104 | 179 | | | | 179 |
+| 100,000 transactions, with budgets | 39 | 675 | 645 | 1,318 | 1,839 | 1,839 | 2,197 | 3,933 |
+| 100,000 transactions, without budgets | 39 | 671 | 638 | 1,312 | | | | 1,312 |
+
+The data volume queries answered as before (same rows and bytes) in 22 and 16 ms (10k) and 268 and 128 ms (100k).
+
+### What changed
+
+Against the first baseline (its two runs, A / B):
+
+| ms | 10k before | 10k now | 100k before | 100k now |
+|---|---:|---:|---:|---:|
+| reload p50 (now back to back / spaced) | 181 / 198 | 162 / 163 | 2,238 / 2,252 | 1,947 / 1,832 |
+| `budgets.month` p50, warm | 4.03 / 4.96 | 2.34 | 72.5 / 76.0 | 3.8 |
+| `budgets.month`, cold median | 20 | 46 | 165 | 393 |
+| `interval` p50 | 4.92 / 5.17 | 5.34 | 45.5 / 45.5 | 63.7 |
+| write p50 | 213 / 206 | 176 (172 – 204 over 5 runs) | 2,192 / 2,317 | 1,798 |
+| loads per write | 2 | 1 | 2 | 1 |
+| reader while the watcher works, p50 | 210 / 209 | 4.6 | 2,357 / 2,422 | 2.4 |
+| 8 readers while writing, p95 | 8.9 / 8.8 | 4.55 | 2,421 / 2,454 | 43.5 |
+| RSS after the load (MiB) | 94 | 94 | 646 | 645 |
+| peak at the end (MiB) | 598 / 566 | 496 | 3,544 / 3,532 | 3,933 |
+
+- **Readers no longer wait for loads.** With 100,000 transactions, a reader during the watcher's turn took 2.4 ms at the p50 instead of 2.4 s, and 8 readers while writing saw a p95 of 43.5 ms instead of 2.4 s. What is left on a read is the swap, and the first budget request after it, which builds the budget snapshot of the new ledger: a reader during a write waited up to 467 ms.
+- **A write costs one load**, as #841 intended: 1.8 s instead of 2.2 to 2.3 s with 100,000 transactions. With 10,000 the difference is within the noise of the write.
+- **The budget requests trade the first one for the others.** A warm `#budgets` request reads the snapshot and takes 0.3 to 4 ms instead of 3 to 78 ms, but the first budget request of every loaded ledger builds it: 283 to 529 ms with 100,000 transactions (was 131 to 188), 36 to 61 ms with 10,000. The server loads the ledger on every write and every edit, so the budget page's first answer after an edit is the cold one. `interval` reads the postings through the `budgets` label column and got slower with 100,000 transactions (64 ms instead of 46).
+- **Memory**: a loaded ledger takes what it took. After the requests the peak is about 470 MiB higher with 100,000 transactions, and the end of the run peaked at 3.9 GiB instead of 3.5; this bench does not break that memory down.
+
 ## Reproduce
 
 In a checkout of the commit to measure, with nothing else running if possible:
@@ -206,10 +323,13 @@ cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
 ZHANG_BUDGET_BASELINE_OUT=/tmp/budget-baseline ZHANG_BUDGET_BASELINE_KEEP=/tmp/budget-ledgers \
   cargo run --release -p zhang --example budget_baseline
 
+# the load and the writes of one ledger only, to repeat them
+ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m
+
 # the digest of a ledger, to compare with the table of the ledgers
 cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256sum
 ```
 
-A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison.
+A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only.
 
 Run the whole bench at least twice, and compare the plugin with the native implementation in the same session, alternating them.
