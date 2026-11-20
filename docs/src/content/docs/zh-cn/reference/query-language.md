@@ -1157,7 +1157,7 @@ WHERE file = 'data/2024.zhang'
 
 ### 账户与商品指令
 
-这些函数与 beanquery 一样读取账本中的 `open`、`close` 和 `commodity` 指令，所以在每张表上都能使用。一个账户的指令是它最早的 `open` 和最早的 `close`；一种货币的指令是它最后一条 `commodity` 指令。未知的账户或货币得到 `NULL`。
+这些函数与 beanquery 一样读取账本中的 `open`、`close` 和 `commodity` 指令，所以在每张表上都能使用。一个账户的指令是它最早的 `open` 和最早的 `close`；一种货币的指令是它最后一条 `commodity` 指令。未知的账户或货币得到 `NULL`。张记账扩展 `open_meta_values`、`account_budgets` 和 `account_status` 则读取账户在某个日期的生命周期：截至当时该账户的每一条 `open` 和 `close`。
 
 | 签名 | 说明 |
 |------|------|
@@ -1168,7 +1168,8 @@ WHERE file = 'data/2024.zhang'
 | `commodity_meta(str, str) -> str` | 货币 `commodity` 指令的某个元数据值，例如 `commodity_meta(currency, 'name')`。 |
 | `commodity_meta(str) -> metas` | 货币 `commodity` 指令的全部元数据：没有元数据时为空列表，没有 `commodity` 指令时为 `NULL`。 |
 | `currency_meta(str, str) -> str`、`currency_meta(str) -> metas` | 与 `commodity_meta` 相同。 |
-| `account_budgets(str, date) -> set` | 账户在某个日期开始时的分录所计入的预算，即该日期一条不带时间的分录所见的预算：当时或之前最近一条 `open` 的 `budget` 元数据所指的预算，所以账户关闭后以其他预算重新开启，从重新开启起属于新的预算。在第一条 `open` 之前为空集合。分录的 `budgets` 列还会检查预算本身。张记账扩展。 |
+| `open_meta_values(str, str, date) -> set`、`open_meta_values(str, str, date, str) -> set` | 账户在该日期开始时、或在第四个参数给出的时刻（与 `time` 列一样写作 `HH:MM:SS` 或 `HH:MM`）生效的 `open` 中，某个元数据键的全部值。生效的 `open` 是当时或之前最近的一条 `open`：带时间的 `open` 在该时刻之前不生效，`open` 排在同一日期和时刻的其他指令之前；之后的 `open`（`close` 之后的重新开启）替换这些值，无论它有没有这个键；`close` 不改变这些值（账户是否开立由 `account_status` 给出）。重复的键给出它的每个值，各一次。在账户第一条 `open` 之前、账户未知、或该 `open` 没有这个键时为空集合。用分录的 `date` 和 `time`，`open_meta_values(account, 'budget', date, time)` 给出记账时其账户的 `open` 所指的预算，`'Food' IN open_meta_values(account, 'budget', date, time)` 判断其中一个。张记账扩展。 |
+| `account_budgets(str, date) -> set` | **已弃用：** 请使用 `open_meta_values(account, 'budget', date)`，本函数是它的别名，结果相同。账户在某个日期开始时的分录所计入的预算，即该日期一条不带时间的分录所见的预算：当时或之前最近一条 `open` 的 `budget` 元数据所指的预算，所以账户关闭后以其他预算重新开启，从重新开启起属于新的预算。在第一条 `open` 之前为空集合。分录的 `budgets` 列还会检查预算本身。它仍然可用。张记账扩展。 |
 | `account_status(str, date) -> str`、`account_status(str, date, str) -> str` | 账户在该日期开始时、或在第三个参数给出的时刻（与 `time` 列一样写作 `HH:MM:SS` 或 `HH:MM`）是 `'open'` 还是 `'closed'`。这就是张记账检查每条指令时使用的规则：账户从 `open` 起开立，在 `close` 生效后关闭；只有日期的 `close` 在当天结束时生效，带时间的 `close` 在该时刻生效；`close` 之后的 `open` 会重新开立账户。既没有生效的 `open` 也没有生效的 `close` 时为 `NULL`。参见[账户何时可用](/zh-cn/reference/directives/account/#账户何时可用)。张记账扩展。 |
 
 元数据不会继承：即使 `Assets:Bank` 有 `institution`，`open_meta('Assets:Bank:Checking', 'institution')` 仍为 `NULL`。beanquery 的单参数形式返回字典，其中还有 `filename` 和 `lineno`；张记账只返回指令自身的元数据。

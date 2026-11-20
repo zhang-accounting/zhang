@@ -1390,6 +1390,120 @@ fn account_status_is_the_rule_the_ledger_checks_with() {
     assert!(error.to_string().contains("HH:MM:SS or HH:MM"), "{error}");
 }
 
+/// `open_meta_values()` reads the metadata of the `open` in effect at a date and a time of day, by the account lifecycle:
+/// its latest `open` by then. A later `open` replaces the values, a `close` keeps them, and there are none before the first
+/// `open`, of an unknown account, or for a key that `open` lacks. `account_budgets()` is its alias with the key `budget`.
+#[test]
+fn open_meta_values_read_the_open_in_effect_at_a_date_and_time() {
+    let ledger = zhang_testkit::ledger::load_text(
+        r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+2024-01-02 open Expenses:A
+  budget: "y"
+  budget: "x"
+  budget: "y"
+  team: "red"
+2024-01-01 "a" "before its open"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-01-02 "b" "on the day of its open"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-02-01 10:00:00 close Expenses:A
+2024-02-01 11:00:00 "c" "after the close, before the reopen"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-02-01 12:00:00 open Expenses:A
+  budget: "z"
+2024-02-01 12:00:00 "d" "at the time of the reopen"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-03-01 close Expenses:A
+2024-03-05 "e" "after the second close"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-01-02 open Expenses:B
+  budget: "first"
+2024-04-01 close Expenses:B
+2024-04-01 open Expenses:B
+  budget: "second"
+"#,
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT narration, open_meta_values(account, 'budget', date, time), open_meta_values(account, 'team', date, time), \
+             open_meta_values(account, 'budget', date), account_budgets(account, date) WHERE account = 'Expenses:A' ORDER BY date, time"
+        ),
+        rows(&[
+            &["before its open", "", "", "", ""],
+            &["on the day of its open", "x, y", "red", "x, y", "x, y"],
+            &["after the close, before the reopen", "x, y", "red", "x, y", "x, y"],
+            // the open sorts before the transaction of its date and time; at the start of the day, the first open is
+            // still the one in effect
+            &["at the time of the reopen", "z", "", "x, y", "x, y"],
+            &["after the second close", "z", "", "z", "z"],
+        ])
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT DISTINCT str(open_meta_values('Expenses:A', 'budget', 2024-02-01, '11:59')), \
+             str(open_meta_values('Expenses:A', 'budget', 2024-02-01, '12:00:00')), \
+             str(open_meta_values('Expenses:A', 'missing', 2024-02-01, '12:00:00')), \
+             str(open_meta_values('Nowhere', 'budget', 2024-02-01)), \
+             open_meta_values(NULL, 'budget', 2024-02-01) IS NULL"
+        ),
+        rows(&[&["x, y", "z", "", "", "TRUE"]])
+    );
+    // a close and an open with only a date on one day: the open sorts first, so its values are those of the whole day,
+    // and the close, at the end of the day, leaves the account closed with them
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT DISTINCT str(open_meta_values('Expenses:B', 'budget', 2024-03-31)), \
+             str(open_meta_values('Expenses:B', 'budget', 2024-04-01)), str(open_meta_values('Expenses:B', 'budget', 2024-04-01, '23:59')), \
+             account_status('Expenses:B', 2024-04-02), str(open_meta_values('Expenses:B', 'budget', 2024-04-02))"
+        ),
+        rows(&[&["first", "second", "second", "closed", "second"]])
+    );
+    // a set: a predicate tests a value in it
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT narration WHERE account = 'Expenses:A' AND 'z' IN open_meta_values(account, 'budget', date, time) ORDER BY date"
+        ),
+        rows(&[&["at the time of the reopen"], &["after the second close"]])
+    );
+    let error = Query::compile("SELECT open_meta_values(account, 'budget', date, '25:00')")
+        .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+        .unwrap_err();
+    assert!(error.to_string().contains("HH:MM:SS or HH:MM"), "{error}");
+}
+
+/// `account_budgets(account, date)` answers what `open_meta_values(account, 'budget', date)` does on every row, and what
+/// the `budgets` column counts a posting in is among `open_meta_values(account, 'budget', date, time)`.
+#[test]
+fn account_budgets_is_an_alias_of_open_meta_values() {
+    let ledger = zhang_testkit::ledger::load_text(REOPENED);
+    assert_eq!(run(&ledger, "SELECT count(*) FROM #postings"), rows(&[&["4"]]));
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT count(*) FROM #postings WHERE account_budgets(account, date) != open_meta_values(account, 'budget', date)"
+        ),
+        rows(&[&["0"]])
+    );
+    assert_eq!(
+        run(
+            &ledger,
+            "SELECT date, budgets, open_meta_values(account, 'budget', date, time) WHERE account = 'Expenses:B' ORDER BY date"
+        ),
+        rows(&[&["2024-03-10", "b", "b"], &["2024-07-05", "a", "a"]])
+    );
+}
+
 /// `#budget_definitions` reads no transaction and has no months, so a transaction dated
 /// centuries ahead by mistake, which makes an unbounded query of `#budgets` too large, leaves it
 /// as it is.

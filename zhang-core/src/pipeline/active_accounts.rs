@@ -12,11 +12,17 @@ use super::{ProcessStage, StageContext};
 use crate::domains::schemas::AccountStatus;
 use crate::ZhangResult;
 
+/// The metadata of an `open`, as [`AccountLifecycle`] keeps it: the values of each key, each once.
+type OpenMeta = HashMap<String, BTreeSet<String>>;
+
+/// The values of a key an `open` does not have.
+static NO_VALUES: BTreeSet<String> = BTreeSet::new();
+
 /// An `open` or a `close` of an account, as [`AccountLifecycle`] keeps it.
 #[derive(Debug, Clone)]
 enum Change {
-    /// an `open`, at its date and time, and the budgets its `budget` metadata names, each once
-    Open { at: NaiveDateTime, budgets: BTreeSet<String> },
+    /// an `open`, at its date and time, and its metadata
+    Open { at: NaiveDateTime, meta: OpenMeta },
     /// a `close`, at its date and time, and its date as written, which tells when it takes effect
     Close { at: NaiveDateTime, date: Date },
 }
@@ -35,8 +41,8 @@ impl Change {
 struct Folded<'a> {
     /// whether an `open` opened it
     opened: bool,
-    /// the budgets of its latest `open`
-    budgets: Option<&'a BTreeSet<String>>,
+    /// the metadata of its latest `open`
+    meta: Option<&'a OpenMeta>,
     /// the date of the `close` that closed it since its latest `open`: the first one, as a later one closes nothing
     close: Option<&'a Date>,
 }
@@ -72,6 +78,9 @@ pub enum AccountUse {
 ///   date and time is still within it.
 /// - An `open` after a `close` opens the account again. A second `close` of a closed account closes nothing: the first
 ///   one stands, and the second is an error.
+///
+/// It also keeps the metadata of each `open`, so the metadata of the `open` in effect at a time can be read
+/// ([`AccountLifecycle::open_meta_values`]).
 #[derive(Debug, Clone, Default)]
 pub struct AccountLifecycle {
     /// the `open` and `close` directives of each account, in stream order, which is the order of their dates and times
@@ -93,8 +102,11 @@ impl AccountLifecycle {
         let Some(at) = directive.datetime() else { return };
         let (account, change) = match directive {
             Directive::Open(open) => {
-                let budgets = open.meta.get_all("budget").into_iter().map(|budget| budget.as_str().to_owned()).collect();
-                (&open.account, Change::Open { at, budgets })
+                let mut meta = OpenMeta::new();
+                for (key, value) in open.meta.clone().pairs() {
+                    meta.entry(key).or_default().insert(value);
+                }
+                (&open.account, Change::Open { at, meta })
             }
             Directive::Close(close) => (&close.account, Change::Close { at, date: close.date.clone() }),
             _ => return,
@@ -107,10 +119,10 @@ impl AccountLifecycle {
         let mut folded = Folded::default();
         for change in self.changes.get(account).into_iter().flatten().take_while(|it| it.at() <= at) {
             match change {
-                Change::Open { budgets, .. } => {
+                Change::Open { meta, .. } => {
                     folded = Folded {
                         opened: true,
-                        budgets: Some(budgets),
+                        meta: Some(meta),
                         close: None,
                     }
                 }
@@ -128,25 +140,25 @@ impl AccountLifecycle {
         self.fold(account, at).status(at)
     }
 
-    /// The budgets a posting of `account` at the wall-clock time `at` counts in: those the `budget` metadata of the
-    /// account's latest `open` at or before `at` names, each once. An account closed and opened again with other budgets
-    /// counts in those from the time of its reopening on. `None` before its first `open`.
+    /// The values of the metadata `key` of the `open` of `account` in effect at the wall-clock time `at`: its latest
+    /// `open` at or before `at`, each value once. A later `open` replaces them, so an account closed and opened again
+    /// with other values has those from the time of its reopening on; a `close` changes nothing. Empty when that `open`
+    /// has no `key`, `None` before the account's first `open` (and for an account never opened).
     ///
-    /// The one rule of which budgets an account's posting belongs to: the load's fold reports the budget errors with it,
-    /// and the query engine counts the activity and lists the postings of a budget with it
-    /// ([`Ledger::account_budgets`](crate::ledger::Ledger::account_budgets)).
-    pub fn budgets(&self, account: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
-        self.fold(account, at).budgets
+    /// The `open` of a day sorts before every other directive of its date and time, so a directive at the same date and
+    /// time as an `open` sees its values.
+    pub fn open_meta_values(&self, account: &str, key: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
+        self.fold(account, at).meta.map(|meta| meta.get(key).unwrap_or(&NO_VALUES))
     }
 
-    /// The accounts of every budget: those an `open` names it in, at any time.
-    pub fn budget_accounts(&self) -> HashMap<String, BTreeSet<String>> {
+    /// The accounts of every value of the metadata `key`: those an `open` gives it to, at any time.
+    pub fn open_meta_accounts(&self, key: &str) -> HashMap<String, BTreeSet<String>> {
         let mut accounts: HashMap<String, BTreeSet<String>> = HashMap::new();
         for (account, changes) in &self.changes {
             for change in changes {
-                if let Change::Open { budgets, .. } = change {
-                    for budget in budgets {
-                        accounts.entry(budget.clone()).or_default().insert(account.clone());
+                if let Change::Open { meta, .. } = change {
+                    for value in meta.get(key).into_iter().flatten() {
+                        accounts.entry(value.clone()).or_default().insert(account.clone());
                     }
                 }
             }
@@ -265,6 +277,8 @@ fn reference_errors<'a>(lifecycle: &AccountLifecycle, accounts: &[&'a Account], 
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeSet;
+
     use chrono::{NaiveDate, NaiveDateTime};
     use indoc::indoc;
     use zhang_ast::error::ErrorKind;
@@ -353,6 +367,66 @@ mod test {
             lifecycle.status("Assets:A", NaiveDate::from_ymd_opt(1969, 12, 31).unwrap().and_hms_opt(23, 0, 0).unwrap()),
             None
         );
+    }
+
+    fn set(items: &[&str]) -> Option<BTreeSet<String>> {
+        Some(items.iter().map(|it| (*it).to_owned()).collect())
+    }
+
+    #[test]
+    fn should_read_the_metadata_of_the_open_in_effect() {
+        let lifecycle = lifecycle(indoc! {r#"
+            1970-01-02 open Expenses:A
+              budget: "x"
+              budget: "y"
+              budget: "x"
+              team: "red"
+            1970-01-05 close Expenses:A
+            1970-01-07 open Expenses:A
+              budget: "z"
+            1970-01-09 open Expenses:A
+            1970-01-09 close Expenses:Never
+        "#});
+        let values = |account: &str, key: &str, at: NaiveDateTime| lifecycle.open_meta_values(account, key, at).cloned();
+        // before the first open, of an account never opened, of an unknown account: no open in effect
+        assert_eq!(values("Expenses:A", "budget", at(1, "23:59:59")), None);
+        assert_eq!(values("Expenses:Never", "budget", at(10, "00:00:00")), None);
+        assert_eq!(values("Expenses:Missing", "budget", at(10, "00:00:00")), None);
+        // from the open on, every value of the key once, each key apart; a key the open lacks has none
+        assert_eq!(values("Expenses:A", "budget", at(2, "00:00:00")), set(&["x", "y"]));
+        assert_eq!(values("Expenses:A", "team", at(2, "00:00:00")), set(&["red"]));
+        assert_eq!(values("Expenses:A", "missing", at(2, "00:00:00")), set(&[]));
+        // a close changes nothing: the open stays the one in effect
+        assert_eq!(lifecycle.status("Expenses:A", at(6, "00:00:00")), Some(AccountStatus::Close));
+        assert_eq!(values("Expenses:A", "budget", at(6, "00:00:00")), set(&["x", "y"]));
+        // a later open replaces every key, whether it has the key or not
+        assert_eq!(values("Expenses:A", "budget", at(7, "00:00:00")), set(&["z"]));
+        assert_eq!(values("Expenses:A", "team", at(7, "00:00:00")), set(&[]));
+        assert_eq!(values("Expenses:A", "budget", at(9, "00:00:00")), set(&[]));
+        // the accounts of every value, from any open
+        let accounts = lifecycle.open_meta_accounts("budget");
+        assert_eq!(accounts.len(), 3);
+        assert_eq!(accounts["z"], BTreeSet::from(["Expenses:A".to_owned()]));
+        assert!(lifecycle.open_meta_accounts("nothing").is_empty());
+    }
+
+    #[test]
+    fn should_switch_the_open_metadata_at_the_time_of_a_same_day_reopen() {
+        let lifecycle = lifecycle(indoc! {r#"
+            1970-01-01 open Expenses:A
+              budget: "old"
+            1970-01-03 10:00:00 close Expenses:A
+            1970-01-03 12:00:00 open Expenses:A
+              budget: "new"
+            1970-01-04 08:00:00 open Expenses:Later
+              budget: "later"
+        "#});
+        let values = |account: &str, at: NaiveDateTime| lifecycle.open_meta_values(account, "budget", at).cloned();
+        assert_eq!(values("Expenses:A", at(3, "11:59:59")), set(&["old"]));
+        assert_eq!(values("Expenses:A", at(3, "12:00:00")), set(&["new"]));
+        // an open with a time is not in effect at the start of its day
+        assert_eq!(values("Expenses:Later", at(4, "00:00:00")), None);
+        assert_eq!(values("Expenses:Later", at(4, "08:00:00")), set(&["later"]));
     }
 
     #[test]

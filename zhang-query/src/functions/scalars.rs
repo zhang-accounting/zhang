@@ -75,8 +75,12 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = scalars![
         "The metadata of the account's open directive as (key, value) pairs, [] when it has none; NULL if the account has no open directive.";
     #[execution] open_meta(Str, Str) -> Str = ledger::open_meta,
         "A metadata value of the account's open directive, e.g. open_meta(account, 'institution'); NULL if absent.";
+    #[execution] open_meta_values(Str, Str, Date) -> Set = ledger::open_meta_values,
+        "Every value of a metadata key of the account's open in effect at the start of a date, e.g. open_meta_values(account, 'budget', date): those of its latest open at or before then, so a later open replaces them and a close keeps them; empty before its first open or when that open lacks the key. A zhang extension.";
+    #[execution] open_meta_values(Str, Str, Date, Str) -> Set = ledger::open_meta_values,
+        "Every value of a metadata key of the account's open in effect at a date and a time of day, written HH:MM:SS or HH:MM as the time column holds it, e.g. open_meta_values(account, 'budget', date, time). A zhang extension.";
     #[execution] account_budgets(Str, Date) -> Set = ledger::account_budgets,
-        "The budgets a posting of an account at the start of a date counts in, as a posting of that date without a time sees them: those the budget metadata of its latest open at or before then names, so an account closed and opened again with other budgets counts in those from its reopening on; empty before its first open. A zhang extension.";
+        "The budgets a posting of an account at the start of a date counts in, as a posting of that date without a time sees them: an alias of open_meta_values(account, 'budget', date), so an account closed and opened again with other budgets counts in those from its reopening on; empty before its first open. Deprecated: use open_meta_values(). A zhang extension.";
     #[execution] account_status(Str, Date) -> Str = ledger::account_status,
         "Whether an account is 'open' or 'closed' at the start of a date, as a directive of that date without a time sees it: open from its open on, closed once its close takes effect, which a close with only a date does at the end of its day and a close with a time at that time, and open again after a later open; NULL when neither an open nor a close of it is in effect. A zhang extension.";
     #[execution] account_status(Str, Date, Str) -> Str = ledger::account_status,
