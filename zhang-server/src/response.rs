@@ -118,6 +118,9 @@ pub struct AccountJournalEntity {
     pub account: String,
     /// the id of the transaction; for a balance assertion, its id
     pub trx_id: String,
+    /// the version of the transaction, as the `version` of its item in `GET /api/journals`: what an update or a
+    /// delete of it names in `If-Match`; `null` for a balance assertion and for a transaction a plugin made
+    pub trx_version: Nullable<String>,
     pub payee: Option<String>,
     pub narration: Option<String>,
     /// what the row adds to the account; zero for a balance assertion, which changes no balance
@@ -169,6 +172,10 @@ pub struct JournalTransactionItemEntity {
     /// line between its postings, a comment on its header line or after a metadata line. A client warns before such
     /// an edit; `false` for a transaction a plugin made, which cannot be edited at all
     pub edit_drops_text: bool,
+    /// the version of the transaction's text, the SHA-256 in hex of its text as the ledger read it: an update or a
+    /// delete names it in `If-Match` to be refused (412) when the id names another text by then. Two transactions
+    /// written alike have the same version. `null` for a transaction a plugin made, which cannot be edited
+    pub version: Nullable<String>,
 }
 #[derive(Serialize, Schematic)]
 pub struct JournalTransactionPostingEntity {
@@ -233,6 +240,23 @@ pub struct JournalBalanceCheckItemEntity {
     pub tolerance: Option<BigDecimal>,
     /// whether the checked balance is within the tolerance of the asserted amount
     pub passed: bool,
+}
+
+/// The transaction `POST /api/transactions` or `PUT /api/transactions/{transaction_id}` wrote, in the ledger reloaded
+/// before the answer.
+#[derive(Serialize, Schematic)]
+pub struct WrittenTransactionEntity {
+    /// The id of the transaction written, in the ledger as reloaded before this answer: `GET /api/journals` lists it
+    /// under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
+    /// derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
+    /// file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
+    /// ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
+    /// load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
+    /// but in no journal
+    pub id: Nullable<Uuid>,
+    /// the version of the transaction written, as the journal gives it: what an update or a delete of it names in
+    /// `If-Match`. `null` when the id is `null`
+    pub version: Nullable<String>,
 }
 
 /// What `POST /api/transactions` or `PUT /api/transactions/{transaction_id}` would write for a request, found without

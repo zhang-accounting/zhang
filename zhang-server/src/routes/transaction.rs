@@ -9,26 +9,27 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
-use zhang_core::data_source::loaded_file;
+use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction, ZhangString};
+use zhang_core::data_source::{append_plan, loaded_file, slashed};
 use zhang_core::data_type::text::exporter::meta_lines_as;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
 use zhang_core::domains::schemas::TransactionInfoDomain;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 use zhang_core::utils::string_::{QuoteStyle, StringExt};
 use zhang_core::ZhangError;
 
-use super::Query;
+use super::{IfMatch, Query, RequiredIfMatch};
 use crate::error::ServerError;
 use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest, UnitRequest};
 use crate::response::{
     JournalItemEntity, Nullable, Pageable, ResponseWrapper, TransactionField, TransactionFieldErrorEntity, TransactionPreviewEntity,
-    TransactionPreviewErrorEntity,
+    TransactionPreviewErrorEntity, WrittenTransactionEntity,
 };
 use crate::routes::query::with_ledger;
-use crate::state::{wrote, SharedLedger, SharedReloadSender};
+use crate::state::{wrote_and_reloaded, SharedLedger, SharedReloadSender};
 use crate::validate::{Checked, Invalid};
-use crate::{journals, validate, ApiResult, ServerResult};
+use crate::{journals, validate, ApiResult, ReloadSender, ServerResult};
 
 /// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
 /// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
@@ -274,17 +275,99 @@ fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) ->
     journals::written_transaction(ledger, &span.span)
 }
 
+/// Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
+/// of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
+/// gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
 #[api(group = "transaction")]
 pub async fn create_new_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
-) -> ApiResult<String> {
+) -> ApiResult<WrittenTransactionEntity> {
     let mut ledger = ledger.for_writing(&reload_sender).await?;
 
     let trx = requested_transaction(payload, &ledger, None)?;
+    // the file the transaction goes to, and its text there, the last of what the append writes
+    let (file, written) = append_plan(&ledger, vec![trx.clone()])?.pop().expect("an append writes its directive");
+    let text = ledger.data_source.export(written)?;
 
     let appended = ledger.data_source.append(&ledger, vec![trx]);
-    wrote(&mut ledger, &reload_sender, appended.map_err(ServerError::from))?;
-    ResponseWrapper::json("Ok".to_string())
+    let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, appended.map_err(ServerError::from)).await?;
+    let id = reloaded
+        .then(|| appended_transaction(&ledger, &file, &String::from_utf8_lossy(&text)))
+        .flatten();
+    let written = written_transaction(&ledger, id);
+    answered(&reload_sender, &written);
+    ResponseWrapper::json(written)
+}
+
+/// What a create or an update answers for the transaction `id` it wrote, `None` when it is in no journal: its id and
+/// its version in `ledger`, as reloaded since.
+fn written_transaction(ledger: &Ledger, id: Option<Uuid>) -> WrittenTransactionEntity {
+    let directive = id.and_then(|id| ledger.transaction_directive(&id));
+    WrittenTransactionEntity {
+        id: Nullable(id),
+        version: Nullable(directive.and_then(|it| journals::transaction_version(&it.span))),
+    }
+}
+
+/// Refuse with a 412 a write to the stored transaction at `span` whose `If-Match` header names `versions`, `None`
+/// without the header: when they do not name its version, as it changed since the client read it, or another one took
+/// its place and its id; and when they name a version of the transaction at its id the server deleted or replaced
+/// lately ([`crate::tombstones`]), as another one written alike took its place and its id, a twin which the request,
+/// sent again or sent with the write that removed the first, must not write.
+fn check_version(span: &TransactionInfoDomain, versions: Option<&[String]>, reload_sender: &ReloadSender) -> ServerResult<()> {
+    let Some(versions) = versions else { return Ok(()) };
+    let current = journals::transaction_version(&span.span);
+    let Some(current) = current.filter(|current| versions.contains(current)) else {
+        return Err(ServerError::PreconditionFailed(format!(
+            "the transaction {} is not the version the If-Match header names: it changed since it was read, or another \
+             transaction took its place and its id, so nothing was written. Reopen the journal, and try again",
+            span.id
+        )));
+    };
+    let id = Uuid::from_str(&span.id).expect("the id of a transaction");
+    if reload_sender.tombstones().contains(id, &current) {
+        return Err(ServerError::PreconditionFailed(format!(
+            "the transaction {} of the version the If-Match header names was deleted or replaced lately, and another \
+             transaction written alike took its place and its id, so nothing was written: a request sent again must not \
+             write that one. Reopen the journal; to write that one, edit it without If-Match first",
+            span.id
+        )));
+    }
+    Ok(())
+}
+
+/// The id of the transaction an append wrote as `text` at the end of `file`, a file of `ledger` by its path within it,
+/// in `ledger` as loaded since: that of the last transaction of the file with that text, which the append wrote last.
+/// `None` when the load rejected it, which keeps it in no journal.
+fn appended_transaction(ledger: &Ledger, file: &str, text: &str) -> Option<Uuid> {
+    let text = text.trim_end_matches(['\n', '\r']);
+    let appended = ledger
+        .directives
+        .iter()
+        .filter(|it| matches!(it.data, Directive::Transaction(_)) && it.span.content == text && in_file(ledger, it, file))
+        .max_by_key(|it| it.span.start)?;
+    transaction_at(ledger, file, appended.span.start)
+}
+
+/// whether `directive` was read from `file`, a file of `ledger` by its path within it
+fn in_file(ledger: &Ledger, directive: &Spanned<Directive>, file: &str) -> bool {
+    let within = directive.span.filename.as_deref().and_then(|it| ledger.path_in_ledger(it));
+    within.is_some_and(|it| slashed(&it) == file)
+}
+
+/// The id of the transaction `ledger` stores from the text starting at `start` in `file`, by its path within the
+/// ledger. Of the transactions sharing that place, as a plugin can emit beside one of the ledger's, the one processed
+/// first, which has the id of the place itself; all of them edit the same text. `None` when the load rejected it.
+fn transaction_at(ledger: &Ledger, file: &str, start: usize) -> Option<Uuid> {
+    let at = ledger
+        .directives
+        .iter()
+        .zip(&ledger.outcomes)
+        .filter_map(|(directive, outcome)| match &outcome.detail {
+            Detail::Transaction { id, .. } if directive.span.start == start && in_file(ledger, directive, file) => Some((outcome.seq, *id)),
+            _ => None,
+        });
+    at.min_by_key(|(seq, _)| *seq).map(|(_, id)| id)
 }
 
 /// What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
@@ -297,18 +380,23 @@ pub async fn preview_new_transaction(ledger: State<SharedLedger>, Json(payload):
 }
 
 /// What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
-/// `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+/// `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits,
+/// and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
 #[api(group = "transaction")]
 pub async fn preview_transaction_update(
-    ledger: State<SharedLedger>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, if_match: IfMatch,
+    Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<TransactionPreviewEntity> {
     let transaction_id = transaction_id(&path.0 .0)?;
+    let reload_sender = reload_sender.0 .0;
     ResponseWrapper::json(
         with_ledger(&ledger.0, move |ledger| {
             let span = ledger.transaction_span(&transaction_id);
             let span = span.ok_or(ServerError::NoSuchTransaction(transaction_id))?;
-            // the update refuses a transaction in no file of the ledger
+            // the update refuses a transaction in no file of the ledger, and the padding of a pad
             editable_file(ledger, &span)?;
+            written_as_transaction(ledger, &span)?;
+            check_version(&span, if_match.0.as_deref(), &reload_sender)?;
             preview(ledger, payload, Some(&span))
         })
         .await?,
@@ -385,7 +473,8 @@ pub async fn upload_transaction_document(
         write_transaction_documents(&ledger, &span_info, &documents).await
     }
     .await;
-    wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
+    // reloaded before the answer, as the other writes of a transaction are: the journal gives its new version
+    wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -443,10 +532,15 @@ fn insert_transaction_metas(content: &mut String, span_start: usize, span_end: u
     }
 }
 
+/// Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
+/// answer, which gives the transaction's id in it, and its new version: an update keeps the id, as the transaction
+/// stays where it was. With the `version` of the transaction in `If-Match`, the update is refused with a 412 when the
+/// transaction its id names now has another version.
 #[api(group = "transaction")]
 pub async fn update_single_transaction(
-    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
-) -> ApiResult<()> {
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, if_match: IfMatch,
+    Json(payload): Json<CreateTransactionRequest>,
+) -> ApiResult<WrittenTransactionEntity> {
     let transaction_id = transaction_id(&path.0 .0)?;
     let mut ledger = ledger.for_writing(&reload_sender).await?;
 
@@ -455,6 +549,8 @@ pub async fn update_single_transaction(
         return Err(ServerError::NoSuchTransaction(transaction_id));
     };
     let source_file_path = editable_file(&ledger, &span_info)?;
+    written_as_transaction(&ledger, &span_info)?;
+    check_version(&span_info, if_match.0.as_deref(), &reload_sender)?;
 
     let trx = requested_transaction(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
@@ -468,12 +564,142 @@ pub async fn update_single_transaction(
         content
             .text
             .replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
+        ledger.data_source.save(&ledger, source_file_path.clone(), &content.into_bytes())?;
+        ServerResult::Ok(())
+    }
+    .await;
+    let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
+    // the version replaced is a tombstone, unless the update wrote the same text
+    if let Some(replaced) = journals::transaction_version(&span_info.span).filter(|_| span_info.span.content != trx_content.trim_end_matches(['\n', '\r'])) {
+        reload_sender.tombstones().add(transaction_id, replaced);
+    }
+    let id = reloaded.then(|| transaction_at(&ledger, &source_file_path, span_info.span_start)).flatten();
+    let written = written_transaction(&ledger, id);
+    answered(&reload_sender, &written);
+    ResponseWrapper::json(written)
+}
+
+/// Forget the tombstone of the transaction a create or an update answers, `written`: the server wrote it, and the
+/// client names it with the id and the version it got ([`crate::tombstones`])
+fn answered(reload_sender: &ReloadSender, written: &WrittenTransactionEntity) {
+    if let (Some(id), Some(version)) = (&written.id.0, &written.version.0) {
+        reload_sender.tombstones().remove(*id, version);
+    }
+}
+
+/// Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
+/// left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
+/// a request sent after it no longer finds the transaction. The documents its metadata names stay in the ledger's
+/// directory.
+///
+/// The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
+/// the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
+/// the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
+/// without the version would delete that one. When that one is written alike, with the same version, the server
+/// remembers that it deleted that version at that id lately (in memory, for a day): a delete or an update naming it is
+/// a 412 too.
+#[api(group = "transaction")]
+pub async fn delete_single_transaction(
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, if_match: RequiredIfMatch,
+) -> ApiResult<()> {
+    let transaction_id = transaction_id(&path.0 .0)?;
+    let mut ledger = ledger.for_writing(&reload_sender).await?;
+
+    let span_info = ledger.transaction_span(&transaction_id);
+    let Some(span_info) = span_info else {
+        return Err(ServerError::NoSuchTransaction(transaction_id));
+    };
+    let source_file_path = editable_file(&ledger, &span_info)?;
+    written_as_transaction(&ledger, &span_info)?;
+    check_version(&span_info, Some(&if_match.0), &reload_sender)?;
+
+    let written = async {
+        // the transaction must still be where the ledger loaded it
+        let mut content = ledger
+            .data_source
+            .get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))?;
+        remove_directive_text(&mut content.text, span_info.span_start, span_info.span_end);
         ledger.data_source.save(&ledger, source_file_path, &content.into_bytes())?;
         ServerResult::Ok(())
     }
     .await;
-    wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
+    wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
+    // the version deleted is a tombstone: a twin can take its place and its id
+    if let Some(deleted) = journals::transaction_version(&span_info.span) {
+        reload_sender.tombstones().add(transaction_id, deleted);
+    }
     ResponseWrapper::json(())
+}
+
+/// Refuse to edit or delete the stored transaction at `span` as a transaction when its text is another directive's:
+/// the padding a `pad` books, or a `balance` with a pad, has the place of that directive. Its documents are written
+/// to that directive's text, which is what an upload to it does; replacing the text, or removing it, would drop the
+/// directive, with every padding it books and, for a `balance`, its assertion.
+fn written_as_transaction(ledger: &Ledger, span: &TransactionInfoDomain) -> ServerResult<()> {
+    let place = (&span.span.filename, span.span_start);
+    let other = ledger
+        .directives
+        .iter()
+        .find(|it| (&it.span.filename, it.span.start) == place && !matches!(it.data, Directive::Transaction(_)));
+    match other {
+        None => Ok(()),
+        Some(directive) => Err(ServerError::InvalidInput(format!(
+            "the transaction {} is the padding booked by the {} directive at line {} of {}, not a transaction written \
+             in the file: edit that directive in the file instead",
+            span.id,
+            directive.data.directive_type(),
+            directive.span.line.unwrap_or_default(),
+            span.source_file.display(),
+        ))),
+    }
+}
+
+/// Remove the directive at `start..end` of `text`, the text of a file, with its lines:
+/// - the line ending of its last line goes too. A directive starts a line; text before it on its line, which no parser
+///   reads, would stay, and only the directive would go
+/// - after a blank line, or at the start of the file, the blank lines after it go too: the entries around it keep the
+///   separation the one before it had, and deleting entries one after another piles up no blank lines
+/// - with nothing but blank lines after it, the blank lines before it go too: the file ends where the entry before it
+///   ends, with its line
+/// - after a line of text, such as a comment, only the directive's lines go: a comment above an entry is not known to
+///   be about it, and stays with the separation after it
+fn remove_directive_text(text: &mut String, start: usize, end: usize) {
+    /// whether `line`, with its line ending, holds nothing but whitespace
+    fn blank(line: &str) -> bool {
+        line.trim_matches([' ', '\t', '\r', '\n']).is_empty()
+    }
+    let line_start = text[..start].rfind('\n').map_or(0, |it| it + 1);
+    let line_end = text[end..].find('\n').map_or(text.len(), |it| end + it + 1);
+    if !blank(&text[line_start..start]) || !blank(&text[end..line_end]) {
+        text.replace_range(start..end, "");
+        return;
+    }
+    // where the blank lines after the directive end: the start of the next line with text, or the end of the file
+    let mut next = line_end;
+    while next < text.len() {
+        let after = text[next..].find('\n').map_or(text.len(), |it| next + it + 1);
+        if !blank(&text[next..after]) {
+            break;
+        }
+        next = after;
+    }
+    // where the blank lines before the directive start, after the line ending of the last line with text
+    let mut previous = line_start;
+    while previous > 0 {
+        let before = text[..previous - 1].rfind('\n').map_or(0, |it| it + 1);
+        if !blank(&text[before..previous]) {
+            break;
+        }
+        previous = before;
+    }
+    let removed = if next == text.len() {
+        previous..next
+    } else if previous < line_start || line_start == 0 {
+        line_start..next
+    } else {
+        line_start..line_end
+    };
+    text.replace_range(removed, "");
 }
 
 /// Transactions written through the API read back exactly (issue #442).
@@ -501,10 +727,11 @@ mod string_round_trip_test {
     use zhang_core::utils::string_::escape_with_quote;
 
     use super::{
-        create_new_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction, upload_transaction_document,
-        write_transaction_documents,
+        create_new_transaction, delete_single_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction,
+        upload_transaction_document, write_transaction_documents,
     };
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
+    use crate::routes::{IfMatch, RequiredIfMatch};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
 
@@ -728,7 +955,7 @@ mod string_round_trip_test {
         // update in place
         let narration = "tea $3 ~ '\\d+' \"x\"\nsecond line";
         let (ledger, reload) = states(reloaded);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(request(narration, "`$`")))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(request(narration, "`$`")))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -835,7 +1062,7 @@ mod string_round_trip_test {
         let mut bad = request("coffee", "note");
         bad.tags.push("two words".to_owned());
         let (ledger, reload) = states(reloaded);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(bad))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(bad))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -1065,7 +1292,7 @@ mod string_round_trip_test {
             });
         }
         let (ledger, reload) = states(reloaded);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1113,7 +1340,7 @@ mod string_round_trip_test {
         update.postings[0].metas = Some(vec![meta("receipt", "r-2")]);
         update.postings[1].metas = Some(vec![meta("category", "lunch")]);
         let (ledger, reload) = states(load(&dir).await);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1153,7 +1380,7 @@ mod string_round_trip_test {
         update.metas = vec![];
         update.postings[1].metas = Some(vec![meta("memo", "after")]);
         let (ledger, reload) = states(load().await);
-        let response = update_single_transaction(ledger, reload, Path((created.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((created.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1276,7 +1503,7 @@ mod string_round_trip_test {
         // the same text under a key the posting did not have unquoted
         update.postings[1].metas = Some(vec![meta("rate", "7"), meta("paid", "TRUE")]);
         let (ledger, reload) = states(ledger);
-        let response = update_single_transaction(ledger, reload, Path((id.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1376,7 +1603,7 @@ mod string_round_trip_test {
         prepare(&mut loaded);
         let id = loaded.transactions()[0].0;
         let (state, reload) = states(loaded);
-        let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+        let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1620,7 +1847,7 @@ mod string_round_trip_test {
             update.payee = payee.to_owned();
             update.metas = vec![meta("rate", "1.5")];
             let (state, reload) = states(ledger);
-            let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+            let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::OK);
@@ -1726,7 +1953,7 @@ mod string_round_trip_test {
             let (state, reload) = states(loaded);
 
             let update = edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
-            let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+            let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
                 .await
                 .into_response();
             let status = response.status();
@@ -1792,7 +2019,7 @@ mod string_round_trip_test {
         // tried again with that id: the ledger is reloaded, and the transaction has another id now
         let update = || edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
         let (status, message) = status_and_message(
-            update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), Json(update()))
+            update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), IfMatch(None), Json(update()))
                 .await
                 .into_response(),
         )
@@ -1804,7 +2031,7 @@ mod string_round_trip_test {
 
         // with the id of the journal reopened, the update is written in the right place
         let id = ledger_state.read().await.transactions()[0].0;
-        let response = update_single_transaction(ledger_state, reload, Path((id.to_string(),)), Json(update()))
+        let response = update_single_transaction(ledger_state, reload, Path((id.to_string(),)), IfMatch(None), Json(update()))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1815,8 +2042,8 @@ mod string_round_trip_test {
         std::fs::remove_dir_all(dir).ok();
     }
 
-    /// A transaction a plugin made is in no file of the ledger (#476): an update, or a document uploaded to it, is
-    /// refused with a 400 saying it was generated by a plugin, nothing panics, and the ledger's files are left as
+    /// A transaction a plugin made is in no file of the ledger (#476): an update, a delete, or a document uploaded to
+    /// it, is refused with a 400 saying it was generated by a plugin, nothing panics, and the ledger's files are left as
     /// they are — whatever span the plugin gave it: none, one in a file the ledger did not load, or an empty place
     /// in a file of the ledger, which an update used to write the edited transaction into. A span past the end of
     /// a file of the ledger reads as a file that shrank since the load, and is refused as that, with a 409.
@@ -1913,7 +2140,7 @@ mod string_round_trip_test {
 
             let update = edit(&[("Assets:Cash", -8, &[]), ("Expenses:Food", 8, &[])]);
             let (got, message) = status_and_message(
-                update_single_transaction(state.clone(), reload.clone(), Path((id.to_string(),)), Json(update))
+                update_single_transaction(state.clone(), reload.clone(), Path((id.to_string(),)), IfMatch(None), Json(update))
                     .await
                     .into_response(),
             )
@@ -1923,7 +2150,7 @@ mod string_round_trip_test {
             assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is written");
 
             let (got, message) = status_and_message(
-                upload_transaction_document(state, reload, Path((id.to_string(),)), pdf_upload().await)
+                upload_transaction_document(state.clone(), reload.clone(), Path((id.to_string(),)), pdf_upload().await)
                     .await
                     .into_response(),
             )
@@ -1932,6 +2159,18 @@ mod string_round_trip_test {
             assert!(message.contains(says), "{case}: {message}");
             assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is written");
             assert!(!dir.join("attachments").exists(), "{case}: no attachment is saved");
+
+            // nor is it deleted: the text at its span, if there is any, is another directive's
+            let version = crate::journals::transaction_version(&span).into_iter().collect();
+            let (got, message) = status_and_message(
+                delete_single_transaction(state, reload, Path((id.to_string(),)), RequiredIfMatch(version))
+                    .await
+                    .into_response(),
+            )
+            .await;
+            assert_eq!(got, status, "{case}: {message}");
+            assert!(message.contains(says), "{case}: {message}");
+            assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is deleted");
             assert!(!dir.join("plugin.zhang").exists(), "{case}: no file is created");
             std::fs::remove_dir_all(dir).ok();
         }
@@ -2036,7 +2275,7 @@ mod string_round_trip_test {
             transaction.unwrap_or_else(|| panic!("{main}: no transaction {narration}")).0
         };
         let (state, reload) = states(loaded);
-        let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+        let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         let (status, message) = status_and_message(response).await;
@@ -2393,5 +2632,70 @@ mod string_round_trip_test {
             assert!(check["postings"][0]["written"].is_null(), "{main}: {check}");
             std::fs::remove_dir_all(dir).ok();
         }
+    }
+}
+
+/// What a delete leaves of the text of a file ([`remove_directive_text`]).
+#[cfg(test)]
+mod remove_directive_text_test {
+    use super::remove_directive_text;
+
+    /// A transaction with an indented comment, as `{X}` in the texts below.
+    const X: &str = "2024-01-02 * \"Cafe\" \"coffee\"\n  ; an indented comment is the transaction's\n  Assets:Cash -5 CNY\n  Expenses:Food";
+
+    /// `text`, with `{X}` standing for [`X`], once `X` is removed from it.
+    fn removed(text: &str) -> String {
+        let mut text = text.replace("{X}", X);
+        let start = text.find(X).expect("the text has the transaction");
+        remove_directive_text(&mut text, start, start + X.len());
+        text
+    }
+
+    #[test]
+    fn an_entry_between_blank_lines_leaves_the_separation_before_it() {
+        assert_eq!(removed("A\n\n{X}\n\nB\n"), "A\n\nB\n");
+        assert_eq!(removed("A\n\n{X}\n\n\n\nB\n"), "A\n\nB\n");
+        assert_eq!(removed("A\n\n\n{X}\nB\n"), "A\n\n\nB\n");
+        assert_eq!(removed("A\n\n{X}\n  \t\n\nB\n"), "A\n\nB\n");
+    }
+
+    #[test]
+    fn the_first_entry_of_a_file_leaves_no_blank_lines_at_its_start() {
+        assert_eq!(removed("{X}\n\nB\n"), "B\n");
+        assert_eq!(removed("{X}\nB\n"), "B\n");
+    }
+
+    #[test]
+    fn the_last_entry_of_a_file_leaves_it_ending_with_the_entry_before() {
+        assert_eq!(removed("A\n\n{X}\n"), "A\n");
+        assert_eq!(removed("A\n\n{X}"), "A\n");
+        assert_eq!(removed("A\n\n{X}\n\n\n"), "A\n");
+        assert_eq!(removed("A\n{X}\n"), "A\n");
+        assert_eq!(removed("{X}\n"), "");
+        assert_eq!(removed("\n{X}\n"), "");
+    }
+
+    #[test]
+    fn the_comments_around_an_entry_stay() {
+        // a comment above it is not known to be about it
+        assert_eq!(removed("A\n\n; lunch\n{X}\n\nB\n"), "A\n\n; lunch\n\nB\n");
+        assert_eq!(removed("A\n\n{X}\n; dinner\nB\n"), "A\n\n; dinner\nB\n");
+        assert_eq!(removed("A\n\n; the end\n{X}\n"), "A\n\n; the end\n");
+        assert_eq!(removed("A\n{X}\nB\n"), "A\nB\n");
+    }
+
+    #[test]
+    fn a_file_with_crlf_line_endings_keeps_them() {
+        let text = "A\r\n\r\n{X}\r\n\r\nB\r\n".replace("{X}", &X.replace('\n', "\r\n"));
+        let start = text.find("2024-01-02").unwrap();
+        let end = text.find("Expenses:Food").unwrap() + "Expenses:Food".len();
+        let mut text = text;
+        remove_directive_text(&mut text, start, end);
+        assert_eq!(text, "A\r\n\r\nB\r\n");
+    }
+
+    #[test]
+    fn text_before_an_entry_on_its_line_stays() {
+        assert_eq!(removed("A\n\nnot read {X}\n\nB\n"), "A\n\nnot read \n\nB\n");
     }
 }

@@ -632,6 +632,7 @@ mod beancount_pads {
     use zhang_server::request::{AccountBalanceRequest, BatchAccountBalanceRequest};
     use zhang_server::routes::account::{create_account_balance, create_batch_account_balances};
     use zhang_server::routes::transaction::update_single_transaction;
+    use zhang_server::routes::IfMatch;
     use zhang_server::state::{SharedLedger, SharedReloadSender};
     use zhang_server::ReloadSender;
 
@@ -1668,7 +1669,9 @@ option "timezone" "UTC"
                     "links": []
                 }))
                 .unwrap();
-                tokio::spawn(async move { respond(update_single_transaction(ledger, reload(), UrlPath((tail.to_string(),)), Json(request)).await).await })
+                tokio::spawn(async move {
+                    respond(update_single_transaction(ledger, reload(), UrlPath((tail.to_string(),)), IfMatch(None), Json(request)).await).await
+                })
             };
             for (status, body) in [first.await.unwrap(), second.await.unwrap(), update.await.unwrap()] {
                 assert!(status.is_success(), "{status} {body}");

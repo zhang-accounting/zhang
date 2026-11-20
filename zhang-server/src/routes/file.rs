@@ -9,7 +9,7 @@ use crate::error::ServerError;
 use crate::request::FileUpdateRequest;
 use crate::response::{Created, FileDetailEntity, ResponseWrapper};
 use crate::routes::Base64Path;
-use crate::state::{wrote, SharedLedger, SharedReloadSender};
+use crate::state::{wrote_and_reloaded, SharedLedger, SharedReloadSender};
 use crate::util::sha256_hex;
 use crate::{ApiResult, ServerResult};
 
@@ -99,7 +99,8 @@ pub async fn update_file_content(
     let mut content = FileText::new(payload.content);
     content.bom |= had_bom;
     let saved = ledger.data_source.save(&ledger, filename, &content.into_bytes());
-    wrote(&mut ledger, &reload_sender, saved.map_err(ServerError::from))?;
+    // reloaded before the answer, as every write of the API is
+    wrote_and_reloaded(&mut ledger, &reload_sender, saved.map_err(ServerError::from)).await?;
     Ok(Created)
 }
 

@@ -15,10 +15,11 @@ pub mod frontend;
 
 use axum::async_trait;
 use axum::extract::{FromRequestParts, MatchedPath, OriginalUri, Path};
+use axum::http::header;
 use axum::http::request::Parts;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
-use gotcha::oas::{Parameter, RequestBody};
+use gotcha::oas::{Parameter, ParameterIn, Referenceable, RequestBody};
 use gotcha::{Either, ParameterProvider, Schematic};
 use percent_encoding::percent_decode_str;
 use serde::de::DeserializeOwned;
@@ -68,6 +69,88 @@ impl ParameterProvider for Base64Path {
 }
 
 pub struct Query<T>(pub T);
+
+/// The versions a write names in its `If-Match` header: the `version` of the transaction it writes, as the journal
+/// gives it, quoted as an entity tag or not. Several, separated by commas or in several headers, match when one of
+/// them does; a weak tag (`W/"…"`) and `*` match none. `None` without the header, or with an empty one.
+#[derive(Debug, Clone, Default)]
+pub struct IfMatch(pub Option<Vec<String>>);
+
+/// [`IfMatch`], which the request must send: a request without it is refused with a 428.
+#[derive(Debug, Clone)]
+pub struct RequiredIfMatch(pub Vec<String>);
+
+/// the versions the `If-Match` headers of `parts` name, `None` when they name none
+fn if_match(parts: &Parts) -> Result<Option<Vec<String>>, ServerError> {
+    let mut versions = vec![];
+    for value in parts.headers.get_all(header::IF_MATCH) {
+        let text = value
+            .to_str()
+            .map_err(|_| ServerError::InvalidInput("the If-Match header is not text".to_owned()))?;
+        let tags = text.split(',').map(str::trim).filter(|it| !it.is_empty());
+        versions.extend(tags.map(|tag| tag.strip_prefix('"').and_then(|it| it.strip_suffix('"')).unwrap_or(tag).to_owned()));
+    }
+    Ok((!versions.is_empty()).then_some(versions))
+}
+
+#[async_trait]
+impl<S: Send + Sync> FromRequestParts<S> for IfMatch {
+    type Rejection = ServerError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(IfMatch(if_match(parts)?))
+    }
+}
+
+#[async_trait]
+impl<S: Send + Sync> FromRequestParts<S> for RequiredIfMatch {
+    type Rejection = ServerError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let versions = if_match(parts)?.ok_or_else(|| {
+            ServerError::PreconditionRequired(
+                "the request needs an If-Match header with the version of the transaction, as the journal gives it: \
+                 without it, a delete sent again could remove the transaction that took the place, and the id, of the \
+                 one it deleted"
+                    .to_owned(),
+            )
+        })?;
+        Ok(RequiredIfMatch(versions))
+    }
+}
+
+/// the `If-Match` header parameter of the OpenAPI document
+fn if_match_parameter(required: bool) -> Either<Vec<Parameter>, RequestBody> {
+    let description = "the `version` of the transaction the request writes, as the journal gives it: the request is refused \
+                       with a 412 when the transaction its id names now has another version";
+    Either::Left(vec![Parameter {
+        name: "If-Match".to_owned(),
+        _in: ParameterIn::Header,
+        description: Some(description.to_owned()),
+        required: Some(required),
+        deprecated: None,
+        allow_empty_value: None,
+        style: None,
+        explode: None,
+        allow_reserved: None,
+        schema: Some(Referenceable::Data(String::generate_schema().schema)),
+        example: None,
+        examples: None,
+        content: None,
+    }])
+}
+
+impl ParameterProvider for IfMatch {
+    fn generate(_url: String) -> Either<Vec<Parameter>, RequestBody> {
+        if_match_parameter(false)
+    }
+}
+
+impl ParameterProvider for RequiredIfMatch {
+    fn generate(_url: String) -> Either<Vec<Parameter>, RequestBody> {
+        if_match_parameter(true)
+    }
+}
 
 /// the longest name of a file, in bytes, most file systems hold
 const MAX_FILE_NAME_BYTES: usize = 255;

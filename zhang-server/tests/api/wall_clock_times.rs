@@ -17,7 +17,7 @@ use zhang_core::ledger::Ledger;
 use zhang_server::request::{BuiltinParamValue, BuiltinQueryRunRequest, CreateTransactionRequest};
 use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::{get_journals, preview_new_transaction, update_single_transaction};
-use zhang_server::routes::Query;
+use zhang_server::routes::{IfMatch, Query};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
 use zhang_testkit::fixtures::data_source_for;
@@ -78,7 +78,7 @@ async fn save(ledger: &SharedLedger, dir: &Path, datetime: &str) -> String {
     let id = breakfast(ledger).await["id"].as_str().unwrap().to_owned();
     let (sender, _receiver) = mpsc::channel(1);
     let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
-    data(update_single_transaction(State(ledger.clone()), reload, UrlPath((id,)), Json(edit(datetime))).await).await;
+    data(update_single_transaction(State(ledger.clone()), reload, UrlPath((id,)), IfMatch(None), Json(edit(datetime))).await).await;
     std::fs::read_to_string(dir.join("main.zhang")).unwrap()
 }
 

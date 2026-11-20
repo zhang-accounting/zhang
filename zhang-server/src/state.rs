@@ -75,6 +75,24 @@ pub fn wrote<T>(ledger: &mut Ledger, reload_sender: &ReloadSender, result: Serve
     result
 }
 
+/// [`wrote`], for a write whose answer must hold for the next request: once the files are written, the served ledger
+/// is reloaded in place before the writer answers, as every reload of it runs ([`ReloadSender::reload_in_place`]),
+/// still held by the writer. A request sent after the answer reads the ledger with the write, and the ids it gives.
+/// Next to the value is whether that reload succeeded: a reload that failed is kept for `/api/info` and told to the
+/// readers, the ledger served is the one loaded before, behind the files, and is [stale](Ledger::stale), so the next
+/// write reloads it first. A write that failed is [`wrote`]'s.
+pub async fn wrote_and_reloaded<T>(ledger: &mut Ledger, reload_sender: &Arc<ReloadSender>, result: ServerResult<T>) -> ServerResult<(T, bool)> {
+    let value = match result {
+        Ok(value) => value,
+        failed => return wrote(ledger, reload_sender, failed).map(|value| (value, false)),
+    };
+    let reloaded = reload_sender.reload_in_place(ledger).await.is_ok();
+    if !reloaded {
+        ledger.stale = true;
+    }
+    Ok((value, reloaded))
+}
+
 #[derive(Clone)]
 pub struct SharedBroadcaster(pub Arc<Broadcaster>);
 

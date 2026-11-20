@@ -52,6 +52,7 @@ pub mod request;
 pub mod response;
 pub mod routes;
 pub mod state;
+pub mod tombstones;
 pub mod util;
 mod validate;
 mod watch;
@@ -115,6 +116,7 @@ impl GotchaApp for ServerApp {
             .post("/api/transactions", create_new_transaction)
             .post("/api/transactions/preview", preview_new_transaction)
             .put("/api/transactions/:transaction_id", update_single_transaction)
+            .delete("/api/transactions/:transaction_id", delete_single_transaction)
             .post("/api/transactions/:transaction_id/preview", preview_transaction_update)
             .post("/api/transactions/:transaction_id/documents", upload_transaction_document)
             .get("/api/accounts", get_account_list)
@@ -240,6 +242,9 @@ pub struct ReloadSender {
     broadcaster: std::sync::OnceLock<Arc<Broadcaster>>,
     /// the reload at the next local midnight of a ledger that depends on the date, replaced on every reload
     midnight_reload: std::sync::Mutex<Option<JoinHandle<()>>>,
+    /// the transactions the writes deleted or replaced lately ([`tombstones`]), which outlive the reloads: read and
+    /// changed by a writer, which holds the ledger
+    tombstones: std::sync::Mutex<tombstones::Tombstones>,
 }
 
 impl Deref for ReloadSender {
@@ -257,7 +262,13 @@ impl ReloadSender {
             last_failure: std::sync::RwLock::new(None),
             broadcaster: std::sync::OnceLock::new(),
             midnight_reload: std::sync::Mutex::new(None),
+            tombstones: std::sync::Mutex::new(tombstones::Tombstones::default()),
         }
+    }
+
+    /// the transactions the writes deleted or replaced lately ([`tombstones`])
+    pub fn tombstones(&self) -> std::sync::MutexGuard<'_, tombstones::Tombstones> {
+        self.tombstones.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// ask for a reload, without waiting for it: a reload already asked for and not started reads the files as

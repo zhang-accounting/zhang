@@ -12,6 +12,7 @@ use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{NaiveDate, NaiveTime};
+use uuid::Uuid;
 use zhang_ast::amount::{Amount, CalculatedAmount};
 use zhang_ast::Account;
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
@@ -20,8 +21,8 @@ use zhang_core::ledger::Ledger;
 use zhang_query::{Inventory, Params, QueryResult};
 
 use crate::builtin::{self, calculated_amount};
-use crate::journals::BalanceAssertion;
-use crate::response::{AccountEntity, AccountInfoEntity, AccountJournalEntity};
+use crate::journals::{transaction_version, BalanceAssertion};
+use crate::response::{AccountEntity, AccountInfoEntity, AccountJournalEntity, Nullable};
 use crate::state::SharedLedger;
 use crate::{cells, ServerResult};
 
@@ -276,18 +277,25 @@ fn units_of(inventory: Option<&Inventory>, currency: &str) -> Amount {
     Amount::new(number, currency)
 }
 
-/// The rows of `accounts.journal` or `accounts.journal_page` (`query`).
-fn posting_rows(query: &str, result: &QueryResult) -> ServerResult<Vec<PostingRow>> {
+/// The rows of `accounts.journal` or `accounts.journal_page` (`query`) of `ledger`, each with the version of its
+/// transaction.
+fn posting_rows(ledger: &Ledger, query: &str, result: &QueryResult) -> ServerResult<Vec<PostingRow>> {
     cells::rows(query, result)
         .map(|row| {
             let currency = row.str("currency")?.unwrap_or_default();
+            let id = row.str("id")?.unwrap_or_default();
+            let version = Uuid::from_str(&id)
+                .ok()
+                .and_then(|id| ledger.transaction_directive(&id))
+                .and_then(|directive| transaction_version(&directive.span));
             Ok(PostingRow {
                 seq: row.int("seq")?.unwrap_or_default(),
                 journal: AccountJournalEntity {
                     datetime: row.datetime("date", "time")?.unwrap_or_default(),
                     timestamp: row.int("timestamp")?.unwrap_or_default(),
                     account: row.str("account")?.unwrap_or_default(),
-                    trx_id: row.str("id")?.unwrap_or_default(),
+                    trx_id: id,
+                    trx_version: Nullable(version),
                     payee: row.str("payee")?,
                     narration: row.str("narration")?,
                     inferred_unit: Amount::new(row.decimal("units")?.unwrap_or_default(), currency.clone()),
@@ -316,6 +324,7 @@ fn assertion_rows(result: &QueryResult) -> ServerResult<Vec<(i64, AccountJournal
                 timestamp: row.int("timestamp")?.unwrap_or_default(),
                 account: assertion.account.clone(),
                 trx_id: row.str("id")?.unwrap_or_default(),
+                trx_version: Nullable(None),
                 payee: Some(BALANCE_CHECK_PAYEE.to_owned()),
                 narration: Some(assertion.account),
                 inferred_unit: Amount::new(nothing, assertion.asserted.commodity.clone()),
@@ -350,7 +359,7 @@ pub fn account_journals(ledger: &Ledger, account: &str, window: Option<JournalWi
     let assertions = assertion_rows(&run(ledger, BALANCE_ASSERTIONS, &Params::new().bind("account", account))?)?;
     let Some(window) = window else {
         let postings = run(ledger, JOURNAL, &Params::new().bind("account", account)).map_err(too_large_unpaged)?;
-        let mut postings = posting_rows(JOURNAL, &postings)?;
+        let mut postings = posting_rows(ledger, JOURNAL, &postings)?;
         postings.reverse();
         let rows = merge(postings, 0, assertions, 0, u64::MAX);
         return Ok(Journal { rows, total: None });
@@ -370,7 +379,7 @@ pub fn account_journals(ledger: &Ledger, account: &str, window: Option<JournalWi
     let first = window.offset.saturating_sub(assertion_count).min(postings_total);
     let last = end.min(postings_total);
     let mut postings = match last.checked_sub(first) {
-        Some(limit) if limit > 0 => posting_rows(JOURNAL_PAGE, &page(limit, postings_total - last, false)?)?,
+        Some(limit) if limit > 0 => posting_rows(ledger, JOURNAL_PAGE, &page(limit, postings_total - last, false)?)?,
         _ => vec![],
     };
     postings.reverse();
