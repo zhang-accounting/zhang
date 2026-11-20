@@ -134,6 +134,12 @@ fn invalid_app_code() -> ServerError {
     ServerError::Unauthorized("invalid or expired code".to_owned())
 }
 
+/// An optional parameter of the app login handoff: empty counts as absent, as the login page leaves
+/// empty ones out.
+fn given_param(value: &Option<String>) -> Option<&str> {
+    value.as_deref().filter(|it| !it.is_empty())
+}
+
 /// A JSON response that may also set (or clear) the session cookie.
 pub struct WithSessionCookie<T: Serialize + Schematic> {
     cookie: Option<HeaderValue>,
@@ -558,11 +564,8 @@ impl AuthState {
 
     /// A one-time code for the app url `return_to` of `request`, bound to the session of the caller
     /// and to the PKCE challenge of the request, with its `state` echoed in the redirect. Empty
-    /// parameters count as absent, as the login page leaves them out.
+    /// parameters count as absent.
     async fn issue_app_code(&self, headers: &HeaderMap, request: &AppCodeRequest) -> ServerResult<AppCodeEntity> {
-        fn given(value: &Option<String>) -> Option<&str> {
-            value.as_deref().filter(|it| !it.is_empty())
-        }
         if !self.enabled() {
             return Err(ServerError::InvalidInput("authentication is not enabled".to_owned()));
         }
@@ -574,8 +577,8 @@ impl AuthState {
             ServerError::InvalidInput(e.to_string())
         })?;
         let invalid = |e: app_login::HandoffParameterError| ServerError::InvalidInput(e.to_string());
-        let challenge = app_login::parse_code_challenge(given(&request.code_challenge), given(&request.code_challenge_method)).map_err(invalid)?;
-        let state = app_login::check_state(given(&request.state), &return_to).map_err(invalid)?;
+        let challenge = app_login::parse_code_challenge(given_param(&request.code_challenge), given_param(&request.code_challenge_method)).map_err(invalid)?;
+        let state = app_login::check_state(given_param(&request.state), &return_to).map_err(invalid)?;
         let code = self
             .app_codes
             .lock()
@@ -884,7 +887,7 @@ pub mod handlers {
     ) -> ApiResult<AppTokenEntity> {
         let client = auth.client(&headers, peer);
         auth.check_attempts(&client)?;
-        match auth.exchange_app_code(&payload.code, payload.code_verifier.as_deref()).await {
+        match auth.exchange_app_code(&payload.code, super::given_param(&payload.code_verifier)).await {
             Ok(token) => {
                 auth.reset_failed_attempts(&client);
                 Ok(ResponseWrapper { data: token })

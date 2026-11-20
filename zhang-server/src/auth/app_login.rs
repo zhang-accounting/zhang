@@ -45,19 +45,25 @@ pub const MAX_STATE_LENGTH: usize = 512;
 /// The only code challenge method: `plain` would put the verifier itself in the login url.
 pub const S256: &str = "S256";
 
-/// Schemes that would run or read something in the browser instead of opening an app.
-const REFUSED_SCHEMES: [&str; 6] = ["javascript", "data", "vbscript", "file", "blob", "about"];
+/// Schemes of the browser itself: they would run or read something in the browser, or load a web
+/// site (an open redirect, handing the code to whoever runs it) instead of opening an app.
+const REFUSED_SCHEMES: [&str; 11] = ["javascript", "data", "vbscript", "file", "blob", "about", "http", "https", "ws", "wss", "ftp"];
 
 /// The allowed schemes of the app url: [`DEFAULT_APP_RETURN_SCHEME`] and those of
 /// `ZHANG_APP_RETURN_SCHEMES` (comma separated), lower-cased, without duplicates. Values that are
-/// no URL scheme, or a scheme of the browser itself, are ignored with a warning.
+/// no URL scheme, or a scheme of the browser itself (web, websocket and ftp ones included), are
+/// ignored with a warning: the server still starts, without them.
 pub fn return_schemes(extra: Option<&str>) -> Vec<String> {
     let mut schemes = vec![DEFAULT_APP_RETURN_SCHEME.to_owned()];
     for scheme in extra.unwrap_or_default().split(',').map(str::trim).filter(|it| !it.is_empty()) {
         let scheme = scheme.trim_end_matches("://").trim_end_matches(':').to_ascii_lowercase();
         let valid = scheme.starts_with(|c: char| c.is_ascii_alphabetic()) && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
-        if !valid || REFUSED_SCHEMES.contains(&scheme.as_str()) {
-            warn!("ZHANG_APP_RETURN_SCHEMES: `{scheme}` is not an app url scheme, it is ignored");
+        if !valid {
+            warn!("ZHANG_APP_RETURN_SCHEMES: `{scheme}` is not a url scheme, it is ignored");
+            continue;
+        }
+        if REFUSED_SCHEMES.contains(&scheme.as_str()) {
+            warn!("ZHANG_APP_RETURN_SCHEMES: `{scheme}` is a scheme of the browser, not of an app, it is ignored");
             continue;
         }
         if !schemes.contains(&scheme) {
@@ -115,7 +121,7 @@ impl CodeChallenge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandoffParameterError {
     /// any method but `S256`; without a method RFC 7636 means `plain`
-    MethodNotSupported(String),
+    MethodNotSupported,
     MethodWithoutChallenge,
     InvalidChallenge,
     StateTooLong,
@@ -126,7 +132,7 @@ pub enum HandoffParameterError {
 impl std::fmt::Display for HandoffParameterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HandoffParameterError::MethodNotSupported(method) => write!(f, "code_challenge_method `{method}` is not supported, use `{S256}`"),
+            HandoffParameterError::MethodNotSupported => write!(f, "code_challenge_method must be `{S256}`"),
             HandoffParameterError::MethodWithoutChallenge => write!(f, "code_challenge_method needs a code_challenge"),
             HandoffParameterError::InvalidChallenge => write!(f, "code_challenge must be the base64url SHA-256 of the code verifier, without padding"),
             HandoffParameterError::StateTooLong => write!(f, "state must not be longer than {MAX_STATE_LENGTH} bytes"),
@@ -143,9 +149,8 @@ pub fn parse_code_challenge(challenge: Option<&str>, method: Option<&str>) -> Re
             None => Ok(None),
         };
     };
-    let method = method.unwrap_or("plain");
-    if method != S256 {
-        return Err(HandoffParameterError::MethodNotSupported(method.to_owned()));
+    if method != Some(S256) {
+        return Err(HandoffParameterError::MethodNotSupported);
     }
     let digest = URL_SAFE_NO_PAD.decode(challenge).map_err(|_| HandoffParameterError::InvalidChallenge)?;
     let digest = <[u8; 32]>::try_from(digest).map_err(|_| HandoffParameterError::InvalidChallenge)?;
@@ -264,6 +269,11 @@ mod test {
         );
         // no scheme, or one of the browser itself
         assert_eq!(return_schemes(Some("javascript, DATA, 1abc, a b, ftp/x")), vec!["zhang-app"]);
+        // web, websocket and ftp schemes would hand the code to a web site
+        assert_eq!(
+            return_schemes(Some("http, HTTPS://, ws, wss:, ftp, my-app, about, blob, file")),
+            vec!["zhang-app", "my-app"]
+        );
     }
 
     #[test]
@@ -330,11 +340,11 @@ mod test {
         assert_eq!(parse_code_challenge(None, None), Ok(None));
         assert!(parse_code_challenge(Some(CHALLENGE), Some("S256")).unwrap().is_some());
         for (challenge, method, error) in [
-            (Some(CHALLENGE), Some("plain"), HandoffParameterError::MethodNotSupported("plain".to_owned())),
+            (Some(CHALLENGE), Some("plain"), HandoffParameterError::MethodNotSupported),
             // without a method RFC 7636 means plain
-            (Some(CHALLENGE), None, HandoffParameterError::MethodNotSupported("plain".to_owned())),
-            (Some(CHALLENGE), Some("s256"), HandoffParameterError::MethodNotSupported("s256".to_owned())),
-            (Some(CHALLENGE), Some("S512"), HandoffParameterError::MethodNotSupported("S512".to_owned())),
+            (Some(CHALLENGE), None, HandoffParameterError::MethodNotSupported),
+            (Some(CHALLENGE), Some("s256"), HandoffParameterError::MethodNotSupported),
+            (Some(CHALLENGE), Some("S512"), HandoffParameterError::MethodNotSupported),
             (None, Some("S256"), HandoffParameterError::MethodWithoutChallenge),
             // not 32 bytes
             (

@@ -1231,7 +1231,7 @@ async fn the_app_login_handoff_only_returns_to_allowed_schemes() {
     let router = server(
         dir.dir(),
         &Settings {
-            app_return_schemes: Some("My-App, javascript"),
+            app_return_schemes: Some("My-App, javascript, https, http, wss"),
             ..Settings::password()
         },
     )
@@ -1240,8 +1240,10 @@ async fn the_app_login_handoff_only_returns_to_allowed_schemes() {
     assert_eq!(status.body["data"]["app_return_schemes"], json!(["zhang-app", "my-app"]));
     let reply = app_code(&router, &[("cookie", &cookie)], "my-app://callback").await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    let reply = app_code(&router, &[("cookie", &cookie)], "javascript:alert(1)").await;
-    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    for refused in ["javascript:alert(1)", "https://evil.example.com/callback", "wss://evil.example.com/"] {
+        let reply = app_code(&router, &[("cookie", &cookie)], refused).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{refused}");
+    }
 
     // without authentication there is no session to hand off
     let open = server(dir.dir(), &Settings::default()).await;
@@ -1388,6 +1390,9 @@ async fn codes_without_a_challenge_keep_working_but_refuse_a_verifier() {
     let code = issued_code(&app_code(&router, &[("cookie", &cookie)], "zhang-app://auth/callback").await);
     assert_invalid_code(&app_exchange_with(&router, "198.51.100.44", &code, VERIFIER).await);
     assert_invalid_code(&app_exchange(&router, "198.51.100.44", &code).await);
+    // an empty verifier is no verifier
+    let code = issued_code(&app_code(&router, &[("cookie", &cookie)], "zhang-app://auth/callback").await);
+    assert_eq!(app_exchange_with(&router, "198.51.100.44", &code, "").await.status, StatusCode::OK);
 
     // empty parameters, as the login page leaves them out, count as absent
     let request = json!({"return_to": "zhang-app://auth/callback", "code_challenge": "", "code_challenge_method": "", "state": ""});
@@ -1411,15 +1416,12 @@ async fn only_s256_challenges_and_short_states_get_a_code() {
     for (extra, message) in [
         (
             json!({"code_challenge": VERIFIER, "code_challenge_method": "plain"}),
-            "code_challenge_method `plain` is not supported, use `S256`",
+            "code_challenge_method must be `S256`",
         ),
-        (
-            json!({"code_challenge": CHALLENGE}),
-            "code_challenge_method `plain` is not supported, use `S256`",
-        ),
+        (json!({"code_challenge": CHALLENGE}), "code_challenge_method must be `S256`"),
         (
             json!({"code_challenge": CHALLENGE, "code_challenge_method": "S512"}),
-            "code_challenge_method `S512` is not supported, use `S256`",
+            "code_challenge_method must be `S256`",
         ),
         (json!({"code_challenge_method": "S256"}), "code_challenge_method needs a code_challenge"),
         (

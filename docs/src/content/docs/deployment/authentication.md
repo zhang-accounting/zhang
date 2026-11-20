@@ -138,12 +138,12 @@ A mobile app cannot use the passkeys of an arbitrary domain by itself, so it sig
 
 `code_challenge`, `code_challenge_method` and `state` are optional, so apps that send none keep working; their codes are exchanged without a verifier.
 
-- The only challenge method is `S256`. A `code_challenge` with `plain`, with another method, or without a method (which means `plain`) gets no code: `400`, and the login page shows the error. The challenge is the 43-character base64url of 32 bytes.
-- A code issued with a challenge is exchanged only with a `code_verifier` (43 to 128 characters of `A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) whose SHA-256 is the challenge. A code issued without a challenge is refused when a `code_verifier` comes with it: the challenge was lost on the way.
+- The only challenge method is `S256`. A `code_challenge` with `plain`, with another method, or without a method (which means `plain`) gets no code: `400` with `` {"message": "code_challenge_method must be `S256`"} ``, and the login page shows the error. The challenge is the 43-character base64url of 32 bytes.
+- A code issued with a challenge is exchanged only with a `code_verifier` (43 to 128 characters of `A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) whose SHA-256 is the challenge. A code issued without a challenge is refused when a `code_verifier` comes with it: the challenge was lost on the way. Empty parameters count as absent, on both endpoints.
 - A missing or wrong verifier is answered like an unknown code, `401` and `{"message": "invalid or expired code"}`, and uses the code up as well: a code cannot be tried with one verifier after another, and the answer does not tell whether the code existed.
 - `state` (at most 512 bytes) is echoed as it is. When it is given, `return_to` must not carry a `state` parameter of its own.
 
-The app URL must use the `zhang-app` scheme. To allow other schemes, for example for a build of the app with its own scheme, list them, comma-separated, in the `ZHANG_APP_RETURN_SCHEMES` environment variable:
+The app URL must use the `zhang-app` scheme. To allow other schemes, for example for a build of the app with its own scheme, list them, comma-separated, in the `ZHANG_APP_RETURN_SCHEMES` environment variable. Schemes of the browser itself (`http`, `https`, `ws`, `wss`, `ftp`, `javascript`, `data`, `file`, `blob`, `about`, `vbscript`) are never allowed: the server logs a warning and ignores them.
 
 ```shell
 docker run --name zhang \
@@ -157,7 +157,7 @@ Security notes:
 
 - A code can be exchanged once, within 60 seconds, and is bound to the session that asked for it: it stops working when that session ends (for example because its passkey was removed). Codes are kept in memory, so a restart drops the pending ones.
 - Another app on the same device can register the `zhang-app` scheme too and receive the redirect. With PKCE it gets the code but not the code verifier, which never left the app, so it cannot exchange the code; and the state tells the app that a redirect answers the sign-in it started.
-- Only app URLs of the allowed schemes are returned to, so the login page cannot be used to redirect the browser to another web site. Do not add `http` or `https` to `ZHANG_APP_RETURN_SCHEMES`.
+- Only app URLs of the allowed schemes are returned to, so the login page cannot be used to redirect the browser to another web site.
 - Failed exchanges count as [failed sign-in attempts](#failed-sign-in-attempts).
 - The token is the session token of the browser: it lasts as long as the browser session (30 days from the sign-in) and ends in the same cases, when `ZHANG_AUTH` or `ZHANG_SESSION_SECRET` changes or its passkey is removed. Signing out (in the browser or in the app) does not revoke a token that was handed off, as sessions are not stored on the server; to end every session, change `ZHANG_SESSION_SECRET`.
 - Set `ZHANG_SESSION_SECRET`, otherwise every restart signs the app out as well.

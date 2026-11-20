@@ -138,12 +138,12 @@ docker run --name zhang \
 
 `code_challenge`、`code_challenge_method` 和 `state` 都是可选的，不发送它们的 App 照常可用，它们的 code 兑换时不需要 verifier。
 
-- challenge 方法只支持 `S256`。`code_challenge` 搭配 `plain`、其他方法或者不带方法（即 `plain`）时不会签发 code：返回 `400`，登录页显示该错误。challenge 是 32 字节的 base64url，共 43 个字符。
-- 带 challenge 签发的 code 只能用 SHA-256 等于该 challenge 的 `code_verifier`（43 到 128 个 `A-Z`、`a-z`、`0-9`、`-`、`.`、`_`、`~` 字符）兑换。不带 challenge 签发的 code 如果兑换时附带了 `code_verifier` 会被拒绝：说明 challenge 在中途丢失了。
+- challenge 方法只支持 `S256`。`code_challenge` 搭配 `plain`、其他方法或者不带方法（即 `plain`）时不会签发 code：返回 `400` 和 `` {"message": "code_challenge_method must be `S256`"} ``，登录页显示该错误。challenge 是 32 字节的 base64url，共 43 个字符。
+- 带 challenge 签发的 code 只能用 SHA-256 等于该 challenge 的 `code_verifier`（43 到 128 个 `A-Z`、`a-z`、`0-9`、`-`、`.`、`_`、`~` 字符）兑换。不带 challenge 签发的 code 如果兑换时附带了 `code_verifier` 会被拒绝：说明 challenge 在中途丢失了。两个端点都把空参数视为没有该参数。
 - 缺少或错误的 verifier 与未知 code 的响应相同，即 `401` 和 `{"message": "invalid or expired code"}`，并且同样会用掉这个 code：不能拿一个 code 反复尝试不同的 verifier，响应也不会透露这个 code 是否存在。
 - `state`（最多 512 字节）会原样回传。给出 `state` 时，`return_to` 本身不能再带 `state` 参数。
 
-App 地址必须使用 `zhang-app` scheme。如需允许其他 scheme（例如使用自己 scheme 的 App 构建），把它们用逗号分隔写进环境变量 `ZHANG_APP_RETURN_SCHEMES`：
+App 地址必须使用 `zhang-app` scheme。如需允许其他 scheme（例如使用自己 scheme 的 App 构建），把它们用逗号分隔写进环境变量 `ZHANG_APP_RETURN_SCHEMES`。浏览器自身的 scheme（`http`、`https`、`ws`、`wss`、`ftp`、`javascript`、`data`、`file`、`blob`、`about`、`vbscript`）永远不被允许：服务器会记录一条警告并忽略它们。
 
 ```shell
 docker run --name zhang \
@@ -157,7 +157,7 @@ docker run --name zhang \
 
 - code 只能兑换一次，60 秒内有效，并且绑定申请它的会话：该会话失效（例如它的通行密钥被移除）后 code 也随之失效。code 保存在内存中，服务器重启会丢弃尚未兑换的 code。
 - 同一设备上的其他 App 也可以注册 `zhang-app` scheme 并收到这次跳转。有了 PKCE，它拿到的只是 code，拿不到从未离开 App 的 code verifier，因此无法兑换；state 则让 App 能确认这次跳转对应的是自己发起的登录。
-- 只会跳转到允许的 scheme 的 App 地址，登录页不能被用来把浏览器重定向到其他网站。不要把 `http` 或 `https` 加进 `ZHANG_APP_RETURN_SCHEMES`。
+- 只会跳转到允许的 scheme 的 App 地址，登录页不能被用来把浏览器重定向到其他网站。
 - 兑换失败会计入[登录失败次数限制](#登录失败次数限制)。
 - token 就是浏览器的会话 token：有效期与浏览器会话相同（从登录起 30 天），失效条件也相同：`ZHANG_AUTH` 或 `ZHANG_SESSION_SECRET` 改变，或者它的通行密钥被移除。由于会话不保存在服务器上，退出登录（无论在浏览器还是 App 中）都不会吊销已经交给 App 的 token；要结束所有会话，请修改 `ZHANG_SESSION_SECRET`。
 - 请设置 `ZHANG_SESSION_SECRET`，否则每次重启 App 也会被登出。
