@@ -153,9 +153,10 @@ the model to date a new open on or before the earliest transaction that needs it
 
 Confirmation design (end-user-safe default): (1) the client's approval prompt, driven by the annotations
 (`readOnlyHint: false` on `add_transaction` and `open_account`; Claude Code and Claude Desktop prompt for non-read-only
-tools); (2) the token: the model cannot commit what it did not preview, or on a ledger that changed since;
-(3) the `instructions` tell the model to show the preview's `text` before committing; (4) the two server-side
-switches. MCP elicitation is not used: it needs server→client requests, which the one-JSON-per-POST transport cannot
+tools); (2) the token, a concurrency check: an entry lands only as previewed, and not on a ledger that changed since (the
+plugin obtains its tokens itself, so the token is not evidence that the user saw the preview);
+(3) the `instructions` tell the model to show the preview's `text` before committing; (4) the owner's
+`allowed_writes` grant. MCP elicitation is not used: it needs server→client requests, which the one-JSON-per-POST transport cannot
 carry. Provenance: `write_tag` (default `mcp`, `""` disables) is added by the plugin to the batch the user sees, not
 injected by the host (D6). No auto-open: a hallucinated account name never creates an account silently; the preview
 reports `AccountDoesNotExist`, the model calls `open_account` (approved by the user), then previews again.

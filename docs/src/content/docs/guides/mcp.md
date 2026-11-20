@@ -7,7 +7,7 @@ sidebar:
 
 [MCP](https://modelcontextprotocol.io/) (the Model Context Protocol) is how AI assistants such as Claude Code, Claude.ai and other LLM clients call tools. `zhang-mcp` is Zhang's MCP server, shipped as a [Lua plugin](/guides/lua-plugins/): one file, `mcp.lua`, that you copy into your ledger. Once declared, an assistant can answer questions like "how much did I spend on food last month" or "what is my net worth" by running the same queries the web UI runs, and, if you allow it, record an entry you describe after showing you exactly what it will write.
 
-Reading is the default and needs nothing else. Writing is off until you turn on two switches (below); even then the plugin can only append entries, never edit or delete anything, and a well-behaved client asks you before each one.
+Reading is the default and needs nothing else. Writing is off until you grant it (below); even then the plugin can only append entries, never edit or delete anything, and a well-behaved client asks you before each one.
 
 ## Install
 
@@ -131,7 +131,7 @@ How a transaction gets recorded:
 
 1. The assistant calls `preview_transaction` with the date, payee, narration and postings (amounts as decimal strings such as `"4.50"`; one posting may leave its amount out, as in the web UI; a posting without a currency is in the operating currency). Zhang validates it exactly as the web UI's preview does and answers the text as it will be written, the file it will go to (chosen by [`directive_output_path`](/guides/recording-transactions/#where-new-entries-are-written)), any error, and, only when everything is clean, a `token`.
 2. The assistant shows you that text and asks. This is what the instructions tell it to do, and clients such as Claude Code and Claude Desktop also ask you themselves before a tool that is not read-only runs.
-3. When you agree, it calls `add_transaction` with the same arguments and the token. Zhang checks that the token is the one it minted for exactly that text on the ledger as it is now, appends the text, and reloads. The entry carries the tag `#mcp` (`write_tag`), so `transactions` with `tags: ["mcp"]`, or the journal's tag filter, finds everything an assistant recorded.
+3. When you agree, it calls `add_transaction` with the same arguments and the token. Zhang checks that the token is the one it minted for exactly that text on the ledger as it is now, appends the text, and reloads. The token keeps the entry from landing other than previewed, or on a ledger that changed since; it is not your approval, which is the assistant's to ask for and the client's to prompt. The entry carries the tag `#mcp` (`write_tag`), so `transactions` with `tags: ["mcp"]`, or the journal's tag filter, finds everything an assistant recorded.
 
 The token is valid for ten minutes and for one ledger state: anything written in between (by you, by the web UI or by another assistant) makes it stale, and `add_transaction` answers "the ledger changed, run `preview_transaction` again". The assistant then previews again and shows you the new text. A token cannot be reused: once an entry is in, the same token is refused.
 

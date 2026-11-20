@@ -973,8 +973,12 @@ local TOOLS = {
 
 -- ---- write tools: preview, add, open over the host's write capability (allowed_writes) ----------------------------
 -- Listed when the directive grants the plugin a kind of write (allowed_writes); otherwise they are unknown tools. A
--- tool of a kind the host did not grant answers an isError naming the line to add. The host validates a batch exactly as POST /api/transactions/preview does and mints a token bound
--- to the ledger state and the exact text; commit needs that token, so the model can only record what it showed.
+-- tool of a kind the host did not grant answers an isError naming the line to add. The host validates a batch
+-- exactly as POST /api/transactions/preview does and mints a token bound to the ledger state and the exact text; a
+-- commit needs it, so an entry lands only as previewed and only on the ledger the preview saw. The token is the
+-- host's concurrency check, not the user's consent: this script obtains it itself, and nothing on the host knows
+-- whether the preview was shown. Asking the user is the model's part (the instructions) and the client's (its
+-- approval prompt for a tool that is not read-only).
 
 -- the write tools are listed when the directive grants any kind of write: the grant is the owner's one switch, and
 -- a tool of a kind not granted answers with the line to add, so the owner gets the fix relayed by the model instead
