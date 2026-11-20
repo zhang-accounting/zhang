@@ -22,8 +22,7 @@
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, PoisonError};
+use std::sync::{mpsc, Mutex, PoisonError};
 use std::time::Duration;
 
 use extism::{CurrentPlugin, UserData, Val};
@@ -34,7 +33,7 @@ use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 use ureq::Agent;
 use url::{Host, Url};
 
-use crate::plugin::capabilities::host_allowed;
+use crate::plugin::capabilities::{host_allowed, PLUGIN_CONFIG_KEY};
 use crate::plugin::host::{read_input, HostState};
 use crate::plugin::log_safe;
 
@@ -141,37 +140,68 @@ impl Resolver for Checked {
 /// the most name lookups of plugins that may run at once, see [`resolve`]
 const MAX_LOOKUPS: usize = 8;
 
-/// how many name lookups of plugins run now, on their own threads
-static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
+/// the most name lookups of one plugin that may run at once, see [`resolve`]
+const MAX_LOOKUPS_PER_PLUGIN: usize = 2;
 
-/// one lookup of [`LOOKUPS`], counted until its thread ends
-struct Lookup;
+/// the name lookups of plugins running now, on their own threads: how many in all, and how many of each plugin
+struct Lookups {
+    running: usize,
+    by_plugin: BTreeMap<String, usize>,
+}
+
+static LOOKUPS: Mutex<Lookups> = Mutex::new(Lookups {
+    running: 0,
+    by_plugin: BTreeMap::new(),
+});
+
+/// one name lookup of a plugin, counted in [`LOOKUPS`] until its thread ends
+struct Lookup {
+    plugin: String,
+}
 
 impl Lookup {
-    /// a lookup, if fewer than [`MAX_LOOKUPS`] run
-    fn start() -> Option<Lookup> {
-        let running = LOOKUPS.fetch_add(1, Ordering::SeqCst);
-        let lookup = Lookup;
-        (running < MAX_LOOKUPS).then_some(lookup)
+    /// a lookup of `plugin`, unless that plugin already runs [`MAX_LOOKUPS_PER_PLUGIN`] or all plugins run
+    /// [`MAX_LOOKUPS`]; the error says which
+    fn start(plugin: &str) -> Result<Lookup, String> {
+        let mut lookups = LOOKUPS.lock().unwrap_or_else(PoisonError::into_inner);
+        let of_plugin = lookups.by_plugin.get(plugin).copied().unwrap_or_default();
+        if of_plugin >= MAX_LOOKUPS_PER_PLUGIN {
+            return Err(format!("{MAX_LOOKUPS_PER_PLUGIN} name lookups of this plugin are still running"));
+        }
+        if lookups.running >= MAX_LOOKUPS {
+            return Err(format!("{MAX_LOOKUPS} name lookups of plugins are still running"));
+        }
+        lookups.running += 1;
+        lookups.by_plugin.insert(plugin.to_owned(), of_plugin + 1);
+        Ok(Lookup { plugin: plugin.to_owned() })
     }
 }
 
 impl Drop for Lookup {
     fn drop(&mut self) {
-        LOOKUPS.fetch_sub(1, Ordering::SeqCst);
+        let mut lookups = LOOKUPS.lock().unwrap_or_else(PoisonError::into_inner);
+        lookups.running -= 1;
+        match lookups.by_plugin.get_mut(&self.plugin) {
+            Some(count) if *count > 1 => *count -= 1,
+            _ => {
+                lookups.by_plugin.remove(&self.plugin);
+            }
+        }
     }
 }
 
-/// The addresses `host` resolves to on `port`, within `timeout` when there is one. A lookup cannot be interrupted, so
-/// it runs on its own thread, which is left behind when the lookup takes longer than the call has left. At most
-/// [`MAX_LOOKUPS`] of them run at once: a resolver that never answers holds that many threads, not one per call.
-fn resolve(host: &str, port: u16, timeout: Option<Duration>) -> Result<Vec<SocketAddr>, String> {
+/// The addresses `host` resolves to on `port` for the plugin `plugin`, within `timeout` when there is one. A lookup
+/// cannot be interrupted, so it runs on its own thread, which is left behind when the lookup takes longer than the
+/// call has left. At most [`MAX_LOOKUPS`] of them run at once, and at most [`MAX_LOOKUPS_PER_PLUGIN`] of one plugin: a
+/// resolver that never answers holds that many threads, not one per call, and a plugin whose host's name server hangs
+/// (its author may run it) blocks only its own lookups, not those of the other plugins.
+fn resolve(host: &str, port: u16, timeout: Option<Duration>, plugin: &str) -> Result<Vec<SocketAddr>, String> {
     let target = (host.to_owned(), port);
     let lookup = move || target.to_socket_addrs().map(Iterator::collect::<Vec<_>>);
     let addresses = match timeout {
         None => lookup(),
         Some(timeout) => {
-            let running = Lookup::start().ok_or_else(|| format!("cannot resolve {host}: {MAX_LOOKUPS} name lookups are still running"))?;
+            let running = Lookup::start(plugin).map_err(|reason| format!("cannot resolve {host}: {reason}"))?;
             let (sender, receiver) = mpsc::sync_channel(1);
             std::thread::spawn(move || {
                 let _running = running;
@@ -186,9 +216,11 @@ fn resolve(host: &str, port: u16, timeout: Option<Duration>) -> Result<Vec<Socke
 /// Send `request` with `body`, if the plugin may: its host must be allowed by `allowed_hosts`, and only the
 /// addresses `address_allowed` lets through are connected to ([`is_public`] for a plugin). The status and the body
 /// of the response, at most `max_response` bytes; an error says why the request was refused or failed. `timeout` is
-/// what is left of the plugin's call.
+/// what is left of the plugin's call, and `plugin` tells the plugin's name lookups apart from those of others (see
+/// [`resolve`]).
 pub fn send(
-    request: &HttpRequest, body: Option<&[u8]>, allowed_hosts: &[String], timeout: Option<Duration>, max_response: u64, address_allowed: fn(IpAddr) -> bool,
+    plugin: &str, request: &HttpRequest, body: Option<&[u8]>, allowed_hosts: &[String], timeout: Option<Duration>, max_response: u64,
+    address_allowed: fn(IpAddr) -> bool,
 ) -> Result<(u16, Vec<u8>), String> {
     let url = Url::parse(&request.url).map_err(|e| format!("invalid URL {:?}: {e}", log_safe(&request.url)))?;
     let refused = |reason: String| format!("HTTP request to {url} is not allowed: {reason}");
@@ -203,7 +235,7 @@ pub fn send(
     let (resolved, named) = match url.host() {
         Some(Host::Ipv4(ip)) => (vec![SocketAddr::new(ip.into(), port)], false),
         Some(Host::Ipv6(ip)) => (vec![SocketAddr::new(ip.into(), port)], false),
-        Some(Host::Domain(domain)) => (resolve(domain, port, timeout)?, true),
+        Some(Host::Domain(domain)) => (resolve(domain, port, timeout, plugin)?, true),
         None => return Err(refused("it has no host".to_owned())),
     };
     let (checked, dropped): (Vec<SocketAddr>, Vec<SocketAddr>) = resolved.into_iter().partition(|address| address_allowed(address.ip()));
@@ -275,8 +307,10 @@ pub(super) fn http_request(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: 
     let allowed_hosts = plugin.manifest().allowed_hosts.clone().unwrap_or_default();
     let max_response = plugin.manifest().memory.max_http_response_bytes.unwrap_or(DEFAULT_MAX_RESPONSE);
     let timeout = plugin.time_remaining();
+    // the plugin's directive as written tells plugins apart: the plugin cannot pick it, unlike its name
+    let identity = plugin.manifest().config.get(PLUGIN_CONFIG_KEY).cloned().unwrap_or_default();
     set_status(&state, 0)?;
-    let (status, response) = send(&request, body.as_deref(), &allowed_hosts, timeout, max_response, is_public).map_err(extism::Error::msg)?;
+    let (status, response) = send(&identity, &request, body.as_deref(), &allowed_hosts, timeout, max_response, is_public).map_err(extism::Error::msg)?;
     set_status(&state, status)?;
     let output = outputs.first_mut().ok_or_else(|| extism::Error::msg("http_request returns one value"))?;
     match response.is_empty() {
@@ -307,7 +341,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use super::{is_public, send, HttpRequest};
+    use super::{is_public, send, HttpRequest, Lookup, MAX_LOOKUPS, MAX_LOOKUPS_PER_PLUGIN};
 
     #[test]
     fn should_refuse_every_address_that_is_not_public() {
@@ -394,26 +428,74 @@ mod test {
     const TIMEOUT: Option<Duration> = Some(Duration::from_secs(5));
 
     #[test]
-    fn should_run_at_most_a_few_name_lookups_at_once() {
-        let lookups = (0..super::MAX_LOOKUPS).map(|_| super::Lookup::start()).collect::<Vec<_>>();
-        // a lookup of another test may hold one; when this test holds them all, no more starts
-        if lookups.iter().all(Option::is_some) {
-            assert!(super::Lookup::start().is_none());
+    fn a_plugin_whose_lookups_hang_cannot_starve_the_others() {
+        // a lookup is counted until its thread ends, which a name server that never answers delays forever: these
+        // stand for such hung lookups
+        let hung = [Lookup::start("slow-dns"), Lookup::start("slow-dns")];
+        assert!(hung.iter().all(Result::is_ok));
+
+        // the plugin gets no more lookups, and says why
+        assert_eq!(
+            Lookup::start("slow-dns").err().as_deref(),
+            Some("2 name lookups of this plugin are still running")
+        );
+        let error = send(
+            "slow-dns",
+            &get("http://localhost:9/"),
+            None,
+            &hosts(&["localhost"]),
+            TIMEOUT,
+            1024,
+            any_address,
+        )
+        .unwrap_err();
+        assert_eq!(error, "cannot resolve localhost: 2 name lookups of this plugin are still running");
+
+        // every other plugin still resolves names
+        let error = send("other", &get("http://localhost:9/"), None, &hosts(&["localhost"]), TIMEOUT, 1024, is_public).unwrap_err();
+        assert!(error.contains("localhost resolves to"), "{error}");
+        assert!(Lookup::start("other").is_ok());
+
+        // and once the hung lookups end, the plugin gets its share back
+        drop(hung);
+        assert!(Lookup::start("slow-dns").is_ok());
+    }
+
+    #[test]
+    fn should_run_at_most_a_few_name_lookups_of_all_plugins_at_once() {
+        let lookups = (0..MAX_LOOKUPS)
+            .map(|it| Lookup::start(&format!("plugin-{}", it / MAX_LOOKUPS_PER_PLUGIN)))
+            .collect::<Vec<_>>();
+        // a lookup of another test may hold one; when this test holds them all, no plugin starts one more
+        if lookups.iter().all(Result::is_ok) {
+            assert_eq!(
+                Lookup::start("yet-another").err().as_deref(),
+                Some("8 name lookups of plugins are still running")
+            );
         }
         drop(lookups);
-        assert!(super::Lookup::start().is_some(), "a lookup ending frees its place");
+        assert!(Lookup::start("yet-another").is_ok(), "a lookup ending frees its place");
     }
 
     #[test]
     fn should_refuse_a_host_outside_the_allowed_hosts_and_other_schemes() {
-        let error = send(&get("https://evil.example/"), None, &hosts(&["api.example.com"]), TIMEOUT, 1024, is_public).unwrap_err();
+        let error = send(
+            "test",
+            &get("https://evil.example/"),
+            None,
+            &hosts(&["api.example.com"]),
+            TIMEOUT,
+            1024,
+            is_public,
+        )
+        .unwrap_err();
         assert_eq!(
             error,
             "HTTP request to https://evil.example/ is not allowed: evil.example is not one of the plugin's allowed_hosts"
         );
-        let error = send(&get("https://api.example.com/"), None, &[], TIMEOUT, 1024, is_public).unwrap_err();
+        let error = send("test", &get("https://api.example.com/"), None, &[], TIMEOUT, 1024, is_public).unwrap_err();
         assert!(error.ends_with("api.example.com is not one of the plugin's allowed_hosts"), "{error}");
-        let error = send(&get("file:///etc/passwd"), None, &hosts(&["*"]), TIMEOUT, 1024, is_public).unwrap_err();
+        let error = send("test", &get("file:///etc/passwd"), None, &hosts(&["*"]), TIMEOUT, 1024, is_public).unwrap_err();
         assert!(error.ends_with("only http and https URLs are"), "{error}");
     }
 
@@ -427,7 +509,7 @@ mod test {
             ("http://100.64.0.1/", "100.64.0.1"),
             ("http://[::ffff:127.0.0.1]/", "127.0.0.1"),
         ] {
-            let error = send(&get(url), None, &hosts(&["*"]), TIMEOUT, 1024, is_public).unwrap_err();
+            let error = send("test", &get(url), None, &hosts(&["*"]), TIMEOUT, 1024, is_public).unwrap_err();
             assert!(error.ends_with("is not a public address"), "{url}: {error}");
             assert!(error.contains(address) || url.contains("ffff"), "{url}: {error}");
         }
@@ -457,6 +539,7 @@ mod test {
 
         // localhost is allowed by name, and resolves to the loopback: refused, nothing is sent
         let error = send(
+            "test",
             &get(&format!("http://localhost:{port}/")),
             None,
             &hosts(&["localhost"]),
@@ -471,6 +554,7 @@ mod test {
 
         // where every address is allowed, the same request goes through to the address the name was checked at
         let (status, body) = send(
+            "test",
             &get(&format!("http://localhost:{port}/")),
             None,
             &hosts(&["localhost"]),
@@ -489,6 +573,7 @@ mod test {
             server(|port| format!("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
 
         let (status, body) = send(
+            "test",
             &get(&format!("http://127.0.0.1:{port}/")),
             None,
             &hosts(&["127.0.0.1"]),
@@ -507,6 +592,7 @@ mod test {
         let (port, _) = server(|_| "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789".to_owned());
 
         let error = send(
+            "test",
             &get(&format!("http://127.0.0.1:{port}/")),
             None,
             &hosts(&["127.0.0.1"]),
