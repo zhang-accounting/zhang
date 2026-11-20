@@ -157,6 +157,7 @@ Accounts are never created on the fly. When the preview reports `AccountDoesNotE
 | the assistant says it has no tool to record a transaction | the directive has no `allowed_writes` line (with one, the write tools are listed) | add the lines of [Recording entries](#recording-entries) and reload |
 | the assistant says Zhang does not let the plugin write transactions, or open accounts | the `allowed_writes` line for that kind is missing | add the line the message names and reload |
 | `add_transaction` answers that the ledger changed | something was written since the preview, or the token is older than ten minutes, or it was already used | let the assistant preview again and show you the new text |
+| `add_transaction` failed with a `504` (or `500`), yet the entry is in the ledger | the request failed after the entry was written, for example at the plugin's `timeout`; the response says the entry is recorded (the `zhang-plugin-committed` header and a `committed` object), but many clients show the assistant only the failure | before recording it again, ask the assistant to look for it with `transactions` and `tags: ["mcp"]`: a new preview mints a new token, so an assistant that retries from the start records the entry twice. Raise `timeout` if it happens often |
 
 ## Security
 
