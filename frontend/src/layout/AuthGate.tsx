@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { LOGIN_PATH, appHandoffParams, appReturnTo, handoffNeedsConsent, loginUrl, returnPath } from '@/lib/auth-paths';
 import Login from '@/pages/Login';
-import { authLockedAtom, authStateAtom, loadAuthStatusAtom, resetLedgerStateAtom, signedInOnThisPageAtom, signedOutAtom } from '@/states/auth';
+import { authLockedAtom, authStateAtom, loadAuthStatusAtom, resetLedgerStateAtom, signedInForAppAtom, signedOutAtom } from '@/states/auth';
 import { AppHandoff } from './AppHandoff';
 import { AuthScreen } from './AuthScreen';
 
@@ -25,7 +25,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const location = useLocation();
   const state = useAtomValue(authStateAtom);
   const locked = useAtomValue(authLockedAtom);
-  const signedInOnThisPage = useAtomValue(signedInOnThisPageAtom);
+  const signedInForApp = useAtomValue(signedInForAppAtom);
   const loadStatus = useSetAtom(loadAuthStatusAtom);
   const signedOut = useSetAtom(signedOutAtom);
   const resetLedgerState = useSetAtom(resetLedgerStateAtom);
@@ -72,19 +72,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   const onLoginRoute = location.pathname === LOGIN_PATH;
+  const returnTo = onLoginRoute && state.status.enabled && state.status.app_login ? appReturnTo(location.search, state.status.app_return_schemes) : null;
   if (locked) {
     if (!onLoginRoute) return <Navigate to={state.reason === 'signed-out' ? LOGIN_PATH : loginUrl(location)} replace />;
-    return <Login status={state.status} reason={state.reason} />;
+    return <Login status={state.status} reason={state.reason} appReturnTo={returnTo} />;
   }
   if (onLoginRoute) {
-    const returnTo = state.status.enabled && state.status.app_login ? appReturnTo(location.search, state.status.app_return_schemes) : null;
     if (returnTo) {
       return (
         <AppHandoff
           returnTo={returnTo}
           params={appHandoffParams(location.search)}
           user={state.status.user}
-          needsConsent={handoffNeedsConsent(signedInOnThisPage)}
+          needsConsent={handoffNeedsConsent(signedInForApp, returnTo)}
         />
       );
     }

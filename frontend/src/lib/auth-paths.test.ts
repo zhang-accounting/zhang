@@ -41,9 +41,12 @@ test("the app's PKCE challenge and state ride along as they are", () => {
 });
 
 test('a session the browser already had needs a click before the app gets a code', () => {
-  assert.equal(handoffNeedsConsent(false), true);
-  // the user just signed in on this page, with the password, a passkey or the first passkey
-  assert.equal(handoffNeedsConsent(true), false);
+  const app = 'zhang-app://auth/callback';
+  assert.equal(handoffNeedsConsent(null, app), true);
+  // the user just signed in on the login page that showed this app URL (password, passkey or first passkey)
+  assert.equal(handoffNeedsConsent(app, app), false);
+  // a sign-in made for another app URL, or on a plain web login, does not count
+  assert.equal(handoffNeedsConsent('my-app://cb', app), true);
 });
 
 test('the consent step names the scheme and host the code goes to', () => {
@@ -55,7 +58,17 @@ test('the consent step names the scheme and host the code goes to', () => {
 
 test('the web return path stays on the same origin', () => {
   assert.equal(returnPath('?next=%2Faccounts%3Fq%3D1'), '/accounts?q=1');
+  assert.equal(returnPath('?next=%2Faccounts%2F..%2Fjournals%23top'), '/journals#top');
   assert.equal(returnPath('?next=//evil.example.com'), '/');
+  assert.equal(returnPath('?next=/\\evil.example.com'), '/');
+  assert.equal(returnPath('?next=/accounts\\x'), '/');
   assert.equal(returnPath('?next=/login'), '/');
+});
+
+test('the web return path never leads to the login page, however it is spelled', () => {
+  const app = encodeURIComponent('?return_to=zhang-app://auth/callback');
+  for (const path of ['/login', '/./login', '/a/../login', '/%2e/login', '/a/%2e%2e/login', '/.\\login', '/login/']) {
+    assert.equal(returnPath(`?next=${encodeURIComponent(path)}${app}`), '/', path);
+  }
   assert.equal(returnPath('?return_to=zhang-app://auth/callback'), '/');
 });

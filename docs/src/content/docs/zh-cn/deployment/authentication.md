@@ -125,7 +125,7 @@ docker run --name zhang \
 移动 App 无法直接使用任意域名的通行密钥，所以它在系统浏览器（iOS 的 `ASWebAuthenticationSession`、Android 的 Custom Tabs）中打开服务器自己的登录页登录，通行密钥和密码都和网页上一样可用，再通过一次性 code 拿到会话：
 
 1. App 生成随机的 code verifier 和随机的 state，打开 `https://zhang.example.com/login?return_to=zhang-app://auth/callback&code_challenge=…&code_challenge_method=S256&state=…`，其中 `code_challenge` 是 code verifier 的 SHA-256 的 base64url（[PKCE](https://www.rfc-editor.org/rfc/rfc7636)；`return_to` 自带查询参数时需要 URL 编码）。
-2. 用通行密钥或密码登录，或者注册第一个通行密钥。浏览器已经登录时，页面改为询问**以 <用户> 的身份登录 App？**，并显示 code 将发往的 scheme 和主机（`zhang-app://auth`），点击**继续**后才往下进行。
+2. 登录页显示**登录后将返回 App：zhang-app://auth**（`return_to` 的 scheme 和主机），然后用通行密钥或密码登录，或者注册第一个通行密钥。浏览器已经登录时，页面改为询问**以 <用户> 的身份登录 App？**，并显示 code 将发往的 scheme 和主机（`zhang-app://auth`），点击**继续**后才往下进行。
 3. 登录页显示**正在返回 App…**，通过 `POST /api/auth/app/code` 向服务器申请一次性 code（同时转交 challenge 和 state），然后打开 `zhang-app://auth/callback?code=…&state=…`。
 4. App 确认 state 与自己发出的一致，把 code 和 code verifier 发给 `POST /api/auth/app/exchange`，换到会话 token，之后每个请求都带上 `Authorization: Bearer <token>`。
 

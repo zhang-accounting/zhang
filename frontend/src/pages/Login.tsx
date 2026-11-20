@@ -1,5 +1,5 @@
 import { useSetAtom } from 'jotai';
-import { Clock, KeyRound, TriangleAlert } from 'lucide-react';
+import { Clock, KeyRound, Smartphone, TriangleAlert } from 'lucide-react';
 import { FormEvent, ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { AuthScreen } from '@/layout/AuthScreen';
 import { registerPasskey, signInWithPasskey } from '@/lib/passkey';
+import { appTarget } from '@/lib/auth-paths';
 import { cn } from '@/lib/utils';
 import { passkeyUnavailableReason, type PasskeyUnavailableReason } from '@/lib/webauthn';
 import { signedInAtom, type LockReason } from '@/states/auth';
@@ -306,16 +307,17 @@ function OrDivider() {
 
 /**
  * Login page (`/login`, outside the shell): otter + "Sign in to <title>", then the methods the server enabled: the passkey
- * button (or the first-passkey setup form) as the main action, the password form under an "or" divider.
+ * button (or the first-passkey setup form) as the main action, the password form under an "or" divider. Opened by the mobile
+ * app (`appReturnTo`, the checked `?return_to=`), it says the sign-in is for the app at that scheme and host.
  */
-export default function Login({ status, reason }: { status: AuthStatus; reason?: LockReason }) {
+export default function Login({ status, reason, appReturnTo }: { status: AuthStatus; reason?: LockReason; appReturnTo?: string | null }) {
   const { t } = useTranslation();
   const signedIn = useSetAtom(signedInAtom);
   // Toasts of the previous session (e.g. requests that failed when it expired) would replay once the shell's <Toaster> mounts.
   const onSignedIn = useCallback(() => {
     toast.dismiss();
-    signedIn();
-  }, [signedIn]);
+    signedIn(appReturnTo);
+  }, [signedIn, appReturnTo]);
   const title = status.title?.trim() || 'Zhang';
   const unavailable = useMemo(() => passkeyUnavailableReason(), []);
   const passkeyOn = status.methods.passkey;
@@ -338,6 +340,13 @@ export default function Login({ status, reason }: { status: AuthStatus; reason?:
             {subtitle && <p className="text-sm text-balance text-muted-foreground">{subtitle}</p>}
           </div>
         </header>
+
+        {appReturnTo && (
+          <p role="note" className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm text-foreground-2">
+            <Smartphone className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="min-w-0 break-words">{t('auth.app_signing_in', { target: appTarget(appReturnTo) })}</span>
+          </p>
+        )}
 
         {reason === 'expired' && (
           <p role="status" className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm text-foreground-2">

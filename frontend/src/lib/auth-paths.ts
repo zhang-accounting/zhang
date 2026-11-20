@@ -7,11 +7,25 @@ export function loginUrl(location: { pathname: string; search: string; hash: str
   return next === '/' || next.startsWith(LOGIN_PATH) ? LOGIN_PATH : `${LOGIN_PATH}?next=${encodeURIComponent(next)}`;
 }
 
-/** Same-origin app path from `?next=` (no `//host` / `/\host` open redirects, no loop back to /login); `/` otherwise. */
+/** Any origin will do: `returnPath` only reads the path the browser would make of `?next=` on its own origin. */
+const SAME_ORIGIN = 'http://zhang.invalid';
+
+/**
+ * Same-origin app path from `?next=`, as the browser will normalise it (`/./login`, `/a/../login` and `/%2e/login` are
+ * `/login`); `/` for `//host` and anything with a backslash (open redirects), and for the login page itself: a sign-in must
+ * never land on `/login?return_to=…` and hand its session to an app without asking.
+ */
 export function returnPath(search: string) {
   const next = new URLSearchParams(search).get('next');
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\') || next.startsWith(LOGIN_PATH)) return '/';
-  return next;
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return '/';
+  let url: URL;
+  try {
+    url = new URL(next, SAME_ORIGIN);
+  } catch {
+    return '/';
+  }
+  if (url.origin !== SAME_ORIGIN || url.pathname.startsWith(LOGIN_PATH)) return '/';
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 /** Query parameter of the login page with the app URL to return to (mobile app login handoff). */
@@ -44,13 +58,15 @@ export function appTarget(returnTo: string) {
 }
 
 /**
- * Whether the handoff asks "Sign in to the app as <user>?" before it creates the code. Right after a sign-in on this page the
- * user just acted, so the code is created at once; a session the browser already had needs the click. Otherwise any app that
- * registered the scheme could open the login page in a browser sharing that session and get a session token without the user
- * noticing (client impersonation, RFC 8252 section 8.6), which PKCE does not prevent: that app brings its own verifier.
+ * Whether the handoff asks "Sign in to the app as <user>?" before it creates the code for `returnTo`. `signedInFor` is the app
+ * URL the login page showed when the user signed in on it (`null` without one, and once its code was created): right after that
+ * sign-in the user just acted, so the code is created at once. Any other session, the one the browser already had above all,
+ * needs the click. Otherwise any app that registered the scheme could open the login page in a browser sharing that session and
+ * get a session token without the user noticing (client impersonation, RFC 8252 section 8.6), which PKCE does not prevent: that
+ * app brings its own verifier.
  */
-export function handoffNeedsConsent(signedInOnThisPage: boolean) {
-  return !signedInOnThisPage;
+export function handoffNeedsConsent(signedInFor: string | null, returnTo: string) {
+  return signedInFor !== returnTo;
 }
 
 /** Query parameters of the login page the app passes on to the code: its PKCE challenge (RFC 7636) and its `state`. */

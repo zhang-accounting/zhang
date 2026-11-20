@@ -1,5 +1,6 @@
 import { Smartphone } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSetAtom } from 'jotai';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { createAppCode } from '@/api/auth';
@@ -7,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { apiErrorMessage } from '@/lib/api-error';
 import { type AppHandoffParams, appTarget } from '@/lib/auth-paths';
+import { signedInForAppAtom } from '@/states/auth';
 import { AuthScreen } from './AuthScreen';
 
 /**
@@ -16,9 +18,9 @@ import { AuthScreen } from './AuthScreen';
  * server refuses (any method but `S256`) gets no code and shows the error. "Continue in the browser" stays for a browser without
  * the app.
  *
- * `needsConsent` (the browser was signed in before this page, see `handoffNeedsConsent`): nothing is created until the user
+ * `needsConsent` (no sign-in on this page for this app URL, see `handoffNeedsConsent`): nothing is created until the user
  * answers "Sign in to the app as <user>?", which names the scheme and host of the app URL. Right after a sign-in on this page the
- * code is created at once.
+ * code is created at once, and that sign-in is used up with it: another code needs the click.
  */
 export function AppHandoff({
   returnTo,
@@ -36,17 +38,19 @@ export function AppHandoff({
   const [step, setStep] = useState<'consent' | 'handoff' | 'cancelled'>(needsConsent ? 'consent' : 'handoff');
   const [error, setError] = useState<string>();
   const started = useRef(false);
+  const setSignedInForApp = useSetAtom(signedInForAppAtom);
   const { code_challenge, code_challenge_method, state } = params;
 
   const handOff = useCallback(async () => {
     setError(undefined);
     try {
       const { redirect } = await createAppCode(returnTo, { code_challenge, code_challenge_method, state });
+      setSignedInForApp(null);
       window.location.replace(redirect);
     } catch (failure) {
       setError(await apiErrorMessage(failure));
     }
-  }, [returnTo, code_challenge, code_challenge_method, state]);
+  }, [returnTo, code_challenge, code_challenge_method, state, setSignedInForApp]);
 
   useEffect(() => {
     // once per page, and only once the user agreed: a second code would only expire unused
