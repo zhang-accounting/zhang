@@ -37,9 +37,10 @@ use zhang_core::{ZhangError, ZhangResult};
 use crate::auth::{AuthConfig, AuthState, SharedAuth};
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
+use crate::plugin_writes::PluginWrites;
 use crate::response::ResponseWrapper;
 use crate::routes::plugin_router::{PluginRoutes, PluginSettings};
-use crate::state::{AppState, ReloadFailure};
+use crate::state::{AppState, ReloadFailure, SharedPluginWrites};
 
 pub mod account_queries;
 pub mod auth;
@@ -49,6 +50,7 @@ pub mod builtin;
 mod cells;
 pub mod error;
 pub mod journals;
+pub mod plugin_writes;
 pub mod report;
 pub mod request;
 pub mod response;
@@ -72,6 +74,8 @@ pub struct ServerApp {
     reload_sender: Arc<ReloadSender>,
     auth: Arc<AuthState>,
     plugin_routes: Arc<PluginRoutes>,
+    /// what the writes of router plugins share: the key of their preview tokens and the lock of their commits
+    plugin_writes: Arc<PluginWrites>,
 }
 
 impl GotchaApp for ServerApp {
@@ -175,6 +179,7 @@ impl GotchaApp for ServerApp {
             reload_sender: SharedReloadSender(self.reload_sender.clone()),
             auth: SharedAuth(self.auth.clone()),
             plugin_routes: self.plugin_routes.clone(),
+            plugin_writes: SharedPluginWrites(self.plugin_writes.clone()),
         })
     }
 }
@@ -255,9 +260,14 @@ pub struct ReloadSender {
     /// The generation of the ledger served: a counter, starting at 1, that only moves on, by one whenever a reload
     /// loaded other content than the ledger served before ([`ledger_fingerprint`]). Whatever was computed from the
     /// ledger can be stamped with it and recognized as outdated once the ledger changed; the preview tokens of the
-    /// writes of router plugins (#803) carry it. A reload of unchanged files, as the file watcher's after a write's own
-    /// reload, keeps it
+    /// writes of router plugins carry it, and a commit of a plugin moves it on too ([`plugin_writes`]). A reload of
+    /// unchanged files, as the file watcher's after a write's own reload, keeps it
     generation: std::sync::atomic::AtomicU64,
+    /// Whether a write landed in the files that the ledger served does not show yet: set by a plugin's commit under
+    /// the ledger read lock, where it cannot mark the ledger stale itself, and cleared by the next successful reload.
+    /// A write of the API reloads first while it is set ([`SharedLedger::for_writing`]), so a write queued behind a
+    /// plugin's commit never plans against the ledger the commit left behind (a second `include` of its file)
+    written: std::sync::atomic::AtomicBool,
     /// the fingerprint of the ledger served ([`ledger_fingerprint`]), `None` before the first is recorded
     fingerprint: std::sync::Mutex<Option<u64>>,
 }
@@ -279,6 +289,7 @@ impl ReloadSender {
             midnight_reload: std::sync::Mutex::new(None),
             tombstones: std::sync::Mutex::new(tombstones::Tombstones::default()),
             generation: std::sync::atomic::AtomicU64::new(1),
+            written: std::sync::atomic::AtomicBool::new(false),
             fingerprint: std::sync::Mutex::new(None),
         }
     }
@@ -308,13 +319,25 @@ impl ReloadSender {
         changed
     }
 
+    /// a write landed in the files: the ledger served is behind them until the reload asked for here runs
+    pub fn mark_written(&self) {
+        self.written.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.reload();
+    }
+
+    /// whether a write landed in the files since the ledger served was loaded, see [`ReloadSender::mark_written`]
+    pub fn write_pending(&self) -> bool {
+        self.written.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// the generation of the ledger served: 1 for the ledger served first, moved on by one whenever a reload loaded
-    /// other content
+    /// other content, and by a commit of a plugin
     pub fn generation(&self) -> u64 {
         self.generation.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// move the generation on, as a reload that loaded other content does: the new generation
+    /// move the generation on, as a reload that loaded other content does, and a commit of a plugin once its text is
+    /// in the file: the new generation
     pub(crate) fn next_generation(&self) -> u64 {
         self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
     }
@@ -374,6 +397,8 @@ impl ReloadSender {
                 if self.content_changed(fingerprint) {
                     self.next_generation();
                 }
+                // the files the ledger shows now are the ones written
+                self.written.store(false, std::sync::atomic::Ordering::SeqCst);
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
             }
@@ -760,6 +785,7 @@ pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadca
         reload_sender,
         auth,
         plugin_routes,
+        plugin_writes: Arc::new(PluginWrites::new()),
     }
 }
 

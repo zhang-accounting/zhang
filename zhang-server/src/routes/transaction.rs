@@ -44,6 +44,7 @@ pub async fn get_journals(ledger: State<SharedLedger>, params: Query<JournalRequ
 }
 
 /// A field of a create or update request that cannot be written as given, with what the request answers for it.
+#[derive(Debug)]
 pub(crate) struct FieldError {
     /// the posting it is a field of, counting from 0; `None` for a field of the transaction
     pub posting: Option<usize>,
@@ -56,6 +57,17 @@ impl FieldError {
     /// and metadata, then the transaction's metadata, tags, links and flag. The first is what a create or update answers
     fn order(&self) -> (usize, TransactionField) {
         (self.posting.unwrap_or(usize::MAX), self.field)
+    }
+
+    /// the error as a preview lists it
+    pub(crate) fn into_entity(self) -> TransactionFieldErrorEntity {
+        TransactionFieldErrorEntity {
+            posting: Nullable(self.posting),
+            field: self.field,
+            kind: self.invalid.kind,
+            value: self.invalid.value,
+            message: self.invalid.message,
+        }
     }
 }
 
@@ -89,7 +101,9 @@ fn units_of(unit: &UnitRequest, rules: &validate::Rules, ledger: &Ledger) -> Che
 /// `original` is the transaction an update replaces, as it was read from the ledger.
 ///
 /// Every field is checked: the error is that of each field that fails, in the order of [`FieldError::order`].
-fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>) -> Result<Transaction, Vec<FieldError>> {
+pub(crate) fn transaction_from_request(
+    payload: CreateTransactionRequest, ledger: &Ledger, original: Option<&Transaction>,
+) -> Result<Transaction, Vec<FieldError>> {
     let rules = validate::Rules::of(ledger);
     let mut fields = Fields::default();
     // the units first: an edited posting is matched to the one it edits by them
@@ -220,7 +234,7 @@ fn requested_transaction(payload: CreateTransactionRequest, ledger: &Ledger, ori
 /// A value is only written unquoted when the parser reads it back as the same bare value:
 /// `original` comes after the plugins, and a plugin can make an unquoted value of any
 /// text, such as `from plugin`.
-fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> Checked<Meta> {
+pub(crate) fn metas_from_request(metas: Vec<MetaRequest>, rules: &validate::Rules, original: Option<&Meta>) -> Checked<Meta> {
     let mut meta = Meta::default();
     let mut occurrences: HashMap<(String, String), usize> = HashMap::new();
     for MetaRequest { key, value } in metas {
@@ -510,16 +524,7 @@ fn preview(ledger: &Ledger, payload: CreateTransactionRequest, edits: Option<&Tr
         Err(errors) => {
             return Ok(TransactionPreviewEntity {
                 text: Nullable(None),
-                field_errors: errors
-                    .into_iter()
-                    .map(|error| TransactionFieldErrorEntity {
-                        posting: Nullable(error.posting),
-                        field: error.field,
-                        kind: error.invalid.kind,
-                        value: error.invalid.value,
-                        message: error.invalid.message,
-                    })
-                    .collect(),
+                field_errors: errors.into_iter().map(FieldError::into_entity).collect(),
                 unbalanced: Nullable(None),
                 errors: vec![],
             })

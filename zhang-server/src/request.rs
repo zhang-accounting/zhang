@@ -277,6 +277,23 @@ pub struct MetaRequest {
     pub value: String,
 }
 
+/// An `open` of an account, as a plugin's write batch carries one (`zhang_write_preview`, kind `open`); written so a
+/// future `POST /api/accounts` can take the same.
+#[derive(Schematic, Deserialize)]
+pub struct OpenAccountRequest {
+    /// the date of the `open`, `2026-10-13`, or the ledger's wall-clock date and time as [`LedgerDateTime`] reads it
+    pub date: String,
+    pub account: String,
+    /// the commodities the account may hold, as the `open` lists them; none for any commodity
+    #[serde(default)]
+    pub commodities: Vec<String>,
+    /// the `booking_method` metadata of the `open`, such as `FIFO`
+    pub booking_method: Option<String>,
+    /// metadata of the `open`, checked like a transaction's `metas`
+    #[serde(default)]
+    pub metas: Vec<MetaRequest>,
+}
+
 #[derive(Schematic, Deserialize)]
 pub struct QueryRequest {
     /// the BQL query text

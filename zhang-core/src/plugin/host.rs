@@ -52,6 +52,7 @@ use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
 use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION, QUERY_PARAMS_FUNCTION, QUERY_SCHEMA_FUNCTION};
 use crate::plugin::runtime::InstanceBindings;
+use crate::plugin::write::{self, WriteAccess, WRITE_COMMIT_FUNCTION, WRITE_PREVIEW_FUNCTION};
 use crate::plugin::{log_safe, net};
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
@@ -205,8 +206,8 @@ struct EmitErrorPayload {
 
 /// the state the host functions of one plugin instance share
 pub(super) struct HostState {
-    /// the plugin's name, given as the `plugin` meta of the errors it reports
-    plugin: String,
+    /// the plugin's name, given as the `plugin` meta of the errors it reports, and bound into its write tokens
+    pub(super) plugin: String,
     /// the span of the plugin's directive, where an error without a usable span of its own is reported
     directive_span: SpanInfo,
     /// the errors the plugin reported, in call order
@@ -229,6 +230,8 @@ pub(super) struct HostState {
     pub(super) router: Option<(Arc<dyn RouterHost>, LedgerInfo)>,
     /// the status of the plugin's last HTTP response, which `http_status_code` answers; 0 before any
     pub(super) http_status: u16,
+    /// what the plugin may write through the write host functions; `None` outside a router call
+    pub(super) writes: Option<WriteAccess>,
 }
 
 /// the host side of one plugin instance: what its host functions reach and what they collected
@@ -276,6 +279,7 @@ impl PluginHost {
             inputs: vec![],
             router: None,
             http_status: 0,
+            writes: None,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -292,6 +296,13 @@ impl PluginHost {
     /// `zhang_query_schema` read the ledger through `host` and `zhang_ledger_info` answers `info`
     pub(super) fn with_router(self, host: Arc<dyn RouterHost>, info: LedgerInfo) -> Self {
         self.lock().router = Some((host, info));
+        self
+    }
+
+    /// this host handling a request as a router that may write what `access` allows through
+    /// `zhang_write_preview` and `zhang_write_commit`
+    pub(super) fn with_writes(self, access: WriteAccess) -> Self {
+        self.lock().writes = Some(access);
         self
     }
 
@@ -312,6 +323,8 @@ impl PluginHost {
             shared(bindings, LEDGER_INFO_FUNCTION, [], [PTR], router::zhang_ledger_info),
             shared(bindings, QUERY_PARAMS_FUNCTION, [PTR], [PTR], router::zhang_query_params),
             shared(bindings, QUERY_SCHEMA_FUNCTION, [], [PTR], router::zhang_query_schema),
+            shared(bindings, WRITE_PREVIEW_FUNCTION, [PTR], [PTR], write::zhang_write_preview),
+            shared(bindings, WRITE_COMMIT_FUNCTION, [PTR], [PTR], write::zhang_write_commit),
             shared(bindings, net::HTTP_REQUEST, [PTR, PTR], [PTR], net::http_request).with_namespace(EXTISM_ENV_MODULE),
             shared(bindings, net::HTTP_STATUS_CODE, [], [ValType::I32], net::http_status_code).with_namespace(EXTISM_ENV_MODULE),
         ]

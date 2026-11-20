@@ -54,6 +54,7 @@ Outside its own memory, a plugin can do nothing that its directive does not gran
 |---|---|---|
 | `allowed_hosts` | make HTTP requests to these hosts, among those the server allows. Repeat the key for several hosts. | no network access |
 | `allowed_paths` | read these files and directories of the ledger. Repeat the key for several. | no file access |
+| `allowed_writes` | add entries of these kinds to your ledger files, `"transaction"` or `"open"`, when it serves a request (a recording assistant, say), and only when `zhang serve` runs with `--plugins write` (`ZHANG_PLUGINS=write`). Repeat the key for both. | no writes |
 | `timeout` | run each call for up to this long, at most what the server allows: whole seconds (`"90"`) or a number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"2m"`) | 60 seconds, at most the server's limit (30 seconds unless set) |
 | `seed` | nothing more. Any text: it changes the seed the plugin derives random values from. | the default seed |
 
@@ -74,6 +75,12 @@ About `allowed_paths`:
 - Names starting with a dot are hidden: below a granted directory, a plugin can read `.git` or `.env` only if a value names them.
 - A value that is absolute or contains `..` grants nothing.
 - Only processors and mappers can read files. On a local ledger, `zhang serve` reloads when a file a plugin read changes.
+
+About `allowed_writes`:
+
+- It only works for a router plugin that declares it writes (the plugin's author decides), and only for the kinds you grant: a plugin granted `"transaction"` cannot open an account.
+- An entry a plugin adds goes through the same checks and into the same file as one you record in the web UI, and is appended as text, exactly as the plugin previewed it: nothing is edited or deleted, and Zhang adds nothing of its own. The ledger reloads after each write, as after one of yours, and the server logs one line per write.
+- A plugin written for people shows you each entry before adding it. Grant writes only to a plugin you trust.
 
 A value Zhang cannot use, such as `timeout: "soon"`, is reported as a [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) error on the `plugin` directive, and the plugin gets the default.
 
@@ -110,7 +117,7 @@ What the sandbox prevents:
 
 - network access, except to the public addresses of the hosts in `allowed_hosts` that the server allows;
 - reading files, except those `allowed_paths` grants inside the ledger root;
-- writing files, including your ledger files;
+- writing files, including your ledger files, except appending the kinds of entries `allowed_writes` grants, when the server allows writes;
 - running longer than its `timeout`;
 - using more memory than the server allows, 256 MiB per plugin instance unless the `ZHANG_PLUGIN_MAX_MEMORY` environment variable of `zhang serve` sets another size (such as `512MiB`).
 
@@ -121,7 +128,7 @@ Only declare plugins you trust, ideally ones whose source you can read, and gran
 ## See which plugins are loaded
 
 - The **Settings** page lists the loaded plugins, in the order they run, with their name, version and types. A router plugin has a link to its pages.
-- `GET /api/plugins` returns the same list as JSON, with the hosts each plugin may reach (its `allowed_hosts` within what the server allows) and the route of each router plugin. To review `allowed_paths` and `timeout`, read the `plugin` directives of your ledger.
+- `GET /api/plugins` returns the same list as JSON, with the hosts each plugin may reach (its `allowed_hosts` within what the server allows), the route of each router plugin, and the writes each plugin asked for (`writes_requested`) and was granted within what the server allows (`writes_granted`). To review `allowed_paths` and `timeout`, read the `plugin` directives of your ledger.
 
 ## When a plugin goes wrong
 

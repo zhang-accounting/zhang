@@ -5,7 +5,11 @@
 //! plugin on a blocking thread, under the ledger read lock. What the plugin answers is sent with only
 //! the headers zhang allows and sandboxed (see [`zhang_core::plugin::http::SECURITY_HEADERS`]), and the
 //! plugin sees only the request headers zhang forwards
-//! ([`zhang_core::plugin::http::FORWARDED_REQUEST_HEADERS`]).
+//! ([`zhang_core::plugin::http::FORWARDED_REQUEST_HEADERS`]). A plugin granted `allowed_writes` (within the
+//! operator's ceiling) may append directives through `zhang_write_preview` and `zhang_write_commit`
+//! ([`crate::plugin_writes`]): the text is in the file before the plugin's call returns, and once the
+//! plugin answered the request, the ledger is reloaded as after an API write, and one line is logged
+//! for each commit.
 //!
 //! The routes are bounded by [`PluginRouteLimits`]: the body of a request, and how many requests a
 //! plugin handles at once. When the plugin cannot answer, the response is a JSON `{"message": "..."}`
@@ -33,22 +37,25 @@ use axum::extract::{FromRef, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
-use log::error;
+use log::{error, info};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedSemaphorePermit, Semaphore};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::log_safe;
-use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost};
+use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost, WriteBatch, WriteCommitted, WritePreview};
 use zhang_core::plugin_policy::{PluginPolicy, Size};
 use zhang_query::params::bind_json;
 use zhang_query::{Params, Query, QueryError};
+use zhang_shared::plugin_abi::HostError;
 
 use crate::error::error_response;
+use crate::plugin_writes::{self, Commit, PluginWrites};
 use crate::response::{QueryResultEntity, QuerySchemaEntity};
 use crate::routes::query::{execute_options, max_result_values};
-use crate::state::SharedLedger;
+use crate::state::{SharedLedger, SharedPluginWrites, SharedReloadSender};
+use crate::ReloadSender;
 
 /// every router plugin's route and the paths below it: `/api/plugins/{name}`, `/api/plugins/{name}/`
 /// and `/api/plugins/{name}/{*path}`. The handler splits the path itself, see [`split_route`]
@@ -198,19 +205,27 @@ impl PluginRoutes {
     }
 }
 
-/// What the plugin routes read: the ledger, and their own state.
+/// What the plugin routes read: the ledger, their own state (the limits and the requests each plugin handles now),
+/// and what a commit of a plugin's writes needs, the reload sender (the generation, the reload after a commit) and
+/// the plugin writes (the token key, the commit lock). The server's [`crate::state::AppState`] gives one; a test
+/// serves the routes with one of its own
 #[derive(Clone)]
 pub struct PluginRouteState {
     pub ledger: SharedLedger,
     pub routes: Arc<PluginRoutes>,
+    pub reload_sender: SharedReloadSender,
+    pub writes: SharedPluginWrites,
 }
 
 impl PluginRouteState {
-    /// the state of the plugin routes over `ledger`, with the default limits
-    pub fn new(ledger: SharedLedger) -> Self {
+    /// the state of the plugin routes over `ledger`, with the default limits, `reload_sender` and fresh plugin writes
+    /// (a random token key)
+    pub fn new(ledger: SharedLedger, reload_sender: Arc<ReloadSender>) -> Self {
         PluginRouteState {
             ledger,
             routes: Arc::new(PluginRoutes::new(PluginRouteLimits::default())),
+            reload_sender: SharedReloadSender(reload_sender),
+            writes: SharedPluginWrites(Arc::new(PluginWrites::new())),
         }
     }
 }
@@ -218,6 +233,12 @@ impl PluginRouteState {
 impl FromRef<PluginRouteState> for SharedLedger {
     fn from_ref(state: &PluginRouteState) -> Self {
         state.ledger.clone()
+    }
+}
+
+impl FromRef<PluginRouteState> for SharedReloadSender {
+    fn from_ref(state: &PluginRouteState) -> Self {
+        state.reload_sender.clone()
     }
 }
 
@@ -294,10 +315,16 @@ pub async fn route_to_plugin(State(state): State<PluginRouteState>, method: Meth
     dispatch(state, name, request).await
 }
 
-/// the [`RouterHost`] of one request: it owns the ledger read lock until the plugin returns
+/// the [`RouterHost`] of one request: it owns the ledger read lock until the plugin returns, and what a write of
+/// the plugin needs: the reload sender (the generation) and the plugin writes (the token key, the commit lock)
 struct ServerRouterHost {
     ledger: OwnedRwLockReadGuard<Ledger>,
     max_result_values: u64,
+    reload_sender: Arc<ReloadSender>,
+    writes: Arc<PluginWrites>,
+    /// what the call committed, for the route handler to act on once the plugin returned. Per call, shared with
+    /// the handler only: the compiled plugin and its host functions keep no state of a call
+    committed: Arc<Mutex<Option<Commit>>>,
 }
 
 /// a failed query as the plugin sees it
@@ -346,6 +373,20 @@ impl RouterHost for ServerRouterHost {
     fn schema(&self) -> Result<Value, QueryFailure> {
         serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema())).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
     }
+
+    /// as `POST /api/transactions/preview` previews, see [`plugin_writes::preview`]
+    fn write_preview(&self, plugin: &str, batch: &WriteBatch) -> Result<WritePreview, HostError> {
+        plugin_writes::preview(&self.ledger, &self.writes, &self.reload_sender, plugin, &batch.directives)
+    }
+
+    /// one `append` of the ledger's data source, as `POST /api/transactions` writes, see [`plugin_writes::commit`];
+    /// the handler marks the ledger stale and reloads it once the plugin returned
+    fn write_commit(&self, plugin: &str, batch: &WriteBatch, token: &str) -> Result<WriteCommitted, HostError> {
+        let commit = plugin_writes::commit(&self.ledger, &self.writes, &self.reload_sender, plugin, &batch.directives, token)?;
+        let committed = commit.committed.clone();
+        *self.committed.lock().unwrap_or_else(PoisonError::into_inner) = Some(commit);
+        Ok(committed)
+    }
 }
 
 async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest) -> Response {
@@ -370,9 +411,13 @@ async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest)
     };
     // the plugin runs under the read lock, so the ledger cannot reload while it reads it; a reload that removed the
     // plugin while the request waited answers 404 below
+    let committed = Arc::new(Mutex::new(None));
     let host = Arc::new(ServerRouterHost {
         ledger: state.ledger.0.clone().read_owned().await,
         max_result_values: max_result_values(),
+        reload_sender: state.reload_sender.0.clone(),
+        writes: state.writes.0.clone(),
+        committed: committed.clone(),
     });
     let summary = format!("{} {}", request.method, request.path);
     let plugin_name = name.clone();
@@ -385,6 +430,19 @@ async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest)
     })
     .await;
     let logged = log_safe(&name);
+    // what the plugin committed is in the files, the write is pending on the reload sender and the reload asked
+    // for (the commit did both under the read lock, so a write queued behind this call reloads first): one line
+    // of log per commit
+    let commit = committed.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(commit) = commit {
+        info!(
+            "plugin {logged} committed {} directives ({} bytes) to {} generation {}",
+            commit.committed.entries,
+            commit.committed.bytes,
+            commit.files.join(", "),
+            commit.committed.generation
+        );
+    }
     match result {
         Ok(Some(Ok(response))) => response.map(Body::from).into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, format!("no router plugin is named {name}")),
@@ -428,11 +486,12 @@ mod test {
     use zhang_core::plugin::router::{RawQueryParam, RouterHost};
 
     use super::{route_of, route_to_plugin, split_route, PluginRouteLimits, PluginRouteState, PluginRoutes, ServerRouterHost, ROUTE};
-    use crate::builtin;
+    use crate::plugin_writes::PluginWrites;
     use crate::request::BuiltinParamValue;
     use crate::response::QuerySchemaEntity;
     use crate::routes::plugin::plugin_list;
     use crate::state::SharedLedger;
+    use crate::{builtin, ReloadSender};
 
     /// the WAT fixtures of zhang-core's plugin tests, see `zhang-core/tests/wasm_plugins.rs`
     const FIXTURES: [(&str, &str); 8] = [
@@ -509,14 +568,21 @@ return M
         std::fs::write(dir.0.join("main.zhang"), content).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
         let ledger = Ledger::load(dir.0.clone(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"));
+        let state = PluginRouteState {
+            routes: Arc::new(PluginRoutes::new(limits)),
+            ..detached_state(ledger)
+        };
         let router = Router::new()
             .route("/api/plugins", get(plugin_list))
             .route(ROUTE, any(route_to_plugin))
-            .with_state(PluginRouteState {
-                ledger: SharedLedger(Arc::new(RwLock::new(ledger))),
-                routes: Arc::new(PluginRoutes::new(limits)),
-            });
+            .with_state(state);
         (dir, router)
+    }
+
+    /// the state of the plugin routes over `ledger`, with a reload channel nobody listens to
+    fn detached_state(ledger: Ledger) -> PluginRouteState {
+        let (sender, _receiver) = tokio::sync::mpsc::channel(8);
+        PluginRouteState::new(SharedLedger(Arc::new(RwLock::new(ledger))), Arc::new(ReloadSender::new(sender)))
     }
 
     async fn send(app: &Router, request: Request<Body>) -> Response {
@@ -743,7 +809,7 @@ return M
             .expect("the Lua router is listed");
         assert_eq!(
             listed,
-            json!({"name": "lua-report", "version": "0.3.0", "plugin_type": ["Router"], "capabilities": {"allowed_hosts": []}, "route": "/api/plugins/lua-report"})
+            json!({"name": "lua-report", "version": "0.3.0", "plugin_type": ["Router"], "capabilities": {"allowed_hosts": []}, "route": "/api/plugins/lua-report", "writes_requested": [], "writes_granted": []})
         );
 
         let response = send(
@@ -828,9 +894,15 @@ return M
         })
         .unwrap();
         let ledger = Arc::new(RwLock::new(ledger));
+        let (sender, _receiver) = tokio::sync::mpsc::channel(8);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        let writes = Arc::new(PluginWrites::new());
         let host = |max_result_values| ServerRouterHost {
             ledger: ledger.clone().try_read_owned().unwrap(),
             max_result_values,
+            reload_sender: reload_sender.clone(),
+            writes: writes.clone(),
+            committed: Arc::new(std::sync::Mutex::new(None)),
         };
 
         let failure = host(100).query("SELECT nope").unwrap_err();

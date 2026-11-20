@@ -149,7 +149,7 @@ const BARE_WORD: &str = "it cannot be empty or contain a space, tab, line break,
 
 /// A request value that cannot be written: why, for a client to tell in its own words ([`InvalidKind`] and the value), and
 /// the message a request answers with in a 400.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Invalid {
     pub kind: InvalidKind,
     pub value: String,
@@ -189,6 +189,10 @@ fn invalid(kind: InvalidKind, value: &str, rule: &str) -> Invalid {
         InvalidKind::InvalidTag | InvalidKind::BeancountTag => "tag",
         InvalidKind::InvalidLink | InvalidKind::BeancountLink => "link",
         InvalidKind::InvalidFlag => "flag",
+        InvalidKind::InvalidDate => "date",
+        InvalidKind::AlreadyOpen => "commodities",
+        InvalidKind::InvalidBookingMethod => "booking method",
+        InvalidKind::AccountClosed => "account",
     };
     Invalid {
         kind,
@@ -216,7 +220,11 @@ pub fn account(name: &str, rules: &Rules) -> Checked<Account> {
 /// Check that `amount` reads back unchanged: its number ([`number`]) and its commodity.
 pub fn amount(amount: &Amount, rules: &Rules) -> Checked<()> {
     number(&amount.number)?;
-    let commodity = &amount.commodity;
+    commodity(&amount.commodity, rules)
+}
+
+/// Check that the commodity name `commodity` reads back unchanged, as the one of an amount, or one an `open` lists.
+pub fn commodity(commodity: &str, rules: &Rules) -> Checked<()> {
     if !is_valid_commodity_name(commodity) {
         return Err(invalid(
             InvalidKind::InvalidCommodity,

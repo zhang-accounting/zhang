@@ -12,7 +12,7 @@
 //! - [`errors`] reports problems in the ledger's error list;
 //! - [`prices`] gives exchange rates from the stream's `price` directives, as zhang computes them;
 //! - [`realization`] accumulates booked quantities and costs for selected accounts or subtrees;
-//! - [`router`] serves HTTP requests and queries the ledger.
+//! - [`router`] serves HTTP requests, queries the ledger, and appends to it when granted `allowed_writes`.
 //!
 //! ```no_run
 //! use zhang_plugin_sdk::{plugin, Directive, Error, Stream};
@@ -127,6 +127,24 @@ pub mod prelude {
 /// least one and keep the order `processor`, `mapper`, `router`. A handler returning `Err` fails its call: a
 /// processor or mapper aborts the whole ledger load with the error's message, a router answers status 500.
 ///
+/// A router that appends to the ledger with [`router::write_preview`] and [`router::write_commit`] declares the
+/// kinds it writes after the handlers, `writes: [WriteKind::Transaction, WriteKind::Open]`: that is the plugin's
+/// `capabilities` export, which the ledger owner grants with `allowed_writes` on the `plugin` directive.
+///
+/// ```no_run
+/// use zhang_plugin_sdk::router::{Request, Response, WriteKind};
+/// use zhang_plugin_sdk::{plugin, Error};
+///
+/// plugin! {
+///     name: "recorder",
+///     version: env!("CARGO_PKG_VERSION"),
+///     router: route,
+///     writes: [WriteKind::Transaction, WriteKind::Open],
+/// }
+///
+/// fn route(request: Request) -> Result<Response, Error> { Ok(Response::text(request.path)) }
+/// ```
+///
 /// The handler signatures are checked on every target. The exports exist only on `wasm32`, so a native build of
 /// the plugin crate (e.g. for `cargo test`) links nothing from zhang.
 #[macro_export]
@@ -137,11 +155,13 @@ macro_rules! plugin {
         $(, processor: $processor:path)?
         $(, mapper: $mapper:path)?
         $(, router: $router:path)?
+        $(, writes: [$($write:expr),* $(,)?])?
         $(,)?
     ) => {
         $(const _: fn($crate::Stream) -> ::core::result::Result<$crate::Stream, $crate::Error> = $processor;)?
         $(const _: fn($crate::Spanned<$crate::Directive>) -> ::core::result::Result<$crate::Stream, $crate::Error> = $mapper;)?
         $(const _: fn($crate::router::Request) -> ::core::result::Result<$crate::router::Response, $crate::Error> = $router;)?
+        $(const _: &[$crate::router::WriteKind] = &[$($write),*];)?
 
         #[cfg(not(target_arch = "wasm32"))]
         const _: () = {
@@ -193,6 +213,14 @@ macro_rules! plugin {
                     $crate::__private::export_with_input("router", $router)
                 }
             )?
+
+            $(
+                #[export_name = "capabilities"]
+                pub extern "C" fn __zhang_plugin_capabilities() -> i32 {
+                    let writes: ::std::vec::Vec<::std::string::String> = [$($write),*].iter().map(|kind: &$crate::router::WriteKind| kind.name().to_owned()).collect();
+                    $crate::__private::export(|| ::core::result::Result::Ok($crate::__private::DeclaredCapabilities { writes }))
+                }
+            )?
         };
     };
 }
@@ -204,6 +232,7 @@ pub mod __private {
     use extism_pdk::Memory;
     use serde::de::DeserializeOwned;
     use serde::Serialize;
+    pub use zhang_shared::plugin_abi::DeclaredCapabilities;
 
     use crate::Error;
 

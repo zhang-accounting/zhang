@@ -14,11 +14,12 @@ use crate::clock::LoadClock;
 use crate::domains::schemas::OptionDomain;
 use crate::options::InMemoryOptions;
 use crate::pipeline::StageContext;
-use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
+use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage, WriteKind};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
 use crate::plugin::lua::{LuaScript, PluginModule};
 use crate::plugin::runtime::{PluginInstance, PluginRuntime};
+use crate::plugin::write::{declared_writes, DeclaredCapabilities};
 use crate::plugin::{log_safe, PluginType};
 use crate::plugin_policy::{PluginPolicy, Size, MAX_MEMORY_ENV};
 use crate::{ZhangError, ZhangResult};
@@ -82,6 +83,7 @@ impl PluginStore {
                 "plugin script {plugin_name} declares no plugin type; write `types = {{\"Router\"}}` in its module table"
             )));
         }
+        let writes = declared_capabilities(&mut plugin, &name, timeout, &policy)?;
         let ignored_errors = host.take_errors().len();
         if ignored_errors > 0 {
             warn!(
@@ -100,6 +102,7 @@ impl PluginStore {
             occurrence,
             files,
             policy,
+            writes,
         };
         if plugin_types.contains(&PluginType::Router) {
             self.add_router(registered_plugin.clone())
@@ -172,6 +175,19 @@ fn settings(declaration: &PluginDeclaration, occurrence: usize, options: &[Optio
         .with_memory_max(policy.max_memory_pages())
 }
 
+/// the write kinds the plugin's optional `capabilities` export declares, read once while it registers: none without
+/// the export. An export that answers something else fails the load, as `supported_type` would
+fn declared_capabilities(plugin: &mut PluginInstance, name: &str, timeout: Duration, policy: &PluginPolicy) -> ZhangResult<Vec<WriteKind>> {
+    if !plugin.function_exists(export::CAPABILITIES) {
+        return Ok(vec![]);
+    }
+    let declared = plugin
+        .call::<(), WasmJson<DeclaredCapabilities>>(export::CAPABILITIES, ())
+        .map_err(|e| call_error(name, export::CAPABILITIES, timeout, policy, e))?
+        .0;
+    Ok(declared_writes(name, &declared))
+}
+
 /// the error of a failed registration call into a Lua script: the message the interpreter set, which for a
 /// script that does not parse carries `<script>:<line>: ...`; a call stopped at the timeout or out of memory says
 /// so as for a module
@@ -224,6 +240,8 @@ pub struct RegisteredPlugin {
     files: FileAccess,
     /// what the operator lets the plugin use
     policy: Arc<PluginPolicy>,
+    /// the write kinds the plugin declared in its `capabilities` export, each once
+    writes: Vec<WriteKind>,
 }
 
 impl RegisteredPlugin {
@@ -241,6 +259,11 @@ impl RegisteredPlugin {
     /// interpreter (the script is [`RegisteredPlugin::script`])
     pub fn module_bytes(&self) -> &[u8] {
         self.runtime.module_bytes()
+    }
+
+    /// the write kinds the plugin declared in its `capabilities` export; it writes those its directive also grants
+    pub fn declared_writes(&self) -> &[WriteKind] {
+        &self.writes
     }
 
     /// the Lua script this plugin runs, for a `plugin "x.lua"` directive
@@ -366,6 +389,7 @@ mod test {
             occurrence,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         }
     }
 
@@ -429,6 +453,7 @@ mod test {
             occurrence: 0,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         };
 
         let manifest = plugin.manifest(&options);
@@ -484,6 +509,7 @@ mod test {
             occurrence: 0,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         };
 
         let config = plugin.manifest(&[]).config;
@@ -558,6 +584,7 @@ mod test {
             occurrence: 0,
             files: no_files(),
             policy: Arc::new(PluginPolicy::default()),
+            writes: vec![],
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));
