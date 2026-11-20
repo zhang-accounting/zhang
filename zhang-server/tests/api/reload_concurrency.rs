@@ -610,3 +610,34 @@ async fn an_sse_client_that_does_not_read_holds_up_nothing() {
         .expect("the reloads, the write and the reads do not wait for the client");
     assert_eq!(payees, vec!["Cafe"]);
 }
+
+/// A delete of the first of two twins whose client goes away while the delete reloads: the delete is in the files,
+/// and so is its tombstone, recorded with the write, so the delete sent again with the same version is refused, not
+/// taken for the twin that has its place and its id now (#818)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delete_whose_client_goes_away_while_it_reloads_keeps_its_tombstone() {
+    let served = Served::with_main(&format!("{OPENS}{TWINS}"));
+    let oldest = served.transactions().await.pop().expect("a transaction");
+    let (id, version) = (oldest["id"].as_str().unwrap().to_owned(), oldest["version"].as_str().unwrap().to_owned());
+    served.gate.close();
+    let delete = {
+        let (served, id, version) = (served.clone(), id.clone(), version.clone());
+        tokio::spawn(async move { served.delete(&id, &version).await })
+    };
+    served.gate.a_load_waits().await;
+    // the client goes away: its request is dropped during the reload
+    delete.abort();
+    assert!(delete.await.unwrap_err().is_cancelled());
+    assert_eq!(
+        served.read("main.zhang").matches("\"Cafe\" \"coffee\"").count(),
+        1,
+        "the delete is in the files"
+    );
+    served.gate.open();
+
+    // sent again, as a client sends a request whose answer it lost
+    let (status, body) = served.delete(&id, &version).await;
+    assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{body}");
+    assert_eq!(served.read("main.zhang").matches("\"Cafe\" \"coffee\"").count(), 1, "the twin stays");
+    assert_eq!(served.transactions().await.len(), 1);
+}
