@@ -9,6 +9,7 @@ use std::borrow::Cow;
 pub use semver::Version;
 pub use zhang_ast::PluginType;
 
+pub mod bundled;
 pub mod capabilities;
 pub mod files;
 pub mod host;
