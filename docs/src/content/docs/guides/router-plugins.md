@@ -30,7 +30,7 @@ A router plugin serves `/api/plugins/{name}` and every path below it, for any HT
 - `/api/plugins/report` and `/api/plugins/report/` reach the plugin with the path `/`.
 - `/api/plugins/report/by-month?year=2024` reaches it with the path `/by-month` and the query `{"year": ["2024"]}`.
 
-The routes sit behind the same [authentication](/deployment/authentication/) as the rest of the API: with sign-in enabled, a request needs a session (or the Basic header a script sends), whatever its method. When two router plugins have the same name, the first one declared serves the route and Zhang logs a warning.
+The routes sit behind the same [authentication](/deployment/authentication/) as the rest of the API: with sign-in enabled, a request needs a session (or the Basic header a script sends), whatever its method. When two router plugins have the same name, a bundled plugin included, the first one declared serves the route and the later one serves nothing: Zhang reports it as a [`PluginError`](/reference/error-codes/#pluginerror) on its directive, naming both, so a route never answers with other code than you meant without you seeing it. A module that is also a processor or mapper may be declared twice to run twice; its first declaration serves the route, and that is not reported.
 
 ## The `router` export
 

@@ -1311,8 +1311,11 @@ fn router_failures_are_errors_not_panics() {
 }
 
 #[test]
-fn the_first_declared_router_serves_a_shared_name() {
-    let dir = ledger_dir(&["router.wat"]);
+fn a_later_router_sharing_a_name_is_reported_and_the_first_serves() {
+    // the same module declared twice with other grants: the first declaration serves /api/plugins/router-echo with
+    // its own grants, and the later one is reported on its directive, so which grants answer the route is never a
+    // silent matter of the order of the directives
+    let dir = ledger_dir(&["router.wat", "router_processor.wat"]);
     let module = dir.path().join("router.wat");
     let content = format!(
         "option \"features.plugin\" \"true\"\nplugin \"{module}\"\n  allowed_hosts: \"first.example\"\nplugin \"{module}\"\n  allowed_hosts: \"second.example\"\n{LEDGER}",
@@ -1321,10 +1324,28 @@ fn the_first_declared_router_serves_a_shared_name() {
     // the operator allows every host, so each plugin gets what its directive grants
     let ledger = load_with_policy(&dir, &content, PluginPolicy::unrestricted()).unwrap();
 
-    assert_eq!(ledger.plugins.routers.len(), 2);
+    assert_eq!(ledger.plugins.routers.len(), 1);
     let router = ledger.plugins.router("router-echo").unwrap();
     assert_eq!(router.capabilities().allowed_hosts, vec!["first.example".to_owned()]);
-    assert!(ledger.plugins.router("router").is_none());
+    let reported = errors(&ledger);
+    assert_eq!(reported.len(), 1, "{reported:?}");
+    let (kind, span, metas) = &reported[0];
+    assert_eq!(*kind, ErrorKind::PluginError);
+    let later = content.match_indices("plugin \"").nth(1).unwrap().0;
+    assert_eq!(span.start, later, "on the later directive");
+    assert_eq!(metas["plugin"], module.display().to_string());
+    assert!(
+        metas["message"].contains("is a router named router-echo, as ")
+            && metas["message"].contains("which serves /api/plugins/router-echo: this one serves nothing"),
+        "{metas:?}"
+    );
+
+    // a module that is a processor too, declared twice to run twice (as any module declared twice does), is no
+    // conflict: the first declaration's router serves
+    let content = format!("option \"features.plugin\" \"true\"\n{0}{0}{LEDGER}", plugin(&dir, "router_processor.wat"));
+    let ledger = load(&dir, &content);
+    assert_eq!(ledger.plugins.routers.len(), 1);
+    assert_eq!(errors(&ledger), vec![]);
 }
 
 /// the instant tests fix the clock at: 00:30 the next day in Asia/Shanghai
@@ -2688,20 +2709,29 @@ mod lua {
     }
 
     #[test]
-    fn the_first_declared_script_serves_a_shared_name() {
-        let (_dir, ledger) = router_ledger(&["router_echo.lua", "router_echo_twin.lua"]);
+    fn a_later_script_sharing_a_router_name_is_reported_and_serves_nothing() {
+        // a name is a route: whatever runs them (a script and a script, a wasm module and a script), the first declared
+        // serves it, and the later one is reported on its own directive
+        let dir = ledger_dir(&["router_echo.lua", "router_echo_twin.lua", "router.wat"]);
+        let twins = format!("{}{}", plugin(&dir, "router_echo.lua"), plugin(&dir, "router_echo_twin.lua"));
 
-        assert_eq!(
-            registered(&ledger),
-            vec![
-                ("router-echo".to_owned(), vec![PluginType::Router]),
-                ("router-echo".to_owned(), vec![PluginType::Router])
-            ]
-        );
-        assert_eq!(ledger.plugins.routers.len(), 2);
+        let ledger = load(&dir, &with_plugins(&twins));
+
+        assert_eq!(ledger.plugins.routers.len(), 1);
         assert_eq!(ledger.plugins.router("router-echo").unwrap().version, "0.1.0");
-        let response = call(&ledger, "router-echo", &get("/")).unwrap();
-        assert_eq!(response.status(), 201, "the first declared answers");
+        assert_eq!(call(&ledger, "router-echo", &get("/")).unwrap().status(), 201, "the first declared answers");
+        let reported = errors(&ledger);
+        assert_eq!(reported.len(), 1, "{reported:?}");
+        let message = &reported[0].2["message"];
+        assert!(message.contains("router_echo_twin.lua is a router named router-echo, as "), "{message}");
+        assert!(message.contains("router_echo.lua declared before it"), "{message}");
+        assert!(message.contains("Two router plugins cannot share a name"), "{message}");
+        let mixed = format!("{}{}", plugin(&dir, "router.wat"), plugin(&dir, "router_echo.lua"));
+        let ledger = load(&dir, &with_plugins(&mixed));
+        assert!(errors(&ledger)[0].2["message"].contains("router_echo.lua is a router named router-echo, as "));
+        // the same router declared twice is two routers of one name too
+        let twice = format!("{0}{0}", plugin(&dir, "router_echo.lua"));
+        assert_eq!(errors(&load(&dir, &with_plugins(&twice))).len(), 1);
     }
 
     /// a ledger declaring `router_write.lua` with the `writes` config `declared` (a JSON list, its `capabilities`

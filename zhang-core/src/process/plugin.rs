@@ -88,9 +88,18 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
             let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
             let files = crate::plugin::files::FileAccess::new(declaration.capabilities.allowed_paths.clone(), ledger.data_source.clone(), &ledger.entry.0);
             let (options, policy) = (ledger.options.all(), ledger.plugin_policy.clone());
-            ledger
+            let conflict = ledger
                 .plugins
                 .insert_plugin(plugin, parsed, declaration, span, &clock, timezone, files, &options, policy)?;
+            // a router named like an earlier one serves nothing: said on its directive, where the owner reads the
+            // ledger's errors, while the ledger loads and the first one keeps serving
+            if let Some(message) = conflict {
+                let metas = [
+                    (crate::plugin::host::PLUGIN_META.to_owned(), plugin.module.as_str().to_owned()),
+                    (crate::plugin::host::MESSAGE_META.to_owned(), message),
+                ];
+                ledger.report(zhang_ast::error::ErrorKind::PluginError, span, metas.into_iter().collect());
+            }
             // a rebuilt local module makes the ledger stale
             if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, plugin.module.as_str()) {
                 ledger.extra_inputs.insert(input);

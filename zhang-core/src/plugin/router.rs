@@ -3,7 +3,8 @@
 //! A plugin declaring the `Router` type serves `/api/plugins/{name}` and every path below it, for
 //! any HTTP method, behind the same authentication as the rest of zhang's API. `{name}` is what the
 //! plugin's `name` export returns, the name `/api/plugins` lists. When two router plugins share a
-//! name, the first one declared serves it.
+//! name, the first one declared serves it, and the later one is reported on its directive, so the
+//! conflict is visible where the owner reads the ledger's errors.
 //!
 //! # ABI
 //!
@@ -287,18 +288,35 @@ fn ledger_info(ledger: &Ledger) -> LedgerInfo {
 }
 
 impl PluginStore {
-    /// the router plugin serving `/api/plugins/{name}`: the first declared router plugin of that name
+    /// the router plugin serving `/api/plugins/{name}`
     pub fn router(&self, name: &str) -> Option<&RegisteredPlugin> {
         self.routers.iter().find(|plugin| plugin.name == name)
     }
 
-    /// register a router plugin. One sharing the name of an earlier router plugin never serves a request
-    pub(crate) fn add_router(&mut self, plugin: RegisteredPlugin) {
-        if self.router(&plugin.name).is_some() {
+    /// Register a router plugin. When a router plugin of its name was registered before it, that one keeps
+    /// serving `/api/plugins/{name}` and this one never does: the problem is answered, naming both modules, for the
+    /// ledger to report on this plugin's directive, so which code answers a route (with which grants) is never a
+    /// silent matter of the order of the directives. A module declared again to run its processor or mapper a
+    /// second time (`stages`), as a module declared twice runs twice, is no conflict: the first declaration's router
+    /// serves, as before
+    pub(crate) fn add_router(&mut self, plugin: RegisteredPlugin, stages: bool) -> Option<String> {
+        let Some(first) = self.router(&plugin.name) else {
+            self.routers.push(plugin);
+            return None;
+        };
+        if stages && first.module() == plugin.module() {
             let name = log_safe(&plugin.name);
-            warn!("two router plugins are named {name}: the first one declared serves /api/plugins/{name}, the later one never does");
+            debug!("router plugin {name} is declared again to run as a stage: the first declaration serves /api/plugins/{name}");
+            return None;
         }
-        self.routers.push(plugin);
+        Some(format!(
+            "{} is a router named {}, as {} declared before it, which serves /api/plugins/{}: this one serves nothing. \
+             Two router plugins cannot share a name; remove one of the directives",
+            plugin.module(),
+            plugin.name,
+            first.module(),
+            plugin.name
+        ))
     }
 }
 

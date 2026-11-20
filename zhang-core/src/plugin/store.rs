@@ -35,12 +35,14 @@ impl PluginStore {
     /// register the plugin `_plugin` declares, whose module is `module`, as parsed into `declaration`; `span` is
     /// the directive's span. `clock` is the clock of the load, which the plugin reads in the ledger timezone
     /// `timezone`, `files` what the plugin may read once it runs as a processor or mapper, `options` the ledger's
-    /// options, part of the config every instance of the plugin gets, and `policy` what the operator lets it use
+    /// options, part of the config every instance of the plugin gets, and `policy` what the operator lets it use. The
+    /// answer is the problem to report on the directive, if any: a router named like an earlier one
+    /// ([`PluginStore::add_router`])
     #[allow(clippy::too_many_arguments)]
     pub fn insert_plugin(
         &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
         options: &[OptionDomain], policy: Arc<PluginPolicy>,
-    ) -> ZhangResult<()> {
+    ) -> ZhangResult<Option<String>> {
         let plugin_name = _plugin.module.as_str().to_string();
 
         // the runtime compiles the module for the settings it is asked for and builds every instance
@@ -104,12 +106,16 @@ impl PluginStore {
             policy,
             writes,
         };
-        if plugin_types.contains(&PluginType::Router) {
-            self.add_router(registered_plugin.clone())
-        }
+        let conflict = match plugin_types.contains(&PluginType::Router) {
+            true => {
+                let stages = plugin_types.iter().any(|it| matches!(it, PluginType::Processor | PluginType::Mapper));
+                self.add_router(registered_plugin.clone(), stages)
+            }
+            false => None,
+        };
         self.ordered.push((registered_plugin, plugin_types));
 
-        Ok(())
+        Ok(conflict)
     }
 
     /// how many plugins registered so far declare `module`, as written
@@ -264,6 +270,11 @@ impl RegisteredPlugin {
     /// the write kinds the plugin declared in its `capabilities` export; it writes those its directive also grants
     pub fn declared_writes(&self) -> &[WriteKind] {
         &self.writes
+    }
+
+    /// the module of the plugin's directive, as written
+    pub fn module(&self) -> &str {
+        &self.declaration.directive.module
     }
 
     /// the Lua script this plugin runs, for a `plugin "x.lua"` directive
@@ -539,7 +550,7 @@ mod test {
         let module = PluginModule::Wasm(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
         let clock = LoadClock::new(crate::clock::Clock::System);
         let mut store = PluginStore::default();
-        store
+        let conflict = store
             .insert_plugin(
                 &directive,
                 module,
@@ -552,6 +563,7 @@ mod test {
                 Arc::new(PluginPolicy::default()),
             )
             .unwrap();
+        assert_eq!(conflict, None);
         let (plugin, _) = &store.ordered[0];
 
         // registering compiled once (generation 1) with the config a run gets: the option and the meta

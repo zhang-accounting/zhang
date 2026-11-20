@@ -491,6 +491,8 @@ option "operating_currency" "EUR"
 
 用 [`plugin`](/zh-cn/reference/directives/plugin/) 指令声明的 WASM 插件报告了一个问题，报告者通常是只检查账本、不修改账本的校验插件。插件通过 `zhang_emit_error` 宿主函数报告问题，账本仍会加载。错误的 `message` 元数据描述问题，`plugin` 元数据指出插件；插件还可以加上自己的元数据。错误指向插件指定的指令；插件没有指定时，指向插件的 `plugin` 指令。[编写插件](/zh-cn/developers/writing-plugins/#报告错误)介绍了插件如何报告错误。
 
+张记账自己也会报告这个错误：当一个 router 插件与之前声明的 router 插件同名时，报告在它的 `plugin` 指令上。先声明的那个提供 `/api/plugins/<name>`，这个不提供任何路由（`message` 指明两者）。删除两条指令中的一条即可。同时也是 processor 或 mapper、为了运行两次而声明两次的模块不会被报告。
+
 例如，一个要求每笔交易都有收款方的插件，会在下面这笔交易上报告 `message: "payee is missing"`：
 
 ```zhang

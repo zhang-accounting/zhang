@@ -46,7 +46,7 @@ return M
 
 | 字段 | 必填 | 含义 |
 |---|---|---|
-| `name` | 是 | 插件名，`GET /api/plugins` 列出的名字，也是路由 `/api/plugins/{name}` 中的名字。两个插件同名时，先声明的那个提供路由。 |
+| `name` | 是 | 插件名，`GET /api/plugins` 列出的名字，也是路由 `/api/plugins/{name}` 中的名字。两个 router 插件同名时，先声明的那个提供路由，后声明的那个会在它的指令上报告一个 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)。 |
 | `version` | 是 | 插件版本，一个字符串。 |
 | `types` | 否 | 插件类型列表。`{ "Router" }` 是唯一可用的值，也是默认值；没有任何类型的列表，或者把列表写成了映射，都无法加载。 |
 | `router` | router 需要 | 响应请求的函数。 |

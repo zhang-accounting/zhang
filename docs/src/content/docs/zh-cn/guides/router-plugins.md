@@ -30,7 +30,7 @@ Router 插件服务 `/api/plugins/{name}` 及其下的所有路径，接受任�
 - `/api/plugins/report` 和 `/api/plugins/report/` 以路径 `/` 到达插件。
 - `/api/plugins/report/by-month?year=2024` 以路径 `/by-month` 和查询参数 `{"year": ["2024"]}` 到达插件。
 
-这些路由与 API 的其余部分使用同样的[身份认证](/zh-cn/deployment/authentication/)：启用登录后，无论使用什么方法，请求都需要会话（或脚本发送的 Basic 请求头）。当两个 Router 插件同名时，由先声明的那个提供该路由，张记账会记录一条警告。
+这些路由与 API 的其余部分使用同样的[身份认证](/zh-cn/deployment/authentication/)：启用登录后，无论使用什么方法，请求都需要会话（或脚本发送的 Basic 请求头）。两个 Router 插件同名时（内置插件也一样），先声明的那个提供该路由，后声明的那个不提供任何路由：张记账在它的指令上报告一个 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)，指明两者，所以路由不会在你不知情的情况下由你意料之外的代码回答。同时也是 processor 或 mapper 的模块可以声明两次来运行两次；由它的第一条声明提供路由，这不会被报告。
 
 ## `router` 导出函数
 

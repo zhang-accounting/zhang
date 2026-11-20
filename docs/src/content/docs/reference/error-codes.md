@@ -609,6 +609,10 @@ plugin; the plugin may add metas of its own. The error points at the directive t
 `plugin` directive when it names none. [Writing Plugins](/developers/writing-plugins/#reporting-errors) shows how a
 plugin reports one.
 
+Zhang reports one itself on the `plugin` directive of a router plugin named like a router plugin declared before it:
+the first one serves `/api/plugins/<name>`, and this one serves nothing (`message` names both). Remove one of the two
+directives. A module that is also a processor or mapper, declared twice to run twice, is not reported.
+
 For example, a plugin that requires a payee on every transaction reports `message: "payee is missing"` on this
 transaction:
 

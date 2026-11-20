@@ -342,7 +342,7 @@ fn route(request: Request) -> Result<Response, Error> {
 
 ## Lua plugins
 
-A router plugin can be a Lua script instead of a module: `plugin "plugins/report.lua"`. Zhang embeds a Lua 5.4 interpreter, itself a wasm plugin built from `tools/lua-runtime` in the repository, and pairs it with the script at load time: the interpreter is the module the sandbox runs, and the script reaches it through two reserved config keys, `zhang.script` (the source) and `zhang.script_name` (the module path as written, which messages name). Everything else is the wasm path: registration reads `name`, `version` and `supported_type` from the module table the script returns, the first router of a name serves it, the directive's capabilities and `timeout` apply, every request is a fresh instance, and `GET /api/plugins` lists the script's own name and version.
+A router plugin can be a Lua script instead of a module: `plugin "plugins/report.lua"`. Zhang embeds a Lua 5.4 interpreter, itself a wasm plugin built from `tools/lua-runtime` in the repository, and pairs it with the script at load time: the interpreter is the module the sandbox runs, and the script reaches it through two reserved config keys, `zhang.script` (the source) and `zhang.script_name` (the module path as written, which messages name). Everything else is the wasm path: registration reads `name`, `version` and `supported_type` from the module table the script returns, the first router of a name serves it (a later one is reported), the directive's capabilities and `timeout` apply, every request is a fresh instance, and `GET /api/plugins` lists the script's own name and version.
 
 ```lua
 local M = { name = "report", version = "0.1.0", types = { "Router" } }

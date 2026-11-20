@@ -46,7 +46,7 @@ The script is one chunk that returns a table:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `name` | yes | The plugin's name, as `GET /api/plugins` lists it and as the route `/api/plugins/{name}` names it. When two plugins share a name, the first one declared serves the route. |
+| `name` | yes | The plugin's name, as `GET /api/plugins` lists it and as the route `/api/plugins/{name}` names it. When two router plugins share a name, the first one declared serves the route, and the later one is reported as a [`PluginError`](/reference/error-codes/#pluginerror) on its directive. |
 | `version` | yes | The plugin's version, a string. |
 | `types` | no | The plugin types, a list. `{ "Router" }` is the only value and the default; a list with no type, or a map where a list was meant, does not load. |
 | `router` | for a router | The function that answers a request. |
