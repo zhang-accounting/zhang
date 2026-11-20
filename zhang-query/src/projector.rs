@@ -234,6 +234,17 @@ impl Projection {
             || (self.table.columns().iter().enumerate()).any(|(index, column)| self.columns.contains(index) && column.provided_by.is_some())
     }
 
+    /// The label columns of the projected table that are projected ([`TableRef::labels`]).
+    pub fn label_columns(&self) -> impl Iterator<Item = &std::sync::Arc<crate::extension::LabelColumn>> {
+        let first = self.table.columns().len() - self.table.labels().len();
+        self.table
+            .labels()
+            .iter()
+            .enumerate()
+            .filter(move |(slot, _)| self.columns.contains(first + slot))
+            .map(|(_, column)| column)
+    }
+
     /// Whether the column `name` (case-insensitive) of the projected table is projected: what a row source asks to
     /// skip the work of a column no expression reads.
     pub fn contains_named(&self, name: &str) -> bool {

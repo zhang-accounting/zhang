@@ -10,9 +10,11 @@
 //! and its `postings` table when the extensions add columns to it.
 //!
 //! [`Catalog::core`] has the core tables only. [`Catalog::standard`] adds the tables of the native
-//! providers, the budget tables of `zhang:budget`: it is the catalog of every ledger
-//! ([`Catalog::of_ledger`]) and the one [`crate::Query::compile`] compiles against. A handle holds
-//! a table's schema, never its rows, which an execution looks up in the ledger it runs on.
+//! providers, the budget tables of `zhang:budget`: it is the catalog of a ledger without tables of
+//! its own and the one [`crate::Query::compile`] compiles against. A ledger whose analyzers provide
+//! tables has a catalog of its own, built while it loads and kept with it ([`Catalog::of_ledger`]):
+//! a query to run on a ledger compiles against that ledger's catalog. A handle holds a table's
+//! schema, never its rows, which an execution looks up in the ledger it runs on.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -20,7 +22,7 @@ use std::sync::{Arc, LazyLock};
 
 use zhang_core::ledger::Ledger;
 
-use crate::extension::{self, CatalogDigest, LabelColumn, Manifest};
+use crate::extension::{self, CatalogDigest, LabelColumn, Provider, Skipped};
 use crate::table::{self, Borrow, ColumnDef, Dataset, Get, RowRef, Rows, Table, POSTINGS};
 use crate::value::{DataType, Value};
 
@@ -30,6 +32,8 @@ use crate::value::{DataType, Value};
 pub struct Catalog {
     /// never empty: `postings` is the first table
     tables: Vec<TableRef>,
+    /// the providers of the extension tables, in order
+    providers: Vec<Provider>,
     /// the digest of the extensions the tables come from
     digest: CatalogDigest,
 }
@@ -41,26 +45,43 @@ impl Catalog {
         &CORE
     }
 
-    /// The core tables and those of the native providers, compiled into zhang: the catalog of every ledger today,
-    /// which [`crate::Query::compile`] compiles against.
+    /// The core tables and those of the native providers, compiled into zhang: the catalog of a ledger without tables
+    /// of its own, which [`crate::Query::compile`] compiles against.
     pub fn standard() -> &'static Arc<Catalog> {
         static STANDARD: LazyLock<Arc<Catalog>> = LazyLock::new(|| {
             // the tests build it from the same manifests, so this cannot fail in a release
-            Arc::new(Catalog::with_extensions(extension::native_manifests()).unwrap_or_else(|err| panic!("a native provider is invalid: {err}")))
+            Arc::new(Catalog::with_extensions(extension::native_providers()).unwrap_or_else(|err| panic!("a native provider is invalid: {err}")))
         });
         &STANDARD
     }
 
-    /// The catalog of the tables of `ledger`: the one a query to run on it compiles against.
-    pub fn of_ledger(_ledger: &Ledger) -> Arc<Catalog> {
-        Catalog::standard().clone()
+    /// The catalog of the tables of `ledger`: the one a query to run on it compiles against. It is the ledger's own,
+    /// built while it loaded, when its analyzers provide tables, and [`Catalog::standard`] otherwise.
+    pub fn of_ledger(ledger: &Ledger) -> Arc<Catalog> {
+        ledger
+            .extensions
+            .catalog
+            .clone()
+            .and_then(|catalog| catalog.downcast::<Catalog>().ok())
+            .unwrap_or_else(|| Catalog::standard().clone())
     }
 
-    /// The core tables and those of the providers of `manifests`, which are checked: the core's tables, then the
-    /// providers' in order, then `#errors`, which the schema has always listed last. `postings` has the providers'
-    /// label columns after its own.
-    pub(crate) fn with_extensions(manifests: &[Manifest]) -> Result<Catalog, String> {
-        let extensions = extension::build(manifests)?;
+    /// The core tables and those of `providers`, whose manifests are checked; an error naming every provider that
+    /// does not hold (see [`Catalog::build`]).
+    pub(crate) fn with_extensions(providers: &[Provider]) -> Result<Catalog, String> {
+        let (catalog, skipped) = Catalog::build(providers);
+        match skipped.is_empty() {
+            true => Ok(catalog),
+            false => Err(skipped.into_iter().map(|skipped| skipped.message).collect::<Vec<_>>().join("; ")),
+        }
+    }
+
+    /// The core tables and those of `providers`, whose manifests are checked: the core's tables, then the providers'
+    /// in order, then `#errors`, which the schema has always listed last. `postings` has the providers' label columns
+    /// after its own. A provider whose manifest does not hold, or whose tables and columns cannot all be had (a name is
+    /// taken, or a limit is reached), has none of them, and is among the providers skipped, with why.
+    pub(crate) fn build(providers: &[Provider]) -> (Catalog, Vec<Skipped>) {
+        let extensions = extension::build(providers);
         let core = table::tables();
         let (data, trailing) = core.split_at(core.len() - table::TRAILING);
         let postings = if extensions.labels.is_empty() {
@@ -81,7 +102,9 @@ impl Catalog {
             .chain(data.iter().filter(|table| !table.is_postings()).map(|table| TableRef::Static(table)))
             .chain(extensions.tables)
             .chain(trailing.iter().map(|table| TableRef::Static(table)));
-        Ok(Catalog::of(tables, extensions.digest))
+        let mut catalog = Catalog::of(tables, extensions.digest);
+        catalog.providers = extensions.providers;
+        (catalog, extensions.skipped)
     }
 
     /// The catalog of `tables`, the first of which is a `postings` table (the only one).
@@ -89,7 +112,11 @@ impl Catalog {
         let tables = tables.into_iter().collect::<Vec<_>>();
         assert!(tables.first().is_some_and(TableRef::is_postings), "a catalog starts with the postings table");
         assert!(!tables[1..].iter().any(TableRef::is_postings), "a catalog has one postings table");
-        Catalog { tables, digest }
+        Catalog {
+            tables,
+            providers: vec![],
+            digest,
+        }
     }
 
     /// The core tables and `extra` after them: a catalog with test-only tables.
@@ -116,6 +143,23 @@ impl Catalog {
     /// The table `name` (without `#`). Table names are case-sensitive, as in beanquery.
     pub(crate) fn find(&self, name: &str) -> Option<&TableRef> {
         self.tables.iter().find(|table| table.name() == name)
+    }
+
+    /// The providers whose snapshots the catalog reads from the ledger ([`extension::Source::Published`]): its analyzers,
+    /// in order.
+    pub(crate) fn published_providers(&self) -> impl Iterator<Item = &str> {
+        self.providers
+            .iter()
+            .filter(|provider| matches!(provider.source, extension::Source::Published))
+            .map(|provider| provider.manifest.provider.as_str())
+    }
+
+    /// The provider `name` of extension tables of the catalog, the one whose snapshot it reads from the ledger
+    /// ([`extension::Source::Published`]); `None` when the catalog has no such provider.
+    pub(crate) fn published_provider(&self, name: &str) -> Option<&Provider> {
+        self.providers
+            .iter()
+            .find(|provider| matches!(provider.source, extension::Source::Published) && provider.manifest.provider == name)
     }
 }
 

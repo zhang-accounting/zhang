@@ -18,7 +18,7 @@ use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use super::LabelDecl;
+use super::{LabelDecl, ManifestDigest, Source};
 use crate::catalog::{Catalog, ColumnRef};
 use crate::compiler::CExpr;
 use crate::error::QueryErrorKind;
@@ -33,6 +33,10 @@ use crate::Query;
 pub(crate) struct LabelColumn {
     /// the provider whose snapshot holds the labels
     pub provider: Arc<str>,
+    /// the digest of the provider, which its snapshot must have
+    pub digest: ManifestDigest,
+    /// where the provider's snapshot is
+    pub source: Source,
     /// the column's name, under which the snapshot holds the labels
     pub name: String,
     /// the predicate, compiled and optimized against the core `postings` table, with its parameters
@@ -46,9 +50,9 @@ pub(crate) struct LabelColumn {
 const PREFIX: &str = "SELECT count(*) WHERE ";
 
 impl LabelColumn {
-    /// The label column `decl` of `provider`, its predicate compiled: a row-level boolean expression of the core
-    /// `postings` table that reads no running total.
-    pub fn compile(provider: &Arc<str>, decl: &LabelDecl) -> Result<LabelColumn, String> {
+    /// The label column `decl` of `provider`, whose digest is `digest` and whose labels come from `source`, its
+    /// predicate compiled: a row-level boolean expression of the core `postings` table that reads no running total.
+    pub fn compile(provider: &Arc<str>, digest: ManifestDigest, source: Source, decl: &LabelDecl) -> Result<LabelColumn, String> {
         let mut types = ParamTypes::new().bind("label", DataType::Str);
         for (name, ty) in &decl.params {
             if name == "label" {
@@ -79,6 +83,8 @@ impl LabelColumn {
         let index = index_of(&predicate);
         Ok(LabelColumn {
             provider: provider.clone(),
+            digest,
+            source,
             name: decl.name.clone(),
             predicate,
             index,

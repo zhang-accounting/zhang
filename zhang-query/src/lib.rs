@@ -43,6 +43,7 @@
 //! # }
 //! ```
 
+pub mod analysis;
 mod ast;
 pub mod catalog;
 mod compiler;
@@ -316,6 +317,12 @@ impl Query {
                     QueryErrorKind::Compile,
                     "the ledger's tables changed since the query was compiled; compile it again",
                 ));
+            }
+            // while the ledger loads, an analyzer reads the label columns of those that analysed it before only
+            if ledger.extensions.analysing {
+                for column in self.projection.label_columns() {
+                    extension::snapshot::check_label_column(ledger, column).map_err(|message| QueryError::new(QueryErrorKind::Eval, message))?;
+                }
             }
         }
         self.check_params(params)?;

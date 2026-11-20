@@ -3,15 +3,17 @@
 //!
 //! A provider declares them in a static [`Manifest`]. A catalog is built from the manifests before any snapshot
 //! exists ([`build`]), and a compiled query keeps their schema only, the handles of [`crate::catalog`], never rows.
-//! The rows are the provider's [`Snapshot`] of the ledger a query runs on, looked up by the provider's name when it
-//! executes: a query compiled once reads the rows of every ledger it runs on, as long as the catalog of that ledger has
-//! the digest the query was compiled against ([`CatalogDigest`]); on another one it fails with an error that asks to
-//! compile it again, never with a wrong read.
+//! Where the rows of a provider come from is decided when the catalog is built, and kept with each of its tables and
+//! columns ([`Source`]): a native provider's snapshot of a ledger is built from the ledger in the query cache, an
+//! analyzer's is the one it published into the ledger while the ledger loaded. A query compiled once reads the rows
+//! of every ledger it runs on, as long as the catalog of that ledger has the digest the query was compiled against
+//! ([`CatalogDigest`]); on another one it fails with an error that asks to compile it again, never with a wrong read.
 //!
 //! There are three kinds:
 //!
 //! - **Record tables** ([`TableKind::Records`]): the snapshot holds every row, its cells and its metadata, which
-//!   `meta()` and `meta_values()` read ([`RecordRow`]); the host lists them in the order the snapshot publishes them.
+//!   `meta()` and `meta_values()` read ([`RecordRow`]); the host lists them in the order the snapshot publishes them,
+//!   which the manifest declares ([`RecordOrder`]).
 //! - **Series tables** ([`TableKind::Series`]): per partition, the snapshot holds the periods that have something,
 //!   its facts, and how far the series runs. The host fills the periods between and after them per query, by copying
 //!   values ([`Fill`]), up to the end the provider sets, the current period when [`SeriesDecl::extend_to_today`] says
@@ -20,24 +22,28 @@
 //!   the row. The predicate is BQL over the row with parameters, compiled once per catalog; the snapshot holds the
 //!   labels and the parameters each binds ([`labels`]).
 //!
-//! Today the only providers are native ones, compiled into zhang ([`NATIVE`]): `zhang:budget` serves `#budgets`,
-//! `#budget_events`, `#budget_definitions` and the `budgets` column of `postings` with the native budget code
-//! ([`budget`]). A native snapshot is built from the ledger on first use and kept with it, like the query cache.
+//! The native providers are compiled into zhang ([`NATIVE`]): `zhang:budget` serves `#budgets`, `#budget_events`,
+//! `#budget_definitions` and the `budgets` column of `postings` with the native budget code ([`budget`]). A native
+//! snapshot is built from the ledger on first use and kept with it, like the query cache. The other providers are
+//! analyzers ([`abi`]): plugins that analyse a ledger while it loads and publish what they found as a snapshot, which
+//! the host checks against their manifest before anything of it is published ([`snapshot::publish`]).
 //!
 //! Names follow §3.4 of the RFC: a core table or column always keeps its name, and of two providers declaring one
-//! name the first keeps it.
+//! name the first keeps it. A provider that cannot have all of its tables and columns, because a name is taken or
+//! a limit is reached, or whose manifest does not hold, has none of them: it is skipped, and the catalog says why
+//! ([`Skipped`]), for the load to report it on the plugin's directive. The other providers keep theirs.
 //!
 //! **Limits.** An extension's table has at most 64 columns ([`crate::table::MAX_CELLS`]), and a catalog at most 16 label
 //! columns ([`crate::table::MAX_LABELS`]), shared by all the providers of a ledger: a column is read through a getter
 //! per cell position and per label slot, monomorphized, so that reading it costs what reading a core column does. A
-//! manifest past either limit fails [`build`], with every other check. The plugin guide states both limits once
-//! analyzers exist (P1.4).
+//! provider past either limit is skipped.
 
+pub(crate) mod abi;
 pub(crate) mod budget;
 mod compat;
 pub(crate) mod labels;
 pub(crate) mod series;
-mod snapshot;
+pub(crate) mod snapshot;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -49,7 +55,7 @@ use zhang_core::ledger::Ledger;
 
 pub(crate) use self::labels::{LabelColumn, Labels};
 pub(crate) use self::series::{FillRead, SeriesRow, SeriesSpec};
-pub(crate) use self::snapshot::{snapshot, snapshots, Cause, FactRow, Label, Partition, RecordRow, Snapshot, TableData};
+pub(crate) use self::snapshot::{native_snapshots, Cause, FactRow, Label, NativeSnapshot, Partition, RecordRow, TableData};
 use crate::catalog::TableRef;
 use crate::table::{self, Borrow, ColumnDef, Get, Names, Rows, Table};
 use crate::value::DataType;
@@ -69,6 +75,9 @@ pub(crate) struct Manifest {
 pub(crate) struct TableDecl {
     /// the name after `#`: `[a-z][a-z0-9_]*`
     pub name: String,
+    /// the name its rows are published under: an analyzer's name for it, which the catalog's starts with the
+    /// analyzer's namespace ([`abi`]); the name for a native provider
+    pub published_as: String,
     pub description: String,
     pub kind: TableKind,
     pub columns: Vec<ColumnDecl>,
@@ -80,9 +89,18 @@ pub(crate) struct TableDecl {
 #[derive(Debug, Clone, Hash)]
 pub(crate) enum TableKind {
     /// every row is in the snapshot, in the table's order
-    Records,
+    Records(RecordOrder),
     /// periods per partition, the missing ones generated per query
     Series(SeriesDecl),
+}
+
+/// The order of the rows of a record table, which a snapshot keeps: checked when it is published.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum RecordOrder {
+    /// the order the provider publishes them in
+    Published,
+    /// sorted by these columns, ascending, as `ORDER BY` sorts
+    Columns(Vec<String>),
 }
 
 /// The periods of a series table.
@@ -146,6 +164,8 @@ pub(crate) struct LabelDecl {
     /// the table: `postings`, the only one in this version
     pub table: String,
     pub name: String,
+    /// the name its labels are published under, as for a table ([`TableDecl::published_as`])
+    pub published_as: String,
     pub description: String,
     /// a BQL predicate over a row of the table, which reads `:label`, the label, and the declared parameters
     pub predicate: String,
@@ -166,23 +186,84 @@ pub(crate) struct NativeProvider {
 /// The native providers, in the order their tables are listed.
 pub(crate) static NATIVE: &[&NativeProvider] = &[&budget::PROVIDER];
 
-/// The manifests of the native providers, as [`NATIVE`] lists them.
-pub(crate) fn native_manifests() -> &'static [Manifest] {
-    static MANIFESTS: LazyLock<Vec<Manifest>> = LazyLock::new(|| NATIVE.iter().map(|provider| (provider.manifest)()).collect());
-    &MANIFESTS
+/// Where the rows of a provider's tables and columns come from, decided when a catalog is built.
+#[derive(Clone, Copy)]
+pub(crate) enum Source {
+    /// a provider compiled into zhang: its snapshot of a ledger is built from the ledger, part by part on first use,
+    /// and kept in the ledger's query cache
+    Native(&'static NativeProvider),
+    /// an analyzer: its snapshot is the one it published into the ledger while the ledger loaded
+    /// ([`zhang_core::extensions::Extensions`])
+    Published,
 }
 
-/// The digest of the extension part of a catalog: a hash of every manifest it is built from, names, types,
-/// descriptions and predicates included. Two catalogs with one digest have the same tables and columns, so a query
-/// compiled against one runs on a ledger of the other.
+/// The kind of source: two catalogs whose tables are alike but served from different sources have different digests,
+/// so a query compiled against one never reads the other's rows.
+impl Hash for Source {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Source::Native(_) => 0u8.hash(state),
+            Source::Published => 1u8.hash(state),
+        }
+    }
+}
+
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Source::Native(_) => "Native",
+            Source::Published => "Published",
+        })
+    }
+}
+
+/// A provider of a catalog: its manifest and where its rows come from.
+#[derive(Debug, Clone)]
+pub(crate) struct Provider {
+    pub manifest: Manifest,
+    pub source: Source,
+}
+
+impl Provider {
+    /// The digest of the provider: of its manifest and the kind of its source.
+    pub fn digest(&self) -> ManifestDigest {
+        let mut hasher = DefaultHasher::new();
+        self.manifest.hash(&mut hasher);
+        self.source.hash(&mut hasher);
+        ManifestDigest(hasher.finish())
+    }
+}
+
+/// The native providers, as [`NATIVE`] lists them.
+pub(crate) fn native_providers() -> &'static [Provider] {
+    static PROVIDERS: LazyLock<Vec<Provider>> = LazyLock::new(|| {
+        NATIVE
+            .iter()
+            .map(|native| Provider {
+                manifest: (native.manifest)(),
+                source: Source::Native(native),
+            })
+            .collect()
+    });
+    &PROVIDERS
+}
+
+/// The digest of one provider of a catalog ([`Provider::digest`]): a snapshot carries the digest of the provider it was
+/// built for, which the catalog checks when it is published and the tables when they read it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ManifestDigest(u64);
+
+/// The digest of the extension part of a catalog: a hash of every provider it is built from, their manifests (names,
+/// types, descriptions and predicates included) and the kinds of their sources. Two catalogs with one digest have the
+/// same tables and columns, served alike, so a query compiled against one runs on a ledger of the other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CatalogDigest(u64);
 
 impl CatalogDigest {
-    fn of(manifests: &[Manifest]) -> CatalogDigest {
-        // SipHash with fixed keys: the same manifests give the same digest in every process of a build
+    fn of(digests: &[ManifestDigest]) -> CatalogDigest {
+        // SipHash with fixed keys: the same providers give the same digest in every process of a build
         let mut hasher = DefaultHasher::new();
-        manifests.hash(&mut hasher);
+        digests.hash(&mut hasher);
         CatalogDigest(hasher.finish())
     }
 }
@@ -194,11 +275,13 @@ impl fmt::Display for CatalogDigest {
     }
 }
 
-/// How the rows of an extension table are found: in the snapshot of its provider, under the table's name.
-// TODO(P1.4): decide at catalog build which source serves the table (a native provider's snapshot in the query cache,
-// or an analyzer's in `Ledger::extensions`) and keep it here, rather than looking in both when a query runs
+/// How the rows of an extension table are found: in the snapshot of its provider, under the table's name, from the
+/// source the catalog decided on.
 pub(crate) struct ExtensionRows {
     pub provider: Arc<str>,
+    /// the digest of the provider, which its snapshot must have
+    pub digest: ManifestDigest,
+    pub source: Source,
     pub kind: ExtensionKind,
 }
 
@@ -208,65 +291,105 @@ pub(crate) enum ExtensionKind {
     Series(SeriesSpec),
 }
 
-/// The extension part of a catalog: the tables, the columns `postings` gains, and the digest.
+/// The extension part of a catalog: the tables, the columns `postings` gains, the providers that have them, the
+/// digest, and the providers skipped.
 pub(crate) struct Extensions {
     pub tables: Vec<TableRef>,
     /// the label columns, with what they read
     pub labels: Vec<(ColumnDef, Arc<LabelColumn>)>,
+    /// the providers whose tables and columns the catalog has, in order
+    pub providers: Vec<Provider>,
     pub digest: CatalogDigest,
+    /// the providers the catalog has none of the tables and columns of, and why
+    pub skipped: Vec<Skipped>,
 }
 
-/// Check `manifests` (§3.3 of the RFC) and build their tables and label columns. A manifest that does not hold is an
-/// error naming the provider and what is wrong.
-pub(crate) fn build(manifests: &[Manifest]) -> Result<Extensions, String> {
+/// A provider a catalog skipped: a name it declares is taken, it would pass a limit, or its manifest does not hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Skipped {
+    /// its position among the providers the catalog was built from
+    pub index: usize,
+    pub provider: String,
+    /// what is wrong, naming the provider
+    pub message: String,
+}
+
+/// Check the manifests of `providers` (§3.3 of the RFC) and build their tables and label columns, in order. A provider
+/// whose manifest does not hold, or whose tables or columns cannot all be had, has none of them and is skipped, with a
+/// message naming it and what is wrong; the others keep theirs.
+pub(crate) fn build(providers: &[Provider]) -> Extensions {
     let mut names = table::tables().iter().map(|table| table.name.to_string()).collect::<HashSet<_>>();
     let mut label_names = table::POSTINGS.columns.iter().map(|column| column.name.to_lowercase()).collect::<HashSet<_>>();
-    let mut tables = vec![];
-    let mut labels = vec![];
-    for manifest in manifests {
-        let provider: Arc<str> = Arc::from(manifest.provider.as_str());
-        let error = |message: String| format!("{}: {}", manifest.provider, message);
-        for decl in &manifest.tables {
-            check_name(&decl.name).map_err(|it| error(format!("table '{}': {}", decl.name, it)))?;
-            // TODO(P1.4): a ledger analyzer whose name collides is skipped and reported on its directive (§3.4), the
-            // other providers keep their tables; failing the whole catalog only suits the native providers
-            if !names.insert(decl.name.clone()) {
-                return Err(error(format!("table '{}' is already a table", decl.name)));
+    let mut extensions = Extensions {
+        tables: vec![],
+        labels: vec![],
+        providers: vec![],
+        digest: CatalogDigest(0),
+        skipped: vec![],
+    };
+    for (index, provider) in providers.iter().enumerate() {
+        match provider_tables(provider, &names, &label_names, extensions.labels.len()) {
+            Ok((tables, labels)) => {
+                names.extend(provider.manifest.tables.iter().map(|decl| decl.name.clone()));
+                label_names.extend(provider.manifest.labels.iter().map(|decl| decl.name.to_lowercase()));
+                extensions.tables.extend(tables);
+                extensions.labels.extend(labels);
+                extensions.providers.push(provider.clone());
             }
-            let table = extension_table(&provider, decl).map_err(|it| error(format!("table #{}: {}", decl.name, it)))?;
-            tables.push(TableRef::Shared(Arc::new(table)));
-        }
-        for decl in &manifest.labels {
-            let what = format!("column {}.{}", decl.table, decl.name);
-            if decl.table != "postings" {
-                return Err(error(format!("{}: label columns are columns of postings", what)));
-            }
-            check_name(&decl.name).map_err(|it| error(format!("{}: {}", what, it)))?;
-            // TODO(P1.4): as for a table, a colliding analyzer is skipped and reported instead
-            if !label_names.insert(decl.name.to_lowercase()) {
-                return Err(error(format!("{}: postings already has a column '{}'", what, decl.name)));
-            }
-            let column = LabelColumn::compile(&provider, decl).map_err(|it| error(format!("{}: {}", what, it)))?;
-            // TODO(P1.4): a ledger analyzer past the limit, shared by all providers, is skipped and reported, as on a
-            // name collision, instead of failing the catalog
-            let (getter, holds) =
-                table::label_getter(labels.len()).ok_or_else(|| error(format!("{}: a catalog has at most {} label columns", what, table::MAX_LABELS)))?;
-            let def = ColumnDef {
-                name: Cow::Owned(decl.name.clone()),
-                ty: DataType::Set,
-                description: Cow::Owned(decl.description.clone()),
-                get: Get::Posting(getter),
-                borrow: Borrow::Contains(holds),
-                provided_by: Some(provider.clone()),
-            };
-            labels.push((def, Arc::new(column)));
+            Err(message) => extensions.skipped.push(Skipped {
+                index,
+                provider: provider.manifest.provider.clone(),
+                message: format!("{}: {}", provider.manifest.provider, message),
+            }),
         }
     }
-    Ok(Extensions {
-        tables,
-        labels,
-        digest: CatalogDigest::of(manifests),
-    })
+    extensions.digest = CatalogDigest::of(&extensions.providers.iter().map(Provider::digest).collect::<Vec<_>>());
+    extensions
+}
+
+/// The tables and label columns of `provider`, checked, when the catalog has the names `names` and `label_names`
+/// already and `labels` label columns.
+#[allow(clippy::type_complexity)]
+fn provider_tables(
+    provider: &Provider, names: &HashSet<String>, label_names: &HashSet<String>, labels: usize,
+) -> Result<(Vec<TableRef>, Vec<(ColumnDef, Arc<LabelColumn>)>), String> {
+    let manifest = &provider.manifest;
+    let name: Arc<str> = Arc::from(manifest.provider.as_str());
+    let digest = provider.digest();
+    let mut taken = HashSet::new();
+    let mut tables = vec![];
+    for decl in &manifest.tables {
+        check_name(&decl.name).map_err(|it| format!("table '{}': {}", decl.name, it))?;
+        if names.contains(&decl.name) || !taken.insert(decl.name.clone()) {
+            return Err(format!("table '{}' is already a table", decl.name));
+        }
+        let table = extension_table(&name, digest, provider.source, decl).map_err(|it| format!("table #{}: {}", decl.name, it))?;
+        tables.push(TableRef::Shared(Arc::new(table)));
+    }
+    let mut columns = vec![];
+    for decl in &manifest.labels {
+        let what = format!("column {}.{}", decl.table, decl.name);
+        if decl.table != "postings" {
+            return Err(format!("{}: label columns are columns of postings", what));
+        }
+        check_name(&decl.name).map_err(|it| format!("{}: {}", what, it))?;
+        if label_names.contains(&decl.name.to_lowercase()) || !taken.insert(format!("postings.{}", decl.name.to_lowercase())) {
+            return Err(format!("{}: postings already has a column '{}'", what, decl.name));
+        }
+        let column = LabelColumn::compile(&name, digest, provider.source, decl).map_err(|it| format!("{}: {}", what, it))?;
+        let (getter, holds) =
+            table::label_getter(labels + columns.len()).ok_or_else(|| format!("{}: a catalog has at most {} label columns", what, table::MAX_LABELS))?;
+        let def = ColumnDef {
+            name: Cow::Owned(decl.name.clone()),
+            ty: DataType::Set,
+            description: Cow::Owned(decl.description.clone()),
+            get: Get::Posting(getter),
+            borrow: Borrow::Contains(holds),
+            provided_by: Some(name.clone()),
+        };
+        columns.push((def, Arc::new(column)));
+    }
+    Ok((tables, columns))
 }
 
 /// Whether `name` is a name a provider can give a table or a column: `[a-z][a-z0-9_]*`.
@@ -280,13 +403,12 @@ fn check_name(name: &str) -> Result<(), String> {
     }
 }
 
-/// The table `decl` of `provider`, its declaration checked.
-fn extension_table(provider: &Arc<str>, decl: &TableDecl) -> Result<Table, String> {
+/// The table `decl` of `provider`, whose digest is `digest` and whose rows come from `source`, its declaration checked.
+fn extension_table(provider: &Arc<str>, digest: ManifestDigest, source: Source, decl: &TableDecl) -> Result<Table, String> {
     let index = |name: &str| decl.columns.iter().position(|column| column.name == name);
     if decl.columns.is_empty() {
         return Err("a table has columns".to_owned());
     }
-    // TODO(P1.4): as for the label columns, a ledger analyzer past the limit is skipped and reported
     if decl.columns.len() > table::MAX_CELLS {
         return Err(format!("a table has at most {} columns", table::MAX_CELLS));
     }
@@ -301,9 +423,14 @@ fn extension_table(provider: &Arc<str>, decl: &TableDecl) -> Result<Table, Strin
         index(name).ok_or_else(|| format!("its wildcard names '{}', which is no column", name))?;
     }
     let kind = match &decl.kind {
-        TableKind::Records => {
+        TableKind::Records(order) => {
             if let Some(column) = decl.columns.iter().find(|column| column.fill.is_some()) {
                 return Err(format!("column '{}' has a fill, which only the columns of a series have", column.name));
+            }
+            if let RecordOrder::Columns(names) = order {
+                if let Some(name) = names.iter().find(|name| index(name).is_none()) {
+                    return Err(format!("its rows are ordered by '{}', which is no column", name));
+                }
             }
             ExtensionKind::Records
         }
@@ -352,6 +479,8 @@ fn extension_table(provider: &Arc<str>, decl: &TableDecl) -> Result<Table, Strin
         wildcard: Names::Owned(decl.wildcard.clone()),
         rows: Rows::Extension(ExtensionRows {
             provider: provider.clone(),
+            digest,
+            source,
             kind,
         }),
         provided_by: Some(provider.clone()),

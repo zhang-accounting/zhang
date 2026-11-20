@@ -21,6 +21,7 @@ use crate::data_type::Dialect;
 use crate::derived::Derived;
 use crate::domains::schemas::{identify_errors, AccountStatus, CommodityDomain, ErrorDomain, QueryDomain, TransactionInfoDomain};
 use crate::error::IoErrorIntoZhangError;
+use crate::extensions::Extensions;
 use crate::inputs::ExtraInput;
 use crate::inventory::BookingMethod;
 use crate::options::{BuiltinOption, InMemoryOptions};
@@ -160,6 +161,10 @@ pub struct Ledger {
     /// what readers compute from this ledger once and keep with it, such as the query engine's booked postings; a
     /// reload replaces the ledger, and starts this empty
     pub derived: Derived,
+
+    /// what the ledger's plugins provide its readers: the catalog of its query tables and its analyzers' snapshots,
+    /// written while it loads ([`Extensions`])
+    pub extensions: Extensions,
 
     /// whether the ledger may no longer be what its files hold: they were written, or found changed, since it was
     /// loaded. A writer reloads it first, to read the files as they are, and edit the places they have now
@@ -366,6 +371,7 @@ impl Ledger {
             clock: LoadClock::new(context.clock),
             lifecycle: AccountLifecycle::default(),
             derived: Derived::default(),
+            extensions: Extensions::default(),
             stale: false,
             #[cfg(feature = "plugin_runtime")]
             plugins: crate::plugin::store::PluginStore::default(),
