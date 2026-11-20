@@ -23,16 +23,16 @@ The owner's (PRD2 §1):
 | D3 | Amount arithmetic stays exact; never Lua floats; decimals travel as strings. | every amount in a tool argument or result is a string; a number is refused before the host sees it |
 | D4 | The MCP server is a Lua plugin replacing #799; it reuses #799's language-independent assets (BQL texts, tool catalogue, transport and era rules, review fixes, e2e sessions) and the parameterised-query host functions. | §2-4 |
 | D5 | Writes are a generic, capability-gated host path (`allowed_writes`), not MCP-specific. | §5: the plugin calls `zhang.write.preview`/`zhang.write.commit`, the host validates, chooses the file, appends and reloads |
-| D6 | Standing rulings: ABI v1 additive only; business logic in the engine; nothing silently changes a balance or drops user text; no implicit account auto-open. | §4 (BQL verbatim), §5 (strings, explicit `open_account`) |
+| D6 | Standing rulings: ABI v1 additive only; business logic in the engine; nothing silently changes a balance or drops user text; no implicit account auto-open. | §4 (built-in queries by name), §5 (strings, explicit `open_account`) |
 
 The plugin's own (carried from #799 where still true):
 
 | # | Decision | Why |
 | --- | --- | --- |
-| P1 | Name `zhang-mcp`; the MCP endpoint is `POST /api/plugins/zhang-mcp/mcp`; `GET /api/plugins/zhang-mcp/` answers a JSON description with the endpoint path; `GET /api/plugins/zhang-mcp/queries` lists the BQL (for the parity test); other paths are `404`. | The Settings page links to a router plugin's root: a user who opens it sees how to connect. The hidden `queries` route lets a Rust test compare texts without parsing Lua. |
+| P1 | Name `zhang-mcp`; the MCP endpoint is `POST /api/plugins/zhang-mcp/mcp`; `GET /api/plugins/zhang-mcp/` answers a JSON description with the endpoint path; other paths are `404`. | The Settings page links to a router plugin's root: a user who opens it sees how to connect. |
 | P2 | One JSON object per request, never SSE, never a session. | A plugin call is one buffered request/response; both revisions allow `application/json` answers (§2). |
 | P3 | Dual-era in one plugin: the legacy `initialize` lifecycle (2025-03-26, 2025-06-18, 2025-11-25) and the stateless 2026-07-28 revision. | Today's clients open with `initialize`; the current revision needs per-request `_meta` and header validation. A fresh Lua state per call makes statelessness the only option, and the right one. |
-| P4 | Twelve read tools; every BQL with a built-in equivalent is copied verbatim from `zhang-server/src/builtin.rs` and pinned by a parity test; the others are written in the same style. User input is only bound as a parameter. | The MCP answers are the app's answers; the owner's rule for routes (BQL plus a thin mapping) applies to plugins. |
+| P4 | Twelve read tools; every figure with a built-in query in `zhang-server/src/builtin.rs` is that query, run by name through the host (`zhang.query_builtin`); the plugin's own queries are written in the same style. User input is only bound as a parameter. | The MCP answers are the app's answers; the owner's rule for routes (BQL plus a thin mapping) applies to plugins. |
 | P5 | Tool results: `structuredContent` with the query API's cell encoding, plus the same JSON in a text block, plus an `outputSchema`. Tool execution errors are `isError: true` with a text block only. | S/server/tools: structured content SHOULD be mirrored as text; with an `outputSchema` the structured result MUST conform, so an error object must not be sent as `structuredContent`. |
 | P6 | Authentication is zhang's; no OAuth. `Origin`: absent → allowed; listed in `allowed_origins` → allowed; equal to the request's own `Host` → allowed only when that host is loopback; `null` or anything else → `403`. | S/basic/authorization makes authorization optional; the DNS rebinding rule of both transports, with "same host" safe for loopback names only. |
 | P7 | `limit` defaults to 200; one over `max_rows` (default 1000) is a tool error naming the cap; tools with `LIMIT :limit` fetch one row more than the limit so `truncated` is exact. | Keeps a result within a model's context; the host's value cap stays the hard bound. |
@@ -116,9 +116,11 @@ after `to`, a numeric amount, an empty `bql`) → `isError: true` with a text na
 | `open_account` | `date`, `account` (required), `commodities`, `booking_method` | `zhang.write.preview` of one `open`, then `zhang.write.commit` unless `already_open` | — | `readOnlyHint: false, destructiveHint: false, idempotentHint: true` |
 
 "read-only" = `{readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false}`; every tool has
-`openWorldHint: false`. The 14 BQL texts live in the `queries` section; `zhang-server/tests/mcp_plugin.rs` reads them
-through `GET /queries`, pins each `builtin` one to `BUILTINS[name].bql` and its parameter types, and compiles the
-plugin's own ones with the engine and exactly the parameters they declare.
+`openWorldHint: false`. The eleven built-in queries are run by name through `zhang.query_builtin` (Lua API version 3),
+so there is no copy of their text in the script; the three queries of its own (`mcp.spending_by_month`,
+`mcp.spending_by_currency`, `mcp.transactions`) live in the `queries` section. (Before review the script carried
+copies of the eleven, pinned to the server's text by a parity test through a hidden `GET /queries` route; both are
+gone.)
 
 `instructions` (sent by `initialize` and `server/discover`): what the ledger is (title JSON-quoted, operating
 currency, timezone), that amounts are exact decimals as strings, that `ledger_info` gives today's date and `schema`
@@ -215,7 +217,6 @@ From #799 (the wasm crate this script replaces), besides the language:
   content type gets one from the host, and a plugin cannot suppress it (#799's open nit, unfixable plugin-side).
 - Fixed from #799's open nits: `params` that are not an object still echo the request id; `limit: 5.0` is accepted as
   5; an empty `bql` is refused in the plugin; `limit + 1` saturates; `_meta` client capabilities must be an object.
-- The parity test reads the BQL through `GET /queries` instead of linking the crate.
 - Unit tests of the Rust crate (44) are not ported one-to-one: the e2e sessions carry their assertions where they
   mattered (framing, Origin, eras, schema errors, truncation), and the rest was Rust-side mechanics.
 

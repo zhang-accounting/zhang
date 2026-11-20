@@ -1,12 +1,12 @@
 //! `zhang-mcp` (`plugins/mcp/mcp.lua`), the MCP server plugin, end to end: the script is copied from the repository
 //! into a fixture ledger and driven through the real server router with whole JSON-RPC sessions, legacy
-//! (`initialize`) and modern (2026-07-28), plus the parity test that pins every BQL the plugin copies from a
-//! built-in query to the server's own text (read through the plugin's hidden `GET /queries` route), the write
-//! sessions (preview → open → preview → add → the file holds the text → a replay conflicts) and the read-only ones.
+//! (`initialize`) and modern (2026-07-28), the write sessions (preview → open → preview → add → the file holds the
+//! text → a replay conflicts) and the read-only ones. The tools answer the app's figures by running the server's
+//! built-in queries through `zhang.query_builtin`, so there is no copy of their text to keep in step.
 //!
 //! No build step: the script runs on the Lua interpreter the host embeds.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -19,9 +19,7 @@ use tokio::sync::RwLock;
 use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, ParamRef, ParamTypes, Query};
 use zhang_server::broadcast::Broadcaster;
-use zhang_server::builtin::BUILTINS;
 use zhang_server::{create_server_app, start_reload_listener, ReloadSender};
 use zhang_testkit::http::{call, router_of, send, serve_config, Reply, Settings};
 
@@ -211,85 +209,6 @@ fn inventory(cell: &Value) -> BTreeMap<String, f64> {
         .iter()
         .map(|position| (position["units"]["currency"].as_str().unwrap().to_owned(), number(&position["units"]["number"])))
         .collect()
-}
-
-// ---- parity: the plugin runs the app's own queries ------------------------------------------------------------
-
-fn data_type(ty: &str) -> DataType {
-    match ty {
-        "int" => DataType::Int,
-        "str" => DataType::Str,
-        "date" => DataType::Date,
-        "set" => DataType::Set,
-        other => panic!("the plugin declares a parameter of the unknown type {other}"),
-    }
-}
-
-/// every query the plugin marks `builtin` is, text and parameters, the server's built-in query of that name; every
-/// other one compiles with exactly the parameters it declares, as the built-in queries must
-#[tokio::test]
-async fn the_plugin_queries_are_the_builtins_or_compile_like_them() {
-    let dir = ledger_dir("");
-    let router = server(&dir, &Settings::default()).await;
-    let reply = call(&router, Method::GET, "/api/plugins/zhang-mcp/queries", &[], None).await;
-    assert_eq!(reply.status, 200, "{}", reply.text());
-    let queries = reply.json()["queries"].as_array().unwrap().clone();
-    assert_eq!(queries.len(), 14);
-
-    let mut pinned = BTreeSet::new();
-    for query in &queries {
-        let name = query["name"].as_str().unwrap();
-        let bql = query["bql"].as_str().unwrap();
-        let declared: BTreeSet<(String, DataType)> = query["params"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(name, ty)| (name.clone(), data_type(ty.as_str().unwrap())))
-            .collect();
-        if query["builtin"] == true {
-            let builtin = BUILTINS
-                .iter()
-                .find(|it| it.name == name)
-                .unwrap_or_else(|| panic!("the plugin copies a built-in query named {name} but zhang-server has none"));
-            assert_eq!(bql, builtin.bql, "{name}: the plugin's text is not the built-in query's");
-            let theirs: BTreeSet<(String, DataType)> = builtin.params.iter().map(|(name, ty)| ((*name).to_owned(), *ty)).collect();
-            assert_eq!(declared, theirs, "{name}: the parameters differ from the built-in query's");
-            pinned.insert(name.to_owned());
-        } else {
-            assert!(name.starts_with("mcp."), "{name}: a query of the plugin's own is named mcp.*");
-            assert!(BUILTINS.iter().all(|it| it.name != name));
-        }
-        let types = declared.iter().fold(ParamTypes::new(), |types, (name, ty)| types.bind(name, *ty));
-        let compiled = Query::compile_with_params(bql, &types).unwrap_or_else(|err| panic!("{name} does not compile: {err}"));
-        let used: BTreeSet<(String, DataType)> = compiled
-            .params()
-            .into_iter()
-            .map(|(param, ty)| match param {
-                ParamRef::Named(name) => (name, ty),
-                ParamRef::Positional(_) => panic!("{name} uses a positional parameter"),
-            })
-            .collect();
-        assert_eq!(used, declared, "{name}: the parameters its text uses, and those it declares");
-    }
-    assert_eq!(
-        pinned,
-        BTreeSet::from_iter(
-            [
-                "accounts.balances",
-                "accounts.journal_page",
-                "accounts.list",
-                "accounts.subtree",
-                "accounts.subtree_balances",
-                "commodities.latest_price",
-                "commodities.latest_prices",
-                "journals.errors",
-                "journals.payees",
-                "report.account_totals",
-                "report.net_worth",
-            ]
-            .map(str::to_owned)
-        )
-    );
 }
 
 // ---- sessions -------------------------------------------------------------------------------------------------------

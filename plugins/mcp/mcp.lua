@@ -12,8 +12,8 @@
 -- It serves `POST /api/plugins/zhang-mcp/mcp` behind zhang's own authentication, speaking both the legacy
 -- `initialize` lifecycle (2025-03-26 … 2025-11-25) and the stateless 2026-07-28 revision, with twelve read tools
 -- mapping onto the BQL the app runs and three write tools (preview, add, open) over the host's write capability.
--- `GET /api/plugins/zhang-mcp/` describes the endpoint; `GET /api/plugins/zhang-mcp/queries` lists the BQL for the
--- parity test. Design: plugins/mcp/DESIGN.md. Guide: docs/src/content/docs/guides/mcp.md.
+-- `GET /api/plugins/zhang-mcp/` describes the endpoint. Design: plugins/mcp/DESIGN.md. Guide:
+-- docs/src/content/docs/guides/mcp.md.
 --
 -- Sections: util, jsonrpc, config, transport, era, catalogue (args + schemas), queries, shape, read tools,
 -- write tools, info and the router entry.
@@ -594,79 +594,29 @@ local function validate(args, arguments)
 end
 
 -- ---- queries: the BQL the tools run ----------------------------------------------------------------------------
--- Where zhang-server has a built-in query for the figure (zhang-server/src/builtin.rs), its text is copied here
--- verbatim, so the MCP answers stay the app's answers: the parity test in zhang-server (tests/mcp_plugin.rs) reads
--- GET /queries and pins every `builtin` entry to BUILTINS. The others are written in the same style: parameters are
--- named, a NULL parameter leaves its filter out, and user input only reaches the engine as a bound parameter.
+-- Where zhang-server has a built-in query for the figure (zhang-server/src/builtin.rs), the tool runs it by name
+-- through the host (zhang.query_builtin), so the MCP answers are the app's answers with no copy of the text to keep in
+-- step. The few queries of the plugin's own are below, written in the same style: parameters are named, a NULL
+-- parameter leaves its filter out, and user input only reaches the engine as a bound parameter.
 
-local function query(name, builtin, params, bql) return { name = name, builtin = builtin, params = params, bql = bql } end
+local function query(name, bql) return { name = name, bql = bql } end
 
 local Q = {}
-Q.accounts_list = query("accounts.list", true, { { "date", "date" }, { "time", "str" } }, [[
-SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
-FROM #accounts
-ORDER BY account]])
-Q.accounts_subtree = query("accounts.subtree", true, { { "account", "str" }, { "date", "date" }, { "time", "str" } }, [[
-SELECT account, open, close, meta('alias') AS alias, account_status(account, :date, :time) AS status
-FROM #accounts
-WHERE under(account, :account)
-ORDER BY account]])
-Q.accounts_balances = query("accounts.balances", true, { { "operating_currency", "str" } }, [[
-SELECT account, currency, sum(number) AS units,
-       convert(sum(position), :operating_currency, today()) AS value,
-       min(date) AS first_date
-GROUP BY account, currency
-ORDER BY account, currency]])
-Q.accounts_subtree_balances = query("accounts.subtree_balances", true, { { "account", "str" }, { "operating_currency", "str" } }, [[
-SELECT account, currency, sum(number) AS units,
-       convert(sum(position), :operating_currency, today()) AS value,
-       min(date) AS first_date
-WHERE under(account, :account)
-GROUP BY account, currency
-ORDER BY account, currency]])
-Q.accounts_journal_page = query("accounts.journal_page", true, { { "account", "str" }, { "limit", "int" }, { "offset", "int" } }, [[
-SELECT first(date) AS date, first(time) AS time, first(timestamp) AS timestamp, first(flag) AS flag,
-       first(id) AS id, first(account) AS account, first(payee) AS payee, first(narration) AS narration,
-       seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
-WHERE under(account, :account)
-GROUP BY seq, posting_index
-LIMIT :limit OFFSET :offset]])
-Q.journals_payees = query("journals.payees", true, {},
-  "SELECT DISTINCT payee FROM #transactions WHERE payee IS NOT NULL AND payee != '' AND flag != 'P' ORDER BY payee")
-Q.journals_errors = query("journals.errors", true, { { "size", "int" }, { "offset", "int" } },
-  "SELECT id, kind, file, line, column, span_start, span_end, source, metas FROM #errors LIMIT :size OFFSET :offset")
-Q.commodities_latest_prices = query("commodities.latest_prices", true, { { "currency", "str" } },
-  "SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency, last(date) AS date, last(time) AS time, "
-  .. "getprice(last(CASE WHEN currency = :currency THEN currency(amount) ELSE currency END), :currency, today()) AS rate FROM #prices "
-  .. "WHERE (currency = :currency OR currency(amount) = :currency) AND currency != currency(amount) AND date <= today() GROUP BY 1 ORDER BY 1")
-Q.commodities_latest_price = query("commodities.latest_price", true, { { "commodity", "str" }, { "currency", "str" } },
-  "SELECT CASE WHEN currency = :currency THEN currency(amount) ELSE currency END AS currency, last(date) AS date, last(time) AS time, "
-  .. "getprice(:commodity, :currency, today()) AS rate FROM #prices WHERE ((currency = :commodity AND currency(amount) = :currency) "
-  .. "OR (currency = :currency AND currency(amount) = :commodity)) AND currency != currency(amount) AND date <= today() GROUP BY 1")
-Q.report_net_worth = query("report.net_worth", true, { { "to", "date" }, { "currency", "str" } }, [[
-SELECT sum(position) AS balance, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
-WHERE (under(account, 'Assets') OR under(account, 'Liabilities')) AND date <= :to]])
-Q.report_account_totals = query("report.account_totals", true, { { "type", "str" }, { "from", "date" }, { "to", "date" }, { "currency", "str" } }, [[
-SELECT account, units(sum(position)) AS units, convert(sum(position), :currency, :to) AS value
-WHERE under(account, :type) AND date >= :from AND date <= :to
-GROUP BY account
-ORDER BY number(only(:currency, convert(sum(position), :currency, :to))), account]])
 -- spending by month: report.changes for one subtree, each month valued at the prices of its last day in the range
-Q.spending_by_month = query("mcp.spending_by_month", false, { { "account", "str" }, { "from", "date" }, { "to", "date" }, { "currency", "str" } }, [[
+Q.spending_by_month = query("mcp.spending_by_month", [[
 SELECT date_bin('1 month', date, 2001-01-01) AS month, units(sum(position)) AS units,
   convert(sum(position), :currency, least(max(date_bin('1 month', date, 2001-01-01)) + interval('1 month') - 1, :to)) AS value
 WHERE under(account, :account) AND date >= :from AND date <= :to
 GROUP BY month
 ORDER BY month]])
 -- spending by currency: what the subtree took in each currency, valued at the prices of :to
-Q.spending_by_currency = query("mcp.spending_by_currency", false, { { "account", "str" }, { "from", "date" }, { "to", "date" }, { "currency", "str" } }, [[
+Q.spending_by_currency = query("mcp.spending_by_currency", [[
 SELECT currency, sum(number) AS units, convert(sum(position), :currency, :to) AS value
 WHERE under(account, :account) AND date >= :from AND date <= :to
 GROUP BY currency
 ORDER BY currency]])
 -- transactions: one row per transaction, newest first, each filter left out when its parameter is NULL
-Q.transactions = query("mcp.transactions", false,
-  { { "keyword", "str" }, { "payee", "str" }, { "tags", "set" }, { "from", "date" }, { "to", "date" }, { "limit", "int" }, { "offset", "int" } }, [[
+Q.transactions = query("mcp.transactions", [[
 SELECT date, time, id, flag, payee, narration, tags, links, accounts
 FROM #transactions
 WHERE (:keyword IS NULL OR icontains(payee, :keyword) OR icontains(narration, :keyword))
@@ -676,12 +626,6 @@ WHERE (:keyword IS NULL OR icontains(payee, :keyword) OR icontains(narration, :k
   AND (:to IS NULL OR date <= :to)
 ORDER BY seq DESC
 LIMIT :limit OFFSET :offset]])
-
-local QUERIES = {
-  Q.accounts_list, Q.accounts_subtree, Q.accounts_balances, Q.accounts_subtree_balances, Q.accounts_journal_page,
-  Q.journals_payees, Q.journals_errors, Q.commodities_latest_prices, Q.commodities_latest_price, Q.report_net_worth,
-  Q.report_account_totals, Q.spending_by_month, Q.spending_by_currency, Q.transactions,
-}
 
 -- ---- shape: tool results and their output schemas ---------------------------------------------------------------
 -- A rows tool answers {columns, rows, row_count, truncated} with the cell encoding of POST /api/query, as text and as
@@ -820,6 +764,8 @@ function Call:rows(query, params, limit)
   local result = next(params) == nil and zhang.query(query.bql) or zhang.query_params(query.bql, params)
   return shape_rows(result, limit)
 end
+-- run the server's built-in query `name` with `params` (plain values) and shape the rows, at most `limit` of them
+function Call:builtin(name, params, limit) return shape_rows(zhang.query_builtin(name, params), limit) end
 
 local LIMIT = arg("limit", "int", "the most rows to return; default 200, capped by the server. `truncated` tells when more exist", { min = 1 })
 local OFFSET = arg("offset", "int", "rows to skip, for paging; default 0", { min = 0 })
@@ -861,13 +807,13 @@ local TOOLS = {
       arg("status", "enum", "which accounts to list by their status now; default open", { values = { "open", "closed", "all" } }),
     }, ROWS, function(call)
       local clock = call:clock()
-      local at = { date = zhang.date(clock.today), time = zhang.str(clock.time) }
+      local at = { date = clock.today, time = clock.time }
       local result
       if call.args.prefix then
-        at.account = zhang.str(call.args.prefix)
-        result = zhang.query_params(Q.accounts_subtree.bql, at)
+        at.account = call.args.prefix
+        result = zhang.query_builtin("accounts.subtree", at)
       else
-        result = zhang.query_params(Q.accounts_list.bql, at)
+        result = zhang.query_builtin("accounts.list", at)
       end
       local status, column = call.args.status or "open", nil
       for i, it in ipairs(result.columns or {}) do if it.name == "status" then column = i end end
@@ -882,11 +828,11 @@ local TOOLS = {
     "The balance of every account per currency: the units held, their value in the operating currency at today's "
     .. "prices, and the date of the first posting. Give `account` for one account and its sub-accounts.",
     { arg("account", "str", "an account; it and its sub-accounts are listed. Absent: every account", { max = MAX_ACCOUNT }) }, ROWS, function(call)
-      local currency = zhang.str(call:info().operating_currency)
+      local currency = call:info().operating_currency
       if call.args.account then
-        return call:rows(Q.accounts_subtree_balances, { account = zhang.str(call.args.account), operating_currency = currency }, CONFIG.max_rows)
+        return call:builtin("accounts.subtree_balances", { account = call.args.account, operating_currency = currency }, CONFIG.max_rows)
       end
-      return call:rows(Q.accounts_balances, { operating_currency = currency }, CONFIG.max_rows)
+      return call:builtin("accounts.balances", { operating_currency = currency }, CONFIG.max_rows)
     end),
   tool("net_worth", "Net worth",
     "The net worth, the balance of the Assets and Liabilities accounts, at the end of a day: `units` lists what is held "
@@ -894,7 +840,7 @@ local TOOLS = {
     .. "price stays in its own currency there). This is the figure the app's report shows.",
     { arg("date", "date", "the day, YYYY-MM-DD; default today"), CURRENCY }, ROWS, function(call)
       local to = call.args.date or call:clock().today
-      return call:rows(Q.report_net_worth, { to = zhang.date(to), currency = zhang.str(call:currency()) }, CONFIG.max_rows)
+      return call:builtin("report.net_worth", { to = to, currency = call:currency() }, CONFIG.max_rows)
     end),
   tool("spending", "Spending",
     "What an account and its sub-accounts took in a period (default: all of Expenses), grouped by account, by month or "
@@ -912,13 +858,12 @@ local TOOLS = {
         tool_error(fmt("the argument `from` (%s) is after `to` (%s): give the first day of the period as `from` and its last day as `to`", from, to))
       end
       local account = call.args.account or "Expenses"
-      local params = { from = zhang.date(from), to = zhang.date(to), currency = zhang.str(call:currency()) }
       local group_by = call.args.group_by or "account"
-      local chosen = Q.report_account_totals
-      if group_by == "month" then chosen, params.account = Q.spending_by_month, zhang.str(account)
-      elseif group_by == "currency" then chosen, params.account = Q.spending_by_currency, zhang.str(account)
-      else params.type = zhang.str(account)
+      if group_by == "account" then
+        return call:builtin("report.account_totals", { type = account, from = from, to = to, currency = call:currency() }, CONFIG.max_rows)
       end
+      local chosen = group_by == "month" and Q.spending_by_month or Q.spending_by_currency
+      local params = { account = zhang.str(account), from = zhang.date(from), to = zhang.date(to), currency = zhang.str(call:currency()) }
       return call:rows(chosen, params, CONFIG.max_rows)
     end),
   tool("journal", "Account journal",
@@ -926,7 +871,7 @@ local TOOLS = {
     .. "after it. Page with `limit` and `offset`.",
     { required("account", "str", "the account; its sub-accounts are included", { max = MAX_ACCOUNT }), LIMIT, OFFSET }, PAGED_ROWS, function(call)
       local limit = call:limit()
-      return call:rows(Q.accounts_journal_page, { account = zhang.str(call.args.account), limit = zhang.int(call:fetch()), offset = zhang.int(call:offset()) }, limit)
+      return call:builtin("accounts.journal_page", { account = call.args.account, limit = call:fetch(), offset = call:offset() }, limit)
     end),
   tool("transactions", "Find transactions",
     "The transactions matching a keyword (in the payee or narration, case-insensitive), an exact payee, any of some tags "
@@ -951,23 +896,23 @@ local TOOLS = {
     end),
   tool("payees", "Payees",
     "Every payee of the ledger's transactions, once and sorted. Use it to find the exact payee for `transactions`.",
-    {}, ROWS, function(call) return call:rows(Q.journals_payees, {}, CONFIG.max_rows) end),
+    {}, ROWS, function(call) return call:builtin("journals.payees", {}, CONFIG.max_rows) end),
   tool("errors", "Ledger errors",
     "The problems zhang found in the ledger (unbalanced transactions, failed balance assertions, unknown accounts, …), "
     .. "by file and position, with the source text of each. Page with `limit` and `offset`.",
     { LIMIT, OFFSET }, PAGED_ROWS, function(call)
       local limit = call:limit()
-      return call:rows(Q.journals_errors, { size = zhang.int(call:fetch()), offset = zhang.int(call:offset()) }, limit)
+      return call:builtin("journals.errors", { size = call:fetch(), offset = call:offset() }, limit)
     end),
   tool("prices", "Latest prices",
     "The latest price of each commodity in a currency as of today, with its date: the rate the valuations use. Give "
     .. "`commodity` for one commodity.",
     { arg("commodity", "str", "one commodity, e.g. USD or AAPL; absent: every commodity with a price"), CURRENCY }, ROWS, function(call)
-      local currency = zhang.str(call:currency())
+      local currency = call:currency()
       if call.args.commodity then
-        return call:rows(Q.commodities_latest_price, { commodity = zhang.str(call.args.commodity), currency = currency }, CONFIG.max_rows)
+        return call:builtin("commodities.latest_price", { commodity = call.args.commodity, currency = currency }, CONFIG.max_rows)
       end
-      return call:rows(Q.commodities_latest_prices, { currency = currency }, CONFIG.max_rows)
+      return call:builtin("commodities.latest_prices", { currency = currency }, CONFIG.max_rows)
     end),
 }
 
@@ -1151,7 +1096,7 @@ local WRITE_TOOLS = {
         -- a ledger keeps one open per account: say when it was opened, so that the model can tell the user to move
         -- that open's date rather than try again (a closed account is the host's own `account_closed` error)
         local clock = call:clock()
-        local rows = zhang.query_params(Q.accounts_subtree.bql, { account = zhang.str(open.account), date = zhang.date(clock.today), time = zhang.str(clock.time) })
+        local rows = zhang.query_builtin("accounts.subtree", { account = open.account, date = clock.today, time = clock.time })
         local opened_on
         for _, row in ipairs(rows.rows or {}) do
           if row[1] == open.account and type(row[2]) == "string" then opened_on = row[2] end
@@ -1212,7 +1157,7 @@ function tools_call(params)
   return failure(error_text(result))
 end
 
--- ---- info and the parity route --------------------------------------------------------------------------------------
+-- ---- info ------------------------------------------------------------------------------------------------------------
 
 local function info(request)
   if request.method ~= "GET" then return json_response(405, { message = "only GET is supported here" }, { allow = "GET" }) end
@@ -1222,26 +1167,17 @@ local function info(request)
   })
 end
 
--- GET /queries: every BQL text of the catalogue, for the parity test of zhang-server
-local function queries(request)
-  if request.method ~= "GET" then return json_response(405, { message = "only GET is supported here" }, { allow = "GET" }) end
-  local listed = json.array()
-  for _, it in ipairs(QUERIES) do
-    local params = json.object()
-    for _, pair in ipairs(it.params) do params[pair[1]] = pair[2] end
-    listed[#listed + 1] = { name = it.name, builtin = it.builtin, bql = it.bql, params = params }
-  end
-  return json_response(200, { queries = listed })
-end
-
 -- ---- the router entry -------------------------------------------------------------------------------------------------
 
 function M.router(request)
+  -- the script runs the app's queries through zhang.query_builtin, which a Zhang before the versioned Lua API lacks
+  if (zhang.api_version or 0) < 1 or zhang.query_builtin == nil then
+    return json_response(501, { message = "zhang-mcp needs a Zhang with zhang.query_builtin (Lua API version 1 or later): use the plugin of your Zhang's release" })
+  end
   CONFIG = load_config()
   local path = (request.path or "/"):gsub("/+$", "")
   if path == "" then return info(request)
   elseif path == "/mcp" then return mcp(request)
-  elseif path == "/queries" then return queries(request)
   end
   return json_response(404, { message = "not found" })
 end

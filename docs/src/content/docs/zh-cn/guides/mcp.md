@@ -112,7 +112,7 @@ npx @modelcontextprotocol/inspector --cli http://localhost:8000/api/plugins/zhan
 | `add_transaction` | 追加用该 `token` 预览过的那笔交易 | 和网页界面相同的追加 |
 | `open_account` | 一次调用追加一条 `open` 指令；账户已以相同商品开户时不写入 | 同样的追加 |
 
-这些具名查询就是应用的[内置查询](/zh-cn/reference/builtin-queries/)，原文照抄，所以这里的答案就是网页界面显示的答案。每个结果同时以文本和结构化 JSON 返回，采用 `POST /api/query` 的单元格编码：小数和日期是字符串，金额是 `{number, currency}`。失败的查询会以工具错误返回，并指出行和列，助手据此自行纠正。写入工具只在指令授予写入时存在。
+这些具名查询就是应用的[内置查询](/zh-cn/reference/builtin-queries/)，按名称运行，所以这里的答案就是网页界面显示的答案。每个结果同时以文本和结构化 JSON 返回，采用 `POST /api/query` 的单元格编码：小数和日期是字符串，金额是 `{number, currency}`。失败的查询会以工具错误返回，并指出行和列，助手据此自行纠正。写入工具只在指令授予写入时存在。
 
 ## 记录条目
 

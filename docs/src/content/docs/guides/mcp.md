@@ -112,7 +112,7 @@ The assistant is told what the ledger is, that amounts are exact decimals, to re
 | `add_transaction` | appends the transaction previewed with that `token` | the same append as the web UI |
 | `open_account` | appends an `open` directive, in one call; nothing when the account is already open with those commodities | the same append |
 
-The named queries are the [built-in queries](/reference/builtin-queries/) of the app, with their text copied as is, so an answer here is the answer the web UI shows. Every result is returned both as text and as structured JSON with the cell encoding of `POST /api/query`: decimals and dates are strings, amounts are `{number, currency}`. A query that fails comes back as a tool error naming the line and column, which the assistant uses to correct itself. The write tools exist only when the directive grants writes.
+The named queries are the [built-in queries](/reference/builtin-queries/) of the app, run by name, so an answer here is the answer the web UI shows. Every result is returned both as text and as structured JSON with the cell encoding of `POST /api/query`: decimals and dates are strings, amounts are `{number, currency}`. A query that fails comes back as a tool error naming the line and column, which the assistant uses to correct itself. The write tools exist only when the directive grants writes.
 
 ## Recording entries
 
