@@ -70,8 +70,10 @@ allows ([below](#what-the-server-allows)). These metadata keys are capabilities:
 the plugin sends. A `*` in it matches any characters, so `*.example.com` grants every sub-domain of `example.com`.
 The port and the path are not part of the match. Whatever the hosts, a request only goes to a public address: a name
 that resolves to a loopback, private, link-local (such as the cloud metadata service `169.254.169.254`) or otherwise
-non-public address is refused, and the request connects to the address the name was checked at. Redirects are not
-followed: the plugin receives the `3xx` response, and a request to its `location` is checked like any other.
+non-public address, or to Azure's host address `168.63.129.16`, is refused, and the request connects to the address
+the name was checked at. Redirects are not followed: the plugin receives the `3xx` response, and a request to its
+`location` is checked like any other. Any port of an allowed host can be reached, and the server's own public address
+counts as public: grant only the hosts a plugin needs, and `*` only to a plugin you trust.
 
 **`allowed_paths`.** Each value is a file or a directory, relative to the ledger root and written with `/`:
 

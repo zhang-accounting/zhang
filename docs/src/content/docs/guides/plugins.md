@@ -77,7 +77,7 @@ About `allowed_paths`:
 
 A value Zhang cannot use, such as `timeout: "soon"`, is reported as a [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) error on the `plugin` directive, and the plugin gets the default.
 
-About `allowed_hosts`: a request only goes to a public address. A host that resolves to the machine itself, the private network or the cloud metadata service (`169.254.169.254`) is refused, and redirects are not followed.
+About `allowed_hosts`: a request only goes to a public address. A host that resolves to the machine itself, the private network or a cloud metadata service (`169.254.169.254`, Azure's `168.63.129.16`) is refused, and redirects are not followed. Any port of an allowed host can be reached, and the server's own public address counts as public, so grant only the hosts a plugin needs. At most 8 name lookups of plugins run at once: when a DNS server does not answer, further requests fail rather than pile up.
 
 ## What the server allows
 

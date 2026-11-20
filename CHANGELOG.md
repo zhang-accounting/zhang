@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Escape control characters in the plugin text Zhang logs, so a plugin cannot forge log lines.
 - Vendor extism 1.30.0 with a bounds check on every read of plugin memory: a plugin could forge the length of a
   memory block and crash the server (SIGSEGV/SIGBUS) through extism's own host functions or the output and error of
-  any call.
+  any call. The patched extism also counts the memory a plugin starts with toward `ZHANG_PLUGIN_MAX_MEMORY`, which it
+  left out, so a plugin could use about twice the limit.
 - Resolve a plugin's HTTP request once, refuse non-public addresses and connect to the checked address, so DNS
   rebinding and redirects cannot reach the machine, the private network or the cloud metadata service.
 

@@ -369,6 +369,8 @@ Zhang hands every plugin instance a string-to-string Extism config:
 | `zhang.abi` | the ABI version, `"1"` |
 | `zhang.plugin` | the directive as written, as JSON: `{"module": "…", "args": ["…"], "meta": {"key": ["value", …]}}`, with every value of every meta key (`allowed_hosts` included) |
 | `zhang.seed` | the plugin's seed, a decimal `u64` |
+| `zhang.allowed_hosts` | the hosts the plugin may reach, a JSON array: its `allowed_hosts` within what the server allows. `zhang.plugin` keeps what the directive asked for |
+| `zhang.timeout_ms` | how long one call may run, in milliseconds: its `timeout` (or the default) within what the server allows. The flat `timeout` key keeps what the directive asked for |
 
 A Zhang that sets no `zhang.abi` predates ABI v1: it sets none of the `zhang.*` keys and links none of the host functions below.
 
@@ -399,4 +401,4 @@ Where they work:
 | Feature | Zhang |
 |---|---|
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
-| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, every host function above, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
+| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |

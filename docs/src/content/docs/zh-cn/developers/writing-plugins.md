@@ -369,6 +369,8 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang.abi` | ABI 版本，`"1"` |
 | `zhang.plugin` | 按原样写下的指令，格式为 JSON：`{"module": "…", "args": ["…"], "meta": {"key": ["value", …]}}`，包含每个元数据键的所有值（包括 `allowed_hosts`） |
 | `zhang.seed` | 插件的种子，一个十进制的 `u64` |
+| `zhang.allowed_hosts` | 插件能访问的主机，一个 JSON 数组：它的 `allowed_hosts` 中服务器允许的部分。`zhang.plugin` 保留指令请求的内容 |
+| `zhang.timeout_ms` | 一次调用最长能运行多久，单位为毫秒：它的 `timeout`（或默认值）在服务器允许的范围内的值。扁平的 `timeout` 键保留指令请求的内容 |
 
 没有设置 `zhang.abi` 的张记账早于 ABI v1：它不设置任何 `zhang.*` 键，也不链接下面的任何宿主函数。
 
@@ -399,4 +401,4 @@ fn route(request: Request) -> Result<Response, Error> {
 | 功能 | 张记账版本 |
 |---|---|
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
-| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、上面所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
+| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
