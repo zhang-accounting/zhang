@@ -73,7 +73,23 @@ At startup, a ledger that cannot be read makes `zhang serve` exit with code 1.
 
 Zhang needs to read every file of the ledger. To record anything from the web UI, it also needs to write to the ledger folder: it appends to existing files and creates folders and files such as `data/2024/` and `attachments/`. Without write access, recording from the web UI fails while reading keeps working.
 
-The Docker image runs Zhang as `root`, so the files and folders it creates in the mounted folder belong to `root` on the host. Change their owner with `chown` if you edit them as another user.
+The Docker image runs Zhang as `root`, so the files and folders it creates in the mounted folder belong to `root` on the host. Change their owner with `chown` if you edit them as another user. A file it rewrites keeps its owner.
+
+## How Zhang writes a file
+
+Zhang replaces a file whole or not at all. It writes the new content to a temporary file in the same folder, named `.<file name>.<16 hex digits>.tmp`, flushes it to the disk, and renames it over the file. A crash, a power cut or a full disk in the middle of a write leaves the file as it was, never cut short. Each file is replaced on its own: a write that changes two files, such as the first entry of a month (the new month file and its `include` in the main file), can be interrupted between them.
+
+- A file that is a symbolic link stays a link: the file it points to gets the new content.
+- The new file keeps the permissions of the old one and its owner and group. It does not keep what else the file system attached to the old one: extended attributes, ACLs, macOS Finder tags and the creation time are lost.
+- If Zhang is stopped in the middle of a write, a `.<file name>.<hex>.tmp` file can be left in the folder. It is not part of the ledger, and you can delete it.
+
+Zhang writes the file in place instead, as earlier versions did, when the atomic write would do something the plain write would not:
+
+- The file has more than one hard link, as some sync or backup tools make: renaming over it would leave the other names with the old content.
+- The folder does not let Zhang create or rename the temporary file (no write permission on the folder), or the file system cannot rename it there.
+- The temporary file cannot get the file's owner or permissions: a file of another user that Zhang may write, such as a group-writable one, which keeps its owner this way, or a file system that does not let Zhang set an owner or a mode, such as some network (SMB) or FUSE mounts and rootless containers.
+
+A file Zhang may not write, such as a read-only file or another user's file without write permission for Zhang, is refused (403, `the storage refused to write <file>`), even where the folder would let Zhang replace it. A full disk, a full quota or a disk error is never retried in place: the file stays as it was, and the error is answered.
 
 ## The `.cache` folder
 
