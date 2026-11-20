@@ -43,7 +43,8 @@
 //!
 //! # Isolation
 //!
-//! Every request runs in a new instance of the plugin, so no state survives between requests. The
+//! Every request runs in a new instance of the plugin, so no state survives between requests; only
+//! the compiled code is shared, through the plugin's [`crate::plugin::runtime::PluginRuntime`]. The
 //! instance gets the same config, `allowed_hosts`, memory limit and timeout as the plugin's processor,
 //! all within the operator's [`PluginPolicy`](crate::plugin_policy::PluginPolicy): a call running
 //! longer than the timeout is stopped and answered as [`RouterError::Timeout`]. The caller holds the
@@ -61,7 +62,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
-use extism::{CurrentPlugin, Plugin as WasmPlugin, UserData, Val};
+use extism::{CurrentPlugin, UserData, Val};
 use log::{debug, warn};
 use serde::Serialize;
 use serde_json::Value;
@@ -298,8 +299,10 @@ impl RegisteredPlugin {
             .routing_host(LoadClock::new(ledger.clock()), ledger.options.timezone)
             .with_router(host, ledger_info(ledger));
         // the same manifest as a processor gets: config, allowed hosts and memory limit, with the router's timeout
-        let manifest = self.manifest_with_timeout(&options, self.router_timeout());
-        let mut plugin = WasmPlugin::new(manifest, plugin_host.functions(), true).map_err(|e| RouterError::Load(log_safe(&format!("{e:#}")).into_owned()))?;
+        let mut plugin = self
+            .runtime
+            .instantiate(self.manifest_with_timeout(&options, self.router_timeout()), plugin_host.clone())
+            .map_err(|e| RouterError::Load(log_safe(&format!("{e:#}")).into_owned()))?;
         if !plugin.function_exists(ROUTER_EXPORT) {
             return Err(RouterError::NoRouterExport);
         }
