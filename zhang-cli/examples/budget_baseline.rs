@@ -43,7 +43,7 @@ use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_server::broadcast::Broadcaster;
-use zhang_server::{create_server_app, start_fs_event_lisenter, start_reload_listener, ReloadSender};
+use zhang_server::{create_server_app, start_fs_event_listener, start_reload_listener, ReloadSender};
 use zhang_testkit::budget_ledger::{Spec, MAIN};
 use zhang_testkit::http::{json_request, router_of, serve_config, Settings};
 
@@ -545,7 +545,7 @@ fn baseline(spec: Spec) -> Value {
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         let reload_sender = Arc::new(ReloadSender::new(sender));
         start_reload_listener(shared.clone(), broadcaster.clone(), reload_sender.clone(), receiver);
-        start_fs_event_lisenter(shared.clone(), reload_sender.clone());
+        start_fs_event_listener(shared.clone(), reload_sender.clone());
         let config = serve_config(&dir, MAIN, source.clone(), &Settings::default());
         let router = router_of(create_server_app(config, shared.clone(), broadcaster, reload_sender.clone())).await;
 

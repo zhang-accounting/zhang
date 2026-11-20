@@ -458,7 +458,7 @@ pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
 
     if opts.is_local() {
         info!("start fs event listener");
-        start_fs_event_lisenter(ledger_data.clone(), reload_sender.clone());
+        start_fs_event_listener(ledger_data.clone(), reload_sender.clone());
     }
 
     info!("start version report tasker");
@@ -519,7 +519,7 @@ fn start_version_check_tasker(update_checker_broadcaster: Arc<Broadcaster>) {
 /// read changed: 500 ms after the first change, and 100 ms more after each further one, so that a write of several
 /// files is one reload. The task the server starts for a local ledger, which the budget baseline
 /// (`zhang-cli/examples/budget_baseline.rs`) starts too
-pub fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for_fs: Arc<ReloadSender>) {
+pub fn start_fs_event_listener(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for_fs: Arc<ReloadSender>) {
     tokio::spawn(async move {
         let (mut watcher, mut rx) = async_watcher().unwrap();
 
