@@ -71,9 +71,17 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
                 return Ok(());
             }
             // the module is read from the ledger's source on every load, and handed to the runtime as it is: a
-            // wasm module as its bytes, a Lua script (by its `.lua` extension) as text the interpreter runs
-            let path = module_path(&ledger.entry.0, module)?;
-            let parsed = crate::plugin::lua::PluginModule::parse(module, || ledger.data_source.get(path).map_err(|error| module_error(module, error)))?;
+            // wasm module as its bytes, a Lua script (by its `.lua` extension) as text the interpreter runs. A
+            // `zhang:` module is a plugin built into zhang, which nothing is read for. It is looked up after the check
+            // above, so plugins off loads no bundled plugin either
+            let bundled = crate::plugin::bundled::BundledPlugin::lookup(module).transpose()?;
+            let parsed = match bundled {
+                Some(bundled) => bundled.module(module)?,
+                None => {
+                    let path = module_path(&ledger.entry.0, module)?;
+                    crate::plugin::lua::PluginModule::parse(module, || ledger.data_source.get(path).map_err(|error| module_error(module, error)))?
+                }
+            };
             let mut declaration = crate::plugin::capabilities::PluginDeclaration::parse(plugin);
             // a meta value the host cannot use is reported on the directive, and the plugin runs with the default
             for error in &declaration.errors {
@@ -100,9 +108,11 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
                 ];
                 ledger.report(zhang_ast::error::ErrorKind::PluginError, span, metas.into_iter().collect());
             }
-            // a rebuilt local module makes the ledger stale
-            if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, plugin.module.as_str()) {
-                ledger.extra_inputs.insert(input);
+            // a rebuilt local module makes the ledger stale; a bundled one changes only with the binary
+            if bundled.is_none() {
+                if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, plugin.module.as_str()) {
+                    ledger.extra_inputs.insert(input);
+                }
             }
         }
     });
