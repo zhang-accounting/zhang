@@ -36,7 +36,7 @@ The plugin's own (carried from #799 where still true):
 | P5 | Tool results: `structuredContent` with the query API's cell encoding, plus the same JSON in a text block, plus an `outputSchema`. Tool execution errors are `isError: true` with a text block only. | S/server/tools: structured content SHOULD be mirrored as text; with an `outputSchema` the structured result MUST conform, so an error object must not be sent as `structuredContent`. |
 | P6 | Authentication is zhang's; no OAuth. `Origin`: absent → allowed; listed in `allowed_origins` → allowed; equal to the request's own `Host` → allowed only when that host is loopback; `null` or anything else → `403`. | S/basic/authorization makes authorization optional; the DNS rebinding rule of both transports, with "same host" safe for loopback names only. |
 | P7 | `limit` defaults to 200; one over `max_rows` (default 1000) is a tool error naming the cap; tools with `LIMIT :limit` fetch one row more than the limit so `truncated` is exact. | Keeps a result within a model's context; the host's value cap stays the hard bound. |
-| P8 | Three write tools, hidden unless both the plugin's `allow_writes` and the host's `allowed_writes` grant are on; `add_transaction` is two-step (preview token), `open_account` one-shot. | §5. |
+| P8 | Three write tools, hidden unless the host grants a write (`zhang.allowed_writes`: the directive's `allowed_writes` on a server run with `--plugins write`); `add_transaction` is two-step (preview token), `open_account` one-shot. | §5. |
 | P9 | Every failure inside a tool, a host error included, is an `isError` result; nothing a tool does becomes an HTTP 500. | A model can act on a tool error; a 500 is a transport error it cannot read. |
 | P10 | Resources, prompts, SSE, elicitation, rate limiting: out of scope. | Same as #799; elicitation needs server→client requests this transport cannot carry. |
 
@@ -130,9 +130,11 @@ deleted.
 
 ## 5. Writes (`mcp.lua` section `write tools`)
 
-One switch, the host's `allowed_writes: "transaction"` / `allowed_writes: "open"` (the generic grant of PRD2 §B, the
-same shape as `allowed_paths`), which the script reads from its own directive. Without any grant the write tools are
-unknown tools (`-32602`), so a read-only deployment never shows them to the model. With one kind granted every write
+Two switches: the operator's level (`zhang serve --plugins write`, `ZHANG_PLUGINS=write`; the default `read` lets no
+plugin write) and the owner's `allowed_writes: "transaction"` / `allowed_writes: "open"` (the generic grant of PRD2
+§B, the same shape as `allowed_paths`). The script reads their result, the effective grant, from the reserved config
+key `zhang.allowed_writes`, never from its own directive, so it lists only what a write can do. Without any effective
+grant the write tools are unknown tools (`-32602`), so a read-only deployment never shows them to the model. With one kind granted every write
 tool is listed, and a tool of a kind not granted answers an `isError` naming the exact meta line to add (actionable for
 the owner, harmless for the model), so the owner gets the missing grant line relayed instead of "no such tool". (A
 plugin-side `allow_writes` switch existed before review; it only repeated what the grant says, and was removed.)
@@ -180,10 +182,11 @@ plugin "plugins/mcp.lua"
   allowed_writes: "open"
 ```
 
-Repeated keys are read from `zhang.plugin` (the directive as JSON), so `allowed_origins` and `allowed_writes` may be
-repeated; the flat config is the fallback. Bounds: the plugin `timeout`; 10 s per BQL and the host's value cap; the
-64 MiB Lua budget per call; `limit`/`max_rows`; request bodies ≤ 1 MiB; one transaction or one `open` per write
-call; the host's ≤ 50 directives / ≤ 64 KiB per batch; token TTL 10 min; one commit per reload cycle.
+Repeated keys are read from `zhang.plugin` (the directive as JSON), so `allowed_origins` may be repeated; the flat
+config is the fallback. The write grant is the host's `zhang.allowed_writes`, as above. Bounds: the plugin `timeout`;
+10 s per BQL and the host's value cap; the 64 MiB Lua budget per call; `limit`/`max_rows`; request bodies ≤ 1 MiB; one
+transaction or one `open` per write call; the host's ≤ 50 directives / ≤ 64 KiB per batch; token TTL 10 min; one
+commit per reload cycle.
 
 Security: read tools are read-only by construction; writes are additive only, validated like the web UI's, into a
 file the ledger's policy chooses, bound by the token to the previewed text, tagged, and logged by the host. The

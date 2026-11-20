@@ -16,10 +16,14 @@ use axum::Router;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tokio::sync::RwLock;
+use zhang_core::clock::Clock;
 use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
+use zhang_core::plugin::http::{FORWARDED_REQUEST_HEADERS, FORWARDED_RESPONSE_HEADERS};
+use zhang_core::plugin_policy::{PluginLevel, PluginPolicy};
 use zhang_server::broadcast::Broadcaster;
+use zhang_server::routes::plugin_router::PluginSettings;
 use zhang_server::{create_server_app, start_reload_listener, ReloadSender};
 use zhang_testkit::http::{call, router_of, send, serve_config, Reply, Settings};
 
@@ -716,6 +720,35 @@ async fn a_modern_session_discovers_and_calls_with_headers_and_meta() {
     assert!(result.get("structuredContent").is_none());
 }
 
+/// The router hands a plugin only an allowlist of request headers and passes back only an allowlist of response
+/// headers (#827): every header the script reads is on the first (`origin` and `host` for the origin check,
+/// `mcp-method`, `mcp-name` and `mcp-protocol-version` for the 2026-07-28 transport) and every one it answers with
+/// on the second. The sessions above drive each through the router; this names a header dropped from a list.
+#[test]
+fn the_router_forwards_every_header_the_script_reads_and_sets() {
+    let source = std::fs::read_to_string(script()).unwrap();
+    // `headers.name`, `headers["name"]` and `(http.headers or {})["name"]`
+    let mut read = std::collections::BTreeSet::new();
+    for (at, _) in source.match_indices("headers") {
+        let rest = &source[at + "headers".len()..];
+        let rest = rest.strip_prefix(" or {})").unwrap_or(rest);
+        if let Some(rest) = rest.strip_prefix("[\"") {
+            read.insert(rest[..rest.find('"').unwrap()].to_owned());
+        } else if let Some(rest) = rest.strip_prefix('.') {
+            read.insert(rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect::<String>());
+        }
+    }
+    for header in ["origin", "host", "mcp-method", "mcp-name", "mcp-protocol-version"] {
+        assert!(read.contains(header), "the scan finds {header} in {read:?}");
+    }
+    for header in &read {
+        assert!(FORWARDED_REQUEST_HEADERS.contains(&header.as_str()), "{header} does not reach a plugin");
+    }
+    for header in ["allow", "cache-control", "content-type"] {
+        assert!(FORWARDED_RESPONSE_HEADERS.contains(&header), "{header} does not leave the server");
+    }
+}
+
 #[tokio::test]
 async fn the_endpoint_sits_behind_zhang_authentication() {
     let dir = ledger_dir("");
@@ -742,6 +775,20 @@ async fn the_endpoint_sits_behind_zhang_authentication() {
 
 /// the directive lines of a ledger that lists the write tools and grants both kinds
 const GRANTED: &str = "  allowed_writes: \"transaction\"\n  allowed_writes: \"open\"\n";
+
+/// a server started with `zhang serve --plugins write`, the one that lets plugins write
+fn writable() -> Settings {
+    Settings {
+        plugins: PluginSettings {
+            policy: PluginPolicy {
+                level: PluginLevel::Write,
+                ..PluginPolicy::default()
+            },
+            ..PluginSettings::default()
+        },
+        ..Settings::default()
+    }
+}
 
 /// A run of whitespace inside an argument is trimmed in linear time (the pattern trim was quadratic: 20 KB of BQL held
 /// the ledger's read lock for the whole timeout), and every text a tool reads has a cap its schema states: 16 KiB of
@@ -872,10 +919,27 @@ async fn without_a_grant_the_write_tools_are_hidden_and_with_one_the_others_name
         assert_eq!(reply.json()["error"]["code"], -32602);
     }
 
+    // both granted, on a server run with the default `--plugins read`: the host grants nothing (`zhang.allowed_writes`
+    // is `[]`), so the tools are hidden as well; the directive alone does not list them
+    let dir = ledger_dir(GRANTED);
+    let router = server(&dir, &Settings::default()).await;
+    assert_eq!(tool_names(&router).await, READ_TOOLS);
+    let reply = post(
+        &router,
+        &[],
+        &request(5, "tools/call", json!({"name": "preview_transaction", "arguments": coffee(None)})),
+    )
+    .await;
+    assert_eq!(reply.json()["error"]["code"], -32602);
+    let router = server(&dir, &writable()).await;
+    let mut expected: Vec<&str> = READ_TOOLS.to_vec();
+    expected.extend(WRITE_TOOLS);
+    assert_eq!(tool_names(&router).await, expected);
+
     // only `open` granted: every write tool is listed, and the transaction tools name the missing line (the owner
     // turned writes on, so the model relays the missing grant instead of claiming it has no write tool)
     let dir = ledger_dir("  allowed_writes: \"open\"\n");
-    let router = server(&dir, &Settings::default()).await;
+    let router = server(&dir, &writable()).await;
     let mut expected: Vec<&str> = READ_TOOLS.to_vec();
     expected.extend(WRITE_TOOLS);
     assert_eq!(tool_names(&router).await, expected);
@@ -891,7 +955,7 @@ async fn without_a_grant_the_write_tools_are_hidden_and_with_one_the_others_name
 #[tokio::test]
 async fn the_write_tools_refuse_floats_and_malformed_postings_before_the_host() {
     let dir = ledger_dir(GRANTED);
-    let router = server(&dir, &Settings::default()).await;
+    let router = server(&dir, &writable()).await;
     let mut float = coffee(None);
     float["postings"][0]["amount"] = json!(4.5);
     let text = error_text(&router, "preview_transaction", float).await;
@@ -931,7 +995,9 @@ async fn the_write_tools_refuse_floats_and_malformed_postings_before_the_host() 
 async fn serving(dir: &TempDir, settings: &Settings) -> (Router, Arc<ReloadSender>) {
     let source: Arc<dyn DataSource> = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
     let root = dir.path().canonicalize().unwrap();
-    let ledger = Ledger::load(root.clone(), "main.zhang".to_owned(), source.clone()).unwrap_or_else(|error| panic!("ledger should load: {error}"));
+    let policy = Arc::new(settings.plugins.policy.clone());
+    let ledger = Ledger::load_with_policy(root.clone(), "main.zhang".to_owned(), source.clone(), Clock::System, policy)
+        .unwrap_or_else(|error| panic!("ledger should load: {error}"));
     let ledger = Arc::new(RwLock::new(ledger));
     let (sender, receiver) = tokio::sync::mpsc::channel(8);
     let reload_sender = Arc::new(ReloadSender::new(sender));
@@ -948,7 +1014,7 @@ async fn serving(dir: &TempDir, settings: &Settings) -> (Router, Arc<ReloadSende
 #[tokio::test]
 async fn a_write_session_previews_opens_adds_and_refuses_a_replay() {
     let dir = ledger_dir(GRANTED);
-    let (router, reload) = serving(&dir, &Settings::default()).await;
+    let (router, reload) = serving(&dir, &writable()).await;
 
     // the instructions tell the model the write flow, and the catalogue has fifteen tools
     let reply = post(&router, &[], &request(1, "initialize", json!({"protocolVersion": "2025-11-25"}))).await;

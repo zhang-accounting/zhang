@@ -20,7 +20,8 @@ written. It runs inside zhang's Lua plugin runtime: nothing to build, nothing to
 
 3. Reload. The endpoint is `POST /api/plugins/zhang-mcp/mcp`, behind zhang's own sign-in.
 
-To let the assistant record entries, grant the writes and reload:
+To let the assistant record entries, run zhang with `zhang serve --plugins write` (or `ZHANG_PLUGINS=write`; the
+default, `read`, lets no plugin write), grant the writes and reload:
 
 ```zhang
 plugin "plugins/mcp.lua"

@@ -7,7 +7,7 @@ sidebar:
 
 [MCP](https://modelcontextprotocol.io/)（Model Context Protocol）是 Claude Code、Claude.ai 等 AI 助手和 LLM 客户端调用工具的协议。`zhang-mcp` 是张记账的 MCP 服务器，以 [Lua 插件](/zh-cn/guides/lua-plugins/)的形式提供：一个文件 `mcp.lua`，复制进账本即可。声明之后，助手就能通过运行和网页界面相同的查询来回答"上个月我在吃饭上花了多少"或"我的净资产是多少"这样的问题；如果你允许，它还能在向你展示将要写入的确切文本之后，记录你描述的条目。
 
-读取是默认的，不需要别的设置。写入默认关闭，需要你授予它（见下文）；即使打开，插件也只能追加条目，永远不能修改或删除任何内容，而且行为良好的客户端会在每一条之前征求你的同意。
+读取是默认的，不需要别的设置。写入默认关闭，需要服务器允许插件写入，并由你授予它（见下文）；即使打开，插件也只能追加条目，永远不能修改或删除任何内容，而且行为良好的客户端会在每一条之前征求你的同意。
 
 ## 安装
 
@@ -37,7 +37,7 @@ MCP 端点是 `POST <你的张记账地址>/api/plugins/zhang-mcp/mcp`，例如 
 | `allowed_origins` | 允许调用端点的浏览器来源（`scheme://host[:port]`），用逗号分隔（`"https://ledger.example.com, http://localhost:5173"`）或重复该键。不设置时，只有张记账自己在 `localhost` 或 `127.0.0.1` 上提供的页面可以调用；部署在域名或反向代理之后的张记账要在这里列出那个地址 | 无 |
 | `max_rows` | 任何工具最多返回的行数 | `"1000"` |
 | `write_tag` | `add_transaction` 给每条记录的条目加上的标签，便于日后查找；`""` 关闭 | `"mcp"` |
-| `allowed_writes` | 张记账自己的授权，每种一行：`"transaction"` 和 `"open"`。有任何一行时，写入工具就会被列出；见[记录条目](#记录条目) | 无 |
+| `allowed_writes` | 张记账自己的授权，每种一行：`"transaction"` 和 `"open"`。有任何一行、并且服务器以 `--plugins write` 运行时，写入工具就会被列出；见[记录条目](#记录条目) | 无 |
 
 这个插件需要随它一起发布的张记账或更新的版本：它是一个 Lua 脚本，写入时还依赖该版本的插件写入能力。在更老的张记账上，账本会加载失败，错误中会指出脚本或缺失的宿主函数。
 
@@ -112,11 +112,11 @@ npx @modelcontextprotocol/inspector --cli http://localhost:8000/api/plugins/zhan
 | `add_transaction` | 追加用该 `token` 预览过的那笔交易 | 和网页界面相同的追加 |
 | `open_account` | 一次调用追加一条 `open` 指令；账户已以相同商品开户时不写入 | 同样的追加 |
 
-这些具名查询就是应用的[内置查询](/zh-cn/reference/builtin-queries/)，按名称运行，所以这里的答案就是网页界面显示的答案。每个结果同时以文本和结构化 JSON 返回，采用 `POST /api/query` 的单元格编码：小数和日期是字符串，金额是 `{number, currency}`。失败的查询会以工具错误返回，并指出行和列，助手据此自行纠正。写入工具只在指令授予写入时存在。
+这些具名查询就是应用的[内置查询](/zh-cn/reference/builtin-queries/)，按名称运行，所以这里的答案就是网页界面显示的答案。每个结果同时以文本和结构化 JSON 返回，采用 `POST /api/query` 的单元格编码：小数和日期是字符串，金额是 `{number, currency}`。失败的查询会以工具错误返回，并指出行和列，助手据此自行纠正。写入工具只在指令授予写入、并且服务器允许写入时存在。
 
 ## 记录条目
 
-一个开关，即张记账的授权，写在 `plugin` 指令里：
+两个开关。服务器的：只有用 `zhang serve --plugins write`（或 `ZHANG_PLUGINS=write`）启动的张记账才允许插件写入；默认值 `read` 不允许任何插件写入，无论它的指令授予了什么。账本的：张记账的授权，写在 `plugin` 指令里：
 
 ```zhang
 plugin "plugins/mcp.lua"
@@ -125,7 +125,7 @@ plugin "plugins/mcp.lua"
   allowed_writes: "open"            ; ……以及 open 指令
 ```
 
-`allowed_writes` 和 `allowed_paths`、`allowed_hosts` 是同一类行。没有它，写入工具根本不会被列出，所以只读部署永远不会把它们展示给模型。授予其中一种时，所有写入工具都会被列出，未被授予那一种的工具会回答应该添加的那一行。只把它授予你信任的那份 `mcp.lua`：见 `plugin` 指令的[能力](/zh-cn/reference/directives/plugin/)。
+`allowed_writes` 和 `allowed_paths`、`allowed_hosts` 是同一类行。没有它，或者服务器以只读方式运行插件时，写入工具根本不会被列出，所以只读部署永远不会把它们展示给模型；服务器不允许的授权会作为 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 报告在指令上。授予其中一种时，所有写入工具都会被列出，未被授予那一种的工具会回答应该添加的那一行。只把它授予你信任的那份 `mcp.lua`：见 `plugin` 指令的[能力](/zh-cn/reference/directives/plugin/)。
 
 一笔交易是这样被记录的：
 
@@ -154,7 +154,7 @@ token 的有效期是十分钟，并且只对一个账本状态有效：在此�
 | `504 {"message": "plugin zhang-mcp ran longer than its timeout"}` | 一条查询运行超过了插件的 `timeout` | 提高 `timeout`，或缩小查询 |
 | 账本加载失败，错误提到 `mcp.lua` 或某个宿主函数 | 张记账比插件旧 | 升级张记账，或使用你的张记账版本自带的插件 |
 | 客户端说服务器需要 OAuth | 在配置请求头之前它收到了 `401` | 先配置请求头；张记账的 `401` 不带 OAuth 元数据 |
-| 助手说它没有记录交易的工具 | 指令中没有 `allowed_writes` 行（有了它，写入工具就会被列出） | 加上[记录条目](#记录条目)中的那几行并重新加载 |
+| 助手说它没有记录交易的工具 | 指令中没有 `allowed_writes` 行，或者服务器以只读方式运行插件（默认如此，此时账本会为 `allowed_writes` 报告 `PluginCapabilityReduced`） | 加上[记录条目](#记录条目)中的那几行并重新加载；用 `--plugins write`（或 `ZHANG_PLUGINS=write`）启动张记账 |
 | 助手说张记账不允许插件写入交易或开户 | 缺少对应种类的 `allowed_writes` 行 | 加上错误信息中指出的那一行并重新加载 |
 | `add_transaction` 回答账本已变化 | 预览之后有内容被写入，或 token 超过十分钟，或它已被用过 | 让助手重新预览并把新文本展示给你 |
 | `add_transaction` 以 `504`（或 `500`）失败，但条目已经在账本里 | 请求在条目写入之后失败，例如到了插件的 `timeout`；响应会说明条目已经记录（`zhang-plugin-committed` 头和 `committed` 对象），但很多客户端只把失败交给助手 | 再次记录之前，先让助手用 `transactions` 加 `tags: ["mcp"]` 查找它：新的预览会签发新的 token，所以从头重试的助手会把条目记录两次。经常发生时请提高 `timeout` |

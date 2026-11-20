@@ -6,8 +6,8 @@
 --     allowed_origins: "https://ledger.example.com"   ; comma-separated, or the key repeated; absent = loopback only
 --     max_rows: "500"                                 ; the cap of every tool's `limit`; default 1000
 --     write_tag: "mcp"                                ; the tag add_transaction puts on every entry; "" disables
---     allowed_writes: "transaction"                   ; the host's grant: with any, the write tools are listed
---     allowed_writes: "open"
+--     allowed_writes: "transaction"                   ; the owner's grant: the write tools are listed when the
+--     allowed_writes: "open"                          ; server allows it too (zhang serve --plugins write)
 --
 -- It serves `POST /api/plugins/zhang-mcp/mcp` behind zhang's own authentication, speaking both the legacy
 -- `initialize` lifecycle (2025-03-26 … 2025-11-25) and the stateless 2026-07-28 revision, with twelve read tools
@@ -175,7 +175,14 @@ local function load_config()
   config.max_rows = (rows and math.type(rows) == "integer" and rows > 0) and rows or DEFAULT_MAX_ROWS
   local tag = last("write_tag")
   config.write_tag = tag == nil and "mcp" or (trim(tag) ~= "" and trim(tag) or nil)
-  for _, kind in ipairs(values("allowed_writes")) do config.granted[trim(kind)] = true end
+  -- the effective grant: the directive's `allowed_writes` within what the server allows, none unless it runs with
+  -- `--plugins write`. The directive's own lines say only what the owner asked for
+  local granted_ok, granted = pcall(json.decode, zhang.config("zhang.allowed_writes") or "[]")
+  if granted_ok and is_array(granted) then
+    for _, kind in ipairs(granted) do
+      if type(kind) == "string" then config.granted[kind] = true end
+    end
+  end
   return config
 end
 
@@ -938,17 +945,19 @@ local TOOLS = {
 }
 
 -- ---- write tools: preview, add, open over the host's write capability (allowed_writes) ----------------------------
--- Listed when the directive grants the plugin a kind of write (allowed_writes); otherwise they are unknown tools. A
--- tool of a kind the host did not grant answers an isError naming the line to add. The host validates a batch
+-- Listed when the host grants the plugin a kind of write (`zhang.allowed_writes`: the directive's allowed_writes, on a
+-- server run with --plugins write); otherwise they are unknown tools. A tool of a kind the host did not grant answers
+-- an isError naming the line to add. The host validates a batch
 -- exactly as POST /api/transactions/preview does and mints a token bound to the ledger state and the exact text; a
 -- commit needs it, so an entry lands only as previewed and only on the ledger the preview saw. The token is the
 -- host's concurrency check, not the user's consent: this script obtains it itself, and nothing on the host knows
 -- whether the preview was shown. Asking the user is the model's part (the instructions) and the client's (its
 -- approval prompt for a tool that is not read-only).
 
--- the write tools are listed when the directive grants any kind of write: the grant is the owner's one switch, and
--- a tool of a kind not granted answers with the line to add, so the owner gets the fix relayed by the model instead
--- of "no such tool"
+-- the write tools are listed when the host grants any kind of write: the directive's grant is the owner's switch and
+-- the server's level the operator's, and a tool of a kind not granted answers with the line to add (the server
+-- allows writes, since another kind is granted), so the owner gets the fix relayed by the model instead of "no such
+-- tool"
 function writes_enabled() return next(CONFIG.granted) ~= nil end
 
 -- a tool error naming the exact meta line to add when `kind` is not granted

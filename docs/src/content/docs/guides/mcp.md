@@ -7,7 +7,7 @@ sidebar:
 
 [MCP](https://modelcontextprotocol.io/) (the Model Context Protocol) is how AI assistants such as Claude Code, Claude.ai and other LLM clients call tools. `zhang-mcp` is Zhang's MCP server, shipped as a [Lua plugin](/guides/lua-plugins/): one file, `mcp.lua`, that you copy into your ledger. Once declared, an assistant can answer questions like "how much did I spend on food last month" or "what is my net worth" by running the same queries the web UI runs, and, if you allow it, record an entry you describe after showing you exactly what it will write.
 
-Reading is the default and needs nothing else. Writing is off until you grant it (below); even then the plugin can only append entries, never edit or delete anything, and a well-behaved client asks you before each one.
+Reading is the default and needs nothing else. Writing is off until the server allows plugins to write and you grant it (below); even then the plugin can only append entries, never edit or delete anything, and a well-behaved client asks you before each one.
 
 ## Install
 
@@ -37,7 +37,7 @@ The settings of the `plugin` directive:
 | `allowed_origins` | browser origins (`scheme://host[:port]`) allowed to call the endpoint, comma-separated (`"https://ledger.example.com, http://localhost:5173"`) or the key repeated. Without it, only a page served by Zhang itself on `localhost` or `127.0.0.1` may call it; a Zhang behind a domain or a reverse proxy lists that address here | none |
 | `max_rows` | the most rows any tool returns | `"1000"` |
 | `write_tag` | the tag `add_transaction` puts on every entry it records, so you can find them later; `""` disables it | `"mcp"` |
-| `allowed_writes` | Zhang's own grant, one line per kind: `"transaction"` and `"open"`. With any, the write tools are listed; see [Recording entries](#recording-entries) | none |
+| `allowed_writes` | Zhang's own grant, one line per kind: `"transaction"` and `"open"`. With any, on a server run with `--plugins write`, the write tools are listed; see [Recording entries](#recording-entries) | none |
 
 The plugin needs the Zhang it ships with, or newer: it is a Lua script and, for writes, uses the plugin write capability of that release. On an older Zhang the ledger fails to load with an error naming the script or a missing host function.
 
@@ -112,11 +112,13 @@ The assistant is told what the ledger is, that amounts are exact decimals, to re
 | `add_transaction` | appends the transaction previewed with that `token` | the same append as the web UI |
 | `open_account` | appends an `open` directive, in one call; nothing when the account is already open with those commodities | the same append |
 
-The named queries are the [built-in queries](/reference/builtin-queries/) of the app, run by name, so an answer here is the answer the web UI shows. Every result is returned both as text and as structured JSON with the cell encoding of `POST /api/query`: decimals and dates are strings, amounts are `{number, currency}`. A query that fails comes back as a tool error naming the line and column, which the assistant uses to correct itself. The write tools exist only when the directive grants writes.
+The named queries are the [built-in queries](/reference/builtin-queries/) of the app, run by name, so an answer here is the answer the web UI shows. Every result is returned both as text and as structured JSON with the cell encoding of `POST /api/query`: decimals and dates are strings, amounts are `{number, currency}`. A query that fails comes back as a tool error naming the line and column, which the assistant uses to correct itself. The write tools exist only when the directive grants writes and the server allows them.
 
 ## Recording entries
 
-One switch, Zhang's grant, in the `plugin` directive:
+Two switches. The server's: plugins write only on a Zhang started with `zhang serve --plugins write` (or
+`ZHANG_PLUGINS=write`); the default, `read`, lets no plugin write, whatever its directive grants. And the ledger's,
+Zhang's grant in the `plugin` directive:
 
 ```zhang
 plugin "plugins/mcp.lua"
@@ -125,7 +127,7 @@ plugin "plugins/mcp.lua"
   allowed_writes: "open"            ; ... and open directives
 ```
 
-`allowed_writes` is the same kind of line as `allowed_paths` or `allowed_hosts`. Without it the write tools are not even listed, so a read-only deployment never shows them to the model. With one kind granted, every write tool is listed, and a tool of the kind not granted answers with the exact line to add. Grant it only to a copy of `mcp.lua` you trust: see the [capabilities](/reference/directives/plugin/) of the `plugin` directive.
+`allowed_writes` is the same kind of line as `allowed_paths` or `allowed_hosts`. Without it, or on a server that runs plugins read-only, the write tools are not even listed, so a read-only deployment never shows them to the model; a grant the server does not allow is reported on the directive as [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced). With one kind granted, every write tool is listed, and a tool of the kind not granted answers with the exact line to add. Grant it only to a copy of `mcp.lua` you trust: see the [capabilities](/reference/directives/plugin/) of the `plugin` directive.
 
 How a transaction gets recorded:
 
@@ -154,7 +156,7 @@ Accounts are never created on the fly. When the preview reports `AccountDoesNotE
 | `504 {"message": "plugin zhang-mcp ran longer than its timeout"}` | a query ran longer than the plugin's `timeout` | raise `timeout`, or narrow the query |
 | the ledger does not load, naming `mcp.lua` or a host function | the Zhang is older than the plugin | upgrade Zhang, or use the plugin of your Zhang's release |
 | the client says the server needs OAuth | it got a `401` before any header was configured | configure the header first; Zhang's `401` carries no OAuth metadata |
-| the assistant says it has no tool to record a transaction | the directive has no `allowed_writes` line (with one, the write tools are listed) | add the lines of [Recording entries](#recording-entries) and reload |
+| the assistant says it has no tool to record a transaction | the directive has no `allowed_writes` line, or the server runs plugins read-only, its default (the ledger then reports `PluginCapabilityReduced` for `allowed_writes`) | add the lines of [Recording entries](#recording-entries) and reload; start Zhang with `--plugins write` (or `ZHANG_PLUGINS=write`) |
 | the assistant says Zhang does not let the plugin write transactions, or open accounts | the `allowed_writes` line for that kind is missing | add the line the message names and reload |
 | `add_transaction` answers that the ledger changed | something was written since the preview, or the token is older than ten minutes, or it was already used | let the assistant preview again and show you the new text |
 | `add_transaction` failed with a `504` (or `500`), yet the entry is in the ledger | the request failed after the entry was written, for example at the plugin's `timeout`; the response says the entry is recorded (the `zhang-plugin-committed` header and a `committed` object), but many clients show the assistant only the failure | before recording it again, ask the assistant to look for it with `transactions` and `tags: ["mcp"]`: a new preview mints a new token, so an assistant that retries from the start records the entry twice. Raise `timeout` if it happens often |
