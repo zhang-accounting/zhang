@@ -17,6 +17,7 @@ use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
+use crate::plugin::lua::{LuaScript, PluginModule};
 use crate::plugin::runtime::{PluginInstance, PluginRuntime};
 use crate::plugin::{log_safe, PluginType};
 use crate::plugin_policy::{PluginPolicy, Size, MAX_MEMORY_ENV};
@@ -30,22 +31,27 @@ pub struct PluginStore {
 }
 
 impl PluginStore {
-    /// register the plugin `_plugin` declares, whose module is `module_bytes`, as parsed into `declaration`; `span` is
+    /// register the plugin `_plugin` declares, whose module is `module`, as parsed into `declaration`; `span` is
     /// the directive's span. `clock` is the clock of the load, which the plugin reads in the ledger timezone
-    /// `timezone`, `files` what the plugin may read once it runs as a processor or mapper, and `policy` what the
-    /// operator lets it use
+    /// `timezone`, `files` what the plugin may read once it runs as a processor or mapper, `options` the ledger's
+    /// options, part of the config every instance of the plugin gets, and `policy` what the operator lets it use
     #[allow(clippy::too_many_arguments)]
     pub fn insert_plugin(
-        &mut self, _plugin: &Plugin, module_bytes: Vec<u8>, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz,
-        files: FileAccess, policy: Arc<PluginPolicy>,
+        &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+        options: &[OptionDomain], policy: Arc<PluginPolicy>,
     ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
 
         // the runtime compiles the module for the settings it is asked for and builds every instance
-        // of the plugin, this registering one included, from the compiled code
+        // of the plugin, this registering one included, from the compiled code. Registering uses the
+        // settings every other instance gets, so the plugin's `capabilities` export sees its config and
+        // the compiled code is reused by the first stage run or request. A script's module is the
+        // embedded Lua interpreter, and the script rides in the config of every manifest
+        let (module_bytes, script) = module.into_parts();
         let runtime = Arc::new(PluginRuntime::new(module_bytes));
         let timeout = declaration.capabilities.timeout;
-        let manifest = Manifest::default().with_timeout(timeout).with_memory_max(policy.max_memory_pages());
+        let occurrence = self.occurrences(&declaration.directive.module);
+        let manifest = settings(&declaration, occurrence, options, script.as_ref(), &policy);
 
         // registering, the file functions deny every path and the router functions answer that they
         // are unavailable
@@ -53,19 +59,29 @@ impl PluginStore {
         let mut plugin = runtime
             .instantiate(manifest, host.clone())
             .map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
-        let name = plugin
-            .call::<(), WasmJson<String>>(export::NAME, ())
-            .map_err(|e| call_error(&plugin_name, export::NAME, timeout, &policy, e))?
-            .0;
+        // a script's identity exports run its chunk, so this is where a script that does not parse, or
+        // returns no module table, fails to load
+        let failed = |export: &str, error: extism::Error| match script.is_some() {
+            true => script_error(&plugin_name, export, timeout, &policy, error),
+            false => call_error(&plugin_name, export, timeout, &policy, error),
+        };
+        let name = plugin.call::<(), WasmJson<String>>(export::NAME, ()).map_err(|e| failed(export::NAME, e))?.0;
         let version = plugin
             .call::<(), WasmJson<String>>(export::VERSION, ())
-            .map_err(|e| call_error(&plugin_name, export::VERSION, timeout, &policy, e))?
+            .map_err(|e| failed(export::VERSION, e))?
             .0;
         let declared_types = plugin
             .call::<(), WasmJson<Vec<serde_json::Value>>>(export::SUPPORTED_TYPE, ())
-            .map_err(|e| call_error(&plugin_name, export::SUPPORTED_TYPE, timeout, &policy, e))?
+            .map_err(|e| failed(export::SUPPORTED_TYPE, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
+        // a script with no type serves nothing: `types = {Router = true}` or `{}` yields none, and a plugin that
+        // never runs is a mistake, not a choice (a wasm module keeps today's behaviour, its unknown types are warned)
+        if script.is_some() && plugin_types.is_empty() {
+            return Err(ZhangError::CustomError(format!(
+                "plugin script {plugin_name} declares no plugin type; write `types = {{\"Router\"}}` in its module table"
+            )));
+        }
         let ignored_errors = host.take_errors().len();
         if ignored_errors > 0 {
             warn!(
@@ -74,11 +90,11 @@ impl PluginStore {
             );
         }
 
-        let occurrence = self.occurrences(&declaration.directive.module);
         let registered_plugin = RegisteredPlugin {
             name,
             version,
             runtime,
+            script,
             declaration,
             span: span.clone(),
             occurrence,
@@ -137,6 +153,39 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
     Ok(known)
 }
 
+/// the settings of every instance of the plugin `declaration` declares, the `occurrence`-th of its module, within
+/// what `policy` allows: its config (the ledger's `options`, its own meta, the values the host sets, and a Lua `script`
+/// under the reserved keys, so a script edit compiles anew), its allowed hosts, its timeout capped at the policy's
+/// `max_timeout` (the cap a router call gets, so registering, a stage and a request share one compiled code), and the
+/// policy's memory limit. The module itself belongs to the runtime, which compiles it for these settings
+fn settings(declaration: &PluginDeclaration, occurrence: usize, options: &[OptionDomain], script: Option<&LuaScript>, policy: &PluginPolicy) -> Manifest {
+    let reserved = declaration
+        .host_config(occurrence)
+        .into_iter()
+        .chain(script.into_iter().flat_map(LuaScript::config));
+    let config = declaration.config_with(options, reserved);
+    Manifest::default()
+        .with_config(config.into_iter())
+        // no declared host means the plugin gets no network access at all
+        .with_allowed_hosts(declaration.capabilities.allowed_hosts.iter().cloned())
+        .with_timeout(declaration.capabilities.timeout.min(policy.max_timeout))
+        .with_memory_max(policy.max_memory_pages())
+}
+
+/// the error of a failed registration call into a Lua script: the message the interpreter set, which for a
+/// script that does not parse carries `<script>:<line>: ...`; a call stopped at the timeout or out of memory says
+/// so as for a module
+fn script_error(plugin: &str, export: &str, timeout: Duration, policy: &PluginPolicy, error: extism::Error) -> ZhangError {
+    if matches!(error.to_string().as_str(), "timeout" | "oom") {
+        return call_error(plugin, export, timeout, policy, error);
+    }
+    ZhangError::CustomError(format!(
+        "plugin script {} cannot be loaded: {}",
+        log_safe(plugin),
+        log_safe(&format!("{error:#}"))
+    ))
+}
+
 /// the error of a failed call into a plugin: a call the host stopped at the plugin's timeout, or that ran out of the
 /// memory `policy` allows, says so. What the plugin wrote into the error is escaped ([`log_safe`]), as the error ends
 /// up in the server's log
@@ -163,6 +212,8 @@ pub struct RegisteredPlugin {
     /// the plugin's module and its compiled code, shared by every clone of this registration and every
     /// instance they build (see [`PluginRuntime`])
     pub(super) runtime: Arc<PluginRuntime>,
+    /// the Lua script the runtime's interpreter runs, for a `plugin "x.lua"` directive; `None` for a wasm module
+    script: Option<LuaScript>,
     /// the capabilities and config declared by the plugin's directive
     declaration: PluginDeclaration,
     /// the span of the plugin's directive, where the errors it reports go unless they carry a span
@@ -186,26 +237,26 @@ impl RegisteredPlugin {
         &self.policy
     }
 
-    /// the plugin's module as the load read it, from the ledger's storage or from a URL
+    /// the plugin's module as the load read it, from the ledger's storage or from a URL; for a script, the
+    /// interpreter (the script is [`RegisteredPlugin::script`])
     pub fn module_bytes(&self) -> &[u8] {
         self.runtime.module_bytes()
     }
 
-    /// the settings of every instance of the plugin, whatever it runs as: config, allowed hosts, its timeout and the
-    /// memory limit of the policy. The module itself belongs to the runtime, which compiles it for these settings
+    /// the Lua script this plugin runs, for a `plugin "x.lua"` directive
+    pub fn script(&self) -> Option<&LuaScript> {
+        self.script.as_ref()
+    }
+
+    /// the settings of every instance of the plugin, whatever it runs as: config, allowed hosts, timeout and memory
+    /// limit, the ones it registered with ([`settings`])
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
-        self.manifest_with_timeout(options, self.declaration.capabilities.timeout)
+        settings(&self.declaration, self.occurrence, options, self.script.as_ref(), &self.policy)
     }
 
     /// [`RegisteredPlugin::manifest`] with the timeout `timeout` instead of the plugin's own
     pub(super) fn manifest_with_timeout(&self, options: &[OptionDomain], timeout: Duration) -> Manifest {
-        let config = self.declaration.config_with(options, self.declaration.host_config(self.occurrence));
-        Manifest::default()
-            .with_config(config.into_iter())
-            // no declared host means the plugin gets no network access at all
-            .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
-            .with_timeout(timeout)
-            .with_memory_max(self.policy.max_memory_pages())
+        self.manifest(options).with_timeout(timeout)
     }
 
     /// what a failed call of the plugin's `export` is, see [`call_error`]
@@ -277,13 +328,16 @@ mod test {
     use serde_json::json;
     use zhang_ast::{Meta, Plugin, SpanInfo, ZhangString};
 
+    use crate::clock::LoadClock;
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::PluginDeclaration;
     use crate::plugin::files::FileAccess;
+    use crate::plugin::host::PluginHost;
+    use crate::plugin::lua::{LuaScript, PluginModule};
     use crate::plugin::runtime::PluginRuntime;
-    use crate::plugin::store::{call_error, known_plugin_types, PluginStore, RegisteredPlugin};
+    use crate::plugin::store::{call_error, known_plugin_types, script_error, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
     use crate::plugin_policy::{PluginPolicy, MIB};
 
@@ -306,6 +360,7 @@ mod test {
             name: "slow".to_owned(),
             version: "0.1.0".to_owned(),
             runtime: Arc::new(PluginRuntime::new(vec![])),
+            script: None,
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence,
@@ -368,6 +423,7 @@ mod test {
             name: "fx-rate".to_owned(),
             version: "0.1.0".to_owned(),
             runtime: Arc::new(PluginRuntime::new(vec![])),
+            script: None,
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,
@@ -405,6 +461,87 @@ mod test {
     }
 
     #[test]
+    fn should_pair_a_script_with_the_interpreter_through_the_reserved_config_keys() {
+        let meta: Meta = [("zhang.script", "spoofed"), ("zhang.script_name", "spoofed"), ("greeting", "hi")]
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), ZhangString::quote(value)))
+            .collect();
+        let directive = Plugin {
+            module: ZhangString::quote("plugins/report.lua"),
+            value: vec![],
+            meta,
+        };
+        let plugin = RegisteredPlugin {
+            name: "report".to_owned(),
+            version: "0.1.0".to_owned(),
+            runtime: Arc::new(PluginRuntime::new(vec![])),
+            script: Some(LuaScript {
+                name: "plugins/report.lua".to_owned(),
+                source: "return {}".to_owned(),
+            }),
+            declaration: PluginDeclaration::parse(&directive),
+            span: SpanInfo::default(),
+            occurrence: 0,
+            files: no_files(),
+            policy: Arc::new(PluginPolicy::default()),
+        };
+
+        let config = plugin.manifest(&[]).config;
+
+        // the host's script wins over a meta of the same name, like every reserved key
+        assert_eq!(config["zhang.script"], "return {}");
+        assert_eq!(config["zhang.script_name"], "plugins/report.lua");
+        assert_eq!(config["greeting"], "hi");
+        assert_eq!(config["zhang.abi"], "1");
+        assert!(!registered_as("slow.wasm", &[], 0).manifest(&[]).config.contains_key("zhang.script"));
+    }
+
+    #[test]
+    fn should_register_with_the_settings_every_call_gets_so_the_load_compiles_once() {
+        let directive = Plugin {
+            module: ZhangString::quote("config_echo.wat"),
+            value: vec![],
+            meta: [("greeting", "hi")]
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), ZhangString::quote(value)))
+                .collect(),
+        };
+        let options = [OptionDomain {
+            key: "title".to_owned(),
+            value: "Home".to_owned(),
+        }];
+        let module = PluginModule::Wasm(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
+        let clock = LoadClock::new(crate::clock::Clock::System);
+        let mut store = PluginStore::default();
+        store
+            .insert_plugin(
+                &directive,
+                module,
+                PluginDeclaration::parse(&directive),
+                &SpanInfo::default(),
+                &clock,
+                chrono_tz::UTC,
+                no_files(),
+                &options,
+                Arc::new(PluginPolicy::default()),
+            )
+            .unwrap();
+        let (plugin, _) = &store.ordered[0];
+
+        // registering compiled once (generation 1) with the config a run gets: the option and the meta
+        assert_eq!(plugin.runtime.pool_state(), (1, 1));
+        let manifest = plugin.manifest(&options);
+        assert_eq!(manifest.config["title"], "Home");
+        assert_eq!(manifest.config["greeting"], "hi");
+        // a run with the same settings reuses that compiled code: the generation does not move
+        let host = PluginHost::new("config-echo", SpanInfo::default(), clock, chrono_tz::UTC);
+        let instance = plugin.runtime.instantiate(manifest, host).unwrap();
+        assert_eq!(plugin.runtime.pool_state(), (0, 1), "the registering compile is the one in use");
+        drop(instance);
+        assert_eq!(plugin.runtime.pool_state(), (1, 1));
+    }
+
+    #[test]
     fn should_deny_network_without_allowed_hosts() {
         let directive = Plugin {
             module: ZhangString::quote("offline.wasm"),
@@ -415,6 +552,7 @@ mod test {
             name: "offline".to_owned(),
             version: "0.1.0".to_owned(),
             runtime: Arc::new(PluginRuntime::new(vec![])),
+            script: None,
             declaration: PluginDeclaration::parse(&directive),
             span: SpanInfo::default(),
             occurrence: 0,
@@ -439,20 +577,42 @@ mod test {
         assert!(known_plugin_types("broken", vec![json!(42)]).is_err());
     }
 
+    /// `registered_with_meta` under a policy without a ceiling on the timeout
+    fn unbounded(meta: &[(&str, &str)]) -> RegisteredPlugin {
+        RegisteredPlugin {
+            policy: Arc::new(PluginPolicy::unrestricted()),
+            ..registered_with_meta(meta)
+        }
+    }
+
     #[test]
     fn should_give_every_call_a_default_timeout_of_a_minute() {
-        assert_eq!(registered_with_meta(&[]).manifest(&[]).timeout_ms, Some(60_000));
+        assert_eq!(unbounded(&[]).manifest(&[]).timeout_ms, Some(60_000));
     }
 
     #[test]
     fn should_let_the_timeout_meta_override_the_default() {
-        assert_eq!(registered_with_meta(&[("timeout", "2m")]).manifest(&[]).timeout_ms, Some(120_000));
-        assert_eq!(registered_with_meta(&[("timeout", "1")]).manifest(&[]).timeout_ms, Some(1_000));
+        assert_eq!(unbounded(&[("timeout", "2m")]).manifest(&[]).timeout_ms, Some(120_000));
+        assert_eq!(unbounded(&[("timeout", "1")]).manifest(&[]).timeout_ms, Some(1_000));
         assert_eq!(
-            registered_with_meta(&[("timeout", "soon")]).manifest(&[]).timeout_ms,
+            unbounded(&[("timeout", "soon")]).manifest(&[]).timeout_ms,
             Some(60_000),
             "an invalid timeout falls back to the default"
         );
+    }
+
+    /// Every manifest of a plugin, registering, a stage and a request, caps the timeout at the policy's `max_timeout`,
+    /// the cap a router call gets: one manifest, so one compiled code per load (a default Lua router compiled twice
+    /// per load while registering used the uncapped minute and a request the cap)
+    #[test]
+    fn should_cap_the_timeout_of_every_manifest_as_a_router_call_is_capped() {
+        let plugin = registered_with_meta(&[]);
+        let cap = plugin.policy().max_timeout;
+        assert!(cap < Duration::from_secs(60), "the default ceiling is below the default timeout");
+        assert_eq!(plugin.manifest(&[]).timeout_ms, Some(cap.as_millis() as u64));
+        assert_eq!(plugin.manifest(&[]), plugin.manifest_with_timeout(&[], plugin.router_timeout()));
+        let short = registered_with_meta(&[("timeout", "1")]);
+        assert_eq!(short.manifest(&[]).timeout_ms, Some(1_000), "a timeout under the ceiling is kept");
     }
 
     #[test]
@@ -464,6 +624,21 @@ mod test {
 
         let failed = call_error("slow", "processor", Duration::from_secs(1), &policy, extism::Error::msg("boom")).to_string();
         assert!(failed.contains("plugin slow failed in its `processor` call: boom"), "{failed}");
+
+        let script = script_error(
+            "x.lua",
+            "name",
+            Duration::from_secs(1),
+            &policy,
+            extism::Error::msg("x.lua:4: unexpected symbol near '='"),
+        )
+        .to_string();
+        assert!(
+            script.ends_with("plugin script x.lua cannot be loaded: x.lua:4: unexpected symbol near '='"),
+            "{script}"
+        );
+        let timed_out = script_error("x.lua", "name", Duration::from_secs(1), &policy, extism::Error::msg("timeout")).to_string();
+        assert!(timed_out.contains("plugin x.lua timed out"), "{timed_out}");
     }
 
     #[test]

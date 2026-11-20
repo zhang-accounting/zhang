@@ -21,7 +21,7 @@ option "features.plugin" "true"
 
 ## 添加插件
 
-把插件的 `.wasm` 文件复制到账本目录中，例如 `plugins/` 下，然后声明它：
+把插件的文件（`.wasm` 模块或 `.lua` 脚本）复制到账本目录中，例如 `plugins/` 下，然后声明它：
 
 ```zhang
 option "features.plugin" "true"
@@ -42,7 +42,7 @@ plugin "plugins/large_expense.wasm"
 
 - **processor** 接收账本的所有条目，返回张记账接下来使用的条目。它可以添加、修改或删除条目，也可以只检查条目并报告问题。
 - **mapper** 做同样的事，但一次处理一个条目。
-- **router** 在 `/api/plugins/{name}` 下提供页面和数据，例如自定义报表。见 [Router 插件](/zh-cn/guides/router-plugins/)。
+- **router** 在 `/api/plugins/{name}` 下提供页面和数据，例如自定义报表。见 [Router 插件](/zh-cn/guides/router-plugins/)。router 也可以用 Lua 脚本编写，无需编译：见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
 
 由 processor 或 mapper 所做的修改只在账本加载期间存在。你的文件保持原样。
 

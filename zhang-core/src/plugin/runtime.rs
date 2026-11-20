@@ -129,6 +129,13 @@ impl PluginRuntime {
             .compile()
     }
 
+    /// how many compiled plugins are idle, and the pool's generation, which moves only when the settings change
+    #[cfg(test)]
+    pub(crate) fn pool_state(&self) -> (usize, u64) {
+        let pool = lock(&self.pool);
+        (pool.idle.len(), pool.generation)
+    }
+
     /// a fresh instance of the plugin with the settings of `manifest`, whose host functions reach
     /// `host`. It leases an idle compiled plugin of these settings, or compiles one when every one
     /// is in use (or the settings changed since the last call, which drops the idle ones). Within a
@@ -266,8 +273,7 @@ mod tests {
 
     /// how many compiled plugins are idle, and the pool's generation
     fn pool_state(runtime: &PluginRuntime) -> (usize, u64) {
-        let pool = lock(&runtime.pool);
-        (pool.idle.len(), pool.generation)
+        runtime.pool_state()
     }
 
     #[test]

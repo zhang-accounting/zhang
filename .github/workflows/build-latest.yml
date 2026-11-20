@@ -257,6 +257,39 @@ jobs:
       - name: Clippy the plugin SDK for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -p zhang-plugin-example-balances -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
 
+  # the Lua interpreter module zhang embeds (zhang-core/src/plugin/lua/lua-runtime.wasm) is vendored with its
+  # sha256; this job rebuilds it from the pinned toolchain and sources (tools/lua-runtime, PINS.toml) and fails
+  # unless the bytes match, so the module in the tree is always what the build produces. The Linux build is the
+  # canonical one: a maintainer who rebuilds elsewhere commits this job's artifact when the two differ
+  lua-runtime:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the vendored module against its checksum
+        run: sha256sum -c lua-runtime.wasm.sha256
+        working-directory: ./zhang-core/src/plugin/lua
+      # the pinned wasi-sdk is 190 MB; the cache keeps it between runs as long as the pins do not change
+      - name: Cache the pinned toolchain
+        uses: actions/cache@v4
+        with:
+          path: /tmp/lua-runtime-tools
+          key: lua-runtime-tools-${{ hashFiles('tools/lua-runtime/PINS.toml') }}
+      - name: Fetch the pinned toolchain and sources
+        run: python3 -I tools/lua-runtime/prepare.py --tools /tmp/lua-runtime-tools
+      - name: Rebuild the module
+        run: python3 -I tools/lua-runtime/build.py --tools /tmp/lua-runtime-tools --out /tmp/lua-runtime-build/lua-runtime.wasm
+      # the rebuilt module is kept whatever the comparison says, so a mismatch can be vendored from here
+      - name: Upload the rebuilt module
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lua-runtime.wasm
+          path: /tmp/lua-runtime-build/lua-runtime.wasm
+          if-no-files-found: ignore
+      - name: Compare the rebuilt module with the vendored one
+        run: sha256sum -c "$GITHUB_WORKSPACE/zhang-core/src/plugin/lua/lua-runtime.wasm.sha256"
+        working-directory: /tmp/lua-runtime-build
+
   typo-checker:
     runs-on: ubuntu-22.04
     steps:
@@ -268,7 +301,7 @@ jobs:
   # so adding a job or changing a matrix only needs a change here, not in the repository settings
   checks-passed:
     if: always()
-    needs: [frontend-style-check, frontend-build, test, wasm-test, docs, formatter, clippy-check, typo-checker]
+    needs: [frontend-style-check, frontend-build, test, wasm-test, docs, formatter, clippy-check, typo-checker, lua-runtime]
     runs-on: ubuntu-22.04
     steps:
       - name: Fail unless every required job passed
