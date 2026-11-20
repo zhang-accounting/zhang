@@ -555,7 +555,10 @@ async fn a_directory_where_the_file_goes_writes_nothing_by_a_plugin_or_the_api()
     let (kind, message) = err(&commit(&router, batch.clone(), &token).await);
 
     assert_eq!(kind, "io");
-    assert!(message.contains("cannot read data/2026/11.zhang"), "{message}");
+    assert!(
+        message.contains("cannot write data/2026/11.zhang: it is a directory or another entry, not a file"),
+        "{message}"
+    );
     assert!(
         message.contains("Nothing was written. Not written: data/2026/10.zhang (entries 0); data/2026/11.zhang (entries 1). The ledger reloads"),
         "{message}"
@@ -576,7 +579,13 @@ async fn a_directory_where_the_file_goes_writes_nothing_by_a_plugin_or_the_api()
     let main_before = read(scratch.dir(), "main.zhang");
     let reply = send(&router, json_request(Method::POST, "/api/transactions", &[], Some(&request))).await;
     assert_ne!(reply.status, 200, "{}", reply.text());
-    assert!(reply.text().contains("cannot read data/2026/11.zhang"), "{}", reply.text());
+    assert!(
+        reply
+            .text()
+            .contains("cannot write data/2026/11.zhang: it is a directory or another entry, not a file"),
+        "{}",
+        reply.text()
+    );
     assert_eq!(read(scratch.dir(), "main.zhang"), main_before);
     reload_sender.reload_and_wait().await.unwrap();
 

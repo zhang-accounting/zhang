@@ -10,7 +10,7 @@ use opendal::services::{Fs, Github, Webdav, S3};
 use opendal::{EntryMode, ErrorKind, HttpTransporter, Operator};
 use opendal_http_transport_reqwest::ReqwestTransport;
 use zhang_ast::{Directive, SpanInfo, Spanned};
-use zhang_core::data_source::{normalize_relative, save_file, DataSource, LedgerFiles, LoadResult, SourceEntry};
+use zhang_core::data_source::{normalize_relative, not_a_file, save_file, DataSource, LedgerFiles, LoadResult, SourceEntry};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::{DataType, Dialect};
 use zhang_core::error::{storage_error, Access, StorageFailure};
@@ -162,6 +162,31 @@ impl DataSource for OpendalDataSource {
         match read.map_err(|e| e.into_zhang_error(&path, Access::Read)) {
             Err(ZhangError::FileNotFound) => Ok(None),
             read => read,
+        }
+    }
+
+    /// what the stat tells first: a directory, which a WebDAV service reads as a page listing it, or another kind of
+    /// entry is [`not_a_file`], and a missing entry none. A stat that fails otherwise leaves the read to tell
+    fn get_to_replace(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        let file = &path;
+        let read = self.blocking(None, |operator| async move {
+            match operator.stat(file).await {
+                Ok(metadata) if metadata.is_file() => {}
+                Ok(_) => return Ok(Err(())),
+                Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Ok(None)),
+                Err(err) => debug!("[opendal] cannot stat {}, reading it: {}", file, err),
+            }
+            match operator.read(file).await {
+                Ok(data) => Ok(Ok(Some(data.to_vec()))),
+                Err(err) if matches!(err.kind(), ErrorKind::IsADirectory | ErrorKind::NotADirectory) => Ok(Err(())),
+                Err(err) => Err(err),
+            }
+        });
+        match read.map_err(|e| e.into_zhang_error(&path, Access::Read)) {
+            Ok(Ok(content)) => Ok(content),
+            Ok(Err(())) => Err(not_a_file(&path)),
+            Err(ZhangError::FileNotFound) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
@@ -1191,6 +1216,71 @@ mod test {
             self.count("presign", path);
             self.inner.presign(ctx, path, args).await
         }
+    }
+
+    /// An append whose file is a directory on a service that reads a directory as a page listing it, as WebDAV does:
+    /// the stat before the read refuses it, so nothing is written and the main file gets no include of it, which
+    /// would fail every later load. A write that fails after the include landed takes the include out again
+    #[tokio::test]
+    async fn an_append_refuses_a_directory_read_as_a_page_and_takes_a_failed_include_out_again() {
+        let counting = Counting::default();
+        let operator = Operator::new(Memory::default()).unwrap().layer(counting.clone());
+        operator.write("main.zhang", OPENS.as_bytes().to_vec()).await.unwrap();
+        operator
+            .write("data/2024/01.zhang/index.html", b"<html>a listing</html>".to_vec())
+            .await
+            .unwrap();
+        counting.directories.lock().unwrap().push("data/2024/01.zhang".to_owned());
+        let source = OpendalDataSource {
+            operator: operator.clone(),
+            data_type: Box::new(ZhangDataType {}),
+            local_root: None,
+        };
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ledger = Ledger::load(
+            std::path::PathBuf::from(format!("/ledger-{}", nanos)),
+            "main.zhang".to_owned(),
+            Arc::new(source),
+        )
+        .unwrap();
+        let coffee = zhang_parse("2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n", None)
+            .unwrap()
+            .remove(0)
+            .data;
+        counting.calls();
+
+        let failure = ledger
+            .data_source
+            .append_files(&ledger, vec![coffee.clone()])
+            .expect_err("a directory is no file");
+
+        let error = failure.error.to_string();
+        assert!(
+            error.contains("cannot write data/2024/01.zhang: it is a directory or another entry, not a file"),
+            "{}",
+            error
+        );
+        assert_eq!(failure.written, Vec::<String>::new());
+        let calls = counting.calls();
+        assert!(
+            !calls.iter().any(|call| call.starts_with("write") || call.starts_with("read data/2024")),
+            "{:?}",
+            calls
+        );
+        assert_eq!(operator.read("main.zhang").await.unwrap().to_vec(), OPENS.as_bytes());
+
+        // the directory gone, a write of the file that fails after the include landed: the include is taken out
+        counting.directories.lock().unwrap().clear();
+        operator.delete("data/2024/01.zhang/index.html").await.unwrap();
+        counting
+            .failing_writes
+            .lock()
+            .unwrap()
+            .push(("data/2024/01.zhang".to_owned(), opendal::ErrorKind::Unexpected));
+        let failure = ledger.data_source.append_files(&ledger, vec![coffee]).expect_err("the file cannot be written");
+        assert_eq!(failure.written, Vec::<String>::new());
+        assert_eq!(failure.taken_out, vec![("main.zhang".to_owned(), "data/2024/01.zhang".to_owned())]);
+        assert_eq!(operator.read("main.zhang").await.unwrap().to_vec(), OPENS.as_bytes());
     }
 
     /// On a remote source, a load looks at no document: it reads the two files of the ledger, whatever its documents,

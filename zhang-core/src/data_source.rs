@@ -83,9 +83,9 @@ where
     /// all of its new text. The files written, in order; or, when a read or a write fails, [`AppendError`]: the caller
     /// tells what landed, and the rest was not touched.
     ///
-    /// Every file is read before any is written: a file that cannot be read (a directory where the file goes, a file
-    /// the storage refuses to read) or is not text fails the append with nothing written, so the main file never gets
-    /// an `include` of it, which would fail every later load. When a write fails all the same, the `include` lines
+    /// Every file is read before any is written ([`DataSource::get_to_replace`]): a path holding something other than
+    /// a file (a directory where the file goes), a file the storage refuses to read, or one that is not text fails the
+    /// append with nothing written, so the main file never gets an `include` of it, which would fail every later load. When a write fails all the same, the `include` lines
     /// this append wrote of the files it did not write are taken out again ([`AppendError::taken_out`]): the ledger
     /// stays as loadable as it was
     fn append_files(&self, ledger: &Ledger, directives: Vec<Directive>) -> Result<Vec<String>, AppendError> {
@@ -111,13 +111,11 @@ where
             };
             files[index].texts.push((text, includes));
         }
-        // then every file read, before any is written
+        // then every file read, before any is written; none is there for a file this append creates
         for file in &mut files {
-            file.original = match self.get(file.path.clone()) {
-                Ok(content) => Some(FileText::decode(content, &file.path).map_err(untouched)?),
-                // a file this append creates
-                Err(error) if error.is_file_not_found() => None,
-                Err(error) => return Err(untouched(error)),
+            file.original = match self.get_to_replace(file.path.clone()).map_err(untouched)? {
+                Some(content) => Some(FileText::decode(content, &file.path).map_err(untouched)?),
+                None => None,
             };
         }
         let mut written = vec![];
@@ -128,6 +126,19 @@ where
             written.push(file.path.clone());
         }
         Ok(written)
+    }
+
+    /// The content of the file at `path`, relative to the ledger root and written with `/`, that a write is about to
+    /// replace: `None` when nothing is there, which the write creates, and an error ([`not_a_file`]) when something
+    /// other than a file is there, a directory say, which no write may replace. The default reads with
+    /// [`DataSource::get`], which errs on reading a directory on the local disk; a source that may read a directory as
+    /// content (a WebDAV service answers a page listing it) checks what is there first
+    fn get_to_replace(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        match self.get(path) {
+            Ok(content) => Ok(Some(content)),
+            Err(error) if error.is_file_not_found() => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The content of the file at `path`, relative to the ledger root and written with `/`, or `None` when there is
@@ -345,6 +356,12 @@ impl AppendError {
             false => ZhangError::CustomError(format!("{}; {}", self.error, dangling_includes(&self.dangling))),
         }
     }
+}
+
+/// the error of a write to `path`, a path of the ledger where something other than a file is: a directory, or another
+/// kind of entry, which no write replaces
+pub fn not_a_file(path: &str) -> ZhangError {
+    ZhangError::CustomError(format!("cannot write {path}: it is a directory or another entry, not a file"))
 }
 
 /// what to do about `dangling`, `include` lines naming files that were not written, each with the file holding it
@@ -828,6 +845,23 @@ impl DataSource for LocalFileSystemDataSource {
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
         let file = self.resolve(&path).ok_or(ZhangError::FileNotFound)?;
         std::fs::read(file).map_err(|error| storage_error(&path, Access::Read, error.kind().into(), error))
+    }
+
+    /// what is at the path is looked at first, its links followed: a directory, or another entry that is no file, is
+    /// [`not_a_file`]
+    fn get_to_replace(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        let file = self.resolve(&path).ok_or(ZhangError::FileNotFound)?;
+        match std::fs::metadata(&file) {
+            Ok(metadata) if !metadata.is_file() => return Err(not_a_file(&path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            // anything else is the read's to tell
+            _ => {}
+        }
+        match self.get(path) {
+            Ok(content) => Ok(Some(content)),
+            Err(error) if error.is_file_not_found() => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// the ledger root itself: this source reads the paths it is given from the local disk

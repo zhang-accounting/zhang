@@ -838,9 +838,6 @@ mod test {
         assert_eq!(timed["entries"][0]["text"], "2026-10-13 08:30:00 open Assets:Bank");
     }
 
-    /// What a plugin is told names files as the ledger does, never by where the server keeps them: an io error's
-    /// path loses the ledger's directory, and a `directive_output_path` leading out of the ledger is named by the
-    /// option's text (#803 review)
     /// The `io` error of a failed commit says exactly what landed: the entries written and those not, and of an
     /// include it wrote of a file it could not write, that it was taken out again, or that it stayed and must go
     #[test]
@@ -905,6 +902,9 @@ mod test {
         );
     }
 
+    /// What a plugin is told names files as the ledger does, never by where the server keeps them: an io error's
+    /// path loses the ledger's directory, and a `directive_output_path` leading out of the ledger is named by the
+    /// option's text (#803 review)
     #[test]
     fn an_error_a_plugin_is_told_names_no_directory_of_the_server() {
         let scratch = Scratch::zhang(LEDGER);
