@@ -48,6 +48,15 @@ local MAX_ORIGIN = 2048
 -- the length of `text` in characters, as JSON Schema's maxLength counts them (bytes, for text that is not UTF-8)
 local function length(text) return utf8.len(text) or #text end
 
+-- the keys of `t`, sorted: `pairs` visits them in another order on every request (the interpreter seeds its string
+-- hash at random), and the first problem a call is told of must not depend on it
+local function sorted_keys(t)
+  local keys = {}
+  for key in pairs(t) do keys[#keys + 1] = key end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  return keys
+end
+
 -- an integer, from a Lua integer or an integral float (JSON Schema's `integer` accepts 5.0); nil otherwise
 local function as_int(v)
   if math.type(v) == "integer" then return v end
@@ -482,7 +491,8 @@ local function check_postings(a, value)
   for i, posting in ipairs(value) do
     local where = fmt("%s[%d]", a.name, i)
     if not is_object(posting) then return nil, fmt("the argument `%s` must be an object {account, amount, currency, cost, price}", where) end
-    for field, v in pairs(posting) do
+    for _, field in ipairs(sorted_keys(posting)) do
+      local v = posting[field]
       if not POSTING_FIELDS[field] then return nil, fmt("unknown field `%s` in `%s`; the fields are `account`, `amount`, `currency`, `cost`, `price`", field, where) end
       if v ~= json.null and type(v) ~= "string" then
         local hint = field == "amount" and 'a decimal string such as "4.50", never a number: decimals stay exact' or "a string"
@@ -544,7 +554,8 @@ local function check(a, value)
     return nil, wrong("a list of strings")
   elseif kind == "strmap" then
     if is_object(value) then
-      for key, it in pairs(value) do
+      for _, key in ipairs(sorted_keys(value)) do
+        local it = value[key]
         if type(it) ~= "string" then return nil, wrong("an object of string values") end
         if length(it) > MAX_TEXT or length(key) > MAX_TEXT then return nil, wrong(fmt("an object of strings of at most %d characters", MAX_TEXT)) end
       end
@@ -563,7 +574,8 @@ end
 -- specification keeps input validation errors in tool results, SEP-1303). null is the same as absent.
 local function validate(args, arguments)
   local values = {}
-  for name, value in pairs(arguments) do
+  for _, name in ipairs(sorted_keys(arguments)) do
+    local value = arguments[name]
     local declared
     for _, a in ipairs(args) do if a.name == name then declared = a end end
     if not declared then

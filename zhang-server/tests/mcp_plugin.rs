@@ -824,7 +824,6 @@ async fn the_endpoint_sits_behind_zhang_authentication() {
 /// the directive lines of a ledger that lists the write tools and grants both kinds
 const GRANTED: &str = "  allow_writes: \"true\"\n  allowed_writes: \"transaction\"\n  allowed_writes: \"open\"\n";
 
-/// a coffee at a new account, as the write session records it
 /// A run of whitespace inside an argument is trimmed in linear time (the pattern trim was quadratic: 20 KB of BQL held
 /// the ledger's read lock for the whole timeout), and every text a tool reads has a cap its schema states: 16 KiB of
 /// BQL, 1 KiB of account, 4 KiB of any other text. An Origin or Host header over 2 KiB is refused (#804 review)
@@ -868,6 +867,21 @@ async fn long_arguments_are_capped_and_whitespace_is_trimmed_in_linear_time() {
     assert_eq!(reply.status, 403, "{}", reply.text());
 }
 
+/// Of several problems in a call, the first by name is told, the same on every call: the interpreter seeds its string
+/// hash at random, so the order `pairs` visits the arguments in changes from one request to the next
+#[tokio::test]
+async fn the_problem_a_call_is_told_of_does_not_change_between_calls() {
+    let dir = ledger_dir("");
+    let router = server(&dir, &Settings::default()).await;
+    let arguments = json!({"zeta": 1, "omega": 2, "beta": 3, "alpha": 4, "kappa": 5, "delta": 6});
+
+    for _ in 0..6 {
+        let message = error_text(&router, "payees", arguments.clone()).await;
+        assert_eq!(message, "unknown argument `alpha`; the arguments are none");
+    }
+}
+
+/// a coffee at a new account, as the write session records it
 fn coffee(token: Option<&str>) -> Value {
     let mut arguments = json!({
         "date": "2024-03-20",
