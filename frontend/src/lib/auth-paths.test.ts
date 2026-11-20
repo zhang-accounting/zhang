@@ -63,11 +63,23 @@ test('the web return path stays on the same origin', () => {
   assert.equal(returnPath('?next=/\\evil.example.com'), '/');
   assert.equal(returnPath('?next=/accounts\\x'), '/');
   assert.equal(returnPath('?next=/login'), '/');
+  assert.equal(returnPath('?next=/.//evil.example.com'), '/');
 });
 
 test('the web return path never leads to the login page, however it is spelled', () => {
   const app = encodeURIComponent('?return_to=zhang-app://auth/callback');
-  for (const path of ['/login', '/./login', '/a/../login', '/%2e/login', '/a/%2e%2e/login', '/.\\login', '/login/']) {
+  for (const path of [
+    '/login',
+    '/./login',
+    '/a/../login',
+    '/%2e/login',
+    '/a/%2e%2e/login',
+    '/.\\login',
+    '/login/',
+    '/.//login',
+    '/a/..//login',
+    '/%2e//login',
+  ]) {
     assert.equal(returnPath(`?next=${encodeURIComponent(path)}${app}`), '/', path);
   }
   assert.equal(returnPath('?return_to=zhang-app://auth/callback'), '/');

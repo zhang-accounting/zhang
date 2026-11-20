@@ -24,7 +24,9 @@ export function returnPath(search: string) {
   } catch {
     return '/';
   }
-  if (url.origin !== SAME_ORIGIN || url.pathname.startsWith(LOGIN_PATH)) return '/';
+  // Normalising can leave `//…` (`/.//login`, `/a/..//login`), which the router merges back into `/login` or reads as
+  // `/evil.example.com`: refuse it like `//host` above.
+  if (url.origin !== SAME_ORIGIN || url.pathname.startsWith('//') || url.pathname.startsWith(LOGIN_PATH)) return '/';
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
