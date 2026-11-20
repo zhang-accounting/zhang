@@ -252,6 +252,14 @@ pub struct ReloadSender {
     /// the transactions the writes deleted or replaced lately ([`tombstones`]), which outlive the reloads: read and
     /// changed by a writer, which holds the ledger
     tombstones: std::sync::Mutex<tombstones::Tombstones>,
+    /// The generation of the ledger served: a counter, starting at 1, that only moves on, by one whenever a reload
+    /// loaded other content than the ledger served before ([`ledger_fingerprint`]). Whatever was computed from the
+    /// ledger can be stamped with it and recognized as outdated once the ledger changed; the preview tokens of the
+    /// writes of router plugins (#803) carry it. A reload of unchanged files, as the file watcher's after a write's own
+    /// reload, keeps it
+    generation: std::sync::atomic::AtomicU64,
+    /// the fingerprint of the ledger served ([`ledger_fingerprint`]), `None` before the first is recorded
+    fingerprint: std::sync::Mutex<Option<u64>>,
 }
 
 impl Deref for ReloadSender {
@@ -270,12 +278,45 @@ impl ReloadSender {
             broadcaster: std::sync::OnceLock::new(),
             midnight_reload: std::sync::Mutex::new(None),
             tombstones: std::sync::Mutex::new(tombstones::Tombstones::default()),
+            generation: std::sync::atomic::AtomicU64::new(1),
+            fingerprint: std::sync::Mutex::new(None),
         }
     }
 
     /// the transactions the writes deleted or replaced lately ([`tombstones`])
     pub fn tombstones(&self) -> std::sync::MutexGuard<'_, tombstones::Tombstones> {
         self.tombstones.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// remember the content of `ledger`, the one served now, so the next reload can tell whether it changed. This
+    /// computes its fingerprint where it is called: from async code, prefer the listener's way, on a blocking thread
+    pub fn record_content(&self, ledger: &Ledger) {
+        self.record_fingerprint(ledger_fingerprint(ledger));
+    }
+
+    /// remember `fingerprint` ([`ledger_fingerprint`]) as that of the ledger served now
+    fn record_fingerprint(&self, fingerprint: u64) {
+        *self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(fingerprint);
+    }
+
+    /// whether the ledger just loaded, whose fingerprint is `fingerprint`, differs in content from the one served
+    /// before it (always, before the first is recorded), remembering it either way
+    fn content_changed(&self, fingerprint: u64) -> bool {
+        let mut previous = self.fingerprint.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = *previous != Some(fingerprint);
+        *previous = Some(fingerprint);
+        changed
+    }
+
+    /// the generation of the ledger served: 1 for the ledger served first, moved on by one whenever a reload loaded
+    /// other content
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// move the generation on, as a reload that loaded other content does: the new generation
+    pub(crate) fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
     }
 
     /// ask for a reload, without waiting for it: a reload already asked for and not started reads the files as
@@ -317,9 +358,22 @@ impl ReloadSender {
     pub(crate) async fn reload_in_place(self: &Arc<Self>, ledger: &mut Ledger) -> Result<(), ReloadFailure> {
         info!("start reloading...");
         let start_time = Instant::now();
-        let outcome = match tokio::task::spawn_blocking(ledger.reloader()).await {
-            Ok(Ok(reloaded)) => {
+        // the fingerprint is computed with the load, on the blocking thread: with a processor plugin it is a pass over
+        // every directive, which must not run on an async worker while the caller holds the ledger's write lock
+        let reload = ledger.reloader();
+        let loaded = tokio::task::spawn_blocking(move || {
+            reload().map(|reloaded| {
+                let fingerprint = ledger_fingerprint(&reloaded);
+                (reloaded, fingerprint)
+            })
+        });
+        let outcome = match loaded.await {
+            Ok(Ok((reloaded, fingerprint))) => {
                 *ledger = reloaded;
+                // a reload that loaded the same content (the file watcher's, after a write's own) keeps the generation
+                if self.content_changed(fingerprint) {
+                    self.next_generation();
+                }
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
             }
@@ -482,12 +536,27 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
     });
 }
 
-fn start_reload_listener(
+/// Run the reloads `reload_sender` asks for, one at a time, on `ledger_for_reload`, telling `cloned_broadcaster`'s
+/// readers; the task the server starts, which a test of a write path starts too. The content of the ledger served
+/// first is recorded, so a reload of the same files keeps the generation ([`ReloadSender::generation`])
+pub fn start_reload_listener(
     ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<ReloadRequest>,
 ) {
     reload_sender.broadcaster.set(cloned_broadcaster).ok();
     tokio::spawn(async move {
-        reload_sender.schedule_midnight_reload(&*ledger_for_reload.read().await);
+        {
+            // the fingerprint of the ledger served first, on a blocking thread as every other one is
+            let served = ledger_for_reload.clone().read_owned().await;
+            let fingerprinted = tokio::task::spawn_blocking(move || (ledger_fingerprint(&served), served)).await;
+            match fingerprinted {
+                Ok((fingerprint, served)) => {
+                    reload_sender.record_fingerprint(fingerprint);
+                    reload_sender.schedule_midnight_reload(&served);
+                }
+                // nothing recorded: the first reload then counts as a change, which only voids tokens early
+                Err(failure) => error!("the fingerprint of the ledger served could not be computed: {failure}"),
+            }
+        }
         while let Some(request) = rx.recv().await {
             let mut guard = ledger_for_reload.write().await;
             let outcome = reload_sender.reload_in_place(&mut guard).await;
@@ -498,6 +567,118 @@ fn start_reload_listener(
             drop(guard);
         }
     });
+}
+
+/// The fingerprint of what a load produced, the content the generation counts ([`ReloadSender::generation`]):
+///
+/// - every directive's place and text in its file: the span the loader keeps on each one (file, offsets and the text
+///   as written), so an edit that changes a directive, or a byte before one (its offsets move), gives another;
+/// - the directives without a file, which plugins made: their canonical JSON;
+/// - the options, by key;
+/// - the module of every plugin, as the load read it, so a module updated in place counts, whatever the plugin is;
+/// - when a processor or a mapper plugin ran, everything it may have changed: the canonical JSON of every directive
+///   and every error after the stages. What such a plugin makes depends on more than the spans: a file it read through
+///   `allowed_paths`, the date, what it fetched, its module. Its output is hashed rather than what it read, so the
+///   fingerprint is that of the ledger served, with no file read again and no race with an edit after the load.
+///
+/// Two loads of the same input give the same fingerprint. Without such plugins nothing is serialized or read again:
+/// it costs a hash of the text (3.5 ms against a load of 426 ms for 50 000 transactions, where serializing them
+/// through JSON cost 364 ms). With them, the JSON pass is the price of the guarantee, as each of their stages already
+/// passes every directive through JSON; it is streamed into the hasher wherever the order of a directive's maps is
+/// fixed (about a quarter of the cost of the sorted form). A reload computes it on its blocking thread, with the load.
+/// Not a cryptographic hash: it tells a reload of the same input from a change, nothing more
+fn ledger_fingerprint(ledger: &Ledger) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    use zhang_core::plugin::PluginType;
+
+    // through `serde_json::Value`, whose objects are sorted, so a hash map or set hashes the same whatever order it
+    // iterates in: an error's metas, the tags and links of a note or a document
+    fn canonical(value: impl serde::Serialize) -> String {
+        serde_json::to_value(value).map(|value| value.to_string()).unwrap_or_default()
+    }
+
+    /// the bytes a writer gets, fed to a hasher as they come
+    struct HashWriter<'a, H: Hasher>(&'a mut H);
+
+    impl<H: Hasher> std::io::Write for HashWriter<'_, H> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.write(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // the tags and links of a note or a document, hash sets, sorted: serialized, a set is an array in the order the
+    // set iterates in, which every load picks anew
+    fn sort_sets(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(fields) => {
+                for (key, field) in fields.iter_mut() {
+                    if let (true, serde_json::Value::Array(items)) = (key == "tags" || key == "links", &mut *field) {
+                        items.sort_by_key(|item| item.to_string());
+                    }
+                    sort_sets(field);
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(sort_sets),
+            _ => {}
+        }
+    }
+
+    // a directive as JSON, streamed into the hasher where its maps keep their order (metadata is an ordered map), a
+    // quarter of the cost of the sorted form; a note or a document holds hash sets, so it takes the sorted form with
+    // its sets sorted
+    fn hash_directive<H: Hasher>(directive: &zhang_ast::Spanned<zhang_ast::Directive>, hasher: &mut H) {
+        match &directive.data {
+            zhang_ast::Directive::Note(_) | zhang_ast::Directive::Document(_) => {
+                let mut value = serde_json::to_value(directive).unwrap_or_default();
+                sort_sets(&mut value);
+                value.to_string().hash(hasher)
+            }
+            _ => {
+                serde_json::to_writer(HashWriter(&mut *hasher), directive).ok();
+                // no JSON text holds this byte: it ends one directive before the next begins
+                hasher.write_u8(0xff);
+            }
+        }
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut transformed = false;
+    for (plugin, types) in &ledger.plugins.ordered {
+        plugin.module_bytes().hash(&mut hasher);
+        transformed |= types.iter().any(|it| matches!(it, PluginType::Processor | PluginType::Mapper));
+    }
+    for directive in ledger.directives.iter().chain(&ledger.metas) {
+        let span = &directive.span;
+        match &span.filename {
+            Some(file) if !transformed => {
+                file.hash(&mut hasher);
+                span.start.hash(&mut hasher);
+                span.end.hash(&mut hasher);
+                span.content.hash(&mut hasher);
+            }
+            // a directive a plugin made, or any directive once a plugin could have changed it
+            _ => hash_directive(directive, &mut hasher),
+        }
+    }
+    if transformed {
+        for error in &ledger.errors {
+            canonical(error).hash(&mut hasher);
+        }
+    }
+    // the options come out of a hash map in no fixed order: by key, so two loads list them alike
+    let mut options = ledger.options.all();
+    options.sort_by(|a, b| a.key.cmp(&b.key));
+    for option in options {
+        option.key.hash(&mut hasher);
+        option.value.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// the message a caught panic was raised with, for the log
@@ -888,6 +1069,200 @@ mod reload_test {
         assert!(info().await.reload_failure.is_none(), "a reload that succeeds clears the failure");
         assert_eq!(accounts(&ledger).await, vec!["Assets:A", "Assets:B"], "the fixed file is served");
         std::fs::remove_dir_all(dir).ok();
+    }
+}
+
+/// The generation of the ledger served ([`ReloadSender::generation`]): a counter of its content, which a reload moves
+/// on only when it loaded other content than the ledger served before
+#[cfg(test)]
+mod generation_test {
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    use tokio::sync::{mpsc, RwLock};
+    use zhang_ast::SpanInfo;
+    use zhang_core::data_source::{DataSource, LoadResult, LocalFileSystemDataSource};
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::data_type::DataType;
+    use zhang_core::ledger::Ledger;
+    use zhang_core::ZhangResult;
+
+    use super::{ledger_fingerprint, start_reload_listener};
+    use crate::broadcast::Broadcaster;
+    use crate::ReloadSender;
+
+    const LEDGER: &str = "option \"operating_currency\" \"CNY\"\n1970-01-01 open Assets:A\n1970-01-01 open Income:X\n\
+                          2024-06-01 * \"seed\"\n  Assets:A 50 CNY\n  Income:X -50 CNY\n";
+
+    /// A reload of the same files keeps the generation, and one that loaded other content moves it on by one: a
+    /// directive changed, the same directives at other offsets (a byte before them), an option changed. A reload that
+    /// fails keeps it, as the ledger served stays the one loaded before, and so does the reload of the files as they
+    /// were once fixed
+    #[tokio::test]
+    async fn a_reload_moves_the_generation_on_only_when_the_content_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let main = root.join("main.zhang");
+        std::fs::write(&main, LEDGER).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let loaded = Ledger::load(root.clone(), "main.zhang".to_owned(), source).expect("load ledger");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+        let reloaded = || async {
+            reload_sender.reload_and_wait().await.expect("the reload succeeds");
+            reload_sender.generation()
+        };
+        assert_eq!(reload_sender.generation(), 1, "the ledger served first");
+
+        assert_eq!(reloaded().await, 1, "the same files keep the generation");
+        assert_eq!(reloaded().await, 1, "again");
+
+        std::fs::write(&main, LEDGER.replace("50 CNY", "60 CNY")).unwrap();
+        assert_eq!(reloaded().await, 2, "a directive changed");
+        assert_eq!(reloaded().await, 2, "and reloaded as it is now");
+
+        std::fs::write(&main, format!("\n{}", LEDGER.replace("50 CNY", "60 CNY"))).unwrap();
+        assert_eq!(reloaded().await, 3, "the same directives at other offsets");
+
+        std::fs::write(&main, format!("\n{}", LEDGER.replace("50 CNY", "60 CNY").replace("\"CNY\"\n", "\"USD\"\n"))).unwrap();
+        assert_eq!(reloaded().await, 4, "an option changed");
+
+        let served = std::fs::read_to_string(&main).unwrap();
+        std::fs::write(&main, format!("{served}2024-06-02 this is not valid\n")).unwrap();
+        reload_sender.reload_and_wait().await.expect_err("the reload fails");
+        assert_eq!(reload_sender.generation(), 4, "a failed reload keeps the generation");
+        std::fs::write(&main, served).unwrap();
+        assert_eq!(reloaded().await, 4, "the files as they were when the ledger served was loaded");
+    }
+
+    /// the content of the comments of the ledger served
+    async fn comments(ledger: &RwLock<Ledger>) -> Vec<String> {
+        let ledger = ledger.read().await;
+        let comments = ledger.directives.iter().chain(&ledger.metas).filter_map(|it| match &it.data {
+            zhang_ast::Directive::Comment(comment) => Some(comment.content.clone()),
+            _ => None,
+        });
+        comments.collect()
+    }
+
+    /// What a processor plugin makes counts, whatever it read to make it: here a rules file it reads through
+    /// `allowed_paths`, whose content becomes a comment at a fixed place in `main.zhang`, so that no span changes with
+    /// it. A change to the rules file moves the generation on, a reload of the same files keeps it, and an update of
+    /// the plugin's module in place moves it on too, though the plugin makes the same
+    #[tokio::test]
+    async fn what_a_processor_plugin_read_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugins/read_rules.wat");
+        std::fs::copy(fixture, root.join("read_rules.wat")).unwrap();
+        std::fs::create_dir_all(root.join("rules")).unwrap();
+        std::fs::write(root.join("rules/rules.txt"), "coffee: Expenses:Food").unwrap();
+        std::fs::write(
+            root.join("main.zhang"),
+            "option \"features.plugin\" \"true\"\nplugin \"read_rules.wat\"\n  allowed_paths: \"rules\"\n  read: \"rules/rules.txt\"\n",
+        )
+        .unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let loaded = Ledger::load(root.clone(), "main.zhang".to_owned(), source).expect("load ledger");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+        let reloaded = || async {
+            reload_sender.reload_and_wait().await.expect("the reload succeeds");
+            reload_sender.generation()
+        };
+        let served = comments(&ledger).await;
+        assert!(
+            served.len() == 1 && served[0].contains("Expenses:Food"),
+            "the plugin read the rules: {served:?}"
+        );
+
+        assert_eq!(reloaded().await, 1, "the same rules");
+        std::fs::write(root.join("rules/rules.txt"), "coffee: Expenses:Drinks").unwrap();
+        assert_eq!(reloaded().await, 2, "the rules changed");
+        assert!(comments(&ledger).await[0].contains("Expenses:Drinks"), "the plugin read the new rules");
+        assert_eq!(reloaded().await, 2, "and reloaded as they are now");
+
+        // the version it answers, `0.1.0` in its text, which nothing it makes holds
+        let module = std::fs::read_to_string(root.join("read_rules.wat")).unwrap();
+        assert_eq!(module.matches("0.1.0").count(), 1);
+        std::fs::write(root.join("read_rules.wat"), module.replace("0.1.0", "0.1.1")).unwrap();
+        assert_eq!(reloaded().await, 3, "the module changed");
+        assert_eq!(reloaded().await, 3, "and reloaded as it is now");
+    }
+
+    /// The options count in the fingerprint apart from the directives that set them: an option set otherwise, with
+    /// every directive as it was, gives another fingerprint; the same ledger always gives the same one
+    #[test]
+    fn an_option_changes_the_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), LEDGER).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let mut ledger = Ledger::load(root, "main.zhang".to_owned(), source).expect("load ledger");
+        let before = ledger_fingerprint(&ledger);
+        assert_eq!(ledger_fingerprint(&ledger), before, "the same ledger, the same fingerprint");
+
+        ledger.options.parse("title", "Another title", &mut vec![], &SpanInfo::default()).unwrap();
+
+        assert_ne!(ledger_fingerprint(&ledger), before, "an option set otherwise");
+    }
+
+    /// a source that makes its directives itself, as a plugin does: none has a file or a place in one
+    struct Unfiled {
+        content: String,
+    }
+
+    impl DataSource for Unfiled {
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+            let directives = ZhangDataType {}
+                .transform(self.content.clone(), None)?
+                .into_iter()
+                .map(|mut directive| {
+                    directive.span = SpanInfo::default();
+                    directive
+                })
+                .collect();
+            Ok(LoadResult {
+                directives,
+                visited_files: vec![PathBuf::from(entry).join(endpoint)],
+                missing_includes: vec![],
+            })
+        }
+    }
+
+    /// Directives without a file, as plugins make them, hash by their content and stably: two loads of the same
+    /// directives give one fingerprint, a note's tags and links included, which are hash sets every load fills in
+    /// another order; a value changed in them gives another
+    #[test]
+    fn directives_without_a_file_hash_stably() {
+        let keys = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
+        let metas: String = keys.iter().map(|key| format!("  {key}: \"{key}\"\n")).collect();
+        let tags: String = keys.iter().map(|key| format!(" #{key} ^{key}")).collect();
+        let content = format!(
+            "1970-01-01 open Assets:A\n1970-01-01 open Income:X\n2024-06-01 * \"seed\"\n{metas}  Assets:A 50 CNY\n  Income:X -50 CNY\n\
+             2024-06-02 note Assets:A \"tagged\"{tags}\n"
+        );
+        let fingerprint = |content: &str| {
+            let source = Arc::new(Unfiled { content: content.to_owned() });
+            let ledger = Ledger::load(PathBuf::from("/unfiled"), "main.zhang".to_owned(), source).expect("load ledger");
+            assert!(ledger.directives.iter().all(|it| it.span.filename.is_none()), "no directive has a file");
+            ledger_fingerprint(&ledger)
+        };
+
+        let first = fingerprint(&content);
+        for _ in 0..16 {
+            assert_eq!(fingerprint(&content), first, "the same directives, the same fingerprint");
+        }
+        assert_ne!(
+            fingerprint(&content.replace("\"golf\"", "\"golf!\"")),
+            first,
+            "a value changed in their metadata"
+        );
+        assert_ne!(fingerprint(&content.replace("#golf", "#golfing")), first, "a tag of the note changed");
     }
 }
 
