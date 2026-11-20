@@ -139,10 +139,16 @@ end
 
 ## 本版本只支持 router
 
-Lua 脚本只能声明 `types = { "Router" }`。声明 `Processor` 或 `Mapper` 的脚本不会加载，消息是 *Lua processors and mappers are not supported yet (#698 P1): a directive's amounts cross as JSON numbers and Lua would read them as floats*。
+Lua 脚本只能声明 `types = { "Router" }`。声明 `Processor` 或 `Mapper` 的脚本不会加载，消息是 *Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, the host would take back an amount turned into a JSON number, and the JSON codec is too slow for a ledger's directives*。
 
-原因是精确性。processor 或 mapper 收到的是 JSON 形式的账本指令，其中的金额是裸的小数。Lua 没有十进制类型：它会把 `1234.56789012345678` 读成浮点数，再悄无声息地以改变后的值写回，而这正是生成已记账账本的那个阶段。router 从不接触这条指令流：它只看到查询结果，其中每个小数已经是字符串，并且它返回的任何内容都不会进入账本。Lua 的 processor 和 mapper 会随精确十进制的插件 API 一起到来，计划见 [#698](https://github.com/zhang-accounting/zhang/issues/698)。
+问题不在指令的传递方式：processor 或 mapper 收到的 JSON 中，每个小数（金额、价格、成本、容差）都是字符串，`"1234.56789012345678"`，与查询结果一样。真正的障碍有三个：
+
+- **没有精确运算。** Lua 只有整数和浮点数。拆分、求和或换算金额的阶段会把字符串 `tonumber` 后用浮点数计算，而 `0.1 + 0.2` 并不等于 `0.3`。
+- **数字会被收回。** 宿主读取阶段返回的指令时，金额既可以是字符串，也可以是 JSON 数字。脚本若把算出的浮点数写进金额，交回的数字会被宿主接受，余额就会在生成已记账账本的阶段被悄无声息地改变，不报任何错误。
+- **速度。** JSON 库每秒大约编码和解码 3 MB。router 处理的是一个请求的数据；processor 则要在每次加载时处理账本的每一条指令。
+
+router 没有这些问题：它读取查询结果、回应 HTTP，返回的任何内容都不会进入账本。Lua 的 processor 和 mapper 会随精确十进制的插件 API 一起到来，计划见 [#698](https://github.com/zhang-accounting/zhang/issues/698)。
 
 ## 解释器从哪里来
 
-解释器是由 [lua.wasm](https://github.com/andy-emerson/lua.wasm) 构建的 [Lua 5.4.8](https://www.lua.org/)，加上 [dkjson](https://dkolf.de/dkjson-lua/)，编译成一个 WebAssembly 模块并内嵌在张记账的二进制文件中。它的源码、版本锁定和构建脚本在仓库的 `tools/lua-runtime` 目录；模块连同校验和一起提交，张记账的 CI 会重新构建它，字节不一致则失败。张记账在加载时把它和你的脚本配对，所以就沙箱、能力和路由而言，Lua 插件就是一个 wasm 插件。
+解释器是由 [lua.wasm](https://github.com/andy-emerson/lua.wasm) 构建的 [Lua 5.4.8](https://www.lua.org/)，加上 [dkjson](https://dkolf.de/dkjson-lua/)，编译成一个 WebAssembly 模块并内嵌在张记账的二进制文件中。它的源码（连同许可证一起放在仓库中）和构建脚本在仓库的 `tools/lua-runtime` 目录；模块连同校验和一起提交，张记账的 CI 会重新构建它，字节不一致则失败。张记账在加载时把它和你的脚本配对，所以就沙箱、能力和路由而言，Lua 插件就是一个 wasm 插件。

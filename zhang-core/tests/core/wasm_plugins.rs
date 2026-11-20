@@ -2358,7 +2358,7 @@ mod lua {
             .to_string();
         assert!(
             error.contains(
-                "Lua processors and mappers are not supported yet (#698 P1): a directive's amounts cross as JSON numbers and Lua would read them as floats"
+                "Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, the host would take back an amount turned into a JSON number, and the JSON codec is too slow for a ledger's directives"
             ),
             "{error}"
         );

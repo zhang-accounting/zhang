@@ -355,7 +355,7 @@ end
 return M
 ```
 
-The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. Lua scripts are routers only in this release: a script declaring `Processor` or `Mapper` does not load, because the directive stream carries amounts as JSON numbers and Lua would read them as floats. The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
+The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. Lua scripts are routers only in this release: a script declaring `Processor` or `Mapper` does not load, because Lua has no exact decimal arithmetic, the host takes back an amount turned into a JSON number, and the JSON library is too slow for every directive of a ledger ([why](/guides/lua-plugins/#router-only-in-this-release)). The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
 
 ## ABI v1 reference
 

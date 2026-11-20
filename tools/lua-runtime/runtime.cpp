@@ -412,7 +412,7 @@ elseif entry == "supported_type" then
   local declared = json.array()
   for _, kind in ipairs(types) do
     if kind ~= "Router" then
-      return fail(script_name .. ": Lua processors and mappers are not supported yet (#698 P1): a directive's amounts cross as JSON numbers and Lua would read them as floats")
+      return fail(script_name .. ": Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, the host would take back an amount turned into a JSON number, and the JSON codec is too slow for a ledger's directives")
     end
     declared[#declared + 1] = kind
   end

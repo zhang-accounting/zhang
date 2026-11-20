@@ -139,10 +139,16 @@ Each request runs in a fresh interpreter, so a script cannot keep state between 
 
 ## Router only in this release
 
-A Lua script may declare `types = { "Router" }` only. A script declaring `Processor` or `Mapper` does not load, with the message *Lua processors and mappers are not supported yet (#698 P1): a directive's amounts cross as JSON numbers and Lua would read them as floats*.
+A Lua script may declare `types = { "Router" }` only. A script declaring `Processor` or `Mapper` does not load, with the message *Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, the host would take back an amount turned into a JSON number, and the JSON codec is too slow for a ledger's directives*.
 
-The reason is exactness. A processor or mapper receives the ledger's directives as JSON, where amounts are bare decimals. Lua has no decimal type: it would read `1234.56789012345678` as a floating-point number and write it back changed, silently, in the stage that produces the booked ledger. A router never touches that stream: it only sees query results, where every decimal is already a string, and nothing it returns feeds the ledger. Processors and mappers in Lua will come with the exact-decimal plugin API, planned in [#698](https://github.com/zhang-accounting/zhang/issues/698).
+How the directives travel is not the problem: a processor or mapper would receive them as JSON in which every decimal (an amount, a price, a cost, a tolerance) is a string, `"1234.56789012345678"`, as in a query result. Three things are:
+
+- **No exact arithmetic.** Lua has integers and floating-point numbers only. A stage that splits, sums or converts an amount would `tonumber` the string and compute in floats, where `0.1 + 0.2` is not `0.3`.
+- **Numbers are taken back.** When the host reads the directives a stage returns, an amount may be a string or a JSON number. A script that wrote a computed float into an amount would hand back a number the host accepts, and a balance would change without an error, in the stage that produces the booked ledger.
+- **Speed.** The JSON library encodes and decodes about 3 MB a second. A router handles one request's data; a processor would handle every directive of the ledger on every load.
+
+A router has none of these problems: it reads query results and answers HTTP, and nothing it returns feeds the ledger. Processors and mappers in Lua will come with the exact-decimal plugin API, planned in [#698](https://github.com/zhang-accounting/zhang/issues/698).
 
 ## Where the interpreter comes from
 
-The interpreter is [Lua 5.4.8](https://www.lua.org/) as built by [lua.wasm](https://github.com/andy-emerson/lua.wasm), with [dkjson](https://dkolf.de/dkjson-lua/), compiled to one WebAssembly module and embedded in the Zhang binary. Its source, pins and build script are in `tools/lua-runtime` of the repository; the module is vendored with its checksum, and Zhang's CI rebuilds it and fails unless the bytes match. Zhang pairs it with your script at load time, so a Lua plugin is a wasm plugin as far as the sandbox, the capabilities and the route are concerned.
+The interpreter is [Lua 5.4.8](https://www.lua.org/) as built by [lua.wasm](https://github.com/andy-emerson/lua.wasm), with [dkjson](https://dkolf.de/dkjson-lua/), compiled to one WebAssembly module and embedded in the Zhang binary. Its sources, vendored with their licenses, and its build script are in `tools/lua-runtime` of the repository; the module is vendored with its checksum, and Zhang's CI rebuilds it and fails unless the bytes match. Zhang pairs it with your script at load time, so a Lua plugin is a wasm plugin as far as the sandbox, the capabilities and the route are concerned.

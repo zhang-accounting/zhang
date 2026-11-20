@@ -355,7 +355,7 @@ end
 return M
 ```
 
-本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为指令流中的金额以 JSON 数字传递，Lua 会把它们读成浮点数。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
+本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为 Lua 没有精确的十进制运算，宿主会收回被改成 JSON 数字的金额，而且 JSON 库对账本的全部指令来说太慢（[原因](/zh-cn/guides/lua-plugins/#本版本只支持-router)）。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
 
 ## ABI v1 参考
 

@@ -17,8 +17,11 @@
 //! `name` export, where a Lua syntax error becomes a load error carrying `<script>:<line>: ...`.
 //!
 //! Lua scripts are router plugins only in this round: the interpreter refuses `Processor` and `Mapper` in a
-//! script's `types`, because the directive stream carries amounts as bare JSON numbers and Lua would read them as
-//! floats, which could change a balance silently.
+//! script's `types`. The directive stream is not the reason (every decimal in it serializes as a string, as in a
+//! query result); these are: Lua has no exact decimal arithmetic, so a stage computing with an amount would do it
+//! in floats; the inbound `BigDecimal` deserialization takes a JSON number as well as a string, so an amount a
+//! script turned into a number would come back changed without an error; and dkjson encodes and decodes about
+//! 3 MB/s, too slow for every directive of a ledger on every load.
 
 pub use zhang_shared::plugin_abi::config::{SCRIPT as SCRIPT_CONFIG_KEY, SCRIPT_NAME as SCRIPT_NAME_CONFIG_KEY};
 
