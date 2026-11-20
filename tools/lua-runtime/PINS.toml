@@ -39,7 +39,7 @@ vendored = "tools/lua-runtime/vendor/extism-c-pdk/extism-pdk.h"
 [artifact]
 # provenance of the vendored module: the host that built the committed bytes, and whether the CI rebuild on
 # x86_64-linux (the canonical host, see README.md) produced the same bytes
-built-on = "arm64-macos"
-# witnessed by the lua-runtime job of PR #802 on ubuntu-22.04 (the first rebuild, before --strip-debug, matched
-# every code section and differed only in the .debug_str/.debug_line sections of the sysroot's libc)
+built-on = "x86_64-linux"
+# built on the canonical host itself since the push_handle fix of PR #802 (the arm64-macos build before it was
+# witnessed identical by the lua-runtime job on ubuntu-22.04)
 linux-build-matches = "yes"

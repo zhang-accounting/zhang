@@ -79,15 +79,30 @@ static void *budget_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
 
 // ---- bridges: the raw host functions as Lua C functions, length-aware both ways ------------------------------
 
-// push the bytes of the host's block `handle` as a Lua string, with their real length (a NUL inside survives),
-// and free the block
+// A block of the host's memory, freed when the scope holding it ends, however it ends. Lua raises its errors as
+// C++ exceptions in this build, so a Lua error unwinding the scope (the budget refusing to copy a large answer
+// into Lua) frees the block too: a block the bridge did not free would stay in the host's memory, outside the
+// budget, for the rest of the call, and a script catching the error in a loop could pile them up into gigabytes
+// (zhang-core/tests/plugins/host_answer_refused.lua).
+struct HostBlock {
+  ExtismHandle handle;
+  explicit HostBlock(ExtismHandle handle) : handle(handle) {}
+  HostBlock(const HostBlock &) = delete;
+  HostBlock &operator=(const HostBlock &) = delete;
+  ~HostBlock() {
+    if (handle) extism_free(handle);
+  }
+};
+
+// push the bytes of the host's block `handle` as a Lua string, with their real length (a NUL inside survives).
+// The block is freed whether the copy fits the budget or not
 static int push_handle(lua_State *L, ExtismHandle handle) {
   if (!handle) return luaL_error(L, "the host returned no memory block");
+  HostBlock block(handle);
   uint64_t length = extism_length(handle);
   luaL_Buffer buffer;
   char *dest = luaL_buffinitsize(L, &buffer, (size_t)length);
   extism_load_from_handle(handle, 0, dest, (size_t)length);
-  extism_free(handle);
   luaL_pushresultsize(&buffer, (size_t)length);
   return 1;
 }

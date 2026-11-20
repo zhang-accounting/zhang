@@ -2287,6 +2287,26 @@ mod lua {
     }
 
     #[test]
+    fn a_host_answer_the_budget_refuses_is_freed_in_the_host() {
+        // the script's own source is the host's answer to `zhang.config("zhang.script")`: padded to almost 1 MiB,
+        // it no longer fits once the script filled its budget, so each round is a refused copy the script catches.
+        // Each answer is a block in the host's memory, outside the budget; were the block of a refused copy not
+        // freed, 4,500 rounds would hold 4.5 GiB there, past what a wasm32 memory can grow to, and the call would
+        // fail instead of answering
+        let mut source = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/plugins/host_answer_refused.lua")).unwrap();
+        source.extend_from_slice(b"\n-- ");
+        source.resize(1_040_000, b'.');
+        source.push(b'\n');
+        let (_dir, ledger) = script_ledger("host_answer_refused.lua", &source, "  timeout: \"120s\"\n");
+        let ledger = ledger.unwrap();
+        let request = PluginRequest::new("GET", "/", vec![("rounds".to_owned(), "4500".to_owned())], vec![], vec![]);
+
+        let response = call(&ledger, "host-answer-refused", &request).unwrap();
+
+        assert_eq!(json_body(&response), json!({"refused": 4500}));
+    }
+
+    #[test]
     fn a_script_that_does_not_parse_fails_the_load_with_its_line() {
         let dir = ledger_dir(&["syntax_error.lua"]);
         let error = try_load(&dir, &with_plugins(&plugin(&dir, "syntax_error.lua")))
