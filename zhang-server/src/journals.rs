@@ -29,10 +29,11 @@ use crate::error::ServerError;
 use crate::request::JournalRequest;
 use crate::response::{
     JournalBalanceCheckItemEntity, JournalBalanceItemEntity, JournalItemEntity, JournalTransactionItemEntity, JournalTransactionPostingEntity, MetaEntity,
-    Pageable, WrittenPostingEntity,
+    Nullable, Pageable, WrittenPostingEntity,
 };
 use crate::routes::query::with_ledger;
 use crate::state::SharedLedger;
+use crate::util::sha256_hex;
 use crate::ServerResult;
 
 /// The built-in queries of the journal ([`crate::builtin::BUILTINS`]).
@@ -161,6 +162,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                 links: transaction.links.iter().cloned().collect(),
                 postings: written_transaction(ledger, &directive.span).map(|directive| written_postings(directive, style)),
                 edit_drops_text: transaction_has_unexported_text(&directive.span.content),
+                version: transaction_version(&directive.span),
             };
             Some((id.clone(), written))
         })
@@ -190,6 +192,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                 entry.tags = written.tags.clone();
                 entry.links = written.links.clone();
                 entry.edit_drops_text = written.edit_drops_text;
+                entry.version = written.version.clone();
                 // the postings of the journal are the written ones in their order ([`JOURNAL_POSTINGS`] groups the
                 // booked legs by the posting they were written as); the written forms are attached only when they
                 // line up with them, account by account
@@ -218,6 +221,17 @@ struct Written {
     postings: Option<Vec<(String, WrittenPostingEntity)>>,
     /// whether the text of the transaction has lines an edit drops ([`transaction_has_unexported_text`])
     edit_drops_text: bool,
+    /// the version of its text ([`transaction_version`])
+    version: Option<String>,
+}
+
+/// The version of the transaction whose directive is at `span`: the SHA-256, in hex, of its text as the ledger loaded
+/// it, which is what a write to it checks is still in its file. A write that names it in `If-Match` is refused with a
+/// 412 when the transaction its id names now has other text: it was edited since, or another transaction moved to its
+/// place, and took its id. Two transactions written alike have one version, and either edit leaves the ledger alike.
+/// `None` for a transaction in no file of the ledger, as one a plugin made, which no write edits.
+pub(crate) fn transaction_version(span: &SpanInfo) -> Option<String> {
+    (span.filename.is_some() && !span.content.is_empty()).then(|| sha256_hex(span.content.as_bytes()))
 }
 
 /// The transaction directive of `ledger` read from `span`: the one starting where it starts, in its file. `None` for
@@ -261,6 +275,8 @@ struct EntryRow {
     metas: Vec<MetaEntity>,
     /// see [`Written::edit_drops_text`]; `false` until the written forms are read
     edit_drops_text: bool,
+    /// see [`Written::version`]; `None` until the written forms are read
+    version: Option<String>,
 }
 
 impl EntryRow {
@@ -277,6 +293,7 @@ impl EntryRow {
             links: strings(row.set("links")?),
             metas: metas(row.get("metas")?),
             edit_drops_text: false,
+            version: None,
         })
     }
 }
@@ -429,6 +446,7 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
         postings,
         metas: entry.metas,
         edit_drops_text: entry.edit_drops_text,
+        version: Nullable(entry.version),
     })
 }
 

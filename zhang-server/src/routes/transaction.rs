@@ -19,7 +19,7 @@ use zhang_core::outcome::Detail;
 use zhang_core::utils::string_::{QuoteStyle, StringExt};
 use zhang_core::ZhangError;
 
-use super::Query;
+use super::{IfMatch, Query, RequiredIfMatch};
 use crate::error::ServerError;
 use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest, UnitRequest};
 use crate::response::{
@@ -27,7 +27,7 @@ use crate::response::{
     TransactionPreviewErrorEntity, WrittenTransactionEntity,
 };
 use crate::routes::query::with_ledger;
-use crate::state::{wrote, wrote_and_reloaded, SharedLedger, SharedReloadSender};
+use crate::state::{wrote_and_reloaded, SharedLedger, SharedReloadSender};
 use crate::validate::{Checked, Invalid};
 use crate::{journals, validate, ApiResult, ServerResult};
 
@@ -294,7 +294,30 @@ pub async fn create_new_transaction(
     let id = reloaded
         .then(|| appended_transaction(&ledger, &file, &String::from_utf8_lossy(&text)))
         .flatten();
-    ResponseWrapper::json(WrittenTransactionEntity { id: Nullable(id) })
+    ResponseWrapper::json(written_transaction(&ledger, id))
+}
+
+/// What a create or an update answers for the transaction `id` it wrote, `None` when it is in no journal: its id and
+/// its version in `ledger`, as reloaded since.
+fn written_transaction(ledger: &Ledger, id: Option<Uuid>) -> WrittenTransactionEntity {
+    let directive = id.and_then(|id| ledger.transaction_directive(&id));
+    WrittenTransactionEntity {
+        id: Nullable(id),
+        version: Nullable(directive.and_then(|it| journals::transaction_version(&it.span))),
+    }
+}
+
+/// Refuse with a 412 a write to the stored transaction at `span` whose `If-Match` header does not name its version
+/// (`allows`): the transaction changed since the client read it, or another one took its place, and its id.
+fn check_version(span: &TransactionInfoDomain, allows: impl FnOnce(Option<&str>) -> bool) -> ServerResult<()> {
+    match allows(journals::transaction_version(&span.span).as_deref()) {
+        true => Ok(()),
+        false => Err(ServerError::PreconditionFailed(format!(
+            "the transaction {} is not the version the If-Match header names: it changed since it was read, or another \
+             transaction took its place and its id, so nothing was written. Reopen the journal, and try again",
+            span.id
+        ))),
+    }
 }
 
 /// The id of the transaction an append wrote as `text` at the end of `file`, a file of `ledger` by its path within it,
@@ -341,10 +364,11 @@ pub async fn preview_new_transaction(ledger: State<SharedLedger>, Json(payload):
 }
 
 /// What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
-/// `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+/// `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits,
+/// and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
 #[api(group = "transaction")]
 pub async fn preview_transaction_update(
-    ledger: State<SharedLedger>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
+    ledger: State<SharedLedger>, path: Path<(String,)>, if_match: IfMatch, Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<TransactionPreviewEntity> {
     let transaction_id = transaction_id(&path.0 .0)?;
     ResponseWrapper::json(
@@ -354,6 +378,7 @@ pub async fn preview_transaction_update(
             // the update refuses a transaction in no file of the ledger, and the padding of a pad
             editable_file(ledger, &span)?;
             written_as_transaction(ledger, &span)?;
+            check_version(&span, |version| if_match.allows(version))?;
             preview(ledger, payload, Some(&span))
         })
         .await?,
@@ -430,7 +455,8 @@ pub async fn upload_transaction_document(
         write_transaction_documents(&ledger, &span_info, &documents).await
     }
     .await;
-    wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
+    // reloaded before the answer, as the other writes of a transaction are: the journal gives its new version
+    wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -489,10 +515,13 @@ fn insert_transaction_metas(content: &mut String, span_start: usize, span_end: u
 }
 
 /// Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
-/// answer, which gives the transaction's id in it: an update keeps it, as the transaction stays where it was.
+/// answer, which gives the transaction's id in it, and its new version: an update keeps the id, as the transaction
+/// stays where it was. With the `version` of the transaction in `If-Match`, the update is refused with a 412 when the
+/// transaction its id names now has another version.
 #[api(group = "transaction")]
 pub async fn update_single_transaction(
-    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, if_match: IfMatch,
+    Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<WrittenTransactionEntity> {
     let transaction_id = transaction_id(&path.0 .0)?;
     let mut ledger = ledger.for_writing(&reload_sender).await?;
@@ -503,6 +532,7 @@ pub async fn update_single_transaction(
     };
     let source_file_path = editable_file(&ledger, &span_info)?;
     written_as_transaction(&ledger, &span_info)?;
+    check_version(&span_info, |version| if_match.allows(version))?;
 
     let trx = requested_transaction(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
@@ -522,16 +552,22 @@ pub async fn update_single_transaction(
     .await;
     let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
     let id = reloaded.then(|| transaction_at(&ledger, &source_file_path, span_info.span_start)).flatten();
-    ResponseWrapper::json(WrittenTransactionEntity { id: Nullable(id) })
+    ResponseWrapper::json(written_transaction(&ledger, id))
 }
 
 /// Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
 /// left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
-/// a request sent after it no longer finds the transaction. Ids are derived from places: the transactions after it in
-/// its file move, and take other ids, the next one possibly the id of the transaction deleted. The documents its
-/// metadata names stay in the ledger's directory.
+/// a request sent after it no longer finds the transaction. The documents its metadata names stay in the ledger's
+/// directory.
+///
+/// The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
+/// the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
+/// the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
+/// without the version would delete that one.
 #[api(group = "transaction")]
-pub async fn delete_single_transaction(ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>) -> ApiResult<()> {
+pub async fn delete_single_transaction(
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, if_match: RequiredIfMatch,
+) -> ApiResult<()> {
     let transaction_id = transaction_id(&path.0 .0)?;
     let mut ledger = ledger.for_writing(&reload_sender).await?;
 
@@ -541,6 +577,7 @@ pub async fn delete_single_transaction(ledger: State<SharedLedger>, reload_sende
     };
     let source_file_path = editable_file(&ledger, &span_info)?;
     written_as_transaction(&ledger, &span_info)?;
+    check_version(&span_info, |version| if_match.allows(version))?;
 
     let written = async {
         // the transaction must still be where the ledger loaded it
@@ -656,6 +693,7 @@ mod string_round_trip_test {
         upload_transaction_document, write_transaction_documents,
     };
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
+    use crate::routes::{IfMatch, RequiredIfMatch};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
 
@@ -879,7 +917,7 @@ mod string_round_trip_test {
         // update in place
         let narration = "tea $3 ~ '\\d+' \"x\"\nsecond line";
         let (ledger, reload) = states(reloaded);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(request(narration, "`$`")))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(request(narration, "`$`")))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -986,7 +1024,7 @@ mod string_round_trip_test {
         let mut bad = request("coffee", "note");
         bad.tags.push("two words".to_owned());
         let (ledger, reload) = states(reloaded);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(bad))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(bad))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -1216,7 +1254,7 @@ mod string_round_trip_test {
             });
         }
         let (ledger, reload) = states(reloaded);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1264,7 +1302,7 @@ mod string_round_trip_test {
         update.postings[0].metas = Some(vec![meta("receipt", "r-2")]);
         update.postings[1].metas = Some(vec![meta("category", "lunch")]);
         let (ledger, reload) = states(load(&dir).await);
-        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((created.id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1304,7 +1342,7 @@ mod string_round_trip_test {
         update.metas = vec![];
         update.postings[1].metas = Some(vec![meta("memo", "after")]);
         let (ledger, reload) = states(load().await);
-        let response = update_single_transaction(ledger, reload, Path((created.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((created.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1427,7 +1465,7 @@ mod string_round_trip_test {
         // the same text under a key the posting did not have unquoted
         update.postings[1].metas = Some(vec![meta("rate", "7"), meta("paid", "TRUE")]);
         let (ledger, reload) = states(ledger);
-        let response = update_single_transaction(ledger, reload, Path((id.to_string(),)), Json(update))
+        let response = update_single_transaction(ledger, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1527,7 +1565,7 @@ mod string_round_trip_test {
         prepare(&mut loaded);
         let id = loaded.transactions()[0].0;
         let (state, reload) = states(loaded);
-        let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+        let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1771,7 +1809,7 @@ mod string_round_trip_test {
             update.payee = payee.to_owned();
             update.metas = vec![meta("rate", "1.5")];
             let (state, reload) = states(ledger);
-            let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+            let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
                 .await
                 .into_response();
             assert_eq!(response.status(), StatusCode::OK);
@@ -1877,7 +1915,7 @@ mod string_round_trip_test {
             let (state, reload) = states(loaded);
 
             let update = edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
-            let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+            let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
                 .await
                 .into_response();
             let status = response.status();
@@ -1943,7 +1981,7 @@ mod string_round_trip_test {
         // tried again with that id: the ledger is reloaded, and the transaction has another id now
         let update = || edit(&[("Assets:Cash", -6, &[]), ("Expenses:Food", 6, &[])]);
         let (status, message) = status_and_message(
-            update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), Json(update()))
+            update_single_transaction(ledger_state.clone(), reload.clone(), Path((id.to_string(),)), IfMatch(None), Json(update()))
                 .await
                 .into_response(),
         )
@@ -1955,7 +1993,7 @@ mod string_round_trip_test {
 
         // with the id of the journal reopened, the update is written in the right place
         let id = ledger_state.read().await.transactions()[0].0;
-        let response = update_single_transaction(ledger_state, reload, Path((id.to_string(),)), Json(update()))
+        let response = update_single_transaction(ledger_state, reload, Path((id.to_string(),)), IfMatch(None), Json(update()))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -2064,7 +2102,7 @@ mod string_round_trip_test {
 
             let update = edit(&[("Assets:Cash", -8, &[]), ("Expenses:Food", 8, &[])]);
             let (got, message) = status_and_message(
-                update_single_transaction(state.clone(), reload.clone(), Path((id.to_string(),)), Json(update))
+                update_single_transaction(state.clone(), reload.clone(), Path((id.to_string(),)), IfMatch(None), Json(update))
                     .await
                     .into_response(),
             )
@@ -2085,7 +2123,13 @@ mod string_round_trip_test {
             assert!(!dir.join("attachments").exists(), "{case}: no attachment is saved");
 
             // nor is it deleted: the text at its span, if there is any, is another directive's
-            let (got, message) = status_and_message(delete_single_transaction(state, reload, Path((id.to_string(),))).await.into_response()).await;
+            let version = crate::journals::transaction_version(&span).into_iter().collect();
+            let (got, message) = status_and_message(
+                delete_single_transaction(state, reload, Path((id.to_string(),)), RequiredIfMatch(version))
+                    .await
+                    .into_response(),
+            )
+            .await;
             assert_eq!(got, status, "{case}: {message}");
             assert!(message.contains(says), "{case}: {message}");
             assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is deleted");
@@ -2193,7 +2237,7 @@ mod string_round_trip_test {
             transaction.unwrap_or_else(|| panic!("{main}: no transaction {narration}")).0
         };
         let (state, reload) = states(loaded);
-        let response = update_single_transaction(state, reload, Path((id.to_string(),)), Json(update))
+        let response = update_single_transaction(state, reload, Path((id.to_string(),)), IfMatch(None), Json(update))
             .await
             .into_response();
         let (status, message) = status_and_message(response).await;

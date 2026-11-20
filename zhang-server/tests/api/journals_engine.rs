@@ -31,7 +31,7 @@ use zhang_server::request::{BuiltinQueryRunRequest, JournalRequest};
 use zhang_server::routes::document::download_document;
 use zhang_server::routes::query::run_builtin_query;
 use zhang_server::routes::transaction::{get_journals, update_single_transaction};
-use zhang_server::routes::{Base64Path, Query as UrlQuery};
+use zhang_server::routes::{Base64Path, IfMatch, Query as UrlQuery};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
 use zhang_testkit::http::{respond, shared};
@@ -604,7 +604,7 @@ async fn tags_and_links_keep_their_written_order_through_a_save() {
     let (sender, _receiver) = tokio::sync::mpsc::channel(1);
     let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
     let id = item["id"].as_str().unwrap().to_owned();
-    let (status, body) = respond(update_single_transaction(State(ledger.clone()), reload, UrlPath((id,)), Json(payload)).await).await;
+    let (status, body) = respond(update_single_transaction(State(ledger.clone()), reload, UrlPath((id,)), IfMatch(None), Json(payload)).await).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let written = std::fs::read_to_string(scratch.main_file()).unwrap();
     assert!(written.contains("#trip #Food ^z-link ^a-link"), "{written}");

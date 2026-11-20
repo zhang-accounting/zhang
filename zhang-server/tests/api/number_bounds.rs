@@ -18,6 +18,7 @@ use zhang_ast::amount::Amount;
 use zhang_server::request::{AccountBalanceRequest, CreateTransactionRequest};
 use zhang_server::routes::account::create_account_balance;
 use zhang_server::routes::transaction::{create_new_transaction, preview_new_transaction, preview_transaction_update, update_single_transaction};
+use zhang_server::routes::IfMatch;
 use zhang_server::state::SharedLedger;
 use zhang_testkit::http::{reload, respond, shared};
 use zhang_testkit::ledger::Scratch;
@@ -86,7 +87,13 @@ async fn a_create_or_an_update_with_a_number_out_of_range_writes_nothing() {
         assert!(!scratch.dir().join("data").exists(), "{value}: nothing is written");
 
         let id = ledger.read().await.transactions()[0].0.to_string();
-        let update = update_single_transaction(State(ledger.clone()), reload(), UrlPath((id,)), Json(request(postings(field, value.clone()))));
+        let update = update_single_transaction(
+            State(ledger.clone()),
+            reload(),
+            UrlPath((id,)),
+            IfMatch(None),
+            Json(request(postings(field, value.clone()))),
+        );
         let (status, body) = respond(update.await).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{value}: {body}");
         assert_eq!(scratch.read("main.zhang"), LEDGER, "{value}: nothing is written");
@@ -99,7 +106,16 @@ async fn both_previews_name_a_number_out_of_range_as_a_field() {
         let (scratch, ledger) = served();
         let id = ledger.read().await.transactions()[0].0.to_string();
         let new = respond(preview_new_transaction(State(ledger.clone()), Json(request(postings(field, value.clone())))).await).await;
-        let update = respond(preview_transaction_update(State(ledger.clone()), UrlPath((id,)), Json(request(postings(field, value.clone())))).await).await;
+        let update = respond(
+            preview_transaction_update(
+                State(ledger.clone()),
+                UrlPath((id,)),
+                IfMatch(None),
+                Json(request(postings(field, value.clone()))),
+            )
+            .await,
+        )
+        .await;
         for (status, body) in [new, update] {
             assert_eq!(status, StatusCode::OK, "{value}: {body}");
             let preview = &body["data"];

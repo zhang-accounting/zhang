@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use zhang_server::request::CreateTransactionRequest;
 use zhang_server::routes::transaction::{create_new_transaction, preview_new_transaction, preview_transaction_update};
+use zhang_server::routes::IfMatch;
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
 use zhang_testkit::fixtures::load_dir;
@@ -204,7 +205,7 @@ async fn an_update_preview_keeps_flags_and_bare_metadata_and_writes_nothing() {
     let mut update = request(json!([{"account": "Assets:Cash", "unit": "-6 CNY"}, {"account": "Assets:Broker", "unit": "6 CNY"}]));
     update.metas = serde_json::from_value(json!([{"key": "rate", "value": "1.5"}])).unwrap();
     let (status, preview) = respond(
-        preview_transaction_update(State(ledger.clone()), UrlPath((id,)), Json(update))
+        preview_transaction_update(State(ledger.clone()), UrlPath((id,)), IfMatch(None), Json(update))
             .await
             .into_response(),
     )
@@ -223,9 +224,14 @@ async fn an_update_preview_keeps_flags_and_bare_metadata_and_writes_nothing() {
 async fn an_update_preview_of_no_transaction_is_not_found() {
     let dir = tempfile::tempdir().unwrap();
     let ledger = ledger(dir.path(), LEDGER);
-    let response = preview_transaction_update(State(ledger), UrlPath((uuid::Uuid::new_v4().to_string(),)), Json(request(json!([]))))
-        .await
-        .into_response();
+    let response = preview_transaction_update(
+        State(ledger),
+        UrlPath((uuid::Uuid::new_v4().to_string(),)),
+        IfMatch(None),
+        Json(request(json!([]))),
+    )
+    .await
+    .into_response();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 

@@ -118,6 +118,9 @@ pub struct AccountJournalEntity {
     pub account: String,
     /// the id of the transaction; for a balance assertion, its id
     pub trx_id: String,
+    /// the version of the transaction, as the `version` of its item in `GET /api/journals`: what an update or a
+    /// delete of it names in `If-Match`; `null` for a balance assertion and for a transaction a plugin made
+    pub trx_version: Nullable<String>,
     pub payee: Option<String>,
     pub narration: Option<String>,
     /// what the row adds to the account; zero for a balance assertion, which changes no balance
@@ -169,6 +172,10 @@ pub struct JournalTransactionItemEntity {
     /// line between its postings, a comment on its header line or after a metadata line. A client warns before such
     /// an edit; `false` for a transaction a plugin made, which cannot be edited at all
     pub edit_drops_text: bool,
+    /// the version of the transaction's text, the SHA-256 in hex of its text as the ledger read it: an update or a
+    /// delete names it in `If-Match` to be refused (412) when the id names another text by then. Two transactions
+    /// written alike have the same version. `null` for a transaction a plugin made, which cannot be edited
+    pub version: Nullable<String>,
 }
 #[derive(Serialize, Schematic)]
 pub struct JournalTransactionPostingEntity {
@@ -247,6 +254,9 @@ pub struct WrittenTransactionEntity {
     /// load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
     /// but in no journal
     pub id: Nullable<Uuid>,
+    /// the version of the transaction written, as the journal gives it: what an update or a delete of it names in
+    /// `If-Match`. `null` when the id is `null`
+    pub version: Nullable<String>,
 }
 
 /// What `POST /api/transactions` or `PUT /api/transactions/{transaction_id}` would write for a request, found without

@@ -1,6 +1,8 @@
-//! `POST`, `PUT` and `DELETE /api/transactions`: what they leave in the files, and the ids they answer with. The
-//! ledger is reloaded before the answer, so the next request, sent to the same server without a reload of its own,
-//! finds the transaction under the id answered, or no longer finds the one deleted.
+//! `POST`, `PUT` and `DELETE /api/transactions`: what they leave in the files, and the ids and versions they answer
+//! with. The ledger is reloaded before the answer, so the next request, sent to the same server without a reload of
+//! its own, finds the transaction under the id answered, or no longer finds the one deleted. An update or a delete
+//! that names the version of the transaction in `If-Match` (a delete must) writes nothing when the id names another
+//! text by then.
 
 use std::sync::Arc;
 
@@ -11,11 +13,13 @@ use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use serde_json::{json, Value};
+use sha2::Digest;
 use zhang_server::request::JournalRequest;
+use zhang_server::routes::account::get_account_journals;
 use zhang_server::routes::transaction::{
     create_new_transaction, delete_single_transaction, get_journals, preview_transaction_update, update_single_transaction,
 };
-use zhang_server::routes::Query as UrlQuery;
+use zhang_server::routes::{IfMatch, Query as UrlQuery, RequiredIfMatch};
 use zhang_server::state::SharedLedger;
 use zhang_testkit::fixtures::data_source_for;
 use zhang_testkit::http::{call, get, reload, respond, router, send, shared, RootedFileSystem, Settings};
@@ -57,13 +61,28 @@ impl Served {
         respond(create_new_transaction(State(self.ledger.clone()), reload(), Json(request)).await).await
     }
 
+    /// an update, without `If-Match`
     async fn update(&self, id: &str, request: Value) -> (StatusCode, Value) {
-        let request = serde_json::from_value(request).expect("an update request");
-        respond(update_single_transaction(State(self.ledger.clone()), reload(), UrlPath((id.to_owned(),)), Json(request)).await).await
+        self.update_if(id, None, request).await
     }
 
-    async fn delete(&self, id: &str) -> (StatusCode, Value) {
-        respond(delete_single_transaction(State(self.ledger.clone()), reload(), UrlPath((id.to_owned(),))).await).await
+    /// an update, with `If-Match: <version>` when there is one
+    async fn update_if(&self, id: &str, version: Option<&str>, request: Value) -> (StatusCode, Value) {
+        let request = serde_json::from_value(request).expect("an update request");
+        let if_match = IfMatch(version.map(|it| vec![it.to_owned()]));
+        respond(update_single_transaction(State(self.ledger.clone()), reload(), UrlPath((id.to_owned(),)), if_match, Json(request)).await).await
+    }
+
+    /// a delete, with `If-Match: <version>`
+    async fn delete(&self, id: &str, version: &str) -> (StatusCode, Value) {
+        let if_match = RequiredIfMatch(vec![version.to_owned()]);
+        respond(delete_single_transaction(State(self.ledger.clone()), reload(), UrlPath((id.to_owned(),)), if_match).await).await
+    }
+
+    /// a delete of the transaction of `payee`, by the id and the version the journal gives it
+    async fn delete_payee(&self, payee: &str) -> (StatusCode, Value) {
+        let (id, version) = self.entry(payee).await;
+        self.delete(&id, &version).await
     }
 
     /// The records of `GET /api/journals` on the ledger served.
@@ -89,9 +108,16 @@ impl Served {
 
     /// The id the journal lists the transaction of `payee` under.
     async fn id_of(&self, payee: &str) -> String {
-        let transactions = self.transactions().await;
-        let found = transactions.into_iter().find(|(_, it, _)| it == payee);
-        found.unwrap_or_else(|| panic!("the journal lists {payee}")).0
+        self.entry(payee).await.0
+    }
+
+    /// The id and the version the journal lists the transaction of `payee` with.
+    async fn entry(&self, payee: &str) -> (String, String) {
+        let records = self.journal().await;
+        let found = records.into_iter().find(|it| it["type"] == "Transaction" && it["payee"] == payee);
+        let found = found.unwrap_or_else(|| panic!("the journal lists {payee}"));
+        let text = |value: &Value| value.as_str().unwrap_or_else(|| panic!("{payee}: {found}")).to_owned();
+        (text(&found["id"]), text(&found["version"]))
     }
 
     fn read(&self, relative: &str) -> String {
@@ -127,14 +153,20 @@ fn message(body: &Value) -> &str {
     body["message"].as_str().unwrap_or_else(|| panic!("an error body: {body}"))
 }
 
+/// the version of a transaction written as `text`: the SHA-256 of the text, in hex
+fn version_of(text: &str) -> String {
+    sha2::Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[tokio::test]
 async fn a_deleted_transaction_leaves_its_file_and_the_journal_and_its_neighbours_stay() {
     for main in ["main.zhang", "main.bean"] {
         let served = Served::with_main(main, &format!("{OPENS}{MEALS}"));
         let bakery = served.id_of("Bakery").await;
-        let coffee = served.id_of("Cafe").await;
+        let (coffee, version) = served.entry("Cafe").await;
+        assert_eq!(version, version_of(COFFEE.trim_end()), "{main}: the version is that of the text");
 
-        let (status, body) = served.delete(&coffee).await;
+        let (status, body) = served.delete(&coffee, &version).await;
         assert_eq!((status, &body), (StatusCode::OK, &json!({"data": null})), "{main}");
 
         // the text of the coffee and the blank line after it are gone; the comments, and the rest, stay as they were
@@ -147,9 +179,10 @@ async fn a_deleted_transaction_leaves_its_file_and_the_journal_and_its_neighbour
         assert_eq!(payees, vec!["Bakery", "Noodles"], "{main}");
         assert_eq!(transactions[0].0, bakery, "{main}");
         assert!(transactions.iter().all(|(id, ..)| *id != coffee), "{main}: {transactions:?}");
-        // and the id deleted is no transaction any more
-        let (status, body) = served.delete(&coffee).await;
+        // and the delete sent again finds no transaction at the place of the coffee, where the comment on the lunch is now
+        let (status, body) = served.delete(&coffee, &version).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{main}: {body}");
+        assert_eq!(served.read(main), format!("{OPENS}{MEALS}").replace(COFFEE, ""), "{main}");
     }
 }
 
@@ -158,22 +191,29 @@ async fn transactions_created_then_deleted_leave_their_file_as_it_was() {
     for (main, data) in [("main.zhang", "data/2024/01.zhang"), ("main.bean", "data/2024/01.bean")] {
         let main_text = format!("{OPENS}include \"{data}\"\n");
         let served = Served::new(Scratch::with_files(main, &[(main, &main_text), (data, "")]));
-        let mut ids = vec![];
+        let mut created = vec![];
         for (day, payee) in [(1, "Bakery"), (2, "Cafe"), (3, "Noodles")] {
             let (status, body) = served.create(meal(day, payee, "meal", "5")).await;
             assert_eq!(status, StatusCode::OK, "{main}: {body}");
-            ids.push(body["data"]["id"].as_str().expect("the id of the transaction created").to_owned());
+            let text = |key: &str| body["data"][key].as_str().unwrap_or_else(|| panic!("{main}: {key} in {body}")).to_owned();
+            created.push((text("id"), text("version")));
+            // the id and the version the create answers are the journal's
+            assert_eq!(served.entry(payee).await, created.last().unwrap().clone(), "{main}");
         }
         assert_eq!(served.read(data).matches("\n\n").count(), 2, "{main}: one blank line between the entries");
-        assert_eq!(served.id_of("Noodles").await, ids[2], "{main}");
 
-        // the middle one: the one after it moves to its place, and takes its id
-        let (status, body) = served.delete(&ids[1]).await;
+        // the middle one: the one after it moves to its place, and takes its id, with its own version
+        let (status, body) = served.delete(&created[1].0, &created[1].1).await;
         assert_eq!(status, StatusCode::OK, "{main}: {body}");
-        assert_eq!(served.id_of("Noodles").await, ids[1], "{main}");
+        let after = served.read(data);
+        assert_eq!(served.entry("Noodles").await, (created[1].0.clone(), created[2].1.clone()), "{main}");
+        // so the delete, sent again as a client retries it, is refused, and the noodles stay
+        let (status, body) = served.delete(&created[1].0, &created[1].1).await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{main}: {body}");
+        assert_eq!(served.read(data), after, "{main}: nothing is deleted");
         // the last one, by the id the journal gives it now, then the only one left
-        for id in [&ids[1], &ids[0]] {
-            let (status, body) = served.delete(id).await;
+        for payee in ["Noodles", "Bakery"] {
+            let (status, body) = served.delete_payee(payee).await;
             assert_eq!(status, StatusCode::OK, "{main}: {body}");
         }
         assert_eq!(served.read(data), "", "{main}");
@@ -196,18 +236,19 @@ async fn the_id_a_create_answers_is_the_journals_and_takes_an_update_and_a_delet
             "{main}: the journal lists the transaction created under its id"
         );
 
-        let (status, body) = served.update(&id, meal(15, "Deli", "soup", "6")).await;
-        assert_eq!(
-            (status, &body),
-            (StatusCode::OK, &json!({"data": {"id": id}})),
-            "{main}: an update keeps the id"
-        );
+        let version = body["data"]["version"].as_str().expect("the version of the transaction created").to_owned();
+
+        let (status, body) = served.update_if(&id, Some(&version), meal(15, "Deli", "soup", "6")).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        assert_eq!(body["data"]["id"], json!(id), "{main}: an update keeps the id");
+        let version = body["data"]["version"].as_str().expect("the version of the update").to_owned();
+        assert_eq!(served.entry("Deli").await, (id.clone(), version.clone()), "{main}");
         assert!(
             served.transactions().await.contains(&(id.clone(), "Deli".to_owned(), "soup".to_owned())),
             "{main}: the journal lists the update under the id"
         );
 
-        let (status, body) = served.delete(&id).await;
+        let (status, body) = served.delete(&id, &version).await;
         assert_eq!(status, StatusCode::OK, "{main}: {body}");
         assert!(served.transactions().await.iter().all(|(it, ..)| *it != id), "{main}");
         served.reloads_without_errors();
@@ -224,7 +265,8 @@ async fn an_update_answers_the_id_it_kept_and_a_create_the_one_after_the_others(
     let (status, body) = served
         .update(&bakery, meal(1, "Bakery", "bread and a croissant, and a long narration", "9"))
         .await;
-    assert_eq!((status, &body), (StatusCode::OK, &json!({"data": {"id": bakery}})));
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["id"], json!(bakery));
     assert_eq!(served.id_of("Bakery").await, bakery);
     assert_ne!(served.id_of("Noodles").await, noodles, "the transactions after it moved");
 
@@ -244,7 +286,7 @@ async fn an_update_answers_the_id_it_kept_and_a_create_the_one_after_the_others(
         cafes.iter().any(|(id, ..)| id == created) && cafes.iter().any(|(id, ..)| id != created),
         "{ids:?}"
     );
-    let (status, _) = served.delete(created).await;
+    let (status, _) = served.delete(created, body["data"]["version"].as_str().unwrap()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         served.read("main.zhang"),
@@ -260,7 +302,7 @@ async fn a_create_the_load_rejects_answers_no_id() {
     let mut request = meal(15, "Deli", "sandwich", "8");
     request["postings"][0]["unit"] = Value::Null;
     let (status, body) = served.create(request).await;
-    assert_eq!((status, &body), (StatusCode::OK, &json!({"data": {"id": null}})));
+    assert_eq!((status, &body), (StatusCode::OK, &json!({"data": {"id": null, "version": null}})));
     assert!(served.read("data/2024/01.zhang").contains("\"Deli\" \"sandwich\""));
     assert!(served.transactions().await.is_empty());
 }
@@ -269,13 +311,13 @@ async fn a_create_the_load_rejects_answers_no_id() {
 async fn an_unknown_transaction_is_a_404_and_no_id_a_400() {
     let served = Served::with_main("main.zhang", &format!("{OPENS}{MEALS}"));
     let unknown = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
-    let (status, body) = served.delete(unknown).await;
+    let (status, body) = served.delete(unknown, &version_of("anything")).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     assert!(
         message(&body).starts_with(&format!("there is no transaction {unknown} in the ledger")),
         "{body}"
     );
-    let (status, body) = served.delete("nope").await;
+    let (status, body) = served.delete("nope", &version_of("anything")).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(message(&body), "\"nope\" is not the id of a transaction");
     assert_eq!(served.read("main.zhang"), format!("{OPENS}{MEALS}"), "nothing is deleted");
@@ -287,11 +329,11 @@ async fn an_unknown_transaction_is_a_404_and_no_id_a_400() {
 #[tokio::test]
 async fn a_transaction_in_a_file_changed_since_the_load_is_not_deleted() {
     let served = Served::with_main("main.zhang", &format!("{OPENS}{MEALS}"));
-    let coffee = served.id_of("Cafe").await;
+    let (coffee, version) = served.entry("Cafe").await;
     let edited = format!("; an editor adds this line\n{OPENS}{MEALS}");
     served.scratch.write("main.zhang", &edited);
 
-    let (status, body) = served.delete(&coffee).await;
+    let (status, body) = served.delete(&coffee, &version).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     assert!(
         message(&body).contains("main.zhang changed since the ledger was loaded, so nothing was written"),
@@ -299,12 +341,11 @@ async fn a_transaction_in_a_file_changed_since_the_load_is_not_deleted() {
     );
     assert_eq!(served.read("main.zhang"), edited, "nothing is deleted");
 
-    let (status, body) = served.delete(&coffee).await;
+    let (status, body) = served.delete(&coffee, &version).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "the ledger is reloaded, the coffee moved: {body}");
     assert_eq!(served.read("main.zhang"), edited, "nothing is deleted");
 
-    let coffee = served.id_of("Cafe").await;
-    let (status, body) = served.delete(&coffee).await;
+    let (status, body) = served.delete_payee("Cafe").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(served.read("main.zhang"), edited.replace(COFFEE, ""));
 }
@@ -333,7 +374,7 @@ async fn the_padding_of_a_pad_is_neither_deleted_nor_replaced() {
             .unwrap()
             .to_owned();
 
-        let (status, body) = served.delete(&padding).await;
+        let (status, body) = served.delete(&padding, &version_of("anything")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{main}: {body}");
         assert!(message(&body).contains("is the padding booked by the"), "{main}: {body}");
         let (status, body) = served.update(&padding, meal(5, "Bank", "padding", "1")).await;
@@ -341,16 +382,18 @@ async fn the_padding_of_a_pad_is_neither_deleted_nor_replaced() {
         assert!(message(&body).contains("is the padding booked by the"), "{main}: {body}");
         // and the preview of the update says so
         let request = serde_json::from_value(meal(5, "Bank", "padding", "1")).unwrap();
-        let (status, body) = respond(preview_transaction_update(State(served.ledger.clone()), UrlPath((padding.clone(),)), Json(request)).await).await;
+        let (status, body) =
+            respond(preview_transaction_update(State(served.ledger.clone()), UrlPath((padding.clone(),)), IfMatch(None), Json(request)).await).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{main}: {body}");
         assert_eq!(served.read(main), text, "{main}: nothing is written");
     }
 }
 
-/// Through the router, as a client calls it: a delete needs the credentials every other write needs, and the writes
-/// answer as their contracts say; the id a create answers takes a document right away.
+/// Through the router, as a client calls it: a delete needs the credentials every other write needs and the version
+/// of the transaction in `If-Match`, an update takes it, and the writes answer as their contracts say; the id a create
+/// answers takes a document right away.
 #[tokio::test]
-async fn a_delete_needs_credentials_like_every_write() {
+async fn a_delete_needs_credentials_and_the_version_of_the_transaction() {
     let scratch = Scratch::with_main("main.zhang", &format!("{OPENS}{MEALS}"));
     let settings = Settings {
         auth_credential: Some("admin:secret".to_owned()),
@@ -391,10 +434,42 @@ async fn a_delete_needs_credentials_like_every_write() {
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "{}", refused.text());
     assert!(scratch.read("data/2024/01.zhang").contains("\"Deli\""), "nothing is deleted");
 
-    let updated = call(&router, Method::PUT, &path, &credentials, Some(&meal(15, "Deli", "soup", "6"))).await;
-    assert_eq!(updated.status, StatusCode::OK, "{}", updated.text());
-    assert_eq!(updated.json(), json!({"data": {"id": id}}));
+    // the upload changed the text, so the version the create answered is stale; the journal gives the new one
+    let stale = created.json()["data"]["version"].as_str().unwrap().to_owned();
+    let journal = call(&router, Method::GET, "/api/journals", &credentials, None).await.json();
+    let version = journal["data"]["records"][0]["version"].as_str().unwrap().to_owned();
+    assert_ne!(version, stale);
+    let (stale_tag, current_tag) = (format!("\"{stale}\""), format!("\"{version}\""));
+    let stale_headers = [("Authorization", basic.as_str()), ("If-Match", stale_tag.as_str())];
+    let refused = call(&router, Method::PUT, &path, &stale_headers, Some(&meal(15, "Deli", "soup", "6"))).await;
+    assert_eq!(refused.status, StatusCode::PRECONDITION_FAILED, "{}", refused.text());
 
+    let current_headers = [("Authorization", basic.as_str()), ("If-Match", current_tag.as_str())];
+    let updated = call(&router, Method::PUT, &path, &current_headers, Some(&meal(15, "Deli", "soup", "6"))).await;
+    assert_eq!(updated.status, StatusCode::OK, "{}", updated.text());
+    assert_eq!(updated.json()["data"]["id"], json!(id));
+    let version = updated.json()["data"]["version"].as_str().unwrap().to_owned();
+
+    // a delete needs the version
+    let refused = call(&router, Method::DELETE, &path, &credentials, None).await;
+    assert_eq!(refused.status, StatusCode::PRECONDITION_REQUIRED, "{}", refused.text());
+    assert!(
+        refused.json()["message"].as_str().unwrap().contains("needs an If-Match header"),
+        "{}",
+        refused.text()
+    );
+    assert!(scratch.read("data/2024/01.zhang").contains("\"Deli\""), "nothing is deleted");
+    // a weak tag, or `*`, names no version
+    for if_match in [format!("W/\"{version}\""), "*".to_owned()] {
+        let headers = [("Authorization", basic.as_str()), ("If-Match", if_match.as_str())];
+        let refused = call(&router, Method::DELETE, &path, &headers, None).await;
+        assert_eq!(refused.status, StatusCode::PRECONDITION_FAILED, "{if_match}: {}", refused.text());
+    }
+    assert!(scratch.read("data/2024/01.zhang").contains("\"Deli\""), "nothing is deleted");
+
+    // one of several versions, quoted or not
+    let if_match = format!("\"{stale}\", {version}");
+    let credentials = [("Authorization", basic.as_str()), ("If-Match", if_match.as_str())];
     let deleted = call(&router, Method::DELETE, &path, &credentials, None).await;
     assert_eq!(deleted.status, StatusCode::OK, "{}", deleted.text());
     assert_eq!(deleted.json(), json!({"data": null}));
@@ -407,6 +482,59 @@ async fn a_delete_needs_credentials_like_every_write() {
     let again = call(&router, Method::DELETE, &path, &credentials, None).await;
     assert_eq!(again.status, StatusCode::NOT_FOUND, "{}", again.text());
     assert!(again.json()["message"].as_str().unwrap().starts_with("there is no transaction"));
+}
+
+/// An update may name the version of the transaction in `If-Match`, as a delete must: when the transaction has another
+/// version by then, the update and its preview are refused with a 412 and nothing is written. Without it, an update
+/// is written as before, as the web UI sends it.
+#[tokio::test]
+async fn an_update_naming_a_stale_version_writes_nothing() {
+    let served = Served::with_main("main.zhang", &format!("{OPENS}{MEALS}"));
+    let (coffee, version) = served.entry("Cafe").await;
+    let (status, body) = served.update_if(&coffee, Some(&version), meal(2, "Cafe", "latte", "6")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let latte = served.read("main.zhang");
+    assert!(latte.contains("\"Cafe\" \"latte\""), "{latte}");
+
+    // the version read before that update is stale now
+    let (status, body) = served.update_if(&coffee, Some(&version), meal(2, "Cafe", "tea", "4")).await;
+    assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{body}");
+    assert!(message(&body).contains("is not the version the If-Match header names"), "{body}");
+    let request = serde_json::from_value(meal(2, "Cafe", "tea", "4")).unwrap();
+    let if_match = IfMatch(Some(vec![version.clone()]));
+    let (status, body) = respond(preview_transaction_update(State(served.ledger.clone()), UrlPath((coffee.clone(),)), if_match, Json(request)).await).await;
+    assert_eq!(status, StatusCode::PRECONDITION_FAILED, "the preview says so: {body}");
+    assert_eq!(served.read("main.zhang"), latte, "nothing is written");
+
+    // without If-Match, as before
+    let (status, body) = served.update(&coffee, meal(2, "Cafe", "tea", "4")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(served.read("main.zhang").contains("\"Cafe\" \"tea\""));
+}
+
+/// The rows of an account's journal give the version of their transaction, as the journal does; a balance
+/// assertion has none.
+#[tokio::test]
+async fn the_account_journal_gives_the_versions_of_the_transactions() {
+    let served = Served::with_main("main.zhang", &format!("{OPENS}{MEALS}\n2024-01-04 balance Assets:Cash -20 CNY\n"));
+    let versions = served
+        .journal()
+        .await
+        .into_iter()
+        .filter(|it| it["type"] == "Transaction")
+        .map(|it| (it["id"].clone(), it["version"].clone()))
+        .collect::<Vec<_>>();
+    let request = UrlQuery(Default::default());
+    let (status, body) = respond(get_account_journals(State(served.ledger.clone()), UrlPath(("Assets:Cash".to_owned(),)), request).await).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let rows = body["data"].as_array().unwrap();
+    assert_eq!(rows.len(), 4, "{body}");
+    for row in rows {
+        match row["asserted"].is_null() {
+            true => assert!(versions.contains(&(row["trx_id"].clone(), row["trx_version"].clone())), "{row}"),
+            false => assert!(row["trx_version"].is_null(), "{row}"),
+        }
+    }
 }
 
 /// A delete reads and saves the file as an update does, through the data source: on one like the one `zhang serve`
@@ -422,9 +550,17 @@ async fn a_delete_writes_through_the_data_source_of_the_ledger() {
     )
     .await;
     let journal = get(&router, "/api/journals", &[]).await.json();
-    let coffee = journal["data"]["records"].as_array().unwrap().iter().find(|it| it["payee"] == "Cafe").unwrap()["id"].clone();
+    let coffee = journal["data"]["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|it| it["payee"] == "Cafe")
+        .unwrap()
+        .clone();
+    let path = format!("/api/transactions/{}", coffee["id"].as_str().unwrap());
 
-    let deleted = call(&router, Method::DELETE, &format!("/api/transactions/{}", coffee.as_str().unwrap()), &[], None).await;
+    let if_match = [("If-Match", coffee["version"].as_str().unwrap())];
+    let deleted = call(&router, Method::DELETE, &path, &if_match, None).await;
     assert_eq!(deleted.status, StatusCode::OK, "{}", deleted.text());
     assert_eq!(scratch.read("main.zhang"), format!("{OPENS}{MEALS}").replace(COFFEE, ""));
     let journal = get(&router, "/api/journals", &[]).await.json();
