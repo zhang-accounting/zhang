@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **路由：** `{name}` 是插件的名称；请求的 `path` 是路由之下的部分。
 - **身份认证：** 这些路由位于张记账自己的登录保护之后。只有允许列表中的请求头会传给插件，凭据和代理的身份请求头永远不会。
-- **只读，除非被授予写入：** router 只能通过 `zhang_query` 和 `zhang_query_params`（BQL）、`zhang_query_schema` 和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本，唯一的例外是插件声明、由账本所有者授予、并且服务器允许（`ZHANG_PLUGINS=write`）的[写入](#写入)。每个请求都在新的实例中运行，运行期间账本不会重新加载。
+- **只读，除非被授予写入：** router 只能通过 `zhang_query`、`zhang_query_params` 和 `zhang_query_builtin`（BQL）、`zhang_query_schema` 和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本，唯一的例外是插件声明、由账本所有者授予、并且服务器允许（`ZHANG_PLUGINS=write`）的[写入](#写入)。每个请求都在新的实例中运行，运行期间账本不会重新加载。
 - **绑定用户输入：** 永远不要把用户输入的内容写进查询文本。`router::query_with_params` 绑定带类型的参数，查询按参数的类型编译：
 
   ```rust
@@ -355,7 +355,7 @@ end
 return M
 ```
 
-本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为 Lua 没有精确的十进制运算，宿主会收回被改成 JSON 数字的金额，而且 JSON 库对账本的全部指令来说太慢（[原因](/zh-cn/guides/lua-plugins/#本版本只支持-router)）。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
+本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_builtin`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为 Lua 没有精确的十进制运算，宿主会收回被改成 JSON 数字的金额，而且 JSON 库对账本的全部指令来说太慢（[原因](/zh-cn/guides/lua-plugins/#本版本只支持-router)）。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
 
 ## 写入
 
@@ -458,6 +458,7 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang_list_dir` | 路径，UTF-8 | `{"entries": [{"name": "…", "kind": "file" \| "dir"}]}`，按名称排序 | 同 `zhang_read_file` |
 | `zhang_query` | BQL 文本 | `{"columns": [{"name": "…", "type": "…"}], "rows": [[…]]}` | `query`（带 `line` 和 `column`）、`invalid_input`、`unavailable` |
 | `zhang_query_params` | `{"bql": "… :from …", "params": {"from": {"type": "date", "value": "2024-01-01"}}}` | 同 `zhang_query` | 同 `zhang_query`；参数问题是一个指明参数名的 `query` 错误 |
+| `zhang_query_builtin` | `{"name": "accounts.subtree", "params": {"account": "Expenses", "date": "2026-10-13", "time": "09:30:00"}}`：按名称运行一条[内置查询](/zh-cn/reference/builtin-queries/)，它声明的每个参数都以普通 JSON 给出（`null`、布尔值、整数、字符串、字符串列表） | 与 `zhang_query` 相同：查询的列和行 | `unavailable`、`invalid_input`、`query`（名称未知，参数缺失、未知或类型不符） |
 | `zhang_query_schema` | 无 | `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`，即 `GET /api/query/schema` 的 `data` | `unavailable` |
 | `zhang_ledger_info` | 无 | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
 | `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`、`denied`、`invalid_input`、`invalid`、`conflict`、`io` |
@@ -483,9 +484,9 @@ fn route(request: Request) -> Result<Response, Error> {
 - `zhang_emit_error` 在 processor 或 mapper 中把问题报告到错误列表。插件注册期间（`name`、`version`、`supported_type`）报告的内容会被丢弃，在 router 中则只会写入日志。
 - `zhang_now` 在任何地方都可用。在 router 中，它为每个请求重新读取时钟；在注册期间调用它不会让账本依赖于日期。
 - `zhang_read_file` 和 `zhang_list_dir` 在 processor 或 mapper 之外，以及对 `allowed_paths` 未授予的任何路径，都返回 `denied`。
-- `zhang_query`、`zhang_query_params`、`zhang_query_schema`、`zhang_ledger_info`、`zhang_write_preview` 和 `zhang_write_commit` 在 router 请求之外返回 `unavailable`。
+- `zhang_query`、`zhang_query_params`、`zhang_query_builtin`、`zhang_query_schema`、`zhang_ledger_info`、`zhang_write_preview` 和 `zhang_write_commit` 在 router 请求之外返回 `unavailable`。
 
-`zhang_query_params`、`zhang_query_schema`、`zhang_write_preview` 和 `zhang_write_commit` 晚于 `zhang_query` 加入。新增宿主函数是插件可以忽略的扩展，所以 ABI 版本仍然是 1：不导入它们的插件照常运行，导入了它们的插件在没有它们的张记账上无法加载（见下文）。
+`zhang_query_params`、`zhang_query_schema`、`zhang_query_builtin`、`zhang_write_preview` 和 `zhang_write_commit` 晚于 `zhang_query` 加入。新增宿主函数是插件可以忽略的扩展，所以 ABI 版本仍然是 1：不导入它们的插件照常运行，导入了它们的插件在没有它们的张记账上无法加载（见下文）。
 
 ### 最低版本要求
 

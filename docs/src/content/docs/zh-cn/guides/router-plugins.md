@@ -115,6 +115,7 @@ Router 插件通过 `extism:host/user` 命名空间中的宿主函数读取账�
 
   `from` 绑定 `:from`（位置参数 `$1` 不能绑定），查询按参数的类型编译。`type` 是 `bool`、`int`、`decimal`、`str`、`date` 或 `set`，`value` 的写法与[内置查询](/zh-cn/reference/builtin-queries/)相同：布尔值、整数、数字或如 `"12.50"` 的字符串、字符串、`YYYY-MM-DD` 字符串，或字符串列表；`null` 对任何类型都表示 NULL。其他类型或形状的参数是一个没有位置的 `query` 错误，例如 `parameter :from must be a date string YYYY-MM-DD or null`；查询用到但输入没有绑定的参数是一个带位置的 `query` 错误。
 - `zhang_query_schema()` 返回查询可用的表、列和函数，与 `GET /api/query/schema` 在 `data` 中返回的内容完全相同，供拼装或描述查询的插件使用。
+- `zhang_query_builtin(call)` 按名称运行一条[内置查询](/zh-cn/reference/builtin-queries/)，即网页界面显示的数字背后的 BQL，参数以普通 JSON 给出：`{"name": "accounts.list", "params": {"date": "2026-10-13", "time": "09:30:00"}}`。它返回与 `zhang_query` 相同的内容，所以插件不必复制查询文本，就能给出与网页界面相同的答案。
 - `zhang_ledger_info()` 返回 `{"title": "...", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`；账本没有设置 `title` 选项时，`title` 为 `null`。
 
 使用普通 Extism PDK 的 Rust 代码如下（[Rust SDK](/zh-cn/developers/writing-plugins/#router-插件) 把它们封装为 `router::query`、`router::query_with_params` 和 `router::schema`）：

@@ -35,6 +35,7 @@ EXTISM_IMPORT_USER("zhang_ledger_info") extern uint64_t host_ledger_info(void);
 EXTISM_IMPORT_USER("zhang_query") extern uint64_t host_query(uint64_t);
 EXTISM_IMPORT_USER("zhang_query_params") extern uint64_t host_query_params(uint64_t);
 EXTISM_IMPORT_USER("zhang_query_schema") extern uint64_t host_query_schema(void);
+EXTISM_IMPORT_USER("zhang_query_builtin") extern uint64_t host_query_builtin(uint64_t);
 EXTISM_IMPORT_USER("zhang_read_file") extern uint64_t host_read_file(uint64_t);
 EXTISM_IMPORT_USER("zhang_list_dir") extern uint64_t host_list_dir(uint64_t);
 EXTISM_IMPORT_USER("zhang_emit_error") extern void host_emit_error(uint64_t);
@@ -122,6 +123,7 @@ static int call_with_text(lua_State *L, uint64_t (*function)(uint64_t)) {
 static int bridge_now(lua_State *L) { return push_handle(L, host_now()); }
 static int bridge_ledger_info(lua_State *L) { return push_handle(L, host_ledger_info()); }
 static int bridge_query_schema(lua_State *L) { return push_handle(L, host_query_schema()); }
+static int bridge_query_builtin(lua_State *L) { return call_with_text(L, host_query_builtin); }
 static int bridge_query(lua_State *L) { return call_with_text(L, host_query); }
 static int bridge_query_params(lua_State *L) { return call_with_text(L, host_query_params); }
 static int bridge_read_file(lua_State *L) { return call_with_text(L, host_read_file); }
@@ -166,6 +168,7 @@ static const luaL_Reg BRIDGES[] = {
     {"query", bridge_query},
     {"query_params", bridge_query_params},
     {"query_schema", bridge_query_schema},
+    {"query_builtin", bridge_query_builtin},
     {"read_file", bridge_read_file},
     {"list_dir", bridge_list_dir},
     {"write_preview", bridge_write_preview},
@@ -331,6 +334,25 @@ function zhang.query_params(bql, params)
     end
   end
   local value = unwrap(raw.query_params(json.encode({bql = bql, params = bound})))
+  return value
+end
+
+-- one of the server's built-in queries, by name, with its parameters as plain values: json.null is NULL, a decimal
+-- is a string ("12.50"), a date "YYYY-MM-DD", a set a list of strings. A float is refused before anything is sent
+function zhang.query_builtin(name, params)
+  if type(name) ~= "string" then error("zhang.query_builtin expects the query's name as a string, got " .. type(name), 2) end
+  local bound = json.object()
+  if params ~= nil then
+    if type(params) ~= "table" then error("zhang.query_builtin expects the parameters as a table, got " .. type(params), 2) end
+    for key, param in pairs(params) do
+      if math.type(param) == "float" then
+        error(sformat("parameter :%s is the float %s: give a decimal as a string, such as \"%s\"", tostring(key), tostring(param), tostring(param)), 2)
+      end
+      if type(param) == "table" and getmetatable(param) == nil then param = json.array(param) end
+      bound[key] = param
+    end
+  end
+  local value = unwrap(raw.query_builtin(json.encode({name = name, params = bound})))
   return value
 end
 

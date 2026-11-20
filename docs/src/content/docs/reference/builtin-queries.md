@@ -7,6 +7,10 @@ Zhang's pages compute their figures with *built-in queries* ([#479](https://gith
 
 You can open the query behind a figure on the **Query** page, with the values the page used filled in, and change it: another date range, more accounts, another grouping, a chart. Anything the app shows, you can also query, and vary, without waiting for a new release.
 
+:::caution[A contract for plugins]
+Router plugins run these queries by name through the `zhang_query_builtin` host function ([Writing Plugins](/developers/writing-plugins/#host-functions); `zhang.query_builtin` in [Lua](/guides/lua-plugins/)), the built-in MCP plugin among them. A query's name, its parameters with their types, and its columns are therefore a contract with plugins as well as with the app: renaming or removing one, adding a required parameter, or renaming, removing or retyping a column is a breaking change, listed as such in the changelog. Adding a query, or a column at the end, is not.
+:::
+
 :::note[Library API migration]
 The read endpoint migration removes the old `Operations` balance, account-list, payee-list and budget calculation methods, `AccountBalanceDomain`, `Store.budgets` and its aggregate types. These fields are also removed from the serialized Store returned by the WASM playground. Use the queries below, `#budget_definitions`, `#budgets` and `#budget_events` instead.
 

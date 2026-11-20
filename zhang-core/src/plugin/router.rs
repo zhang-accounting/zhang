@@ -31,6 +31,11 @@
 //!     parameter the query uses but the input does not bind is a `query` error at its position.
 //!   - `zhang_query_schema() -> i64` gives the tables, columns and functions a query can use,
 //!     the `data` that `GET /api/query/schema` answers.
+//!   - `zhang_query_builtin(input: i64) -> i64` runs one of the server's named built-in queries,
+//!     the BQL behind the figures the app shows: the block holds a [`BuiltinQueryCall`] as JSON,
+//!     `{"name": "accounts.list", "params": {"date": "2026-10-13", "time": "09:30:00"}}`, and the
+//!     value is what `zhang_query` gives. An unknown name, or a parameter that is missing, unknown
+//!     or not of its type, is a `query` error without a position.
 //!   - `zhang_write_preview(input: i64) -> i64` and `zhang_write_commit(input: i64) -> i64` append
 //!     directives to the ledger, for a plugin that declares writes and whose directive grants them
 //!     with `allowed_writes`; see [`crate::plugin::write`]. They are the one way a router changes the
@@ -39,7 +44,8 @@
 //!   All of them are only useful while `router` runs. They are linked into every other instance
 //!   of a plugin too (registration, `processor`, `mapper`), so a plugin importing them still
 //!   loads and runs as its other types; there they give the kind `unavailable`. A call whose
-//!   argument is not a readable UTF-8 block, or for `zhang_query_params` not the JSON described,
+//!   argument is not a readable UTF-8 block, or for `zhang_query_params` and `zhang_query_builtin`
+//!   not the JSON described,
 //!   gives the kind `invalid_input`.
 //! - `zhang_emit_error` ([`crate::plugin::host`]) is linked into a router call too, so a plugin
 //!   importing it can serve requests. A request has no error list to report into, so what the
@@ -73,10 +79,11 @@ use serde::Serialize;
 use serde_json::Value;
 pub use zhang_shared::plugin_abi::export::ROUTER as ROUTER_EXPORT;
 pub use zhang_shared::plugin_abi::import::{
-    LEDGER_INFO as LEDGER_INFO_FUNCTION, QUERY as QUERY_FUNCTION, QUERY_PARAMS as QUERY_PARAMS_FUNCTION, QUERY_SCHEMA as QUERY_SCHEMA_FUNCTION,
+    LEDGER_INFO as LEDGER_INFO_FUNCTION, QUERY as QUERY_FUNCTION, QUERY_BUILTIN as QUERY_BUILTIN_FUNCTION, QUERY_PARAMS as QUERY_PARAMS_FUNCTION,
+    QUERY_SCHEMA as QUERY_SCHEMA_FUNCTION,
 };
+pub use zhang_shared::plugin_abi::{BuiltinQueryCall, QueryWithParams, RawQueryParam, WriteBatch, WriteCommitted, WritePreview};
 use zhang_shared::plugin_abi::{HostError, HostErrorKind, LedgerInfo};
-pub use zhang_shared::plugin_abi::{QueryWithParams, RawQueryParam, WriteBatch, WriteCommitted, WritePreview};
 
 use crate::clock::LoadClock;
 use crate::ledger::Ledger;
@@ -118,6 +125,18 @@ pub trait RouterHost: Send + Sync {
 
     /// the tables, columns and functions a query can use: the `data` of `GET /api/query/schema`
     fn schema(&self) -> Result<Value, QueryFailure>;
+
+    /// Run the built-in query `name` with `params` bound, as `POST /api/query/builtins/{name}` runs it and with the
+    /// limits of [`RouterHost::query`]; the value is the same shape. An unknown name, or a parameter that is missing,
+    /// unknown or not of its type, is a failure without a position. A host without built-in queries says so
+    fn query_builtin(&self, name: &str, params: &BTreeMap<String, Value>) -> Result<Value, QueryFailure> {
+        let _ = params;
+        Err(QueryFailure {
+            message: format!("this host runs no built-in queries, so not {name}"),
+            line: None,
+            column: None,
+        })
+    }
 
     /// Preview `batch`, which `plugin` wants to append, as `POST /api/transactions/preview` previews a transaction:
     /// validate each directive in order, the earlier ones of the batch counted as written, export its text, choose
@@ -252,6 +271,32 @@ fn query_params_answer(host: Option<&dyn RouterHost>, input: Result<&str, &str>)
         )
     })?;
     host.query_with_params(&query.bql, &query.params).map_err(query_error)
+}
+
+/// `zhang_query_builtin(input) -> result`
+pub(super) fn zhang_query_builtin(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
+    let host = router_host(&state)?;
+    // read under the cap of a query's input, through the bounds-checked helper, as zhang_query_params reads its own
+    let input = match inputs.first() {
+        None => Err("the input is not a memory block".to_owned()),
+        Some(offset) => read_input_str(plugin, offset, QUERY_MAX_LEN).map_err(|e| format!("the input {e}")),
+    };
+    let result = query_builtin_answer(host.as_deref(), input.as_deref().map_err(String::as_str));
+    answer(plugin, outputs, result)
+}
+
+/// what `zhang_query_builtin` answers, given the host of the router call (none outside one) and the JSON input the
+/// plugin passed, or why it could not be read
+fn query_builtin_answer(host: Option<&dyn RouterHost>, input: Result<&str, &str>) -> Result<Value, HostError> {
+    let host = host.ok_or_else(|| unavailable(QUERY_BUILTIN_FUNCTION))?;
+    let input = input.map_err(|message| HostError::new(HostErrorKind::InvalidInput, message))?;
+    let call: BuiltinQueryCall = serde_json::from_str(input).map_err(|e| {
+        HostError::new(
+            HostErrorKind::InvalidInput,
+            format!("the input is not a JSON object {{\"name\": \"...\", \"params\": {{\"name\": value}}}}: {e}"),
+        )
+    })?;
+    host.query_builtin(&call.name, &call.params).map_err(query_error)
 }
 
 /// `zhang_query_schema() -> schema`
@@ -404,7 +449,7 @@ mod test {
 
     use serde_json::{json, Value};
 
-    use super::{query_answer, query_params_answer, schema_answer, QueryFailure, RawQueryParam, RouterHost};
+    use super::{query_answer, query_builtin_answer, query_params_answer, schema_answer, QueryFailure, RawQueryParam, RouterHost};
 
     /// answers `SELECT 1` and fails every other query; with parameters, echoes what it was given
     /// unless a parameter is named `bad`
@@ -436,6 +481,67 @@ mod test {
         fn schema(&self) -> Result<Value, QueryFailure> {
             Ok(json!({"tables": [{"name": "postings"}]}))
         }
+
+        fn query_builtin(&self, name: &str, params: &BTreeMap<String, Value>) -> Result<Value, QueryFailure> {
+            match name {
+                "accounts.list" => Ok(json!({"name": name, "params": params})),
+                _ => Err(QueryFailure {
+                    message: format!("there is no built-in query named {name}"),
+                    line: None,
+                    column: None,
+                }),
+            }
+        }
+    }
+
+    /// answers `SELECT 1` only, and has no built-in queries
+    struct NoBuiltins;
+
+    impl RouterHost for NoBuiltins {
+        fn query(&self, _bql: &str) -> Result<Value, QueryFailure> {
+            Ok(json!({"columns": [], "rows": []}))
+        }
+
+        fn query_with_params(&self, _bql: &str, _params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
+            Ok(json!({"columns": [], "rows": []}))
+        }
+
+        fn schema(&self) -> Result<Value, QueryFailure> {
+            Ok(json!({}))
+        }
+    }
+
+    #[test]
+    fn should_hand_a_builtin_call_to_the_host_and_answer_failures_as_values() {
+        let builtin = |host: Option<&dyn RouterHost>, input: Result<&str, &str>| serde_json::to_value(query_builtin_answer(host, input)).unwrap();
+        assert_eq!(
+            builtin(
+                Some(&OneQuery),
+                Ok(r#"{"name": "accounts.list", "params": {"date": "2026-10-13", "time": null}}"#)
+            ),
+            json!({"Ok": {"name": "accounts.list", "params": {"date": "2026-10-13", "time": null}}})
+        );
+        assert_eq!(
+            builtin(Some(&OneQuery), Ok(r#"{"name": "nope"}"#)),
+            json!({"Err": {"kind": "query", "message": "there is no built-in query named nope", "line": null, "column": null}})
+        );
+        let not_json = builtin(Some(&OneQuery), Ok(r#"{"params": {}}"#));
+        assert_eq!(not_json["Err"]["kind"], json!("invalid_input"), "{not_json}");
+        assert!(
+            not_json["Err"]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("the input is not a JSON object {\"name\": "),
+            "{not_json}"
+        );
+        assert_eq!(
+            builtin(None, Ok(r#"{"name": "accounts.list"}"#)),
+            json!({"Err": {"kind": "unavailable", "message": "zhang_query_builtin is only available while the plugin handles a request as a router"}})
+        );
+        assert_eq!(
+            builtin(Some(&NoBuiltins), Ok(r#"{"name": "accounts.list"}"#))["Err"]["message"],
+            json!("this host runs no built-in queries, so not accounts.list")
+        );
     }
 
     fn encoded(host: Option<&dyn RouterHost>, bql: Result<&str, &str>) -> Value {

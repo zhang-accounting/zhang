@@ -75,6 +75,7 @@ return M
 | `zhang.ledger_info()` | `{ title = "Home", operating_currency = "CNY", timezone = "Asia/Shanghai" }`；账本没有设置 `title` 选项时 `title` 是 `json.null`。 |
 | `zhang.query(bql)` | 运行一条[查询](/zh-cn/reference/query-language/)，给出 `POST /api/query` 在 `data` 中返回的内容：`{ columns = { { name = "account", type = "str" }, … }, rows = { { cell, … }, … } }`，时间和结果大小的限制相同。 |
 | `zhang.query_params(bql, params)` | 同上，但绑定命名参数：`params` 把查询中的每个 `:name` 映射到用下面的构造函数创建的带类型的值。绑定用户输入，而不要把它拼进查询文本。 |
+| `zhang.query_builtin(name, params)` | 按名称运行一条[内置查询](/zh-cn/reference/builtin-queries/)，即网页界面显示的数字背后的 BQL，结果与 `zhang.query` 相同。`params` 以普通值给出查询声明的每个参数：字符串、整数、布尔值、字符串列表或 `json.null`；小数是字符串（`"12.50"`），日期是 `"YYYY-MM-DD"`。浮点数在发送之前就会抛出错误。 |
 | `zhang.query_schema()` | 查询可以使用的表、列和函数，与 `GET /api/query/schema` 列出的相同。 |
 | `zhang.config(key)` | 一项设置的字符串值，或 `nil`：账本的选项、`plugin` 指令的元数据，以及张记账设置的键（`zhang.abi`、`zhang.plugin`、`zhang.seed`），与 wasm 插件收到的完全一样。 |
 | `zhang.emit_error(message, metas)` | 报告一个问题。请求没有错误列表，所以在 router 中它只会被记录到日志；要告诉调用方，请写进响应。 |
