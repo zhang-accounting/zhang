@@ -326,6 +326,7 @@ impl RegisteredPlugin {
         WriteAccess {
             declared: self.declared_writes().to_vec(),
             granted: self.capabilities().allowed_writes.clone(),
+            operator_allows: self.policy().allows_writes(),
         }
     }
 

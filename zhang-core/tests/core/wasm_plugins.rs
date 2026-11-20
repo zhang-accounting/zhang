@@ -2098,9 +2098,22 @@ fn a_plugin_editing_nothing_it_is_shown_keeps_the_pad() {
 
 // --- writes: `zhang_write_preview` and `zhang_write_commit` ------------------------------------------------------
 
+/// the policy of a server run with `--plugins write`, the one that lets plugins write
+fn writes_allowed() -> PluginPolicy {
+    PluginPolicy {
+        level: PluginLevel::Write,
+        ..PluginPolicy::default()
+    }
+}
+
 /// a ledger declaring `router_write.wat` with the `writes` config `declared` (its `capabilities` export) and the
-/// `allowed_writes` grants `granted`
+/// `allowed_writes` grants `granted`, on a server that lets plugins write
 fn write_ledger(declared: Option<&str>, granted: &[&str]) -> (TempDir, Ledger) {
+    write_ledger_with(writes_allowed(), declared, granted)
+}
+
+/// [`write_ledger`] on a server whose plugins `policy` bounds
+fn write_ledger_with(policy: PluginPolicy, declared: Option<&str>, granted: &[&str]) -> (TempDir, Ledger) {
     let dir = ledger_dir(&["router_write.wat"]);
     let mut directive = plugin(&dir, "router_write.wat");
     if let Some(declared) = declared {
@@ -2109,7 +2122,8 @@ fn write_ledger(declared: Option<&str>, granted: &[&str]) -> (TempDir, Ledger) {
     for grant in granted {
         directive.push_str(&format!("  allowed_writes: \"{grant}\"\n"));
     }
-    let ledger = load(&dir, &format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}"));
+    let ledger = load_with_policy(&dir, &format!("option \"features.plugin\" \"true\"\n{directive}{LEDGER}"), policy)
+        .unwrap_or_else(|e| panic!("ledger should load: {e}"));
     assert_eq!(store_summary(&ledger).1.len(), 2, "the processor passed the stream through");
     (dir, ledger)
 }
@@ -2179,6 +2193,25 @@ fn router_writes_are_unavailable_without_a_declaration_and_denied_without_a_gran
     let (_dir, ledger) = write_ledger(Some(r#"["balance", "open"]"#), &["open"]);
     assert_eq!(ledger.plugins.router("router-write").unwrap().declared_writes(), &[WriteKind::Open]);
     assert_eq!(write_case(&ledger, "preview", OPEN_BATCH)["Ok"]["ok"], json!(true));
+}
+
+#[test]
+fn router_writes_are_denied_at_the_default_read_level_whatever_the_directive_grants() {
+    // declared and granted, on a server run with the default `--plugins read`: the plugin loads, the load says what
+    // the grant lost, and every write is denied before its input is read
+    let (_dir, ledger) = write_ledger_with(PluginPolicy::default(), Some(r#"["transaction", "open"]"#), &["open", "transaction"]);
+    let router = ledger.plugins.router("router-write").unwrap();
+    assert_eq!(router.declared_writes(), &[WriteKind::Transaction, WriteKind::Open]);
+    assert_eq!(router.capabilities().allowed_writes, vec![]);
+    let reduced = errors_of(&ledger, ErrorKind::PluginCapabilityReduced);
+    assert_eq!(reduced.len(), 1, "{reduced:?}");
+    assert_eq!(reduced[0]["capability"], "allowed_writes");
+    assert_eq!(reduced[0]["requested"], "open, transaction");
+    assert_eq!(reduced[0]["granted"], "none");
+    assert_eq!(reduced[0]["setting"], "ZHANG_PLUGINS");
+    let denied = json!({"Err": {"kind": "denied", "message": "this server runs plugins read-only: its operator allows writes with `zhang serve --plugins write` or ZHANG_PLUGINS=write"}});
+    assert_eq!(write_case(&ledger, "preview", OPEN_BATCH), denied);
+    assert_eq!(write_case(&ledger, "commit", "not even json"), denied);
 }
 
 #[test]
@@ -2745,7 +2778,7 @@ mod lua {
         for grant in granted {
             directive.push_str(&format!("  allowed_writes: \"{grant}\"\n"));
         }
-        let ledger = load(&dir, &with_plugins(&directive));
+        let ledger = load_with_policy(&dir, &with_plugins(&directive), writes_allowed()).unwrap_or_else(|e| panic!("ledger should load: {e}"));
         (dir, ledger)
     }
 

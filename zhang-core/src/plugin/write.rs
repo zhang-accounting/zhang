@@ -15,7 +15,8 @@
 //!   [`WriteCommitted`] once the text is in the file.
 //!
 //! The error kinds: `unavailable` outside a router call, or when the plugin declared no writes; `denied` when the
-//! directive grants nothing, or not the kind of a directive in the batch; `invalid_input` when the block cannot be
+//! server's operator does not let plugins write (`ZHANG_PLUGINS` is not `write`), the directive grants nothing, or not
+//! the kind of a directive in the batch; `invalid_input` when the block cannot be
 //! read or is not the JSON of a batch; `invalid` when the batch breaks a bound ([`MAX_DIRECTIVES`], [`MAX_TEXT_LEN`]),
 //! has an entry without a known `kind`, holds a JSON number anywhere (amounts are strings, so a float never changes a
 //! balance), or fails the ledger's validation; `conflict` when the token is not for this ledger generation or this
@@ -55,6 +56,9 @@ pub const TOKEN_TTL_SECS: i64 = 10 * 60;
 pub struct WriteAccess {
     pub declared: Vec<WriteKind>,
     pub granted: Vec<WriteKind>,
+    /// whether the operator lets plugins write at all ([`crate::plugin_policy::PluginPolicy::allows_writes`]), the
+    /// ceiling over every declaration and grant
+    pub operator_allows: bool,
 }
 
 impl WriteAccess {
@@ -63,9 +67,19 @@ impl WriteAccess {
         self.declared.iter().copied().filter(|kind| self.granted.contains(kind)).collect()
     }
 
-    /// why the plugin may not write at all, before any input is read: `unavailable` without a declaration (the
-    /// plugin is not written to write), `denied` without a grant (the owner did not allow it)
+    /// why the plugin may not write at all, before any input is read: `denied` when the server's operator does not
+    /// let plugins write, `unavailable` without a declaration (the plugin is not written to write), `denied` without a
+    /// grant (the owner did not allow it)
     fn check_any(&self) -> Result<(), HostError> {
+        if !self.operator_allows {
+            return Err(HostError::new(
+                HostErrorKind::Denied,
+                format!(
+                    "this server runs plugins read-only: its operator allows writes with `zhang serve --plugins write` or {}=write",
+                    crate::plugin_policy::LEVEL_ENV
+                ),
+            ));
+        }
         if self.declared.is_empty() {
             return Err(HostError::new(
                 HostErrorKind::Unavailable,
@@ -319,6 +333,7 @@ mod test {
             access: WriteAccess {
                 declared: declared.to_vec(),
                 granted: granted.to_vec(),
+                operator_allows: true,
             },
         }
     }
@@ -398,6 +413,19 @@ mod test {
     }
 
     #[test]
+    fn should_deny_every_write_when_the_operator_does_not_allow_writes() {
+        // declared and granted, on a server that runs plugins at `read`: denied before the input is read, naming the
+        // setting rather than the directive, since no `allowed_writes` would help
+        let mut read = call(&BOTH, &BOTH);
+        read.access.operator_allows = false;
+        let expected = "this server runs plugins read-only: its operator allows writes with `zhang serve --plugins write` or ZHANG_PLUGINS=write";
+        let (kind, message) = error(serde_json::to_value(preview_answer(Some(&read), Err("the input is not a memory block"))).unwrap());
+        assert_eq!((kind.as_str(), message.as_str()), ("denied", expected));
+        let (kind, message) = error(serde_json::to_value(commit_answer(Some(&read), Ok(&batch(json!([{"kind": "open"}]))))).unwrap());
+        assert_eq!((kind.as_str(), message.as_str()), ("denied", expected));
+    }
+
+    #[test]
     fn should_answer_invalid_input_for_an_input_that_cannot_be_read() {
         let both = call(&BOTH, &BOTH);
         let (kind, message) = error(serde_json::to_value(preview_answer(Some(&both), Err("the input is 2000000 bytes, over the 1048576 byte limit"))).unwrap());
@@ -469,6 +497,7 @@ mod test {
         let access = WriteAccess {
             declared: vec![WriteKind::Open, WriteKind::Transaction],
             granted: vec![WriteKind::Transaction],
+            operator_allows: true,
         };
         assert_eq!(access.allowed(), vec![WriteKind::Transaction]);
     }

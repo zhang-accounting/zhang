@@ -518,7 +518,7 @@ option "operating_currency" "EUR"
 
 *插件 `<plugin>` 请求的 `<capability>` 为 `<requested>`，但服务器只允许 `<granted>`；服务器允许的范围由 `<setting>` 设置*
 
-一条 [`plugin`](/zh-cn/reference/directives/plugin/) 指令授予的能力超过了服务器允许的范围（见[服务器允许的范围](/zh-cn/reference/directives/plugin/#服务器允许的范围)）：`allowed_hosts` 中的主机多于 `ZHANG_PLUGIN_ALLOWED_HOSTS` 允许的主机，或者 `timeout` 长于 `ZHANG_PLUGIN_MAX_TIMEOUT`。插件仍会加载，并以服务器允许的能力运行，所以访问不被允许的主机时，插件的调用会失败；运行时间超过服务器限制时，插件会被终止。元数据：`plugin`（按原样写下的模块）、`capability`（`allowed_hosts` 或 `timeout`）、`requested`（指令授予的内容）、`granted`（插件得到的内容，什么都没有时为 `none`）和 `setting`（设置服务器限制的 `zhang serve` 环境变量）。
+一条 [`plugin`](/zh-cn/reference/directives/plugin/) 指令授予的能力超过了服务器允许的范围（见[服务器允许的范围](/zh-cn/reference/directives/plugin/#服务器允许的范围)）：`allowed_hosts` 中的主机多于 `ZHANG_PLUGIN_ALLOWED_HOSTS` 允许的主机，`timeout` 长于 `ZHANG_PLUGIN_MAX_TIMEOUT`，或者服务器不允许插件写入（`ZHANG_PLUGINS` 不是 `write`）时指令写了 `allowed_writes`。插件仍会加载，并以服务器允许的能力运行，所以访问不被允许的主机时，插件的调用会失败；运行时间超过服务器限制时，插件会被终止；写入会被拒绝。元数据：`plugin`（按原样写下的模块）、`capability`（`allowed_hosts`、`timeout` 或 `allowed_writes`）、`requested`（指令授予的内容）、`granted`（插件得到的内容，什么都没有时为 `none`）和 `setting`（设置服务器限制的 `zhang serve` 环境变量）。
 
 例如，没有设置 `ZHANG_PLUGIN_ALLOWED_HOSTS` 时，下面这条指令会被报告，`requested` 为 `api.frankfurter.dev`，`granted` 为 `none`：
 

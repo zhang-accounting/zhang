@@ -12,7 +12,9 @@ use axum::routing::{any, get, post};
 use axum::Router;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
+use zhang_core::clock::Clock;
 use zhang_core::ledger::Ledger;
+use zhang_core::plugin_policy::{PluginLevel, PluginPolicy};
 use zhang_server::broadcast::Broadcaster;
 use zhang_server::routes::plugin::plugin_list;
 use zhang_server::routes::plugin_router::{route_to_plugin, PluginRouteState, ROUTE};
@@ -55,10 +57,21 @@ fn ledger_with_module(main: &str, module: &str, source: &str, declared: &str, gr
     scratch
 }
 
-/// the server over `scratch`: the plugin routes, the plugin list, the transaction writes and the journal, with the
-/// reload listener running when `reloads` is set (otherwise a reload is asked for and never runs)
+/// the server over `scratch`, run with `--plugins write`: the plugin routes, the plugin list, the transaction writes
+/// and the journal, with the reload listener running when `reloads` is set (otherwise a reload is asked for and never
+/// runs)
 async fn server(scratch: &Scratch, reloads: bool) -> (Router, Arc<RwLock<Ledger>>, Arc<ReloadSender>) {
-    let ledger = Ledger::load(scratch.dir().to_path_buf(), scratch.main().to_owned(), data_source_for(scratch.main()))
+    let policy = PluginPolicy {
+        level: PluginLevel::Write,
+        ..PluginPolicy::default()
+    };
+    server_with(scratch, reloads, policy).await
+}
+
+/// [`server`] with its plugins bounded by `policy`
+async fn server_with(scratch: &Scratch, reloads: bool, policy: PluginPolicy) -> (Router, Arc<RwLock<Ledger>>, Arc<ReloadSender>) {
+    let source = data_source_for(scratch.main());
+    let ledger = Ledger::load_with_policy(scratch.dir().to_path_buf(), scratch.main().to_owned(), source, Clock::System, Arc::new(policy))
         .unwrap_or_else(|error| panic!("ledger should load: {error}"));
     let ledger = Arc::new(RwLock::new(ledger));
     let (sender, receiver) = tokio::sync::mpsc::channel(8);
@@ -161,6 +174,34 @@ async fn a_plugin_writes_only_what_it_declares_and_is_granted() {
         (kind.as_str(), message.as_str()),
         ("unavailable", "plugin did not declare writes: its `capabilities` export lists no `writes`")
     );
+}
+
+/// The operator's ceiling (#830) over the directive's grant: at the default `--plugins read` a plugin declaring and
+/// granted writes loads, lists no granted write, and writes nothing.
+#[tokio::test]
+async fn a_server_running_plugins_read_only_grants_no_write() {
+    let scratch = ledger_with("main.zhang", r#"["transaction","open"]"#, &["transaction", "open"]);
+    let (router, ledger, _) = server_with(&scratch, false, PluginPolicy::default()).await;
+    let plugins = send(&router, json_request(Method::GET, "/api/plugins", &[], None)).await.json();
+    assert_eq!(plugins["data"][0]["writes_requested"], json!(["transaction", "open"]));
+    assert_eq!(plugins["data"][0]["writes_granted"], json!([]), "listed after the ceiling");
+    let reduced: Vec<_> = ledger
+        .read()
+        .await
+        .errors
+        .iter()
+        .filter(|error| error.error_type == zhang_ast::error::ErrorKind::PluginCapabilityReduced)
+        .map(|error| error.metas.get("capability").cloned())
+        .collect();
+    assert_eq!(reduced, vec![Some("allowed_writes".to_owned())]);
+
+    let batch = json!([coffee("2026-10-13", "Expenses:Food")]);
+    let (kind, message) = err(&preview(&router, batch.clone()).await);
+    assert_eq!(kind, "denied");
+    assert!(message.contains("--plugins write"), "{message}");
+    let (kind, _) = err(&commit(&router, batch, &json!("forged")).await);
+    assert_eq!(kind, "denied");
+    assert!(!read(scratch.dir(), "main.zhang").contains("Blue Bottle"), "nothing written");
 }
 
 #[tokio::test]
@@ -695,9 +736,12 @@ async fn a_reload_of_unchanged_files_keeps_a_token_and_an_edit_on_disk_voids_it(
     let (router, _, reload_sender) = server(&scratch, true).await;
     let batch = json!([coffee("2026-10-13", "Expenses:Food")]);
     let previewed = preview(&router, batch.clone()).await;
+    let before = previewed["Ok"]["generation"].clone();
     ok(&commit(&router, batch.clone(), &previewed["Ok"]["token"]).await);
     reload_sender.reload_and_wait().await.unwrap();
     let generation = ok(&preview(&router, json!([coffee("2026-10-14", "Expenses:Food")])).await)["generation"].clone();
+    // the commit changed the content (#826's fingerprint), so its reload is a new generation
+    assert_ne!(generation, before, "a plugin commit bumps the generation");
 
     // a token minted now survives a reload that finds the files as they are
     let later = json!([coffee("2026-10-15", "Expenses:Food")]);

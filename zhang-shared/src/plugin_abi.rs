@@ -116,6 +116,10 @@ pub mod config {
     /// config key holding how long one call into the plugin may run, in milliseconds, a decimal `u64`: its `timeout`
     /// within what the server allows. [`PLUGIN`] and the flat `timeout` key hold what the directive asked for
     pub const TIMEOUT_MS: &str = "zhang.timeout_ms";
+    /// config key holding the kinds of directives the plugin may write, a JSON array such as `["transaction"]`: its
+    /// `allowed_writes` within what the server allows (none unless the operator runs it with `ZHANG_PLUGINS=write`).
+    /// [`PLUGIN`] holds what the directive asked for. A plugin reads this, not the directive, to tell what it may do
+    pub const ALLOWED_WRITES: &str = "zhang.allowed_writes";
     /// Config key holding the source of a Lua script plugin (`plugin "x.lua"`), which the host hands to the
     /// embedded Lua interpreter module instead of a module of the plugin's own. Set only for a script.
     pub const SCRIPT: &str = "zhang.script";

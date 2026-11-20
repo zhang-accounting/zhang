@@ -395,7 +395,8 @@ fn route(request: Request) -> Result<Response, Error> {
 ```
 
 1. **Preview.** `write_preview` takes a batch of up to 50 directives, each a `transaction` exactly as
-   `POST /api/transactions` takes one, or an `open` (`date`, `account`, `commodities`, `booking_method`, `metas`).
+   `POST /api/transactions` takes one (without an `idempotency-key` meta, the one that API writes its
+   `Idempotency-Key` header under), or an `open` (`date`, `account`, `commodities`, `booking_method`, `metas`).
    Zhang validates them in order, an `open` earlier in the batch counting for the transactions after it, with the
    checks of `POST /api/transactions/preview`: for each entry, the text as the ledger's format writes it (the one a
    commit appends, byte for byte), the file it goes to by the `directive_output_path` option, the fields refused
@@ -485,6 +486,7 @@ Zhang hands every plugin instance a string-to-string Extism config:
 | `zhang.seed` | the plugin's seed, a decimal `u64` |
 | `zhang.allowed_hosts` | the hosts the plugin may reach, a JSON array: its `allowed_hosts` within what the server allows. `zhang.plugin` keeps what the directive asked for |
 | `zhang.timeout_ms` | how long one call may run, in milliseconds: its `timeout` (or the default) within what the server allows. The flat `timeout` key keeps what the directive asked for |
+| `zhang.allowed_writes` | the kinds of directives the plugin may write, a JSON array such as `["transaction"]`: its `allowed_writes` within what the server allows, so `[]` unless the server runs with `--plugins write`. Read this, not `zhang.plugin`, to tell whether a write can succeed |
 
 A Zhang that sets no `zhang.abi` predates ABI v1: it sets none of the `zhang.*` keys and links none of the host functions below.
 
@@ -509,9 +511,10 @@ They live in the `extism:host/user` namespace. Arguments and results are `i64` o
 entry is the body of `POST /api/transactions` with `"kind": "transaction"`; an `open` entry is `{"kind": "open", "date",
 "account", "commodities"?, "booking_method"?, "metas"?}`. Every entry's `text`, `field_errors`, `unbalanced` and
 `errors` are what `POST /api/transactions/preview` answers. The error kinds: `unavailable` outside a router request or
-when the plugin declared no writes, `denied` when the directive grants nothing or not the kind of an entry (checked
-before the input is read), `invalid_input` when the block is not the JSON of a batch, `invalid` for more than 50
-directives, more than 64 KiB of text, an entry without a known `kind`, a JSON number anywhere, or a batch the ledger
+when the plugin declared no writes, `denied` when the server does not let plugins write (`--plugins read`, its
+default), the directive grants nothing, or not the kind of an entry (checked before the input is read),
+`invalid_input` when the block is not the JSON of a batch, `invalid` for more than 50 directives, more than 64 KiB of
+text, an entry without a known `kind`, a JSON number anywhere, a transaction with an `idempotency-key` meta, or a batch the ledger
 refuses (on a commit; a preview reports those per entry), `conflict` when the token is not for this ledger generation
 or batch, expired, or the ledger is reloading after a write, and `io` when the file could not be written.
 

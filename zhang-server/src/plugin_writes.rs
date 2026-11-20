@@ -40,7 +40,7 @@ pub use zhang_shared::plugin_abi::{HostError, HostErrorKind, WriteCommitted, Wri
 
 use crate::request::{CreateTransactionRequest, LedgerDateTime, OpenAccountRequest};
 use crate::response::{InvalidKind, TransactionField, TransactionPreviewErrorEntity};
-use crate::routes::transaction::{metas_from_request, transaction_from_request, FieldError};
+use crate::routes::transaction::{metas_from_request, transaction_from_request, FieldError, IDEMPOTENCY_KEY_META};
 use crate::validate::{self, Invalid};
 use crate::ReloadSender;
 
@@ -455,6 +455,14 @@ fn field_errors(index: usize, errors: Vec<FieldError>) -> (Vec<Value>, Option<St
 fn check_transaction(ledger: &Ledger, index: usize, value: Value, overlay: &[Directive], text_len: &mut usize) -> Result<Checked, HostError> {
     let payload: CreateTransactionRequest =
         serde_json::from_value(value).map_err(|e| invalid(format!("directives[{index}] is not a transaction as POST /api/transactions takes one: {e}")))?;
+    // a transaction with this metadata is the answer to an API create sent with that `Idempotency-Key`, which then
+    // writes nothing: a plugin, which sends no such header, does not write one and take part in them
+    if payload.metas.iter().any(|meta| meta.key == IDEMPOTENCY_KEY_META) {
+        return Err(invalid(format!(
+            "directives[{index}]: the metadata {IDEMPOTENCY_KEY_META:?} is the one the server writes an API create's Idempotency-Key \
+             header under: a plugin's transaction does not carry it"
+        )));
+    }
     let at = payload.datetime.in_ledger(&ledger.options.timezone);
     let file = file_of(ledger, Some(at), DirectiveType::Transaction)?;
     let entry = |text, field_errors, unbalanced, errors| WritePreviewEntry {
@@ -951,5 +959,33 @@ mod test {
                 .starts_with("directives[0] is not a transaction as POST /api/transactions takes one"),
             "{unreadable}"
         );
+    }
+
+    /// Plugin writes and `Idempotency-Key` do not interact (#831): a plugin's transaction carries no `idempotency-key`
+    /// metadata, which would make it the answer to an API create sent with that key.
+    #[test]
+    fn a_plugin_transaction_carries_no_idempotency_key() {
+        let scratch = Scratch::zhang(LEDGER);
+        let ledger = scratch.ledger().unwrap();
+        let coffee = |metas: Value| {
+            json!([{"kind": "transaction", "datetime": "2026-10-13", "payee": "Blue Bottle", "narration": "coffee",
+                "postings": [{"account": "Assets:Cash", "unit": {"number": "-4.50", "commodity": "USD"}}, {"account": "Assets:Cash"}],
+                "tags": [], "links": [], "metas": metas}])
+        };
+
+        let refused = preview(
+            &ledger,
+            coffee(json!([{"key": "note", "value": "x"}, {"key": "idempotency-key", "value": "k-1"}])),
+        );
+        assert_eq!(refused["Err"]["kind"], "invalid", "{refused}");
+        assert_eq!(
+            refused["Err"]["message"],
+            "directives[0]: the metadata \"idempotency-key\" is the one the server writes an API create's Idempotency-Key header \
+             under: a plugin's transaction does not carry it"
+        );
+        // and the host adds none of its own
+        let written = ok(&ledger, coffee(json!([{"key": "note", "value": "x"}])));
+        let text = written["entries"][0]["text"].as_str().unwrap();
+        assert!(!text.contains("idempotency-key"), "{text}");
     }
 }

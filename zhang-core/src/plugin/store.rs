@@ -485,6 +485,7 @@ mod test {
             ("zhang.seed", "1811957226761548848"),
             ("zhang.allowed_hosts", r#"["api.frankfurter.dev","api.example.com"]"#),
             ("zhang.timeout_ms", "60000"),
+            ("zhang.allowed_writes", "[]"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))

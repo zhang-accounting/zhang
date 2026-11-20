@@ -391,7 +391,7 @@ fn route(request: Request) -> Result<Response, Error> {
 }
 ```
 
-1. **预览。** `write_preview` 接受一批最多 50 条指令，每条要么是与 `POST /api/transactions` 请求体完全相同的 `transaction`，要么是 `open`（`date`、`account`、`commodities`、`booking_method`、`metas`）。张记账按顺序校验它们，批次中靠前的 `open` 对它之后的交易生效，检查项与 `POST /api/transactions/preview` 相同：对每个条目给出账本格式写出的文本（提交时逐字节追加的就是它）、按 `directive_output_path` 选项选定的文件、被拒绝的字段（`field_errors`）、交易的不平衡额，以及账本会报告的错误，例如 `AccountDoesNotExist`。对账本中已经有 `open` 指令的账户再 `open`（无论日期如何），商品相同时结果是 `already_open`，不会写到任何地方；商品不同时是 `commodities` 上的字段错误；对已被 `close` 关闭的账户再 `open`，是 `account` 上的字段错误（`account_closed`，指明关闭日期）：插件只能开立账本从未开立过的账户，所以它不能更改账户的商品、把商品倒填到更早日期，也不能重新开立已关闭的账户。当每个条目都没有问题、并且确实有内容要写时，预览带有 `token`。
+1. **预览。** `write_preview` 接受一批最多 50 条指令，每条要么是与 `POST /api/transactions` 请求体完全相同的 `transaction`（不带 `idempotency-key` 元数据，该接口把 `Idempotency-Key` 请求头写在这个键下），要么是 `open`（`date`、`account`、`commodities`、`booking_method`、`metas`）。张记账按顺序校验它们，批次中靠前的 `open` 对它之后的交易生效，检查项与 `POST /api/transactions/preview` 相同：对每个条目给出账本格式写出的文本（提交时逐字节追加的就是它）、按 `directive_output_path` 选项选定的文件、被拒绝的字段（`field_errors`）、交易的不平衡额，以及账本会报告的错误，例如 `AccountDoesNotExist`。对账本中已经有 `open` 指令的账户再 `open`（无论日期如何），商品相同时结果是 `already_open`，不会写到任何地方；商品不同时是 `commodities` 上的字段错误；对已被 `close` 关闭的账户再 `open`，是 `account` 上的字段错误（`account_closed`，指明关闭日期）：插件只能开立账本从未开立过的账户，所以它不能更改账户的商品、把商品倒填到更早日期，也不能重新开立已关闭的账户。当每个条目都没有问题、并且确实有内容要写时，预览带有 `token`。
 2. **提交。** `write_commit` 接受同一批指令和令牌。张记账重新计算写入计划、检查令牌，然后像 API 写入那样每个文件写一次：新的月份文件的 `include` 先写入主文件，然后该文件一次性收到它的全部条目。在本地目录上，文件是原子替换的（文本先写到旁边的临时文件，再重命名覆盖原文件；符号链接仍是链接，文件权限保持不变），所以写到一半崩溃或磁盘写满时文件保持原样；在对象存储（S3、GitHub、WebDAV）上，每个文件按对象整体替换。跨多个文件的一批写入不是原子的：文件是一个接一个写的。调用返回时文本已经在文件里；账本重新加载，与 `POST /api/transactions` 之后一样，服务器记录一行日志 `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`。**把提交放在请求的最后一步**：它返回 `Ok` 之后条目已经记录。如果插件在此之后失败（trap、错误、超时），它的回答就丢失了：路由以失败的状态码回答，并带上 `zhang-plugin-committed` 头和指明已记录内容的 `committed` 对象（见 [Router 插件](/zh-cn/guides/router-plugins/#隔离与错误)），读取它们的客户端就不会再次发送这些条目；不读取的客户端则会重试一次已经发生的写入。某个文件无法写入时，`io` 错误会指明已写入和未写入的条目与文件，整批作废（所有令牌随之作废），账本重新加载：告诉用户记录了什么，只对其余条目重新预览。
 3. **令牌是乐观并发控制，不是同意。** 它是宿主对账本代（每次提交、以及每次加载到与之前不同内容的重新加载都会推进的计数器；文件监视器对未改变文件的重新加载不会推进它）、插件名称、文件和精确文本做的 HMAC，并附带 10 分钟后的过期时间。它让提交能够发现账本或批次在预览之后发生了变化：批次有差异、令牌属于另一代、令牌过期、账本正在写入后重新加载、或者在那次重新加载之前再提交一次，都是 `conflict`，插件应重新预览。它不能证明谁看过预览：令牌由插件自己取得（它可以在同一个请求里预览并提交），而且无论令牌如何，提交都会重新规划并校验整批指令。提交之前征求用户同意是插件的职责，`allowed_writes` 是账本所有者的决定；令牌只防止提交落在一个已经变化的账本上。宿主不为预览保存任何状态。
 
@@ -442,6 +442,7 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang.seed` | 插件的种子，一个十进制的 `u64` |
 | `zhang.allowed_hosts` | 插件能访问的主机，一个 JSON 数组：它的 `allowed_hosts` 中服务器允许的部分。`zhang.plugin` 保留指令请求的内容 |
 | `zhang.timeout_ms` | 一次调用最长能运行多久，单位为毫秒：它的 `timeout`（或默认值）在服务器允许的范围内的值。扁平的 `timeout` 键保留指令请求的内容 |
+| `zhang.allowed_writes` | 插件能写入的指令种类，一个 JSON 数组，例如 `["transaction"]`：它的 `allowed_writes` 中服务器允许的部分，所以除非服务器以 `--plugins write` 运行，否则为 `[]`。要判断写入能否成功，读这个键，而不是 `zhang.plugin` |
 
 没有设置 `zhang.abi` 的张记账早于 ABI v1：它不设置任何 `zhang.*` 键，也不链接下面的任何宿主函数。
 
@@ -462,7 +463,7 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`、`denied`、`invalid_input`、`invalid`、`conflict`、`io` |
 | `zhang_write_commit` | 同上，外加 `"token"` | `{"file", "bytes", "entries", "generation"}` | 同 `zhang_write_preview` |
 
-`zhang_write_preview` 和 `zhang_write_commit` 向账本追加指令，见[写入](#写入)：`transaction` 条目是 `POST /api/transactions` 的请求体加上 `"kind": "transaction"`；`open` 条目是 `{"kind": "open", "date", "account", "commodities"?, "booking_method"?, "metas"?}`。每个条目的 `text`、`field_errors`、`unbalanced` 和 `errors` 与 `POST /api/transactions/preview` 的答复相同。错误类型：在 router 请求之外或插件没有声明写入时是 `unavailable`；指令没有授予任何写入、或没有授予某个条目的种类时是 `denied`（在读取输入之前就检查）；内存块不是批次的 JSON 时是 `invalid_input`；超过 50 条指令、文本超过 64 KiB、条目没有已知的 `kind`、任何位置出现 JSON 数字、或者账本拒绝这批指令（提交时；预览则逐条报告）时是 `invalid`；令牌不属于当前账本代或这批指令、已过期、或账本正在写入后重新加载时是 `conflict`；文件无法写入时是 `io`。
+`zhang_write_preview` 和 `zhang_write_commit` 向账本追加指令，见[写入](#写入)：`transaction` 条目是 `POST /api/transactions` 的请求体加上 `"kind": "transaction"`；`open` 条目是 `{"kind": "open", "date", "account", "commodities"?, "booking_method"?, "metas"?}`。每个条目的 `text`、`field_errors`、`unbalanced` 和 `errors` 与 `POST /api/transactions/preview` 的答复相同。错误类型：在 router 请求之外或插件没有声明写入时是 `unavailable`；服务器不允许插件写入（`--plugins read`，默认值）、指令没有授予任何写入、或没有授予某个条目的种类时是 `denied`（在读取输入之前就检查）；内存块不是批次的 JSON 时是 `invalid_input`；超过 50 条指令、文本超过 64 KiB、条目没有已知的 `kind`、任何位置出现 JSON 数字、交易带有 `idempotency-key` 元数据、或者账本拒绝这批指令（提交时；预览则逐条报告）时是 `invalid`；令牌不属于当前账本代或这批指令、已过期、或账本正在写入后重新加载时是 `conflict`；文件无法写入时是 `io`。
 
 `zhang_query_params` 绑定命名参数（`from` 绑定 `:from`；位置参数 `$1` 不能绑定），插件因此可以绑定用户输入的内容，而不是把它写进 BQL。查询按参数的类型编译。每个参数是 `{"type": "…", "value": …}`，值的写法与 API 的内置查询相同；`null` 或缺少 `value` 对任何类型都表示 NULL：
 
