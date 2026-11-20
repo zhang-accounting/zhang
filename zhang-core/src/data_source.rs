@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Component, Path, PathBuf};
 
 use chrono::Datelike;
@@ -683,6 +683,7 @@ pub struct LedgerFiles {
     root: PathBuf,
     queue: VecDeque<PendingFile>,
     visited: Vec<PathBuf>,
+    digests: HashMap<PathBuf, ContentDigest>,
     directives: Vec<Spanned<Directive>>,
     missing_includes: Vec<MissingInclude>,
 }
@@ -709,6 +710,7 @@ impl LedgerFiles {
             queue: VecDeque::from([PendingFile::main(root.join(main))]),
             root,
             visited: vec![],
+            digests: HashMap::new(),
             directives: vec![],
             missing_includes: vec![],
         }
@@ -758,7 +760,10 @@ impl LedgerFiles {
         let name = slashed(&within);
         let text = match content {
             // after the byte order mark it may start with, which the parsers skip too: the spans index the same text
-            Ok(content) => FileText::decode(content, &name)?.text,
+            Ok(content) => {
+                self.digests.insert(pending.path.clone(), ContentDigest::of(&content));
+                FileText::decode(content, &name)?.text
+            }
             Err(error) if error.is_file_not_found() => match pending.missing() {
                 Some(missing) => {
                     self.missing_includes.push(missing);
@@ -781,6 +786,7 @@ impl LedgerFiles {
         LoadResult {
             directives: self.directives,
             visited_files: self.visited,
+            digests: self.digests,
             missing_includes: self.missing_includes,
         }
     }
@@ -1130,9 +1136,31 @@ pub struct SourceEntry {
     pub is_dir: bool,
 }
 
+/// The SHA-256 of the bytes of a file as a load read them ([`LoadResult::digests`]), to tell whether the file still
+/// holds them: a server that finds its files as loaded does not load them again
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ContentDigest([u8; 32]);
+
+impl ContentDigest {
+    /// the digest of `content`
+    pub fn of(content: &[u8]) -> ContentDigest {
+        use sha2::Digest;
+
+        let mut digest = [0; 32];
+        digest.copy_from_slice(&sha2::Sha256::digest(content));
+        ContentDigest(digest)
+    }
+}
+
+/// What a load read. A source that builds one itself names the fields it fills and leaves the others to
+/// `..Default::default()`, so a field added later does not break it
+#[derive(Default)]
 pub struct LoadResult {
     pub directives: Vec<Spanned<Directive>>,
     pub visited_files: Vec<PathBuf>,
+    /// the digest of the content the load read of each of `visited_files`, by its path there; a file without one
+    /// counts as changed since ([`crate::ledger::Ledger::files_unchanged`]), so a source may leave this empty
+    pub digests: HashMap<PathBuf, ContentDigest>,
     /// the `include`s that name no file, which the load went on without; the ledger reports them
     pub missing_includes: Vec<MissingInclude>,
 }

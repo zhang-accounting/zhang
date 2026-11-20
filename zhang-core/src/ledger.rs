@@ -16,7 +16,7 @@ use zhang_ast::{Account, Date, Directive, Flag, Options, Plugin, SpanInfo, Spann
 use crate::booking::Booker;
 use crate::clock::{Clock, LoadClock};
 use crate::constants::{COMMODITY_GROUP, TXN_ID};
-use crate::data_source::{DataSource, MissingInclude};
+use crate::data_source::{ContentDigest, DataSource, MissingInclude};
 use crate::data_type::Dialect;
 use crate::derived::Derived;
 use crate::domains::schemas::{identify_errors, AccountStatus, CommodityDomain, ErrorDomain, QueryDomain, TransactionInfoDomain};
@@ -97,6 +97,10 @@ pub struct Ledger {
 
     /// the ledger's own files; the file editor lists them
     pub visited_files: Vec<PathBuf>,
+
+    /// the digest of what the load read of each of [`Ledger::visited_files`] ([`LoadResult::digests`](crate::data_source::LoadResult::digests)), to tell whether
+    /// the files still hold it ([`Ledger::files_unchanged`])
+    pub file_digests: HashMap<PathBuf, ContentDigest>,
 
     /// what the load read besides [`Ledger::visited_files`] (plugin modules, files plugins read, the date), each once
     /// in the order first recorded. A change to any of them makes the ledger stale
@@ -261,7 +265,7 @@ impl Ledger {
     ) -> ZhangResult<Ledger> {
         let dialect = Dialect::of(&endpoint)?;
         let load_result = data_source.load(entry.to_string_lossy().to_string(), endpoint.clone())?;
-        Ledger::process_loaded(
+        let mut ledger = Ledger::process_loaded(
             LedgerProcessContext {
                 directives: load_result.directives,
                 entry: (entry, endpoint),
@@ -272,7 +276,9 @@ impl Ledger {
             },
             load_result.missing_includes,
             plugin_policy,
-        )
+        )?;
+        ledger.file_digests = load_result.digests;
+        Ok(ledger)
     }
 
     /// The current time by the ledger's [`Clock`]: the system's, or the instant a [`Clock::Fixed`] pins. Unlike
@@ -335,6 +341,7 @@ impl Ledger {
             entry: context.entry,
             dialect: context.dialect,
             visited_files: context.visited_files,
+            file_digests: HashMap::new(),
             extra_inputs: IndexSet::new(),
             missing_files: vec![],
             directives: vec![],
@@ -422,6 +429,30 @@ impl Ledger {
             info!("Ledger loaded");
         }
         Ok(self)
+    }
+
+    /// Whether every one of the ledger's own files ([`Ledger::visited_files`]) still holds what the load read, as its
+    /// data source reads it now: the check, to run where the caller likes, as it reads the files. A file whose content
+    /// the load has no digest of, that cannot be read, or that is gone counts as changed, and so does a ledger whose
+    /// load recorded no digest at all. What the load read besides ([`Ledger::extra_inputs`]) is not checked
+    pub fn files_unchanged(&self) -> impl FnOnce() -> bool + Send + 'static {
+        let root = self.entry.0.clone();
+        let files: Vec<(PathBuf, Option<ContentDigest>)> = self
+            .visited_files
+            .iter()
+            .map(|file| (file.clone(), self.file_digests.get(file).copied()))
+            .collect();
+        let data_source = self.data_source.clone();
+        move || {
+            !files.is_empty()
+                && files.iter().all(|(file, digest)| {
+                    let Some(within) = crate::data_source::path_in_ledger(&root, file) else {
+                        return false;
+                    };
+                    let read = data_source.get(crate::data_source::slashed(&within));
+                    matches!((read, digest), (Ok(content), Some(digest)) if ContentDigest::of(&content) == *digest)
+                })
+        }
     }
 
     /// load the ledger again from its source, with the same clock and plugin policy
@@ -2845,6 +2876,65 @@ mod test {
             let names = ledger.queries().into_iter().map(|it| it.name).collect_vec();
             assert_eq!(names, vec!["main", "included"]);
             assert_eq!(ledger.visited_files.len(), 2);
+        }
+    }
+
+    /// [`Ledger::files_unchanged`]: whether the ledger's own files hold what the load read of them
+    mod files_unchanged {
+        use std::sync::Arc;
+
+        use tempfile::tempdir;
+
+        use crate::data_source::{DataSource, LoadResult, LocalFileSystemDataSource};
+        use crate::data_type::text::ZhangDataType;
+        use crate::data_type::DataType;
+        use crate::ledger::Ledger;
+        use crate::ZhangResult;
+
+        #[test]
+        fn the_files_are_unchanged_until_one_holds_other_bytes() {
+            let dir = tempdir().unwrap();
+            let root = dir.path().canonicalize().unwrap();
+            std::fs::write(root.join("main.zhang"), "include \"data.zhang\"\n1970-01-01 open Assets:Cash\n").unwrap();
+            std::fs::write(root.join("data.zhang"), "1970-01-01 open Expenses:Food\n").unwrap();
+            let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+            let ledger = Ledger::load(root.clone(), "main.zhang".to_owned(), source).unwrap();
+            assert_eq!(ledger.file_digests.len(), 2, "a digest of each file read");
+            assert!(ledger.files_unchanged()(), "as loaded");
+
+            std::fs::write(root.join("data.zhang"), "1970-01-01 open Expenses:Food\n").unwrap();
+            assert!(ledger.files_unchanged()(), "the same bytes written again");
+
+            std::fs::write(root.join("data.zhang"), "1970-01-01 open Expenses:Food\n; a comment\n").unwrap();
+            assert!(!ledger.files_unchanged()(), "a file holds other bytes");
+
+            std::fs::write(root.join("data.zhang"), "1970-01-01 open Expenses:Food\n").unwrap();
+            assert!(ledger.files_unchanged()(), "as loaded again");
+            std::fs::remove_file(root.join("data.zhang")).unwrap();
+            assert!(!ledger.files_unchanged()(), "a file is gone");
+        }
+
+        /// a source that records no digest of what it read
+        struct Undigested;
+
+        impl DataSource for Undigested {
+            fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+                Ok(LoadResult {
+                    directives: ZhangDataType {}.transform("1970-01-01 open Assets:Cash\n".to_owned(), Some(endpoint.clone()))?,
+                    visited_files: vec![std::path::PathBuf::from(entry).join(endpoint)],
+                    ..Default::default()
+                })
+            }
+
+            fn get(&self, _path: String) -> ZhangResult<Vec<u8>> {
+                Ok(b"1970-01-01 open Assets:Cash\n".to_vec())
+            }
+        }
+
+        #[test]
+        fn a_file_without_a_digest_counts_as_changed() {
+            let ledger = Ledger::load("/undigested".into(), "main.zhang".to_owned(), Arc::new(Undigested)).unwrap();
+            assert!(!ledger.files_unchanged()());
         }
     }
 
