@@ -412,6 +412,7 @@ impl<'a> Record<'a> {
     /// The cell of an extension's row `read` reads; NULL on any other row.
     fn cell(&self, read: CellRead) -> Value {
         match self {
+            // TODO(P1.4): a missing cell reads NULL silently; the publish checks of a snapshot rule it out
             Record::Extension(row) => row.cells.get(read.index as usize).cloned().unwrap_or(Value::Null),
             Record::Series(row) => row.cell(read),
             _ => Value::Null,

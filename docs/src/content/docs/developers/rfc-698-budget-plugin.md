@@ -474,7 +474,8 @@ In v1 a plugin adds no column to any other core table and no scalar function (§
 - **Fill policies.** There are exactly three:
   - `carry`: copy the previous row's value;
   - `zero`: zero in the previous value's commodity;
-  - `{"previous": "<column>"}`: the previous row's value of another column of the same type.
+  - `{"previous": "<column>"}`: the previous row's value of another column of the same type, which is filled with
+    `carry` (P1.3), so that every generated period copies the last fact's value of it.
 
   Period columns are generated. Fills only copy, so the host does no arithmetic.
 - **Label predicates.** `:label` is bound to each label's name. The predicate compiles once per catalog with the

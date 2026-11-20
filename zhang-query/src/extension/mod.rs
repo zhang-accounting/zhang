@@ -124,7 +124,13 @@ pub(crate) enum Fill {
     Carry,
     /// zero, in the commodity of the previous row's value for an amount
     Zero,
-    /// the previous row's value of another column of the same type, which is filled with `carry`
+    /// the previous row's value of another column of the same type, which is filled with `carry`.
+    ///
+    /// Only a `carry` column, so that every generated period reads the last fact's value of it: the previous row of
+    /// the first generated period is the fact itself, and that of each later one a generated period, whose value of a
+    /// `carry` column is the fact's again. Of a column filled with `zero` or `previous`, the previous row's value
+    /// would depend on how far the period is from the fact, which a copy of the last fact cannot give. Budgets need
+    /// `assigned` to be the previous `available`, a `carry` column.
     Previous(String),
 }
 
@@ -183,6 +189,8 @@ impl fmt::Display for CatalogDigest {
 }
 
 /// How the rows of an extension table are found: in the snapshot of its provider, under the table's name.
+// TODO(P1.4): decide at catalog build which source serves the table (a native provider's snapshot in the query cache,
+// or an analyzer's in `Ledger::extensions`) and keep it here, rather than looking in both when a query runs
 pub(crate) struct ExtensionRows {
     pub provider: Arc<str>,
     pub kind: ExtensionKind,
@@ -214,6 +222,8 @@ pub(crate) fn build(manifests: &[Manifest]) -> Result<Extensions, String> {
         let error = |message: String| format!("{}: {}", manifest.provider, message);
         for decl in &manifest.tables {
             check_name(&decl.name).map_err(|it| error(format!("table '{}': {}", decl.name, it)))?;
+            // TODO(P1.4): a ledger analyzer whose name collides is skipped and reported on its directive (§3.4), the
+            // other providers keep their tables; failing the whole catalog only suits the native providers
             if !names.insert(decl.name.clone()) {
                 return Err(error(format!("table '{}' is already a table", decl.name)));
             }
@@ -226,6 +236,7 @@ pub(crate) fn build(manifests: &[Manifest]) -> Result<Extensions, String> {
                 return Err(error(format!("{}: label columns are columns of postings", what)));
             }
             check_name(&decl.name).map_err(|it| error(format!("{}: {}", what, it)))?;
+            // TODO(P1.4): as for a table, a colliding analyzer is skipped and reported instead
             if !label_names.insert(decl.name.to_lowercase()) {
                 return Err(error(format!("{}: postings already has a column '{}'", what, decl.name)));
             }

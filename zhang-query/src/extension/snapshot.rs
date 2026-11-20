@@ -18,6 +18,9 @@ use crate::table::LedgerCache;
 use crate::value::Value;
 
 /// One provider's snapshot of a ledger.
+// TODO(P1.4): a published snapshot carries the digest of the manifest it was built for, checked when it is published
+// (with the publish checks of §3.3: cell types, the number of cells, partitions, periods, labels); today a native
+// provider's snapshot is trusted, and a row with too few cells reads NULL for the missing ones
 pub(crate) struct Snapshot {
     provider: Arc<str>,
     /// what builds the parts

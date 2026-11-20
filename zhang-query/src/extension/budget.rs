@@ -642,7 +642,8 @@ fn months(ledger: &Ledger) -> Vec<Partition> {
         .map(|budget| {
             let accounts = Value::Set(accounts.remove(budget.name).unwrap_or_default());
             let meta_value = |key: &str| budget.meta.get_one(key).map_or(Value::Null, |value| Value::Str(value.as_str().to_owned()));
-            // the cells every month of the budget has
+            // the cells every month of the budget has, cloned into each fact
+            // TODO(P1.6): share them per partition (they are the same in every fact) once cells can be shared
             let (name, alias, category, currency) = (
                 Value::Str(budget.name.to_owned()),
                 meta_value("alias"),

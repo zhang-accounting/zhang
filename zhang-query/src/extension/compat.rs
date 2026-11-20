@@ -18,7 +18,7 @@ pub(crate) const BUDGET: &str = "zhang:budget";
 /// The message of a series too long for the result: `total` periods in all, `longest` the partition with the most.
 pub(crate) fn too_long(ledger: &Ledger, table: &TableRef, provider: &str, spec: &SeriesSpec, total: u64, longest: &Extent<'_>) -> String {
     if provider == BUDGET && table.name() == "budgets" {
-        return budget_months(ledger, total, longest);
+        return budget_months(ledger, spec, total, longest);
     }
     let month = |date: NaiveDate| date.format("%Y-%m").to_string();
     // the partition by its key, as its first fact has it
@@ -63,14 +63,16 @@ pub(crate) fn too_long(ledger: &Ledger, table: &TableRef, provider: &str, spec: 
     )
 }
 
-/// The `#budgets` wording: the budget with the longest series, and the directive whose date sets its end.
-fn budget_months(ledger: &Ledger, total: u64, longest: &Extent<'_>) -> String {
+/// The `#budgets` wording: the budget with the longest series (by its partition column, `name`), and the directive
+/// whose date sets its end.
+fn budget_months(ledger: &Ledger, spec: &SeriesSpec, total: u64, longest: &Extent<'_>) -> String {
     let month = |date: NaiveDate| date.format("%Y-%m").to_string();
     let name = longest
         .partition
         .facts
         .first()
-        .and_then(|fact| fact.cells.first())
+        .zip(spec.partition.first())
+        .and_then(|(fact, column)| fact.cells.get(*column))
         .and_then(|cell| cell.as_str())
         .unwrap_or_default();
     let cause = match longest.end_by {
