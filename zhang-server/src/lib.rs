@@ -42,6 +42,7 @@ use crate::routes::plugin_router::{PluginRoutes, PluginSettings};
 use crate::state::{AppState, LedgerWriter, ReloadFailure, SharedPluginWrites};
 
 pub mod account_queries;
+pub mod analysis;
 pub mod auth;
 mod balance_writes;
 pub mod broadcast;
@@ -494,7 +495,8 @@ pub async fn load_served_ledger(opts: &mut ServeConfig) -> ZhangResult<Ledger> {
     }
     let (path, endpoint, data_source) = (opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone());
     let plugin_policy = Arc::new(opts.plugins.policy.clone());
-    tokio::task::spawn_blocking(move || Ledger::load_with_policy(path, endpoint, data_source, Clock::System, plugin_policy))
+    let options = analysis::load_options(plugin_policy);
+    tokio::task::spawn_blocking(move || Ledger::load_with_options(path, endpoint, data_source, Clock::System, options))
         .await
         .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()))
 }
@@ -760,9 +762,18 @@ fn ledger_fingerprint(ledger: &Ledger) -> u64 {
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let mut transformed = false;
+    let mut analysed = false;
     for (plugin, types) in &ledger.plugins.ordered {
         plugin.hash_code(&mut hasher);
         transformed |= types.iter().any(|it| matches!(it, PluginType::Processor | PluginType::Mapper));
+        analysed |= types.contains(&PluginType::Analyzer);
+    }
+    // what an analyzer published is not hashed: it is a function of what is (the ledger, its options, the analyzer's
+    // code), but for the date when it read the time, which is hashed then
+    if analysed && ledger.extra_inputs.contains(&ExtraInput::Clock) {
+        if let Some(reading) = ledger.clock_reading() {
+            reading.date_naive().hash(&mut hasher);
+        }
     }
     for directive in ledger.directives.iter().chain(&ledger.metas) {
         let span = &directive.span;

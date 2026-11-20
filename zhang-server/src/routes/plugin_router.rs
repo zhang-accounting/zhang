@@ -50,7 +50,7 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedSemaphorePermit, Semaphore};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::log_safe;
-use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost, WriteBatch, WriteCommitted, WritePreview};
+use zhang_core::plugin::router::{Conversion, ConvertedAmount, QueryFailure, RawQueryParam, RouterError, RouterHost, WriteBatch, WriteCommitted, WritePreview};
 use zhang_core::plugin_policy::{PluginPolicy, Size};
 use zhang_query::params::bind_json;
 use zhang_query::{Catalog, ParamTypes, Params, Query, QueryError};
@@ -412,6 +412,11 @@ impl RouterHost for ServerRouterHost {
         let bound = builtin::json_params(query, values).map_err(|e| unlocated(e.to_string()))?;
         let compiled = builtin::compiled_for(&self.ledger);
         self.run(compiled.get(name).map_err(|e| unlocated(e.to_string()))?, &bound)
+    }
+
+    /// with the prices of the ledger served, as an analysis converts ([`crate::analysis::convert`])
+    fn convert(&self, conversions: &[Conversion]) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
+        crate::analysis::convert(&self.ledger, conversions)
     }
 
     /// as `POST /api/transactions/preview` previews, see [`plugin_writes::preview`]
