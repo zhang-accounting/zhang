@@ -8,6 +8,7 @@
 -- - `/f`: a batch holding a float amount, which the lint refuses before the host sees it
 -- - `/i`: a batch holding an integer where a string belongs, which the host refuses
 -- - `/e`: an empty batch
+-- - `/t`: zhang.write.commit as `/commit` does, then a loop that runs past the plugin's timeout
 -- - anything else: a commit with a token that is not a string
 --
 -- It declares the `writes` config of its directive (a JSON list), so one fixture covers every declaration.
@@ -27,6 +28,11 @@ local cases = {
   end,
   i = function() return zhang.write.preview({ { kind = "open", date = "2026-10-13", account = "Assets:Bank", metas = { { key = "n", value = 3 } } } }) end,
   e = function() return zhang.write.preview({}) end,
+  t = function(request)
+    local input = json.decode(request.body)
+    zhang.write.commit(input.directives, input.token)
+    while true do end
+  end,
 }
 
 function M.router(request)

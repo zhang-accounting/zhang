@@ -14,6 +14,12 @@
 //! The routes are bounded by [`PluginRouteLimits`]: the body of a request, and how many requests a
 //! plugin handles at once. When the plugin cannot answer, the response is a JSON `{"message": "..."}`
 //! with:
+//!
+//! A plugin that fails after its commit landed (it ran past its timeout, say, while it built its answer) is
+//! answered with the status of its failure all the same, since its own answer is lost, but the entries are recorded:
+//! the response says so with the [`COMMITTED_HEADER`] header and a `committed` object next to the message, so a
+//! client tells the user what was recorded and does not send it again.
+//!
 //! - 404 when no router plugin has that name
 //! - 413 when the request body is larger than [`PluginRouteLimits::max_body`]
 //! - 501 when the plugin does not export `router`
@@ -56,6 +62,10 @@ use crate::response::{QueryResultEntity, QuerySchemaEntity};
 use crate::routes::query::{execute_options, max_result_values};
 use crate::state::{SharedLedger, SharedPluginWrites, SharedReloadSender};
 use crate::ReloadSender;
+
+/// The header of a failed plugin response whose plugin committed a write before it failed: the generation the commit
+/// moved the ledger to. The body has the commit as `committed` (`file`, `files`, `bytes`, `entries`, `generation`)
+pub const COMMITTED_HEADER: &str = "zhang-plugin-committed";
 
 /// every router plugin's route and the paths below it: `/api/plugins/{name}`, `/api/plugins/{name}/`
 /// and `/api/plugins/{name}/{*path}`. The handler splits the path itself, see [`split_route`]
@@ -434,7 +444,7 @@ async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest)
     // for (the commit did both under the read lock, so a write queued behind this call reloads first): one line
     // of log per commit
     let commit = committed.lock().unwrap_or_else(PoisonError::into_inner).take();
-    if let Some(commit) = commit {
+    if let Some(commit) = &commit {
         info!(
             "plugin {logged} committed {} directives ({} bytes) to {} generation {}",
             commit.committed.entries,
@@ -443,25 +453,63 @@ async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest)
             commit.committed.generation
         );
     }
-    match result {
-        Ok(Some(Ok(response))) => response.map(Body::from).into_response(),
-        Ok(None) => error_response(StatusCode::NOT_FOUND, format!("no router plugin is named {name}")),
+    let (status, message) = match result {
+        Ok(Some(Ok(response))) => return response.map(Body::from).into_response(),
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, format!("no router plugin is named {name}")),
         Ok(Some(Err(e))) => {
             error!("router plugin {logged} could not answer {}: {e}", log_safe(&summary));
-            let (status, message) = match e {
+            match e {
                 RouterError::NoRouterExport => (StatusCode::NOT_IMPLEMENTED, format!("plugin {name} does not export `router`")),
                 RouterError::BadResponse(reason) => (StatusCode::BAD_GATEWAY, format!("plugin {name} returned an invalid response: {reason}")),
                 RouterError::Timeout => (StatusCode::GATEWAY_TIMEOUT, format!("plugin {name} ran longer than its timeout")),
                 RouterError::Failed(_) => (StatusCode::INTERNAL_SERVER_ERROR, format!("plugin {name} failed while handling the request")),
                 RouterError::Load(_) => (StatusCode::INTERNAL_SERVER_ERROR, format!("plugin {name} cannot be loaded")),
-            };
-            error_response(status, message)
+            }
         }
         Err(e) => {
             error!("router plugin {logged} could not answer {}: the task failed: {e}", log_safe(&summary));
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("plugin {name} failed while handling the request"))
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("plugin {name} failed while handling the request"))
         }
+    };
+    match commit {
+        Some(commit) => failed_after_commit(&name, status, message, &commit),
+        None => error_response(status, message),
     }
+}
+
+/// The answer of a plugin that failed with `status` and `message` after `commit` landed: its failure, with what was
+/// recorded, so the client does not send the entries again. The commit is whole (one write per file, the files of
+/// a batch written one after the other, every one of them landed); a commit that failed partway was an `io` error
+/// the plugin was given, naming what landed, and is not reported here
+fn failed_after_commit(name: &str, status: StatusCode, message: String, commit: &Commit) -> Response {
+    let committed = &commit.committed;
+    error!(
+        "router plugin {} failed after it committed {} directives to {} generation {}: the client is told they are recorded",
+        log_safe(name),
+        committed.entries,
+        commit.files.join(", "),
+        committed.generation
+    );
+    let body = serde_json::json!({
+        "message": format!(
+            "{message}, after it committed {} directives to {} (generation {}): they are recorded, do not send them again",
+            committed.entries,
+            commit.files.join(", "),
+            committed.generation
+        ),
+        "committed": {
+            "file": committed.file,
+            "files": commit.files,
+            "bytes": committed.bytes,
+            "entries": committed.entries,
+            "generation": committed.generation,
+        },
+    });
+    let mut response = (status, axum::Json(body)).into_response();
+    response
+        .headers_mut()
+        .insert(COMMITTED_HEADER, axum::http::HeaderValue::from(committed.generation));
+    response
 }
 
 #[cfg(test)]

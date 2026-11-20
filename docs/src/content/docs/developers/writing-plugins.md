@@ -415,8 +415,11 @@ fn route(request: Request) -> Result<Response, Error> {
    them: the files are written one after the other. The call returns once the text is in the files; the ledger is
    reloaded, as after `POST /api/transactions`, and the server logs
    `plugin <name> committed <n> directives (<bytes> bytes) to <file> generation <g>`. **Commit as the very last step
-   of a request**: once it returned `Ok`, the entries are recorded, and anything that fails after it makes your
-   caller retry a write that already happened. If a file cannot be written, the `io` error names the entries and
+   of a request**: once it returned `Ok`, the entries are recorded. If the plugin fails after it (a trap, an error,
+   its timeout), its answer is lost: the route answers the failure's status with the header `zhang-plugin-committed`
+   and a `committed` object naming what was recorded ([Router Plugins](/guides/router-plugins/#isolation-and-errors)),
+   so a client that reads them does not send the entries again; one that does not would retry a write that already
+   happened. If a file cannot be written, the `io` error names the entries and
    files that were written and those that were not, the batch is void (every token with it) and the ledger reloads:
    tell the user what was recorded, and preview only the rest again.
 3. **The token is optimistic concurrency control, not consent.** It is the host's HMAC of the ledger's generation (a

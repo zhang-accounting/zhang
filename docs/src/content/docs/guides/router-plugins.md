@@ -158,6 +158,8 @@ When the plugin cannot answer, Zhang responds with JSON `{"message": "..."}` and
 | 504 | The plugin ran longer than its timeout. |
 | 500 | The plugin trapped, returned an error, ran out of memory or could not be loaded. |
 
+**A failure after a write.** A plugin that [writes](/developers/writing-plugins/#writes) may fail after its commit landed, for example by running past its timeout while it builds its answer. Its own answer is lost, so the status is still the failure's, but the entries are recorded: the response has the header `zhang-plugin-committed` (the ledger generation the commit moved to) and, next to `message`, a `committed` object with the `file` of the first entry, every file written (`files`), `bytes`, `entries` and `generation`. A client seeing it tells the user the entries are recorded and does not send them again.
+
 :::danger[Only install plugins you trust]
 The sandbox keeps a plugin's pages away from your session, but a router plugin still reads your whole ledger and decides what its pages show. A page can also send what it shows to another site, for example as the address of an image: your browser makes that request, not the plugin, so `allowed_hosts` does not limit it.
 :::

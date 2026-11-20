@@ -455,6 +455,46 @@ async fn a_lua_router_previews_and_commits_over_http() {
     assert!(again["error"].as_str().unwrap().starts_with("conflict: "), "{again}");
 }
 
+/// A plugin that fails after its commit landed, here by running past its timeout, cannot give its own answer: the
+/// response is its failure (504), with what was committed, in the `zhang-plugin-committed` header (the generation)
+/// and a `committed` object, so a client tells the user the entries are recorded instead of sending them again
+/// (#803 review). The entries are in the file once, and the token is spent.
+#[tokio::test]
+async fn a_plugin_that_fails_after_its_commit_answers_what_was_committed() {
+    let scratch = lua_ledger_with("main.zhang", r#"["transaction","open"]"#, &["transaction", "open"]);
+    let main = scratch.dir().join("main.zhang");
+    std::fs::write(&main, read(scratch.dir(), "main.zhang").replace("timeout: \"20s\"", "timeout: \"1s\"")).unwrap();
+    let (router, _, reload_sender) = server(&scratch, true).await;
+    let batch = json!([coffee("2026-10-13", "Expenses:Food")]);
+    let previewed = preview(&router, batch.clone()).await;
+    assert!(previewed["token"].is_string(), "{previewed}");
+    let body = json!({"directives": batch, "token": previewed["token"]});
+
+    let reply = send(&router, json_request(Method::POST, "/api/plugins/router-write/t", &[], Some(&body))).await;
+
+    assert_eq!(reply.status, 504, "{}", reply.text());
+    let generation = reply.headers.get("zhang-plugin-committed").map(|value| value.to_str().unwrap().to_owned());
+    assert_eq!(generation.as_deref(), Some("2"));
+    let answer = reply.json();
+    assert_eq!(
+        answer["committed"],
+        json!({"file": "data/2026/10.zhang", "files": ["main.zhang", "data/2026/10.zhang"], "bytes": answer["committed"]["bytes"], "entries": 1, "generation": 2})
+    );
+    let message = answer["message"].as_str().unwrap();
+    assert!(
+        message
+            .starts_with("plugin router-write ran longer than its timeout, after it committed 1 directives to main.zhang, data/2026/10.zhang (generation 2)"),
+        "{message}"
+    );
+    assert!(message.ends_with("they are recorded, do not send them again"), "{message}");
+    assert_eq!(read(scratch.dir(), "data/2026/10.zhang").matches("Blue Bottle").count(), 1);
+    reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(journal_payees(&router).await, vec!["Blue Bottle"]);
+    // the commit spent the token: sent again, it is a conflict, not a second entry
+    let reply = send(&router, json_request(Method::POST, "/api/plugins/router-write/commit", &[], Some(&body))).await;
+    assert!(reply.json()["error"].as_str().unwrap().starts_with("conflict: "), "{}", reply.text());
+}
+
 /// A write that fails after some of its files landed (#803 review, P2): the files written whole are named with their
 /// entries, the rest is untouched, the ledger reloads and every token is void, so a client retries only what is not
 /// written and nothing is recorded twice. The include of the file that failed dangles until the retry writes it.
