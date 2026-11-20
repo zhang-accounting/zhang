@@ -437,9 +437,11 @@ fn route(request: Request) -> Result<Response, Error> {
 Amounts are strings (`"4.50"`): the host refuses a JSON number anywhere in a batch as `invalid`, naming the field, so
 a float can never change a balance. The host adds no text or metadata of its own; a plugin that wants to mark what it
 wrote adds a tag or metadata to the batch, where the user sees it in the preview. The two-file write (a new monthly
-file and its `include`) has the same guarantee as the web UI: a failure between the two leaves an `include` of a file
-that is not there yet, which the next load reports as `IncludeNotFound` where the user sees it, never a file no
-`include` names whose entries a retry would silently add twice.
+file and its `include`) has the same guarantees as the web UI. Every file is read before any is written, so a path
+that cannot take the entries (a directory where the file goes, a file that is not text) fails the commit with nothing
+written. When the file's write fails after its `include` landed, the `include` is taken out of the main file again,
+and the error says so: the ledger loads as before, and never holds a file no `include` names, whose entries a retry
+would silently add twice. Only when taking the `include` out fails too does it stay, and the error names it.
 
 ## ABI v1 reference
 
