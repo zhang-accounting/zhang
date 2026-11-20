@@ -257,16 +257,11 @@ pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<V
     };
     let main = within(&ledger.entry.0.join(&ledger.entry.1))?;
     // the files the ledger loaded, those an `include` names that are not there yet (a write that stopped after its
-    // include, reported as `IncludeNotFound`: the file this append creates is included already), and those this
+    // include, reported as `IncludeNotFound`: the file this append creates is included already), by the path the load
+    // resolved, never the path as the `include` writes it, which is relative to the file holding it; and those this
     // append includes
     let mut included: Vec<PathBuf> = ledger.visited_files.iter().filter_map(|it| ledger.path_in_ledger(it)).collect();
-    included.extend(
-        ledger
-            .errors
-            .iter()
-            .filter(|error| error.error_type == zhang_ast::error::ErrorKind::IncludeNotFound)
-            .filter_map(|error| error.metas.get("path").map(PathBuf::from)),
-    );
+    included.extend(ledger.missing_files.iter().cloned());
     let mut plan = vec![];
     for directive in directives {
         let file = within(&directive_output_file(ledger, &directive)?)?;
@@ -1686,6 +1681,41 @@ mod test {
             "the other name has the new content too"
         );
         assert_eq!(temporary_files(&root.join("ledger")), Vec::<String>::new(), "no temporary file is left behind");
+    }
+
+    /// A missing `include` counts as the include of the file it looks for as the load resolved it, against the file
+    /// holding the `include`: one in `sub/x.zhang` naming `data/2024/01.zhang` looks for `sub/data/2024/01.zhang`, so
+    /// an append to `data/2024/01.zhang` still includes it from the main file, and the entry is in the ledger reloaded
+    #[test]
+    fn a_missing_include_counts_by_the_path_it_resolves_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("main.zhang"), format!("{OPENS}include \"sub/x.zhang\"\n")).unwrap();
+        std::fs::write(root.join("sub/x.zhang"), "include \"data/2024/01.zhang\"\n").unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+        assert_eq!(
+            include_errors(&ledger),
+            vec![("data/2024/01.zhang".to_owned(), "include \"data/2024/01.zhang\"".to_owned())]
+        );
+        assert_eq!(ledger.missing_files, vec![PathBuf::from("sub/data/2024/01.zhang")]);
+
+        let written = ledger.data_source.append_files(&ledger, coffee()).unwrap();
+
+        assert_eq!(written, vec!["main.zhang".to_owned(), "data/2024/01.zhang".to_owned()]);
+        assert_eq!(
+            std::fs::read_to_string(root.join("main.zhang"))
+                .unwrap()
+                .matches("include \"data/2024/01.zhang\"")
+                .count(),
+            1,
+            "the main file includes the file appended to"
+        );
+        assert!(!root.join("sub/data/2024/01.zhang").exists());
+        let reloaded = Ledger::load_with_data_source(root, "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
+        assert_eq!(reloaded.transactions().len(), 1, "the entry appended is in the ledger");
+        assert_eq!(include_errors(&reloaded).len(), 1, "the include in sub/x.zhang still looks for its own file");
     }
 
     /// A file starting with a UTF-8 byte order mark, as some Windows editors save it, loads (#505): the mark is
