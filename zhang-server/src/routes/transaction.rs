@@ -20,11 +20,11 @@ use zhang_core::outcome::Detail;
 use zhang_core::utils::string_::{QuoteStyle, StringExt};
 use zhang_core::ZhangError;
 
-use super::{IfMatch, Query, RequiredIfMatch};
+use super::{IdempotencyKey, IfMatch, Query, RequiredIfMatch};
 use crate::error::ServerError;
 use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest, UnitRequest};
 use crate::response::{
-    JournalItemEntity, Nullable, Pageable, ResponseWrapper, TransactionField, TransactionFieldErrorEntity, TransactionPreviewEntity,
+    JournalItemEntity, Nullable, Pageable, Replayable, ResponseWrapper, TransactionField, TransactionFieldErrorEntity, TransactionPreviewEntity,
     TransactionPreviewErrorEntity, WrittenTransactionEntity,
 };
 use crate::routes::query::with_ledger;
@@ -282,16 +282,44 @@ fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) ->
     journals::written_transaction(ledger, &span.span)
 }
 
+/// The metadata key a create with an `Idempotency-Key` writes the key under, in a zhang ledger and in a beancount one
+/// alike: the transaction holds it, so a create sent again finds it, after a reload or a restart of the server too.
+pub const IDEMPOTENCY_KEY_META: &str = "idempotency-key";
+
 /// Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
 /// of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
 /// gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
+///
+/// With an `Idempotency-Key` header, the key identifies the client's action, not the transaction it sends: the
+/// transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the same key,
+/// whatever its body, writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`. The
+/// ledger is looked up while the create holds it to write, as every write does, and as reloaded after the write
+/// before it: two creates with one key, sent at once, write once. A request with the header and its own
+/// `idempotency-key` in `metas` is refused; without the header, that is metadata like any other.
 #[api(group = "transaction")]
 pub async fn create_new_transaction(
-    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
-) -> ApiResult<WrittenTransactionEntity> {
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, idempotency_key: IdempotencyKey, Json(payload): Json<CreateTransactionRequest>,
+) -> ServerResult<Replayable<WrittenTransactionEntity>> {
+    if idempotency_key.0.is_some() && payload.metas.iter().any(|it| it.key == IDEMPOTENCY_KEY_META) {
+        return Err(ServerError::InvalidInput(format!(
+            "the metadata {IDEMPOTENCY_KEY_META:?} is the one the server writes the Idempotency-Key header under: leave it out of \
+             `metas`, or send the request without the header"
+        )));
+    }
     let mut ledger = ledger.for_writing(&reload_sender).await?;
+    if let Some(key) = &idempotency_key.0 {
+        if let Some(id) = transaction_with_idempotency_key(&ledger, key) {
+            return Ok(Replayable {
+                data: written_transaction(&ledger, id),
+                replayed: true,
+            });
+        }
+    }
 
-    let trx = requested_transaction(payload, &ledger, None)?;
+    let mut trx = requested_transaction(payload, &ledger, None)?;
+    if let (Some(key), Directive::Transaction(transaction)) = (idempotency_key.0, &mut trx) {
+        transaction.meta.insert(IDEMPOTENCY_KEY_META.to_owned(), ZhangString::QuoteString(key));
+    }
     // the file the transaction goes to, and its text there, the last of what the append writes
     let (file, written) = append_plan(&ledger, vec![trx.clone()])?.pop().expect("an append writes its directive");
     let text = ledger.data_source.export(written)?;
@@ -303,7 +331,22 @@ pub async fn create_new_transaction(
         .flatten();
     let written = written_transaction(&ledger, id);
     answered(&reload_sender, &written);
-    ResponseWrapper::json(written)
+    Ok(Replayable {
+        data: written,
+        replayed: false,
+    })
+}
+
+/// The transaction of a file of `ledger` whose `idempotency-key` metadata is `key`, the first in the files: `Some` with
+/// its id, `Some(None)` when the load rejected it (in the file, but in no journal, as its create answered), `None` when
+/// there is none. A transaction a plugin made, in no file, does not count.
+fn transaction_with_idempotency_key(ledger: &Ledger, key: &str) -> Option<Option<Uuid>> {
+    ledger.directives.iter().find_map(|directive| {
+        let Directive::Transaction(transaction) = &directive.data else { return None };
+        let has_key = transaction.meta.get_all(IDEMPOTENCY_KEY_META).iter().any(|it| it.as_str() == key);
+        let file = has_key.then(|| loaded_file(ledger, &directive.span)).flatten()?;
+        Some(transaction_at(ledger, &file, directive.span.start))
+    })
 }
 
 /// What a create or an update answers for the transaction `id` it wrote, `None` when it is in no journal: its id and
@@ -792,7 +835,7 @@ mod string_round_trip_test {
         upload_transaction_document, write_transaction_documents,
     };
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
-    use crate::routes::{IfMatch, RequiredIfMatch};
+    use crate::routes::{IdempotencyKey, IfMatch, RequiredIfMatch};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::ReloadSender;
 
@@ -1002,7 +1045,9 @@ mod string_round_trip_test {
         // create
         let (ledger, reload) = states(load(&dir).await);
         let note = "a\u{a0}b\u{2028}c 😀 你好";
-        let response = create_new_transaction(ledger, reload, Json(request("coffee $5", note))).await.into_response();
+        let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(request("coffee $5", note)))
+            .await
+            .into_response();
         let status = response.status();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
@@ -1040,7 +1085,9 @@ mod string_round_trip_test {
             narration: None,
             ..request("unused", "note")
         };
-        let response = create_new_transaction(ledger, reload, Json(request)).await.into_response();
+        let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(request))
+            .await
+            .into_response();
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_written_text_round_trips(&data_file);
@@ -1068,7 +1115,9 @@ mod string_round_trip_test {
             key: "receipt no".to_owned(),
             value: "2".to_owned(),
         });
-        let response = create_new_transaction(ledger, reload, Json(request)).await.into_response();
+        let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(request))
+            .await
+            .into_response();
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_written_text_round_trips(&data_file);
@@ -1106,7 +1155,9 @@ mod string_round_trip_test {
             let mut request = request("coffee", "note");
             change(&mut request);
             let (ledger, reload) = states(load(&dir).await);
-            let response = create_new_transaction(ledger, reload, Json(request)).await.into_response();
+            let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(request))
+                .await
+                .into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{rejected}");
             let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
             let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -1117,7 +1168,9 @@ mod string_round_trip_test {
 
         // updates are checked the same way
         let (ledger, reload) = states(load(&dir).await);
-        let response = create_new_transaction(ledger, reload, Json(request("coffee", "note"))).await.into_response();
+        let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(request("coffee", "note")))
+            .await
+            .into_response();
         assert_eq!(response.status(), StatusCode::OK);
         let written = std::fs::read_to_string(&data_file).unwrap();
         let reloaded = load(&dir).await;
@@ -1209,7 +1262,7 @@ mod string_round_trip_test {
             let mut create = request("coffee", "note");
             change(&mut create);
             let (ledger, reload) = states(load().await);
-            let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+            let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(create)).await.into_response();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{name:?}");
             let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
             let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -1296,7 +1349,7 @@ mod string_round_trip_test {
             let mut create = request("coffee", "note");
             change(&mut create);
             let (ledger, reload) = states(load().await);
-            let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+            let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(create)).await.into_response();
             assert_eq!(response.status(), status, "{case}");
         }
         let written = std::fs::read_to_string(dir.join("data/2024/01.bean")).unwrap();
@@ -1317,7 +1370,7 @@ mod string_round_trip_test {
             let mut create = request("coffee", "note");
             change(&mut create);
             let (ledger, reload) = states(load(&dir).await);
-            let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+            let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(create)).await.into_response();
             assert_eq!(response.status(), StatusCode::OK, "{name:?}");
             let written = assert_written_text_round_trips(&data_file);
             assert!(written.contains(name), "{name:?}: {written}");
@@ -1384,7 +1437,7 @@ mod string_round_trip_test {
         let (ledger, reload) = states(load(&dir).await);
         let mut create = request("coffee", "note");
         create.postings[0].metas = Some(vec![meta("receipt", "r-1"), meta("my key", "say \"hi\"")]);
-        let response = create_new_transaction(ledger, reload, Json(create)).await.into_response();
+        let response = create_new_transaction(ledger, reload, IdempotencyKey(None), Json(create)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
 
         let written = assert_written_text_round_trips(&data_file);
@@ -2527,7 +2580,7 @@ mod string_round_trip_test {
                 assert_eq!(after, before, "{context}: nothing is written");
 
                 let (state, reload) = states(load_main(&dir, main).await);
-                let response = create_new_transaction(state, reload, Json(stock_update(11, "New", postings()))).await;
+                let response = create_new_transaction(state, reload, IdempotencyKey(None), Json(stock_update(11, "New", postings()))).await;
                 let (status, message) = status_and_message(response.into_response()).await;
                 assert_eq!(status, StatusCode::BAD_REQUEST, "{context}: {message}");
                 assert!(message.starts_with(&format!("invalid {what} ")), "{context}: {message}");
@@ -2565,7 +2618,7 @@ mod string_round_trip_test {
             };
             let (state, reload) = states(load_main(&dir, "main.zhang").await);
             let create = stock_update(11, "New", vec![stock, posting("Assets:Cash", None)]);
-            let (status, message) = status_and_message(create_new_transaction(state, reload, Json(create)).await.into_response()).await;
+            let (status, message) = status_and_message(create_new_transaction(state, reload, IdempotencyKey(None), Json(create)).await.into_response()).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{units} {cost:?} {price:?}: {message}");
             assert_eq!(message, format!("invalid {what} {value:?}: {why}"));
         }
@@ -2583,7 +2636,7 @@ mod string_round_trip_test {
             food.metas = Some(vec![meta("share", "1/0")]);
             let mut create = stock_update(11, "Lunch", vec![food, posting("Assets:Cash", None)]);
             create.metas = vec![meta("ratio", "1/0")];
-            let (status, message) = status_and_message(create_new_transaction(state, reload, Json(create)).await.into_response()).await;
+            let (status, message) = status_and_message(create_new_transaction(state, reload, IdempotencyKey(None), Json(create)).await.into_response()).await;
             assert_eq!(status, StatusCode::OK, "{main}: {message}");
 
             // a new transaction goes to the file of its month

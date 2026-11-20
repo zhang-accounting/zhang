@@ -19,7 +19,7 @@ use zhang_server::routes::account::get_account_journals;
 use zhang_server::routes::transaction::{
     create_new_transaction, delete_single_transaction, get_journals, preview_transaction_update, update_single_transaction,
 };
-use zhang_server::routes::{IfMatch, Query as UrlQuery, RequiredIfMatch};
+use zhang_server::routes::{IdempotencyKey, IfMatch, Query as UrlQuery, RequiredIfMatch};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_testkit::fixtures::data_source_for;
 use zhang_testkit::http::{call, get, reload, respond, router, send, shared, RootedFileSystem, Settings};
@@ -74,7 +74,7 @@ impl Served {
 
     async fn create(&self, request: Value) -> (StatusCode, Value) {
         let request = serde_json::from_value(request).expect("a create request");
-        respond(create_new_transaction(State(self.ledger.clone()), self.reload(), Json(request)).await).await
+        respond(create_new_transaction(State(self.ledger.clone()), self.reload(), IdempotencyKey(None), Json(request)).await).await
     }
 
     /// an update, without `If-Match`

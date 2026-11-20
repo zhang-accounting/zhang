@@ -760,6 +760,15 @@ mod test {
         units(text, &Rules::Zhang, "CNY")
     }
 
+    /// The metadata key a create writes its `Idempotency-Key` under is one both formats read back as it is written,
+    /// unquoted, a new one in a beancount ledger too.
+    #[test]
+    fn the_key_of_an_idempotency_key_reads_back_in_both_formats() {
+        let key = crate::routes::transaction::IDEMPOTENCY_KEY_META;
+        assert!(meta_key(key, &Rules::Zhang).is_ok());
+        with_empty_store(|strict| assert!(meta_key(key, strict).is_ok()));
+    }
+
     #[test]
     fn names_the_ledger_already_has_pass_with_zhang_rules() {
         // a metadata key of a directive of the ledger

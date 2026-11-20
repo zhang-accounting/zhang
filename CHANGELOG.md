@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A plugin's HTTP requests no longer follow redirects and never go to a loopback, private, link-local, CGNAT or other
   non-public address, whatever `allowed_hosts` allows.
 
+### Added
+
+- `POST /api/transactions` takes an `Idempotency-Key` header: the transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the key writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`, after a reload or a restart of the server too
+
 ### Security
 
 - Sandbox every router plugin response (`Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-downloads`, `X-Content-Type-Options: nosniff`) and send only an allowlist of its headers (`content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow`, and a `location` on Zhang's own origin), with a `cache-control` that is always `private`. A plugin's page could run scripts with the owner's session and set cookies on Zhang's origin.

@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use zhang_core::ledger::Ledger;
 use zhang_server::request::{CreateTransactionRequest, JournalRequest};
 use zhang_server::routes::transaction::{create_new_transaction, get_journals, update_single_transaction};
-use zhang_server::routes::{IfMatch, Query as UrlQuery};
+use zhang_server::routes::{IdempotencyKey, IfMatch, Query as UrlQuery};
 use zhang_testkit::http::{respond, states};
 
 #[derive(Clone, Copy, Debug)]
@@ -92,7 +92,7 @@ impl Scratch {
 
     async fn create(&self, request: CreateTransactionRequest) -> (StatusCode, Value) {
         let (ledger, reload) = states(self.load().await);
-        respond(create_new_transaction(ledger, reload, Json(request)).await).await
+        respond(create_new_transaction(ledger, reload, IdempotencyKey(None), Json(request)).await).await
     }
 
     async fn update(&self, id: &str, request: CreateTransactionRequest) -> (StatusCode, Value) {

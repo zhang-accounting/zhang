@@ -119,6 +119,68 @@ impl<S: Send + Sync> FromRequestParts<S> for RequiredIfMatch {
     }
 }
 
+/// The `Idempotency-Key` header of a create (`POST /api/transactions`): what identifies the client's action, so that the
+/// action sent again writes nothing a second time. 1 to 128 characters from `A`-`Z`, `a`-`z`, `0`-`9`, `.`, `_`, `~`
+/// and `-`, such as a UUID; another is refused with a 400. `None` without the header.
+#[derive(Debug, Clone, Default)]
+pub struct IdempotencyKey(pub Option<String>);
+
+/// the name of the header of an [`IdempotencyKey`]
+pub const IDEMPOTENCY_KEY_HEADER: &str = "Idempotency-Key";
+
+impl IdempotencyKey {
+    /// whether `key` is one a request may send: 1 to 128 characters from `A`-`Z`, `a`-`z`, `0`-`9`, `.`, `_`, `~`, `-`
+    pub fn is_valid(key: &str) -> bool {
+        (1..=128).contains(&key.len())
+            && key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'~' | b'-'))
+    }
+}
+
+#[async_trait]
+impl<S: Send + Sync> FromRequestParts<S> for IdempotencyKey {
+    type Rejection = ServerError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let mut values = parts.headers.get_all(IDEMPOTENCY_KEY_HEADER).iter();
+        let Some(value) = values.next() else {
+            return Ok(IdempotencyKey(None));
+        };
+        let key = value.to_str().ok().filter(|key| IdempotencyKey::is_valid(key) && values.next().is_none());
+        match key {
+            Some(key) => Ok(IdempotencyKey(Some(key.to_owned()))),
+            None => Err(ServerError::InvalidInput(format!(
+                "invalid_idempotency_key: the {IDEMPOTENCY_KEY_HEADER} header is one key of 1 to 128 characters from `A`-`Z`, \
+                 `a`-`z`, `0`-`9`, `.`, `_`, `~` and `-`, such as a UUID"
+            ))),
+        }
+    }
+}
+
+impl ParameterProvider for IdempotencyKey {
+    fn generate(_url: String) -> Either<Vec<Parameter>, RequestBody> {
+        let description = "what identifies the client's action: a create sent again with the key of a transaction the ledger has \
+                           writes nothing, and answers that transaction, with `Idempotency-Replayed: true`. 1 to 128 characters \
+                           from `A`-`Z`, `a`-`z`, `0`-`9`, `.`, `_`, `~` and `-`, such as a UUID";
+        Either::Left(vec![Parameter {
+            name: IDEMPOTENCY_KEY_HEADER.to_owned(),
+            _in: ParameterIn::Header,
+            description: Some(description.to_owned()),
+            required: Some(false),
+            deprecated: None,
+            allow_empty_value: None,
+            style: None,
+            explode: None,
+            allow_reserved: None,
+            schema: Some(Referenceable::Data(String::generate_schema().schema)),
+            example: None,
+            examples: None,
+            content: None,
+        }])
+    }
+}
+
 /// the `If-Match` header parameter of the OpenAPI document
 fn if_match_parameter(required: bool) -> Either<Vec<Parameter>, RequestBody> {
     let description = "the `version` of the transaction the request writes, as the journal gives it: the request is refused \

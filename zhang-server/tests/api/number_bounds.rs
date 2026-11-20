@@ -18,7 +18,7 @@ use zhang_ast::amount::Amount;
 use zhang_server::request::{AccountBalanceRequest, CreateTransactionRequest};
 use zhang_server::routes::account::create_account_balance;
 use zhang_server::routes::transaction::{create_new_transaction, preview_new_transaction, preview_transaction_update, update_single_transaction};
-use zhang_server::routes::IfMatch;
+use zhang_server::routes::{IdempotencyKey, IfMatch};
 use zhang_server::state::SharedLedger;
 use zhang_testkit::http::{reload, respond, shared};
 use zhang_testkit::ledger::Scratch;
@@ -77,7 +77,16 @@ fn served() -> (Scratch, SharedLedger) {
 async fn a_create_or_an_update_with_a_number_out_of_range_writes_nothing() {
     for (field, value, _, named) in out_of_range() {
         let (scratch, ledger) = served();
-        let (status, body) = respond(create_new_transaction(State(ledger.clone()), reload(), Json(request(postings(field, value.clone())))).await).await;
+        let (status, body) = respond(
+            create_new_transaction(
+                State(ledger.clone()),
+                reload(),
+                IdempotencyKey(None),
+                Json(request(postings(field, value.clone()))),
+            )
+            .await,
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{value}: {body}");
         let message = body["message"].as_str().unwrap();
         assert!(
@@ -137,7 +146,8 @@ async fn both_previews_name_a_number_out_of_range_as_a_field() {
 async fn a_large_number_within_the_bound_is_written_and_read_back() {
     let (scratch, ledger) = served();
     let value = json!({"number": "1e40", "commodity": "STK"});
-    let (status, body) = respond(create_new_transaction(State(ledger.clone()), reload(), Json(request(postings("unit", value)))).await).await;
+    let (status, body) =
+        respond(create_new_transaction(State(ledger.clone()), reload(), IdempotencyKey(None), Json(request(postings("unit", value)))).await).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let reloaded = scratch.ledger().expect("the ledger reads it back");
     assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
@@ -158,12 +168,30 @@ async fn numbers_far_apart_within_the_bound_are_cheap_and_those_beyond_refused()
             {"account": "Expenses:Food", "unit": null},
         ])
     };
-    let (status, body) = respond(create_new_transaction(State(ledger.clone()), reload(), Json(request(far_apart("1e-999999", "1e999998")))).await).await;
+    let (status, body) = respond(
+        create_new_transaction(
+            State(ledger.clone()),
+            reload(),
+            IdempotencyKey(None),
+            Json(request(far_apart("1e-999999", "1e999998"))),
+        )
+        .await,
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert!(!scratch.dir().join("data").exists(), "nothing is written");
 
     let started = std::time::Instant::now();
-    let (status, body) = respond(create_new_transaction(State(ledger.clone()), reload(), Json(request(far_apart("1e-999", "1e999")))).await).await;
+    let (status, body) = respond(
+        create_new_transaction(
+            State(ledger.clone()),
+            reload(),
+            IdempotencyKey(None),
+            Json(request(far_apart("1e-999", "1e999"))),
+        )
+        .await,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let reloaded = scratch.ledger().expect("the ledger reads them back");
     assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);

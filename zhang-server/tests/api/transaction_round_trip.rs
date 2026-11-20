@@ -8,7 +8,7 @@ use axum::Json;
 use serde_json::{json, Value};
 use zhang_server::request::JournalRequest;
 use zhang_server::routes::transaction::{create_new_transaction, get_journals, preview_transaction_update, update_single_transaction};
-use zhang_server::routes::{IfMatch, Query as UrlQuery};
+use zhang_server::routes::{IdempotencyKey, IfMatch, Query as UrlQuery};
 use zhang_server::state::SharedLedger;
 use zhang_testkit::http::{reload, respond, shared};
 use zhang_testkit::ledger::Scratch;
@@ -53,7 +53,7 @@ impl Served {
 
     async fn create(&self, request: Value) -> (StatusCode, Value) {
         let request = serde_json::from_value(request).expect("a create request");
-        respond(create_new_transaction(State(self.ledger.clone()), reload(), Json(request)).await).await
+        respond(create_new_transaction(State(self.ledger.clone()), reload(), IdempotencyKey(None), Json(request)).await).await
     }
 
     /// an update of the only transaction
