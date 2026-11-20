@@ -95,7 +95,7 @@ The `json` table is [dkjson](https://dkolf.de/dkjson-lua/) with a few rules fixe
 - **Empty tables.** A Lua table has no kind, so an empty `{}` encodes as `[]`. Use `json.object()`, or `json.object(t)`, for a table that must encode as `{}` even when empty, and `json.array()` for one that must encode as `[]`. What `json.decode` and the host give you keeps its kind: an empty object stays `{}` through a round trip. A response's `headers` is always an object.
 - **Numbers.** Integers are exact up to 2<sup>63</sup>; floats are written with 14 significant digits. **Amounts never travel as numbers**: a query result gives every decimal as a string (`"12.50"`), and a plugin keeps it as a string. Do not `tonumber` an amount to add it up; let the query sum it.
 - **Strings** are bytes. A NUL byte inside a string survives a round trip. A `json` value must be UTF-8 text; send other bytes in `body`.
-- **Key order is stable.** The interpreter's string hash seed is fixed, so `pairs` visits a table's keys in the same order on every request and the same request gives byte-identical JSON. The order is not alphabetical; a client that needs one sorts the keys itself.
+- **Keys are sorted.** `json.encode`, and the `json` field of a response, write an object's keys in order: number keys first, ascending, then string keys, ascending by byte. The same value always gives byte-identical JSON. `pairs` itself visits a table's keys in no fixed order, and the order changes from one request to the next: the interpreter seeds its string hash at random for every request, so keys cannot be crafted to collide. Do not rely on the order of `pairs`; sort the keys when the order matters.
 
 ## The sandbox
 

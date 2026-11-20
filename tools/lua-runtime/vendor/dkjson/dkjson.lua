@@ -51,6 +51,7 @@ local strrep, gsub, strsub, strbyte, strchar, strfind, strlen, strformat =
       string.find, string.len, string.format
 local strmatch = string.match
 local concat = table.concat
+local sort = table.sort -- zhang: sorted object keys, see keyless below
 
 local json = { version = "dkjson 2.11" }
 
@@ -213,6 +214,21 @@ end
 
 local encode2 -- forward declaration
 
+-- zhang: the order an object's keys are written in: numbers, then strings, each ascending (strings by byte), so the
+-- same value always encodes to the same text. zhang seeds the string hash of every Lua state at random, so `pairs`
+-- visits a table's keys in another order on every run. Keys of other types, which addpair refuses, come last.
+local function keyrank (key)
+  local kt = type (key)
+  if kt == 'number' then return 1 elseif kt == 'string' then return 2 else return 3 end
+end
+
+local function keyless (a, b)
+  local ra, rb = keyrank (a), keyrank (b)
+  if ra ~= rb then return ra < rb end
+  if ra == 3 then return false end
+  return a < b
+end
+
 local function addpair (key, value, prev, indent, level, buffer, buflen, tables, globalorder, state)
   local kt = type (key)
   if kt ~= 'string' and kt ~= 'number' then
@@ -343,9 +359,16 @@ encode2 = function (value, indent, level, buffer, buflen, tables, globalorder, s
             prev = true -- add a seperator before the next element
           end
         end
-      else -- unordered
-        for k,v in pairs (value) do
-          buflen, msg = addpair (k, v, prev, indent, level, buffer, buflen, tables, globalorder, state)
+      else -- unordered (zhang: sorted, see keyless)
+        local keys, nkeys = {}, 0
+        for k in pairs (value) do
+          nkeys = nkeys + 1
+          keys[nkeys] = k
+        end
+        sort (keys, keyless)
+        for i = 1, nkeys do
+          local k = keys[i]
+          buflen, msg = addpair (k, value[k], prev, indent, level, buffer, buflen, tables, globalorder, state)
           if not buflen then return nil, msg end
           prev = true -- add a seperator before the next element
         end

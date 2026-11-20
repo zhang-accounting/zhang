@@ -11,9 +11,13 @@ deliberate one that updates `SHA256SUMS` in the same commit.
 | `dkjson/` | dkjson 2.11, the `json` library of every script | <https://dkolf.de/dkjson-lua/>, sha256 in `PINS.toml` | MIT, in the header of `dkjson.lua` |
 | `extism-c-pdk/` | the Extism C PDK header | <https://github.com/extism/c-pdk> at the commit in `PINS.toml` | BSD-3-Clause: `extism-c-pdk/LICENSE` |
 
-Every file is byte for byte the upstream file, except the local changes listed here:
+Every file is byte for byte the upstream file, except the local changes listed here, each marked `zhang:` in the
+file:
 
-- none yet.
+- `dkjson/dkjson.lua`: `json.encode` writes an object's keys sorted (numbers, then strings, each ascending; the
+  `keyless` comparator), where upstream writes them in the order `pairs` gives. The interpreter seeds Lua's string
+  hash at random for every state (`../seed.h`), so `pairs` order changes from run to run, and identical values must
+  still encode to identical text. Upstream's sha256 is in `PINS.toml`; `SHA256SUMS` has the patched file's.
 
 To take a new upstream version: replace the files, list the new checksums
 (`cd tools/lua-runtime/vendor && find . -type f ! -name SHA256SUMS ! -name README.md | sed 's|^\./||' | LC_ALL=C sort | xargs shasum -a 256 > SHA256SUMS`),

@@ -16,6 +16,7 @@ This directory is everything needed to rebuild it, byte for byte:
 | `build.py` | the one-command build: checks `vendor/` against `vendor/SHA256SUMS`, compiles `runtime.cpp`, the vendored `onelua.c` and `pdk.c` into the module, writes `<out>.sha256` |
 | `runtime.cpp` | the dispatcher: the host-function bridges, the memory budget, the `zhang`/`json` Lua API, the sandbox and the dispatch of each export (sections: imports, memory budget, bridges, prelude, exports) |
 | `pdk.c` | the translation unit defining the Extism C PDK |
+| `seed.h` | the random string-hash seed of every Lua state, included ahead of the C++ sources |
 
 ## Rebuild
 
@@ -48,6 +49,10 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
 - **No debug sections.** `-Wl,--strip-debug` drops the DWARF the sysroot's prebuilt libc objects carry (each
   wasi-sdk host asset builds its libc with its own paths, which made a macOS and a Linux build differ by a few
   hundred bytes of `.debug_str`/`.debug_line` while every code section matched); the `name` section stays.
+- **A random hash seed.** `seed.h` defines `luai_makeseed` with 32 bits of WASI randomness per Lua state, where Lua's
+  default would mix the clock with addresses that are the same on every wasm run, so keys cannot be crafted to
+  collide. `pairs` order therefore changes from run to run; the vendored dkjson writes an object's keys sorted, so
+  identical values still encode to identical JSON.
 - **dkjson embedded.** `build.py` writes the vendored dkjson into a generated `json_lua.h` as a C string; the prelude in `runtime.cpp`
   wraps it as the `json` library (shared object/array markers, a fixed `null`, strict decoding). User scripts are never
   built into the module.

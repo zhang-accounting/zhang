@@ -2470,17 +2470,33 @@ mod lua {
     }
 
     #[test]
-    fn identical_requests_give_identical_bytes() {
-        // the string hash seed is fixed at build time, so the key order of an encoded table never changes
+    fn identical_requests_give_identical_bytes_with_the_keys_sorted() {
+        // the string hash seed is random for every request, so `pairs` visits the keys in another order each time;
+        // json.encode writes them sorted, numbers before strings
         let (_dir, ledger) = router_ledger(&["json_order.lua"]);
 
         let first = call(&ledger, "json-order", &get("/a")).unwrap();
         let second = call(&ledger, "json-order", &get("/a")).unwrap();
 
         assert_eq!(first.body(), second.body(), "{}", String::from_utf8_lossy(first.body()));
-        let body = json_body(&first);
-        assert_eq!(body.as_object().unwrap().len(), 13);
-        assert_eq!(body["nested"]["t"], json!(7));
+        assert_eq!(
+            String::from_utf8_lossy(first.body()),
+            concat!(
+                r#"{"account":"/aaccount","amount":"/aamount","currency":"/acurrency","date":"/adate","file":"/afile","#,
+                r#""flag":"/aflag","id":"/aid","links":"/alinks","meta":"/ameta","mixed":{"-1":"a","1.5":"b","3":"c","10":"d"},"#,
+                r#""narration":"/anarration","nested":{"t":7,"u":6,"v":5,"w":4,"x":3,"y":2,"z":1},"payee":"/apayee","tags":"/atags"}"#
+            )
+        );
+    }
+
+    #[test]
+    fn the_string_hash_seed_differs_between_requests() {
+        // a fixed seed would let a script's input be crafted with keys that all collide (hash flooding)
+        let (_dir, ledger) = router_ledger(&["pairs_order.lua"]);
+
+        let orders: std::collections::HashSet<Vec<u8>> = (0..8).map(|_| call(&ledger, "pairs-order", &get("/")).unwrap().into_body()).collect();
+
+        assert!(orders.len() > 1, "8 requests visited 64 keys in the same order: the seed is fixed");
     }
 
     #[test]
