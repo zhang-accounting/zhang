@@ -672,7 +672,7 @@ LIMIT :size OFFSET :offset
 
 ### 预算与商品
 
-预算页面读取 [`#budgets`](/zh-cn/reference/query-language/#预算表)、[`#budget_definitions`](/zh-cn/reference/query-language/#预算定义表) 和 [`#budget_events`](/zh-cn/reference/query-language/#预算变动表)。月份以其第一天表示，例如 `2024-06-01`；没有指定月份时，页面使用账本时区中的当前月份。
+预算页面读取 [`#budgets`](/zh-cn/reference/query-language/#预算表)、[`#budget_definitions`](/zh-cn/reference/query-language/#预算定义表) 和 [`#budget_events`](/zh-cn/reference/query-language/#预算变动表)。月份以其第一天表示，例如 `2024-06-01`；传入某月的其他日期时返回 HTTP 400，并在消息中给出该月的第一天。没有指定月份时，页面使用账本时区中的当前月份。
 
 #### `budgets.month`
 

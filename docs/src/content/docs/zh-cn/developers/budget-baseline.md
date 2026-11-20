@@ -35,7 +35,7 @@ sidebar:
 
 基准是 `zhang-cli/examples/budget_baseline.rs`，它是 `zhang` 包的一个 example 而不是测试，用 `cargo run --release` 以张记账发布时使用的 release profile（`opt-level = "s"`）运行；debug 构建会拒绝运行。它把每个账本放在单独的进程中运行（再次启动自身），因此它为某个账本读到的内存峰值只属于该账本。
 
-**serve 路径。** 账本按 `zhang serve` 提供本地账本的方式提供服务。文件通过 `Fs` 服务的 `OpendalDataSource` 读取，由二进制所调用的同一个 `OpendalDataSource::from_env` 构建。这个数据源属于 `zhang` 二进制而不是某个库，所以 example 把二进制的 `src/opendal.rs` 编译为自己的一个模块，并为它读取的两个 CLI 选项字段（账本根目录和主文件）提供替身；测试目标做不到这一点，因为它还会编译该文件中的单元测试。基准启动 `zhang serve` 所启动的东西：重载监听器（`start_reload_listener`）、文件监视器（`start_fs_event_lisenter`）以及带中间件的应用（`create_server_app`），请求在同一进程内、不经过 socket 发给它的路由器。与 `zhang serve` 唯一的不同是时钟：账本用固定时钟加载，即账本时区（`Asia/Shanghai`）的 2025-12-31 中午，因此今天、当前月份以及 `#budgets` 的月份都不取决于运行的日期。
+**serve 路径。** 账本按 `zhang serve` 提供本地账本的方式提供服务。文件通过 `Fs` 服务的 `OpendalDataSource` 读取，由二进制所调用的同一个 `OpendalDataSource::from_env` 构建。这个数据源属于 `zhang` 二进制而不是某个库，所以 example 把二进制的 `src/opendal.rs` 编译为自己的一个模块，并为它读取的两个 CLI 选项字段（账本根目录和主文件）提供替身；测试目标做不到这一点，因为它还会编译该文件中的单元测试。基准启动 `zhang serve` 所启动的东西：重载监听器（`start_reload_listener`）、文件监视器（`start_fs_event_listener`）以及带中间件的应用（`create_server_app`），请求在同一进程内、不经过 socket 发给它的路由器。与 `zhang serve` 唯一的不同是时钟：账本用固定时钟加载，即账本时区（`Asia/Shanghai`）的 2025-12-31 中午，因此今天、当前月份以及 `#budgets` 的月份都不取决于运行的日期。
 
 对每个账本，基准依次：
 

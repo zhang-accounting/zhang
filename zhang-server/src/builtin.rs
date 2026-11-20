@@ -34,7 +34,7 @@ mod date_range;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::LazyLock;
 
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDateTime};
 use zhang_core::ledger::Ledger;
 use zhang_query::params::from_json;
 use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryResult, Value};
@@ -499,7 +499,8 @@ pub async fn run_with_total(ledger: &LedgerState, name: &'static str, params: Pa
 /// no other. Each value is read by the engine's [`from_json`]: `null` is NULL for any type;
 /// otherwise a `bool` takes a boolean, an `int` an integer, a `decimal` a number or a string
 /// such as `"12.50"`, a `str` a string, a `date` a string `YYYY-MM-DD` read as BQL's
-/// `date(text)` reads it, and a `set` a list of strings.
+/// `date(text)` reads it, and a `set` a list of strings. A `month` (of the budget queries) is the
+/// first day of a month; another day is refused, naming the first day of its month.
 pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<BuiltinParamValue>>) -> ServerResult<Params> {
     let mut params = Params::new();
     for (name, ty) in builtin.params {
@@ -508,6 +509,16 @@ pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<Bu
             .ok_or_else(|| ServerError::InvalidInput(format!("parameter :{} of {} is missing", name, builtin.name)))?;
         let value = value.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null);
         let value = from_json(*ty, &value).map_err(|error| ServerError::InvalidInput(error.for_param(name)))?;
+        // a month is given as its first day: another day of the month would answer for that month carried over
+        if let (MONTH_PARAM, Value::Date(date)) = (*name, &value) {
+            if date.day() != 1 {
+                let first = date.with_day(1).expect("every month has a first day");
+                return Err(ServerError::InvalidInput(format!(
+                    "parameter :{} of {} must be the first day of a month, such as {}, not {}",
+                    name, builtin.name, first, date
+                )));
+            }
+        }
         params = params.bind(*name, value);
     }
     match values.keys().collect::<BTreeSet<_>>().first() {
@@ -515,6 +526,9 @@ pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<Bu
         None => Ok(params),
     }
 }
+
+/// The parameter of the budget queries that names a month: its first day, such as `2024-06-01`.
+const MONTH_PARAM: &str = "month";
 
 /// The BQL of `builtin` with `params` written in as literals: a query that runs on the Query
 /// page (`/explore`), where parameters cannot be bound, to the same result. Display only; the
@@ -535,6 +549,14 @@ mod test {
 
     use super::{compiled, json_params, text, BuiltinQuery, BUILTINS};
     use crate::request::BuiltinParamValue;
+
+    /// A value of the parameter `name` of type `ty`: a month is its first day.
+    fn param_sample(name: &str, ty: DataType) -> BuiltinParamValue {
+        match name {
+            super::MONTH_PARAM => BuiltinParamValue::Text("2024-02-01".to_owned()),
+            _ => sample(ty),
+        }
+    }
 
     /// A value of each JSON type, to write every built-in query out with.
     fn sample(ty: DataType) -> BuiltinParamValue {
@@ -625,7 +647,7 @@ mod test {
                 let values = builtin
                     .params
                     .iter()
-                    .map(|(name, ty)| (name.to_string(), (!null || required(name)).then(|| sample(*ty))))
+                    .map(|(name, ty)| (name.to_string(), (!null || required(name)).then(|| param_sample(name, *ty))))
                     .collect::<HashMap<_, _>>();
                 let params = json_params(builtin, values).unwrap();
                 let written = text(builtin, &params).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));
@@ -772,5 +794,37 @@ mod test {
         assert_eq!(error.to_string(), "postings.between has no parameter :too");
         let error = json_params(builtin, values(&[("from", "2024-01-01"), ("to", "soon")])).unwrap_err();
         assert_eq!(error.to_string(), "parameter :to must be a date string YYYY-MM-DD or null");
+    }
+
+    /// A budget query's month is its first day: another day of the month would answer for the month carried over
+    /// (budgets.month) or for no month at all (budgets.events), so it is refused.
+    #[test]
+    fn a_month_is_the_first_day_of_a_month() {
+        let month = |name: &str, value: &str| {
+            let builtin = super::get(name).unwrap();
+            let values = builtin
+                .params
+                .iter()
+                .map(|(param, ty)| {
+                    let value = if *param == super::MONTH_PARAM {
+                        BuiltinParamValue::Text(value.to_owned())
+                    } else {
+                        sample(*ty)
+                    };
+                    (param.to_string(), Some(value))
+                })
+                .collect::<HashMap<_, _>>();
+            json_params(builtin, values)
+        };
+        for name in ["budgets.month", "budgets.budget_month", "budgets.events", "budgets.postings"] {
+            assert!(month(name, "2024-03-01").is_ok(), "{}", name);
+            assert_eq!(
+                month(name, "2024-03-15").unwrap_err().to_string(),
+                format!(
+                    "parameter :month of {} must be the first day of a month, such as 2024-03-01, not 2024-03-15",
+                    name
+                )
+            );
+        }
     }
 }

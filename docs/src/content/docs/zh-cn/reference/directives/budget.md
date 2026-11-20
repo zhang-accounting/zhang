@@ -108,6 +108,8 @@ Beancount 没有预算指令。在 Beancount 文件中，把它们写成 Beancou
 
 元数据行照常跟在后面。`bean-check` 和 Fava 把这些行当作普通的 `custom` 条目接受；张记账把它们读作预算，也以这种方式把预算写入 Beancount 文件。早期版本的张记账写出的不加引号的写法 `custom budget Food CNY` 仍然可以读取，现有账本不受影响，但 Beancount 会拒绝它（`Invalid token`）：如果你还用 `bean-check` 检查账本，请改用加引号的写法。带有其他值的 `custom "budget"`，例如 Fava 自己的预算条目（`custom "budget" Expenses:Coffee "daily" 4.00 EUR`），仍然是普通的 [`custom`](/zh-cn/reference/directives/custom/) 指令。
 
+Beancount 也没有时间。带时间的预算指令和交易一样，写成日期加 `time` 元数据，张记账读取时把这条元数据当作指令的时间：带 `time: "18:00:00"`（或 `"18:00"`）的 `budget-close` 在 18:00 关闭预算；不是时刻的 `time` 仍是普通元数据。账户上关联预算的 `budget` 元数据，当它的值不是 Beancount 能不加引号读取的值时，写出时加引号（`budget: "Food"`）。
+
 ## 相关页面
 
 - [预算](/zh-cn/guides/budgets/)：设置和使用预算。

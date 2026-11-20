@@ -21,12 +21,12 @@
 2024-01-07 budget-transfer Food Food 20 CNY
 ; ---- written as beancount
 2024-01-01 open Expenses:Food
-  budget: Food
+  budget: "Food"
 2024-01-01 open Expenses:Ghost
-  budget: Ghost
+  budget: "Ghost"
 2024-01-01 open Expenses:Shared
-  budget: Ghost
-  budget: Food
+  budget: "Ghost"
+  budget: "Food"
 2024-01-01 custom "budget" "Food" "CNY"
   alias: "the first definition"
 2024-01-01 custom "budget-add" "Food" 100 CNY

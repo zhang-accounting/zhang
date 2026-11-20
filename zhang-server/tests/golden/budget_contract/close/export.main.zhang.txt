@@ -21,11 +21,11 @@
 2024-02-15 18:00:00 budget-close Fun
 ; ---- written as beancount
 2024-01-01 open Expenses:Trip
-  budget: Trip
+  budget: "Trip"
 2024-01-01 open Expenses:Hotel
-  budget: Trip
+  budget: "Trip"
 2024-01-01 open Expenses:Fun
-  budget: Fun
+  budget: "Fun"
 2024-01-01 custom "budget" "Trip" "CNY"
 2024-01-01 custom "budget" "Fun" "CNY"
 2024-01-01 custom "budget" "Savings" "CNY"
@@ -38,4 +38,5 @@
   note: "a second close"
 2024-05-01 custom "budget" "Trip" "CNY"
   note: "defined again"
-2024-02-15 18:00:00 custom "budget-close" "Fun"
+2024-02-15 custom "budget-close" "Fun"
+  time: "18:00:00"

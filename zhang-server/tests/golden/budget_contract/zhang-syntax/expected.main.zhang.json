@@ -3,10 +3,6 @@
   "description": "Every form of zhang's budget directives (see main.zhang and budgets.zhang): what they define and do, how zhang and beancount write them, and that writing and reading them again changes no answer.",
   "ledger": "zhang-server/tests/golden/budget_contract/zhang-syntax/main.zhang",
   "now": "2024-03-10T04:00:00Z",
-  "known_issues": {
-    "export": "KNOWN-ISSUE: a `budget` metadata entry written unquoted in zhang (`budget: Groceries`, the form the budget docs show) is written unquoted to beancount too, which bean-check 3.2.3 rejects (`Invalid token`); zhang's own beancount parser reads it",
-    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
-  },
   "errors": [],
   "error_list": [],
   "responses": [
@@ -1022,11 +1018,5 @@
       }
     }
   ],
-  "round_trip": {
-    "beancount": {
-      "load_error": "cannot parse main.bean: failed to parse beancount file: unexpected input at line 24, column 1",
-      "line": "2024-01-01 09:00:00 custom \"budget\" \"Books\" \"CNY\""
-    },
-    "zhang": "same"
-  }
+  "round_trip": {"beancount": "same", "zhang": "same"}
 }

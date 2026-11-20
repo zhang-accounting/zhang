@@ -161,7 +161,7 @@ Beancount 的插件是 Python 代码，张记账不运行它们，包括 Beancou
 以下功能在张记账中可用，在 Beancount 中没有对应：
 
 - [预算](/zh-cn/guides/budgets/)，如上所述；
-- 条目上的时间，Beancount 账本把它记在 `time` 元数据中；
+- 条目上的时间，Beancount 账本把它记在 `time` 元数据中，写作 `HH:MM:SS` 或 `HH:MM`（不是时刻的 `time` 仍是普通元数据）；
 - 张记账的 [WASM 插件](/zh-cn/guides/plugins/)及其[查询语言](/zh-cn/reference/query-language/)扩展，例如 `#budgets` 和 `#errors` 表。
 
 张记账账本（`main.zhang`）还有更多自己的语法，例如 `balance … with pad` 和带时间的日期；Beancount 无法读取它。张记账没有在两种语法之间转换的命令，所以如果你想继续使用 Beancount 的工具，请让账本保持 Beancount 语法。

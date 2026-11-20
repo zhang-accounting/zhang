@@ -4,8 +4,7 @@
   "ledger": "zhang-server/tests/golden/budget_contract/errors-at-one-place/main.zhang",
   "now": "2024-01-20T00:00:00Z",
   "known_issues": {
-    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)",
-    "error_list": "pinned, not marked wrong: a transfer's two errors come `from`, then `to` (zhang-core/src/process/budget.rs:38-41), and with both budgets undefined only `from` is reported (the `&&` at :38 stops at the first); a posting's errors at an account of several budgets come in the order of the budgets' names (the BTreeSet of zhang-core/src/ledger.rs:308); at one place a BudgetDoesNotExist (reported during the fold) comes before the BudgetCommodityMismatch errors (reported after it), whatever the order of the postings. Which place the load checks first is not pinned: the unconverted amounts are checked after the fold (report_unconverted_amounts, zhang-core/src/process/budget.rs:121, reporting at :142, called at zhang-core/src/ledger.rs:758), which no client sees, as the API orders errors by place"
+    "error_list": "pinned, not marked wrong: a transfer's two errors come `from`, then `to` (zhang-core/src/process/budget.rs:44-47), and with both budgets undefined only `from` is reported (the `&&` at :44 stops at the first); a posting's errors at an account of several budgets come in the order of the budgets' names (the BTreeSet of zhang-core/src/ledger.rs:316); at one place a BudgetDoesNotExist (reported during the fold) comes before the BudgetCommodityMismatch errors (reported after it), whatever the order of the postings. Which place the load checks first is not pinned: the unconverted amounts are checked after the fold (report_unconverted_amounts, zhang-core/src/process/budget.rs:127, reporting at :148, called at zhang-core/src/ledger.rs:766), which no client sees, as the API orders errors by place"
   },
   "errors": [
     {
@@ -62,7 +61,12 @@
       "line": 49,
       "metas": [{"key": "account_name", "value": "Expenses:Closed"}, {"key": "budget_name", "value": "Yankee"}, {"key": "txn_id", "value": "136475b9-577a-c4ad-f6b9-5425bc6799ba"}]
     },
-    {"kind": "DefineDuplicatedBudget", "file": "main.zhang", "line": 53, "metas": []},
+    {
+      "kind": "DefineDuplicatedBudget",
+      "file": "main.zhang",
+      "line": 53,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Alpha"}, {"key": "commodity", "value": "USD"}]
+    },
     {
       "kind": "BudgetDoesNotExist",
       "file": "main.zhang",
@@ -163,7 +167,7 @@
       "id_of": "main.zhang@1876 DefineDuplicatedBudget #0",
       "span": {"file": "main.zhang", "start": 1876, "end": 1903, "line": 53},
       "kind": "DefineDuplicatedBudget",
-      "metas": {}
+      "metas": {"budget_commodity": "CNY", "budget_name": "Alpha", "commodity": "USD"}
     },
     {
       "id": "7bae19bf-a12f-86d4-236e-cf9a4ef4e92f",

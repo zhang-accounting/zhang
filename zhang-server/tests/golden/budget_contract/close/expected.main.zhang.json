@@ -3,10 +3,6 @@
   "description": "budget-close (see main.zhang): the months a budget is closed in, the postings it takes before and after its close, a date-only close and one at a time, a second close, money moved out after the close, and a definition again.",
   "ledger": "zhang-server/tests/golden/budget_contract/close/main.zhang",
   "now": "2024-06-10T00:00:00Z",
-  "known_issues": {
-    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)",
-    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
-  },
   "errors": [
     {
       "kind": "BudgetClosed",
@@ -20,7 +16,12 @@
       "line": 39,
       "metas": [{"key": "account_name", "value": "Expenses:Hotel"}, {"key": "budget_name", "value": "Trip"}, {"key": "txn_id", "value": "f20315ef-2f70-131c-e566-bca4f98df61b"}]
     },
-    {"kind": "DefineDuplicatedBudget", "file": "main.zhang", "line": 49, "metas": []},
+    {
+      "kind": "DefineDuplicatedBudget",
+      "file": "main.zhang",
+      "line": 49,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Trip"}, {"key": "commodity", "value": "CNY"}]
+    },
     {
       "kind": "BudgetClosed",
       "file": "main.zhang",
@@ -48,7 +49,7 @@
       "id_of": "main.zhang@1418 DefineDuplicatedBudget #0",
       "span": {"file": "main.zhang", "start": 1418, "end": 1468, "line": 49},
       "kind": "DefineDuplicatedBudget",
-      "metas": {}
+      "metas": {"budget_commodity": "CNY", "budget_name": "Trip", "commodity": "CNY"}
     },
     {
       "id": "cfb550a9-5a41-6e01-33a1-b0401accfb96",
@@ -1896,11 +1897,5 @@
       "body": {"data": {"columns": [{"name": "name", "type": "str"}], "rows": [["Savings"]]}}
     }
   ],
-  "round_trip": {
-    "beancount": {
-      "load_error": "cannot parse main.bean: failed to parse beancount file: unexpected input at line 38, column 1",
-      "line": "2024-02-15 18:00:00 custom \"budget-close\" \"Fun\""
-    },
-    "zhang": "same"
-  }
+  "round_trip": {"beancount": "same", "zhang": "same"}
 }

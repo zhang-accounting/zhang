@@ -16,7 +16,12 @@
       "line": 6,
       "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Food"}, {"key": "commodity", "value": "USD"}]
     },
-    {"kind": "DefineDuplicatedBudget", "file": "budgets.bean", "line": 7, "metas": []},
+    {
+      "kind": "DefineDuplicatedBudget",
+      "file": "budgets.bean",
+      "line": 7,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Food"}, {"key": "commodity", "value": "USD"}]
+    },
     {
       "kind": "BudgetCommodityMismatch",
       "file": "main.bean",
@@ -44,7 +49,7 @@
       "id_of": "budgets.bean@242 DefineDuplicatedBudget #0",
       "span": {"file": "budgets.bean", "start": 242, "end": 281, "line": 7},
       "kind": "DefineDuplicatedBudget",
-      "metas": {}
+      "metas": {"budget_commodity": "CNY", "budget_name": "Food", "commodity": "USD"}
     },
     {
       "id": "ff2b7efb-0f17-2639-acab-15bad821705b",

@@ -93,7 +93,7 @@ pub(crate) fn message(kind: &ErrorKind) -> &'static str {
         ErrorKind::NoEnoughCommodityLot => "Not enough commodity lots to book this posting",
         ErrorKind::CloseNonZeroAccount => "Trying to close an account with non zero balance",
         ErrorKind::BudgetDoesNotExist => "Budget does not exist",
-        ErrorKind::DefineDuplicatedBudget => "Trying to define duplicated budget name",
+        ErrorKind::DefineDuplicatedBudget => "Budget {{meta.budget_name}} is defined already, in {{meta.budget_commodity}}: this definition is ignored",
         ErrorKind::BudgetCommodityMismatch => {
             "No price converts {{meta.commodity}} to {{meta.budget_commodity}}, the commodity of budget {{meta.budget_name}}: the amount does not count toward it"
         }

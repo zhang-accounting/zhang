@@ -8,8 +8,8 @@
 2024-01-01 budget-add Gifts 2000 USD
 ; ---- written as beancount
 2024-01-01 open Expenses:Gifts
-  budget: Gifts
+  budget: "Gifts"
 2024-01-01 open Expenses:Fees
-  budget: Gifts
+  budget: "Gifts"
 2024-01-01 custom "budget" "Gifts" "USD"
 2024-01-01 custom "budget-add" "Gifts" 2000 USD

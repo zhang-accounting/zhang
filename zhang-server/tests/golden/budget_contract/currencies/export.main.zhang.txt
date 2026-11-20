@@ -16,11 +16,11 @@
 2024-01-05 budget-transfer Travel Dollars 50 USD
 ; ---- written as beancount
 2024-01-01 open Expenses:Travel
-  budget: Travel
+  budget: "Travel"
 2024-01-01 open Expenses:Gifts
-  budget: Travel
+  budget: "Travel"
 2024-01-01 open Expenses:Abroad
-  budget: Dollars
+  budget: "Dollars"
 2024-01-01 custom "budget" "Travel" "CNY"
 2024-01-01 custom "budget" "Dollars" "USD"
 2024-01-01 custom "budget-add" "Travel" 10000 CNY

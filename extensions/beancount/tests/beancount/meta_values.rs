@@ -1,7 +1,10 @@
 //! The metadata values beancount reads without quotes (#475), checked against Python beancount:
 //! zhang reads every metadata entry of `meta_values/ledger.bean`, on a transaction, on its postings
 //! and on the other directives, with the value beancount 3.2.3 gives it (`meta_values/oracle.json`,
-//! written by `meta_values/generate.py`), and writes each one back as it was written.
+//! written by `meta_values/generate.py`), and writes each one back with the text it was read with:
+//! bare where beancount reads that text as written, quoted otherwise. An arithmetic expression is
+//! quoted, as beancount would evaluate it: zhang keeps its text, and `978-3-16` or `2024-01` written
+//! bare from a zhang ledger would read as 959 and 2023.
 //!
 //! Zhang keeps a bare value as text, as written, so the file round-trips; beancount evaluates it.
 //! The two show the same text for an account, a currency, a plain number, an amount and a date. For
@@ -15,7 +18,7 @@ use std::path::PathBuf;
 use beancount::Beancount;
 use chrono::NaiveDate;
 use serde_json::{json, Value};
-use zhang_ast::{Directive, Meta, SpanInfo, Spanned};
+use zhang_ast::{Directive, Meta, SpanInfo, Spanned, ZhangString};
 use zhang_core::data_type::text::parser::{number_expr, posting_amount};
 use zhang_core::data_type::DataType;
 
@@ -106,16 +109,16 @@ fn every_bare_metadata_value_round_trips_through_the_beancount_exporter() {
         .map(|directive| Beancount::default().export(Spanned::new(directive.data.clone(), SpanInfo::default())))
         .collect::<Vec<_>>()
         .join("\n\n");
-    // each value is written back bare, as it was read
+    // each value is written back with its text: bare as it was read, but an arithmetic expression, quoted
     for line in [
         "counterpart: Assets:Bank",
         "currency: USD",
         "number: 10.50",
         "negative: -3",
         "grouped: 1,000.00",
-        "expression: (1 + 2) * 3",
+        "expression: \"(1 + 2) * 3\"",
         "amount: 10 USD",
-        "amount-expression: 1 + 2 USD",
+        "amount-expression: \"1 + 2 USD\"",
         "date: 2024-01-10",
         "tag: #trip",
         "yes: TRUE",
@@ -130,6 +133,28 @@ fn every_bare_metadata_value_round_trips_through_the_beancount_exporter() {
     let read = Beancount::default()
         .transform(exported.clone(), None)
         .unwrap_or_else(|error| panic!("{error}\n{exported}"));
-    let data = |directives: &[Spanned<Directive>]| directives.iter().map(|it| it.data.clone()).collect::<Vec<_>>();
+    // the same directives, every metadata value with the same text
+    let data = |directives: &[Spanned<Directive>]| directives.iter().map(|it| as_text(it.data.clone())).collect::<Vec<_>>();
     assert_eq!(data(&read), data(&original));
+}
+
+/// `directive` with every metadata value, of the directive and of its postings, as quoted text: a value is its text,
+/// whether it is written bare or quoted.
+fn as_text(mut directive: Directive) -> Directive {
+    fn quoted(meta: &mut Meta) {
+        *meta = std::mem::take(meta)
+            .get_flatten()
+            .into_iter()
+            .map(|(key, value)| (key, ZhangString::QuoteString(value.as_str().to_owned())))
+            .collect();
+    }
+    if let Some(meta) = directive.meta_mut() {
+        quoted(meta);
+    }
+    if let Directive::Transaction(transaction) = &mut directive {
+        for posting in &mut transaction.postings {
+            quoted(&mut posting.meta);
+        }
+    }
+    directive
 }

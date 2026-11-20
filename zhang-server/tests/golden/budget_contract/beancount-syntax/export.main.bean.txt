@@ -15,8 +15,7 @@
 2024-01-02 budget-add Legacy 10 CNY
 2024-01-15 budget-transfer Fun Food 50 CNY
 2024-01-16 budget-transfer Food Legacy 5 CNY
-2024-01-20 budget-close Fun
-  time: "12:00:00"
+2024-01-20 12:00:00 budget-close Fun
 ; ---- written as beancount
 2024-01-01 open Expenses:Food
   budget: "Food"

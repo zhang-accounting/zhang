@@ -672,7 +672,7 @@ The error list shows where each error is as its file and the lines of its direct
 
 ### Budgets and commodities
 
-The budget pages read [`#budgets`](/reference/query-language/#budgets), [`#budget_definitions`](/reference/query-language/#budget-definitions) and [`#budget_events`](/reference/query-language/#budget-events). A month is given as its first day, such as `2024-06-01`; without one, the pages ask for the current month in the ledger's timezone.
+The budget pages read [`#budgets`](/reference/query-language/#budgets), [`#budget_definitions`](/reference/query-language/#budget-definitions) and [`#budget_events`](/reference/query-language/#budget-events). A month is given as its first day, such as `2024-06-01`; another day of a month is answered with HTTP 400, naming the first day of its month. Without a month, the pages ask for the current month in the ledger's timezone.
 
 #### `budgets.month`
 

@@ -11,9 +11,9 @@
 9999-12-01 budget-add Food 1 CNY
 ; ---- written as beancount
 2024-01-01 open Expenses:Food
-  budget: Food
+  budget: "Food"
 2024-01-01 open Expenses:Old
-  budget: Old
+  budget: "Old"
 0024-01-01 custom "budget" "Old" "CNY"
 2024-01-01 custom "budget" "Food" "CNY"
 2024-01-01 custom "budget" "Normal" "CNY"

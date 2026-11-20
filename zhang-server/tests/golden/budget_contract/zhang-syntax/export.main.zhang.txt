@@ -25,7 +25,7 @@
   note: "no more coffee"
 ; ---- written as beancount
 2024-01-01 open Expenses:Groceries
-  budget: Groceries
+  budget: "Groceries"
 2024-01-01 open Expenses:Books
   budget: "Books"
   note: "a quoted budget name"
@@ -33,17 +33,21 @@
   alias: "Groceries & household"
   category: "Daily"
   owner: "both"
-2024-01-01 09:00:00 custom "budget" "Books" "CNY"
+2024-01-01 custom "budget" "Books" "CNY"
   alias: "书"
+  time: "09:00:00"
 2024-01-01 custom "budget" "Daily-Coffee_2" "CNY"
   category: "Daily"
 2024-01-01 custom "budget-add" "Groceries" 1000 CNY
   source: "salary"
-2024-01-01 09:30 custom "budget-add" "Books" 100.5 CNY
+2024-01-01 custom "budget-add" "Books" 100.5 CNY
+  time: "09:30:00"
 2024-01-15 custom "budget-add" "Groceries" -50 CNY
 2024-01-20 custom "budget-add" "Daily-Coffee_2" 0.001 CNY
 2024-02-01 custom "budget-add" "Books" 50 CNY
-2024-01-31 23:59:59 custom "budget-transfer" "Groceries" "Books" 25.50 CNY
+2024-01-31 custom "budget-transfer" "Groceries" "Books" 25.50 CNY
   reason: "month end"
-2024-03-01 18:00:00 custom "budget-close" "Daily-Coffee_2"
+  time: "23:59:59"
+2024-03-01 custom "budget-close" "Daily-Coffee_2"
   note: "no more coffee"
+  time: "18:00:00"

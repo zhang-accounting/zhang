@@ -161,7 +161,7 @@ Zhang reads budgets written as `custom` directives in the form beancount accepts
 These work in Zhang and have no equivalent in beancount:
 
 - [budgets](/guides/budgets/), as above;
-- a time of day on entries, which a beancount ledger carries in `time` metadata;
+- a time of day on entries, which a beancount ledger carries in `time` metadata, as `HH:MM:SS` or `HH:MM` (a `time` that is no time of day stays plain metadata);
 - Zhang's [WASM plugins](/guides/plugins/) and its [query language](/reference/query-language/) extensions, such as the `#budgets` and `#errors` tables.
 
 A Zhang ledger (`main.zhang`) has more syntax of its own, such as `balance … with pad` and dates with a time; beancount cannot read it. Zhang has no command to convert between the two syntaxes, so keep your ledger in beancount syntax if you want to keep using beancount tools.

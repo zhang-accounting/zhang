@@ -344,9 +344,9 @@ include "accounts/2024.zhang"
 
 ## DefineDuplicatedBudget
 
-*尝试创建一个重复的预算*
+*预算 {{meta.budget_name}} 已经定义（以 {{meta.budget_commodity}} 计）：这条定义被忽略*
 
-`budget` 指令指定的预算已经存在。第二个定义会被忽略。
+`budget` 指令指定的预算已经存在。第二个定义会被忽略：预算保留第一个定义的商品和元数据。错误带有指明预算的 `budget_name` meta、记录预算所用商品的 `budget_commodity` meta，以及被忽略的定义所写商品的 `commodity` meta。
 
 ```zhang
 2024-01-01 budget Food CNY
