@@ -61,7 +61,7 @@ use crate::plugin_writes::{self, Commit, PluginWrites};
 use crate::request::BuiltinParamValue;
 use crate::response::{QueryResultEntity, QuerySchemaEntity};
 use crate::routes::query::{execute_options, max_result_values};
-use crate::state::{SharedLedger, SharedPluginWrites, SharedReloadSender};
+use crate::state::{write_cycle, SharedLedger, SharedPluginWrites, SharedReloadSender};
 use crate::{builtin, ReloadSender};
 
 /// The header of a failed plugin response whose plugin committed a write before it failed: the generation the commit
@@ -330,6 +330,9 @@ pub async fn route_to_plugin(State(state): State<PluginRouteState>, method: Meth
 /// the plugin needs: the reload sender (the generation) and the plugin writes (the token key, the commit lock)
 struct ServerRouterHost {
     ledger: OwnedRwLockReadGuard<Ledger>,
+    /// the write cycle, held shared while the plugin runs when it may write ([`dispatch`]): `None` when it may not,
+    /// which the ledger read tells, as it tells the host functions of the writes
+    _cycle: Option<OwnedRwLockReadGuard<()>>,
     max_result_values: u64,
     reload_sender: Arc<ReloadSender>,
     writes: Arc<PluginWrites>,
@@ -420,6 +423,15 @@ impl RouterHost for ServerRouterHost {
     }
 }
 
+/// whether the router plugin `name` of `ledger` may write: the operator allows plugins to write, and it declares and is
+/// granted a kind of write. A plugin that may not is refused before its write reaches the server
+fn may_write(ledger: &Ledger, name: &str) -> bool {
+    ledger.plugins.router(name).is_some_and(|plugin| {
+        let access = plugin.write_access();
+        access.operator_allows && !access.allowed().is_empty()
+    })
+}
+
 async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest) -> Response {
     // the read lock is held for the look-up only: a request waiting for its turn below must not hold it, since a
     // writer queued behind it would keep every other reader of the server waiting too
@@ -440,11 +452,26 @@ async fn dispatch(state: PluginRouteState, name: String, request: PluginRequest)
             .insert(header::RETRY_AFTER, HeaderValue::from_static(RETRY_AFTER_SECONDS));
         return response;
     };
-    // the plugin runs under the read lock, so the ledger cannot reload while it reads it; a reload that removed the
-    // plugin while the request waited answers 404 below
+    // the plugin runs under the read lock, so the ledger it reads is not replaced while it runs; a reload that removed
+    // the plugin while the request waited answers 404 below. A plugin that may write runs between the writes and the
+    // reloads of the ledger, never during one: its request holds the write cycle shared until the plugin returns, as
+    // they hold it exclusively ([`write_cycle`]), so its commit never comes between a write and the reload that write
+    // waits for, and a write or a reload waits for the plugin, as when they took the ledger's write lock. A plugin that
+    // may not write takes no part in it: as any reader, it reads the ledger served while the next one loads
+    let mut cycle = None;
+    let ledger = loop {
+        let ledger = state.ledger.0.clone().read_owned().await;
+        if cycle.is_some() || !may_write(&ledger, &name) {
+            break ledger;
+        }
+        // the cycle before the ledger's lock, as a writer takes them
+        drop(ledger);
+        cycle = Some(write_cycle(&state.ledger).read_owned().await);
+    };
     let committed = Arc::new(Mutex::new(None));
     let host = Arc::new(ServerRouterHost {
-        ledger: state.ledger.0.clone().read_owned().await,
+        ledger,
+        _cycle: cycle,
         max_result_values: max_result_values(),
         reload_sender: state.reload_sender.0.clone(),
         writes: state.writes.0.clone(),
@@ -992,6 +1019,7 @@ return M
         let writes = Arc::new(PluginWrites::new());
         let host = |max_result_values| ServerRouterHost {
             ledger: ledger.clone().try_read_owned().unwrap(),
+            _cycle: None,
             max_result_values,
             reload_sender: reload_sender.clone(),
             writes: writes.clone(),

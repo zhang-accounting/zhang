@@ -70,7 +70,7 @@ pub async fn update_file_content(
 ) -> ServerResult<Created> {
     // the whole file: it edits no place the ledger loaded, so it needs the ledger reloaded first no more than a
     // ledger that loads. It is saved even when the files cannot be loaded, to fix them
-    let mut ledger = ledger.write().await;
+    let mut ledger = ledger.writer(&reload_sender).await;
 
     // the file as it is now, read once: for the fingerprint the editor loaded it with, and for the byte order mark it
     // may start with. A file that cannot be read is written as sent: the save, which may fix it, is never held up by
@@ -83,7 +83,7 @@ pub async fn update_file_content(
 
     // a file that changed since the editor loaded it (a transaction or a balance check recorded in the UI, a document
     // uploaded, an edit outside) is not overwritten, which would undo the change (#506). The ledger is held
-    // exclusively from the read to the save, as for an edit in place, so no write comes between. A file that is gone
+    // by one writer from the read to the save, as for an edit in place, so no write comes between. A file that is gone
     // has nothing to undo, and is written. A save without the fingerprint, from an older client, overwrites the file
     // as before
     if let (Some(expected), Some(existing)) = (&payload.expected_sha256, &existing) {
@@ -100,7 +100,7 @@ pub async fn update_file_content(
     content.bom |= had_bom;
     let saved = ledger.data_source.save(&ledger, filename, &content.into_bytes());
     // reloaded before the answer, as every write of the API is
-    wrote_and_reloaded(&mut ledger, &reload_sender, saved.map_err(ServerError::from)).await?;
+    wrote_and_reloaded(&mut ledger, saved.map_err(ServerError::from)).await?;
     Ok(Created)
 }
 

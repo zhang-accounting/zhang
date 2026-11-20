@@ -160,7 +160,8 @@ where
     /// The text of the file at `path`, to edit the directives at `spans` in place: each of them must still be
     /// what the ledger loaded there ([`SpanInfo::content`]). [`ZhangError::FileChanged`] when one is not, the file
     /// having changed since the ledger was loaded: the ledger must be reloaded for places that are not stale. A
-    /// writer holds the ledger exclusively from this read until it saved the file, so no other write comes between
+    /// writer keeps every other writer of the ledger out from this read until it saved the file, so no other write
+    /// comes between
     fn get_unchanged(&self, path: String, spans: &[SpanInfo]) -> ZhangResult<FileText> {
         let content = match self.get(path.clone()) {
             Ok(content) => FileText::decode(content, &path)?,

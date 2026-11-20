@@ -2,7 +2,7 @@ use std::any::Any;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{any, get};
@@ -40,7 +40,7 @@ use crate::error::ServerError;
 use crate::plugin_writes::PluginWrites;
 use crate::response::ResponseWrapper;
 use crate::routes::plugin_router::{PluginRoutes, PluginSettings};
-use crate::state::{AppState, ReloadFailure, SharedPluginWrites};
+use crate::state::{AppState, LedgerWriter, ReloadFailure, SharedPluginWrites};
 
 pub mod account_queries;
 pub mod auth;
@@ -255,7 +255,7 @@ pub struct ReloadSender {
     /// the reload at the next local midnight of a ledger that depends on the date, replaced on every reload
     midnight_reload: std::sync::Mutex<Option<JoinHandle<()>>>,
     /// the transactions the writes deleted or replaced lately ([`tombstones`]), which outlive the reloads: read and
-    /// changed by a writer, which holds the ledger
+    /// changed by a writer, which holds the write cycle ([`LedgerWriter`])
     tombstones: std::sync::Mutex<tombstones::Tombstones>,
     /// The generation of the ledger served: a counter, starting at 1, that only moves on, by one whenever a reload
     /// loaded other content than the ledger served before ([`ledger_fingerprint`]). Whatever was computed from the
@@ -264,12 +264,15 @@ pub struct ReloadSender {
     /// unchanged files, as the file watcher's after a write's own reload, keeps it
     generation: std::sync::atomic::AtomicU64,
     /// Whether a write landed in the files that the ledger served does not show yet: set by a plugin's commit under
-    /// the ledger read lock, where it cannot mark the ledger stale itself, and cleared by the next successful reload.
-    /// A write of the API reloads first while it is set ([`SharedLedger::for_writing`]), so a write queued behind a
-    /// plugin's commit never plans against the ledger the commit left behind (a second `include` of its file)
+    /// the ledger read lock, where it cannot mark the ledger stale itself, and by a write of the API until its own
+    /// reload succeeded, and cleared by the next successful reload. A write of the API reloads first while it is set
+    /// ([`SharedLedger::for_writing`]), so a write queued behind a plugin's commit never plans against the ledger the
+    /// commit left behind (a second `include` of its file)
     written: std::sync::atomic::AtomicBool,
     /// the fingerprint of the ledger served ([`ledger_fingerprint`]), `None` before the first is recorded
     fingerprint: std::sync::Mutex<Option<u64>>,
+    /// the freeing of the ledger the last reload replaced ([`ReloadSender::retire`])
+    retired: std::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Deref for ReloadSender {
@@ -291,6 +294,7 @@ impl ReloadSender {
             generation: std::sync::atomic::AtomicU64::new(1),
             written: std::sync::atomic::AtomicBool::new(false),
             fingerprint: std::sync::Mutex::new(None),
+            retired: std::sync::Mutex::new(None),
         }
     }
 
@@ -321,8 +325,14 @@ impl ReloadSender {
 
     /// a write landed in the files: the ledger served is behind them until the reload asked for here runs
     pub fn mark_written(&self) {
-        self.written.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.mark_pending();
         self.reload();
+    }
+
+    /// a write landed in the files, which its writer reloads itself: the ledger served is behind them until a reload
+    /// succeeds
+    pub(crate) fn mark_pending(&self) {
+        self.written.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// whether a write landed in the files since the ledger served was loaded, see [`ReloadSender::mark_written`]
@@ -371,66 +381,49 @@ impl ReloadSender {
         *self.last_failure.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = outcome.clone().err();
     }
 
-    /// Reload `ledger` in place, as every reload of the served ledger runs, the one the listener runs and the one a
-    /// write runs first on a stale ledger ([`SharedLedger::for_writing`]) alike. The load runs on a blocking thread, as
-    /// it reads files and runs plugins. A reload that panics does not unwind into the caller, which left a write
-    /// without an answer and ended the listener (#492): the blocking task catches the panic, and it is a failure like
-    /// an error. The ledger served stays the previous one, as a reload replaces it only once it loaded whole. What the
-    /// reload came to is kept for `/api/info`, the readers are told, and the midnight reload is scheduled again for the
-    /// ledger now served
-    pub(crate) async fn reload_in_place(self: &Arc<Self>, ledger: &mut Ledger) -> Result<(), ReloadFailure> {
-        info!("start reloading...");
-        let start_time = Instant::now();
-        // the fingerprint is computed with the load, on the blocking thread: with a processor plugin it is a pass over
-        // every directive, which must not run on an async worker while the caller holds the ledger's write lock
-        let reload = ledger.reloader();
-        let loaded = tokio::task::spawn_blocking(move || {
-            reload().map(|reloaded| {
-                let fingerprint = ledger_fingerprint(&reloaded);
-                (reloaded, fingerprint)
-            })
-        });
-        let outcome = match loaded.await {
-            Ok(Ok((reloaded, fingerprint))) => {
-                *ledger = reloaded;
-                // a reload that loaded the same content (the file watcher's, after a write's own) keeps the generation
-                if self.content_changed(fingerprint) {
-                    self.next_generation();
-                }
-                // the files the ledger shows now are the ones written
-                self.written.store(false, std::sync::atomic::Ordering::SeqCst);
-                info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
-                Ok(())
-            }
-            Ok(Err(err)) => {
-                error!("error on reload: {}", err);
-                Err(ReloadFailure::from(&err))
-            }
-            Err(failure) => {
-                let message = match failure.try_into_panic() {
-                    Ok(panic) => panic_message(panic.as_ref()).to_owned(),
-                    Err(failure) => failure.to_string(),
-                };
-                error!("panic on reload, the previous ledger is kept: {}", message);
-                Err(ReloadFailure {
-                    file: None,
-                    message: format!("panic on reload: {message}"),
-                })
-            }
-        };
-        // a failed reload is no longer only logged (#492): it is kept for `/api/info` while the ledger served is the
-        // one loaded before, and the readers are told
-        self.record(&outcome);
+    /// Free `replaced`, the ledger a reload replaced, on a blocking thread: a ledger is many small allocations, and
+    /// freeing a large one takes a while (about 230 ms for 100 000 transactions), which neither the readers nor the
+    /// writer wait for. The next reload waits for it before it loads ([`ReloadSender::retired`]): the two at once
+    /// slowed every load
+    pub(crate) fn retire(&self, replaced: Ledger) {
+        let freeing = tokio::task::spawn_blocking(move || drop(replaced));
+        *self.retired.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(freeing);
+    }
+
+    /// once the ledger the last reload replaced is freed ([`ReloadSender::retire`])
+    pub(crate) async fn retired(&self) {
+        let freeing = self.retired.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some(freeing) = freeing {
+            freeing.await.ok();
+        }
+    }
+
+    /// What a reload that loaded the ledger whose fingerprint is `fingerprint` records once it swapped it in, under the
+    /// ledger's write lock with the swap ([`LedgerWriter::reload`]): the generation moves on when the content changed,
+    /// and the files are no longer ahead of the ledger served
+    pub(crate) fn swapped(&self, fingerprint: u64) {
+        // a reload that loaded the same content (the file watcher's, after a write's own) keeps the generation
+        if self.content_changed(fingerprint) {
+            self.next_generation();
+        }
+        // the files the ledger shows now are the ones written
+        self.written.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// What a reload came to, told: a failed reload is no longer only logged (#492), it is kept for `/api/info` while
+    /// the ledger served is the one loaded before, and the readers are told; and the midnight reload is scheduled
+    /// again for `served`, the ledger served now
+    pub(crate) async fn reloaded(self: &Arc<Self>, outcome: &Result<(), ReloadFailure>, served: &Ledger) {
+        self.record(outcome);
         if let Some(broadcaster) = self.broadcaster.get() {
-            match &outcome {
+            match outcome {
                 // todo: add reload duration to reload event
                 Ok(()) => broadcaster.broadcast(BroadcastEvent::Reload).await,
                 Err(failure) => broadcaster.broadcast(BroadcastEvent::ReloadFailed(failure.clone())).await,
             }
         }
         // replaced on every reload, for the ledger now served: a failed reload keeps the previous one
-        self.schedule_midnight_reload(ledger);
-        outcome
+        self.schedule_midnight_reload(served);
     }
 
     /// reload `ledger` at the next local midnight in its timezone if it depends on the date, instead of the reload
@@ -562,15 +555,19 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
 }
 
 /// Run the reloads `reload_sender` asks for, one at a time, on `ledger_for_reload`, telling `cloned_broadcaster`'s
-/// readers; the task the server starts, which a test of a write path starts too. The content of the ledger served
-/// first is recorded, so a reload of the same files keeps the generation ([`ReloadSender::generation`])
+/// readers; the task the server starts, which a test of a write path starts too. Each runs as a writer of the ledger
+/// ([`LedgerWriter`]): after the writes and reloads before it, and with the readers reading the ledger served until
+/// the one it loads replaces it. The content of the ledger served first is recorded, so a reload of the same files
+/// keeps the generation ([`ReloadSender::generation`])
 pub fn start_reload_listener(
     ledger_for_reload: Arc<RwLock<Ledger>>, cloned_broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>, mut rx: Receiver<ReloadRequest>,
 ) {
     reload_sender.broadcaster.set(cloned_broadcaster).ok();
     tokio::spawn(async move {
         {
-            // the fingerprint of the ledger served first, on a blocking thread as every other one is
+            // the fingerprint of the ledger served first, on a blocking thread as every other one is, before any writer
+            // can reload it
+            let _cycle = state::write_cycle(&ledger_for_reload).write_owned().await;
             let served = ledger_for_reload.clone().read_owned().await;
             let fingerprinted = tokio::task::spawn_blocking(move || (ledger_fingerprint(&served), served)).await;
             match fingerprinted {
@@ -583,15 +580,49 @@ pub fn start_reload_listener(
             }
         }
         while let Some(request) = rx.recv().await {
-            let mut guard = ledger_for_reload.write().await;
-            let outcome = reload_sender.reload_in_place(&mut guard).await;
+            let mut writer = LedgerWriter::new(ledger_for_reload.clone(), reload_sender.clone()).await;
+            let outcome = writer.reload().await;
+            // the readers wait for the swap only, and no longer once it is done
+            drop(writer);
             // the request that waits for it is answered
             if let Some(reply) = request.reply {
                 reply.send(outcome).ok();
             }
-            drop(guard);
         }
     });
+}
+
+/// Load the served ledger again with `reload` ([`Ledger::reloader`]), as every reload of it does: on a blocking thread,
+/// as it reads files and runs plugins, and with no lock held, so the readers read the ledger served meanwhile. The
+/// fingerprint ([`ledger_fingerprint`]) is computed there too, with the load: with a processor plugin it is a pass over
+/// every directive, which must not run on an async worker. A load that panics does not unwind into the caller, which
+/// left a write without an answer and ended the listener (#492): the blocking task catches the panic, and it is a
+/// failure like an error.
+pub(crate) async fn load_again(reload: impl FnOnce() -> ZhangResult<Ledger> + Send + 'static) -> Result<(Ledger, u64), ReloadFailure> {
+    let loaded = tokio::task::spawn_blocking(move || {
+        reload().map(|reloaded| {
+            let fingerprint = ledger_fingerprint(&reloaded);
+            (reloaded, fingerprint)
+        })
+    });
+    match loaded.await {
+        Ok(Ok(loaded)) => Ok(loaded),
+        Ok(Err(err)) => {
+            error!("error on reload: {}", err);
+            Err(ReloadFailure::from(&err))
+        }
+        Err(failure) => {
+            let message = match failure.try_into_panic() {
+                Ok(panic) => panic_message(panic.as_ref()).to_owned(),
+                Err(failure) => failure.to_string(),
+            };
+            error!("panic on reload, the previous ledger is kept: {}", message);
+            Err(ReloadFailure {
+                file: None,
+                message: format!("panic on reload: {message}"),
+            })
+        }
+    }
 }
 
 /// The fingerprint of what a load produced, the content the generation counts ([`ReloadSender::generation`]):
