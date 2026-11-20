@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
-use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use gotcha::Schematic;
 use serde::Deserialize;
 use zhang_ast::amount::Amount;
-use zhang_ast::Flag;
+use zhang_ast::{Date, Flag};
 
 #[derive(Schematic, Deserialize)]
 #[serde(tag = "type")]
@@ -49,21 +49,35 @@ pub struct StatisticGraphRequest {
 
 /// A date and time of the ledger in a request: its wall-clock time in the ledger's timezone, written without an offset, such
 /// as `2024-01-02T07:00:00`, as every response gives it. An instant with an offset or `Z`, such as `2024-01-01T23:00:00Z`,
-/// what requests took before, is still read: it is the wall-clock time it is in the ledger's timezone.
+/// what requests took before, is still read: it is the wall-clock time it is in the ledger's timezone. A date alone,
+/// `2024-01-02`, is the directive's date without a time: it is written so, as a hand-written entry is, and sorts at
+/// midnight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LedgerDateTime {
     /// a wall-clock time of the ledger's timezone
     WallClock(NaiveDateTime),
     /// an instant
     Instant(DateTime<FixedOffset>),
+    /// a date without a time
+    Date(NaiveDate),
 }
 
 impl LedgerDateTime {
-    /// the wall-clock time this is in the ledger's timezone `timezone`
+    /// the wall-clock time this is in the ledger's timezone `timezone`; midnight for a date alone
     pub fn in_ledger(&self, timezone: &Tz) -> NaiveDateTime {
         match self {
             LedgerDateTime::WallClock(time) => *time,
             LedgerDateTime::Instant(instant) => instant.with_timezone(timezone).naive_local(),
+            LedgerDateTime::Date(date) => date.and_hms_opt(0, 0, 0).expect("midnight exists"),
+        }
+    }
+
+    /// the date of a directive this is, in the ledger's timezone `timezone`: a date alone stays one, written without
+    /// a time
+    pub fn ledger_date(&self, timezone: &Tz) -> Date {
+        match self {
+            LedgerDateTime::Date(date) => Date::Date(*date),
+            _ => Date::Datetime(self.in_ledger(timezone)),
         }
     }
 }
@@ -81,11 +95,14 @@ impl FromStr for LedgerDateTime {
         if let Ok(instant) = DateTime::parse_from_rfc3339(text) {
             return Ok(LedgerDateTime::Instant(instant));
         }
+        if let Ok(date) = NaiveDate::parse_from_str(text, "%Y-%m-%d") {
+            return Ok(LedgerDateTime::Date(date));
+        }
         ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f"]
             .iter()
             .find_map(|format| NaiveDateTime::parse_from_str(text, format).ok())
             .map(LedgerDateTime::WallClock)
-            .ok_or_else(|| format!("invalid date and time {text:?}: write the ledger's wall-clock time as 2024-01-02T07:00:00"))
+            .ok_or_else(|| format!("invalid date and time {text:?}: write the ledger's wall-clock time as 2024-01-02T07:00:00, or a date as 2024-01-02"))
     }
 }
 
@@ -109,7 +126,8 @@ impl Schematic for LedgerDateTime {
     fn doc() -> Option<String> {
         Some(
             "the ledger's wall-clock time, in its timezone, without an offset, as responses give it: `2024-01-02T07:00:00`. An \
-             instant with an offset or `Z` is read too, as the wall-clock time it is in the ledger's timezone"
+             instant with an offset or `Z` is read too, as the wall-clock time it is in the ledger's timezone; a date alone, \
+             `2024-01-02`, is written without a time"
                 .to_string(),
         )
     }
@@ -151,7 +169,8 @@ impl AccountJournalRequest {
 pub struct CreateTransactionRequest {
     /// when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
     /// (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-    /// timezone
+    /// timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+    /// transaction written so: an update keeps it so by sending its date alone
     pub datetime: LedgerDateTime,
     pub payee: String,
     pub flag: Option<FlagRequest>,
@@ -204,7 +223,7 @@ pub struct CreateTransactionPostingRequest {
     pub account: String,
     /// the units of the posting, `null` for the one posting whose units booking infers
     pub unit: Option<UnitRequest>,
-    /// metadata of the posting, checked like the transaction's `metas`
+    /// metadata of the posting, checked like the transaction's `metas`, written in the order given
     pub metas: Option<Vec<MetaRequest>>,
     /// the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
     /// whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
@@ -219,6 +238,11 @@ pub struct CreateTransactionPostingRequest {
     /// comment of the posting it edits, `null` removes it
     #[serde(default, deserialize_with = "given")]
     pub comment: Option<Option<String>>,
+    /// the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
+    /// flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+    /// `null` removes it
+    #[serde(default, deserialize_with = "given")]
+    pub flag: Option<Option<String>>,
 }
 
 /// The units of a posting: an amount, or its text as the ledger writes it, read with the ledger's own grammar, such as
@@ -354,7 +378,32 @@ pub struct PasskeyLoginFinishRequest {
 
 #[cfg(test)]
 mod tests {
-    use super::CreateTransactionPostingRequest;
+    use std::str::FromStr;
+
+    use chrono::NaiveDate;
+    use zhang_ast::Date;
+
+    use super::{CreateTransactionPostingRequest, LedgerDateTime};
+
+    /// A request's date and time is a wall-clock time, an instant, or a date alone, which is written without a time
+    /// and sorts at midnight.
+    #[test]
+    fn a_date_alone_is_read_and_written_without_a_time() {
+        let timezone = chrono_tz::Asia::Shanghai;
+        let date = LedgerDateTime::from_str("2024-01-02").unwrap();
+        assert_eq!(date, LedgerDateTime::Date(NaiveDate::from_ymd_opt(2024, 1, 2).unwrap()));
+        assert_eq!(date.in_ledger(&timezone).to_string(), "2024-01-02 00:00:00");
+        assert_eq!(date.ledger_date(&timezone), Date::Date(NaiveDate::from_ymd_opt(2024, 1, 2).unwrap()));
+        let time = LedgerDateTime::from_str("2024-01-02T07:00:00").unwrap();
+        assert_eq!(time.ledger_date(&timezone), Date::Datetime(time.in_ledger(&timezone)));
+        assert_eq!(
+            LedgerDateTime::from_str("2024-01-01T23:00:00Z").unwrap().in_ledger(&timezone).to_string(),
+            "2024-01-02 07:00:00"
+        );
+        for text in ["20240102", "2024-01-02T07", "soon", ""] {
+            assert!(LedgerDateTime::from_str(text).is_err(), "{text}");
+        }
+    }
 
     /// The cost, price and comment of a request posting left out, `null` or given are told apart (#473): an update
     /// keeps what is left out, removes what is `null` and writes what is given.

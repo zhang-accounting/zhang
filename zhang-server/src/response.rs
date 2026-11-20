@@ -142,7 +142,7 @@ pub struct AccountJournalEntity {
     pub passed: Option<bool>,
 }
 
-#[derive(Serialize, Schematic)]
+#[derive(Serialize, Schematic, Clone)]
 pub struct MetaEntity {
     pub key: String,
     pub value: String,
@@ -167,6 +167,8 @@ pub struct JournalTransactionItemEntity {
     pub flag: String,
     pub is_balanced: bool,
     pub postings: Vec<JournalTransactionPostingEntity>,
+    /// metadata of the transaction, in the order it is written: the keys in the order they first appear, the values of
+    /// a repeated key together, after the first of them
     pub metas: Vec<MetaEntity>,
     /// whether an edit through the API, which rewrites the transaction from its directive, drops text of it: a comment
     /// line between its postings, a comment on its header line or after a metadata line. A client warns before such
@@ -176,6 +178,9 @@ pub struct JournalTransactionItemEntity {
     /// delete names it in `If-Match` to be refused (412) when the id names another text by then. Two transactions
     /// written alike have the same version. `null` for a transaction a plugin made, which cannot be edited
     pub version: Nullable<String>,
+    /// whether the transaction is written with a time of day: `false` for one written with its date alone, whose
+    /// `datetime` is then midnight. An update keeps it so by sending the date alone (`2024-01-02`) as its `datetime`
+    pub has_time: bool,
 }
 #[derive(Serialize, Schematic)]
 pub struct JournalTransactionPostingEntity {
@@ -185,17 +190,22 @@ pub struct JournalTransactionPostingEntity {
     pub inferred_unit: Amount,
     pub account_before: Amount,
     pub account_after: Amount,
-    /// metadata of the posting, sorted by key
+    /// metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
+    /// when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+    /// when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+    /// written
     pub metas: Vec<MetaEntity>,
     /// the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
     /// the entry of a balance check and for a transaction a plugin made
     pub written: Option<WrittenPostingEntity>,
 }
 
-/// What a posting line has besides its account and units, in the ledger's own syntax: the forms the `cost`, `price`
-/// and `comment` of an update request take, so that what is read here can be sent back as it is.
+/// What a posting line has besides its account and units, in the ledger's own syntax: the forms the `flag`, `cost`,
+/// `price` and `comment` of an update request take, so that what is read here can be sent back as it is.
 #[derive(Serialize, Schematic, Clone)]
 pub struct WrittenPostingEntity {
+    /// the flag of the posting, written before its account, such as `!`; `null` for a posting without one
+    pub flag: Option<String>,
     /// the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}`
     pub cost: Option<String>,
     /// the price as written, `@ 6 USD` or `@@ 60 USD`

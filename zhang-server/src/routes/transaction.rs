@@ -13,6 +13,7 @@ use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transac
 use zhang_core::data_source::{append_plan, loaded_file, slashed};
 use zhang_core::data_type::text::exporter::meta_lines_as;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
+use zhang_core::data_type::Dialect;
 use zhang_core::domains::schemas::TransactionInfoDomain;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
@@ -146,12 +147,19 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
             TransactionField::Metas,
             metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta),
         );
-        if let (Some(cost), Some(price), Some(account), Some(meta)) = (cost, price, account, meta) {
+        // a flag left out is the matched posting's, such as `!`, as a cost is; the exporter leaves out one the
+        // ledger's format would not read back, such as a `#` a plugin set in a zhang ledger, where the line would read
+        // back as a comment
+        let flag = fields.check(
+            at,
+            TransactionField::Flag,
+            given(posting.flag, original_posting.and_then(|it| it.flag.clone()), |text| {
+                validate::posting_flag(text, &rules)
+            }),
+        );
+        if let (Some(cost), Some(price), Some(account), Some(meta), Some(flag)) = (cost, price, account, meta, flag) {
             postings.push(Posting {
-                // a request carries no posting flag: the posting it edits keeps its own, such as `!`. The
-                // exporter leaves out one the ledger's format would not read back, such as a `*` a plugin
-                // set in a zhang ledger, where the line would read back as a comment
-                flag: original_posting.and_then(|it| it.flag.clone()),
+                flag,
                 account,
                 units,
                 cost,
@@ -182,9 +190,8 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
         return Err(errors);
     };
 
-    let time = payload.datetime.in_ledger(&ledger.options.timezone);
     Ok(Transaction {
-        date: Date::Datetime(time),
+        date: payload.datetime.ledger_date(&ledger.options.timezone),
         flag: Some(flag),
         payee: Some(ZhangString::quote(payload.payee)),
         narration: payload.narration.map(ZhangString::quote),
@@ -336,6 +343,55 @@ fn check_version(span: &TransactionInfoDomain, versions: Option<&[String]>, relo
     Ok(())
 }
 
+/// `directive`, an update of the transaction written as `original`, as it is to be written: in a beancount ledger, its
+/// time of day is the `time` metadata of the transaction, which the exporter writes after the other metadata, so an
+/// update that sent the transaction back as it was moved the `time` the original had before them. Where the original
+/// has `time` among its metadata, the time is written there ([`written_time_place`]); otherwise, and in a zhang ledger,
+/// which writes the time on the date, as the exporter writes it.
+fn time_in_its_place(directive: Directive, original: &str, ledger: &Ledger) -> Directive {
+    let Directive::Transaction(mut transaction) = directive else {
+        return directive;
+    };
+    let datetime = match (&transaction.date, ledger.dialect) {
+        (Date::Datetime(datetime) | Date::DateHour(datetime), Dialect::Beancount) => *datetime,
+        _ => return Directive::Transaction(transaction),
+    };
+    let Some(place) = written_time_place(original) else {
+        return Directive::Transaction(transaction);
+    };
+    // as the beancount exporter writes it, which leaves a transaction dated without a time as it is
+    let time = ZhangString::QuoteString(datetime.time().format("%H:%M:%S").to_string());
+    transaction.date = Date::Date(datetime.date());
+    transaction.meta.insert_at(place, "time".to_owned(), time);
+    Directive::Transaction(transaction)
+}
+
+/// The place of the `time` metadata among the metadata of `text`, a transaction as a beancount ledger writes it: how
+/// many other keys its metadata lines name before it, those of the lines between the header and the first posting.
+/// `None` when it has no `time` there.
+fn written_time_place(text: &str) -> Option<usize> {
+    let header = transaction_header_len(text)?;
+    let mut keys: Vec<&str> = vec![];
+    for line in text[header..].lines().map(str::trim) {
+        if line.is_empty() || line.starts_with(';') {
+            continue;
+        }
+        // a metadata key of beancount starts with a lowercase letter, an account with an uppercase one
+        let key = line
+            .split_once(':')
+            .map(|(key, _)| key)
+            .filter(|key| key.starts_with(|c: char| c.is_ascii_lowercase()) && key.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')));
+        match key {
+            Some("time") => return Some(keys.len()),
+            Some(key) if !keys.contains(&key) => keys.push(key),
+            Some(_) => {}
+            // the first posting
+            None => break,
+        }
+    }
+    None
+}
+
 /// The id of the transaction an append wrote as `text` at the end of `file`, a file of `ledger` by its path within it,
 /// in `ledger` as loaded since: that of the last transaction of the file with that text, which the append wrote last.
 /// `None` when the load rejected it, which keeps it in no journal.
@@ -426,7 +482,12 @@ fn preview(ledger: &Ledger, payload: CreateTransactionRequest, edits: Option<&Tr
             })
         }
     };
-    let text = ledger.data_source.export(Directive::Transaction(transaction.clone()))?;
+    let exported = Directive::Transaction(transaction.clone());
+    let exported = match edits {
+        Some(span) => time_in_its_place(exported, &span.span.content, ledger),
+        None => exported,
+    };
+    let text = ledger.data_source.export(exported)?;
     let check = ledger.check_transaction(transaction, edits.map(|it| &it.span))?;
     Ok(TransactionPreviewEntity {
         text: Nullable(Some(String::from_utf8_lossy(&text).into_owned())),
@@ -553,7 +614,7 @@ pub async fn update_single_transaction(
     check_version(&span_info, if_match.0.as_deref(), &reload_sender)?;
 
     let trx = requested_transaction(payload, &ledger, original_transaction(&ledger, &span_info))?;
-    let txn_content = ledger.data_source.export(trx)?;
+    let txn_content = ledger.data_source.export(time_in_its_place(trx, &span_info.span.content, &ledger))?;
     let trx_content = String::from_utf8_lossy(&txn_content);
 
     let written = async {
@@ -754,6 +815,7 @@ mod string_round_trip_test {
                     cost: None,
                     price: None,
                     comment: None,
+                    flag: None,
                 },
                 CreateTransactionPostingRequest {
                     account: "Expenses:Food".to_owned(),
@@ -762,6 +824,7 @@ mod string_round_trip_test {
                     cost: None,
                     price: None,
                     comment: None,
+                    flag: None,
                 },
             ],
             metas: vec![MetaRequest {
@@ -1298,7 +1361,11 @@ mod string_round_trip_test {
         assert_eq!(response.status(), StatusCode::OK);
 
         let written = assert_written_text_round_trips(&data_file);
-        assert!(written.contains("  \";path\": \"b\"\n  \"my key\": \"v\"\n"), "{written}");
+        // in the order the request gives it
+        assert!(
+            written.contains("  note: \"n\"\n  \"my key\": \"v\"\n  \";path\": \"b\"\n  \"receipt no\": \"1\"\n"),
+            "{written}"
+        );
         let reloaded = load(&dir).await;
         let (updated, _) = transaction(&reloaded);
         assert_eq!(
@@ -1322,7 +1389,7 @@ mod string_round_trip_test {
 
         let written = assert_written_text_round_trips(&data_file);
         assert!(
-            written.contains("  note: \"note\"\n  Assets:Cash -5 CNY\n    \"my key\": \"say \\\"hi\\\"\"\n    receipt: \"r-1\"\n  Expenses:Food 5 CNY"),
+            written.contains("  note: \"note\"\n  Assets:Cash -5 CNY\n    receipt: \"r-1\"\n    \"my key\": \"say \\\"hi\\\"\"\n  Expenses:Food 5 CNY"),
             "{written}"
         );
         let reloaded = load(&dir).await;
@@ -1331,7 +1398,7 @@ mod string_round_trip_test {
         assert_eq!(items[0]["metas"], serde_json::json!([{"key": "note", "value": "note"}]));
         assert_eq!(
             items[0]["postings"][0]["metas"],
-            serde_json::json!([{"key": "my key", "value": "say \"hi\""}, {"key": "receipt", "value": "r-1"}])
+            serde_json::json!([{"key": "receipt", "value": "r-1"}, {"key": "my key", "value": "say \"hi\""}])
         );
         assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([]));
 
@@ -1529,7 +1596,8 @@ mod string_round_trip_test {
         let items = journals(reloaded).await;
         assert_eq!(
             items[0]["postings"][0]["metas"],
-            serde_json::json!([{"key": "cleared", "value": "FALSE"}, {"key": "day", "value": "2024-01-14"}, {"key": "rate", "value": "3.5"}])
+            // in the order the request gave it
+            serde_json::json!([{"key": "rate", "value": "3.5"}, {"key": "day", "value": "2024-01-14"}, {"key": "cleared", "value": "FALSE"}])
         );
 
         std::fs::remove_dir_all(dir).ok();
@@ -1704,6 +1772,7 @@ mod string_round_trip_test {
                 cost: None,
                 price: None,
                 comment: None,
+                flag: None,
             })
             .collect();
         update
@@ -2206,6 +2275,7 @@ mod string_round_trip_test {
             cost: None,
             price: None,
             comment: None,
+            flag: None,
         }
     }
 
@@ -2611,17 +2681,21 @@ mod string_round_trip_test {
             assert_eq!(buy["postings"][0]["account"], "Assets:Stock", "{main}");
             assert_eq!(
                 buy["postings"][0]["written"],
-                json!({"cost": "{ 5 USD }", "price": "@ 6 USD", "comment": "inline"}),
+                json!({"flag": null, "cost": "{ 5 USD }", "price": "@ 6 USD", "comment": "inline"}),
                 "{main}"
             );
-            assert_eq!(buy["postings"][1]["written"], json!({"cost": null, "price": null, "comment": null}), "{main}");
+            assert_eq!(
+                buy["postings"][1]["written"],
+                json!({"flag": null, "cost": null, "price": null, "comment": null}),
+                "{main}"
+            );
 
             let sale = by_narration("sale");
             assert_eq!(sale["postings"].as_array().unwrap().len(), 3, "{main}");
             assert_eq!(sale["postings"][0]["account"], "Assets:Stock", "{main}");
             assert_eq!(
                 sale["postings"][0]["written"],
-                json!({"cost": "{ }", "price": "@ 7 USD", "comment": null}),
+                json!({"flag": null, "cost": "{ }", "price": "@ 7 USD", "comment": null}),
                 "{main}"
             );
 

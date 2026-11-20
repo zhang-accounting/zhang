@@ -66,10 +66,10 @@ impl ZhangDataTypeExportable for Amount {
 
 impl ZhangDataTypeExportable for Meta {
     type Output = Vec<String>;
+    /// the lines of the metadata in its order ([`Meta::pairs`]): as it was read, or as a request gave it
     fn export_as(self, style: QuoteStyle) -> Vec<String> {
         self.get_flatten()
             .into_iter()
-            .sorted_by(|entry_a, entry_b| entry_a.0.cmp(&entry_b.0))
             .map(|(k, v)| format!("{}: {}", meta_key(k, style), v.export_as(style)))
             .collect_vec()
     }
@@ -1044,6 +1044,7 @@ mod test {
         }
     }
 
+    /// Posting metadata is written under its posting, and every metadata in the order it is written.
     #[test]
     fn posting_meta_is_written_under_its_posting_two_levels_deeper() {
         use zhang_ast::{Directive, SpanInfo, Spanned};
@@ -1061,13 +1062,14 @@ mod test {
                  category: lunch
               a: "transaction too"
         "#};
+        // the metadata in the order it is written
         let expected = indoc! {r#"
             1970-01-01 * "Payee" "Narration"
-              a: "transaction too"
               b: "transaction"
+              a: "transaction too"
               Assets:123 -1 CNY
-                "my key": "say \"hi\""
                 receipt: "r-1"
+                "my key": "say \"hi\""
               Expenses:Food 1 CNY
                 category: lunch
         "#}

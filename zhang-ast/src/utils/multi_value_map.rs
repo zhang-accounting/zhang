@@ -1,18 +1,22 @@
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::hash::Hash;
 
+use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+/// Values by key, a key holding several values. The keys keep the order they were first inserted in, and the values
+/// of a key their order: metadata reads back in the order it is written, and is written in the order it is given,
+/// but for the values of a repeated key, which are kept together, after the first of them. Two maps holding the same
+/// values are equal whatever their order, as maps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiValueMap<Key: Eq + Hash, Value> {
-    inner: HashMap<Key, Vec<Value>>,
+    inner: IndexMap<Key, Vec<Value>>,
 }
 
 impl<Key: Eq + Hash, Value> Default for MultiValueMap<Key, Value> {
     fn default() -> Self {
-        Self { inner: HashMap::new() }
+        Self { inner: IndexMap::new() }
     }
 }
 
@@ -20,6 +24,18 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
     pub fn insert(&mut self, key: Key, value: Value) {
         let key_store = self.inner.entry(key).or_default();
         key_store.push(value);
+    }
+
+    /// insert `value` under `key` as [`insert`](Self::insert) does, with a new key at `place` among the keys (after the
+    /// others when there are fewer) instead of after all of them
+    pub fn insert_at(&mut self, place: usize, key: Key, value: Value) {
+        match self.inner.get_mut(&key) {
+            Some(values) => values.push(value),
+            None => {
+                let place = place.min(self.inner.len());
+                self.inner.shift_insert(place, key, vec![value]);
+            }
+        }
     }
 
     pub fn get_one<Q>(&self, key: &Q) -> Option<&Value>
@@ -37,7 +53,8 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
     {
         let value_len = self.inner.get(key).map(|values| values.len());
         match value_len {
-            Some(1) => self.inner.remove(key).and_then(|mut values| values.pop()),
+            // the keys after it keep their order
+            Some(1) => self.inner.shift_remove(key).and_then(|mut values| values.pop()),
             Some(_) => self.inner.get_mut(key).map(|values| values.remove(0)),
             None => None,
         }
@@ -52,6 +69,7 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
     }
 }
 impl<Key: Hash + Eq + Clone, Value> MultiValueMap<Key, Value> {
+    /// the entries, the keys in their order, each with its values in theirs
     pub fn get_flatten(self) -> Vec<(Key, Value)> {
         self.inner
             .into_iter()
@@ -76,6 +94,24 @@ where
 #[cfg(test)]
 mod test {
     use crate::utils::multi_value_map::MultiValueMap;
+
+    /// The keys keep their order, the values of a repeated key together after the first of them, and a key popped
+    /// whole leaves the others in order; the order does not make two maps different.
+    #[test]
+    fn keys_keep_the_order_they_were_inserted_in() {
+        let mut map: MultiValueMap<&str, i32> = [("b", 1), ("a", 2), ("c", 3), ("a", 4)].into_iter().collect();
+        assert_eq!(map.clone().get_flatten(), vec![("b", 1), ("a", 2), ("a", 4), ("c", 3)]);
+        assert_eq!(map.pop_one("b"), Some(1));
+        assert_eq!(map.clone().get_flatten(), vec![("a", 2), ("a", 4), ("c", 3)]);
+        let reordered: MultiValueMap<&str, i32> = [("c", 3), ("a", 2), ("a", 4)].into_iter().collect();
+        assert_eq!(map, reordered);
+
+        // a new key in a place of its own, a known one with the others of its key
+        map.insert_at(1, "z", 5);
+        map.insert_at(0, "c", 6);
+        map.insert_at(9, "y", 7);
+        assert_eq!(map.get_flatten(), vec![("a", 2), ("a", 4), ("z", 5), ("c", 3), ("c", 6), ("y", 7)]);
+    }
 
     #[test]
     fn should_insert() {

@@ -89,8 +89,8 @@ fn posting_metadata_round_trips_through_the_beancount_exporter() {
         "    receipt: \"say \\\"hi\\\" \\\\ back\"\n",
         "  Expenses:Food 6 CNY\n",
         "  Expenses:Drinks 4 CNY\n",
-        "    note: \"after\"\n",
-        "    rate: 1.5",
+        "    rate: 1.5\n",
+        "    note: \"after\"",
     );
     let exported = Beancount::default().export(Spanned::new(Directive::Transaction(original.clone()), SpanInfo::default()));
     assert_eq!(exported, expected);

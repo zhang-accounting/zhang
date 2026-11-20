@@ -25,10 +25,10 @@ use std::str::FromStr;
 use axum::response::{IntoResponse, Response};
 use bigdecimal::BigDecimal;
 use zhang_ast::amount::Amount;
-use zhang_ast::{booked_group_units, written_groups, Account, Directive, Meta, PostingCost, SingleTotalPrice};
+use zhang_ast::{booked_group_units, written_groups, Account, Directive, Flag, Meta, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
-    is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
-    read_posting_price, NotRead,
+    is_flag_char, is_posting_flag_char, is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number,
+    read_posting_amount, read_posting_cost, read_posting_price, NotRead,
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
@@ -399,6 +399,29 @@ pub fn meta_key(key: &str, rules: &Rules) -> Checked<()> {
         ));
     }
     Ok(())
+}
+
+/// Parse the flag of a posting, written before its account: one character the ledger reads back as a posting's flag,
+/// `*`, `!`, `&`, `?`, `%` or an uppercase ASCII letter, and in a beancount ledger `#` too, which a zhang ledger reads
+/// as the start of a comment.
+pub fn posting_flag(flag: &str, rules: &Rules) -> Checked<Flag> {
+    let mut chars = flag.chars();
+    let readable = match (chars.next(), chars.next(), rules) {
+        (Some(c), None, Rules::Zhang) => is_posting_flag_char(c),
+        (Some(c), None, Rules::Beancount(_)) => is_flag_char(c),
+        _ => false,
+    };
+    match readable {
+        true => Ok(Flag::from_str(flag).expect("a flag character is a flag")),
+        false => Err(invalid(
+            InvalidKind::InvalidFlag,
+            flag,
+            match rules {
+                Rules::Zhang => "the flag of a posting is `*`, `!`, `&`, `?`, `%` or an uppercase ASCII letter",
+                Rules::Beancount(_) => "the flag of a posting is `*`, `!`, `#`, `&`, `?`, `%` or an uppercase ASCII letter",
+            },
+        )),
+    }
 }
 
 pub fn flag(flag: &str) -> Checked<()> {
