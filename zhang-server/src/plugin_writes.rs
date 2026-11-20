@@ -400,14 +400,44 @@ fn file_of(ledger: &Ledger, datetime: Option<chrono::NaiveDateTime>, directive_t
 }
 
 /// `directive` as the ledger's format writes it, counted into `text_len`, the text of the batch so far: over
-/// [`MAX_TEXT_LEN`] the batch is refused here, before the ledger checks this entry or sees the next
+/// [`MAX_TEXT_LEN`] the batch is refused here, before the ledger checks this entry or sees the next.
+///
+/// Its numbers are bounded first ([`numbers_bounded`]), so the export is never larger than a few times the batch's
+/// input, which the host capped at a mebibyte: exporting writes a number out in full, a digit for each step of its
+/// exponent, and `1e300000000` alone would be 300 MB of text before the length could be checked
 fn text_of(ledger: &Ledger, directive: Directive, text_len: &mut usize) -> Result<String, HostError> {
+    numbers_bounded(&directive).map_err(|refused| invalid(refused.message))?;
     let bytes = ledger.data_source.export(directive).map_err(export_failed)?;
     *text_len += bytes.len();
     if *text_len > MAX_TEXT_LEN {
         return Err(invalid(format!("the text of the batch is over the limit of {MAX_TEXT_LEN} bytes")));
     }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Check that every number `directive` writes is within the bound of a request's numbers ([`validate::number`]):
+/// the units, the cost and its compound total, and the price of each posting. The validation of an entry refuses
+/// such a number already, as a field error; this keeps an export from ever running on one
+fn numbers_bounded(directive: &Directive) -> Result<(), Invalid> {
+    let Directive::Transaction(transaction) = directive else {
+        return Ok(());
+    };
+    for posting in &transaction.postings {
+        let cost = posting.cost.as_ref();
+        let price = posting.price.as_ref().map(|price| match price {
+            zhang_ast::SingleTotalPrice::Single(amount) | zhang_ast::SingleTotalPrice::Total(amount) => amount,
+        });
+        let amounts = [posting.units.as_ref(), cost.and_then(|cost| cost.base.as_ref()), price];
+        for number in amounts
+            .into_iter()
+            .flatten()
+            .map(|amount| &amount.number)
+            .chain(cost.and_then(|cost| cost.compound_total.as_ref()))
+        {
+            validate::number(number)?;
+        }
+    }
+    Ok(())
 }
 
 /// the `field_errors` of an entry, as `POST /api/transactions/preview` lists them, and the first as the problem
@@ -823,6 +853,40 @@ mod test {
             "the ledger's directive_output_path option \"../elsewhere/{{year}}.zhang\" puts this open directive outside the ledger's directory"
         );
         assert!(!message.contains(&ledger.entry.0.display().to_string()), "{message}");
+    }
+
+    /// A number written out has a digit for each step of its exponent, so a plugin's `1e300000000` would be 300 MB
+    /// of text: it is a field error of its posting, as `POST /api/transactions/preview` answers it (#820), and the
+    /// export never runs on it, the batch's length checked on text that is bounded (#803 review)
+    #[test]
+    fn a_number_with_a_huge_exponent_is_refused_before_anything_is_exported() {
+        let scratch = Scratch::zhang(LEDGER);
+        let ledger = scratch.ledger().unwrap();
+        let started = std::time::Instant::now();
+
+        let answer = ok(
+            &ledger,
+            json!([{"kind": "transaction", "datetime": "2026-10-13", "payee": "x",
+                "postings": [{"account": "Expenses:Food", "unit": {"number": "1e300000000", "commodity": "USD"}}, {"account": "Assets:Cash"}],
+                "tags": [], "links": [], "metas": []}]),
+        );
+
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["entries"][0]["text"], Value::Null);
+        assert_eq!(answer["entries"][0]["field_errors"][0]["kind"], "invalid_amount", "{answer}");
+        assert_eq!(answer["entries"][0]["field_errors"][0]["value"], "1e300000000");
+        // and the guard of the export itself, for a directive that skipped the validation
+        use zhang_core::data_type::DataType;
+        let parsed = zhang_core::data_type::text::ZhangDataType {}
+            .transform("2026-10-13 * \"x\"\n  Expenses:Food 1 USD\n  Assets:Cash\n".to_owned(), None)
+            .unwrap();
+        let zhang_ast::Directive::Transaction(mut transaction) = parsed.into_iter().next().unwrap().data else {
+            panic!("a transaction")
+        };
+        transaction.postings[0].units = Some(zhang_ast::amount::Amount::new("1e300000000".parse().unwrap(), "USD"));
+        let refused = super::text_of(&ledger, zhang_ast::Directive::Transaction(transaction), &mut 0).unwrap_err();
+        assert!(refused.message.contains("number out of range"), "{}", refused.message);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
     #[test]
