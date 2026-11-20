@@ -949,6 +949,32 @@ fn a_plugin_makes_no_http_request_while_it_registers() {
     assert!(error.contains(zhang_core::plugin::net::REGISTERING_REFUSED), "{error}");
 }
 
+/// Two errors of one kind at one directive have ids of their own (seen live: the reduced hosts and the reduced timeout
+/// of one plugin directive shared an id), as do those of two directives
+#[test]
+fn the_reductions_of_one_directive_and_of_two_have_ids_of_their_own() {
+    let dir = ledger_dir(&["router.wat", "echo.wat"]);
+    let content = with_plugins(&format!(
+        "{}  allowed_hosts: \"api.example.com\"\n  timeout: \"2m\"\n{}  timeout: \"3m\"\n",
+        plugin(&dir, "router.wat"),
+        plugin(&dir, "echo.wat")
+    ));
+
+    let ledger = load_with_policy(&dir, &content, PluginPolicy::default()).unwrap();
+
+    let reduced: Vec<(&str, &str)> = ledger
+        .errors
+        .iter()
+        .filter(|error| error.error_type == ErrorKind::PluginCapabilityReduced)
+        .map(|error| (error.metas["capability"].as_str(), error.id.as_str()))
+        .collect();
+    assert_eq!(
+        reduced.iter().map(|(capability, _)| *capability).collect_vec(),
+        ["allowed_hosts", "timeout", "timeout"]
+    );
+    assert_eq!(reduced.iter().map(|(_, id)| *id).unique().count(), 3, "{reduced:?}");
+}
+
 #[test]
 fn router_reads_the_ledger_through_host_functions_only_while_routing() {
     // loading proves the processor got an `Err` from both host functions: it traps otherwise

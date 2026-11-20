@@ -994,14 +994,14 @@ fn errors_identify_their_directive() {
         let text = std::fs::read_to_string(dir.join(file)).unwrap();
         let (start, end) = (start.parse::<usize>().unwrap(), end.parse::<usize>().unwrap());
         assert_eq!(text[start..end].trim_end(), source, "{:?}", error);
-        // the id of an error in a transaction is the transaction's
+        // an error has an id of its own, and one in a transaction names the transaction in `txn_id`
         assert_eq!(id.len(), 36, "{:?}", error);
-        if txn_id != "NULL" {
-            assert_eq!(id, txn_id, "{:?}", error);
-        }
+        assert_ne!(id, txn_id, "{:?}", error);
     }
-    // the id of an error in a transaction is the `id` of its postings
-    let unbalanced = run(&ledger, "SELECT id FROM #errors WHERE kind = 'UnbalancedTransaction'");
+    let ids: std::collections::HashSet<&String> = errors.iter().map(|error| &error[1]).collect();
+    assert_eq!(ids.len(), errors.len(), "no two errors share an id");
+    // the `txn_id` of an error in a transaction is the `id` of its postings
+    let unbalanced = run(&ledger, "SELECT meta('txn_id') FROM #errors WHERE kind = 'UnbalancedTransaction'");
     assert_eq!(run(&ledger, "SELECT DISTINCT id FROM #postings WHERE narration = 'unbalanced'"), unbalanced);
 }
 
@@ -1014,7 +1014,7 @@ const TWO_ERRORS: &str = r#"
 "#;
 
 #[test]
-fn errors_of_one_directive_share_its_id_and_span() {
+fn errors_of_one_directive_share_its_span_and_have_ids_of_their_own() {
     let ledger = zhang_testkit::ledger::load_text(TWO_ERRORS);
     let start = TWO_ERRORS.find("2024-01-02").unwrap();
     let end = TWO_ERRORS.trim_end().len();
@@ -1024,8 +1024,12 @@ fn errors_of_one_directive_share_its_id_and_span() {
         vec![span("AccountDoesNotExist"), span("UnbalancedTransaction")]
     );
     let ids = run(&ledger, "SELECT DISTINCT id FROM #errors");
-    assert_eq!(ids, run(&ledger, "SELECT DISTINCT id FROM #postings"));
-    assert_eq!(ids.len(), 1);
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    let transaction = run(&ledger, "SELECT DISTINCT id FROM #postings");
+    assert!(
+        ids.iter().all(|id| !transaction.contains(id)),
+        "an error's id is not its transaction's: {ids:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------------------

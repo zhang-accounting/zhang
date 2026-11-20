@@ -1285,10 +1285,14 @@ fn d2_errors_have_the_store_id_and_the_byte_span_of_their_directive() {
         assert!(start < end && end <= text.len(), "{}: {}..{} in {} bytes", kind, start, end, text.len());
         assert_eq!(text[start..end].trim_end(), row[5], "the bytes of the span of {}", kind);
     }
-    // the id of a transaction's error matches what zhang recorded with it
+    // a transaction's error has an id of its own, and names the transaction in `txn_id`
     assert_eq!(
         query(errors_ledger(), "SELECT id = meta('txn_id') FROM #errors WHERE kind = 'UnbalancedTransaction'"),
-        rows(&[&["TRUE"]])
+        rows(&[&["FALSE"]])
+    );
+    assert_eq!(
+        query(errors_ledger(), "SELECT meta('txn_id') FROM #errors WHERE kind = 'UnbalancedTransaction'"),
+        query(errors_ledger(), "SELECT DISTINCT id FROM #postings WHERE narration = 'unbalanced'")
     );
     // spans are integers to compute with, e.g. the length of the directive
     assert_eq!(

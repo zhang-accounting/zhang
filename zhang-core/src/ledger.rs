@@ -19,7 +19,7 @@ use crate::constants::{COMMODITY_GROUP, TXN_ID};
 use crate::data_source::{DataSource, MissingInclude};
 use crate::data_type::Dialect;
 use crate::derived::Derived;
-use crate::domains::schemas::{AccountStatus, CommodityDomain, ErrorDomain, QueryDomain, TransactionInfoDomain};
+use crate::domains::schemas::{identify_errors, AccountStatus, CommodityDomain, ErrorDomain, QueryDomain, TransactionInfoDomain};
 use crate::error::IoErrorIntoZhangError;
 use crate::inputs::ExtraInput;
 use crate::inventory::BookingMethod;
@@ -406,6 +406,7 @@ impl Ledger {
         self.metas = metas;
         self.directives = dated;
         self.place_errors();
+        identify_errors(&mut self.errors);
 
         if !self.errors.is_empty() {
             error!("Ledger loaded with {} error", self.errors.len());
@@ -1420,6 +1421,40 @@ mod test {
         std::fs::write(example, content).unwrap();
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
+    }
+
+    /// No two errors of a load share an id, two of one kind at one directive included, and a reload of the same files
+    /// gives each error the id it had (before, an error's id was its directive's, so the errors of one directive shared
+    /// it, and an id named no error)
+    #[test]
+    fn every_error_has_an_id_of_its_own_that_a_reload_keeps() {
+        let mut ledger = load_from_temp_str(indoc! {r#"
+            option "operating_currency" "USD"
+            1970-01-01 open Assets:Cash
+            2024-01-02 * "lunch"
+              Expenses:Missing 1 USD
+              Equity:Missing -1 USD
+            2024-01-03 * "dinner"
+              Expenses:Missing 2 USD
+              Assets:Cash -2 USD
+        "#});
+        let ids = |ledger: &Ledger| ledger.errors.iter().map(|it| (it.error_type.clone(), it.id.clone())).collect::<Vec<_>>();
+        let first = ids(&ledger);
+        assert!(first.len() >= 3, "{first:?}");
+        assert_eq!(
+            first.iter().filter(|(kind, _)| *kind == ErrorKind::AccountDoesNotExist).count(),
+            3,
+            "two at the lunch, one at the dinner: {first:?}"
+        );
+        let unique: std::collections::HashSet<&String> = first.iter().map(|(_, id)| id).collect();
+        assert_eq!(unique.len(), first.len(), "{first:?}");
+        // an error id is no directive's id
+        for (id, _) in ledger.transactions() {
+            assert!(!unique.contains(&id.to_string()), "{first:?}");
+        }
+
+        ledger.reload().unwrap();
+        assert_eq!(ids(&ledger), first);
     }
 
     #[test]

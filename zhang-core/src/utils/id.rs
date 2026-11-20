@@ -12,6 +12,9 @@ pub trait FromSpan {
     /// the `n`-th id derived from `id` for another directive at the same place, in a space of its own: it is no
     /// posting id ([`FromSpan::from_txn_posting`]) of a transaction with `id`
     fn derived(id: &Uuid, n: usize) -> Uuid;
+    /// the id of the `n`-th error (counting from 0) of the kind `kind` reported at `span`, in a space of its own: it
+    /// is no id of a directive
+    fn of_error(span: &SpanInfo, kind: &str, n: usize) -> Uuid;
 }
 
 impl FromSpan for Uuid {
@@ -28,6 +31,12 @@ impl FromSpan for Uuid {
 
     fn derived(id: &Uuid, n: usize) -> Uuid {
         let string = digest(format!("{}#{}", id, n));
+        Uuid::from_str(&string[0..32]).expect("invalid uuid")
+    }
+
+    fn of_error(span: &SpanInfo, kind: &str, n: usize) -> Uuid {
+        let file = span.filename.as_ref().and_then(|buf| buf.to_str()).unwrap_or(DEFAULT_PATH);
+        let string = digest(format!("error:{}-{}:{}#{}", file, span.start, kind, n));
         Uuid::from_str(&string[0..32]).expect("invalid uuid")
     }
 }

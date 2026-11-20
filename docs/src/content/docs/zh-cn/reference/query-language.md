@@ -983,7 +983,7 @@ GROUP BY name
 - `file` 是引发错误的指令所在的文件，路径相对于账本目录，与网页界面的文件列表一致。`source` 是该指令的文本。`line` 和 `column` 是该指令开始的行号和列号，从 1 起算，列号按字符计；指令不是从文件读取的（例如插件生成的）时，两者为 `NULL`。
 - `date` 是该指令的日期；没有日期的指令（例如 `option`）为 `NULL`。`account` 是错误涉及的账户，只有指明了账户的错误才有，例如 `AccountDoesNotExist`、`AccountClosed` 和 `AccountBalanceCheckError`。
 - `meta(key)` 读取张记账为错误记录的其他信息，`metas` 列出全部信息。交易中的错误，`meta('txn_id')` 是该交易的 `id`，与 postings 表中的一致。分录引用了未定义的预算时，有 `meta('budget_name')`。
-- `id` 是错误在 `GET /api/errors` 中的 id，`span_start` 和 `span_end` 是引发错误的指令在其文件中开始和结束的位置（字节偏移）。id 由指令的位置得出，因此同一条指令的错误共用一个 id，交易中的错误的 id 就是该交易的 `id`。
+- `id` 是错误在 `GET /api/errors` 中的 id，`span_start` 和 `span_end` 是引发错误的指令在其文件中开始和结束的位置（字节偏移）。任何两个错误的 id 都不相同，同一条指令的两个错误也不例外；同样的文件再次加载时，错误的 id 保持不变。交易中的错误用 `meta('txn_id')` 指明该交易。
 - 各行先按文件、再按在文件中的位置排列。`SELECT *` 是 `SELECT file, date, kind, account, message` 的简写。
 
 | 列 | 类型 | 说明 |

@@ -983,7 +983,7 @@ GROUP BY name
 - `file` is the file of the directive that caused the error, relative to the ledger's directory, as in the web UI's file list. `source` is the text of that directive. `line` and `column` are where the directive starts, 1-based; the column counts characters. Both are `NULL` for a directive that was not read from a file, such as one a plugin made up.
 - `date` is the date of the directive, or `NULL` for an undated one such as an `option`. `account` is the account the error is about, for errors that name one, such as `AccountDoesNotExist`, `AccountClosed` and `AccountBalanceCheckError`.
 - `meta(key)` reads the other details Zhang records about an error, and `metas` lists them all. For an error in a transaction, `meta('txn_id')` is the transaction's `id` in the postings table. Undefined budgets referenced by a posting have `meta('budget_name')`.
-- `id` is the id of the error in `GET /api/errors`, and `span_start` and `span_end` are where the directive that caused it starts and ends in its file, as byte offsets. The id is derived from the directive's position, so the errors of one directive share it, and an error in a transaction has the transaction's `id`.
+- `id` is the id of the error in `GET /api/errors`, and `span_start` and `span_end` are where the directive that caused it starts and ends in its file, as byte offsets. No two errors share an id, two errors of one directive included, and an error keeps its id from one load of the same files to the next. An error in a transaction names it in `meta('txn_id')`.
 - Rows are ordered by file, then by position in the file. `SELECT *` is short for `SELECT file, date, kind, account, message`.
 
 | Column | Type | Description |

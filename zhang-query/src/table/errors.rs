@@ -23,8 +23,9 @@
 //!   for errors of a transaction, or `meta('budget_name')`.
 //! - **Which error it is.** `id` is the id zhang gives the error, the `id` of `/api/errors`, and
 //!   `span_start` and `span_end` are the byte offsets of the directive in its file, as the UI
-//!   uses them to open and edit it. The id is derived from the directive's position, so the
-//!   errors of one directive share it.
+//!   uses them to open and edit it. No two errors share an id, two of one directive included,
+//!   and an error keeps its id from one load of the same files to the next; `meta('txn_id')`
+//!   names the transaction of an error in one.
 //!
 //! An error without a file would come first, as `NULL` sorts first.
 //! `SELECT *` gives `file`, `date`, `kind`, `account` and `message`.
@@ -255,7 +256,7 @@ static COLUMNS: &[ColumnDef] = &[
     ColumnDef::record(
         "id",
         DataType::Str,
-        "Id of the error, the id of GET /api/errors; the errors of one directive share it.",
+        "Id of the error, the id of GET /api/errors: no two errors share it, and an error keeps it from one load of the same files to the next.",
         |_, record| ledger_error(record).map_or(Value::Null, |it| Value::Str(it.error.id.clone())),
     ),
     ColumnDef::record(
