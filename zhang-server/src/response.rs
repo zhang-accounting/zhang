@@ -235,6 +235,20 @@ pub struct JournalBalanceCheckItemEntity {
     pub passed: bool,
 }
 
+/// The transaction `POST /api/transactions` or `PUT /api/transactions/{transaction_id}` wrote, in the ledger reloaded
+/// before the answer.
+#[derive(Serialize, Schematic)]
+pub struct WrittenTransactionEntity {
+    /// The id of the transaction written, in the ledger as reloaded before this answer: `GET /api/journals` lists it
+    /// under this id, and `PUT` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
+    /// derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
+    /// file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
+    /// ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
+    /// load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
+    /// but in no journal
+    pub id: Nullable<Uuid>,
+}
+
 /// What `POST /api/transactions` or `PUT /api/transactions/{transaction_id}` would write for a request, found without
 /// writing it: `POST /api/transactions/preview` and `POST /api/transactions/{transaction_id}/preview`.
 #[derive(Serialize, Schematic)]

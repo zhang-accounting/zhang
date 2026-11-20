@@ -9,12 +9,13 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Transaction, ZhangString};
-use zhang_core::data_source::loaded_file;
+use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction, ZhangString};
+use zhang_core::data_source::{append_plan, loaded_file, slashed};
 use zhang_core::data_type::text::exporter::meta_lines_as;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
 use zhang_core::domains::schemas::TransactionInfoDomain;
 use zhang_core::ledger::Ledger;
+use zhang_core::outcome::Detail;
 use zhang_core::utils::string_::{QuoteStyle, StringExt};
 use zhang_core::ZhangError;
 
@@ -23,10 +24,10 @@ use crate::error::ServerError;
 use crate::request::{CreateTransactionRequest, JournalRequest, MetaRequest, UnitRequest};
 use crate::response::{
     JournalItemEntity, Nullable, Pageable, ResponseWrapper, TransactionField, TransactionFieldErrorEntity, TransactionPreviewEntity,
-    TransactionPreviewErrorEntity,
+    TransactionPreviewErrorEntity, WrittenTransactionEntity,
 };
 use crate::routes::query::with_ledger;
-use crate::state::{wrote, SharedLedger, SharedReloadSender};
+use crate::state::{wrote, wrote_and_reloaded, SharedLedger, SharedReloadSender};
 use crate::validate::{Checked, Invalid};
 use crate::{journals, validate, ApiResult, ServerResult};
 
@@ -274,17 +275,60 @@ fn original_transaction<'a>(ledger: &'a Ledger, span: &TransactionInfoDomain) ->
     journals::written_transaction(ledger, &span.span)
 }
 
+/// Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
+/// of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
+/// gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
 #[api(group = "transaction")]
 pub async fn create_new_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, Json(payload): Json<CreateTransactionRequest>,
-) -> ApiResult<String> {
+) -> ApiResult<WrittenTransactionEntity> {
     let mut ledger = ledger.for_writing(&reload_sender).await?;
 
     let trx = requested_transaction(payload, &ledger, None)?;
+    // the file the transaction goes to, and its text there, the last of what the append writes
+    let (file, written) = append_plan(&ledger, vec![trx.clone()])?.pop().expect("an append writes its directive");
+    let text = ledger.data_source.export(written)?;
 
     let appended = ledger.data_source.append(&ledger, vec![trx]);
-    wrote(&mut ledger, &reload_sender, appended.map_err(ServerError::from))?;
-    ResponseWrapper::json("Ok".to_string())
+    let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, appended.map_err(ServerError::from)).await?;
+    let id = reloaded
+        .then(|| appended_transaction(&ledger, &file, &String::from_utf8_lossy(&text)))
+        .flatten();
+    ResponseWrapper::json(WrittenTransactionEntity { id: Nullable(id) })
+}
+
+/// The id of the transaction an append wrote as `text` at the end of `file`, a file of `ledger` by its path within it,
+/// in `ledger` as loaded since: that of the last transaction of the file with that text, which the append wrote last.
+/// `None` when the load rejected it, which keeps it in no journal.
+fn appended_transaction(ledger: &Ledger, file: &str, text: &str) -> Option<Uuid> {
+    let text = text.trim_end_matches(['\n', '\r']);
+    let appended = ledger
+        .directives
+        .iter()
+        .filter(|it| matches!(it.data, Directive::Transaction(_)) && it.span.content == text && in_file(ledger, it, file))
+        .max_by_key(|it| it.span.start)?;
+    transaction_at(ledger, file, appended.span.start)
+}
+
+/// whether `directive` was read from `file`, a file of `ledger` by its path within it
+fn in_file(ledger: &Ledger, directive: &Spanned<Directive>, file: &str) -> bool {
+    let within = directive.span.filename.as_deref().and_then(|it| ledger.path_in_ledger(it));
+    within.is_some_and(|it| slashed(&it) == file)
+}
+
+/// The id of the transaction `ledger` stores from the text starting at `start` in `file`, by its path within the
+/// ledger. Of the transactions sharing that place, as a plugin can emit beside one of the ledger's, the one processed
+/// first, which has the id of the place itself; all of them edit the same text. `None` when the load rejected it.
+fn transaction_at(ledger: &Ledger, file: &str, start: usize) -> Option<Uuid> {
+    let at = ledger
+        .directives
+        .iter()
+        .zip(&ledger.outcomes)
+        .filter_map(|(directive, outcome)| match &outcome.detail {
+            Detail::Transaction { id, .. } if directive.span.start == start && in_file(ledger, directive, file) => Some((outcome.seq, *id)),
+            _ => None,
+        });
+    at.min_by_key(|(seq, _)| *seq).map(|(_, id)| id)
 }
 
 /// What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
@@ -444,10 +488,12 @@ fn insert_transaction_metas(content: &mut String, span_start: usize, span_end: u
     }
 }
 
+/// Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
+/// answer, which gives the transaction's id in it: an update keeps it, as the transaction stays where it was.
 #[api(group = "transaction")]
 pub async fn update_single_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, Json(payload): Json<CreateTransactionRequest>,
-) -> ApiResult<()> {
+) -> ApiResult<WrittenTransactionEntity> {
     let transaction_id = transaction_id(&path.0 .0)?;
     let mut ledger = ledger.for_writing(&reload_sender).await?;
 
@@ -470,12 +516,13 @@ pub async fn update_single_transaction(
         content
             .text
             .replace_by_span(&SpanInfo::simple(span_info.span_start, span_info.span_end), &trx_content);
-        ledger.data_source.save(&ledger, source_file_path, &content.into_bytes())?;
+        ledger.data_source.save(&ledger, source_file_path.clone(), &content.into_bytes())?;
         ServerResult::Ok(())
     }
     .await;
-    wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
-    ResponseWrapper::json(())
+    let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
+    let id = reloaded.then(|| transaction_at(&ledger, &source_file_path, span_info.span_start)).flatten();
+    ResponseWrapper::json(WrittenTransactionEntity { id: Nullable(id) })
 }
 
 /// Refuse to edit the stored transaction at `span` as a transaction when its text is another directive's: the
