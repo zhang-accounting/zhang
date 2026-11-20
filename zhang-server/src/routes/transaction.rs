@@ -29,7 +29,7 @@ use crate::response::{
 use crate::routes::query::with_ledger;
 use crate::state::{wrote_and_reloaded, SharedLedger, SharedReloadSender};
 use crate::validate::{Checked, Invalid};
-use crate::{journals, validate, ApiResult, ServerResult};
+use crate::{journals, validate, ApiResult, ReloadSender, ServerResult};
 
 /// The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
 /// among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
@@ -294,7 +294,9 @@ pub async fn create_new_transaction(
     let id = reloaded
         .then(|| appended_transaction(&ledger, &file, &String::from_utf8_lossy(&text)))
         .flatten();
-    ResponseWrapper::json(written_transaction(&ledger, id))
+    let written = written_transaction(&ledger, id);
+    answered(&reload_sender, &written);
+    ResponseWrapper::json(written)
 }
 
 /// What a create or an update answers for the transaction `id` it wrote, `None` when it is in no journal: its id and
@@ -307,17 +309,31 @@ fn written_transaction(ledger: &Ledger, id: Option<Uuid>) -> WrittenTransactionE
     }
 }
 
-/// Refuse with a 412 a write to the stored transaction at `span` whose `If-Match` header does not name its version
-/// (`allows`): the transaction changed since the client read it, or another one took its place, and its id.
-fn check_version(span: &TransactionInfoDomain, allows: impl FnOnce(Option<&str>) -> bool) -> ServerResult<()> {
-    match allows(journals::transaction_version(&span.span).as_deref()) {
-        true => Ok(()),
-        false => Err(ServerError::PreconditionFailed(format!(
+/// Refuse with a 412 a write to the stored transaction at `span` whose `If-Match` header names `versions`, `None`
+/// without the header: when they do not name its version, as it changed since the client read it, or another one took
+/// its place and its id; and when they name a version of the transaction at its id the server deleted or replaced
+/// lately ([`crate::tombstones`]), as another one written alike took its place and its id, a twin which the request,
+/// sent again or sent with the write that removed the first, must not write.
+fn check_version(span: &TransactionInfoDomain, versions: Option<&[String]>, reload_sender: &ReloadSender) -> ServerResult<()> {
+    let Some(versions) = versions else { return Ok(()) };
+    let current = journals::transaction_version(&span.span);
+    let Some(current) = current.filter(|current| versions.contains(current)) else {
+        return Err(ServerError::PreconditionFailed(format!(
             "the transaction {} is not the version the If-Match header names: it changed since it was read, or another \
              transaction took its place and its id, so nothing was written. Reopen the journal, and try again",
             span.id
-        ))),
+        )));
+    };
+    let id = Uuid::from_str(&span.id).expect("the id of a transaction");
+    if reload_sender.tombstones().contains(id, &current) {
+        return Err(ServerError::PreconditionFailed(format!(
+            "the transaction {} of the version the If-Match header names was deleted or replaced lately, and another \
+             transaction written alike took its place and its id, so nothing was written: a request sent again must not \
+             write that one. Reopen the journal; to write that one, edit it without If-Match first",
+            span.id
+        )));
     }
+    Ok(())
 }
 
 /// The id of the transaction an append wrote as `text` at the end of `file`, a file of `ledger` by its path within it,
@@ -368,9 +384,11 @@ pub async fn preview_new_transaction(ledger: State<SharedLedger>, Json(payload):
 /// and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
 #[api(group = "transaction")]
 pub async fn preview_transaction_update(
-    ledger: State<SharedLedger>, path: Path<(String,)>, if_match: IfMatch, Json(payload): Json<CreateTransactionRequest>,
+    ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, if_match: IfMatch,
+    Json(payload): Json<CreateTransactionRequest>,
 ) -> ApiResult<TransactionPreviewEntity> {
     let transaction_id = transaction_id(&path.0 .0)?;
+    let reload_sender = reload_sender.0 .0;
     ResponseWrapper::json(
         with_ledger(&ledger.0, move |ledger| {
             let span = ledger.transaction_span(&transaction_id);
@@ -378,7 +396,7 @@ pub async fn preview_transaction_update(
             // the update refuses a transaction in no file of the ledger, and the padding of a pad
             editable_file(ledger, &span)?;
             written_as_transaction(ledger, &span)?;
-            check_version(&span, |version| if_match.allows(version))?;
+            check_version(&span, if_match.0.as_deref(), &reload_sender)?;
             preview(ledger, payload, Some(&span))
         })
         .await?,
@@ -532,7 +550,7 @@ pub async fn update_single_transaction(
     };
     let source_file_path = editable_file(&ledger, &span_info)?;
     written_as_transaction(&ledger, &span_info)?;
-    check_version(&span_info, |version| if_match.allows(version))?;
+    check_version(&span_info, if_match.0.as_deref(), &reload_sender)?;
 
     let trx = requested_transaction(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
@@ -551,8 +569,22 @@ pub async fn update_single_transaction(
     }
     .await;
     let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
+    // the version replaced is a tombstone, unless the update wrote the same text
+    if let Some(replaced) = journals::transaction_version(&span_info.span).filter(|_| span_info.span.content != trx_content.trim_end_matches(['\n', '\r'])) {
+        reload_sender.tombstones().add(transaction_id, replaced);
+    }
     let id = reloaded.then(|| transaction_at(&ledger, &source_file_path, span_info.span_start)).flatten();
-    ResponseWrapper::json(written_transaction(&ledger, id))
+    let written = written_transaction(&ledger, id);
+    answered(&reload_sender, &written);
+    ResponseWrapper::json(written)
+}
+
+/// Forget the tombstone of the transaction a create or an update answers, `written`: the server wrote it, and the
+/// client names it with the id and the version it got ([`crate::tombstones`])
+fn answered(reload_sender: &ReloadSender, written: &WrittenTransactionEntity) {
+    if let (Some(id), Some(version)) = (&written.id.0, &written.version.0) {
+        reload_sender.tombstones().remove(*id, version);
+    }
 }
 
 /// Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
@@ -563,7 +595,9 @@ pub async fn update_single_transaction(
 /// The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
 /// the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
 /// the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
-/// without the version would delete that one.
+/// without the version would delete that one. When that one is written alike, with the same version, the server
+/// remembers that it deleted that version at that id lately (in memory, for a day): a delete or an update naming it is
+/// a 412 too.
 #[api(group = "transaction")]
 pub async fn delete_single_transaction(
     ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>, if_match: RequiredIfMatch,
@@ -577,7 +611,7 @@ pub async fn delete_single_transaction(
     };
     let source_file_path = editable_file(&ledger, &span_info)?;
     written_as_transaction(&ledger, &span_info)?;
-    check_version(&span_info, |version| if_match.allows(version))?;
+    check_version(&span_info, Some(&if_match.0), &reload_sender)?;
 
     let written = async {
         // the transaction must still be where the ledger loaded it
@@ -590,6 +624,10 @@ pub async fn delete_single_transaction(
     }
     .await;
     wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
+    // the version deleted is a tombstone: a twin can take its place and its id
+    if let Some(deleted) = journals::transaction_version(&span_info.span) {
+        reload_sender.tombstones().add(transaction_id, deleted);
+    }
     ResponseWrapper::json(())
 }
 

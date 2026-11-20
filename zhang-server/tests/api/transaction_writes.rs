@@ -57,6 +57,11 @@ impl Served {
         }
     }
 
+    /// the server restarted: the ledger loaded from the files anew, without the tombstones of the writes before
+    fn restarted(self) -> Served {
+        Served::new(self.scratch)
+    }
+
     /// the reload sender of the server
     fn reload(&self) -> State<SharedReloadSender> {
         State(self.reload.0.clone())
@@ -393,8 +398,17 @@ async fn the_padding_of_a_pad_is_neither_deleted_nor_replaced() {
         assert!(message(&body).contains("is the padding booked by the"), "{main}: {body}");
         // and the preview of the update says so
         let request = serde_json::from_value(meal(5, "Bank", "padding", "1")).unwrap();
-        let (status, body) =
-            respond(preview_transaction_update(State(served.ledger.clone()), UrlPath((padding.clone(),)), IfMatch(None), Json(request)).await).await;
+        let (status, body) = respond(
+            preview_transaction_update(
+                State(served.ledger.clone()),
+                served.reload(),
+                UrlPath((padding.clone(),)),
+                IfMatch(None),
+                Json(request),
+            )
+            .await,
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{main}: {body}");
         assert_eq!(served.read(main), text, "{main}: nothing is written");
     }
@@ -513,7 +527,17 @@ async fn an_update_naming_a_stale_version_writes_nothing() {
     assert!(message(&body).contains("is not the version the If-Match header names"), "{body}");
     let request = serde_json::from_value(meal(2, "Cafe", "tea", "4")).unwrap();
     let if_match = IfMatch(Some(vec![version.clone()]));
-    let (status, body) = respond(preview_transaction_update(State(served.ledger.clone()), UrlPath((coffee.clone(),)), if_match, Json(request)).await).await;
+    let (status, body) = respond(
+        preview_transaction_update(
+            State(served.ledger.clone()),
+            served.reload(),
+            UrlPath((coffee.clone(),)),
+            if_match,
+            Json(request),
+        )
+        .await,
+    )
+    .await;
     assert_eq!(status, StatusCode::PRECONDITION_FAILED, "the preview says so: {body}");
     assert_eq!(served.read("main.zhang"), latte, "nothing is written");
 
@@ -576,6 +600,130 @@ async fn a_delete_writes_through_the_data_source_of_the_ledger() {
     assert_eq!(scratch.read("main.zhang"), format!("{OPENS}{MEALS}").replace(COFFEE, ""));
     let journal = get(&router, "/api/journals", &[]).await.json();
     assert_eq!(journal["data"]["records"].as_array().unwrap().len(), 2, "{journal}");
+}
+
+/// Two coffees written alike, one after the other: they have one version.
+const TWINS: &str =
+    "\n2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n\n2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n";
+
+/// the ids of the transactions of the journal, oldest first
+async fn ids(served: &Served) -> Vec<String> {
+    served.transactions().await.into_iter().map(|(id, ..)| id).collect()
+}
+
+/// the id and the version of the first of the twins in the file, the oldest of the journal
+async fn first_twin(served: &Served) -> (String, String) {
+    let records = served.journal().await;
+    let oldest = records.iter().rev().find(|it| it["type"] == "Transaction").expect("a transaction");
+    (oldest["id"].as_str().unwrap().to_owned(), oldest["version"].as_str().unwrap().to_owned())
+}
+
+/// When the transaction deleted had a twin, written alike right after it, the twin takes its place, its id and its
+/// version. A delete sent again with them, an update and its preview naming them, are refused with a 412: the server
+/// remembers the version it deleted at that id. An update without `If-Match` edits the twin, which then has a version
+/// of its own.
+#[tokio::test]
+async fn a_request_sent_again_after_a_delete_does_not_write_the_twin() {
+    for main in ["main.zhang", "main.bean"] {
+        let served = Served::with_main(main, &format!("{OPENS}{TWINS}"));
+        let (first, version) = first_twin(&served).await;
+        assert_eq!(ids(&served).await.len(), 2, "{main}");
+
+        let (status, body) = served.delete(&first, &version).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        let after = served.read(main);
+        assert_eq!(first_twin(&served).await, (first.clone(), version.clone()), "{main}: the twin took the place");
+
+        let (status, body) = served.delete(&first, &version).await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{main}: {body}");
+        assert!(message(&body).contains("was deleted or replaced lately"), "{main}: {body}");
+        let (status, body) = served.update_if(&first, Some(&version), meal(2, "Cafe", "tea", "4")).await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{main}: {body}");
+        let request = serde_json::from_value(meal(2, "Cafe", "tea", "4")).unwrap();
+        let if_match = IfMatch(Some(vec![version.clone()]));
+        let preview = preview_transaction_update(
+            State(served.ledger.clone()),
+            served.reload(),
+            UrlPath((first.clone(),)),
+            if_match,
+            Json(request),
+        );
+        let (status, body) = respond(preview.await).await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{main}: the preview says so: {body}");
+        assert_eq!(served.read(main), after, "{main}: nothing is written");
+
+        // edited without If-Match, the twin has a version of its own, which a delete names
+        let (status, body) = served.update(&first, meal(2, "Cafe", "tea", "4")).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        let version = body["data"]["version"].as_str().unwrap().to_owned();
+        let (status, body) = served.delete(&first, &version).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        assert!(ids(&served).await.is_empty(), "{main}");
+    }
+}
+
+/// A delete and an update of a transaction with a twin, sent at once with the same version: the server writes one
+/// request at a time, and the second finds the transaction removed, or another one in its place: it is refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delete_and_an_update_sent_at_once_write_once() {
+    let served = Arc::new(Served::with_main("main.zhang", &format!("{OPENS}{TWINS}")));
+    let (first, version) = first_twin(&served).await;
+    let delete = {
+        let (served, first, version) = (served.clone(), first.clone(), version.clone());
+        tokio::spawn(async move { served.delete(&first, &version).await.0 })
+    };
+    let update = {
+        let (served, first, version) = (served.clone(), first.clone(), version.clone());
+        tokio::spawn(async move { served.update_if(&first, Some(&version), meal(2, "Cafe", "tea", "4")).await.0 })
+    };
+    let mut statuses = vec![delete.await.unwrap(), update.await.unwrap()];
+    statuses.sort();
+    assert_eq!(statuses, vec![StatusCode::OK, StatusCode::PRECONDITION_FAILED]);
+    // the second coffee is as it was, whichever was written
+    let text = served.read("main.zhang");
+    assert!(
+        text.ends_with("2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n"),
+        "{text}"
+    );
+    // one coffee is left, the second, whichever was written: the delete removed the first, or the update made it tea
+    assert_eq!(text.matches("\"Cafe\" \"coffee\"").count(), 1, "{text}");
+}
+
+/// The tombstones are kept in memory: after a restart of the server, twins are told apart no more, and a delete sent
+/// again deletes the second one, as the documentation says.
+#[tokio::test]
+async fn after_a_restart_twins_are_told_apart_no_more() {
+    let served = Served::with_main("main.zhang", &format!("{OPENS}{TWINS}"));
+    let (first, version) = first_twin(&served).await;
+    let (status, _) = served.delete(&first, &version).await;
+    assert_eq!(status, StatusCode::OK);
+    let served = served.restarted();
+    let (status, body) = served.delete(&first, &version).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(ids(&served).await.is_empty());
+}
+
+/// A transaction the server writes itself at the place, and with the version, of one it deleted is no tombstone: a
+/// create answers its id and version, which a delete then names.
+#[tokio::test]
+async fn a_transaction_written_again_at_the_place_of_one_deleted_is_no_tombstone() {
+    let served = Served::new(Scratch::with_files(
+        "main.zhang",
+        &[("main.zhang", &format!("{OPENS}include \"data/2024/01.zhang\"\n")), ("data/2024/01.zhang", "")],
+    ));
+    let (status, body) = served.create(meal(15, "Deli", "sandwich", "8")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (id, version) = (
+        body["data"]["id"].as_str().unwrap().to_owned(),
+        body["data"]["version"].as_str().unwrap().to_owned(),
+    );
+    let (status, _) = served.delete(&id, &version).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = served.create(meal(15, "Deli", "sandwich", "8")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"], json!({"id": id, "version": version}), "the same place, and the same text");
+    let (status, body) = served.delete(&id, &version).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
 }
 
 /// Every write of the API reloads the ledger before it answers: the balances, the documents of an account and the

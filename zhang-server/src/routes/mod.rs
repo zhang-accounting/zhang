@@ -80,25 +80,6 @@ pub struct IfMatch(pub Option<Vec<String>>);
 #[derive(Debug, Clone)]
 pub struct RequiredIfMatch(pub Vec<String>);
 
-impl IfMatch {
-    /// whether `version`, the version of what the request writes, is one the request names; `true` when it names none
-    pub fn allows(&self, version: Option<&str>) -> bool {
-        self.0.as_deref().is_none_or(|versions| matches(versions, version))
-    }
-}
-
-impl RequiredIfMatch {
-    /// whether `version`, the version of what the request writes, is one the request names
-    pub fn allows(&self, version: Option<&str>) -> bool {
-        matches(&self.0, version)
-    }
-}
-
-/// whether `version` is one of `versions`; no version, as that of a transaction in no file, matches none
-fn matches(versions: &[String], version: Option<&str>) -> bool {
-    version.is_some_and(|version| versions.iter().any(|it| it == version))
-}
-
 /// the versions the `If-Match` headers of `parts` name, `None` when they name none
 fn if_match(parts: &Parts) -> Result<Option<Vec<String>>, ServerError> {
     let mut versions = vec![];

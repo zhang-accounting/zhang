@@ -16,7 +16,7 @@ use zhang_server::routes::IfMatch;
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
 use zhang_testkit::fixtures::load_dir;
-use zhang_testkit::http::{respond, shared};
+use zhang_testkit::http::{reload, respond, shared};
 
 const LEDGER: &str = r#"option "operating_currency" "CNY"
 option "timezone" "UTC"
@@ -205,7 +205,7 @@ async fn an_update_preview_keeps_flags_and_bare_metadata_and_writes_nothing() {
     let mut update = request(json!([{"account": "Assets:Cash", "unit": "-6 CNY"}, {"account": "Assets:Broker", "unit": "6 CNY"}]));
     update.metas = serde_json::from_value(json!([{"key": "rate", "value": "1.5"}])).unwrap();
     let (status, preview) = respond(
-        preview_transaction_update(State(ledger.clone()), UrlPath((id,)), IfMatch(None), Json(update))
+        preview_transaction_update(State(ledger.clone()), reload(), UrlPath((id,)), IfMatch(None), Json(update))
             .await
             .into_response(),
     )
@@ -226,6 +226,7 @@ async fn an_update_preview_of_no_transaction_is_not_found() {
     let ledger = ledger(dir.path(), LEDGER);
     let response = preview_transaction_update(
         State(ledger),
+        reload(),
         UrlPath((uuid::Uuid::new_v4().to_string(),)),
         IfMatch(None),
         Json(request(json!([]))),

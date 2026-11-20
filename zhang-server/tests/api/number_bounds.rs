@@ -109,6 +109,7 @@ async fn both_previews_name_a_number_out_of_range_as_a_field() {
         let update = respond(
             preview_transaction_update(
                 State(ledger.clone()),
+                reload(),
                 UrlPath((id,)),
                 IfMatch(None),
                 Json(request(postings(field, value.clone()))),
