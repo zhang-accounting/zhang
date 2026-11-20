@@ -6,13 +6,13 @@
 //! functions answer [`HostErrorKind::Unavailable`](crate::HostErrorKind::Unavailable), so plugin logic can be
 //! unit tested natively.
 
-pub(crate) use zhang_shared::plugin_abi::import::{LEDGER_INFO, LIST_DIR, NOW, QUERY, READ_FILE};
+pub(crate) use zhang_shared::plugin_abi::import::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE};
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
     use extism_pdk::Memory;
 
-    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, READ_FILE};
+    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE};
     use crate::error::{HostError, HostErrorKind};
 
     #[link(wasm_import_module = "extism:host/user")]
@@ -23,6 +23,8 @@ mod imp {
         fn zhang_list_dir(path: u64) -> u64;
         fn zhang_query(bql: u64) -> u64;
         fn zhang_ledger_info() -> u64;
+        fn zhang_query_params(input: u64) -> u64;
+        fn zhang_query_schema() -> u64;
     }
 
     pub(crate) fn config_get(key: &str) -> Option<String> {
@@ -76,11 +78,20 @@ mod imp {
         // SAFETY: the host function takes nothing and returns the offset of a memory block
         answer(LEDGER_INFO, unsafe { zhang_ledger_info() })
     }
+
+    pub(crate) fn query_params(input: &[u8]) -> Result<Vec<u8>, HostError> {
+        call_with(QUERY_PARAMS, input, zhang_query_params)
+    }
+
+    pub(crate) fn query_schema() -> Result<Vec<u8>, HostError> {
+        // SAFETY: the host function takes nothing and returns the offset of a memory block
+        answer(QUERY_SCHEMA, unsafe { zhang_query_schema() })
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
-    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, READ_FILE};
+    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE};
     use crate::error::{outside_zhang, HostError};
 
     pub(crate) fn config_get(_key: &str) -> Option<String> {
@@ -107,6 +118,14 @@ mod imp {
 
     pub(crate) fn ledger_info() -> Result<Vec<u8>, HostError> {
         Err(outside_zhang(LEDGER_INFO))
+    }
+
+    pub(crate) fn query_params(_input: &[u8]) -> Result<Vec<u8>, HostError> {
+        Err(outside_zhang(QUERY_PARAMS))
+    }
+
+    pub(crate) fn query_schema() -> Result<Vec<u8>, HostError> {
+        Err(outside_zhang(QUERY_SCHEMA))
     }
 }
 
