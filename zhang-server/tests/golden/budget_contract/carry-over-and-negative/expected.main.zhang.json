@@ -1915,50 +1915,24 @@
       }
     },
     {
-      "request": {
-        "builtin": "budgets.month",
-        "note": "KNOWN-ISSUE: a `month` that is not the first day of a month is taken, not refused: budgets.month and budgets.budget_month answer the month carried over (its available amount as assigned, activity 0) and budgets.events and budgets.postings answer nothing (zhang-server/src/builtin.rs:106-114, 365-381); the app and the web UI send first days",
-        "params": {"month": "2024-03-15"}
-      },
-      "status": 200,
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-03-15"}},
+      "status": 400,
       "body": {
-        "data": {
-          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
-          "rows": [
-            ["Food", null, null, "CNY", "2024-03-01", {"number": "550", "currency": "CNY"}, "0", {"number": "550", "currency": "CNY"}, false],
-            ["Rent", null, null, "CNY", "2024-03-01", {"number": "-3100", "currency": "CNY"}, "0", {"number": "-3100", "currency": "CNY"}, false]
-          ]
-        }
+        "message": "parameter :month of budgets.month must be the first day of a month, such as 2024-03-01, not 2024-03-15"
       }
     },
     {
-      "request": {
-        "builtin": "budgets.budget_month",
-        "note": "KNOWN-ISSUE: a month that is not a first day, as above",
-        "params": {"name": "Food", "month": "2024-03-15"}
-      },
-      "status": 200,
+      "request": {"builtin": "budgets.budget_month", "params": {"name": "Food", "month": "2024-03-15"}},
+      "status": 400,
       "body": {
-        "data": {
-          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
-          "rows": [
-            ["Food", null, null, "CNY", "2024-03-01", {"number": "550", "currency": "CNY"}, "0", {"number": "550", "currency": "CNY"}, false]
-          ]
-        }
+        "message": "parameter :month of budgets.budget_month must be the first day of a month, such as 2024-03-01, not 2024-03-15"
       }
     },
     {
-      "request": {
-        "builtin": "budgets.events",
-        "note": "KNOWN-ISSUE: a month that is not a first day, as above",
-        "params": {"name": "Food", "month": "2024-03-15"}
-      },
-      "status": 200,
+      "request": {"builtin": "budgets.events", "params": {"name": "Food", "month": "2024-03-15"}},
+      "status": 400,
       "body": {
-        "data": {
-          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
-          "rows": []
-        }
+        "message": "parameter :month of budgets.events must be the first day of a month, such as 2024-03-01, not 2024-03-15"
       }
     },
     {
