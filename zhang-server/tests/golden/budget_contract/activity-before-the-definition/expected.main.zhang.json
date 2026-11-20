@@ -18,6 +18,29 @@
     },
     {"kind": "BudgetDoesNotExist", "file": "main.zhang", "line": 28, "metas": [{"key": "budget_name", "value": "Food"}]}
   ],
+  "error_list": [
+    {
+      "id": "befc9173-16a0-b130-dde6-2d87f7277786",
+      "id_of": "main.zhang@555 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 555, "end": 642, "line": 16},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "72594429-c603-8c22-5fdb-07d2519364e4"}
+    },
+    {
+      "id": "236307b3-b68d-dab3-1f62-349a28ea4f8c",
+      "id_of": "main.zhang@644 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 644, "end": 748, "line": 20},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Snacks", "budget_name": "Food", "txn_id": "1a92c6ba-aaef-8794-ee77-126b7e1f379a"}
+    },
+    {
+      "id": "fc110f6d-18d9-f281-889d-b9541f5c05ad",
+      "id_of": "main.zhang@846 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 846, "end": 879, "line": 28},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "Food"}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

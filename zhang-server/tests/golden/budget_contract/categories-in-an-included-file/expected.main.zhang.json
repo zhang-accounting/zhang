@@ -4,6 +4,7 @@
   "ledger": "integration-tests/budget-sytem-syntax-and-category-multiple-file/main.zhang",
   "now": "2024-01-15T00:00:00Z",
   "errors": [],
+  "error_list": [],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

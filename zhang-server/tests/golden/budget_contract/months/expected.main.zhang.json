@@ -4,6 +4,7 @@
   "ledger": "zhang-server/tests/golden/budget_contract/months/main.zhang",
   "now": "2024-03-01T03:00:00Z",
   "errors": [],
+  "error_list": [],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

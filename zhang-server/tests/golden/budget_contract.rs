@@ -28,8 +28,12 @@
 //!
 //! The golden files of a case, per entry, rewritten with `UPDATE_GOLDEN=1` (`zhang_testkit::golden`):
 //!
-//! - `expected.<entry>.json`: the ledger's errors as `journals.errors` lists them, reduced to their kind, file, line
-//!   and metas; every request with the HTTP status and the JSON body of its answer; and the round trips: every
+//! - `expected.<entry>.json`: the ledger's errors as `journals.errors` lists them (by file, then position), reduced to
+//!   their kind, file, line and metas; the same errors id-exact, in the order the load reported them (the core's list,
+//!   `Ledger::errors`, which the plugin's diagnostics join): id, kind, span (file, start, end, line) and every meta,
+//!   `txn_id` included, with the id spelled out as the `(place, kind, n)` it derives from (the `n`-th error of its kind
+//!   at its place, `FromSpan::of_error`); every request with the HTTP status and the JSON body of its answer; and the
+//!   round trips: every
 //!   directive of the ledger as its format reads it (but the `include`s and the comments), written in one format
 //!   (`zhang`, `beancount`) as one main file, loaded with the same clock and asked the same requests. A round trip is
 //!   `"same"` when every answer equals the original apart from what depends on where a directive is written (the ids
@@ -41,6 +45,7 @@
 //! `schema.json` holds the columns of the budget tables and the parameters and columns of the built-in queries the
 //! budget pages and the app run, as `GET /api/query/schema` and `GET /api/query/builtins` list them.
 
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -51,11 +56,13 @@ use beancount::Beancount;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
+use uuid::Uuid;
 use zhang_ast::{Directive, Spanned};
 use zhang_core::clock::Clock;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
 use zhang_core::ledger::Ledger;
+use zhang_core::utils::id::FromSpan;
 use zhang_testkit::fixtures::{data_source_for, repo_root};
 use zhang_testkit::golden;
 use zhang_testkit::http::{app, call, router_of, serve_config, Settings};
@@ -153,12 +160,47 @@ fn http_request(request: &Value) -> (Method, String, Option<Value>) {
     (method.parse().expect("an HTTP method"), uri.to_owned(), object.get("body").cloned())
 }
 
-/// A server on the ledger `dir/entry`, loaded in the format of `entry` with its clock at `now`; the load's error when
-/// it does not load.
-async fn server(dir: &Path, entry: &str, now: Clock) -> Result<Router, String> {
+/// A server on the ledger `dir/entry`, loaded in the format of `entry` with its clock at `now`, and the ledger it
+/// serves; the load's error when it does not load.
+async fn server(dir: &Path, entry: &str, now: Clock) -> Result<(Router, Arc<RwLock<Ledger>>), String> {
     let source = data_source_for(entry);
     let ledger = Ledger::load_with_clock(dir.to_path_buf(), entry.to_owned(), source.clone(), now).map_err(|error| error.to_string())?;
-    Ok(router_of(app(serve_config(dir, entry, source, &Settings::default()), Arc::new(RwLock::new(ledger)))).await)
+    let ledger = Arc::new(RwLock::new(ledger));
+    let router = router_of(app(serve_config(dir, entry, source, &Settings::default()), ledger.clone())).await;
+    Ok((router, ledger))
+}
+
+/// The errors of `ledger`, whose files are in `dir`, id-exact and in the order the load reported them: the id and
+/// the `(place, kind, n)` it derives from, the kind, the span and every meta.
+fn error_list(ledger: &Ledger, dir: &Path) -> Vec<Value> {
+    let mut seen: HashMap<(Option<PathBuf>, usize, String), usize> = HashMap::new();
+    ledger
+        .errors
+        .iter()
+        .map(|error| {
+            let kind = error.error_type.to_string();
+            let metas = error.metas.iter().collect::<BTreeMap<_, _>>();
+            let Some(span) = &error.span else {
+                return json!({"id": error.id, "kind": kind, "span": null, "metas": metas});
+            };
+            let file = span
+                .filename
+                .as_deref()
+                .map(|file| file.strip_prefix(dir).unwrap_or(file).display().to_string());
+            // the id is that of the `n`-th error of its kind at its place
+            let n = seen.entry((span.filename.clone(), span.start, kind.clone())).or_default();
+            let derived =
+                (Uuid::of_error(span, &kind, *n).to_string() == error.id).then(|| format!("{}@{} {kind} #{n}", file.as_deref().unwrap_or("-"), span.start));
+            *n += 1;
+            json!({
+                "id": error.id,
+                "id_of": derived,
+                "kind": kind,
+                "span": {"file": file, "start": span.start, "end": span.end, "line": span.line},
+                "metas": metas,
+            })
+        })
+        .collect()
 }
 
 /// The status and the body of a request's answer.
@@ -296,7 +338,7 @@ async fn answers(router: &Router, requests: &[Value]) -> Answers {
 async fn round_trip(entry: &str, main: &str, text: &str, now: &Clock, requests: &[Value], original: &Answers) -> Value {
     let scratch = Scratch::with_main(main, text);
     let router = match server(scratch.dir(), main, *now).await {
-        Ok(server) => server,
+        Ok((router, _)) => router,
         Err(error) => {
             // the line the error names, as written
             let line = error
@@ -364,10 +406,11 @@ async fn run(name: &str) {
     let requests = case.all_requests();
 
     for entry in &entries {
-        let router = server(&ledger_dir, entry, now)
+        let (router, ledger) = server(&ledger_dir, entry, now)
             .await
             .unwrap_or_else(|error| panic!("{name}/{entry}: the ledger does not load: {error}"));
         let original = answers(&router, &requests).await;
+        let error_list = error_list(&*ledger.read().await, &ledger_dir);
         let directives = parsed_directives(&ledger_dir, entry);
         let has_timezone = directives
             .iter()
@@ -408,6 +451,7 @@ async fn run(name: &str) {
             "ledger": format!("{}/{entry}", case.ledger.clone().unwrap_or_else(|| format!("zhang-server/tests/golden/budget_contract/{name}"))),
             "now": case.now,
             "errors": original.errors,
+            "error_list": error_list,
             "responses": responses,
             "round_trip": round_trips,
         });
@@ -436,10 +480,14 @@ const FIELD_ORDER: &[&str] = &[
     "now",
     "known_issues",
     "errors",
+    "error_list",
     "responses",
     "round_trip",
     "load_error",
     "index",
+    "id",
+    "id_of",
+    "span",
     "request",
     "builtin",
     "batch",
@@ -453,6 +501,8 @@ const FIELD_ORDER: &[&str] = &[
     "message",
     "kind",
     "file",
+    "start",
+    "end",
     "line",
     "metas",
     "name",
@@ -575,6 +625,7 @@ cases! {
     budget_contract_same_day_order => "same-day-order",
     budget_contract_same_day_order_beancount => "same-day-order-beancount",
     budget_contract_booked_postings => "booked-postings",
+    budget_contract_errors_order => "errors-order",
     budget_contract_currencies => "currencies",
     budget_contract_months => "months",
     budget_contract_months_of_a_past_clock => "months-of-a-past-clock",
@@ -601,7 +652,7 @@ fn budget_contract_cases_are_every_directory() {
 #[tokio::test(flavor = "multi_thread")]
 async fn budget_contract_schema() {
     let scratch = Scratch::zhang("1970-01-01 commodity CNY\n");
-    let router = server(scratch.dir(), "main.zhang", Clock::Fixed(chrono::DateTime::UNIX_EPOCH))
+    let (router, _) = server(scratch.dir(), "main.zhang", Clock::Fixed(chrono::DateTime::UNIX_EPOCH))
         .await
         .expect("an empty ledger loads");
     fn without(value: &Value, keys: &[&str]) -> Value {

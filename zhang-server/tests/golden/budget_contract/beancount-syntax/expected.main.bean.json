@@ -11,6 +11,15 @@
       "metas": [{"key": "account_name", "value": "Expenses:Fun"}, {"key": "budget_name", "value": "Fun"}, {"key": "txn_id", "value": "2a7cf6b4-c0ac-a939-60c3-aec24fa8b83f"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "d892db31-8c97-4cc8-7286-5d8e42cdf405",
+      "id_of": "main.bean@1664 BudgetClosed #0",
+      "span": {"file": "main.bean", "start": 1664, "end": 1746, "line": 52},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Fun", "budget_name": "Fun", "txn_id": "2a7cf6b4-c0ac-a939-60c3-aec24fa8b83f"}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

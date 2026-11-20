@@ -26,6 +26,29 @@
       "metas": [{"key": "account_name", "value": "Expenses:Fun"}, {"key": "budget_name", "value": "Fun"}, {"key": "txn_id", "value": "cb9fb04f-c741-17f7-3dba-2abb47fdfb87"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "32e9930a-db93-7429-f417-0305bbe8f3bd",
+      "id_of": "main.zhang@773 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 773, "end": 866, "line": 18},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "fa865265-8834-de2d-53f4-adea17a036ae"}
+    },
+    {
+      "id": "2d66a47c-3a9c-cb81-6d53-146525388d47",
+      "id_of": "main.zhang@1237 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1237, "end": 1336, "line": 39},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Fun", "budget_name": "Fun", "txn_id": "8be33a04-3440-3fc5-057d-9c17bac5b119"}
+    },
+    {
+      "id": "6702f6aa-7675-a3ea-3843-98da35f8a8c5",
+      "id_of": "main.zhang@1946 BudgetClosed #0",
+      "span": {"file": "main.zhang", "start": 1946, "end": 2036, "line": 64},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Fun", "budget_name": "Fun", "txn_id": "cb9fb04f-c741-17f7-3dba-2abb47fdfb87"}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

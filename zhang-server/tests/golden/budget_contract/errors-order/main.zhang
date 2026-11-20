@@ -1,0 +1,37 @@
+; The order and the ids of the budget errors. The fold reports an undefined budget, a closed budget and a duplicate as
+; it meets them, in ledger order; the amounts no price converts are checked after the fold, once every price is
+; known, so their BudgetCommodityMismatch errors come after the others, whatever their place. A budget-transfer in a
+; commodity neither budget converts has two of them at one place, its `from` budget's first, then its `to` budget's,
+; whatever their names; the second error of a kind at one place has an id of its own.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: Zeta
+2024-01-01 open Expenses:Ghost
+  budget: Ghost
+
+2024-01-01 budget Zeta CNY
+2024-01-01 budget Alpha CNY
+
+2024-01-02 budget-transfer Zeta Alpha 10 USD
+
+2024-01-03 budget-add Ghost 1 CNY
+
+2024-01-04 * "Shop" "USD, which no price converts"
+  Expenses:Food 5 USD
+  Expenses:Ghost 1 CNY
+  Assets:Bank -5 USD
+  Assets:Bank -1 CNY
+
+2024-01-05 budget-close Zeta
+
+2024-01-06 * "Shop" "after the close"
+  Expenses:Food 1 CNY
+  Assets:Bank
+
+2024-01-07 budget Alpha USD

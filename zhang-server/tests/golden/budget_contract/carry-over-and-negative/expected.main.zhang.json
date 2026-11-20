@@ -4,6 +4,7 @@
   "ledger": "zhang-server/tests/golden/budget_contract/carry-over-and-negative/main.zhang",
   "now": "2024-06-15T00:00:00Z",
   "errors": [],
+  "error_list": [],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

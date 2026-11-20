@@ -31,6 +31,64 @@
       "metas": [{"key": "account_name", "value": "Expenses:Shared"}, {"key": "budget_name", "value": "Ghost"}, {"key": "txn_id", "value": "c2020e7e-c73c-fe3d-4764-9ea8b0acdb10"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "c5910c3a-7dd7-bdb9-b983-21e0921a1255",
+      "id_of": "main.zhang@807 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 807, "end": 840, "line": 23},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "Nope"}
+    },
+    {
+      "id": "735256f7-e31c-e0e9-22eb-3b9ec7a293db",
+      "id_of": "main.zhang@841 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 841, "end": 883, "line": 24},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "Nope"}
+    },
+    {
+      "id": "82b39f64-3196-ccc4-aa73-73943dba581b",
+      "id_of": "main.zhang@884 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 884, "end": 926, "line": 25},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "Nope"}
+    },
+    {
+      "id": "334f9c48-4edc-8c3c-8f54-b36c8726bdac",
+      "id_of": "main.zhang@927 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 927, "end": 955, "line": 26},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "Nope"}
+    },
+    {
+      "id": "1b8421e6-7e56-21e9-23f6-9b2157995892",
+      "id_of": "main.zhang@956 DefineDuplicatedBudget #0",
+      "span": {"file": "main.zhang", "start": 956, "end": 1035, "line": 27},
+      "kind": "DefineDuplicatedBudget",
+      "metas": {}
+    },
+    {
+      "id": "bdc3c8c5-c7b2-ad92-72fa-f248e30d463b",
+      "id_of": "main.zhang@1115 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1115, "end": 1196, "line": 33},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Ghost", "budget_name": "Ghost", "txn_id": "84b7f73c-d63b-07d9-6be5-bd7892a44d4d"}
+    },
+    {
+      "id": "ad4acc66-9921-b1f9-c2dc-45065c7f37d9",
+      "id_of": "main.zhang@1272 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1272, "end": 1359, "line": 41},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Shared", "budget_name": "Ghost", "txn_id": "c2020e7e-c73c-fe3d-4764-9ea8b0acdb10"}
+    },
+    {
+      "id": "b1b97181-150f-f2c7-a565-e60901b767d4",
+      "id_of": "main.zhang@1036 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1036, "end": 1069, "line": 30},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {"budget_commodity": "CNY", "budget_name": "Food", "commodity": "USD"}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

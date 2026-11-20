@@ -23,6 +23,41 @@
       "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Travel"}, {"key": "commodity", "value": "JPY"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "90e5ebb5-efc6-84d6-4361-5b3d69637b1a",
+      "id_of": "main.zhang@1437 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1437, "end": 1475, "line": 43},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {"budget_commodity": "CNY", "budget_name": "Travel", "commodity": "JPY"}
+    },
+    {
+      "id": "c9f333f2-a440-28f0-897b-412c73bc94ac",
+      "id_of": "2024/01.zhang@518 BudgetCommodityMismatch #0",
+      "span": {"file": "2024/01.zhang", "start": 518, "end": 608, "line": 21},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Travel",
+        "budget_commodity": "CNY",
+        "budget_name": "Travel",
+        "commodity": "JPY",
+        "txn_id": "bd09e155-4b69-65e9-28bc-27a973685f83"
+      }
+    },
+    {
+      "id": "409eb411-768d-d2a5-fff5-6b48b755501d",
+      "id_of": "2024/01.zhang@701 BudgetCommodityMismatch #0",
+      "span": {"file": "2024/01.zhang", "start": 701, "end": 805, "line": 29},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Travel",
+        "budget_commodity": "CNY",
+        "budget_name": "Travel",
+        "commodity": "GBP",
+        "txn_id": "6d5452af-87db-cc54-48f0-44315151eb8a"
+      }
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

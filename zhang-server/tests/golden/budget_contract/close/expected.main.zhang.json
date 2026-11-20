@@ -28,6 +28,36 @@
       "metas": [{"key": "account_name", "value": "Expenses:Fun"}, {"key": "budget_name", "value": "Fun"}, {"key": "txn_id", "value": "80154ea1-e310-21c5-773b-9b34c276dfa3"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "c02f814a-c038-2101-41d6-252cb1427d59",
+      "id_of": "main.zhang@1009 BudgetClosed #0",
+      "span": {"file": "main.zhang", "start": 1009, "end": 1094, "line": 31},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Trip", "budget_name": "Trip", "txn_id": "fdb031e3-9c8c-59a2-5eda-bfc32e5873ce"}
+    },
+    {
+      "id": "d7538e0e-c9e1-aa51-ceff-0aa951d503c2",
+      "id_of": "main.zhang@1181 BudgetClosed #0",
+      "span": {"file": "main.zhang", "start": 1181, "end": 1278, "line": 39},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Hotel", "budget_name": "Trip", "txn_id": "f20315ef-2f70-131c-e566-bca4f98df61b"}
+    },
+    {
+      "id": "cfb550a9-5a41-6e01-33a1-b0401accfb96",
+      "id_of": "main.zhang@1814 BudgetClosed #0",
+      "span": {"file": "main.zhang", "start": 1814, "end": 1907, "line": 67},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Fun", "budget_name": "Fun", "txn_id": "80154ea1-e310-21c5-773b-9b34c276dfa3"}
+    },
+    {
+      "id": "52457173-f2cd-9572-179f-9203023abdd8",
+      "id_of": "main.zhang@1418 DefineDuplicatedBudget #0",
+      "span": {"file": "main.zhang", "start": 1418, "end": 1468, "line": 49},
+      "kind": "DefineDuplicatedBudget",
+      "metas": {}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

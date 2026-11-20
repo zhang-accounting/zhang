@@ -17,6 +17,22 @@
       "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "5f61512a-208b-7d6f-f144-26d71efccab4"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "7db8859a-f621-96b5-4486-f9ea6f781c34",
+      "id_of": "main.bean@497 BudgetDoesNotExist #0",
+      "span": {"file": "main.bean", "start": 497, "end": 580, "line": 12},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "2d407efa-4e6e-80ad-0909-8db01ca7212e"}
+    },
+    {
+      "id": "56388b43-d9db-0f60-437f-b8be59cc99a5",
+      "id_of": "main.bean@1009 BudgetClosed #0",
+      "span": {"file": "main.bean", "start": 1009, "end": 1088, "line": 36},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "5f61512a-208b-7d6f-f144-26d71efccab4"}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

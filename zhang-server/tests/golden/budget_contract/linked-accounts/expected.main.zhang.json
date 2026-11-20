@@ -10,6 +10,22 @@
     {"kind": "CloseNonZeroAccount", "file": "main.zhang", "line": 70, "metas": []},
     {"kind": "CloseNonZeroAccount", "file": "main.zhang", "line": 83, "metas": []}
   ],
+  "error_list": [
+    {
+      "id": "766882e4-1b09-05ad-7853-d81f26918471",
+      "id_of": "main.zhang@2059 CloseNonZeroAccount #0",
+      "span": {"file": "main.zhang", "start": 2059, "end": 2093, "line": 70},
+      "kind": "CloseNonZeroAccount",
+      "metas": {}
+    },
+    {
+      "id": "3f149572-bee8-886b-0fa9-2a89a511d5cc",
+      "id_of": "main.zhang@2383 CloseNonZeroAccount #0",
+      "span": {"file": "main.zhang", "start": 2383, "end": 2421, "line": 83},
+      "kind": "CloseNonZeroAccount",
+      "metas": {}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

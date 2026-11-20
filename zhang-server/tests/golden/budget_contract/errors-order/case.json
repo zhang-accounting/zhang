@@ -1,0 +1,12 @@
+{
+  "description": "The order and the ids of budget errors (see main.zhang): the list by file and position the API answers, and the list in the order the load reported them, with their ids.",
+  "now": "2024-01-20T00:00:00Z",
+  "pages": {
+    "months": ["2024-01-01"],
+    "budgets": ["Zeta", "Alpha"]
+  },
+  "known_issues": {
+    "error_list": "pinned as reported, not marked wrong: the BudgetCommodityMismatch errors come after every other error of the fold (they are checked once every price is known, zhang-core/src/process/budget.rs:116 from zhang-core/src/ledger.rs:758), and the two of a budget-transfer at one place come `from` first, then `to` (zhang-core/src/process/budget.rs:38-41), here Zeta before Alpha against name order; the API's list orders them by place only",
+    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)"
+  }
+}

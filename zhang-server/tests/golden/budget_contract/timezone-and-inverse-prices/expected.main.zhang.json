@@ -14,6 +14,15 @@
       "metas": [{"key": "budget_name", "value": "vacation"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "4b657f1c-b779-b397-484d-321e553662f2",
+      "id_of": "main.zhang@1409 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1409, "end": 1446, "line": 41},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "vacation"}
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},

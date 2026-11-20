@@ -23,6 +23,35 @@
       "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "ed1065dc-8021-a1ef-6cfc-480e5aafb2b5"}]
     }
   ],
+  "error_list": [
+    {
+      "id": "311e6aaf-ecc9-09db-0c49-7dfc5715a214",
+      "id_of": "main.zhang@582 BudgetClosed #0",
+      "span": {"file": "main.zhang", "start": 582, "end": 666, "line": 24},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "ed1065dc-8021-a1ef-6cfc-480e5aafb2b5"}
+    },
+    {
+      "id": "34895288-7f2f-5ab5-d894-11555bf2499c",
+      "id_of": "main.zhang@377 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 377, "end": 410, "line": 12},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {"budget_commodity": "CNY", "budget_name": "Food", "commodity": "USD"}
+    },
+    {
+      "id": "0c60b639-3200-705e-63b9-b0cfe74bfc58",
+      "id_of": "main.zhang@479 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 479, "end": 550, "line": 18},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Food",
+        "budget_commodity": "CNY",
+        "budget_name": "Food",
+        "commodity": "USD",
+        "txn_id": "37076597-fc2b-397d-af48-53cf5fcf95c6"
+      }
+    }
+  ],
   "responses": [
     {
       "request": {"builtin": "ledger.now"},
