@@ -59,7 +59,7 @@ pub mod state;
 pub mod tombstones;
 pub mod util;
 mod validate;
-mod watch;
+pub mod watch;
 
 pub type LedgerState = Arc<RwLock<Ledger>>;
 
@@ -538,20 +538,28 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
                 }
             }
             trace!("receive all file changes: {:?}", all);
-            let guard = cloned_ledger.read().await;
-            let is_stale = all
-                .iter()
-                .filter_map(|event| event.as_ref().ok())
-                .any(|event| watch::should_reload(event, &roots, &guard.visited_files, &guard.extra_inputs));
-
-            drop(guard);
-
-            if is_stale {
-                debug!("gotcha event, sending reload event...");
-                reload_sender_for_fs.reload();
-            }
+            let events: Vec<Event> = all.into_iter().filter_map(Result::ok).collect();
+            on_file_events(&cloned_ledger, &reload_sender_for_fs, &roots, &events).await;
         }
     });
+}
+
+/// What the file watcher makes of `events`, the changes it gathered under the ledger's root, whose spellings are
+/// `roots` ([`watch::watch_roots`]): a reload when one of them changed something the load of the ledger served read
+/// ([`watch::should_reload`]). The ledger is looked at once the writes and reloads in progress are done, holding the
+/// write cycle shared ([`LedgerWriter`]): a load in progress reads files the ledger served did not, the file an
+/// `include` it newly follows names, and a change to one of those while it loads is a change to the ledger it swaps in
+pub async fn on_file_events(ledger: &Arc<RwLock<Ledger>>, reload_sender: &ReloadSender, roots: &[PathBuf], events: &[Event]) {
+    let _cycle = state::write_cycle(ledger).read_owned().await;
+    let served = ledger.read().await;
+    let is_stale = events
+        .iter()
+        .any(|event| watch::should_reload(event, roots, &served.visited_files, &served.extra_inputs));
+    drop(served);
+    if is_stale {
+        debug!("gotcha event, sending reload event...");
+        reload_sender.reload();
+    }
 }
 
 /// Run the reloads `reload_sender` asks for, one at a time, on `ledger_for_reload`, telling `cloned_broadcaster`'s

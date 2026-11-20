@@ -27,7 +27,7 @@ use zhang_server::routes::plugin_router::{route_to_plugin, PluginRouteState, ROU
 use zhang_server::routes::transaction::{create_new_transaction, delete_single_transaction, get_journals, update_single_transaction};
 use zhang_server::routes::{IdempotencyKey, IfMatch, Query as UrlQuery, RequiredIfMatch};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
-use zhang_server::{start_reload_listener, ReloadSender};
+use zhang_server::{on_file_events, start_reload_listener, watch, ReloadSender};
 use zhang_testkit::fixtures::data_source_for;
 use zhang_testkit::http::{answer, json_request, respond, send, Answer};
 use zhang_testkit::ledger::Scratch;
@@ -543,4 +543,49 @@ async fn a_write_whose_reload_fails_is_answered_and_the_next_write_reloads_first
     assert_eq!(served.payees().await, vec!["Bakery", "Cafe"]);
     assert!(served.reload_sender.last_failure().is_none(), "a reload that succeeds clears the failure");
     assert!(!served.ledger.read().await.stale);
+}
+
+/// An edit outside to the file a write newly includes, made while the write's reload loads: the file watcher looks at
+/// its events once the write swapped its ledger in, which reads that file, so the edit is reloaded and served. Looked
+/// at against the ledger served before, which does not read the file, the edit was no change, and it was lost
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_edit_during_a_reload_to_a_file_it_newly_includes_is_served() {
+    let served = Served::with_main(OPENS);
+    served.gate.close();
+    let create = {
+        let served = served.clone();
+        tokio::spawn(async move { served.create(None, coffee("Cafe", "5")).await })
+    };
+    // the write created the file, included it, and its load read it
+    served.gate.a_load_waits().await;
+    let data = served.scratch.dir().join("data/2024/01.zhang");
+    let written = std::fs::read_to_string(&data).unwrap();
+    std::fs::write(
+        &data,
+        format!("{written}\n{}", "2024-01-20 * \"Outside\" \"edit\"\n  Assets:Cash -1 CNY\n  Expenses:Food\n"),
+    )
+    .unwrap();
+    let watcher = {
+        let served = served.clone();
+        let edit = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Data(notify::event::DataChange::Content))).add_path(data.clone());
+        tokio::spawn(async move {
+            let roots = watch::watch_roots(served.scratch.dir());
+            on_file_events(&served.ledger, &served.reload_sender, &roots, &[edit]).await
+        })
+    };
+    waits(&watcher, "the watcher").await;
+
+    served.gate.open();
+    let created = create.await.unwrap();
+    assert_eq!(created.status, StatusCode::OK, "{}", created.body);
+    watcher.await.unwrap();
+    let mut payees = vec![];
+    for _ in 0..100 {
+        payees = served.payees().await;
+        if payees.len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(payees, vec!["Cafe", "Outside"], "the edit is served");
 }
