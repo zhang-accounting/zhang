@@ -21,6 +21,7 @@ mod plain_numbers;
 mod plugin_writes;
 mod posting_metadata;
 mod query_zhang_tables;
+mod reload_concurrency;
 mod string_escaping;
 mod transaction_idempotency;
 mod transaction_preview;
