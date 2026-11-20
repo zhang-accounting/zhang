@@ -15,8 +15,8 @@ use crate::Account;
 pub type Meta = MultiValueMap<String, ZhangString>;
 
 impl Meta {
-    /// The entries as `(key, value)` text pairs, sorted by key; the values of a repeated key keep their written order
-    /// (zhang keeps no order between different keys).
+    /// The entries as `(key, value)` text pairs, sorted by key; the values of a repeated key keep their written order.
+    /// The query engine's `metas` columns are so, whatever order the metadata is written in ([`Meta::pairs`] keeps it).
     ///
     /// ```rust
     /// use zhang_ast::{Meta, ZhangString};
@@ -32,6 +32,18 @@ impl Meta {
         // a stable sort keeps the values of a key in order
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
         pairs
+    }
+
+    /// The entries as `(key, value)` text pairs, in the order they are written: the keys in the order they first
+    /// appear, the values of a repeated key together after the first of them.
+    ///
+    /// ```rust
+    /// use zhang_ast::{Meta, ZhangString};
+    /// let meta: Meta = [("b", "2"), ("a", "1"), ("b", "3")].into_iter().map(|(k, v)| (k.to_owned(), ZhangString::quote(v))).collect();
+    /// assert_eq!(meta.pairs(), [("b", "2"), ("b", "3"), ("a", "1")].map(|(k, v)| (k.to_owned(), v.to_owned())));
+    /// ```
+    pub fn pairs(self) -> Vec<(String, String)> {
+        self.get_flatten().into_iter().map(|(key, value)| (key, value.to_plain_string())).collect()
     }
 }
 

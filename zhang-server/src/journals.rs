@@ -14,7 +14,7 @@ use chrono::NaiveDateTime;
 use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Flag, SpanInfo, Transaction};
+use zhang_ast::{Directive, Flag, Meta, SpanInfo, Transaction};
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::text::parser::transaction_has_unexported_text;
@@ -163,6 +163,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                 postings: written_transaction(ledger, &directive.span).map(|directive| written_postings(directive, style)),
                 edit_drops_text: transaction_has_unexported_text(&directive.span.content),
                 version: transaction_version(&directive.span),
+                metas: meta_entities(&transaction.meta),
             };
             Some((id.clone(), written))
         })
@@ -193,14 +194,16 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                 entry.links = written.links.clone();
                 entry.edit_drops_text = written.edit_drops_text;
                 entry.version = written.version.clone();
+                entry.metas = written.metas.clone();
                 // the postings of the journal are the written ones in their order ([`JOURNAL_POSTINGS`] groups the
                 // booked legs by the posting they were written as); the written forms are attached only when they
                 // line up with them, account by account
                 if let Some(forms) = &written.postings {
-                    let aligned = forms.len() == postings.len() && forms.iter().zip(&postings).all(|((account, _), row)| *account == row.posting.account);
+                    let aligned = forms.len() == postings.len() && forms.iter().zip(&postings).all(|(form, row)| form.account == row.posting.account);
                     if aligned {
-                        for ((_, form), row) in forms.iter().zip(&mut postings) {
-                            row.posting.written = Some(form.clone());
+                        for (form, row) in forms.iter().zip(&mut postings) {
+                            row.posting.written = Some(form.written.clone());
+                            row.posting.metas = form.metas.clone();
                         }
                     }
                 }
@@ -218,11 +221,18 @@ struct Written {
     links: Vec<String>,
     /// the postings as written, each with its account, when the transaction's directive is in the ledger: not for
     /// one a plugin made
-    postings: Option<Vec<(String, WrittenPostingEntity)>>,
+    postings: Option<Vec<WrittenPosting>>,
     /// whether the text of the transaction has lines an edit drops ([`transaction_has_unexported_text`])
     edit_drops_text: bool,
     /// the version of its text ([`transaction_version`])
     version: Option<String>,
+    /// its metadata in the order it is written, which the engine's `metas` sorts by key
+    metas: Vec<MetaEntity>,
+}
+
+/// `meta` as the metadata entries of a response, in the order it is written ([`Meta::pairs`])
+fn meta_entities(meta: &Meta) -> Vec<MetaEntity> {
+    meta.clone().pairs().into_iter().map(|(key, value)| MetaEntity { key, value }).collect()
 }
 
 /// The version of the transaction whose directive is at `span`: the SHA-256, in hex, of its text as the ledger loaded
@@ -244,19 +254,30 @@ pub(crate) fn written_transaction<'a>(ledger: &'a Ledger, span: &SpanInfo) -> Op
     })
 }
 
-/// The postings of `transaction` as written (#638: the ledger holds them booked), each with its account and the
-/// cost, price and comment of its line in the ledger's syntax, as the exporter writes them in `style`.
-fn written_postings(transaction: &Transaction, style: QuoteStyle) -> Vec<(String, WrittenPostingEntity)> {
+/// A posting as written, as the journal shows it.
+struct WrittenPosting {
+    account: String,
+    /// the cost, price and comment of its line in the ledger's syntax
+    written: WrittenPostingEntity,
+    /// its metadata, in the order it is written
+    metas: Vec<MetaEntity>,
+}
+
+/// The postings of `transaction` as written (#638: the ledger holds them booked), each with its account, the cost,
+/// price and comment of its line in the ledger's syntax, as the exporter writes them in `style`, and its metadata in
+/// the order it is written.
+fn written_postings(transaction: &Transaction, style: QuoteStyle) -> Vec<WrittenPosting> {
     transaction
         .written_postings()
         .into_iter()
-        .map(|posting| {
-            let written = WrittenPostingEntity {
+        .map(|posting| WrittenPosting {
+            account: posting.account.name().to_owned(),
+            written: WrittenPostingEntity {
                 cost: posting.cost.map(|cost| cost.export_as(style)),
                 price: posting.price.map(|price| price.export_as(style)),
                 comment: posting.comment,
-            };
-            (posting.account.name().to_owned(), written)
+            },
+            metas: meta_entities(&posting.meta),
         })
         .collect()
 }

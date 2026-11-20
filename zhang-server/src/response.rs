@@ -142,7 +142,7 @@ pub struct AccountJournalEntity {
     pub passed: Option<bool>,
 }
 
-#[derive(Serialize, Schematic)]
+#[derive(Serialize, Schematic, Clone)]
 pub struct MetaEntity {
     pub key: String,
     pub value: String,
@@ -167,6 +167,8 @@ pub struct JournalTransactionItemEntity {
     pub flag: String,
     pub is_balanced: bool,
     pub postings: Vec<JournalTransactionPostingEntity>,
+    /// metadata of the transaction, in the order it is written: the keys in the order they first appear, the values of
+    /// a repeated key together, after the first of them
     pub metas: Vec<MetaEntity>,
     /// whether an edit through the API, which rewrites the transaction from its directive, drops text of it: a comment
     /// line between its postings, a comment on its header line or after a metadata line. A client warns before such
@@ -185,7 +187,8 @@ pub struct JournalTransactionPostingEntity {
     pub inferred_unit: Amount,
     pub account_before: Amount,
     pub account_after: Amount,
-    /// metadata of the posting, sorted by key
+    /// metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
+    /// for a transaction read from a file; sorted by key otherwise
     pub metas: Vec<MetaEntity>,
     /// the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
     /// the entry of a balance check and for a transaction a plugin made

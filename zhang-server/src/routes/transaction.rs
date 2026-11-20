@@ -1298,7 +1298,11 @@ mod string_round_trip_test {
         assert_eq!(response.status(), StatusCode::OK);
 
         let written = assert_written_text_round_trips(&data_file);
-        assert!(written.contains("  \";path\": \"b\"\n  \"my key\": \"v\"\n"), "{written}");
+        // in the order the request gives it
+        assert!(
+            written.contains("  note: \"n\"\n  \"my key\": \"v\"\n  \";path\": \"b\"\n  \"receipt no\": \"1\"\n"),
+            "{written}"
+        );
         let reloaded = load(&dir).await;
         let (updated, _) = transaction(&reloaded);
         assert_eq!(
@@ -1322,7 +1326,7 @@ mod string_round_trip_test {
 
         let written = assert_written_text_round_trips(&data_file);
         assert!(
-            written.contains("  note: \"note\"\n  Assets:Cash -5 CNY\n    \"my key\": \"say \\\"hi\\\"\"\n    receipt: \"r-1\"\n  Expenses:Food 5 CNY"),
+            written.contains("  note: \"note\"\n  Assets:Cash -5 CNY\n    receipt: \"r-1\"\n    \"my key\": \"say \\\"hi\\\"\"\n  Expenses:Food 5 CNY"),
             "{written}"
         );
         let reloaded = load(&dir).await;
@@ -1331,7 +1335,7 @@ mod string_round_trip_test {
         assert_eq!(items[0]["metas"], serde_json::json!([{"key": "note", "value": "note"}]));
         assert_eq!(
             items[0]["postings"][0]["metas"],
-            serde_json::json!([{"key": "my key", "value": "say \"hi\""}, {"key": "receipt", "value": "r-1"}])
+            serde_json::json!([{"key": "receipt", "value": "r-1"}, {"key": "my key", "value": "say \"hi\""}])
         );
         assert_eq!(items[0]["postings"][1]["metas"], serde_json::json!([]));
 
@@ -1529,7 +1533,8 @@ mod string_round_trip_test {
         let items = journals(reloaded).await;
         assert_eq!(
             items[0]["postings"][0]["metas"],
-            serde_json::json!([{"key": "cleared", "value": "FALSE"}, {"key": "day", "value": "2024-01-14"}, {"key": "rate", "value": "3.5"}])
+            // in the order the request gave it
+            serde_json::json!([{"key": "rate", "value": "3.5"}, {"key": "day", "value": "2024-01-14"}, {"key": "cleared", "value": "FALSE"}])
         );
 
         std::fs::remove_dir_all(dir).ok();

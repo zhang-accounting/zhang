@@ -204,7 +204,7 @@ pub struct CreateTransactionPostingRequest {
     pub account: String,
     /// the units of the posting, `null` for the one posting whose units booking infers
     pub unit: Option<UnitRequest>,
-    /// metadata of the posting, checked like the transaction's `metas`
+    /// metadata of the posting, checked like the transaction's `metas`, written in the order given
     pub metas: Option<Vec<MetaRequest>>,
     /// the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
     /// whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
