@@ -5,7 +5,7 @@ use zhang_ast::*;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::DataType;
 use zhang_core::utils::string_::QuoteStyle;
-use zhang_core::utils::{plain_decimal, read_time};
+use zhang_core::utils::{plain_decimal, read_time_of_day};
 use zhang_core::{ZhangError, ZhangResult};
 
 use crate::directives::BeancountOnlyDirective;
@@ -161,7 +161,9 @@ impl DataType for Beancount {
 
 /// `directive` with a date beancount reads: a date and time, to the second or to the minute (a plugin can emit a
 /// `Date::DateHour`), becomes the date alone plus `time` metadata, budget directives included: beancount reads no
-/// time after a date
+/// time after a date. The directive's time is the first `time` entry, before any `time` its metadata already holds:
+/// the first one is read back as the directive's time ([`lift_time_from_meta`]), so the real time wins and the
+/// other stays metadata
 fn time_into_meta(mut directive: Directive) -> Directive {
     let Some(date) = directive.date_mut() else { return directive };
     let (Date::Datetime(datetime) | Date::DateHour(datetime)) = *date else {
@@ -169,7 +171,11 @@ fn time_into_meta(mut directive: Directive) -> Directive {
     };
     *date = Date::Date(datetime.date());
     if let Some(meta) = directive.meta_mut() {
+        let written = std::iter::from_fn(|| meta.pop_one("time")).collect::<Vec<_>>();
         meta.insert("time".to_string(), ZhangString::QuoteString(datetime.time().format("%H:%M:%S").to_string()));
+        for time in written {
+            meta.insert("time".to_string(), time);
+        }
     }
     directive
 }
@@ -198,50 +204,57 @@ fn quote_unreadable_meta(directive: &mut Directive) {
     }
 }
 
-/// Whether beancount reads `value` as a metadata value written without quotes (#475): `TRUE`, `FALSE` or `NULL`, a
-/// tag, a date, an account, a currency, a number or an arithmetic expression of numbers, or an amount (one of those
-/// and a currency).
+/// Whether beancount 3.2.3 reads `value`, a metadata value written without quotes, as that same text; any other value
+/// is written quoted. The rules are those of beancount's lexer (`beancount/parser/lexer.l`) and of its account check
+/// (`valid_account_regexp`, `beancount/parser/grammar.py:109-127`):
+///
+/// - `TRUE`, `FALSE` and `NULL` (lexer.l:154-164);
+/// - a tag, `#[A-Za-z0-9\-_/.]+` (lexer.l:287): ASCII only, `#旅行` is a syntax error;
+/// - a date, `[0-9]{4,}[\-/][0-9]+[\-/][0-9]+` (lexer.l:267), here a valid `YYYY-MM-DD`;
+/// - a currency, `[A-Z][A-Z0-9'._-]*[A-Z0-9]` or a single capital (lexer.l:203, :240);
+/// - a plain number, `([0-9]+|[0-9][0-9,]+[0-9])(\.[0-9]*)?` (lexer.l:282) after an optional sign, or an amount, such a
+///   number and a currency. Beancount evaluates the arithmetic of numbers in a value, so `978-3-16` would read as 959
+///   and `2024-01` as 2023, and two numbers (`12 34`) are a syntax error: every other value made of digits is quoted;
+/// - an account, `{ACCOUNTTYPE}(:{ACCOUNTNAME})+` (lexer.l:129-130, :272): components of ASCII letters, digits and
+///   `-` and of any non-ASCII character, each starting with an ASCII capital or digit or a non-ASCII character. Beancount
+///   then matches it from its start against its account pattern: the root is one of the five account types, and the
+///   first component after it starts with an uppercase letter or a decimal digit (Unicode letters and digits follow).
+///   `Expenses:Ü-Bahn` and `Expenses:Food:餐饮` are accounts; `Expenses:餐饮` is not ("Invalid account name").
 fn reads_bare(value: &str) -> bool {
     fn currency(text: &str) -> bool {
         let mut chars = text.chars();
-        let (Some(first), last) = (chars.next(), text.chars().last()) else {
+        let (Some(first), Some(last)) = (chars.next(), text.chars().last()) else {
             return false;
         };
-        text.len() <= 24
-            && first.is_ascii_uppercase()
-            && last.is_some_and(|it| it.is_ascii_uppercase() || it.is_ascii_digit())
+        first.is_ascii_uppercase()
+            && (last.is_ascii_uppercase() || last.is_ascii_digit())
             && chars.all(|it| it.is_ascii_uppercase() || it.is_ascii_digit() || matches!(it, '\'' | '.' | '_' | '-'))
     }
-    fn account(text: &str) -> bool {
-        let mut parts = text.split(':');
-        let root = parts.next().unwrap_or_default();
-        let component =
-            |part: &str, first: fn(char) -> bool| part.chars().next().is_some_and(first) && part.chars().all(|it| it.is_alphanumeric() || it == '-');
-        let rest = parts.collect::<Vec<_>>();
-        component(root, char::is_uppercase) && !rest.is_empty() && rest.iter().all(|part| component(part, |it| it.is_uppercase() || it.is_numeric()))
-    }
     fn number(text: &str) -> bool {
-        let mut depth = 0i32;
-        let balanced = text.chars().all(|it| {
-            depth += match it {
-                '(' => 1,
-                ')' => -1,
-                _ => 0,
-            };
-            depth >= 0
-        });
-        balanced
-            && depth == 0
-            && text.chars().any(|it| it.is_ascii_digit())
-            && text
-                .chars()
-                .all(|it| it.is_ascii_digit() || matches!(it, '.' | ',' | '+' | '-' | '*' | '/' | '(' | ')' | ' '))
-            && !text.starts_with(' ')
-            && !text.ends_with(' ')
+        let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
+        let (whole, fraction) = unsigned.split_once('.').map_or((unsigned, ""), |(whole, fraction)| (whole, fraction));
+        whole.starts_with(|it: char| it.is_ascii_digit())
+            && whole.ends_with(|it: char| it.is_ascii_digit())
+            && whole.chars().all(|it| it.is_ascii_digit() || it == ',')
+            && fraction.chars().all(|it| it.is_ascii_digit())
+    }
+    fn account(text: &str) -> bool {
+        let mut components = text.split(':');
+        let root = components.next().unwrap_or_default();
+        let components = components.collect::<Vec<_>>();
+        let lexed = |component: &str| {
+            component.starts_with(|it: char| it.is_ascii_uppercase() || it.is_ascii_digit() || !it.is_ascii())
+                && component.chars().all(|it| it.is_ascii_alphanumeric() || it == '-' || !it.is_ascii())
+        };
+        matches!(root, "Assets" | "Liabilities" | "Equity" | "Income" | "Expenses")
+            && components
+                .first()
+                .is_some_and(|first| first.starts_with(|it: char| it.is_ascii_digit() || it.is_uppercase()))
+            && components.iter().all(|component| lexed(component))
     }
     let tag = |text: &str| {
         text.strip_prefix('#')
-            .is_some_and(|name| !name.is_empty() && name.chars().all(|it| it.is_alphanumeric() || matches!(it, '-' | '_' | '/' | '.')))
+            .is_some_and(|name| !name.is_empty() && name.chars().all(|it| it.is_ascii_alphanumeric() || matches!(it, '-' | '_' | '/' | '.')))
     };
     let date = |text: &str| text.len() == 10 && chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok();
     let amount = |text: &str| {
@@ -275,8 +288,18 @@ fn lift_time_from_meta(directive: &mut Directive) {
     ) {
         return;
     }
-    let time = directive.meta_mut().and_then(|meta| meta.pop_one("time")).and_then(|it| read_time(it.as_str()));
-    if let (Some(time), Some(date)) = (time, directive.date_mut()) {
+    // a `time` that is no time of day stays plain metadata
+    let Some(time) = directive
+        .meta()
+        .and_then(|meta| meta.get_one("time"))
+        .and_then(|it| read_time_of_day(it.as_str()))
+    else {
+        return;
+    };
+    if let Some(meta) = directive.meta_mut() {
+        meta.pop_one("time");
+    }
+    if let Some(date) = directive.date_mut() {
         *date = Date::Datetime(date.naive_date().and_time(time));
     }
 }
@@ -289,7 +312,7 @@ mod test {
     use chrono::NaiveDate;
     use indoc::indoc;
     use zhang_ast::amount::Amount;
-    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, Pad, SpanInfo, Spanned};
+    use zhang_ast::{Account, BalanceCheck, BalancePad, Date, Directive, Meta, Open, Pad, SpanInfo, Spanned, ZhangString};
     use zhang_core::data_type::DataType;
 
     use crate::directives::BeancountOnlyDirective;
@@ -328,32 +351,162 @@ mod test {
         );
     }
 
-    /// Zhang reads any metadata value written bare, beancount only some (#475): a bare value beancount would reject,
-    /// such as the `budget: Food` linking an account to a budget, is written in quotes, the others as they are.
+    /// What beancount 3.2.3 reads bare as the same text, and what it reads otherwise or rejects (checked with
+    /// bean-check and `beancount.loader`): an arithmetic of numbers is evaluated (`978-3-16` is 959), two numbers, a
+    /// non-ASCII tag and an account whose first component starts with no uppercase letter or digit are errors.
     #[test]
-    fn a_bare_metadata_value_beancount_cannot_read_is_written_in_quotes() {
-        let open = test_parse_zhang! {"2024-01-01 open Expenses:Food\n  budget: Food\n  budget: \"Fun\"\n  counterpart: Assets:Cash\n  currency: USD\n  number: 10.50\n  amount: 10 USD\n  expression: (1 + 2) * 3\n  date: 2024-01-10\n  tag: #trip\n  yes: TRUE"};
+    fn bare_values_are_those_beancount_reads_as_written() {
+        for value in [
+            "TRUE",
+            "FALSE",
+            "NULL",
+            "#trip",
+            "#a-b_c/d.e",
+            "2024-01-10",
+            "0024-01-01",
+            "USD",
+            "V",
+            "NT.TO",
+            "C345",
+            "10",
+            "10.50",
+            "10.",
+            "-3",
+            "+3",
+            "1,000.50",
+            "10 USD",
+            "-10 USD",
+            "Assets:Cash",
+            "Expenses:Ü-Bahn",
+            "Expenses:Food:餐饮",
+            "Liabilities:Card-1",
+        ] {
+            assert!(super::reads_bare(value), "{value} is read bare");
+        }
+        for value in [
+            "Food",
+            "978-3-16",
+            "2024-01",
+            "12 34",
+            "(1 + 2) * 3",
+            "1 + 2 USD",
+            "1/2",
+            "#旅行",
+            "#",
+            "2024-13-45",
+            "Expenses:餐饮",
+            "Foo:Bar",
+            "Expenses",
+            "Expenses:food",
+            "CAC_",
+            "usd",
+            "1,",
+            ",1",
+            "10 usd",
+            "two words",
+            "",
+        ] {
+            assert!(!super::reads_bare(value), "{value} is quoted");
+        }
+    }
+
+    /// A metadata value zhang read bare is written bare to beancount only when beancount reads it as that text, and
+    /// quoted otherwise; zhang reads either form back as the text it was. Before, `978-3-16` and `2024-01` stayed bare,
+    /// and beancount read them as 959 and 2023.
+    #[test]
+    fn a_bare_metadata_value_round_trips_through_beancount_as_its_text() {
+        let cases = [
+            ("budget", "Food", true),
+            ("isbn", "978-3-16", true),
+            ("month", "2024-01", true),
+            ("expression", "(1 + 2) * 3", true),
+            ("expression-amount", "1 + 2 USD", true),
+            ("tag", "#旅行", true),
+            ("account", "Expenses:餐饮", true),
+            ("ascii-tag", "#trip", false),
+            ("date", "2024-01-10", false),
+            ("number", "1,000.50", false),
+            ("negative", "-3", false),
+            ("amount", "10 USD", false),
+            ("currency", "USD", false),
+            ("account-ascii", "Assets:Cash", false),
+            ("account-unicode", "Expenses:Food:餐饮", false),
+            ("yes", "TRUE", false),
+        ];
+        let text = cases.iter().fold("2024-01-01 open Assets:Cash".to_owned(), |text, (key, value, _)| {
+            format!("{text}\n  {key}: {value}")
+        });
+        let open = zhang_core::data_type::text::ZhangDataType {}.transform(text, None).unwrap().remove(0);
+        for (key, value, _) in &cases {
+            assert_eq!(
+                open.data.meta().unwrap().get_one(*key),
+                Some(&ZhangString::unquote(*value)),
+                "{key} is read bare by zhang"
+            );
+        }
+        let written = Beancount {}.export(open);
+        for (key, value, quoted) in &cases {
+            let line = if *quoted {
+                format!("  {key}: \"{value}\"")
+            } else {
+                format!("  {key}: {value}")
+            };
+            assert!(written.lines().any(|it| it == line), "{line:?} in\n{written}");
+        }
+        let read = Beancount::default().transform(written, None).unwrap().remove(0);
+        for (key, value, _) in &cases {
+            assert_eq!(read.data.meta().unwrap().get_one(*key).map(|it| it.as_str()), Some(*value), "{key}");
+        }
+    }
+
+    /// The `time` metadata of a directive in a beancount file is its time when it is a time of day, `H:M:S` or `H:M`;
+    /// any other `time`, such as `evening` or `12:00:00+08:00`, stays metadata, and the directive keeps its date. Before,
+    /// such a `time` was dropped, neither applied nor kept.
+    #[test]
+    fn a_time_metadata_entry_is_a_time_of_day_or_stays_metadata() {
+        let read = |time: &str| {
+            let text = format!("2024-03-10 custom \"budget-close\" \"Food\"\n  time: \"{time}\"\n2024-03-10 * \"Shop\"\n  time: \"{time}\"\n  Expenses:Food 1 CNY\n  Assets:Cash");
+            Beancount::default()
+                .transform(text, None)
+                .unwrap()
+                .into_iter()
+                .map(|it| it.data)
+                .collect::<Vec<_>>()
+        };
+        let noon = NaiveDate::from_ymd_opt(2024, 3, 10).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        for time in ["12:00:00", "12:00", " 12:00 "] {
+            for directive in read(time) {
+                assert_eq!(directive.datetime(), Some(noon), "{time}: {directive:?}");
+                assert_eq!(directive.meta().unwrap().get_one("time"), None, "{time}");
+            }
+        }
+        for time in ["evening", "12:00:00+08:00", "25:00", "12"] {
+            for directive in read(time) {
+                assert!(matches!(directive.clone().date_mut(), Some(Date::Date(_))), "{time}: {directive:?}");
+                assert_eq!(directive.meta().unwrap().get_one("time").map(|it| it.as_str()), Some(time), "{time}");
+            }
+        }
+    }
+
+    /// A zhang directive at a time whose metadata also holds a `time` of its own is written with its time first, then
+    /// the other: read back, the first is its time and the other stays metadata, so neither is lost.
+    #[test]
+    fn the_time_of_a_directive_wins_over_a_time_in_its_metadata() {
+        let text = "2024-03-01 18:00:00 budget-close Food\n  time: \"09:00:00\"\n  note: \"x\"";
+        let close = zhang_core::data_type::text::ZhangDataType {}
+            .transform(text.to_owned(), None)
+            .unwrap()
+            .remove(0);
+        let written = Beancount {}.export(close.clone());
         assert_eq!(
-            Beancount {}.export(Spanned::new(open, SpanInfo::default())),
-            indoc! {r#"
-                2024-01-01 open Expenses:Food
-                  budget: "Food"
-                  budget: "Fun"
-                  counterpart: Assets:Cash
-                  currency: USD
-                  number: 10.50
-                  amount: 10 USD
-                  expression: (1 + 2) * 3
-                  date: 2024-01-10
-                  tag: #trip
-                  yes: TRUE
-            "#}
-            .trim()
+            written,
+            "2024-03-01 custom \"budget-close\" \"Food\"\n  note: \"x\"\n  time: \"18:00:00\"\n  time: \"09:00:00\""
         );
-        let transaction = test_parse_zhang! {"2024-01-02 * \"Shop\"\n  kind: groceries\n  Expenses:Food 10 CNY\n    budget: Food\n  Assets:Cash"};
+        let read = Beancount::default().transform(written, None).unwrap().remove(0).data;
+        assert_eq!(read.datetime(), close.data.datetime());
         assert_eq!(
-            Beancount {}.export(Spanned::new(transaction, SpanInfo::default())),
-            "2024-01-02 * \"Shop\"\n  kind: \"groceries\"\n  Expenses:Food 10 CNY\n    budget: \"Food\"\n  Assets:Cash"
+            read.meta().unwrap().get_all("time").into_iter().map(|it| it.as_str()).collect::<Vec<_>>(),
+            vec!["09:00:00"]
         );
     }
 

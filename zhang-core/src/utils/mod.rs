@@ -11,11 +11,23 @@ pub mod string_;
 /// parsers skip it, and a file that has one keeps it when it is written back ([`crate::data_source::FileText`])
 pub const BOM: &str = "\u{feff}";
 
-/// The time of day in the `time` metadata of a beancount directive: `H:M:S`, spaces around it trimmed
+/// The time of day in the `time` metadata of a beancount directive as earlier versions read it: `H:M:S`, spaces around
+/// it trimmed. The balance check compares with it what those versions made of a balance's `time`
 pub fn read_time(text: &str) -> Option<NaiveTime> {
     let parts = text.trim().split(':').map(|it| it.parse::<u32>().ok()).collect::<Option<Vec<_>>>()?;
     match parts[..] {
         [hour, minute, second] => NaiveTime::from_hms_opt(hour, minute, second),
+        _ => None,
+    }
+}
+
+/// The time of day in the `time` metadata of a directive of a beancount file, which becomes its time: `H:M:S` or
+/// `H:M`, spaces around it trimmed; `None` for any other text, which stays plain metadata
+pub fn read_time_of_day(text: &str) -> Option<NaiveTime> {
+    let parts = text.trim().split(':').map(|it| it.parse::<u32>().ok()).collect::<Option<Vec<_>>>()?;
+    match parts[..] {
+        [hour, minute, second] => NaiveTime::from_hms_opt(hour, minute, second),
+        [hour, minute] => NaiveTime::from_hms_opt(hour, minute, 0),
         _ => None,
     }
 }

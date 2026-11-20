@@ -31,7 +31,7 @@ use zhang_core::data_type::text::parser::{
     commodity_name, date_only, directive_metas, flag_char, inline_comment, key_value_line, line_column, line_trailer, offset, parse_items, posting_amount,
     quote_string, string, transaction_head, unquote_string_raw, valuable_comment, Leaves, TransactionLine,
 };
-use zhang_core::utils::read_time;
+use zhang_core::utils::read_time_of_day;
 
 use crate::directives::{BalanceDirective, BeancountDirective, BeancountOnlyDirective};
 
@@ -363,7 +363,7 @@ fn lift_trailing_time(transaction: &mut Transaction, posting_times: &[PostingTim
         return;
     }
     let posting = &mut transaction.postings[*posting_index];
-    if posting.meta.get_one("time").is_some_and(|time| read_time(time.as_str()).is_some()) {
+    if posting.meta.get_one("time").is_some_and(|time| read_time_of_day(time.as_str()).is_some()) {
         if let Some(time) = posting.meta.pop_one("time") {
             transaction.meta.insert("time".to_owned(), time);
         }
