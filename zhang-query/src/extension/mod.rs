@@ -26,6 +26,12 @@
 //!
 //! Names follow §3.4 of the RFC: a core table or column always keeps its name, and of two providers declaring one
 //! name the first keeps it.
+//!
+//! **Limits.** An extension's table has at most 64 columns ([`crate::table::MAX_CELLS`]), and a catalog at most 16 label
+//! columns ([`crate::table::MAX_LABELS`]), shared by all the providers of a ledger: a column is read through a getter
+//! per cell position and per label slot, monomorphized, so that reading it costs what reading a core column does. A
+//! manifest past either limit fails [`build`], with every other check. The plugin guide states both limits once
+//! analyzers exist (P1.4).
 
 pub(crate) mod budget;
 mod compat;
@@ -241,6 +247,8 @@ pub(crate) fn build(manifests: &[Manifest]) -> Result<Extensions, String> {
                 return Err(error(format!("{}: postings already has a column '{}'", what, decl.name)));
             }
             let column = LabelColumn::compile(&provider, decl).map_err(|it| error(format!("{}: {}", what, it)))?;
+            // TODO(P1.4): a ledger analyzer past the limit, shared by all providers, is skipped and reported, as on a
+            // name collision, instead of failing the catalog
             let (getter, holds) =
                 table::label_getter(labels.len()).ok_or_else(|| error(format!("{}: a catalog has at most {} label columns", what, table::MAX_LABELS)))?;
             let def = ColumnDef {
@@ -278,6 +286,7 @@ fn extension_table(provider: &Arc<str>, decl: &TableDecl) -> Result<Table, Strin
     if decl.columns.is_empty() {
         return Err("a table has columns".to_owned());
     }
+    // TODO(P1.4): as for the label columns, a ledger analyzer past the limit is skipped and reported
     if decl.columns.len() > table::MAX_CELLS {
         return Err(format!("a table has at most {} columns", table::MAX_CELLS));
     }

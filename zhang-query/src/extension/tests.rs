@@ -411,3 +411,43 @@ fn a_label_predicate_that_fails_panics_in_a_debug_build() {
     };
     labels_of("account ~ :label", &[label]);
 }
+
+#[test]
+fn an_extensions_table_has_at_most_64_columns() {
+    let columns = |count: usize| (0..count).map(|it| column(&format!("c{it}"), DataType::Str, None)).collect::<Vec<_>>();
+    let mut widest = manifest();
+    widest.tables[0].columns = columns(64);
+    widest.tables[0].wildcard = vec!["c0".to_owned()];
+    let catalog = Catalog::with_extensions(&[widest]).unwrap();
+    assert_eq!(catalog.find("shop_items").unwrap().columns().len(), 64);
+    let err = build_error(|m| {
+        m.tables[0].columns = columns(65);
+        m.tables[0].wildcard = vec!["c0".to_owned()];
+    });
+    assert_eq!(err, "test:shop: table #shop_items: a table has at most 64 columns");
+}
+
+#[test]
+fn a_catalog_has_at_most_16_label_columns_shared_by_its_providers() {
+    let label = |name: String| LabelDecl {
+        table: "postings".to_owned(),
+        name,
+        description: String::new(),
+        predicate: "account IN :accounts".to_owned(),
+        params: vec![("accounts".to_owned(), DataType::Set)],
+    };
+    let labels = |provider: &str, from: usize, to: usize| Manifest {
+        provider: provider.to_owned(),
+        tables: vec![],
+        labels: (from..to).map(|it| label(format!("tag{it}"))).collect(),
+    };
+    let catalog = Catalog::with_extensions(&[labels("test:one", 0, 16)]).unwrap();
+    assert_eq!(catalog.postings().columns().len(), crate::table::COLUMNS.len() + 16);
+    let err = build(&[labels("test:one", 0, 17)]).err().unwrap();
+    assert_eq!(err, "test:one: column postings.tag16: a catalog has at most 16 label columns");
+    // the limit is the catalog's, whichever provider reaches it
+    let err = build(&[labels("test:one", 0, 10), labels("test:two", 10, 17)]).err().unwrap();
+    assert_eq!(err, "test:two: column postings.tag16: a catalog has at most 16 label columns");
+    // the native providers leave room: zhang:budget has one
+    assert_eq!(native_manifests().iter().map(|it| it.labels.len()).sum::<usize>(), 1);
+}

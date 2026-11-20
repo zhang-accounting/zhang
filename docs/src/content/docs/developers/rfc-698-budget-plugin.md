@@ -485,7 +485,7 @@ In v1 a plugin adds no column to any other core table and no scalar function (§
 
 | When | Check |
 | --- | --- |
-| Registration (manifest) | Names, types and fill policies (a `previous` column has the same type); wildcard ⊆ columns. The predicate compiles against `#postings` to `Bool`: row-level, no aggregate, no plugin table. Named queries compile against the catalog with their declared parameters. Any failure fails registration, like a bad `supported_type`. |
+| Registration (manifest) | Names, types and fill policies (a `previous` column has the same type, filled with `carry`); wildcard ⊆ columns; at most 64 columns per table and 16 label columns per ledger (§3.4). The predicate compiles against `#postings` to `Bool`: row-level, no aggregate, no plugin table. Named queries compile against the catalog with their declared parameters. Any failure fails registration, like a bad `supported_type`. |
 | Publish (snapshot) | Every cell has its column's type or is NULL. Partition keys are present and unique. Series rows are strictly increasing and aligned to the unit. Label parameters match their types. Record order is as declared. Any failure: `failed` (§2.5). |
 | Query compile | As for core tables: columns resolve against the query's table only, functions type-check, `SELECT *` expands to the wildcard. |
 
@@ -503,6 +503,14 @@ In v1 a plugin adds no column to any other core table and no scalar function (§
   forking the budget rules is out of scope for v1.
 - **Declared but failed.** A table whose snapshot `failed` stays in the catalog and answers "unavailable", not
   "unknown table".
+- **Limits (P1.3).** An extension table has at most **64 columns**, and a ledger's catalog at most **16 label
+  columns** on `#postings`, **shared by all the plugins of the ledger**, default ones included (`zhang:budget` uses
+  one). Every column is read through a getter per cell position or label slot, so that reading it costs what reading
+  a core column does.
+  - **Overflow** is refused at registration, like a conflict. With only native providers (P1.3) the catalog does not
+    build, which the tests catch. From P1.4 the plugin that overflows is skipped and reported on its directive, and
+    the others keep their tables and columns, as for a name conflict.
+  - The plugin guide states both limits with the `Analyzer` type (P1.4).
 
 ### 3.5 Compiler integration, the schema API and compile caches
 
@@ -511,14 +519,16 @@ In v1 a plugin adds no column to any other core table and no scalar function (§
 - The table registry (`zhang-query/src/table/mod.rs:166-191`) and `Plan.table` are `&'static Table`.
 - A column in a compiled expression is `CExpr::Column(&'static ColumnDef)` (`zhang-query/src/compiler.rs:79`).
 - The projection is a `u64` bitmask whose bit is the column's position, found by pointer identity
-  (`zhang-query/src/projector.rs:55,202-207`). That caps a table at 64 columns; `#postings` already has 36.
+  (`zhang-query/src/projector.rs:55,202-207`). That capped a table at 64 columns until P1.1; `#postings` already has
+  36.
 
 **In two steps.**
 
 1. **P1.1, byte-identical.**
    - `TableRef` (`Static(&'static Table)` or later `Extension(Arc<ExtensionTable>)`) and `ColumnRef` (a table plus
      the column's index) replace the static references in `Plan`, `CExpr::Column` and the projector.
-   - The projection becomes a bitset indexed by `ColumnRef`, with no 64-column cap and no pointer identity.
+   - The projection becomes a bitset indexed by `ColumnRef`, with no pointer identity and no 64-column cap of its
+     own. Extension tables get a 64-column cap again in P1.3, for another reason (§3.4: a getter per cell position).
    - `Query::compile_in(&catalog, …)` resolves over a catalog that contains only the core tables, and
      `Query::compile` calls it.
    - Nothing observable changes: answers, `GET /api/query/schema`, the OpenAPI document and the frontend's
