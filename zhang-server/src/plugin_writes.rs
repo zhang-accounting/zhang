@@ -11,11 +11,17 @@
 //! previews clean in one call.
 //!
 //! A preview mints a [token](PluginWrites::mint) bound to the ledger generation, the plugin, and the exact files and
-//! texts the batch plans; a commit recomputes the plan from the batch and verifies the token, so a plugin commits
-//! exactly what it was shown, on the ledger it looked at, once: the commit moves the generation on, which voids every
-//! token minted before, and the server marks the ledger stale and reloads it after the plugin returns (see
-//! [`crate::routes::plugin_router`]). Until that reload, another commit is a `conflict`: one commit per reload cycle,
-//! which is what keeps two commits from each including the same new monthly file.
+//! texts the batch plans; a commit recomputes the plan from the batch, validates it again, and verifies the token, so
+//! a commit lands only on the ledger the preview planned against, with the text the preview planned, once: the commit
+//! moves the generation on, which voids every token minted before, and the server marks the ledger stale and reloads
+//! it after the plugin returns (see [`crate::routes::plugin_router`]). Until that reload, another commit is a
+//! `conflict`: one commit per reload cycle, which is what keeps two commits from each including the same new monthly
+//! file.
+//!
+//! The token is optimistic concurrency control, not consent. The plugin mints its own tokens (nothing stops it from
+//! previewing and committing in one request) and the commit plans and validates the batch again whatever the token
+//! says, so a token proves only that the ledger and the batch are unchanged since a preview, never that a person saw
+//! it. Asking before a commit is the plugin's job; letting the plugin write at all is the owner's (`allowed_writes`).
 
 use std::str::FromStr;
 use std::sync::{Mutex, PoisonError};

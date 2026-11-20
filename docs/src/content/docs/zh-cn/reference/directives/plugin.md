@@ -78,7 +78,7 @@ plugin "plugins/receipts.wasm"
 **`allowed_writes`**：每个值是插件可以追加的一种指令：`"transaction"` 或 `"open"`。它只对声明了自己会写入该种类的插件生效（插件的 `capabilities` 导出；Lua 脚本的 `writes` 表），并且只在插件作为 router 处理请求时生效。插件先预览一批指令，张记账用与 `POST /api/transactions/preview` 完全相同的方式校验它们，按 `POST /api/transactions` 的方式写入由 `directive_output_path` 选项选定的文件；然后插件用预览给出的令牌提交同一批指令。其他值会报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta)，并且不授予任何东西。宿主函数见[写入](/zh-cn/developers/writing-plugins/#写入)；每个插件申请的（`writes_requested`）和被授予的（`writes_granted`）写入种类见 `GET /api/plugins`。
 
 :::danger[写入]
-获得 `allowed_writes` 的插件可以往你的账本里添加条目。它不能修改或删除任何内容，而且行为良好的客户端会先把每个条目展示给你，但仍然只对你信任的插件授予它。
+获得 `allowed_writes` 的插件可以往你的账本里添加条目。它不能修改或删除任何内容。行为良好的插件会在提交之前把每个条目展示给你，但张记账无法检查它是否这样做了：预览令牌只阻止在预览之后已经变化的账本上提交，而插件可以在一个请求里预览并提交。只对你信任的插件授予它。
 :::
 
 **`timeout`**：整数秒（`"90"`），或者带单位 `ms`、`s`、`m` 或 `h` 的整数（`"500ms"`、`"30s"`、`"2m"`）。它必须大于零，且不超过一天。无效的值会报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta)，插件使用默认值。如果一个键重复出现，以它的最后一个值为准。

@@ -104,8 +104,10 @@ Any other value is reported as [`ParseInvalidMeta`](/reference/error-codes/#pars
 requested (`writes_requested`) and was granted (`writes_granted`).
 
 :::danger[Writes]
-A plugin granted `allowed_writes` can add entries to your ledger. It cannot edit or delete anything, and every entry
-it adds is shown to you first by a well-behaved client, but grant it only to a plugin you trust.
+A plugin granted `allowed_writes` can add entries to your ledger. It cannot edit or delete anything. A well-behaved
+plugin shows you every entry before it commits it, but Zhang cannot check that it did: the preview token only stops a
+commit on a ledger that changed since the preview, and a plugin can preview and commit in one request. Grant it only
+to a plugin you trust.
 :::
 
 **`timeout`.** Whole seconds (`"90"`), or a whole number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"30s"`,

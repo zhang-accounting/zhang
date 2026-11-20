@@ -419,11 +419,16 @@ fn route(request: Request) -> Result<Response, Error> {
    caller retry a write that already happened. If a file cannot be written, the `io` error names the entries and
    files that were written and those that were not, the batch is void (every token with it) and the ledger reloads:
    tell the user what was recorded, and preview only the rest again.
-3. **The token** is the host's HMAC of the ledger's generation (a counter moved on by every commit and by every reload that loaded other content than before; the file watcher's reload of unchanged files keeps it),
-   the plugin's name, the files and the exact text, with an expiry 10 minutes out. So a plugin can only commit what
-   it was shown, on the ledger it looked at, once: a batch that differs, a token of another generation, an expired
-   token, a ledger that is reloading after a write, or a second commit before that reload is a `conflict`, and the
-   plugin previews again. The host keeps no state per preview.
+3. **The token is optimistic concurrency control, not consent.** It is the host's HMAC of the ledger's generation (a
+   counter moved on by every commit and by every reload that loaded other content than before; the file watcher's
+   reload of unchanged files keeps it), the plugin's name, the files and the exact text, with an expiry 10 minutes
+   out. It lets a commit find out that the ledger or the batch changed since the preview: a batch that differs, a
+   token of another generation, an expired token, a ledger that is reloading after a write, or a second commit
+   before that reload is a `conflict`, and the plugin previews again. It proves nothing about who saw the preview:
+   the plugin mints its own tokens (it may preview and commit in the same request), and the commit plans and
+   validates the batch again whatever the token says. Asking a person before a commit is the plugin's job, and
+   `allowed_writes` is the owner's; the token only keeps a commit from landing on a ledger that moved under it. The
+   host keeps no state per preview.
 
 Amounts are strings (`"4.50"`): the host refuses a JSON number anywhere in a batch as `invalid`, naming the field, so
 a float can never change a balance. The host adds no text or metadata of its own; a plugin that wants to mark what it
