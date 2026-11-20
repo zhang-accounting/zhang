@@ -5,6 +5,8 @@
 ; - A posting to an account linked to two budgets has each budget's error at the posting, in the order of the
 ;   budgets' names, whatever the order of the `budget` entries: two that do not exist, two in whose commodity no price
 ;   converts it, two that are closed.
+; - A transaction with errors of two kinds has its BudgetDoesNotExist before its BudgetCommodityMismatch errors, although
+;   the posting no price converts is written first: amounts are checked for a price once every price is known.
 option "operating_currency" "CNY"
 option "timezone" "UTC"
 
@@ -21,6 +23,8 @@ option "timezone" "UTC"
 2024-01-01 open Expenses:Closed
   budget: Yankee
   budget: Bravo
+2024-01-01 open Expenses:Unknown
+  budget: Echo
 
 2024-01-01 budget Zeta CNY
 2024-01-01 budget Alpha CNY
@@ -47,3 +51,9 @@ option "timezone" "UTC"
   Assets:Bank
 
 2024-01-08 budget Alpha USD
+
+2024-01-09 * "Shop" "dollars no price converts, then an account of a budget that does not exist"
+  Expenses:Dollars 3 USD
+  Expenses:Unknown 1 CNY
+  Assets:Bank -3 USD
+  Assets:Bank -1 CNY

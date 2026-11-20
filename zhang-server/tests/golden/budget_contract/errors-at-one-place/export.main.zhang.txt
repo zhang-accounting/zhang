@@ -9,6 +9,8 @@
 2024-01-01 open Expenses:Closed
   budget: Yankee
   budget: Bravo
+2024-01-01 open Expenses:Unknown
+  budget: Echo
 2024-01-01 budget Zeta CNY
 2024-01-01 budget Alpha CNY
 2024-01-01 budget Yankee CNY
@@ -28,6 +30,8 @@
 2024-01-01 open Expenses:Closed
   budget: Yankee
   budget: Bravo
+2024-01-01 open Expenses:Unknown
+  budget: Echo
 2024-01-01 custom "budget" "Zeta" "CNY"
 2024-01-01 custom "budget" "Alpha" "CNY"
 2024-01-01 custom "budget" "Yankee" "CNY"
