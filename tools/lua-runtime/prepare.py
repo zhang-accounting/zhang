@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Download and verify the pinned toolchain and sources of the Lua interpreter module (see PINS.toml).
+"""Download and verify the pinned toolchain of the Lua interpreter module (see PINS.toml).
 
     python3 tools/lua-runtime/prepare.py --tools /path/outside/the/repo
 
-Everything lands under `--tools`: the wasi-sdk for this host (`--host` overrides the detection), the lua.wasm
-tarball, dkjson and the Extism C PDK header. Every download is checked against the sha256 of PINS.toml before it
-is extracted or used, and a file already present with the right checksum is not downloaded again. Python 3
-standard library only.
+The wasi-sdk for this host (`--host` overrides the detection) lands under `--tools`, checked against the sha256 of
+PINS.toml before it is extracted, and is not downloaded again while the file there has the right checksum. It is
+the only download: the sources (Lua, its wasm shim, dkjson, the Extism C PDK header) are vendored under
+`vendor/`, and `build.py` checks them against `vendor/SHA256SUMS`. Python 3 standard library only.
 """
 
 import argparse
@@ -106,7 +106,7 @@ def extract(archive, directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--tools", type=Path, required=True, help="where the toolchain and sources are kept (outside the repo)")
+    parser.add_argument("--tools", type=Path, required=True, help="where the toolchain is kept (outside the repo)")
     parser.add_argument("--host", choices=sorted(HOSTS.values()), help="the wasi-sdk asset to fetch; detected from this machine by default")
     args = parser.parse_args()
     tools = args.tools.resolve()
@@ -118,14 +118,6 @@ def main():
     sdk_archive = tools / f"wasi-sdk-{sdk['version']}-{host}.tar.gz"
     fetch(sdk[f"{host}-url"], sdk_archive, sdk[f"{host}-sha256"])
     extract(sdk_archive, tools / "wasi-sdk")
-
-    lua = pinned["lua"]
-    lua_archive = tools / f"lua.wasm-{lua['version']}.tar.gz"
-    fetch(lua["url"], lua_archive, lua["sha256"])
-    extract(lua_archive, tools / "lua")
-
-    fetch(pinned["dkjson"]["url"], tools / "dkjson.lua", pinned["dkjson"]["sha256"])
-    fetch(pinned["extism-c-pdk"]["url"], tools / "extism-pdk.h", pinned["extism-c-pdk"]["sha256"])
     print(f"ready: {tools} ({host})")
     return 0
 

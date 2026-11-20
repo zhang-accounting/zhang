@@ -258,8 +258,8 @@ jobs:
         run: cargo clippy --target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -p zhang-plugin-example-balances -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
 
   # the Lua interpreter module zhang embeds (zhang-core/src/plugin/lua/lua-runtime.wasm) is vendored with its
-  # sha256; this job rebuilds it from the pinned toolchain and sources (tools/lua-runtime, PINS.toml) and fails
-  # unless the bytes match, so the module in the tree is always what the build produces. The Linux build is the
+  # sha256; this job rebuilds it from the sources in the tree (tools/lua-runtime/vendor) with the pinned toolchain
+  # (PINS.toml) and fails unless the bytes match, so the module in the tree is always what the build produces. The Linux build is the
   # canonical one: a maintainer who rebuilds elsewhere commits this job's artifact when the two differ
   lua-runtime:
     runs-on: ubuntu-22.04
@@ -274,7 +274,7 @@ jobs:
         with:
           path: /tmp/lua-runtime-tools
           key: lua-runtime-tools-${{ hashFiles('tools/lua-runtime/PINS.toml') }}
-      - name: Fetch the pinned toolchain and sources
+      - name: Fetch the pinned toolchain
         run: python3 -I tools/lua-runtime/prepare.py --tools /tmp/lua-runtime-tools
       - name: Rebuild the module
         run: python3 -I tools/lua-runtime/build.py --tools /tmp/lua-runtime-tools --out /tmp/lua-runtime-build/lua-runtime.wasm

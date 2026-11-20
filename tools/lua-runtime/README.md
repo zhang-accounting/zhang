@@ -10,15 +10,17 @@ This directory is everything needed to rebuild it, byte for byte:
 
 | file | role |
 | --- | --- |
-| `PINS.toml` | every download, with its URL and sha256: wasi-sdk 34.0 (clang 23) for `arm64-macos` and `x86_64-linux`, lua.wasm 0.2.0, dkjson 2.11, the Extism C PDK header (by commit and by content) |
-| `prepare.py` | fetches and verifies the pins into a directory outside the repo (`--tools`), picking this host's wasi-sdk (`--host` overrides) |
-| `build.py` | the one-command build: compiles `runtime.cpp`, lua.wasm's `onelua.c` and `pdk.c` into the module, writes `<out>.sha256` |
+| `vendor/` | the sources, in the tree: Lua 5.4.8 as lua.wasm 0.2.0's `onelua.c` with its wasm shim, dkjson 2.11 and the Extism C PDK header, with their licenses, their provenance and any local change (`vendor/README.md`) and the sha256 of every file (`vendor/SHA256SUMS`) |
+| `PINS.toml` | the one download, wasi-sdk 34.0 (clang 23) for `arm64-macos` and `x86_64-linux`, with its URL and sha256; and the upstream URL, version and sha256 of each vendored source |
+| `prepare.py` | fetches and verifies the wasi-sdk into a directory outside the repo (`--tools`), picking this host's (`--host` overrides) |
+| `build.py` | the one-command build: checks `vendor/` against `vendor/SHA256SUMS`, compiles `runtime.cpp`, the vendored `onelua.c` and `pdk.c` into the module, writes `<out>.sha256` |
 | `runtime.cpp` | the dispatcher: the host-function bridges, the memory budget, the `zhang`/`json` Lua API, the sandbox and the dispatch of each export (sections: imports, memory budget, bridges, prelude, exports) |
 | `pdk.c` | the translation unit defining the Extism C PDK |
 
 ## Rebuild
 
-Python 3 (standard library only) and network access for the first run:
+Python 3 (standard library only) and network access for the first run, which downloads the wasi-sdk; the sources are
+in the tree:
 
 ```sh
 python3 -I tools/lua-runtime/prepare.py --tools /path/outside/the/repo
@@ -35,7 +37,7 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
 
 ## How the build is defined
 
-- **Lua as C++ with wasm exception handling.** lua.wasm's embedding contract (`doc/embedding.md` in its tree):
+- **Lua as C++ with wasm exception handling.** lua.wasm's embedding contract (`doc/embedding.md` in its repository):
   `onelua.c` compiled as C++ (`-x c++`) so `LUAI_THROW`/`LUAI_TRY` become `throw`/`catch`, `-fwasm-exceptions` in the
   standardized encoding (`-mllvm -wasm-use-legacy-eh=false`, LLVM 20+), `-nostdlib++` because `onelua.c` carries its own
   `catch(...)`-only EH shim (no distribution ships a wasm-EH libc++abi), `-DMAKE_LIB`, `-fno-strict-aliasing` and WASI's
@@ -46,7 +48,7 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
 - **No debug sections.** `-Wl,--strip-debug` drops the DWARF the sysroot's prebuilt libc objects carry (each
   wasi-sdk host asset builds its libc with its own paths, which made a macOS and a Linux build differ by a few
   hundred bytes of `.debug_str`/`.debug_line` while every code section matched); the `name` section stays.
-- **dkjson embedded.** `build.py` writes dkjson into a generated `json_lua.h` as a C string; the prelude in `runtime.cpp`
+- **dkjson embedded.** `build.py` writes the vendored dkjson into a generated `json_lua.h` as a C string; the prelude in `runtime.cpp`
   wraps it as the `json` library (shared object/array markers, a fixed `null`, strict decoding). User scripts are never
   built into the module.
 
@@ -69,4 +71,6 @@ bytes and whether the Linux build matched.
 4. a fixture in `zhang-core/tests/plugins/` and a test in `zhang-core/tests/core/wasm_plugins.rs`;
 5. `build.py`, then commit the module and its checksum together.
 
-Bumping a pin means changing `PINS.toml`, running `prepare.py` again (it refuses a checksum mismatch) and rebuilding.
+Bumping the wasi-sdk means changing `PINS.toml`, running `prepare.py` again (it refuses a checksum mismatch) and
+rebuilding. Taking a new version of a vendored source means replacing its files under `vendor/`, updating
+`vendor/SHA256SUMS` and its provenance in `PINS.toml`, and rebuilding (`vendor/README.md`).

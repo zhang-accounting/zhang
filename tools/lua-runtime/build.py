@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Build the Lua interpreter module zhang embeds, from the toolchain `prepare.py` fetched.
+"""Build the Lua interpreter module zhang embeds, from the vendored sources and the toolchain `prepare.py` fetched.
 
     python3 tools/lua-runtime/build.py --tools /path/outside/the/repo [--out zhang-core/src/plugin/lua/lua-runtime.wasm]
 
-One command, one artifact: `runtime.cpp` (the Extism dispatcher), lua.wasm's `onelua.c` (Lua 5.4.8 compiled as C++
-so its error handling rides wasm exception handling) and `pdk.c` (the Extism C PDK) are compiled with wasi-sdk's
-clang into a wasm reactor, with dkjson embedded as a C string. The flags are lua.wasm's documented embedding
+One command, one artifact: `runtime.cpp` (the Extism dispatcher), the vendored `onelua.c` of lua.wasm (Lua 5.4.8
+compiled as C++ so its error handling rides wasm exception handling) and `pdk.c` (the Extism C PDK) are compiled
+with wasi-sdk's clang into a wasm reactor, with the vendored dkjson embedded as a C string. Every vendored file is
+checked against `vendor/SHA256SUMS` first, and the build refuses a file that differs or is not listed. The flags are lua.wasm's documented embedding
 contract plus Extism's reactor model; the build is deterministic, so the same inputs give the same bytes on every
 host (`-ffile-prefix-map` keeps the directories out of the module). The sha256 and size of the output are printed,
 and `<out>.sha256` is written beside it in `sha256sum -c` format.
@@ -22,13 +23,36 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 # prepare.py sits beside this file; `python3 -I` does not put the script's directory on the path
 sys.path.insert(0, str(HERE))
-from prepare import host_name, pins  # noqa: E402
+from prepare import host_name, pins, sha256  # noqa: E402
 
 REPO = HERE.parent.parent
+VENDOR = HERE / "vendor"
 DEFAULT_OUT = REPO / "zhang-core" / "src" / "plugin" / "lua" / "lua-runtime.wasm"
 
 # the Lua stack: lua.wasm's default, which its test suite is witnessed against
 STACK_SIZE = 8 * 1024 * 1024
+
+
+def check_vendored():
+    """refuse to build unless every file under vendor/ is listed in vendor/SHA256SUMS with its sha256"""
+    listed = {}
+    for line in (VENDOR / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+        digest, name = line.split(maxsplit=1)
+        listed[name.lstrip("*")] = digest
+    present = sorted(
+        path.relative_to(VENDOR).as_posix()
+        for path in VENDOR.rglob("*")
+        if path.is_file() and path.name not in ("SHA256SUMS", "README.md")
+    )
+    unlisted = [name for name in present if name not in listed]
+    missing = [name for name in listed if not (VENDOR / name).is_file()]
+    changed = [name for name, digest in listed.items() if (VENDOR / name).is_file() and sha256(VENDOR / name) != digest]
+    if unlisted or missing or changed:
+        raise SystemExit(
+            "the vendored sources do not match vendor/SHA256SUMS: "
+            f"not listed {unlisted}, missing {missing}, changed {changed}. A deliberate change of a vendored file "
+            "updates its line there (see vendor/README.md)"
+        )
 
 
 def run(command):
@@ -48,18 +72,16 @@ def main():
     host = host_name(args.host)
 
     sdk = tools / "wasi-sdk" / f"wasi-sdk-{pinned['wasi-sdk']['version']}-{host}"
-    lua_sources = sorted((tools / "lua").glob("*/src"))
-    for required in [sdk / "bin" / "clang", tools / "dkjson.lua", tools / "extism-pdk.h"]:
-        if not required.exists():
-            raise SystemExit(f"{required} is missing: run prepare.py --tools {tools} first")
-    if len(lua_sources) != 1:
-        raise SystemExit(f"expected one lua.wasm source tree under {tools / 'lua'}, found {len(lua_sources)}")
-    lua = lua_sources[0]
+    if not (sdk / "bin" / "clang").exists():
+        raise SystemExit(f"{sdk / 'bin' / 'clang'} is missing: run prepare.py --tools {tools} first")
+    check_vendored()
+    lua = VENDOR / "lua"
+    pdk = VENDOR / "extism-c-pdk"
 
     build = Path(tempfile.mkdtemp(prefix="zhang-lua-runtime-"))
     try:
         # dkjson is embedded as a C string; user scripts are never built into the module
-        json_source = (tools / "dkjson.lua").read_text(encoding="utf-8")
+        json_source = (VENDOR / "dkjson" / "dkjson.lua").read_text(encoding="utf-8")
         if ')jsonlua"' in json_source:
             raise SystemExit("dkjson.lua contains the raw string delimiter")
         (build / "json_lua.h").write_text('static const char JSON_LUA[] = R"jsonlua(' + json_source + ')jsonlua";\n', encoding="utf-8")
@@ -73,7 +95,7 @@ def main():
             f"-ffile-prefix-map={HERE}=/src",
             f"-ffile-prefix-map={build}=/build",
         ]
-        run([sdk / "bin" / "clang", *common, "-I" + str(tools), "-c", HERE / "pdk.c", "-o", build / "pdk.o"])
+        run([sdk / "bin" / "clang", *common, "-I" + str(pdk), "-c", HERE / "pdk.c", "-o", build / "pdk.o"])
         run([
             sdk / "bin" / "clang++",
             *common,
@@ -94,7 +116,7 @@ def main():
             "-Dluai_makeseed(L)=0u",
             "-I" + str(lua),
             "-I" + str(lua / "wasi"),
-            "-I" + str(tools),
+            "-I" + str(pdk),
             "-I" + str(build),
             # an Extism plugin is a reactor: the host calls the exports, nothing runs at start
             "-mexec-model=reactor",

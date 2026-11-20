@@ -1,5 +1,6 @@
 [files]
-extend-exclude = ["integration-tests/*", "CHANGELOG.md", "zhang-query/tests/oracle/cases/*", "vendor/*"]
+# vendor (the extism fork) and tools/lua-runtime/vendor: third-party sources, kept as upstream wrote them
+extend-exclude = ["integration-tests/*", "CHANGELOG.md", "zhang-query/tests/oracle/cases/*", "vendor/*", "tools/lua-runtime/vendor/*"]
 
 [default]
 # the names of integration-test fixture directories, which tests refer to by name and as test names (`_` for `-`)
