@@ -323,16 +323,22 @@ export interface paths {
     /**
      * Update Single Transaction
      * @description Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
-     * answer, which gives the transaction's id in it: an update keeps it, as the transaction stays where it was.
+     * answer, which gives the transaction's id in it, and its new version: an update keeps the id, as the transaction
+     * stays where it was. With the `version` of the transaction in `If-Match`, the update is refused with a 412 when the
+     * transaction its id names now has another version.
      */
     put: operations['update_single_transaction'];
     /**
      * Delete Single Transaction
      * @description Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
      * left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
-     * a request sent after it no longer finds the transaction. Ids are derived from places: the transactions after it in
-     * its file move, and take other ids, the next one possibly the id of the transaction deleted. The documents its
-     * metadata names stay in the ledger's directory.
+     * a request sent after it no longer finds the transaction. The documents its metadata names stay in the ledger's
+     * directory.
+     *
+     * The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
+     * the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
+     * the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
+     * without the version would delete that one.
      */
     delete: operations['delete_single_transaction'];
   };
@@ -344,7 +350,8 @@ export interface paths {
     /**
      * Preview Transaction Update
      * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
-     * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+     * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits,
+     * and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
      */
     post: operations['preview_transaction_update'];
   };
@@ -711,6 +718,11 @@ export interface operations {
               tolerance?: string | null;
               /** @description the id of the transaction; for a balance assertion, its id */
               trx_id: string;
+              /**
+               * @description the version of the transaction, as the `version` of its item in `GET /api/journals`: what an update or a
+               * delete of it names in `If-Match`; `null` for a balance assertion and for a transaction a plugin made
+               */
+              trx_version: string | null;
             }[];
           };
         };
@@ -1452,6 +1464,12 @@ export interface operations {
                     tags: string[];
                     /** @enum {string} */
                     type: 'Transaction';
+                    /**
+                     * @description the version of the transaction's text, the SHA-256 in hex of its text as the ledger read it: an update or a
+                     * delete names it in `If-Match` to be refused (412) when the id names another text by then. Two transactions
+                     * written alike have the same version. `null` for a transaction a plugin made, which cannot be edited
+                     */
+                    version: string | null;
                   }
                 | {
                     /** @description the asserted amount, as written */
@@ -2302,6 +2320,11 @@ export interface operations {
                * but in no journal
                */
               id: string | null;
+              /**
+               * @description the version of the transaction written, as the journal gives it: what an update or a delete of it names in
+               * `If-Match`. `null` when the id is `null`
+               */
+              version: string | null;
             };
           };
         };
@@ -2480,10 +2503,16 @@ export interface operations {
   /**
    * Update Single Transaction
    * @description Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
-   * answer, which gives the transaction's id in it: an update keeps it, as the transaction stays where it was.
+   * answer, which gives the transaction's id in it, and its new version: an update keeps the id, as the transaction
+   * stays where it was. With the `version` of the transaction in `If-Match`, the update is refused with a 412 when the
+   * transaction its id names now has another version.
    */
   update_single_transaction: {
     parameters: {
+      header?: {
+        /** @description the `version` of the transaction the request writes, as the journal gives it: the request is refused with a 412 when the transaction its id names now has another version */
+        'If-Match'?: string;
+      };
       path: {
         transaction_id: string;
       };
@@ -2564,6 +2593,11 @@ export interface operations {
                * but in no journal
                */
               id: string | null;
+              /**
+               * @description the version of the transaction written, as the journal gives it: what an update or a delete of it names in
+               * `If-Match`. `null` when the id is `null`
+               */
+              version: string | null;
             };
           };
         };
@@ -2574,12 +2608,20 @@ export interface operations {
    * Delete Single Transaction
    * @description Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
    * left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
-   * a request sent after it no longer finds the transaction. Ids are derived from places: the transactions after it in
-   * its file move, and take other ids, the next one possibly the id of the transaction deleted. The documents its
-   * metadata names stay in the ledger's directory.
+   * a request sent after it no longer finds the transaction. The documents its metadata names stay in the ledger's
+   * directory.
+   *
+   * The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
+   * the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
+   * the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
+   * without the version would delete that one.
    */
   delete_single_transaction: {
     parameters: {
+      header: {
+        /** @description the `version` of the transaction the request writes, as the journal gives it: the request is refused with a 412 when the transaction its id names now has another version */
+        'If-Match': string;
+      };
       path: {
         transaction_id: string;
       };
@@ -2622,10 +2664,15 @@ export interface operations {
   /**
    * Preview Transaction Update
    * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
-   * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits.
+   * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits,
+   * and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
    */
   preview_transaction_update: {
     parameters: {
+      header?: {
+        /** @description the `version` of the transaction the request writes, as the journal gives it: the request is refused with a 412 when the transaction its id names now has another version */
+        'If-Match'?: string;
+      };
       path: {
         transaction_id: string;
       };

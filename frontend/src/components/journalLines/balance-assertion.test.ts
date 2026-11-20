@@ -39,6 +39,7 @@ const ACCOUNT_ROW = {
   timestamp: 1704153600,
   account: 'Assets:Bank',
   trx_id: '00000000-0000-0000-0000-000000000000',
+  trx_version: null,
   payee: 'Balance Check',
   narration: 'Assets:Bank',
   inferred_unit: amount('0'),
