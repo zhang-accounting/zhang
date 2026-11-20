@@ -29,6 +29,8 @@ pub(crate) struct MemoryLimiter {
 }
 
 impl MemoryLimiter {
+    // zhang patch: no longer called, see `Plugin::instantiate`
+    #[allow(dead_code)]
     pub(crate) fn reset(&mut self) {
         self.bytes_left = self.max_bytes;
     }

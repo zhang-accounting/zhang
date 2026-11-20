@@ -574,9 +574,10 @@ impl Plugin {
         );
         **instance_lock = Some(instance);
         self.instantiations += 1;
-        if let Some(limiter) = &mut self.current_plugin_mut().memory_limiter {
-            limiter.reset();
-        }
+        // zhang patch: the memory limiter is not reset here. It counted the memory the instance was created with,
+        // which stays allocated, so resetting it let a module declaring a large initial memory grow by the whole
+        // limit on top of it: about twice the limit in all. A store gets a fresh limiter whenever it is created or
+        // reset (`reset_store`), so nothing of an earlier store is counted.
         self.detect_guest_runtime(instance_lock);
         self.initialize_guest_runtime()?;
         Ok(())

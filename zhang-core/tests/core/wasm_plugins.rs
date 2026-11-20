@@ -654,6 +654,34 @@ fn a_plugin_growing_past_the_memory_limit_fails_cleanly() {
 }
 
 #[test]
+fn the_memory_a_plugin_starts_with_counts_toward_the_limit() {
+    // 250 MiB to start with and 250 MiB more: within a limit of 1 GiB, but not of the default 256 MiB, which extism as
+    // published let this module exceed by counting only what it grew by
+    let dir = ledger_dir(&["initial_memory_hog.wat"]);
+    let content = with_plugins(&plugin(&dir, "initial_memory_hog.wat"));
+
+    let ledger = load_with_policy(
+        &dir,
+        &content,
+        PluginPolicy {
+            max_memory: 1024 * MIB,
+            ..PluginPolicy::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the processor passed the stream through");
+
+    let error = load_with_policy(&dir, &content, PluginPolicy::default())
+        .err()
+        .expect("the load fails")
+        .to_string();
+    assert_eq!(
+        error,
+        "custom error: plugin initial-memory-hog ran out of memory: its `processor` call needed more than the 256 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
+    );
+}
+
+#[test]
 fn a_router_growing_past_the_memory_limit_fails_cleanly() {
     let dir = ledger_dir(&["memory_hog.wat"]);
     // 48 MiB lets the processor grow by its 32 MiB, but not the router by its 64 MiB
