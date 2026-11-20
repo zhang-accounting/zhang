@@ -136,6 +136,11 @@ switch to the quoted form when you also check the ledger with `bean-check`. A `c
 such as Fava's own budget entries (`custom "budget" Expenses:Coffee "daily" 4.00 EUR`), stays an ordinary
 [`custom`](/reference/directives/custom/) directive.
 
+Beancount has no times either. A budget directive with a time is written as its date with the time in `time`
+metadata, as transactions are, and Zhang reads that metadata back as the directive's time: a `budget-close` with
+`time: "18:00:00"` closes the budget at 18:00. The `budget` metadata linking an account is written in quotes
+(`budget: "Food"`) when its value is not one Beancount reads without them.
+
 ## Related
 
 - [Budgets](/guides/budgets/): setting up and using budgets.

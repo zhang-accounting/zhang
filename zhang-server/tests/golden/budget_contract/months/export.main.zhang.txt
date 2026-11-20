@@ -10,7 +10,7 @@
 2023-11-15 budget-close Short
 ; ---- written as beancount
 2023-01-01 open Expenses:Food
-  budget: Food
+  budget: "Food"
 2023-06-01 custom "budget" "Food" "CNY"
 2023-06-01 custom "budget-add" "Food" 100 CNY
 2023-09-01 custom "budget" "Plan" "CNY"

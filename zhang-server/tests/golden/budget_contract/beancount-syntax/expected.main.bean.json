@@ -7,17 +7,17 @@
     {
       "kind": "BudgetClosed",
       "file": "main.bean",
-      "line": 52,
-      "metas": [{"key": "account_name", "value": "Expenses:Fun"}, {"key": "budget_name", "value": "Fun"}, {"key": "txn_id", "value": "2a7cf6b4-c0ac-a939-60c3-aec24fa8b83f"}]
+      "line": 47,
+      "metas": [{"key": "account_name", "value": "Expenses:Fun"}, {"key": "budget_name", "value": "Fun"}, {"key": "txn_id", "value": "e015f131-de3e-9745-15f0-33ba8ec64a1b"}]
     }
   ],
   "error_list": [
     {
-      "id": "d892db31-8c97-4cc8-7286-5d8e42cdf405",
-      "id_of": "main.bean@1664 BudgetClosed #0",
-      "span": {"file": "main.bean", "start": 1664, "end": 1746, "line": 52},
+      "id": "43a8dd09-3289-24e3-e95a-8ec4c3f676d9",
+      "id_of": "main.bean@1560 BudgetClosed #0",
+      "span": {"file": "main.bean", "start": 1560, "end": 1673, "line": 47},
       "kind": "BudgetClosed",
-      "metas": {"account_name": "Expenses:Fun", "budget_name": "Fun", "txn_id": "2a7cf6b4-c0ac-a939-60c3-aec24fa8b83f"}
+      "metas": {"account_name": "Expenses:Fun", "budget_name": "Fun", "txn_id": "e015f131-de3e-9745-15f0-33ba8ec64a1b"}
     }
   ],
   "responses": [
@@ -39,7 +39,7 @@
           "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
           "rows": [
             ["Food", "外食", "生活开销", "CNY", "2024-01-01", {"number": "1045", "currency": "CNY"}, "80", {"number": "965", "currency": "CNY"}, false],
-            ["Fun", null, null, "CNY", "2024-01-01", {"number": "150.5", "currency": "CNY"}, "70", {"number": "80.5", "currency": "CNY"}, true],
+            ["Fun", null, null, "CNY", "2024-01-01", {"number": "150.5", "currency": "CNY"}, "30", {"number": "120.5", "currency": "CNY"}, true],
             ["Legacy", null, null, "CNY", "2024-01-01", {"number": "15", "currency": "CNY"}, "0", {"number": "15", "currency": "CNY"}, false]
           ]
         }
@@ -53,7 +53,7 @@
           "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
           "rows": [
             ["Food", "外食", "生活开销", "CNY", "2024-02-01", {"number": "965", "currency": "CNY"}, "0", {"number": "965", "currency": "CNY"}, false],
-            ["Fun", null, null, "CNY", "2024-02-01", {"number": "80.5", "currency": "CNY"}, "0", {"number": "80.5", "currency": "CNY"}, true],
+            ["Fun", null, null, "CNY", "2024-02-01", {"number": "120.5", "currency": "CNY"}, "0", {"number": "120.5", "currency": "CNY"}, true],
             ["Legacy", null, null, "CNY", "2024-02-01", {"number": "15", "currency": "CNY"}, "0", {"number": "15", "currency": "CNY"}, false]
           ]
         }
@@ -103,7 +103,7 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Food", "b70ea464-9af2-3d33-e2d5-7818693f48c8", "Restaurant", "lunch", {"number": "80", "currency": "CNY"}, {"number": "80", "currency": "CNY"}]
+              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Food", "e5159453-6256-8b28-305c-83eb5f771faa", "Restaurant", "lunch", {"number": "80", "currency": "CNY"}, {"number": "80", "currency": "CNY"}]
             ]
           }
         ]
@@ -135,7 +135,7 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Food", "b70ea464-9af2-3d33-e2d5-7818693f48c8", "Restaurant", "lunch", {"number": "80", "currency": "CNY"}, {"number": "80", "currency": "CNY"}]
+              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Food", "e5159453-6256-8b28-305c-83eb5f771faa", "Restaurant", "lunch", {"number": "80", "currency": "CNY"}, {"number": "80", "currency": "CNY"}]
             ]
           }
         ]
@@ -223,12 +223,12 @@
         "data": [
           {
             "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
-            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", null]]
+            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", "12:00:00"]]
           },
           {
             "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
             "rows": [
-              ["Fun", null, null, "CNY", "2024-01-01", {"number": "150.5", "currency": "CNY"}, "70", {"number": "80.5", "currency": "CNY"}, true]
+              ["Fun", null, null, "CNY", "2024-01-01", {"number": "150.5", "currency": "CNY"}, "30", {"number": "120.5", "currency": "CNY"}, true]
             ]
           }
         ]
@@ -254,8 +254,7 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-01-20", "13:00:00", 1705755600, "Expenses:Fun", "ac59ce03-986b-90d0-843d-e25546311eb9", "Cinema", "after noon on the day of the close", {"number": "40", "currency": "CNY"}, {"number": "70", "currency": "CNY"}],
-              ["2024-01-20", "11:00:00", 1705748400, "Expenses:Fun", "ccb441d2-5e7b-ec62-62a8-8c0c84a8d052", "Cinema", "before noon on the day of the close", {"number": "30", "currency": "CNY"}, {"number": "30", "currency": "CNY"}]
+              ["2024-01-20", "11:00:00", 1705748400, "Expenses:Fun", "40644bdc-e8c7-1d6c-c507-002e7c1881f6", "Cinema", "before noon on the day of the close", {"number": "30", "currency": "CNY"}, {"number": "30", "currency": "CNY"}]
             ]
           }
         ]
@@ -274,7 +273,7 @@
         "data": [
           {
             "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
-            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", null]]
+            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", "12:00:00"]]
           },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
@@ -286,8 +285,7 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-01-20", "13:00:00", 1705755600, "Expenses:Fun", "ac59ce03-986b-90d0-843d-e25546311eb9", "Cinema", "after noon on the day of the close", {"number": "40", "currency": "CNY"}, {"number": "70", "currency": "CNY"}],
-              ["2024-01-20", "11:00:00", 1705748400, "Expenses:Fun", "ccb441d2-5e7b-ec62-62a8-8c0c84a8d052", "Cinema", "before noon on the day of the close", {"number": "30", "currency": "CNY"}, {"number": "30", "currency": "CNY"}]
+              ["2024-01-20", "11:00:00", 1705748400, "Expenses:Fun", "40644bdc-e8c7-1d6c-c507-002e7c1881f6", "Cinema", "before noon on the day of the close", {"number": "30", "currency": "CNY"}, {"number": "30", "currency": "CNY"}]
             ]
           }
         ]
@@ -305,12 +303,12 @@
         "data": [
           {
             "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
-            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", null]]
+            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", "12:00:00"]]
           },
           {
             "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
             "rows": [
-              ["Fun", null, null, "CNY", "2024-02-01", {"number": "80.5", "currency": "CNY"}, "0", {"number": "80.5", "currency": "CNY"}, true]
+              ["Fun", null, null, "CNY", "2024-02-01", {"number": "120.5", "currency": "CNY"}, "0", {"number": "120.5", "currency": "CNY"}, true]
             ]
           }
         ]
@@ -350,7 +348,7 @@
         "data": [
           {
             "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
-            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", null]]
+            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-01-20", "12:00:00"]]
           },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
@@ -653,7 +651,7 @@
           "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
           "rows": [
             ["Food", "2024-01-01", "CNY", "外食", "生活开销", ["Expenses:Food"], null, null],
-            ["Fun", "2024-01-01", "CNY", null, null, ["Expenses:Fun"], "2024-01-20", null],
+            ["Fun", "2024-01-01", "CNY", null, null, ["Expenses:Fun"], "2024-01-20", "12:00:00"],
             ["Legacy", "2024-01-01", "CNY", null, null, [], null, null]
           ]
         }
@@ -673,7 +671,7 @@
             ["Food", "2024-01-15", "00:00:00", 1705276800, "transfer_in", {"number": "50", "currency": "CNY"}],
             ["Food", "2024-01-16", "00:00:00", 1705363200, "transfer_out", {"number": "-5", "currency": "CNY"}],
             ["Legacy", "2024-01-16", "00:00:00", 1705363200, "transfer_in", {"number": "5", "currency": "CNY"}],
-            ["Fun", "2024-01-20", "00:00:00", 1705708800, "close", null]
+            ["Fun", "2024-01-20", "12:00:00", 1705752000, "close", null]
           ]
         }
       }
@@ -741,8 +739,8 @@
               null,
               {"number": "150.5", "currency": "CNY"},
               {"number": "150.5", "currency": "CNY"},
-              {"number": "70", "currency": "CNY"},
-              {"number": "80.5", "currency": "CNY"},
+              {"number": "30", "currency": "CNY"},
+              {"number": "120.5", "currency": "CNY"},
               true,
               ["Expenses:Fun"]
             ],
@@ -754,10 +752,10 @@
               "CNY",
               null,
               null,
-              {"number": "80.5", "currency": "CNY"},
+              {"number": "120.5", "currency": "CNY"},
               {"number": "0", "currency": "CNY"},
               {"number": "0", "currency": "CNY"},
-              {"number": "80.5", "currency": "CNY"},
+              {"number": "120.5", "currency": "CNY"},
               true,
               ["Expenses:Fun"]
             ],
@@ -835,7 +833,7 @@
               "Expenses:Fun",
               "after noon on the day of the close",
               {"number": "40", "currency": "CNY"},
-              ["Fun"]
+              []
             ],
             [
               "2024-01-20",

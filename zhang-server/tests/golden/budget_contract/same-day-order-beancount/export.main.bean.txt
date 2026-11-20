@@ -2,10 +2,8 @@
 ; ---- written as zhang
 2024-01-01 open Expenses:Food
   budget: "Food"
-2024-03-10 budget Food CNY
-  time: "12:00:00"
-2024-03-20 budget-close Food
-  time: "09:00:00"
+2024-03-10 12:00:00 budget Food CNY
+2024-03-20 09:00:00 budget-close Food
 ; ---- written as beancount
 2024-01-01 open Expenses:Food
   budget: "Food"

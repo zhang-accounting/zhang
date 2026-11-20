@@ -30,21 +30,21 @@
   budget: Leisure
 ; ---- written as beancount
 2024-01-01 open Assets:Wallet
-  budget: Pocket
+  budget: "Pocket"
 2024-01-01 open Liabilities:Card
-  budget: Food
+  budget: "Food"
 2024-01-01 open Income:Refunds
-  budget: Food
+  budget: "Food"
 2024-01-01 open Equity:Adjust
-  budget: Food
+  budget: "Food"
 2024-01-01 open Expenses:Food
-  budget: Food
-  budget: Health
+  budget: "Food"
+  budget: "Health"
 2024-01-01 open Expenses:Pharmacy
-  budget: Health
-  budget: Health
+  budget: "Health"
+  budget: "Health"
 2024-01-01 open Expenses:Gym
-  budget: Health
+  budget: "Health"
 2024-01-01 custom "budget" "Food" "CNY"
 2024-01-01 custom "budget" "Health" "CNY"
 2024-01-01 custom "budget" "Pocket" "CNY"
@@ -52,9 +52,9 @@
 2024-01-01 custom "budget-add" "Food" 1000 CNY
 2024-01-01 custom "budget-add" "Health" 300 CNY
 2024-02-01 open Expenses:Pharmacy
-  budget: Leisure
+  budget: "Leisure"
 2024-02-10 open Expenses:Gym
-  budget: Leisure
+  budget: "Leisure"
   time: "10:00:00"
 2024-03-01 open Expenses:Food
-  budget: Leisure
+  budget: "Leisure"

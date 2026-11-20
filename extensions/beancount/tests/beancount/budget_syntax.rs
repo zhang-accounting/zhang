@@ -67,3 +67,38 @@ fn the_unquoted_form_is_read_the_same_and_written_quoted() {
     assert_eq!(read(UNQUOTED), read(QUOTED));
     assert_eq!(write(read(UNQUOTED)), QUOTED);
 }
+
+/// Budget directives with a time, to the second or to the minute, as zhang writes them.
+const TIMED: &str = "2024-01-01 09:00:00 budget Food CNY
+2024-01-01 09:30 budget-add Food 100 CNY
+2024-01-31 23:59:59 budget-transfer Food Fun 25.50 CNY
+2024-03-01 18:00:00 budget-close Food
+  note: \"no more\"";
+
+/// Beancount reads no time after a date: a budget directive with a time is written as its date with the time in
+/// `time` metadata, as a transaction is, and read back at that time. bean-check 3.2.3 accepts every line of
+/// [`TIMED`] written so, where it rejected `2024-03-01 18:00:00 custom "budget-close" "Food"`.
+#[test]
+fn a_budget_directive_with_a_time_round_trips_through_time_metadata() {
+    let zhang = zhang_core::data_type::text::ZhangDataType {}.transform(TIMED.to_owned(), None).unwrap();
+    let written = write(zhang.iter().map(|it| it.data.clone()).collect());
+    assert_eq!(
+        written,
+        "2024-01-01 custom \"budget\" \"Food\" \"CNY\"
+  time: \"09:00:00\"
+2024-01-01 custom \"budget-add\" \"Food\" 100 CNY
+  time: \"09:30:00\"
+2024-01-31 custom \"budget-transfer\" \"Food\" \"Fun\" 25.50 CNY
+  time: \"23:59:59\"
+2024-03-01 custom \"budget-close\" \"Food\"
+  note: \"no more\"
+  time: \"18:00:00\""
+    );
+    let read = read(&written);
+    assert_eq!(read.len(), 4);
+    for (read, written) in read.iter().zip(&zhang) {
+        assert_eq!(read.datetime(), written.data.datetime(), "{:?}", read);
+        assert_eq!(read.meta().and_then(|meta| meta.get_one("time")), None, "{:?}", read);
+    }
+    assert!(matches!(&read[3], Directive::BudgetClose(close) if close.meta.get_one("note").is_some()));
+}

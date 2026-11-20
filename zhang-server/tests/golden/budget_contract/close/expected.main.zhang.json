@@ -4,8 +4,7 @@
   "ledger": "zhang-server/tests/golden/budget_contract/close/main.zhang",
   "now": "2024-06-10T00:00:00Z",
   "known_issues": {
-    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)",
-    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
+    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)"
   },
   "errors": [
     {
@@ -1896,11 +1895,5 @@
       "body": {"data": {"columns": [{"name": "name", "type": "str"}], "rows": [["Savings"]]}}
     }
   ],
-  "round_trip": {
-    "beancount": {
-      "load_error": "cannot parse main.bean: failed to parse beancount file: unexpected input at line 38, column 1",
-      "line": "2024-02-15 18:00:00 custom \"budget-close\" \"Fun\""
-    },
-    "zhang": "same"
-  }
+  "round_trip": {"beancount": "same", "zhang": "same"}
 }

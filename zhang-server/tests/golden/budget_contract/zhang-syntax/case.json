@@ -10,9 +10,5 @@
     {"bql": "SELECT * FROM #budget_definitions"},
     {"bql": "SELECT * FROM #budget_events"},
     {"bql": "SELECT * FROM #budgets WHERE date <= 2024-03-01"}
-  ],
-  "known_issues": {
-    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)",
-    "export": "KNOWN-ISSUE: a `budget` metadata entry written unquoted in zhang (`budget: Groceries`, the form the budget docs show) is written unquoted to beancount too, which bean-check 3.2.3 rejects (`Invalid token`); zhang's own beancount parser reads it"
-  }
+  ]
 }

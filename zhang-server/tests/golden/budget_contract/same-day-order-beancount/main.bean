@@ -1,6 +1,6 @@
 ; The order of a day in a beancount file. Beancount orders a day's entries by their kind, then as written; zhang
-; reads the `time` metadata of a transaction as its time, which orders it within its kind, but not that of a budget
-; directive, which stays metadata: a budget is defined, and closed, at the start and at the end of its day.
+; reads the `time` metadata of a transaction or of a budget directive as its time, which orders it within its kind: a
+; budget defined at 12:00 takes the postings of its day after 12:00, and one closed at 09:00 none after 09:00.
 option "operating_currency" "CNY"
 option "timezone" "UTC"
 

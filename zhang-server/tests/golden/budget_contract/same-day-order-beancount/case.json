@@ -1,5 +1,5 @@
 {
-  "description": "The order of a day in a beancount file (see main.bean): which postings of the day of a definition or a close count when the transactions carry a time and the budget directives a time metadata entry.",
+  "description": "The order of a day in a beancount file (see main.bean): which postings of the day of a definition or a close count when the transactions and the budget directives carry a time metadata entry.",
   "now": "2024-03-25T00:00:00Z",
   "pages": {
     "months": ["2024-03-01"],

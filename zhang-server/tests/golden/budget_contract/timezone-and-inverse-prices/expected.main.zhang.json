@@ -3,9 +3,6 @@
   "description": "The budget ledger of the query engine's tests (a copy of zhang-query/tests/engine/server_features/budgets), in UTC+8: activity converted at each posting's date through the inverse of the only prices (CNY quoted in USD), a budget-add and a posting in the first half hour of a month (still the previous month in UTC) counted in the ledger date's month, a leap day, a transfer, a close, and a budget-add to a budget that does not exist.",
   "ledger": "zhang-server/tests/golden/budget_contract/timezone-and-inverse-prices/main.zhang",
   "now": "2024-04-30T12:00:00Z",
-  "known_issues": {
-    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
-  },
   "errors": [
     {
       "kind": "BudgetDoesNotExist",
@@ -1594,11 +1591,5 @@
       }
     }
   ],
-  "round_trip": {
-    "beancount": {
-      "load_error": "cannot parse main.bean: failed to parse beancount file: unexpected input at line 16, column 1",
-      "line": "2024-01-01 09:30:00 custom \"budget-add\" \"travel\" 500 CNY"
-    },
-    "zhang": "same"
-  }
+  "round_trip": {"beancount": "same", "zhang": "same"}
 }

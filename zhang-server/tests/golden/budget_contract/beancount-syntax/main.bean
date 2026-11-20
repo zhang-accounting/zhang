@@ -1,7 +1,7 @@
 ; The forms of budgets in a beancount file (#500): the quoted form beancount accepts, the unquoted form earlier
-; versions of zhang wrote, a quoted type with unquoted values, metadata and inline comments, a `time` metadata entry
-; on a budget-close, and `custom` directives of a budget's type that are not budgets (Fava's budgets, an extra value,
-; a missing amount).
+; versions of zhang wrote, a quoted type with unquoted values, metadata and inline comments, a `time` metadata entry on
+; a budget-close (its time), and `custom` directives of a budget's type that are not budgets (Fava's budgets, an extra
+; value, a missing amount).
 option "operating_currency" "CNY"
 option "timezone" "UTC"
 

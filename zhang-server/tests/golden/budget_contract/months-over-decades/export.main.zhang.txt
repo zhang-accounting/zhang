@@ -82,45 +82,45 @@
 1990-01-01 budget-add b20 1000 CNY
 ; ---- written as beancount
 1990-01-01 open Expenses:Cat01
-  budget: b01
+  budget: "b01"
 1990-01-01 open Expenses:Cat02
-  budget: b02
+  budget: "b02"
 1990-01-01 open Expenses:Cat03
-  budget: b03
+  budget: "b03"
 1990-01-01 open Expenses:Cat04
-  budget: b04
+  budget: "b04"
 1990-01-01 open Expenses:Cat05
-  budget: b05
+  budget: "b05"
 1990-01-01 open Expenses:Cat06
-  budget: b06
+  budget: "b06"
 1990-01-01 open Expenses:Cat07
-  budget: b07
+  budget: "b07"
 1990-01-01 open Expenses:Cat08
-  budget: b08
+  budget: "b08"
 1990-01-01 open Expenses:Cat09
-  budget: b09
+  budget: "b09"
 1990-01-01 open Expenses:Cat10
-  budget: b10
+  budget: "b10"
 1990-01-01 open Expenses:Cat11
-  budget: b11
+  budget: "b11"
 1990-01-01 open Expenses:Cat12
-  budget: b12
+  budget: "b12"
 1990-01-01 open Expenses:Cat13
-  budget: b13
+  budget: "b13"
 1990-01-01 open Expenses:Cat14
-  budget: b14
+  budget: "b14"
 1990-01-01 open Expenses:Cat15
-  budget: b15
+  budget: "b15"
 1990-01-01 open Expenses:Cat16
-  budget: b16
+  budget: "b16"
 1990-01-01 open Expenses:Cat17
-  budget: b17
+  budget: "b17"
 1990-01-01 open Expenses:Cat18
-  budget: b18
+  budget: "b18"
 1990-01-01 open Expenses:Cat19
-  budget: b19
+  budget: "b19"
 1990-01-01 open Expenses:Cat20
-  budget: b20
+  budget: "b20"
 1990-01-01 custom "budget" "b01" "CNY"
 1990-01-01 custom "budget" "b02" "CNY"
 1990-01-01 custom "budget" "b03" "CNY"

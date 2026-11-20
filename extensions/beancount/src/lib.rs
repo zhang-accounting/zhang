@@ -85,7 +85,8 @@ impl DataType for Beancount {
         // the shared zhang exporter writes these directives in beancount syntax; quoted
         // strings use only the escapes beancount decodes, see `QuoteStyle::Beancount`
         const STYLE: QuoteStyle = QuoteStyle::Beancount;
-        let data = time_into_meta(directive.data);
+        let mut data = time_into_meta(directive.data);
+        quote_unreadable_meta(&mut data);
         match data {
             Directive::BalancePad(pad) => {
                 let balance_date = pad.date.naive_date();
@@ -159,14 +160,9 @@ impl DataType for Beancount {
 }
 
 /// `directive` with a date beancount reads: a date and time, to the second or to the minute (a plugin can emit a
-/// `Date::DateHour`), becomes the date alone plus `time` metadata. Budgets keep their date as it is
+/// `Date::DateHour`), becomes the date alone plus `time` metadata, budget directives included: beancount reads no
+/// time after a date
 fn time_into_meta(mut directive: Directive) -> Directive {
-    if matches!(
-        directive,
-        Directive::Budget(_) | Directive::BudgetAdd(_) | Directive::BudgetTransfer(_) | Directive::BudgetClose(_)
-    ) {
-        return directive;
-    }
     let Some(date) = directive.date_mut() else { return directive };
     let (Date::Datetime(datetime) | Date::DateHour(datetime)) = *date else {
         return directive;
@@ -178,10 +174,88 @@ fn time_into_meta(mut directive: Directive) -> Directive {
     directive
 }
 
+/// `directive` with every metadata value written bare that beancount cannot read bare quoted, on the directive and on
+/// the postings of a transaction: zhang reads any bare value (`budget: Food`), beancount only those [`reads_bare`]
+/// lists. Zhang reads the quoted value back as the same text.
+fn quote_unreadable_meta(directive: &mut Directive) {
+    fn requote(meta: &mut Meta) {
+        let entries = std::mem::take(meta).get_flatten();
+        *meta = entries
+            .into_iter()
+            .map(|(key, value)| match value {
+                ZhangString::UnquoteString(text) if !reads_bare(&text) => (key, ZhangString::QuoteString(text)),
+                value => (key, value),
+            })
+            .collect();
+    }
+    if let Some(meta) = directive.meta_mut() {
+        requote(meta);
+    }
+    if let Directive::Transaction(transaction) = directive {
+        for posting in &mut transaction.postings {
+            requote(&mut posting.meta);
+        }
+    }
+}
+
+/// Whether beancount reads `value` as a metadata value written without quotes (#475): `TRUE`, `FALSE` or `NULL`, a
+/// tag, a date, an account, a currency, a number or an arithmetic expression of numbers, or an amount (one of those
+/// and a currency).
+fn reads_bare(value: &str) -> bool {
+    fn currency(text: &str) -> bool {
+        let mut chars = text.chars();
+        let (Some(first), last) = (chars.next(), text.chars().last()) else {
+            return false;
+        };
+        text.len() <= 24
+            && first.is_ascii_uppercase()
+            && last.is_some_and(|it| it.is_ascii_uppercase() || it.is_ascii_digit())
+            && chars.all(|it| it.is_ascii_uppercase() || it.is_ascii_digit() || matches!(it, '\'' | '.' | '_' | '-'))
+    }
+    fn account(text: &str) -> bool {
+        let mut parts = text.split(':');
+        let root = parts.next().unwrap_or_default();
+        let component =
+            |part: &str, first: fn(char) -> bool| part.chars().next().is_some_and(first) && part.chars().all(|it| it.is_alphanumeric() || it == '-');
+        let rest = parts.collect::<Vec<_>>();
+        component(root, char::is_uppercase) && !rest.is_empty() && rest.iter().all(|part| component(part, |it| it.is_uppercase() || it.is_numeric()))
+    }
+    fn number(text: &str) -> bool {
+        let mut depth = 0i32;
+        let balanced = text.chars().all(|it| {
+            depth += match it {
+                '(' => 1,
+                ')' => -1,
+                _ => 0,
+            };
+            depth >= 0
+        });
+        balanced
+            && depth == 0
+            && text.chars().any(|it| it.is_ascii_digit())
+            && text
+                .chars()
+                .all(|it| it.is_ascii_digit() || matches!(it, '.' | ',' | '+' | '-' | '*' | '/' | '(' | ')' | ' '))
+            && !text.starts_with(' ')
+            && !text.ends_with(' ')
+    }
+    let tag = |text: &str| {
+        text.strip_prefix('#')
+            .is_some_and(|name| !name.is_empty() && name.chars().all(|it| it.is_alphanumeric() || matches!(it, '-' | '_' | '/' | '.')))
+    };
+    let date = |text: &str| text.len() == 10 && chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok();
+    let amount = |text: &str| {
+        text.rsplit_once(' ')
+            .is_some_and(|(number_part, unit)| number(number_part.trim_end()) && currency(unit))
+    };
+    matches!(value, "TRUE" | "FALSE" | "NULL") || tag(value) || date(value) || account(value) || currency(value) || number(value) || amount(value)
+}
+
 /// the `time` metadata of a directive as its time, which orders the directives of a day. Not for a `balance`, a `pad`
 /// or a `close`, whose `time` stays plain metadata: beancount knows no times, checks a `balance` at the start of its
 /// date, before the transactions of that day, orders the `pad`s of a day by their line, and keeps an account active
-/// through the whole day of its `close`. Nor for a budget
+/// through the whole day of its `close`. A budget directive's `time` is its time, as zhang writes it: a `budget-close`
+/// with a time closes its budget at that time
 fn lift_time_from_meta(directive: &mut Directive) {
     if !matches!(
         directive,
@@ -194,6 +268,10 @@ fn lift_time_from_meta(directive: &mut Directive) {
             | Directive::Event(_)
             | Directive::Custom(_)
             | Directive::Query(_)
+            | Directive::Budget(_)
+            | Directive::BudgetAdd(_)
+            | Directive::BudgetTransfer(_)
+            | Directive::BudgetClose(_)
     ) {
         return;
     }
@@ -247,6 +325,35 @@ mod test {
             .trim(),
             beancount_exporter.export(Spanned::new(directive, SpanInfo::default())),
             "should persist time into meta"
+        );
+    }
+
+    /// Zhang reads any metadata value written bare, beancount only some (#475): a bare value beancount would reject,
+    /// such as the `budget: Food` linking an account to a budget, is written in quotes, the others as they are.
+    #[test]
+    fn a_bare_metadata_value_beancount_cannot_read_is_written_in_quotes() {
+        let open = test_parse_zhang! {"2024-01-01 open Expenses:Food\n  budget: Food\n  budget: \"Fun\"\n  counterpart: Assets:Cash\n  currency: USD\n  number: 10.50\n  amount: 10 USD\n  expression: (1 + 2) * 3\n  date: 2024-01-10\n  tag: #trip\n  yes: TRUE"};
+        assert_eq!(
+            Beancount {}.export(Spanned::new(open, SpanInfo::default())),
+            indoc! {r#"
+                2024-01-01 open Expenses:Food
+                  budget: "Food"
+                  budget: "Fun"
+                  counterpart: Assets:Cash
+                  currency: USD
+                  number: 10.50
+                  amount: 10 USD
+                  expression: (1 + 2) * 3
+                  date: 2024-01-10
+                  tag: #trip
+                  yes: TRUE
+            "#}
+            .trim()
+        );
+        let transaction = test_parse_zhang! {"2024-01-02 * \"Shop\"\n  kind: groceries\n  Expenses:Food 10 CNY\n    budget: Food\n  Assets:Cash"};
+        assert_eq!(
+            Beancount {}.export(Spanned::new(transaction, SpanInfo::default())),
+            "2024-01-02 * \"Shop\"\n  kind: \"groceries\"\n  Expenses:Food 10 CNY\n    budget: \"Food\"\n  Assets:Cash"
         );
     }
 

@@ -22,16 +22,16 @@
 2024-01-08 budget Alpha USD
 ; ---- written as beancount
 2024-01-01 open Expenses:Ghosts
-  budget: Zulu
-  budget: Delta
+  budget: "Zulu"
+  budget: "Delta"
 2024-01-01 open Expenses:Dollars
-  budget: Zeta
-  budget: Alpha
+  budget: "Zeta"
+  budget: "Alpha"
 2024-01-01 open Expenses:Closed
-  budget: Yankee
-  budget: Bravo
+  budget: "Yankee"
+  budget: "Bravo"
 2024-01-01 open Expenses:Unknown
-  budget: Echo
+  budget: "Echo"
 2024-01-01 custom "budget" "Zeta" "CNY"
 2024-01-01 custom "budget" "Alpha" "CNY"
 2024-01-01 custom "budget" "Yankee" "CNY"

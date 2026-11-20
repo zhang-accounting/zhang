@@ -9,9 +9,9 @@
 2024-02-15 budget-add Food 500 CNY
 ; ---- written as beancount
 2024-01-01 open Expenses:Food
-  budget: Food
+  budget: "Food"
 2024-01-01 open Expenses:Snacks
-  budget: Food
+  budget: "Food"
 2024-02-03 custom "budget-add" "Food" 70 CNY
 2024-02-15 custom "budget" "Food" "CNY"
 2024-02-15 custom "budget-add" "Food" 500 CNY
