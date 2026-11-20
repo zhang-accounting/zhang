@@ -6637,6 +6637,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "extism",
+ "glob",
  "gotcha_core",
  "http 1.5.0",
  "iana-time-zone",

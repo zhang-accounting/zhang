@@ -40,7 +40,7 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedSemaphorePermit, Semaphore};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::log_safe;
-use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost, ROUTER_MAX_TIMEOUT};
+use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_core::plugin_policy::{PluginPolicy, Size};
 use zhang_query::{Params, Query, QueryError};
 
@@ -231,13 +231,7 @@ pub struct PluginSettings {
 impl Display for PluginSettings {
     /// the settings as the server logs them when it starts
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "plugins run with {}, and for at most {}s per request when they serve a route; {}",
-            self.policy,
-            ROUTER_MAX_TIMEOUT.as_secs(),
-            self.routes
-        )
+        write!(f, "{}; {}", self.policy, self.routes)
     }
 }
 

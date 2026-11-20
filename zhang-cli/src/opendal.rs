@@ -426,6 +426,7 @@ mod test {
             passkey: None,
             source: None,
             no_report: true,
+            plugins: None,
         };
         Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap())
     }
@@ -751,6 +752,7 @@ mod test {
             passkey: None,
             source: None,
             no_report: true,
+            plugins: None,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::load(dir.to_path_buf(), main.to_string(), source.clone()).expect("load ledger");
@@ -811,6 +813,7 @@ mod test {
                 passkey: None,
                 source: None,
                 no_report: true,
+                plugins: None,
             };
             let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
 
@@ -865,6 +868,7 @@ mod test {
             passkey: None,
             source: None,
             no_report: true,
+            plugins: None,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::load(dir.path().to_path_buf(), "main.bean".to_string(), source.clone()).unwrap();
@@ -908,6 +912,7 @@ mod test {
                 passkey: None,
                 source: None,
                 no_report: true,
+                plugins: None,
             };
             let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
             let ledger = Ledger::load(dir.path().to_path_buf(), main.to_string(), source.clone()).unwrap();
@@ -1036,6 +1041,7 @@ mod test {
             passkey: None,
             source: None,
             no_report: true,
+            plugins: None,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         assert_documents(Ledger::load(dir.path().to_path_buf(), "main.bean".to_owned(), source).unwrap()).await;
@@ -1520,6 +1526,7 @@ mod test {
             passkey: None,
             source: None,
             no_report: true,
+            plugins: None,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::load(dir.path().to_path_buf(), "main.zhang".to_string(), source.clone()).unwrap();
@@ -1584,6 +1591,7 @@ mod test {
             passkey: None,
             source: None,
             no_report: true,
+            plugins: None,
         };
         let source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let mut config = ServeConfig {

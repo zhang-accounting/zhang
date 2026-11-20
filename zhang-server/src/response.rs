@@ -478,7 +478,8 @@ impl PluginTypeEntity {
 /// what a plugin's directive grants it
 #[derive(Serialize, Schematic)]
 pub struct PluginCapabilitiesEntity {
-    /// hosts the plugin may reach over HTTP; empty means no network access
+    /// hosts the plugin may reach over HTTP: what its directive grants within what the server allows
+    /// (`ZHANG_PLUGIN_ALLOWED_HOSTS`); empty means no network access
     pub allowed_hosts: Vec<String>,
 }
 

@@ -33,12 +33,14 @@
 //! # Isolation
 //!
 //! Every request runs in a new instance of the plugin, so no state survives between requests. The
-//! instance gets the same config, `allowed_hosts` and memory limit as the plugin's processor, and its
-//! timeout, but at most [`ROUTER_MAX_TIMEOUT`]: a call running longer is stopped and answered as
-//! [`RouterError::Timeout`]. The caller holds the ledger's read lock for the whole call, so the ledger
-//! cannot reload under the plugin, and no host function can change the ledger. That lock is why a
-//! router call is bounded more tightly than a processor: while a writer waits for the lock, no new
-//! reader gets it, so a long call would stall every request of the server.
+//! instance gets the same config, `allowed_hosts`, memory limit and timeout as the plugin's processor,
+//! all within the operator's [`PluginPolicy`](crate::plugin_policy::PluginPolicy): a call running
+//! longer than the timeout is stopped and answered as [`RouterError::Timeout`]. The caller holds the
+//! ledger's read lock for the whole call, so the ledger cannot reload under the plugin, and no host
+//! function can change the ledger. That lock is why the policy's
+//! [`max_timeout`](crate::plugin_policy::PluginPolicy::max_timeout) defaults to 30 seconds: while a
+//! writer waits for the lock, no new reader gets it, so a long call would stall every request of the
+//! server.
 //!
 //! What the plugin answers is sent only as [`PluginResponse::into_http`] makes it: the headers it may
 //! set, and the sandbox zhang adds to every response.
@@ -66,11 +68,6 @@ use crate::plugin_policy::{Size, MAX_MEMORY_ENV};
 /// the most bytes `zhang_query` will read for a plugin's BQL text. A query is human-written SQL-like
 /// text, so one mebibyte is far beyond any real query while capping what a single call can read.
 const QUERY_MAX_LEN: usize = 1024 * 1024;
-
-/// The longest a router call may run, whatever the plugin's `timeout` asks for; a shorter `timeout` still counts. The
-/// call holds the ledger's read lock all along (see "Isolation" above), so this bounds how long it can stall the
-/// server.
-pub const ROUTER_MAX_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// a query that failed to parse, compile or run
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,9 +262,10 @@ impl RegisteredPlugin {
             .map_err(|reason| RouterError::BadResponse(log_safe(&reason).into_owned()))
     }
 
-    /// how long one router call of the plugin may run: its `timeout`, but at most [`ROUTER_MAX_TIMEOUT`]
+    /// how long one router call of the plugin may run: its `timeout`, which the load already bounded by the
+    /// policy's [`max_timeout`](crate::plugin_policy::PluginPolicy::max_timeout)
     pub fn router_timeout(&self) -> Duration {
-        self.capabilities().timeout.min(ROUTER_MAX_TIMEOUT)
+        self.capabilities().timeout.min(self.policy().max_timeout)
     }
 }
 
