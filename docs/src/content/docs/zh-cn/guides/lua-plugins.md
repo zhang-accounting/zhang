@@ -101,14 +101,16 @@ if not ok then return { status = 400, json = { error = result } } end
 
 ## JSON
 
-`json` 表是 [dkjson](https://dkolf.de/dkjson-lua/)，并固定了几条规则；响应的 `json` 字段遵循同样的规则：
+`json` 表是内置在解释器中的 JSON 编解码器；响应的 `json` 字段遵循同样的规则：
 
-- `json.encode(value)` 和 `json.decode(text)`。`json.decode` 遇到不是 JSON 的文档会抛出错误并指出位置。
+- `json.encode(value)` 和 `json.decode(text)`。`json.decode` 只读取标准 JSON（[RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)）：不允许注释、不允许末尾多余的逗号，值之后除空白外不能再有内容。其他输入都会抛出错误，并以字节为单位指出位置：`invalid JSON: missing colon at line 3, column 9`、`invalid JSON: unexpected data at byte 14`。
 - **`null`。** JSON 的 `null` 解码为 `json.null`，而不是 `nil`，所以为 null 的字段仍然存在（`body.payee == json.null`）。要发送 null，编码 `json.null`。值为 `nil` 的字段会缺失。
-- **空表。** Lua 的表没有种类之分，所以空的 `{}` 会编码成 `[]`。需要即使为空也编码成 `{}` 的表，用 `json.object()` 或 `json.object(t)`；必须编码成 `[]` 的用 `json.array()`。`json.decode` 和宿主给你的值会保留种类：空对象在往返中仍是 `{}`。响应的 `headers` 永远是对象。
-- **数字。** 整数在 2<sup>63</sup> 以内精确；浮点数以 14 位有效数字写出。**金额从不以数字传递**：查询结果中的每个小数都是字符串（`"12.50"`），插件也应保持为字符串。不要对金额 `tonumber` 后再相加，让查询来求和。
-- **字符串**是字节。字符串内的 NUL 字节在往返中保留。`json` 值必须是 UTF-8 文本；其他字节请放在 `body` 中发送。
-- **键是排好序的。** `json.encode` 和响应的 `json` 字段按顺序写出对象的键：先是数字键，从小到大，再是字符串键，按字节从小到大。同一个值总是得到字节完全相同的 JSON。`pairs` 本身遍历表的键没有固定顺序，而且每个请求都不一样：解释器为每个请求随机设定字符串哈希种子，这样键就无法被构造成互相冲突。不要依赖 `pairs` 的顺序；顺序重要时请自行对键排序。
+- **数组和对象。** Lua 的表没有种类之分，所以空的 `{}` 会编码成 `[]`。键为 1 到 n 的表是数组，空位写成 `null`，除非它过于稀疏（最大的键超过 10，且大于键个数的两倍）；其他的表都是对象，数字键写成字符串。需要即使为空或以数字为键也编码成对象的表，用 `json.object()` 或 `json.object(t)`；必须编码成 `[]` 的用 `json.array()`。`json.decode` 和宿主给你的值会保留种类：对象在往返中仍是对象，不论是否为空。响应的 `headers` 永远是对象。
+- **带标记的表是封存的。** 来自 `json.decode`、宿主、`json.object()` 或 `json.array()` 的表带有受保护的元表：`getmetatable(t).__jsontype` 读出 `"object"` 或 `"array"`，且不能修改；`setmetatable(t, mt)` 会抛出 `cannot change a protected metatable`，而之前的版本允许这样做。要给解码出的数据加上方法或默认值，先复制一份：`local row = setmetatable({}, { __index = defaults }); for k, v in pairs(json.decode(text)) do row[k] = v end`。
+- **数字。** 整数在 64 位以内精确，编码和解码都是如此。浮点数在 15 位有效数字能读回同一个浮点数时写 15 位，否则写 16 位，再不行写 17 位，所以总能精确读回（`0.1`、`0.30000000000000004`、`1.0`）；JSON 无法表示的 NaN 和无穷大写成 `null`。解码时，带小数部分或指数的数字，以及超出 64 位的整数，会变成最接近的浮点数（用 `math.type` 可以区分），超出浮点数范围的数字（如 `1e400`）会抛出错误。**金额从不以数字传递**：查询结果中的每个小数都是字符串（`"12.50"`），插件也应保持为字符串。不要对金额 `tonumber` 后再相加，让查询来求和。
+- **字符串**是字节。字符串内的 NUL 字节在往返中保留。`json` 值必须是 UTF-8 文本：`json.encode` 遇到不是 UTF-8 的字符串会抛出错误并指出第一个错误字节，`json.decode` 遇到不是 UTF-8 的文档也会抛出错误；其他字节请放在 `body` 中发送。控制字符、U+2028、U+2029 以及其他几个不可见字符写成 `\u` 转义。
+- **键是排好序的。** `json.encode` 和响应的 `json` 字段按顺序写出对象的键：先是数字键，从小到大，再是字符串键，按字节从小到大。同一个值总是得到字节完全相同的 JSON。`pairs` 本身遍历表的键没有固定顺序，而且每个请求都不一样：解释器为每个请求随机设定字符串哈希种子，这样键就无法被构造成互相冲突。不要依赖 `pairs` 的顺序；顺序重要时请自行对键排序。同一个表里既有数字键、又有写法相同的字符串键（如 `[1]` 和 `["1"]`）时会抛出错误：JSON 会把这个键写两次。
+- **嵌套。** 数组和对象最多嵌套 1000 层，超过时 `json.encode` 和 `json.decode` 抛出错误；包含自身的表会让 `json.encode` 抛出 `reference cycle`。编解码器的缓冲区和它构建的值都计入[内存限制](#限制)。
 
 ## 沙箱
 
@@ -122,6 +124,7 @@ if not ok then return { status = 400, json = { error = result } } end
 |---|---|---|
 | 脚本大小 | 1 MiB，UTF-8 文本 | 账本无法加载。 |
 | 内存 | 每个请求 64 MiB 的 Lua 值 | 请求以状态 500 失败，日志记录 `plugin \`plugins/food.lua\` exceeded 64 MiB`。 |
+| JSON 嵌套 | 数组和对象共 1000 层 | `json.encode` 或 `json.decode` 抛出错误。 |
 | 时间 | 指令的 `timeout`（默认 60 秒），但不超过运维者为请求设定的上限 `ZHANG_PLUGIN_MAX_TIMEOUT`（默认 30 秒） | 状态 504。 |
 | 查询 | `POST /api/query` 的限制 | `zhang.query` 抛出错误。 |
 
@@ -137,16 +140,15 @@ if not ok then return { status = 400, json = { error = result } } end
 
 ## 本版本只支持 router
 
-Lua 脚本只能声明 `types = { "Router" }`。声明 `Processor` 或 `Mapper` 的脚本不会加载，消息是 *Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, the host would take back an amount turned into a JSON number, and the JSON codec is too slow for a ledger's directives*。
+Lua 脚本只能声明 `types = { "Router" }`。声明 `Processor` 或 `Mapper` 的脚本不会加载，消息是 *Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, and the host would take back an amount turned into a JSON number*。
 
-问题不在指令的传递方式：processor 或 mapper 收到的 JSON 中，每个小数（金额、价格、成本、容差）都是字符串，`"1234.56789012345678"`，与查询结果一样。真正的障碍有三个：
+问题不在指令的传递方式：processor 或 mapper 收到的 JSON 中，每个小数（金额、价格、成本、容差）都是字符串，`"1234.56789012345678"`，与查询结果一样。真正的障碍有两个：
 
 - **没有精确运算。** Lua 只有整数和浮点数。拆分、求和或换算金额的阶段会把字符串 `tonumber` 后用浮点数计算，而 `0.1 + 0.2` 并不等于 `0.3`。
 - **数字会被收回。** 宿主读取阶段返回的指令时，金额既可以是字符串，也可以是 JSON 数字。脚本若把算出的浮点数写进金额，交回的数字会被宿主接受，余额就会在生成已记账账本的阶段被悄无声息地改变，不报任何错误。
-- **速度。** JSON 库每秒大约编码和解码 3 MB。router 处理的是一个请求的数据；processor 则要在每次加载时处理账本的每一条指令。
 
 router 没有这些问题：它读取查询结果、回应 HTTP，返回的任何内容都不会进入账本。Lua 的 processor 和 mapper 会随精确十进制的插件 API 一起到来，计划见 [#698](https://github.com/zhang-accounting/zhang/issues/698)。
 
 ## 解释器从哪里来
 
-解释器是由 [lua.wasm](https://github.com/andy-emerson/lua.wasm) 构建的 [Lua 5.4.8](https://www.lua.org/)，加上 [dkjson](https://dkolf.de/dkjson-lua/)，编译成一个 WebAssembly 模块并内嵌在张记账的二进制文件中。它的源码（连同许可证一起放在仓库中）和构建脚本在仓库的 `tools/lua-runtime` 目录；模块连同校验和一起提交，张记账的 CI 会重新构建它，字节不一致则失败。张记账在加载时把它和你的脚本配对，所以就沙箱、能力和路由而言，Lua 插件就是一个 wasm 插件。
+解释器是由 [lua.wasm](https://github.com/andy-emerson/lua.wasm) 构建的 [Lua 5.4.8](https://www.lua.org/)，加上为它编写的 C 语言 JSON 编解码器，编译成一个 WebAssembly 模块并内嵌在张记账的二进制文件中。它的源码（连同许可证一起放在仓库中）和构建脚本在仓库的 `tools/lua-runtime` 目录；模块连同校验和一起提交，张记账的 CI 会重新构建它，字节不一致则失败。张记账在加载时把它和你的脚本配对，所以就沙箱、能力和路由而言，Lua 插件就是一个 wasm 插件。

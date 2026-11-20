@@ -3,9 +3,9 @@
 
     python3 tools/lua-runtime/build.py --tools /path/outside/the/repo [--out zhang-core/src/plugin/lua/lua-runtime.wasm]
 
-One command, one artifact: `runtime.cpp` (the Extism dispatcher), the vendored `onelua.c` of lua.wasm (Lua 5.4.8
-compiled as C++ so its error handling rides wasm exception handling) and `pdk.c` (the Extism C PDK) are compiled
-with wasi-sdk's clang into a wasm reactor, with the vendored dkjson embedded as a C string. Every vendored file is
+One command, one artifact: `runtime.cpp` (the Extism dispatcher), `json.cpp` (the JSON codec of the `json` table),
+the vendored `onelua.c` of lua.wasm (Lua 5.4.8 compiled as C++ so its error handling rides wasm exception handling) and
+`pdk.c` (the Extism C PDK) are compiled with wasi-sdk's clang into a wasm reactor. Every vendored file is
 checked against `vendor/SHA256SUMS` first, and the build refuses a file that differs or is not listed. The flags are lua.wasm's documented embedding
 contract plus Extism's reactor model; the build is deterministic, so the same inputs give the same bytes on every
 host (`-ffile-prefix-map` keeps the directories out of the module). The sha256 and size of the output are printed,
@@ -80,12 +80,7 @@ def main():
 
     build = Path(tempfile.mkdtemp(prefix="zhang-lua-runtime-"))
     try:
-        # dkjson is embedded as a C string; user scripts are never built into the module
-        json_source = (VENDOR / "dkjson" / "dkjson.lua").read_text(encoding="utf-8")
-        if ')jsonlua"' in json_source:
-            raise SystemExit("dkjson.lua contains the raw string delimiter")
-        (build / "json_lua.h").write_text('static const char JSON_LUA[] = R"jsonlua(' + json_source + ')jsonlua";\n', encoding="utf-8")
-
+        # user scripts are never built into the module
         common = [
             "--target=wasm32-wasip1",
             "--sysroot=" + str(sdk / "share" / "wasi-sysroot"),
@@ -111,12 +106,11 @@ def main():
             "-DLUA_USE_JUMPTABLE=0",
             "-DMAKE_LIB",
             # a random string-hash seed for every Lua state (seed.h), against hash flooding; JSON stays
-            # byte-identical for identical values because dkjson writes an object's keys sorted
+            # byte-identical for identical values because json.cpp writes an object's keys sorted
             "-include", HERE / "seed.h",
             "-I" + str(lua),
             "-I" + str(lua / "wasi"),
             "-I" + str(pdk),
-            "-I" + str(build),
             # an Extism plugin is a reactor: the host calls the exports, nothing runs at start
             "-mexec-model=reactor",
             f"-Wl,-z,stack-size={STACK_SIZE}",
@@ -125,7 +119,7 @@ def main():
             # wasi-sdk host asset, which made the macOS and Linux builds differ (and weighed 380 KiB); the `name`
             # section stays, so a trap still names the function
             "-Wl,--strip-debug",
-            "-x", "c++", lua / "onelua.c", HERE / "runtime.cpp",
+            "-x", "c++", lua / "onelua.c", HERE / "runtime.cpp", HERE / "json.cpp",
             "-x", "none", build / "pdk.o",
             "-lwasi-emulated-signal",
             "-lwasi-emulated-process-clocks",

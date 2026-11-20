@@ -5,7 +5,7 @@
 
 The wasi-sdk for this host (`--host` overrides the detection) lands under `--tools`, checked against the sha256 of
 PINS.toml before it is extracted, and is not downloaded again while the file there has the right checksum. It is
-the only download: the sources (Lua, its wasm shim, dkjson, the Extism C PDK header) are vendored under
+the only download: the sources (Lua, its wasm shim, the Extism C PDK header) are vendored under
 `vendor/`, and `build.py` checks them against `vendor/SHA256SUMS`. Python 3 standard library only.
 """
 

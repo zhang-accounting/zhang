@@ -2636,7 +2636,7 @@ mod lua {
             .to_string();
         assert!(
             error.contains(
-                "Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, the host would take back an amount turned into a JSON number, and the JSON codec is too slow for a ledger's directives"
+                "Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, and the host would take back an amount turned into a JSON number"
             ),
             "{error}"
         );
@@ -2737,7 +2737,7 @@ mod lua {
                 "min": -9223372036854775808i64,
                 "float": 1.5,
                 "tenth": 0.1,
-                "third": 0.33333333333333,
+                "third": 0.3333333333333333,
                 "nul": "a\u{0}b",
                 "nul_back": "a\u{0}b",
                 "nul_back_len": 3,
@@ -2771,6 +2771,52 @@ mod lua {
                 r#""narration":"/anarration","nested":{"t":7,"u":6,"v":5,"w":4,"x":3,"y":2,"z":1},"payee":"/apayee","tags":"/atags"}"#
             )
         );
+    }
+
+    #[test]
+    fn the_json_codec_keeps_its_rules_inside_the_interpreter() {
+        // json_rules.lua checks the rules of tools/lua-runtime/json.cpp in the module itself: numbers, escapes,
+        // UTF-8, sorted keys, the object marker, strict decoding with positions, and 1000 levels of nesting both
+        // ways, which must neither trap on the wasm stack nor leave the collector paused
+        let (_dir, ledger) = router_ledger(&["json_rules.lua"]);
+
+        let body = json_body(&call(&ledger, "json-rules", &get("/")).unwrap());
+
+        assert_eq!(body["failures"], json!([]), "{body}");
+        assert!(body["checks"].as_u64().unwrap() > 180, "{body}");
+    }
+
+    #[test]
+    fn json_outgrowing_the_budget_is_stopped_at_it() {
+        // the codec's buffers and the values it builds are Lua objects: past the budget, the call fails with the
+        // budget's message, and a script that catches the error gets Lua's memory error and runs on
+        let dir = ledger_dir(&["json_hog.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "json_hog.lua"))));
+        let op = |op: &str| PluginRequest::new("GET", "/", vec![("op".to_owned(), op.to_owned())], vec![], vec![]);
+
+        for name in ["encode", "decode"] {
+            let failed = call(&ledger, "json-hog", &op(name)).unwrap_err();
+            assert!(
+                matches!(&failed, RouterError::Failed(message) if message.contains("json_hog.lua` exceeded 64 MiB")),
+                "{name}: {failed}"
+            );
+        }
+        let caught = call(&ledger, "json-hog", &op("caught")).unwrap();
+        assert_eq!(json_body(&caught), json!({"ok": false, "error": "not enough memory", "collector": true}));
+    }
+
+    #[test]
+    fn a_weak_table_near_the_budget_is_encoded_whole_or_refused() {
+        // an emergency collection clears a weak table's garbage values and frees their keys: the encoder writes a weak
+        // table from a strong copy, so it never reads a freed key nor writes a key without its value
+        let dir = ledger_dir(&["json_weak.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "json_weak.lua"))));
+
+        let body = json_body(&call(&ledger, "json-weak", &get("/")).unwrap());
+
+        assert_eq!(body["failures"], json!([]), "{body}");
+        assert_eq!(body["runs"], 22, "{body}");
+        assert!(body["encoded"].as_u64().unwrap() > 0, "{body}");
     }
 
     #[test]

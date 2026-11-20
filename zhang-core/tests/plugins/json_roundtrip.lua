@@ -1,7 +1,8 @@
 -- A router plugin that round-trips values through the json library and the host, so a test sees the
 -- JSON rules hold: json.null decodes from and encodes to null, json.object() encodes as {} where an
 -- empty table is [], an integer up to 2^63 stays exact, a NUL byte inside a string survives, a float
--- encodes with 14 significant digits, and a decimal the host sends as a string comes back untouched.
+-- encodes with the digits that read back as the same float, and a decimal the host sends as a string comes
+-- back untouched.
 local M = { name = "json-roundtrip", version = "0.1.0" }
 
 function M.router(request)
