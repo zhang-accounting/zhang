@@ -278,8 +278,9 @@ pub fn path_in_ledger(root: &Path, path: &Path) -> Option<PathBuf> {
 }
 
 /// a relative `path` normalized lexically (no `.` or `..` components, no empty ones); `None` when it is absolute or
-/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way
-pub(crate) fn normalize_relative(relative: &Path) -> Option<PathBuf> {
+/// climbs above its start. Inputs a plugin's file functions record are cleaned the same way, and a source writing to
+/// the local disk keeps a write within its root with it
+pub fn normalize_relative(relative: &Path) -> Option<PathBuf> {
     let mut normalized = PathBuf::new();
     for component in relative.components() {
         match component {
@@ -685,16 +686,201 @@ impl DataSource for LocalFileSystemDataSource {
         Ok(files.finish())
     }
 
+    /// The file is written whole or not at all when the directory allows it ([`save_file`])
     fn save(&self, _ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
         let file = self
             .resolve(&path)
             .ok_or_else(|| ZhangError::CustomError(format!("{path} is not in the ledger's directory")))?;
-        let failed = |error: std::io::Error| storage_error(&path, Access::Write, error.kind().into(), error);
-        if let Some(folder) = file.parent() {
-            std::fs::create_dir_all(folder).map_err(failed)?;
-        }
-        std::fs::write(&file, content).map_err(failed)
+        save_file(&file, &path, content)
     }
+}
+
+/// Write `content` to `file` on the local disk, the file at `path` of a ledger, whole or not at all when the directory
+/// allows it: the content goes to a temporary file next to the file (the real file, behind any symbolic link, which
+/// stays a link), with the file's owner and permissions, flushed to the disk, then renamed over the file
+/// ([`write_atomically`]); a crash or a full disk while writing leaves the file as it was. Where no such temporary
+/// file can be made or renamed, the file is written in place, as before. The directories the file needs are made. The
+/// error names `path`, as the ledger knows the file, and a refusal is [`ZhangError::WriteRefused`]; every source
+/// writing to the local disk saves through here, so a file is replaced the same way whichever way the ledger is served
+pub fn save_file(file: &Path, path: &str, content: &[u8]) -> ZhangResult<()> {
+    let failed = |error: std::io::Error| storage_error(path, Access::Write, error.kind().into(), error);
+    if let Some(folder) = file.parent() {
+        std::fs::create_dir_all(folder).map_err(failed)?;
+    }
+    write_atomically(file, content).map_err(failed)
+}
+
+/// Write `content` to `file` whole or not at all, and where a plain write would be refused, refuse it too.
+///
+/// - The real file is `file` with its symbolic links followed ([`resolve_links`]): a link stays a link, and its target
+///   gets the content. A file this process may not write is refused, as a plain write refuses it: the rename below
+///   would replace a read-only file, or a file of another user, without asking.
+/// - The content goes to a new temporary file next to the real file, so the rename stays on one file system. It is
+///   made with `create_new` (`O_CREAT | O_EXCL`), which never opens what is already there, nor follows a symbolic
+///   link planted at its name, under a name nobody can guess ([`temporary_file`]).
+/// - Before any content, the temporary file gets the owner (unix) and the permissions of the real file through its
+///   own handle (`fchown`, `fchmod`), never by its path. A file it cannot give them, a file of another user say, is
+///   written in place instead, so its owner stays.
+/// - The content is written and flushed to the disk, the temporary file renamed over the real file, which replaces it
+///   in one step on POSIX systems and on Windows, and (unix) the directory flushed to the disk, so the rename
+///   survives a crash too. The directory's flush is best effort: a file system that cannot flush a directory has
+///   the file whole either way, and the save is not failed for it.
+///
+/// The temporary file is removed when a step fails. Only where the directory refuses the temporary file, its owner
+/// or its permissions for want of permission, or the rename is refused (a directory this process may not add to, a
+/// file system without rename), is the file written in place, as a plain write would: a write or flush that fails, a
+/// full or failing disk, leaves the file as it was and is the error, since a plain write would truncate the file and
+/// fail the same way ([`falls_back_in_place`])
+fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let target = resolve_links(file);
+    let existing = std::fs::metadata(&target).ok().filter(|it| it.is_file());
+    if existing.is_some() {
+        // a file this process may not write, refused as a plain write refuses it; opening it changes nothing
+        match std::fs::OpenOptions::new().write(true).open(&target) {
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => return Err(error),
+            _ => {}
+        }
+    }
+    let directory = match target.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    // the plain write that takes over when `step` failed with `error`, or the error
+    let in_place = |step: SaveStep, error: std::io::Error| match falls_back_in_place(step, &error) {
+        true => std::fs::write(&target, content),
+        false => Err(error),
+    };
+    let name = target.file_name().and_then(|it| it.to_str()).unwrap_or("file");
+    let (mut writer, temp) = match temporary_file(&directory, existing.is_some(), || temporary_name(name)) {
+        Ok(created) => created,
+        Err(error) => return in_place(SaveStep::Create, error),
+    };
+    // the owner before the permissions: a change of owner clears the set-user-id and set-group-id bits they may hold
+    if let Some(existing) = &existing {
+        #[cfg(unix)]
+        let owned = {
+            use std::os::unix::fs::MetadataExt;
+            std::os::unix::fs::fchown(&writer, Some(existing.uid()), Some(existing.gid()))
+        };
+        #[cfg(not(unix))]
+        let owned = Ok(());
+        if let Err(error) = owned.and_then(|()| writer.set_permissions(existing.permissions())) {
+            drop(writer);
+            std::fs::remove_file(&temp).ok();
+            return in_place(SaveStep::Create, error);
+        }
+    }
+    let written = writer.write_all(content).and_then(|()| writer.sync_all());
+    // closed before the rename, which Windows refuses for an open file
+    drop(writer);
+    if let Err(error) = written {
+        std::fs::remove_file(&temp).ok();
+        return in_place(SaveStep::Write, error);
+    }
+    if let Err(error) = std::fs::rename(&temp, &target) {
+        std::fs::remove_file(&temp).ok();
+        return in_place(SaveStep::Rename, error);
+    }
+    #[cfg(unix)]
+    if let Ok(directory) = std::fs::File::open(&directory) {
+        // best effort, see above
+        directory.sync_all().ok();
+    }
+    Ok(())
+}
+
+/// A new temporary file in `directory`, opened for writing with `create_new`, by the first of the names `name` gives
+/// that nothing holds yet: a file or a symbolic link already there is left alone, never opened, written or followed,
+/// and the next name is tried. A temporary file standing in for an existing file (`private`) is made readable by
+/// this process alone (unix), until it gets the file's permissions; a new file gets the permissions a plain write
+/// gives it. `AlreadyExists` after 16 names taken
+fn temporary_file(directory: &Path, private: bool, mut name: impl FnMut() -> String) -> std::io::Result<(std::fs::File, PathBuf)> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if private {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = private;
+    let mut taken = None;
+    for _ in 0..16 {
+        let temp = directory.join(name());
+        match options.open(&temp) {
+            Ok(file) => return Ok((file, temp)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => taken = Some(error),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(taken.unwrap_or_else(|| std::io::Error::from(std::io::ErrorKind::AlreadyExists)))
+}
+
+/// The name of a temporary file for the file named `name`: `.{name}.{16 hex digits}.tmp`, hidden, and telling whose it
+/// is (the name cut to 64 characters, so it stays within the limit of a file name). The digits are a hash keyed by
+/// the random keys the standard library seeds its hash maps with from the operating system, and differ on every
+/// call, so nobody can guess the name to plant something there first
+fn temporary_name(name: &str) -> String {
+    use std::hash::{BuildHasher, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(COUNTER.fetch_add(1, Ordering::Relaxed));
+    let name: String = name.chars().take(64).collect();
+    format!(".{name}.{:016x}.tmp", hasher.finish())
+}
+
+/// a step of [`write_atomically`] that can fail
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveStep {
+    /// making the temporary file, with the file's owner and permissions
+    Create,
+    /// writing the content to it and flushing it to the disk
+    Write,
+    /// renaming it over the file
+    Rename,
+}
+
+/// Whether a plain write of the file takes over after `step` failed with `error`. Only when the directory refuses
+/// the temporary file, or it cannot get the file's owner or permissions, for want of permission (`EACCES`, `EPERM`),
+/// or the rename is refused (not allowed, the file busy, or across file systems): the file is still as it was, and
+/// the plain write is what every source did before. Never when the disk or a quota is full or the disk fails
+/// (`ENOSPC`, `EDQUOT`, `EIO`), at any step: the plain write would truncate the file and fail the same way, and the
+/// file is left untouched for the user instead
+fn falls_back_in_place(step: SaveStep, error: &std::io::Error) -> bool {
+    // the unix codes, the same on Linux and macOS; Windows reports a refusal as a permission error
+    const EPERM: i32 = 1;
+    const EACCES: i32 = 13;
+    const EBUSY: i32 = 16;
+    const EXDEV: i32 = 18;
+    let refused = error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(EPERM | EACCES));
+    match step {
+        SaveStep::Create => refused,
+        SaveStep::Write => false,
+        SaveStep::Rename => refused || matches!(error.raw_os_error(), Some(EBUSY | EXDEV)),
+    }
+}
+
+/// `file` with its symbolic links followed, as far as they lead to something: the real file a write replaces, so
+/// the link itself stays. A link that leads nowhere is followed to where it points, which the write then creates
+fn resolve_links(file: &Path) -> PathBuf {
+    let mut path = file.to_path_buf();
+    for _ in 0..32 {
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let Ok(link) = std::fs::read_link(&path) else { break };
+                path = match link.is_absolute() {
+                    true => link,
+                    false => path.parent().unwrap_or(Path::new("")).join(link),
+                };
+            }
+            _ => break,
+        }
+    }
+    path
 }
 
 /// an entry of a directory, as [`DataSource::list`] lists it
@@ -1018,6 +1204,215 @@ mod test {
         let reloaded = Ledger::load_with_data_source(dir.path().to_path_buf(), "main.zhang".to_owned(), source).unwrap();
         assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
         assert_eq!(reloaded.transactions().len(), 2);
+    }
+
+    /// the temporary files a save may have left in `dir`
+    fn temporary_files(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect()
+    }
+
+    /// A plain write takes over only where no temporary file can be made or the rename is refused; a disk that
+    /// refuses the content (full, failing) leaves the file as it was and is the error
+    #[test]
+    fn a_save_falls_back_to_a_plain_write_only_when_the_temporary_file_is_refused() {
+        use std::io::{Error, ErrorKind};
+
+        use super::{falls_back_in_place, SaveStep};
+
+        let (enospc, eio, eacces, eperm, ebusy, exdev) = (28, 5, 13, 1, 16, 18);
+        // EDQUOT: 69 on macOS, 122 on Linux
+        let full: [i32; 4] = [enospc, eio, 69, 122];
+        for code in [eacces, eperm] {
+            assert!(
+                falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
+                "a refused temporary file: {code}"
+            );
+        }
+        assert!(falls_back_in_place(SaveStep::Create, &Error::from(ErrorKind::PermissionDenied)));
+        for code in full {
+            assert!(
+                !falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
+                "a full disk or quota: {code}"
+            );
+            assert!(
+                !falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(code)),
+                "a failed write never rewrites in place: {code}"
+            );
+            assert!(
+                !falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
+                "a rename the disk failed: {code}"
+            );
+        }
+        assert!(!falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(eacces)));
+        for code in [eperm, eacces, ebusy, exdev] {
+            assert!(
+                falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
+                "a refused rename: {code}"
+            );
+        }
+        assert!(falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::PermissionDenied)));
+        assert!(!falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::NotFound)));
+        assert!(
+            !falls_back_in_place(SaveStep::Create, &Error::from(ErrorKind::AlreadyExists)),
+            "every temporary name taken is no refusal"
+        );
+    }
+
+    /// A save keeps a symbolic link a link and writes its target, and keeps the file's permissions: the temporary
+    /// file is made next to the real file, with its mode, and renamed over it, and none is left behind
+    #[cfg(unix)]
+    #[test]
+    fn a_save_keeps_a_symlink_and_the_files_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::create_dir_all(root.join("ledger/data/2024")).unwrap();
+        std::fs::write(root.join("real/main.zhang"), OPENS).unwrap();
+        std::os::unix::fs::symlink(root.join("real/main.zhang"), root.join("ledger/main.zhang")).unwrap();
+        let private = root.join("ledger/data/2024/01.zhang");
+        std::fs::write(&private, "").unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.join("ledger"), "main.zhang".to_owned(), source).unwrap();
+
+        ledger.data_source.append(&ledger, coffee()).unwrap();
+
+        let link = std::fs::symlink_metadata(root.join("ledger/main.zhang")).unwrap();
+        assert!(link.file_type().is_symlink(), "the main file stays a symbolic link");
+        assert!(
+            std::fs::read_to_string(root.join("real/main.zhang"))
+                .unwrap()
+                .contains("include \"data/2024/01.zhang\""),
+            "its target got the include"
+        );
+        assert_eq!(
+            std::fs::metadata(&private).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "a private file stays private"
+        );
+        assert!(std::fs::read_to_string(&private).unwrap().contains("coffee"));
+        for folder in [root.join("real"), root.join("ledger"), root.join("ledger/data/2024")] {
+            assert_eq!(temporary_files(&folder), Vec::<String>::new(), "no temporary file is left behind");
+        }
+    }
+
+    /// A save writes the file whole or not at all: when the write cannot be completed, here because a directory is in
+    /// the file's place, what was there stays as it was and no temporary file is left behind
+    #[test]
+    fn a_save_that_cannot_complete_leaves_the_file_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), OPENS).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+        // a non-empty directory where the file would be: the rename over it fails, after the temporary file is written
+        std::fs::create_dir_all(root.join("data/2024/01.zhang/inside")).unwrap();
+
+        let error = ledger
+            .data_source
+            .save(&ledger, "data/2024/01.zhang".to_owned(), b"2024-01-15 * \"coffee\"\n")
+            .expect_err("the file cannot be written");
+
+        assert!(error.to_string().contains("01.zhang"), "{error}");
+        assert!(root.join("data/2024/01.zhang/inside").is_dir(), "what was in the file's place stays");
+        assert_eq!(
+            temporary_files(&root.join("data/2024")),
+            Vec::<String>::new(),
+            "no temporary file is left behind"
+        );
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap(), OPENS, "nothing was included");
+    }
+
+    /// A save refuses a file this process may not write, as the plain write before it did: renaming a temporary file
+    /// over a read-only file, which the directory allows, would replace it without asking. The file stays as it was
+    #[cfg(unix)]
+    #[test]
+    fn a_save_refuses_a_file_it_may_not_write() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let main = root.join("main.zhang");
+        std::fs::write(&main, OPENS).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+        std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o444)).unwrap();
+        if std::fs::OpenOptions::new().write(true).open(&main).is_ok() {
+            eprintln!("skipping: this user writes a read-only file (root)");
+            return;
+        }
+
+        let error = ledger
+            .data_source
+            .save(&ledger, "main.zhang".to_owned(), b"")
+            .expect_err("a read-only file is not replaced");
+
+        assert!(matches!(&error, ZhangError::WriteRefused(path) if path == "main.zhang"), "{error:?}");
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), OPENS, "the file is as it was");
+        assert_eq!(std::fs::metadata(&main).unwrap().permissions().mode() & 0o777, 0o444);
+        assert_eq!(temporary_files(&root), Vec::<String>::new(), "no temporary file is left behind");
+    }
+
+    /// The temporary file is made with `create_new`: whatever is planted at a name it tries, a symbolic link to
+    /// another file or a file, is left alone, never followed, opened or truncated, and the next name is tried; with
+    /// every name taken, nothing is made
+    #[cfg(unix)]
+    #[test]
+    fn a_temporary_file_never_opens_what_is_planted_at_its_name() {
+        use std::io::Write;
+
+        use super::temporary_file;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let victim = root.join("victim.zhang");
+        std::fs::write(&victim, OPENS).unwrap();
+        std::os::unix::fs::symlink(&victim, root.join(".main.zhang.link.tmp")).unwrap();
+        std::fs::write(root.join(".main.zhang.file.tmp"), "planted").unwrap();
+        let mut names = [".main.zhang.link.tmp", ".main.zhang.file.tmp", ".main.zhang.free.tmp"].into_iter();
+
+        let (mut file, temp) = temporary_file(&root, true, || names.next().unwrap().to_owned()).unwrap();
+        file.write_all(b"new content").unwrap();
+        drop(file);
+
+        assert_eq!(temp, root.join(".main.zhang.free.tmp"), "the first name nothing holds");
+        assert_eq!(std::fs::read_to_string(&temp).unwrap(), "new content");
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), OPENS, "the link was not followed");
+        assert_eq!(std::fs::read_link(root.join(".main.zhang.link.tmp")).unwrap(), victim, "the link stays");
+        assert_eq!(std::fs::read_to_string(root.join(".main.zhang.file.tmp")).unwrap(), "planted");
+
+        let taken = temporary_file(&root, true, || ".main.zhang.file.tmp".to_owned()).expect_err("every name is taken");
+        assert_eq!(taken.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(root.join(".main.zhang.file.tmp")).unwrap(), "planted");
+    }
+
+    /// The name of a temporary file tells whose it is and cannot be guessed: a hash with random keys, another one on
+    /// every call, where it was the process id and a counter; a long file name is cut, so the name stays a valid one
+    #[test]
+    fn a_temporary_name_cannot_be_guessed() {
+        use super::temporary_name;
+
+        let names: Vec<String> = (0..64).map(|_| temporary_name("main.zhang")).collect();
+        for name in &names {
+            let digits = name
+                .strip_prefix(".main.zhang.")
+                .and_then(|it| it.strip_suffix(".tmp"))
+                .unwrap_or_else(|| panic!("{name}"));
+            assert_eq!(digits.len(), 16, "{name}");
+            assert!(digits.chars().all(|it| it.is_ascii_hexdigit()), "{name}");
+        }
+        let mut distinct = names.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(distinct.len(), names.len(), "every call names another file");
+        let long = temporary_name(&"a".repeat(300));
+        assert_eq!(long.len(), 1 + 64 + 1 + 16 + 4, "{long}");
     }
 
     /// A file starting with a UTF-8 byte order mark, as some Windows editors save it, loads (#505): the mark is
