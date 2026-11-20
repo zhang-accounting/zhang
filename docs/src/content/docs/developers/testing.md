@@ -54,6 +54,7 @@ The web UI tests are plain `node --test` files next to the code they test (`fron
 | the beancount oracle ledgers | `fixtures::oracle_ledgers` |
 | a ledger of either format from a directory | `fixtures::load_dir` |
 | a reproducible random source | `XorShift` |
+| a household's ledger of any size from a seed, with budgets or without, the same byte for byte for a spec | `budget_ledger` |
 | the dialect scenarios: random transactions and text layouts, where metadata landed | `dialect` |
 | a golden file | `golden::assert_text`, `golden::assert_json` |
 | a beanquery case set, run and compared under one set of rules (feature `query`) | `oracle` |
@@ -69,6 +70,7 @@ cargo nextest run -p zhang-query        # one crate
 cargo nextest run -E 'test(journals)'   # tests whose name matches
 cargo test --doc                        # the doctests (nextest does not run them)
 cargo test -p zhang-core                # zhang-core alone, without the plugin runtime
+cargo nextest run --release -p zhang-server --test budget_baseline --run-ignored only --no-capture   # the budget baseline
 cd frontend && pnpm test                # the web UI
 ```
 
@@ -76,6 +78,6 @@ Running a single integration-test binary still works with `cargo test -p <crate>
 
 ## Binary layout
 
-A crate's integration tests are **one binary**: `tests/<name>/main.rs` declares the modules, one file per area under `tests/<name>/` (`zhang-core/tests/core/`, `zhang-server/tests/api/` and `tests/golden/`, and so on). Every integration-test binary links the crate and its few hundred dependency crates, so 74 of them cost half of a CI job's build phase, while the merged crate's extra front-end work was measured at well under a second. A test keeps a binary of its own only when it changes **process-global state**, which would leak into the tests running next to it: an environment variable read once per process (`zhang-server/tests/account_journal_limit.rs`), the working directory (`zhang-server/tests/document_cache.rs`), and `sdk_plugins.rs`, which runs cargo. Nextest runs every test in its own process either way, so the merge changes nothing about isolation at run time.
+A crate's integration tests are **one binary**: `tests/<name>/main.rs` declares the modules, one file per area under `tests/<name>/` (`zhang-core/tests/core/`, `zhang-server/tests/api/` and `tests/golden/`, and so on). Every integration-test binary links the crate and its few hundred dependency crates, so 74 of them cost half of a CI job's build phase, while the merged crate's extra front-end work was measured at well under a second. A test keeps a binary of its own only when it changes **process-global state**, which would leak into the tests running next to it: an environment variable read once per process (`zhang-server/tests/account_journal_limit.rs`), the working directory (`zhang-server/tests/document_cache.rs`), the peak memory of the process (`zhang-server/tests/budget_baseline.rs`, the ignored bench of the [Budget Baseline](/developers/budget-baseline/)), and `sdk_plugins.rs`, which runs cargo. Nextest runs every test in its own process either way, so the merge changes nothing about isolation at run time.
 
 Add a test to the module that owns its area; add a module (a file under `tests/<name>/` and a `mod` line in `main.rs`) only for a new area; add a binary only for process-global state, and say why in its first doc comment.

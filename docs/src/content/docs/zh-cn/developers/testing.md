@@ -54,6 +54,7 @@ sidebar:
 | beancount 参照账本 | `fixtures::oracle_ledgers` |
 | 从目录按格式加载账本 | `fixtures::load_dir` |
 | 可复现的随机源 | `XorShift` |
+| 由种子生成的任意规模的家庭账本，带预算或不带预算，同一规格逐字节相同 | `budget_ledger` |
 | 方言场景：随机交易与文本布局、元数据落在哪里 | `dialect` |
 | 黄金文件 | `golden::assert_text`、`golden::assert_json` |
 | 用同一套规则运行并比对一组 beanquery 用例（feature `query`） | `oracle` |
@@ -69,6 +70,7 @@ cargo nextest run -p zhang-query        # 一个 crate
 cargo nextest run -E 'test(journals)'   # 名字匹配的测试
 cargo test --doc                        # 文档测试（nextest 不运行它们）
 cargo test -p zhang-core                # 单独运行 zhang-core，不带插件运行时
+cargo nextest run --release -p zhang-server --test budget_baseline --run-ignored only --no-capture   # 预算基线
 cd frontend && pnpm test                # 网页界面
 ```
 
@@ -76,6 +78,6 @@ cd frontend && pnpm test                # 网页界面
 
 ## 二进制布局
 
-一个 crate 的集成测试是**一个二进制**：`tests/<name>/main.rs` 声明各个模块，`tests/<name>/` 下每个领域一个文件（`zhang-core/tests/core/`、`zhang-server/tests/api/` 和 `tests/golden/`，等等）。每个集成测试二进制都要链接该 crate 和几百个依赖 crate，74 个这样的二进制占了 CI 一个任务构建阶段的一半，而合并后的 crate 多出的前端编译开销实测远不到一秒。只有当一个测试会改变**进程级全局状态**、从而影响到旁边运行的测试时，它才保留自己的二进制：每个进程只读取一次的环境变量（`zhang-server/tests/account_journal_limit.rs`）、工作目录（`zhang-server/tests/document_cache.rs`），以及会运行 cargo 的 `sdk_plugins.rs`。nextest 本来就让每个测试在自己的进程里运行，所以合并不改变运行时的隔离。
+一个 crate 的集成测试是**一个二进制**：`tests/<name>/main.rs` 声明各个模块，`tests/<name>/` 下每个领域一个文件（`zhang-core/tests/core/`、`zhang-server/tests/api/` 和 `tests/golden/`，等等）。每个集成测试二进制都要链接该 crate 和几百个依赖 crate，74 个这样的二进制占了 CI 一个任务构建阶段的一半，而合并后的 crate 多出的前端编译开销实测远不到一秒。只有当一个测试会改变**进程级全局状态**、从而影响到旁边运行的测试时，它才保留自己的二进制：每个进程只读取一次的环境变量（`zhang-server/tests/account_journal_limit.rs`）、工作目录（`zhang-server/tests/document_cache.rs`）、进程的内存峰值（`zhang-server/tests/budget_baseline.rs`，即[预算基线](/zh-cn/developers/budget-baseline/)中被标记为 ignored 的基准），以及会运行 cargo 的 `sdk_plugins.rs`。nextest 本来就让每个测试在自己的进程里运行，所以合并不改变运行时的隔离。
 
 把测试加到负责该领域的模块里；只有新的领域才新增模块（`tests/<name>/` 下的一个文件和 `main.rs` 里的一行 `mod`）；只有涉及进程级全局状态时才新增二进制，并在它的第一段文档注释里说明原因。
