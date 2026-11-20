@@ -1449,8 +1449,10 @@ export interface operations {
                         number: string;
                       };
                       /**
-                       * @description metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
-                       * for a transaction read from a file; sorted by key otherwise
+                       * @description metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
+                       * when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+                       * when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+                       * written
                        */
                       metas: {
                         key: string;
@@ -1543,8 +1545,10 @@ export interface operations {
                         number: string;
                       };
                       /**
-                       * @description metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
-                       * for a transaction read from a file; sorted by key otherwise
+                       * @description metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
+                       * when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+                       * when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+                       * written
                        */
                       metas: {
                         key: string;
@@ -1607,8 +1611,10 @@ export interface operations {
                         number: string;
                       };
                       /**
-                       * @description metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
-                       * for a transaction read from a file; sorted by key otherwise
+                       * @description metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
+                       * when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+                       * when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+                       * written
                        */
                       metas: {
                         key: string;
