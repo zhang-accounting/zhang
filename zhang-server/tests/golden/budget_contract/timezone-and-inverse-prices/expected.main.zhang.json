@@ -1,7 +1,7 @@
 {
   "case": "timezone-and-inverse-prices",
-  "description": "The budget ledger of the query engine's tests (zhang-query/tests/engine/server_features/budgets), in UTC+8: activity converted at each posting's date through the inverse of the only prices (CNY quoted in USD), a budget-add and a posting in the first half hour of a month (still the previous month in UTC) counted in the ledger date's month, a leap day, a transfer, a close, and a budget-add to a budget that does not exist.",
-  "ledger": "zhang-query/tests/engine/server_features/budgets/main.zhang",
+  "description": "The budget ledger of the query engine's tests (a copy of zhang-query/tests/engine/server_features/budgets), in UTC+8: activity converted at each posting's date through the inverse of the only prices (CNY quoted in USD), a budget-add and a posting in the first half hour of a month (still the previous month in UTC) counted in the ledger date's month, a leap day, a transfer, a close, and a budget-add to a budget that does not exist.",
+  "ledger": "zhang-server/tests/golden/budget_contract/timezone-and-inverse-prices/main.zhang",
   "now": "2024-04-30T12:00:00Z",
   "known_issues": {
     "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
@@ -10,15 +10,15 @@
     {
       "kind": "BudgetDoesNotExist",
       "file": "main.zhang",
-      "line": 41,
+      "line": 43,
       "metas": [{"key": "budget_name", "value": "vacation"}]
     }
   ],
   "error_list": [
     {
-      "id": "4b657f1c-b779-b397-484d-321e553662f2",
-      "id_of": "main.zhang@1409 BudgetDoesNotExist #0",
-      "span": {"file": "main.zhang", "start": 1409, "end": 1446, "line": 41},
+      "id": "6282a93f-5bdd-2307-fecc-dbbb76b9bc87",
+      "id_of": "main.zhang@1574 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1574, "end": 1611, "line": 43},
       "kind": "BudgetDoesNotExist",
       "metas": {"budget_name": "vacation"}
     }
@@ -155,6 +155,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.events", "params": {"name": "food", "month": "2023-12-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
           {"name": "budgets.budget_month", "params": {"name": "food", "month": "2024-01-01"}}
         ]
       },
@@ -191,8 +217,37 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-01-20", "00:00:00", 1705680000, "Expenses:Food", "cb9c2675-f04f-e75a-06cd-8c6ec304e758", "Airport", "Cafe abroad", {"number": "10", "currency": "USD"}, {"number": "10", "currency": "USD"}],
-              ["2024-01-10", "00:00:00", 1704816000, "Expenses:Food", "6bce63e8-4c6d-6565-8f8b-da9b68b31e9a", "Market", "Groceries", {"number": "100", "currency": "CNY"}, {"number": "100", "currency": "CNY"}]
+              ["2024-01-20", "00:00:00", 1705680000, "Expenses:Food", "79fe304f-0880-ec03-fa7c-f4885b125965", "Airport", "Cafe abroad", {"number": "10", "currency": "USD"}, {"number": "10", "currency": "USD"}],
+              ["2024-01-10", "00:00:00", 1704816000, "Expenses:Food", "007e5864-fee2-53f4-ec1c-a3a552f095db", "Market", "Groceries", {"number": "100", "currency": "CNY"}, {"number": "100", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.events", "params": {"name": "food", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704038400, "assign", {"number": "1000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-20", "00:00:00", 1705680000, "Expenses:Food", "79fe304f-0880-ec03-fa7c-f4885b125965", "Airport", "Cafe abroad", {"number": "10", "currency": "USD"}, {"number": "10", "currency": "USD"}],
+              ["2024-01-10", "00:00:00", 1704816000, "Expenses:Food", "007e5864-fee2-53f4-ec1c-a3a552f095db", "Market", "Groceries", {"number": "100", "currency": "CNY"}, {"number": "100", "currency": "CNY"}]
             ]
           }
         ]
@@ -238,7 +293,35 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-02-29", "00:00:00", 1709136000, "Expenses:Food", "22453388-8312-64d1-5ec1-1887ba06d6b7", "Market", "Leap day groceries", {"number": "29", "currency": "CNY"}, {"number": "129", "currency": "CNY"}]
+              ["2024-02-29", "00:00:00", 1709136000, "Expenses:Food", "6c933881-1a2f-bc4a-0474-32fce15f43bf", "Market", "Leap day groceries", {"number": "29", "currency": "CNY"}, {"number": "129", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.events", "params": {"name": "food", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-02-15", "00:00:00", 1707926400, "transfer_out", {"number": "-200", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-29", "00:00:00", 1709136000, "Expenses:Food", "6c933881-1a2f-bc4a-0474-32fce15f43bf", "Market", "Leap day groceries", {"number": "29", "currency": "CNY"}, {"number": "129", "currency": "CNY"}]
             ]
           }
         ]
@@ -284,8 +367,37 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-03-05", "00:00:00", 1709568000, "Expenses:Food", "6fb48ba2-40bc-1f64-9539-d47a405b8806", "Abroad", "Dinner", {"number": "10", "currency": "USD"}, {"number": "21", "currency": "USD"}],
-              ["2024-03-01", "00:30:00", 1709224200, "Expenses:Food", "5facff0c-b8ca-da9d-1b00-581eac750e66", "Abroad", "Breakfast on the first", {"number": "1", "currency": "USD"}, {"number": "11", "currency": "USD"}]
+              ["2024-03-05", "00:00:00", 1709568000, "Expenses:Food", "e405bc41-e9d0-16d3-d160-d687ed965787", "Abroad", "Dinner", {"number": "10", "currency": "USD"}, {"number": "21", "currency": "USD"}],
+              ["2024-03-01", "00:30:00", 1709224200, "Expenses:Food", "907acb1a-16f4-a472-4cf7-803558e66407", "Abroad", "Breakfast on the first", {"number": "1", "currency": "USD"}, {"number": "11", "currency": "USD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.events", "params": {"name": "food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-05", "00:00:00", 1709568000, "Expenses:Food", "e405bc41-e9d0-16d3-d160-d687ed965787", "Abroad", "Dinner", {"number": "10", "currency": "USD"}, {"number": "21", "currency": "USD"}],
+              ["2024-03-01", "00:30:00", 1709224200, "Expenses:Food", "907acb1a-16f4-a472-4cf7-803558e66407", "Abroad", "Breakfast on the first", {"number": "1", "currency": "USD"}, {"number": "11", "currency": "USD"}]
             ]
           }
         ]
@@ -331,7 +443,35 @@
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
             "rows": [
-              ["2024-04-02", "00:00:00", 1711987200, "Expenses:Food", "228c8c21-b017-8a39-792f-501ad9c1f892", "Market", "Groceries", {"number": "50", "currency": "CNY"}, {"number": "179", "currency": "CNY"}]
+              ["2024-04-02", "00:00:00", 1711987200, "Expenses:Food", "7d385cb8-8da4-9f16-8eb7-d2948a5124f7", "Market", "Groceries", {"number": "50", "currency": "CNY"}, {"number": "179", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.events", "params": {"name": "food", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-04-02", "00:00:00", 1711987200, "Expenses:Food", "7d385cb8-8da4-9f16-8eb7-d2948a5124f7", "Market", "Groceries", {"number": "50", "currency": "CNY"}, {"number": "179", "currency": "CNY"}]
             ]
           }
         ]
@@ -370,6 +510,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.events", "params": {"name": "food", "month": "2024-05-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2024-05-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []
@@ -427,6 +593,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "travel"}},
+          {"name": "budgets.events", "params": {"name": "travel", "month": "2023-12-01"}},
+          {"name": "budgets.postings", "params": {"name": "travel", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["travel", null, null, "CNY", ["Expenses:Travel"], "2024-03-20", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "travel"}},
           {"name": "budgets.budget_month", "params": {"name": "travel", "month": "2024-01-01"}}
         ]
       },
@@ -456,6 +648,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "09:30:00", 1704072600, "assign", {"number": "500", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "travel"}},
+          {"name": "budgets.events", "params": {"name": "travel", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "travel", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["travel", null, null, "CNY", ["Expenses:Travel"], "2024-03-20", null]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": [["2024-01-01", "09:30:00", 1704072600, "assign", {"number": "500", "currency": "CNY"}]]
@@ -518,6 +736,35 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "travel"}},
+          {"name": "budgets.events", "params": {"name": "travel", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "travel", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["travel", null, null, "CNY", ["Expenses:Travel"], "2024-03-20", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-02-15", "00:00:00", 1707926400, "transfer_in", {"number": "200", "currency": "CNY"}],
+              ["2024-02-01", "00:30:00", 1706718600, "assign", {"number": "50", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "travel"}},
           {"name": "budgets.budget_month", "params": {"name": "travel", "month": "2024-03-01"}}
         ]
       },
@@ -547,6 +794,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "travel"}},
+          {"name": "budgets.events", "params": {"name": "travel", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "travel", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["travel", null, null, "CNY", ["Expenses:Travel"], "2024-03-20", null]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []
@@ -606,6 +879,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "travel"}},
+          {"name": "budgets.events", "params": {"name": "travel", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "travel", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["travel", null, null, "CNY", ["Expenses:Travel"], "2024-03-20", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "travel"}},
           {"name": "budgets.budget_month", "params": {"name": "travel", "month": "2024-05-01"}}
         ]
       },
@@ -635,6 +934,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "travel"}},
+          {"name": "budgets.events", "params": {"name": "travel", "month": "2024-05-01"}},
+          {"name": "budgets.postings", "params": {"name": "travel", "month": "2024-05-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["travel", null, null, "CNY", ["Expenses:Travel"], "2024-03-20", null]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []
@@ -692,6 +1017,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "vacation"}},
+          {"name": "budgets.events", "params": {"name": "vacation", "month": "2023-12-01"}},
+          {"name": "budgets.postings", "params": {"name": "vacation", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "vacation"}},
           {"name": "budgets.budget_month", "params": {"name": "vacation", "month": "2024-01-01"}}
         ]
       },
@@ -719,6 +1070,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "vacation"}},
+          {"name": "budgets.events", "params": {"name": "vacation", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "vacation", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": []
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []
@@ -776,6 +1153,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "vacation"}},
+          {"name": "budgets.events", "params": {"name": "vacation", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "vacation", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "vacation"}},
           {"name": "budgets.budget_month", "params": {"name": "vacation", "month": "2024-03-01"}}
         ]
       },
@@ -803,6 +1206,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "vacation"}},
+          {"name": "budgets.events", "params": {"name": "vacation", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "vacation", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": []
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []
@@ -860,6 +1289,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "vacation"}},
+          {"name": "budgets.events", "params": {"name": "vacation", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "vacation", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "vacation"}},
           {"name": "budgets.budget_month", "params": {"name": "vacation", "month": "2024-05-01"}}
         ]
       },
@@ -887,6 +1342,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "vacation"}},
+          {"name": "budgets.events", "params": {"name": "vacation", "month": "2024-05-01"}},
+          {"name": "budgets.postings", "params": {"name": "vacation", "month": "2024-05-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": []
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []

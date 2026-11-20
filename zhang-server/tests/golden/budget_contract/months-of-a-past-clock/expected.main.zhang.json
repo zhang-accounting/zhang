@@ -101,6 +101,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2023-07-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2023-07-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
           {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2023-08-01"}}
         ]
       },
@@ -130,6 +156,34 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2023-08-10", "00:00:00", 1691640000, "Expenses:Food", "ac97aaf1-b35c-344b-6357-bea156287d85", "Market", "the last transaction of the ledger", {"number": "10", "currency": "CNY"}, {"number": "10", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2023-08-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2023-08-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []
@@ -190,6 +244,32 @@
     {
       "request": {
         "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2023-09-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2023-09-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
           {"name": "budgets.budget", "params": {"name": "Plan"}},
           {"name": "budgets.budget_month", "params": {"name": "Plan", "month": "2023-07-01"}}
         ]
@@ -218,6 +298,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Plan"}},
+          {"name": "budgets.events", "params": {"name": "Plan", "month": "2023-07-01"}},
+          {"name": "budgets.postings", "params": {"name": "Plan", "month": "2023-07-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Plan", null, null, "CNY", [], null, null]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []
@@ -275,6 +381,32 @@
       "request": {
         "batch": [
           {"name": "budgets.budget", "params": {"name": "Plan"}},
+          {"name": "budgets.events", "params": {"name": "Plan", "month": "2023-08-01"}},
+          {"name": "budgets.postings", "params": {"name": "Plan", "month": "2023-08-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Plan", null, null, "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Plan"}},
           {"name": "budgets.budget_month", "params": {"name": "Plan", "month": "2023-09-01"}}
         ]
       },
@@ -304,6 +436,32 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Plan"}},
+          {"name": "budgets.events", "params": {"name": "Plan", "month": "2023-09-01"}},
+          {"name": "budgets.postings", "params": {"name": "Plan", "month": "2023-09-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Plan", null, null, "CNY", [], null, null]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": []

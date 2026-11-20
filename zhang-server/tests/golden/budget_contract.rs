@@ -15,8 +15,9 @@
 //! - `now`: the ledger's clock (RFC 3339), which sets "today" and so the current month of the budget pages;
 //! - `pages`: `{"months": [..], "budgets": [..]}`, the reads of the budget pages and the app for those months
 //!   (`YYYY-MM-01`): the budget list of each month (`budgets.month`), and for each budget its page (`budgets.budget`
-//!   with `budgets.budget_month`) and its activity of the month (`budgets.events` with `budgets.postings`), each
-//!   batch as the app sends it;
+//!   with `budgets.budget_month`) and its activity of the month, as the app reads it (`budgets.events` with
+//!   `budgets.postings`) and as the web UI does (`budgets.budget`, `budgets.events` and `budgets.postings`), each batch
+//!   as the client sends it;
 //! - `tables`: whether to read the whole of `#budget_definitions`, `#budget_events`, `#budgets` and the `budgets` of
 //!   every posting of `#postings` (true by default);
 //! - `requests`: what else a client sends, through the router the server runs: `{"builtin": name, "params": {..}}` is
@@ -29,11 +30,12 @@
 //! The golden files of a case, per entry, rewritten with `UPDATE_GOLDEN=1` (`zhang_testkit::golden`):
 //!
 //! - `expected.<entry>.json`: the ledger's errors as `journals.errors` lists them (by file, then position), reduced to
-//!   their kind, file, line and metas; the same errors id-exact, in the order the load reported them (the core's list,
-//!   `Ledger::errors`, which the plugin's diagnostics join): id, kind, span (file, start, end, line) and every meta,
-//!   `txn_id` included, with the id spelled out as the `(place, kind, n)` it derives from (the `n`-th error of its kind
-//!   at its place, `FromSpan::of_error`); every request with the HTTP status and the JSON body of its answer; and the
-//!   round trips: every
+//!   their kind, file, line and metas; the same errors id-exact (the core's list, `Ledger::errors`, which the plugin's
+//!   diagnostics join): id, kind, span (file, start, end, line) and every meta, `txn_id` included, with the id spelled
+//!   out as the `(place, kind, n)` it derives from (the `n`-th error of its kind at its place, `FromSpan::of_error`),
+//!   in the API's order, by file and position, the errors of one place in the order the load reports them (the order
+//!   of the places in the load's own list is not pinned: no client sees it); every request with the HTTP status and
+//!   the JSON body of its answer; and the round trips: every
 //!   directive of the ledger as its format reads it (but the `include`s and the comments), written in one format
 //!   (`zhang`, `beancount`) as one main file, loaded with the same clock and asked the same requests. A round trip is
 //!   `"same"` when every answer equals the original apart from what depends on where a directive is written (the ids
@@ -41,6 +43,9 @@
 //!   the answers that differ, or why the text does not load and the line it names;
 //! - `export.<entry>.txt`: the budget directives and the `open`s linking accounts to budgets, as written, file after
 //!   file, as the zhang and the beancount formats write them.
+//!
+//! What the migration may change in these files, and what it may not, is listed in the testing guide
+//! (`docs/src/content/docs/developers/testing.md`, "The budget contract").
 //!
 //! `schema.json` holds the columns of the budget tables and the parameters and columns of the built-in queries the
 //! budget pages and the app run, as `GET /api/query/schema` and `GET /api/query/builtins` list them.
@@ -122,6 +127,11 @@ impl CaseFile {
                         {"name": "budgets.events", "params": {"name": name, "month": month}},
                         {"name": "budgets.postings", "params": {"name": name, "month": month}},
                     ]}));
+                    requests.push(json!({"batch": [
+                        {"name": "budgets.budget", "params": {"name": name}},
+                        {"name": "budgets.events", "params": {"name": name, "month": month}},
+                        {"name": "budgets.postings", "params": {"name": name, "month": month}},
+                    ]}));
                 }
             }
         }
@@ -170,11 +180,13 @@ async fn server(dir: &Path, entry: &str, now: Clock) -> Result<(Router, Arc<RwLo
     Ok((router, ledger))
 }
 
-/// The errors of `ledger`, whose files are in `dir`, id-exact and in the order the load reported them: the id and
-/// the `(place, kind, n)` it derives from, the kind, the span and every meta.
+/// The errors of `ledger`, whose files are in `dir`, id-exact: the id and the `(place, kind, n)` it derives from, the
+/// kind, the span and every meta. They are ordered as `#errors` and `journals.errors` order them, by file, then by
+/// position, the errors of one place in the order the load reported them: which place the load checks first is not
+/// for a client to see, so it is no part of the contract.
 fn error_list(ledger: &Ledger, dir: &Path) -> Vec<Value> {
     let mut seen: HashMap<(Option<PathBuf>, usize, String), usize> = HashMap::new();
-    ledger
+    let mut errors = ledger
         .errors
         .iter()
         .map(|error| {
@@ -200,7 +212,10 @@ fn error_list(ledger: &Ledger, dir: &Path) -> Vec<Value> {
                 "metas": metas,
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    // a stable sort: the errors of one place keep the load's order
+    errors.sort_by_key(|error| (error["span"]["file"].as_str().map(str::to_owned), error["span"]["start"].as_u64()));
+    errors
 }
 
 /// The status and the body of a request's answer.
@@ -285,22 +300,36 @@ fn unplaced_body(body: &Value, entry: &str) -> Value {
     body
 }
 
-/// The directives of a budget's contract: the budget directives and the `open`s with a `budget` metadata entry.
-fn is_budget_directive(directive: &Directive) -> bool {
-    match directive {
-        Directive::Budget(_) | Directive::BudgetAdd(_) | Directive::BudgetTransfer(_) | Directive::BudgetClose(_) => true,
-        Directive::Open(open) => !open.meta.get_all("budget").is_empty(),
+/// Whether `text`, a directive as zhang writes it, is one of the budget's contract: a budget directive (`budget`,
+/// `budget-add`, `budget-transfer`, `budget-close` after the date and time) or an `open` with a `budget` metadata
+/// entry. The text decides, not the parsed form, which the migration may change.
+fn is_budget_text(text: &str) -> bool {
+    let mut lines = text.lines();
+    let keyword = lines
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .find(|word| !word.starts_with(|c: char| c.is_ascii_digit()));
+    match keyword {
+        Some("budget" | "budget-add" | "budget-transfer" | "budget-close") => true,
+        Some("open") => lines.any(|line| line.trim_start().starts_with("budget:")),
         _ => false,
     }
 }
 
-/// `directives` written as zhang text, and as beancount text.
-fn written(directives: &[&Spanned<Directive>]) -> (String, String) {
-    let join = |texts: Vec<String>| texts.into_iter().map(|text| text.trim_end().to_owned() + "\n").collect::<String>();
-    (
-        join(directives.iter().map(|it| ZhangDataType {}.export((*it).clone())).collect()),
-        join(directives.iter().map(|it| Beancount::default().export((*it).clone())).collect()),
-    )
+/// `directives` written as zhang text, and as beancount text, those whose zhang text `keep` keeps.
+fn written(directives: &[Spanned<Directive>], keep: impl Fn(&str) -> bool) -> (String, String) {
+    let (mut zhang, mut beancount) = (String::new(), String::new());
+    for directive in directives {
+        let text = ZhangDataType {}.export(directive.clone());
+        if keep(&text) {
+            zhang.push_str(text.trim_end());
+            zhang.push('\n');
+            beancount.push_str(Beancount::default().export(directive.clone()).trim_end());
+            beancount.push('\n');
+        }
+    }
+    (zhang, beancount)
 }
 
 /// The directives of the ledger `dir/entry` as its format reads them, file after file in the order the load reads
@@ -421,15 +450,14 @@ async fn run(name: &str) {
         );
 
         // the budget directives, as each format writes them
-        let budget_directives = directives.iter().filter(|it| is_budget_directive(&it.data)).collect::<Vec<_>>();
-        let (as_zhang, as_beancount) = written(&budget_directives);
+        let (as_zhang, as_beancount) = written(&directives, is_budget_text);
         let export = format!(
             "; the budget directives of {entry} and the opens linking accounts to budgets, as written, file after file\n; ---- written as zhang\n{as_zhang}; ---- written as beancount\n{as_beancount}"
         );
         golden::assert_text(&dir.join(format!("export.{entry}.txt")), &export);
 
         // every directive, written in each format and read again
-        let (all_zhang, all_beancount) = written(&directives.iter().collect::<Vec<_>>());
+        let (all_zhang, all_beancount) = written(&directives, |_| true);
         let mut round_trips = Map::new();
         round_trips.insert(
             "zhang".to_owned(),
@@ -459,6 +487,21 @@ async fn run(name: &str) {
             expected["known_issues"] = Value::Object(case.known_issues.clone());
         }
         golden::assert_text(&dir.join(format!("expected.{entry}.json")), &render(&expected));
+    }
+
+    // a golden file of an entry the case no longer runs would go stale unseen
+    for file in std::fs::read_dir(&dir).expect("the case directory") {
+        let file = file.expect("a directory entry").file_name().to_string_lossy().into_owned();
+        let of_entry = file
+            .strip_prefix("expected.")
+            .and_then(|rest| rest.strip_suffix(".json"))
+            .or_else(|| file.strip_prefix("export.").and_then(|rest| rest.strip_suffix(".txt")));
+        if let Some(entry) = of_entry {
+            assert!(
+                entries.iter().any(|it| it == entry),
+                "{name}: {file} is the golden file of {entry}, which the case does not run; delete it"
+            );
+        }
     }
 }
 
@@ -625,7 +668,11 @@ cases! {
     budget_contract_same_day_order => "same-day-order",
     budget_contract_same_day_order_beancount => "same-day-order-beancount",
     budget_contract_booked_postings => "booked-postings",
-    budget_contract_errors_order => "errors-order",
+    budget_contract_errors_at_one_place => "errors-at-one-place",
+    budget_contract_same_day_order_across_files => "same-day-order-across-files",
+    budget_contract_months_of_date_typos => "months-of-date-typos",
+    budget_contract_months_over_decades => "months-over-decades",
+    budget_contract_beancount_included_budgets => "beancount-included-budgets",
     budget_contract_currencies => "currencies",
     budget_contract_months => "months",
     budget_contract_months_of_a_past_clock => "months-of-a-past-clock",

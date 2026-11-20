@@ -1,0 +1,8 @@
+; the budgets, in an included beancount file
+2024-01-01 custom "budget" "Food" "CNY"
+  alias: "Groceries"
+2024-01-01 custom "budget-add" "Food" 500 CNY
+2024-01-02 custom "budget-add" "Ghost" 5 CNY
+2024-01-03 custom "budget-add" "Food" 10 USD
+2024-01-05 custom "budget" "Food" "USD"
+2024-01-31 custom "budget-close" "Food"

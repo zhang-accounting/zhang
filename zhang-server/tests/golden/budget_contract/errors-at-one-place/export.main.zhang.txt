@@ -1,0 +1,39 @@
+; the budget directives of main.zhang and the opens linking accounts to budgets, as written, file after file
+; ---- written as zhang
+2024-01-01 open Expenses:Ghosts
+  budget: Zulu
+  budget: Delta
+2024-01-01 open Expenses:Dollars
+  budget: Zeta
+  budget: Alpha
+2024-01-01 open Expenses:Closed
+  budget: Yankee
+  budget: Bravo
+2024-01-01 budget Zeta CNY
+2024-01-01 budget Alpha CNY
+2024-01-01 budget Yankee CNY
+2024-01-01 budget Bravo CNY
+2024-01-02 budget-transfer Zeta Alpha 10 USD
+2024-01-03 budget-transfer Nope-Zulu Nope-Alpha 1 CNY
+2024-01-06 budget-close Yankee
+2024-01-06 budget-close Bravo
+2024-01-08 budget Alpha USD
+; ---- written as beancount
+2024-01-01 open Expenses:Ghosts
+  budget: Zulu
+  budget: Delta
+2024-01-01 open Expenses:Dollars
+  budget: Zeta
+  budget: Alpha
+2024-01-01 open Expenses:Closed
+  budget: Yankee
+  budget: Bravo
+2024-01-01 custom "budget" "Zeta" "CNY"
+2024-01-01 custom "budget" "Alpha" "CNY"
+2024-01-01 custom "budget" "Yankee" "CNY"
+2024-01-01 custom "budget" "Bravo" "CNY"
+2024-01-02 custom "budget-transfer" "Zeta" "Alpha" 10 USD
+2024-01-03 custom "budget-transfer" "Nope-Zulu" "Nope-Alpha" 1 CNY
+2024-01-06 custom "budget-close" "Yankee"
+2024-01-06 custom "budget-close" "Bravo"
+2024-01-08 custom "budget" "Alpha" "USD"

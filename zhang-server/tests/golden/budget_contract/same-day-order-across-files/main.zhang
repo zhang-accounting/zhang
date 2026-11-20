@@ -1,0 +1,21 @@
+; The order of a day across files. Directives of one day at one time keep the order the load reads them in: the main
+; file whole, then the files it includes. A budget defined in an included file takes the postings of that day read after
+; its definition: not those of the main file, written above or below the include, nor those above it in its own file.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: Food
+
+2024-03-10 * "A" "midnight, main file, above the include"
+  Expenses:Food 1 CNY
+  Assets:Bank
+
+include "budgets.zhang"
+
+2024-03-10 * "D" "midnight, main file, below the include"
+  Expenses:Food 8 CNY
+  Assets:Bank

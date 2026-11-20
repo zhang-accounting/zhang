@@ -1,0 +1,346 @@
+{
+  "case": "beancount-included-budgets",
+  "description": "Budgets in an included beancount file (see main.bean and budgets.bean): what they do, and their errors with the file and line they are written at.",
+  "ledger": "zhang-server/tests/golden/budget_contract/beancount-included-budgets/main.bean",
+  "now": "2024-02-10T00:00:00Z",
+  "errors": [
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "budgets.bean",
+      "line": 5,
+      "metas": [{"key": "budget_name", "value": "Ghost"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "budgets.bean",
+      "line": 6,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Food"}, {"key": "commodity", "value": "USD"}]
+    },
+    {"kind": "DefineDuplicatedBudget", "file": "budgets.bean", "line": 7, "metas": []},
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.bean",
+      "line": 18,
+      "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Food"}, {"key": "commodity", "value": "USD"}, {"key": "txn_id", "value": "7d80ae74-4bf1-c9e9-36fc-6e243736505e"}]
+    }
+  ],
+  "error_list": [
+    {
+      "id": "b5798722-0c09-5cd0-2c48-88df4ff2467c",
+      "id_of": "budgets.bean@152 BudgetDoesNotExist #0",
+      "span": {"file": "budgets.bean", "start": 152, "end": 196, "line": 5},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "Ghost"}
+    },
+    {
+      "id": "3369ac66-5352-0a0d-767e-70bac1761a39",
+      "id_of": "budgets.bean@197 BudgetCommodityMismatch #0",
+      "span": {"file": "budgets.bean", "start": 197, "end": 241, "line": 6},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {"budget_commodity": "CNY", "budget_name": "Food", "commodity": "USD"}
+    },
+    {
+      "id": "83b334d4-3457-2cf9-1f1a-ffccc4032cca",
+      "id_of": "budgets.bean@242 DefineDuplicatedBudget #0",
+      "span": {"file": "budgets.bean", "start": 242, "end": 281, "line": 7},
+      "kind": "DefineDuplicatedBudget",
+      "metas": {}
+    },
+    {
+      "id": "ff2b7efb-0f17-2639-acab-15bad821705b",
+      "id_of": "main.bean@438 BudgetCommodityMismatch #0",
+      "span": {"file": "main.bean", "start": 438, "end": 514, "line": 18},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Food",
+        "budget_commodity": "CNY",
+        "budget_name": "Food",
+        "commodity": "USD",
+        "txn_id": "7d80ae74-4bf1-c9e9-36fc-6e243736505e"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-02-10", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-01-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", "Groceries", null, "CNY", "2024-01-01", {"number": "500", "currency": "CNY"}, "30", {"number": "470", "currency": "CNY"}, true]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-02-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", "Groceries", null, "CNY", "2024-02-01", {"number": "470", "currency": "CNY"}, "0", {"number": "470", "currency": "CNY"}, true]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", "Groceries", null, "CNY", ["Expenses:Food"], "2024-01-31", null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", "Groceries", null, "CNY", "2024-01-01", {"number": "500", "currency": "CNY"}, "30", {"number": "470", "currency": "CNY"}, true]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-01-03", "00:00:00", 1704240000, "assign", {"number": "10", "currency": "USD"}],
+              ["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "500", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Food", "e507942e-a942-4760-5d47-c7a3dd075c7b", "Market", "lunch", {"number": "30", "currency": "CNY"}, {"number": "30", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", "Groceries", null, "CNY", ["Expenses:Food"], "2024-01-31", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-01-03", "00:00:00", 1704240000, "assign", {"number": "10", "currency": "USD"}],
+              ["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "500", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Food", "e507942e-a942-4760-5d47-c7a3dd075c7b", "Market", "lunch", {"number": "30", "currency": "CNY"}, {"number": "30", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", "Groceries", null, "CNY", ["Expenses:Food"], "2024-01-31", null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", "Groceries", null, "CNY", "2024-02-01", {"number": "470", "currency": "CNY"}, "0", {"number": "470", "currency": "CNY"}, true]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", "Groceries", null, "CNY", ["Expenses:Food"], "2024-01-31", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [["Food", "2024-01-01", "CNY", "Groceries", null, ["Expenses:Food"], "2024-01-31", null]]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [
+            ["Food", "2024-01-01", "00:00:00", 1704067200, "assign", {"number": "500", "currency": "CNY"}],
+            ["Food", "2024-01-03", "00:00:00", 1704240000, "assign", {"number": "10", "currency": "USD"}],
+            ["Food", "2024-01-31", "00:00:00", 1706659200, "close", null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Food",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "Groceries",
+              null,
+              {"number": "500", "currency": "CNY"},
+              {"number": "500", "currency": "CNY"},
+              {"number": "30", "currency": "CNY"},
+              {"number": "470", "currency": "CNY"},
+              true,
+              ["Expenses:Food"]
+            ],
+            [
+              "Food",
+              "2024-02-01",
+              2024,
+              2,
+              "CNY",
+              "Groceries",
+              null,
+              {"number": "470", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "470", "currency": "CNY"},
+              true,
+              ["Expenses:Food"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            ["2024-01-10", "00:00:00", "Expenses:Food", "lunch", {"number": "30", "currency": "CNY"}, ["Food"]],
+            ["2024-01-10", "00:00:00", "Assets:Bank", "lunch", {"number": "-30", "currency": "CNY"}, []],
+            ["2024-01-11", "00:00:00", "Expenses:Food", "lunch in dollars", {"number": "5", "currency": "USD"}, []],
+            ["2024-01-11", "00:00:00", "Assets:Bank", "lunch in dollars", {"number": "-5", "currency": "USD"}, []]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

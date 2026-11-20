@@ -1,0 +1,15 @@
+{
+  "description": "A long legitimate range (see main.zhang): twenty budgets over 34 years of months answer every page and query.",
+  "now": "2024-06-20T00:00:00Z",
+  "tables": false,
+  "pages": {
+    "months": ["1990-01-01", "1995-06-01", "2024-06-01"],
+    "budgets": ["b01", "b20"]
+  },
+  "requests": [
+    {"bql": "SELECT count(*) AS rows, min(date) AS first, max(date) AS last FROM #budgets"},
+    {"bql": "SELECT name, count(*) AS months, sum(added) AS added, sum(activity) AS spent, last(available) AS left FROM #budgets GROUP BY name ORDER BY name"},
+    {"bql": "SELECT name, date, assigned, activity, available FROM #budgets WHERE year = 1995 AND month = 6 ORDER BY name"},
+    {"bql": "SELECT date, account, narration, units(position) AS units, budgets FROM #postings WHERE year = 2024 AND under(account, 'Expenses') ORDER BY account"}
+  ]
+}

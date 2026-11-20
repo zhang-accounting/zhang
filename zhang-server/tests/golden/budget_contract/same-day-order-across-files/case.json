@@ -1,0 +1,8 @@
+{
+  "description": "The order of a day across files (see main.zhang and budgets.zhang): which midnight postings of the day of a definition in an included file count: the main file is read whole before the files it includes, so neither of its postings is the budget's, wherever the include is written.",
+  "now": "2024-03-25T00:00:00Z",
+  "pages": {
+    "months": ["2024-03-01"],
+    "budgets": ["Food"]
+  }
+}

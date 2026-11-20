@@ -1,0 +1,779 @@
+{
+  "case": "months-over-decades",
+  "description": "A long legitimate range (see main.zhang): twenty budgets over 34 years of months answer every page and query.",
+  "ledger": "zhang-server/tests/golden/budget_contract/months-over-decades/main.zhang",
+  "now": "2024-06-20T00:00:00Z",
+  "errors": [],
+  "error_list": [],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-06-20", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "1990-01-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["b01", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b02", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b03", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b04", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b05", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b06", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b07", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b08", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b09", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b10", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b11", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b12", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b13", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b14", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b15", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b16", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b17", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b18", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b19", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false],
+            ["b20", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "1995-06-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["b01", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "1", {"number": "999", "currency": "CNY"}, false],
+            ["b02", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "2", {"number": "998", "currency": "CNY"}, false],
+            ["b03", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "3", {"number": "997", "currency": "CNY"}, false],
+            ["b04", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "4", {"number": "996", "currency": "CNY"}, false],
+            ["b05", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "5", {"number": "995", "currency": "CNY"}, false],
+            ["b06", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "6", {"number": "994", "currency": "CNY"}, false],
+            ["b07", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "7", {"number": "993", "currency": "CNY"}, false],
+            ["b08", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "8", {"number": "992", "currency": "CNY"}, false],
+            ["b09", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "9", {"number": "991", "currency": "CNY"}, false],
+            ["b10", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "10", {"number": "990", "currency": "CNY"}, false],
+            ["b11", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "11", {"number": "989", "currency": "CNY"}, false],
+            ["b12", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "12", {"number": "988", "currency": "CNY"}, false],
+            ["b13", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "13", {"number": "987", "currency": "CNY"}, false],
+            ["b14", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "14", {"number": "986", "currency": "CNY"}, false],
+            ["b15", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "15", {"number": "985", "currency": "CNY"}, false],
+            ["b16", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "16", {"number": "984", "currency": "CNY"}, false],
+            ["b17", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "17", {"number": "983", "currency": "CNY"}, false],
+            ["b18", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "18", {"number": "982", "currency": "CNY"}, false],
+            ["b19", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "19", {"number": "981", "currency": "CNY"}, false],
+            ["b20", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "20", {"number": "980", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-06-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["b01", null, null, "CNY", "2024-06-01", {"number": "999", "currency": "CNY"}, "1", {"number": "998", "currency": "CNY"}, false],
+            ["b02", null, null, "CNY", "2024-06-01", {"number": "998", "currency": "CNY"}, "2", {"number": "996", "currency": "CNY"}, false],
+            ["b03", null, null, "CNY", "2024-06-01", {"number": "997", "currency": "CNY"}, "3", {"number": "994", "currency": "CNY"}, false],
+            ["b04", null, null, "CNY", "2024-06-01", {"number": "996", "currency": "CNY"}, "4", {"number": "992", "currency": "CNY"}, false],
+            ["b05", null, null, "CNY", "2024-06-01", {"number": "995", "currency": "CNY"}, "5", {"number": "990", "currency": "CNY"}, false],
+            ["b06", null, null, "CNY", "2024-06-01", {"number": "994", "currency": "CNY"}, "6", {"number": "988", "currency": "CNY"}, false],
+            ["b07", null, null, "CNY", "2024-06-01", {"number": "993", "currency": "CNY"}, "7", {"number": "986", "currency": "CNY"}, false],
+            ["b08", null, null, "CNY", "2024-06-01", {"number": "992", "currency": "CNY"}, "8", {"number": "984", "currency": "CNY"}, false],
+            ["b09", null, null, "CNY", "2024-06-01", {"number": "991", "currency": "CNY"}, "9", {"number": "982", "currency": "CNY"}, false],
+            ["b10", null, null, "CNY", "2024-06-01", {"number": "990", "currency": "CNY"}, "10", {"number": "980", "currency": "CNY"}, false],
+            ["b11", null, null, "CNY", "2024-06-01", {"number": "989", "currency": "CNY"}, "11", {"number": "978", "currency": "CNY"}, false],
+            ["b12", null, null, "CNY", "2024-06-01", {"number": "988", "currency": "CNY"}, "12", {"number": "976", "currency": "CNY"}, false],
+            ["b13", null, null, "CNY", "2024-06-01", {"number": "987", "currency": "CNY"}, "13", {"number": "974", "currency": "CNY"}, false],
+            ["b14", null, null, "CNY", "2024-06-01", {"number": "986", "currency": "CNY"}, "14", {"number": "972", "currency": "CNY"}, false],
+            ["b15", null, null, "CNY", "2024-06-01", {"number": "985", "currency": "CNY"}, "15", {"number": "970", "currency": "CNY"}, false],
+            ["b16", null, null, "CNY", "2024-06-01", {"number": "984", "currency": "CNY"}, "16", {"number": "968", "currency": "CNY"}, false],
+            ["b17", null, null, "CNY", "2024-06-01", {"number": "983", "currency": "CNY"}, "17", {"number": "966", "currency": "CNY"}, false],
+            ["b18", null, null, "CNY", "2024-06-01", {"number": "982", "currency": "CNY"}, "18", {"number": "964", "currency": "CNY"}, false],
+            ["b19", null, null, "CNY", "2024-06-01", {"number": "981", "currency": "CNY"}, "19", {"number": "962", "currency": "CNY"}, false],
+            ["b20", null, null, "CNY", "2024-06-01", {"number": "980", "currency": "CNY"}, "20", {"number": "960", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b01"}},
+          {"name": "budgets.budget_month", "params": {"name": "b01", "month": "1990-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b01", null, null, "CNY", ["Expenses:Cat01"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["b01", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "b01", "month": "1990-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "b01", "month": "1990-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["1990-01-01", "00:00:00", 631152000, "assign", {"number": "1000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b01"}},
+          {"name": "budgets.events", "params": {"name": "b01", "month": "1990-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "b01", "month": "1990-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b01", null, null, "CNY", ["Expenses:Cat01"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["1990-01-01", "00:00:00", 631152000, "assign", {"number": "1000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b01"}},
+          {"name": "budgets.budget_month", "params": {"name": "b01", "month": "1995-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b01", null, null, "CNY", ["Expenses:Cat01"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["b01", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "1", {"number": "999", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "b01", "month": "1995-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b01", "month": "1995-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["1995-06-15", "00:00:00", 803174400, "Expenses:Cat01", "a714c2ab-b6ef-1f5b-2beb-33e787ccdff0", "Shop", "b01 in 1995", {"number": "1", "currency": "CNY"}, {"number": "1", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b01"}},
+          {"name": "budgets.events", "params": {"name": "b01", "month": "1995-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b01", "month": "1995-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b01", null, null, "CNY", ["Expenses:Cat01"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["1995-06-15", "00:00:00", 803174400, "Expenses:Cat01", "a714c2ab-b6ef-1f5b-2beb-33e787ccdff0", "Shop", "b01 in 1995", {"number": "1", "currency": "CNY"}, {"number": "1", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b01"}},
+          {"name": "budgets.budget_month", "params": {"name": "b01", "month": "2024-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b01", null, null, "CNY", ["Expenses:Cat01"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["b01", null, null, "CNY", "2024-06-01", {"number": "999", "currency": "CNY"}, "1", {"number": "998", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "b01", "month": "2024-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b01", "month": "2024-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-06-15", "00:00:00", 1718409600, "Expenses:Cat01", "55f80423-e700-c4ec-5685-8b5e4a60b001", "Shop", "b01 in 2024", {"number": "1", "currency": "CNY"}, {"number": "2", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b01"}},
+          {"name": "budgets.events", "params": {"name": "b01", "month": "2024-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b01", "month": "2024-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b01", null, null, "CNY", ["Expenses:Cat01"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-06-15", "00:00:00", 1718409600, "Expenses:Cat01", "55f80423-e700-c4ec-5685-8b5e4a60b001", "Shop", "b01 in 2024", {"number": "1", "currency": "CNY"}, {"number": "2", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b20"}},
+          {"name": "budgets.budget_month", "params": {"name": "b20", "month": "1990-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b20", null, null, "CNY", ["Expenses:Cat20"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["b20", null, null, "CNY", "1990-01-01", {"number": "1000", "currency": "CNY"}, "0", {"number": "1000", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "b20", "month": "1990-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "b20", "month": "1990-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["1990-01-01", "00:00:00", 631152000, "assign", {"number": "1000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b20"}},
+          {"name": "budgets.events", "params": {"name": "b20", "month": "1990-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "b20", "month": "1990-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b20", null, null, "CNY", ["Expenses:Cat20"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["1990-01-01", "00:00:00", 631152000, "assign", {"number": "1000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b20"}},
+          {"name": "budgets.budget_month", "params": {"name": "b20", "month": "1995-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b20", null, null, "CNY", ["Expenses:Cat20"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["b20", null, null, "CNY", "1995-06-01", {"number": "1000", "currency": "CNY"}, "20", {"number": "980", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "b20", "month": "1995-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b20", "month": "1995-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["1995-06-15", "00:00:00", 803174400, "Expenses:Cat20", "9025f7c4-859c-d8e5-1485-b2f559fdee0e", "Shop", "b20 in 1995", {"number": "20", "currency": "CNY"}, {"number": "20", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b20"}},
+          {"name": "budgets.events", "params": {"name": "b20", "month": "1995-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b20", "month": "1995-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b20", null, null, "CNY", ["Expenses:Cat20"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["1995-06-15", "00:00:00", 803174400, "Expenses:Cat20", "9025f7c4-859c-d8e5-1485-b2f559fdee0e", "Shop", "b20 in 1995", {"number": "20", "currency": "CNY"}, {"number": "20", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b20"}},
+          {"name": "budgets.budget_month", "params": {"name": "b20", "month": "2024-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b20", null, null, "CNY", ["Expenses:Cat20"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["b20", null, null, "CNY", "2024-06-01", {"number": "980", "currency": "CNY"}, "20", {"number": "960", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "b20", "month": "2024-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b20", "month": "2024-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-06-15", "00:00:00", 1718409600, "Expenses:Cat20", "97379f61-656d-5b24-ab20-4b5846bcc078", "Shop", "b20 in 2024", {"number": "20", "currency": "CNY"}, {"number": "40", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "b20"}},
+          {"name": "budgets.events", "params": {"name": "b20", "month": "2024-06-01"}},
+          {"name": "budgets.postings", "params": {"name": "b20", "month": "2024-06-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["b20", null, null, "CNY", ["Expenses:Cat20"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-06-15", "00:00:00", 1718409600, "Expenses:Cat20", "97379f61-656d-5b24-ab20-4b5846bcc078", "Shop", "b20 in 2024", {"number": "20", "currency": "CNY"}, {"number": "40", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT count(*) AS rows, min(date) AS first, max(date) AS last FROM #budgets"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "rows", "type": "int"}, {"name": "first", "type": "date"}, {"name": "last", "type": "date"}],
+          "rows": [[8280, "1990-01-01", "2024-06-01"]]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, count(*) AS months, sum(added) AS added, sum(activity) AS spent, last(available) AS left FROM #budgets GROUP BY name ORDER BY name"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "months", "type": "int"}, {"name": "added", "type": "inventory"}, {"name": "spent", "type": "inventory"}, {"name": "left", "type": "amount"}],
+          "rows": [
+            [
+              "b01",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "2", "currency": "CNY"}}]},
+              {"number": "998", "currency": "CNY"}
+            ],
+            [
+              "b02",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "4", "currency": "CNY"}}]},
+              {"number": "996", "currency": "CNY"}
+            ],
+            [
+              "b03",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "6", "currency": "CNY"}}]},
+              {"number": "994", "currency": "CNY"}
+            ],
+            [
+              "b04",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "8", "currency": "CNY"}}]},
+              {"number": "992", "currency": "CNY"}
+            ],
+            [
+              "b05",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "10", "currency": "CNY"}}]},
+              {"number": "990", "currency": "CNY"}
+            ],
+            [
+              "b06",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "12", "currency": "CNY"}}]},
+              {"number": "988", "currency": "CNY"}
+            ],
+            [
+              "b07",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "14", "currency": "CNY"}}]},
+              {"number": "986", "currency": "CNY"}
+            ],
+            [
+              "b08",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "16", "currency": "CNY"}}]},
+              {"number": "984", "currency": "CNY"}
+            ],
+            [
+              "b09",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "18", "currency": "CNY"}}]},
+              {"number": "982", "currency": "CNY"}
+            ],
+            [
+              "b10",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "20", "currency": "CNY"}}]},
+              {"number": "980", "currency": "CNY"}
+            ],
+            [
+              "b11",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "22", "currency": "CNY"}}]},
+              {"number": "978", "currency": "CNY"}
+            ],
+            [
+              "b12",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "24", "currency": "CNY"}}]},
+              {"number": "976", "currency": "CNY"}
+            ],
+            [
+              "b13",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "26", "currency": "CNY"}}]},
+              {"number": "974", "currency": "CNY"}
+            ],
+            [
+              "b14",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "28", "currency": "CNY"}}]},
+              {"number": "972", "currency": "CNY"}
+            ],
+            [
+              "b15",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "30", "currency": "CNY"}}]},
+              {"number": "970", "currency": "CNY"}
+            ],
+            [
+              "b16",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "32", "currency": "CNY"}}]},
+              {"number": "968", "currency": "CNY"}
+            ],
+            [
+              "b17",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "34", "currency": "CNY"}}]},
+              {"number": "966", "currency": "CNY"}
+            ],
+            [
+              "b18",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "36", "currency": "CNY"}}]},
+              {"number": "964", "currency": "CNY"}
+            ],
+            [
+              "b19",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "38", "currency": "CNY"}}]},
+              {"number": "962", "currency": "CNY"}
+            ],
+            [
+              "b20",
+              414,
+              {"positions": [{"cost": null, "units": {"number": "1000", "currency": "CNY"}}]},
+              {"positions": [{"cost": null, "units": {"number": "40", "currency": "CNY"}}]},
+              {"number": "960", "currency": "CNY"}
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, assigned, activity, available FROM #budgets WHERE year = 1995 AND month = 6 ORDER BY name"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "amount"}, {"name": "available", "type": "amount"}],
+          "rows": [
+            ["b01", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "1", "currency": "CNY"}, {"number": "999", "currency": "CNY"}],
+            ["b02", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "2", "currency": "CNY"}, {"number": "998", "currency": "CNY"}],
+            ["b03", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "3", "currency": "CNY"}, {"number": "997", "currency": "CNY"}],
+            ["b04", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "4", "currency": "CNY"}, {"number": "996", "currency": "CNY"}],
+            ["b05", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "5", "currency": "CNY"}, {"number": "995", "currency": "CNY"}],
+            ["b06", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "6", "currency": "CNY"}, {"number": "994", "currency": "CNY"}],
+            ["b07", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "7", "currency": "CNY"}, {"number": "993", "currency": "CNY"}],
+            ["b08", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "8", "currency": "CNY"}, {"number": "992", "currency": "CNY"}],
+            ["b09", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "9", "currency": "CNY"}, {"number": "991", "currency": "CNY"}],
+            ["b10", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "10", "currency": "CNY"}, {"number": "990", "currency": "CNY"}],
+            ["b11", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "11", "currency": "CNY"}, {"number": "989", "currency": "CNY"}],
+            ["b12", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "12", "currency": "CNY"}, {"number": "988", "currency": "CNY"}],
+            ["b13", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "13", "currency": "CNY"}, {"number": "987", "currency": "CNY"}],
+            ["b14", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "14", "currency": "CNY"}, {"number": "986", "currency": "CNY"}],
+            ["b15", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "15", "currency": "CNY"}, {"number": "985", "currency": "CNY"}],
+            ["b16", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "16", "currency": "CNY"}, {"number": "984", "currency": "CNY"}],
+            ["b17", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "17", "currency": "CNY"}, {"number": "983", "currency": "CNY"}],
+            ["b18", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "18", "currency": "CNY"}, {"number": "982", "currency": "CNY"}],
+            ["b19", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "19", "currency": "CNY"}, {"number": "981", "currency": "CNY"}],
+            ["b20", "1995-06-01", {"number": "1000", "currency": "CNY"}, {"number": "20", "currency": "CNY"}, {"number": "980", "currency": "CNY"}]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT date, account, narration, units(position) AS units, budgets FROM #postings WHERE year = 2024 AND under(account, 'Expenses') ORDER BY account"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            ["2024-06-15", "Expenses:Cat01", "b01 in 2024", {"number": "1", "currency": "CNY"}, ["b01"]],
+            ["2024-06-15", "Expenses:Cat02", "b02 in 2024", {"number": "2", "currency": "CNY"}, ["b02"]],
+            ["2024-06-15", "Expenses:Cat03", "b03 in 2024", {"number": "3", "currency": "CNY"}, ["b03"]],
+            ["2024-06-15", "Expenses:Cat04", "b04 in 2024", {"number": "4", "currency": "CNY"}, ["b04"]],
+            ["2024-06-15", "Expenses:Cat05", "b05 in 2024", {"number": "5", "currency": "CNY"}, ["b05"]],
+            ["2024-06-15", "Expenses:Cat06", "b06 in 2024", {"number": "6", "currency": "CNY"}, ["b06"]],
+            ["2024-06-15", "Expenses:Cat07", "b07 in 2024", {"number": "7", "currency": "CNY"}, ["b07"]],
+            ["2024-06-15", "Expenses:Cat08", "b08 in 2024", {"number": "8", "currency": "CNY"}, ["b08"]],
+            ["2024-06-15", "Expenses:Cat09", "b09 in 2024", {"number": "9", "currency": "CNY"}, ["b09"]],
+            ["2024-06-15", "Expenses:Cat10", "b10 in 2024", {"number": "10", "currency": "CNY"}, ["b10"]],
+            ["2024-06-15", "Expenses:Cat11", "b11 in 2024", {"number": "11", "currency": "CNY"}, ["b11"]],
+            ["2024-06-15", "Expenses:Cat12", "b12 in 2024", {"number": "12", "currency": "CNY"}, ["b12"]],
+            ["2024-06-15", "Expenses:Cat13", "b13 in 2024", {"number": "13", "currency": "CNY"}, ["b13"]],
+            ["2024-06-15", "Expenses:Cat14", "b14 in 2024", {"number": "14", "currency": "CNY"}, ["b14"]],
+            ["2024-06-15", "Expenses:Cat15", "b15 in 2024", {"number": "15", "currency": "CNY"}, ["b15"]],
+            ["2024-06-15", "Expenses:Cat16", "b16 in 2024", {"number": "16", "currency": "CNY"}, ["b16"]],
+            ["2024-06-15", "Expenses:Cat17", "b17 in 2024", {"number": "17", "currency": "CNY"}, ["b17"]],
+            ["2024-06-15", "Expenses:Cat18", "b18 in 2024", {"number": "18", "currency": "CNY"}, ["b18"]],
+            ["2024-06-15", "Expenses:Cat19", "b19 in 2024", {"number": "19", "currency": "CNY"}, ["b19"]],
+            ["2024-06-15", "Expenses:Cat20", "b20 in 2024", {"number": "20", "currency": "CNY"}, ["b20"]]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

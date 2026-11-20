@@ -1,6 +1,5 @@
 {
-  "description": "The budget ledger of the query engine's tests (zhang-query/tests/engine/server_features/budgets), in UTC+8: activity converted at each posting's date through the inverse of the only prices (CNY quoted in USD), a budget-add and a posting in the first half hour of a month (still the previous month in UTC) counted in the ledger date's month, a leap day, a transfer, a close, and a budget-add to a budget that does not exist.",
-  "ledger": "zhang-query/tests/engine/server_features/budgets",
+  "description": "The budget ledger of the query engine's tests (a copy of zhang-query/tests/engine/server_features/budgets), in UTC+8: activity converted at each posting's date through the inverse of the only prices (CNY quoted in USD), a budget-add and a posting in the first half hour of a month (still the previous month in UTC) counted in the ledger date's month, a leap day, a transfer, a close, and a budget-add to a budget that does not exist.",
   "now": "2024-04-30T12:00:00Z",
   "pages": {
     "months": ["2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01", "2024-05-01"],

@@ -105,6 +105,36 @@
       }
     },
     {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], "2024-03-20", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "18:00:00", 1710957600, "Expenses:Food", "729e0c92-6788-b451-17c0-a3897633d6c0", "D", "at 18:00 on the day of the close", {"number": "8", "currency": "CNY"}, {"number": "15", "currency": "CNY"}],
+              ["2024-03-10", "08:00:00", 1710057600, "Expenses:Food", "0410156a-fa69-2e2c-427a-ba36d07d3768", "C", "at 08:00, written below the definition", {"number": "4", "currency": "CNY"}, {"number": "7", "currency": "CNY"}],
+              ["2024-03-10", "00:00:00", 1710028800, "Expenses:Food", "e5c510a7-e932-65dd-658a-7fdda1f5b9fc", "B", "written below the definition", {"number": "2", "currency": "CNY"}, {"number": "3", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
       "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
       "status": 200,
       "body": {

@@ -1,0 +1,10 @@
+2024-03-10 * "B" "midnight, included file, above the definition"
+  Expenses:Food 2 CNY
+  Assets:Bank
+
+2024-03-10 budget Food CNY
+2024-03-10 budget-add Food 100 CNY
+
+2024-03-10 * "C" "midnight, included file, below the definition"
+  Expenses:Food 4 CNY
+  Assets:Bank

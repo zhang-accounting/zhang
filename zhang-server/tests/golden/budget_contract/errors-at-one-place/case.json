@@ -1,12 +1,12 @@
 {
-  "description": "The order and the ids of budget errors (see main.zhang): the list by file and position the API answers, and the list in the order the load reported them, with their ids.",
+  "description": "Several errors at one place (see main.zhang): their order within the place and their ids, in the list by file and position the API answers and in the id-exact list.",
   "now": "2024-01-20T00:00:00Z",
   "pages": {
     "months": ["2024-01-01"],
     "budgets": ["Zeta", "Alpha"]
   },
   "known_issues": {
-    "error_list": "pinned as reported, not marked wrong: the BudgetCommodityMismatch errors come after every other error of the fold (they are checked once every price is known, zhang-core/src/process/budget.rs:116 from zhang-core/src/ledger.rs:758), and the two of a budget-transfer at one place come `from` first, then `to` (zhang-core/src/process/budget.rs:38-41), here Zeta before Alpha against name order; the API's list orders them by place only",
+    "error_list": "pinned, not marked wrong: a transfer's two errors come `from`, then `to` (zhang-core/src/process/budget.rs:38-41), and with both budgets undefined only `from` is reported (the `&&` at :38 stops at the first); a posting's errors at an account of several budgets come in the order of the budgets' names (the BTreeSet of zhang-core/src/ledger.rs:308). Which place the load checks first is not pinned: the unconverted amounts are checked after the fold (report_unconverted_amounts, zhang-core/src/process/budget.rs:121, reporting at :142, called at zhang-core/src/ledger.rs:758), which no client sees, as the API orders errors by place",
     "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)"
   }
 }

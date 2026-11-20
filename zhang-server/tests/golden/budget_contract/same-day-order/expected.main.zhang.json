@@ -128,6 +128,40 @@
     {
       "request": {
         "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "18:00:00", 1710928800, "assign", {"number": "100", "currency": "CNY"}],
+              ["2024-03-20", "09:00:00", 1710896400, "assign", {"number": "10", "currency": "CNY"}],
+              ["2024-03-20", "00:00:00", 1710864000, "transfer_out", {"number": "-5", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "18:00:00", 1710928800, "Expenses:Food", "6b029395-21b3-2771-500a-3dbe4465e0b8", "G", "18:00, the instant of a budget-add", {"number": "64", "currency": "CNY"}, {"number": "71", "currency": "CNY"}],
+              ["2024-03-10", "08:00:00", 1710028800, "Expenses:Food", "b45edeaf-4bcc-8188-9058-caf66461e45c", "C", "08:00", {"number": "4", "currency": "CNY"}, {"number": "7", "currency": "CNY"}],
+              ["2024-03-10", "00:00:00", 1710000000, "Expenses:Food", "575b9250-576d-34fc-0b6b-8e7e29387865", "B", "midnight, written below the definition", {"number": "2", "currency": "CNY"}, {"number": "3", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
           {"name": "budgets.budget", "params": {"name": "Fun"}},
           {"name": "budgets.budget_month", "params": {"name": "Fun", "month": "2024-03-01"}}
         ]
@@ -158,6 +192,36 @@
       "status": 200,
       "body": {
         "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-03-20", "00:00:00", 1710864000, "transfer_in", {"number": "5", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "23:59:59", 1710950399, "Expenses:Fun", "e23f54eb-3ddc-3881-7e9e-da7d630afa86", "H", "23:59:59, the instant of the close", {"number": "128", "currency": "CNY"}, {"number": "184", "currency": "CNY"}],
+              ["2024-03-10", "13:00:00", 1710046800, "Expenses:Fun", "491e4c1f-0874-4d09-632f-1ee6c95dfc2a", "D", "13:00, written above the definition", {"number": "8", "currency": "CNY"}, {"number": "56", "currency": "CNY"}],
+              ["2024-03-10", "12:00:00", 1710043200, "Expenses:Fun", "914da48a-c32a-4411-c1ac-4ea569024dd0", "F", "12:00, the time of the definition, written below it", {"number": "32", "currency": "CNY"}, {"number": "48", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Fun"}},
+          {"name": "budgets.events", "params": {"name": "Fun", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Fun", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-03-20", "23:59:59"]]
+          },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
             "rows": [["2024-03-20", "00:00:00", 1710864000, "transfer_in", {"number": "5", "currency": "CNY"}]]
