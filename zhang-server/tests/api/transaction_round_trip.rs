@@ -1,5 +1,6 @@
 //! What a client reads of a transaction in the journal, and sends back in an update, is what is written: the flag of
-//! each posting, and the metadata in its order. An edit that sends back what it read leaves these as they were.
+//! each posting, the metadata in its order, and a date written without a time. An edit that sends back what it read
+//! leaves these as they were.
 
 use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
@@ -210,5 +211,62 @@ async fn metadata_keeps_its_order() {
         assert_eq!(pairs(&transaction["metas"]), ["mid=3", "zeta=1", "zeta=9", "tag=x"], "{main}");
         assert_eq!(pairs(&transaction["postings"][0]["metas"]), ["beta=b", "receipt=r"], "{main}");
         served.reloads();
+    }
+}
+
+/// A transaction written with its date alone stays so: the journal tells it with `has_time`, and a request whose
+/// `datetime` is a date alone writes no time, in a create and in an update; one with a time writes it.
+#[tokio::test]
+async fn a_date_alone_is_written_without_a_time_and_told_apart() {
+    for main in ["main.zhang", "main.bean"] {
+        let ledger = format!("{OPENS}2024-01-15 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n");
+        let served = Served::new(main, &ledger);
+        let transaction = served.transaction().await;
+        assert_eq!(
+            (&transaction["has_time"], &transaction["datetime"]),
+            (&json!(false), &json!("2024-01-15T00:00:00")),
+            "{main}"
+        );
+
+        let postings = json!([{"account": "Assets:Cash", "unit": "-6 CNY"}, {"account": "Expenses:Food", "unit": null}]);
+        let (status, body) = served.update(request("2024-01-15", postings.clone(), json!([]))).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        assert!(
+            served.written().contains("\n2024-01-15 * \"Cafe\" \"coffee\"\n  Assets:Cash -6 CNY\n"),
+            "{main}: {}",
+            served.written()
+        );
+        assert_eq!(served.transaction().await["has_time"], json!(false), "{main}");
+
+        // with a time: zhang writes it on the date, beancount as `time` metadata
+        let (status, body) = served.update(request("2024-01-15T08:30:00", postings, json!([]))).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        let timed = match main {
+            "main.zhang" => "\n2024-01-15 08:30:00 * \"Cafe\" \"coffee\"\n",
+            _ => "\n2024-01-15 * \"Cafe\" \"coffee\"\n  time: \"08:30:00\"\n",
+        };
+        assert!(served.written().contains(timed), "{main}: {}", served.written());
+        let transaction = served.transaction().await;
+        assert_eq!(
+            (&transaction["has_time"], &transaction["datetime"]),
+            (&json!(true), &json!("2024-01-15T08:30:00")),
+            "{main}"
+        );
+        served.reloads();
+    }
+}
+
+/// A create takes a date alone too, and the transaction created is written without a time.
+#[tokio::test]
+async fn a_create_writes_a_date_alone_without_a_time() {
+    let served = Served::new("main.zhang", OPENS);
+    let postings = json!([{"account": "Assets:Cash", "unit": "-5 CNY"}, {"account": "Expenses:Food", "unit": null}]);
+    let (status, body) = served.create(request("2024-01-15", postings, json!([]))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(served.scratch.read("data/2024/01.zhang").contains("2024-01-15 * \"Cafe\" \"coffee\"\n"));
+    assert_eq!(served.transaction().await["has_time"], json!(false));
+    for wrong in ["2024-01-15T08", "15/01/2024"] {
+        let request = serde_json::from_value::<zhang_server::request::CreateTransactionRequest>(request(wrong, json!([]), json!([])));
+        assert!(request.is_err(), "{wrong}");
     }
 }

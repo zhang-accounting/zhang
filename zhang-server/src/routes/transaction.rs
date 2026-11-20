@@ -9,7 +9,7 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction, ZhangString};
+use zhang_ast::{Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction, ZhangString};
 use zhang_core::data_source::{append_plan, loaded_file, slashed};
 use zhang_core::data_type::text::exporter::meta_lines_as;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
@@ -189,9 +189,8 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
         return Err(errors);
     };
 
-    let time = payload.datetime.in_ledger(&ledger.options.timezone);
     Ok(Transaction {
-        date: Date::Datetime(time),
+        date: payload.datetime.ledger_date(&ledger.options.timezone),
         flag: Some(flag),
         payee: Some(ZhangString::quote(payload.payee)),
         narration: payload.narration.map(ZhangString::quote),

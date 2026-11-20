@@ -178,6 +178,9 @@ pub struct JournalTransactionItemEntity {
     /// delete names it in `If-Match` to be refused (412) when the id names another text by then. Two transactions
     /// written alike have the same version. `null` for a transaction a plugin made, which cannot be edited
     pub version: Nullable<String>,
+    /// whether the transaction is written with a time of day: `false` for one written with its date alone, whose
+    /// `datetime` is then midnight. An update keeps it so by sending the date alone (`2024-01-02`) as its `datetime`
+    pub has_time: bool,
 }
 #[derive(Serialize, Schematic)]
 pub struct JournalTransactionPostingEntity {

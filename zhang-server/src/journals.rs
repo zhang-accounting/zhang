@@ -14,7 +14,7 @@ use chrono::NaiveDateTime;
 use itertools::Itertools;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Flag, Meta, SpanInfo, Transaction};
+use zhang_ast::{Date, Directive, Flag, Meta, SpanInfo, Transaction};
 use zhang_core::constants::BALANCE_CHECK_PAYEE;
 use zhang_core::data_type::text::exporter::ZhangDataTypeExportable;
 use zhang_core::data_type::text::parser::transaction_has_unexported_text;
@@ -164,6 +164,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                 edit_drops_text: transaction_has_unexported_text(&directive.span.content),
                 version: transaction_version(&directive.span),
                 metas: meta_entities(&transaction.meta),
+                has_time: !matches!(transaction.date, Date::Date(_)),
             };
             Some((id.clone(), written))
         })
@@ -195,6 +196,7 @@ fn journal_items(ledger: &Ledger, page: &QueryResult) -> ServerResult<Vec<Journa
                 entry.edit_drops_text = written.edit_drops_text;
                 entry.version = written.version.clone();
                 entry.metas = written.metas.clone();
+                entry.has_time = written.has_time;
                 // the postings of the journal are the written ones in their order ([`JOURNAL_POSTINGS`] groups the
                 // booked legs by the posting they were written as); the written forms are attached only when they
                 // line up with them, account by account
@@ -228,6 +230,8 @@ struct Written {
     version: Option<String>,
     /// its metadata in the order it is written, which the engine's `metas` sorts by key
     metas: Vec<MetaEntity>,
+    /// whether its date is written with a time of day
+    has_time: bool,
 }
 
 /// `meta` as the metadata entries of a response, in the order it is written ([`Meta::pairs`])
@@ -299,6 +303,8 @@ struct EntryRow {
     edit_drops_text: bool,
     /// see [`Written::version`]; `None` until the written forms are read
     version: Option<String>,
+    /// see [`Written::has_time`]; `true` until the written forms are read
+    has_time: bool,
 }
 
 impl EntryRow {
@@ -316,6 +322,7 @@ impl EntryRow {
             metas: metas(row.get("metas")?),
             edit_drops_text: false,
             version: None,
+            has_time: true,
         })
     }
 }
@@ -469,6 +476,7 @@ fn journal_item(entry: EntryRow, postings: Vec<PostingRow>, check: Option<Balanc
         metas: entry.metas,
         edit_drops_text: entry.edit_drops_text,
         version: Nullable(entry.version),
+        has_time: entry.has_time,
     })
 }
 
