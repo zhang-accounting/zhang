@@ -1,6 +1,6 @@
 ---
 title: 编写插件
-description: 如何用 Rust SDK 为张记账编写 WASM 插件，以及插件 ABI v1 参考：plugin 指令及其能力、阶段顺序、配置键、宿主函数、确定性、custom 指令配置和 router 插件。
+description: 如何用 Rust SDK 为张记账编写 WASM 插件，以及插件 ABI v1 参考：plugin 指令及其能力、阶段顺序、配置键、宿主函数、确定性、custom 指令配置、router 插件，以及分析器和它们的表。
 sidebar:
   order: 1
 ---
@@ -9,7 +9,8 @@ sidebar:
 
 - **转换**账本：添加、修改或删除指令，例如生成周期性交易、拆分支出或给条目打标签；
 - **校验**账本：在账本的错误列表中报告问题，而不做任何修改；
-- **提供**页面和数据：响应 `/api/plugins/{name}` 下的 HTTP 请求，例如一份自定义报表。
+- **提供**页面和数据：响应 `/api/plugins/{name}` 下的 HTTP 请求，例如一份自定义报表；
+- **分析**账本：根据加载完成的账本计算并发布可供查询的表，以及诊断。
 
 插件基于 [Extism](https://extism.org/) 构建，所以任何有 Extism plug-in kit 的语言都可以使用。本指南使用 Rust SDK `zhang-plugin-sdk`，并为其他所有人记录了它底层的 ABI。
 
@@ -84,6 +85,7 @@ plugin "plugins/receipts.wasm"
 | `Processor` | `processor` | 每次加载一次 | 整个指令流 → 新的指令流 |
 | `Mapper` | `mapper` | 每条指令一次，整个指令流共用一个插件实例 | 一条指令 → 替换它的指令（零条、它自己或多条） |
 | `Router` | `router` | 每个 HTTP 请求一次，每次都在新的实例中 | 请求 → 响应 |
+| `Analyzer` | `manifest`、`analyze` | 每次加载一次，在张记账的检查之后（[分析器](#分析器)） | 它读取的记录和查询 → 诊断和它的表的行 |
 
 同时是 processor 和 mapper 的插件会先运行 processor。张记账不认识的类型会被忽略并给出警告，所以为更新版本的张记账编写的插件仍然可以加载。
 
@@ -340,6 +342,78 @@ fn route(request: Request) -> Result<Response, Error> {
 
 [Router 插件](/zh-cn/guides/router-plugins/)介绍了请求和响应的 JSON、错误状态码以及更多细节。
 
+## 分析器
+
+分析器在账本加载完成后读取账本，并发布它的发现：**诊断**，会加入账本的错误列表；以及**表**的行，查询读取它们就像读取张记账自己的表一样（`SELECT * FROM #shop_items`）。它不修改账本中的任何内容。这是用于派生数据的插件类型，例如预算：[RFC #698](/developers/rfc-698-budget-plugin/) 把预算迁移到官方插件 `zhang:budget` 中。
+
+- **何时运行**：每次加载时，因此每次写入时也会运行（写入会重新加载账本）：在记账和张记账自己的检查之后，在错误被编号之前。多个分析器按 `plugin` 指令的顺序依次运行。
+- **读取什么**：它所消费的指令种类的*记录*，以及 BQL。不读取指令流：查询在张记账中精确地完成聚合，只有答案跨越边界。
+- **可以做什么**：除此之外什么都不能做。无论指令授予了什么，它都不读取文件，也不访问网络；它的 `timeout`（不超过 `ZHANG_PLUGIN_MAX_TIMEOUT`）和服务器的内存上限照常生效。它最多可以运行 10,000 次查询。
+- **失败时**（trap、超时、内存不足、输出不成立、清单不成立），账本仍会加载，这与失败的 processor 不同：插件的指令上会有一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，它的表会回答不可用，它的标签列读取为空。其他分析器不受影响，下一次加载会重新尝试。
+
+### 清单
+
+分析器在 `supported_type` 中声明 `Analyzer`，并导出 `manifest`。张记账在注册插件时读取一次清单，所以在任何分析运行之前，表就已经确定：
+
+```json
+{"analysis_abi": 1,
+ "namespace": "shop",
+ "consumes": ["custom:shop"],
+ "open_meta": ["shop"],
+ "diagnostics": [{"kind": "UnknownItem"}, {"kind": "Unpriced", "phase": "after_fold"}],
+ "tables": [
+   {"name": "items", "kind": "records", "description": "Items of the shop.",
+    "columns": [{"name": "item", "type": "str"}, {"name": "price", "type": "amount"}], "order": ["item"]},
+   {"name": "stock", "kind": "series", "description": "Stock per month.",
+    "columns": [{"name": "item", "type": "str", "fill": "carry"}, {"name": "date", "type": "date"},
+                {"name": "year", "type": "int"}, {"name": "opening", "type": "decimal", "fill": {"previous": "closing"}},
+                {"name": "sold", "type": "decimal", "fill": "zero"}, {"name": "closing", "type": "decimal", "fill": "carry"}],
+    "period": {"column": "date", "unit": "month", "derive": {"year": "year"}}, "partition": ["item"],
+    "extend_to_today": true}],
+ "columns": [
+   {"table": "postings", "name": "items", "description": "The items of a posting.",
+    "predicate": "account IN :accounts AND number >= :min", "params": {"accounts": "set", "min": "decimal"}}]}
+```
+
+- **`consumes`**：它读取的记录种类，`budget`、`budget-add`、`budget-transfer`、`budget-close`，或者表示 `custom "<type>"` 指令的 `custom:<type>`。**`open_meta`**：它通过查询读取的 `open` 指令元数据键。没有可读的记录、也没有带这些键的 `open` 时，插件不会被调用，它的表为空。
+- **`diagnostics`**：它可以报告的诊断种类。报告其他种类会使分析失败。
+- **表**。*记录表*（`"kind": "records"`）保存输出中的每一行，顺序为发布的顺序，或者按 `order` 中的列排序（张记账会检查）。*序列表*（`"kind": "series"`）每个分区只保存有内容的周期，即它的事实；张记账在每次查询时填充事实之间和之后的周期，直到分区的 `until`、在 `extend_to_today` 时直到当前月份，但不会超过查询的日期过滤条件保留的范围：`carry` 复制上一行的值，`zero` 是以其商品计的零，`{"previous": "<列>"}` 是上一行中另一个以 `carry` 填充的列的值。周期列保存每个月的第一天，`derive` 中的列是它的年份或月份。列的类型是 `str`、`int`、`decimal`、`date`、`bool`、`amount`、`set` 和 `metas` 之一；`wildcard` 列出 `SELECT *` 展开的列（默认是全部列）。
+- **标签列**（`columns`）：`postings` 的一个 `set` 列，它在一条分录上的值是谓词对该分录成立的那些标签。谓词是针对一条分录的 BQL，读取 `:label` 和声明的参数，每个标签在输出中绑定这些参数。它不读取累计余额、聚合，也不读取插件的表。
+- **名称**。命名空间 `shop` 的表 `items` 名为 `#shop_items`，标签列 `items` 名为 `postings.shop_items`。命名空间是清单中的 `namespace`（`[a-z][a-z0-9_]*`），或者把插件名称中其他字符写成 `_` 后得到的名称。张记账自己的名称总是优先；两个插件声明同一个名称时，先声明的插件保留它：后声明的插件得不到它的任何表，并会被报告。预算表（`#budgets`、`#budget_events`、`#budget_definitions`、`postings.budgets`）保留给 `zhang:budget`。
+- **上限**。一张表最多 **64 列**，一个账本最多 **16 个标签列**，由账本的所有插件共享，包括 `zhang:budget`（它占用一个）。超出任一上限的插件得不到它的任何表和列，并会被报告；其他插件保留它们的表和列。
+
+### `analyze`
+
+导出函数 `analyze` 按张记账处理账本的顺序读取记录：
+
+```json
+{"records": [{"kind": "custom:shop", "seq": 41, "date": "2024-03-01", "time": "00:00:00", "has_time": false,
+              "timestamp": 1709251200, "fields": {"values": ["apple", "1.50 CNY"]}, "meta": {"note": ["fresh"]},
+              "file": "shop.zhang", "line": 12}],
+ "ledger": {"title": null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}}
+```
+
+`seq` 是记录在 `#entries` 中的行，`#postings` 也用它给交易编号。预算记录的字段是 `name` 和 `commodity`（`budget`）、`name` 和 `amount`（`budget-add`）、`from`、`to` 和 `amount`（`budget-transfer`）以及 `name`（`budget-close`），金额写作 `{"number": "500.00", "currency": "CNY"}`。
+
+它返回诊断和它的表的行，按清单中的名称：
+
+```json
+{"diagnostics": [{"kind": "UnknownItem", "target": {"seq": 41}, "metas": {"item": "pear"}, "message": "pear is no item"}],
+ "tables": {"items": [{"item": "apple", "price": {"number": "1.50", "currency": "CNY"}, "$meta": {"origin": ["Fuji"]}}]},
+ "series": {"stock": {"partitions": [{"key": {"item": "apple"}, "until": "2024-11-01", "until_cause": {"seq": 980},
+                                      "first_cause": {"seq": 41},
+                                      "rows": [{"date": "2024-03-01", "opening": "0", "sold": "4", "closing": "6"}]}]}},
+ "labels": {"items": [{"label": "apple", "params": {"accounts": ["Expenses:Food"], "min": "0"}}]}}
+```
+
+- **单元格**是查询 API 写出的 JSON：字符串、整数、布尔值、`YYYY-MM-DD` 日期、金额 `{"number": "1.50", "currency": "CNY"}`、字符串列表表示的集合、`[{"key", "value"}]` 表示的元数据，或者 `null`。小数是文本：`decimal` 或 `amount` 单元格中的 JSON 数字会被拒绝。每一行对每一列都有一个单元格（序列的事实行不包括分区列和由周期派生的列），还可以在 `$meta` 下带有它的元数据，供 `meta()` 读取。
+- **诊断**指明清单中的一个种类和一个目标：`{"seq": n}` 表示一个条目；`{"txn": "<id>"}` 表示一笔交易；`{"plugin": true}` 表示插件的指令。张记账在目标的指令上把它报告为 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)，元数据为 `plugin`、`kind`（它的种类）、`message` 和它自己的元数据。阶段为 `fold`（默认）的诊断与该指令的错误放在一起，在它之前的指令的错误之后、在它之后的指令的错误之前，所以它的 id 是稳定的；阶段为 `after_fold` 的诊断排在所有指令的错误之后，就像需要所有价格的检查那样。指向交易的诊断属于该交易的错误，并在 `txn_id` 中指明它。最多列出 10,000 个，之后再用一个诊断说明总数。
+- **整体检查**：每个单元格都符合所在列的类型，各行符合声明的顺序，每个分区都有它的键，其周期是严格递增的月初日期，每个标签都绑定了列的每个参数，最多 1,000,000 个值和 64 MiB 的 JSON。任何一项不成立，就什么都不发布。
+
+分析期间，分析器用 router 的查询函数读取账本（`zhang_query`、`zhang_query_params`、`zhang_query_schema`、`zhang_ledger_info`），每次查询都有 `POST /api/query` 的限制，并用 `zhang_convert` 换算金额。此时账本的错误还没有最终确定，所以 `#errors` 以及 `errors` 和 `balanced` 列会被拒绝；它自己的表和它之后的分析器的表也一样。`zhang_now` 给出这次加载的时间，并使账本依赖于日期：`zhang serve` 会在午夜重新分析。它用 `zhang_emit_error` 报告的内容会被丢弃：它的诊断就是它输出中的诊断。
+
+分析器发布的内容属于运行它的那次加载：重新加载和写入都会重新分析账本。
+
 ## Lua 插件
 
 router 插件可以是一个 Lua 脚本而不是模块：`plugin "plugins/report.lua"`。张记账内嵌了一个 Lua 5.4 解释器，它本身就是由仓库中 `tools/lua-runtime` 构建的 wasm 插件；加载时张记账把它和脚本配对：沙箱运行的模块是解释器，脚本通过两个保留配置键交给它，`zhang.script`（源码）和 `zhang.script_name`（指令中写的模块路径，错误消息用它指名）。其余都走 wasm 路径：注册时从脚本返回的模块表读取 `name`、`version` 和 `supported_type`，同名时先声明的 router 提供路由（后声明的会被报告），指令的能力和 `timeout` 照常生效，每个请求都是全新的实例，`GET /api/plugins` 列出脚本自己的名字和版本。
@@ -409,10 +483,12 @@ fn route(request: Request) -> Result<Response, Error> {
 |---|---|---|
 | `name` | 无 | 插件的名称，一个 JSON 字符串：`"guard"` |
 | `version` | 无 | 它的版本，一个 JSON 字符串：`"0.1.0"` |
-| `supported_type` | 无 | 由 `"Processor"`、`"Mapper"`、`"Router"` 组成的 JSON 数组 |
+| `supported_type` | 无 | 由 `"Processor"`、`"Mapper"`、`"Router"`、`"Analyzer"` 组成的 JSON 数组 |
 | `processor` | 指令流：一个指令数组 | 新的指令流 |
 | `mapper` | 一条指令 | 一个指令数组 |
 | `router` | 请求 | 响应 |
+| `manifest`（分析器） | 无 | 它的[清单](#清单) |
+| `analyze`（分析器） | 它消费的[记录](#analyze) | 它的诊断和它的表的行 |
 | `capabilities`（可选） | 无 | `{"writes": ["transaction", "open"]}`，插件用 `zhang_write_preview` 和 `zhang_write_commit` 追加的指令种类；这个版本的张记账不认识的种类会被忽略 |
 
 一条指令是 `zhang-ast` 中 `Spanned<Directive>` 的 serde JSON，并且是 ABI v1 认识的类型：张记账从不把 `pad` 指令交给插件（参见[阶段顺序约定](#阶段顺序约定)）。例如：
@@ -461,6 +537,7 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang_query_builtin` | `{"name": "accounts.subtree", "params": {"account": "Expenses", "date": "2026-10-13", "time": "09:30:00"}}`：按名称运行一条[内置查询](/zh-cn/reference/builtin-queries/)，它声明的每个参数都以普通 JSON 给出（`null`、布尔值、整数、字符串、字符串列表） | 与 `zhang_query` 相同：查询的列和行 | `unavailable`、`invalid_input`、`query`（名称未知，参数缺失、未知或类型不符） |
 | `zhang_query_schema` | 无 | `{"tables": [{"name", "description", "columns": [{"name", "type", "description", "provided_by"}], "provided_by"}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`，即当前服务账本的 `GET /api/query/schema` 的 `data`；不属于核心的表或列的 `provided_by` 是其提供者（预算表为 `zhang:budget`），其余为 `null` | `unavailable` |
 | `zhang_ledger_info` | 无 | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
+| `zhang_convert` | `[{"amount": {"number": "1.50", "currency": "USD"}, "target": "CNY", "date": "2024-03-01", "via": "USD"?}]`，最多 100,000 项 | 对每一项，按账本的价格换算到 `target` 的金额（`{"number", "currency"}`，精确），与 `convert(position, target, date)` 换算一个以 `via` 计成本的持仓相同；没有价格可以换算时为 `null` | `unavailable`、`invalid_input` |
 | `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`、`denied`、`invalid_input`、`invalid`、`conflict`、`io` |
 | `zhang_write_commit` | 同上，外加 `"token"` | `{"file", "bytes", "entries", "generation"}` | 同 `zhang_write_preview` |
 
@@ -484,7 +561,7 @@ fn route(request: Request) -> Result<Response, Error> {
 - `zhang_emit_error` 在 processor 或 mapper 中把问题报告到错误列表。插件注册期间（`name`、`version`、`supported_type`）报告的内容会被丢弃，在 router 中则只会写入日志。
 - `zhang_now` 在任何地方都可用。在 router 中，它为每个请求重新读取时钟；在注册期间调用它不会让账本依赖于日期。
 - `zhang_read_file` 和 `zhang_list_dir` 在 processor 或 mapper 之外，以及对 `allowed_paths` 未授予的任何路径，都返回 `denied`。
-- `zhang_query`、`zhang_query_params`、`zhang_query_builtin`、`zhang_query_schema`、`zhang_ledger_info`、`zhang_write_preview` 和 `zhang_write_commit` 在 router 请求之外返回 `unavailable`。
+- `zhang_query`、`zhang_query_params`、`zhang_query_builtin`、`zhang_query_schema`、`zhang_ledger_info`、`zhang_write_preview` 和 `zhang_write_commit` 在 router 请求之外返回 `unavailable`；但查询函数、`zhang_ledger_info` 和 `zhang_convert` 在分析器分析账本时可用。分析期间不运行内置查询：`zhang_query_builtin` 会返回 `query` 错误。
 
 `zhang_query_params`、`zhang_query_schema`、`zhang_query_builtin`、`zhang_write_preview` 和 `zhang_write_commit` 晚于 `zhang_query` 加入。新增宿主函数是插件可以忽略的扩展，所以 ABI 版本仍然是 1：不导入它们的插件照常运行，导入了它们的插件在没有它们的张记账上无法加载（见下文）。
 
@@ -497,3 +574,4 @@ fn route(request: Request) -> Result<Response, Error> {
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
 | 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
 | `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes`、`zhang.allowed_writes` | 0.2.0 之后带有写入能力的发布版 |
+| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert` | 带有分析器的发布版（RFC #698） |

@@ -316,6 +316,9 @@ fill.
     generation.
   - It now hashes each plugin's code (`RegisteredPlugin::hash_code`): a wasm module's bytes, a Lua script's source
     with the interpreter's identity, a bundled plugin's embedded file. P1.5's default plugins are covered by it.
+  - **As built in P1.4:** analyzers, default plugins included, are among the plugins hashed. What they publish is
+    still not hashed, with one exception: when an analyzer read the time (`zhang_now`), the date of the load is hashed
+    too, since an analysis is a function of the hashed inputs and, then, of the date.
 - **Atomic publish.** The output is decoded, type-checked against the manifest, size-checked and converted to host
   values in full, and only then stored. Any failure stores `failed` with no data, never half a snapshot.
 - **The query cache is reset after the merge.** The analyzer's queries build the query engine's per-ledger cache

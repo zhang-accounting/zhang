@@ -9,7 +9,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 interface Props {
   name: string;
   // `Unknown` is a capability this server version doesn't recognise (#460)
-  plugin_type: ('Processor' | 'Mapper' | 'Router' | 'Unknown')[];
+  plugin_type: ('Processor' | 'Mapper' | 'Router' | 'Analyzer' | 'Unknown')[];
   version: string;
   /** where a router plugin serves its pages, e.g. `/api/plugins/report` */
   route: string | null;
