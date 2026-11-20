@@ -692,6 +692,47 @@ async fn the_watchers_reload_after_a_write_loads_only_an_edit_outside() {
     assert!(served.reload_sender.last_failure().is_none());
 }
 
+/// An update whose client goes away while the update reloads: the version it replaced is a tombstone already,
+/// recorded with the write, so once an edit outside restores the transaction as it was, the update sent again with that
+/// version is refused (#818) rather than applied a second time
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_update_whose_client_goes_away_while_it_reloads_keeps_its_tombstone() {
+    let coffee_text = "\n2024-01-02 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n";
+    let served = Served::with_main(&format!("{OPENS}{coffee_text}"));
+    let original = served.read("main.zhang");
+    let coffee = served.transactions().await.pop().expect("a transaction");
+    let (id, version) = (coffee["id"].as_str().unwrap().to_owned(), coffee["version"].as_str().unwrap().to_owned());
+    let tea = || {
+        json!({
+            "datetime": "2024-01-02T12:00:00", "payee": "Cafe", "narration": "tea",
+            "postings": [{"account": "Assets:Cash", "unit": "-4 CNY"}, {"account": "Expenses:Food", "unit": null}],
+            "metas": [], "tags": [], "links": [],
+        })
+    };
+    served.gate.close();
+    let update = {
+        let (served, id, version, tea) = (served.clone(), id.clone(), version.clone(), tea());
+        tokio::spawn(async move { served.update(&id, &version, tea).await })
+    };
+    served.gate.a_load_waits().await;
+    // the client goes away: its request is dropped during the reload
+    update.abort();
+    assert!(update.await.unwrap_err().is_cancelled());
+    assert!(served.read("main.zhang").contains("\"tea\""), "the update is in the files");
+    served.gate.open();
+    let uuid = uuid::Uuid::parse_str(&id).unwrap();
+    assert!(
+        served.reload_sender.tombstones().contains(uuid, &version),
+        "the version replaced is a tombstone"
+    );
+
+    // an edit outside undoes the update: the coffee is back, at its place, with its id and its version
+    served.scratch.write("main.zhang", &original);
+    let (status, body) = served.update(&id, &version, tea()).await;
+    assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{body}");
+    assert_eq!(served.read("main.zhang"), original, "nothing is written");
+}
+
 /// The file watcher reports that it lost events (its queue overflowed: a rescan), or an error: any change may be
 /// hidden, so the ledger is reloaded, though no event names a file of it
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
