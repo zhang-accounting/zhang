@@ -59,6 +59,7 @@ async fn created_transaction_strings_survive_a_reload() {
                 cost: None,
                 price: None,
                 comment: None,
+                flag: None,
             },
             CreateTransactionPostingRequest {
                 account: "Assets:Cash".to_owned(),
@@ -67,6 +68,7 @@ async fn created_transaction_strings_survive_a_reload() {
                 cost: None,
                 price: None,
                 comment: None,
+                flag: None,
             },
         ],
         metas: vec![MetaRequest {

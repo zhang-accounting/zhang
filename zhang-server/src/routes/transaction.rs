@@ -146,12 +146,19 @@ fn transaction_from_request(payload: CreateTransactionRequest, ledger: &Ledger, 
             TransactionField::Metas,
             metas_from_request(posting.metas.unwrap_or_default(), &rules, original_meta),
         );
-        if let (Some(cost), Some(price), Some(account), Some(meta)) = (cost, price, account, meta) {
+        // a flag left out is the matched posting's, such as `!`, as a cost is; the exporter leaves out one the
+        // ledger's format would not read back, such as a `#` a plugin set in a zhang ledger, where the line would read
+        // back as a comment
+        let flag = fields.check(
+            at,
+            TransactionField::Flag,
+            given(posting.flag, original_posting.and_then(|it| it.flag.clone()), |text| {
+                validate::posting_flag(text, &rules)
+            }),
+        );
+        if let (Some(cost), Some(price), Some(account), Some(meta), Some(flag)) = (cost, price, account, meta, flag) {
             postings.push(Posting {
-                // a request carries no posting flag: the posting it edits keeps its own, such as `!`. The
-                // exporter leaves out one the ledger's format would not read back, such as a `*` a plugin
-                // set in a zhang ledger, where the line would read back as a comment
-                flag: original_posting.and_then(|it| it.flag.clone()),
+                flag,
                 account,
                 units,
                 cost,
@@ -754,6 +761,7 @@ mod string_round_trip_test {
                     cost: None,
                     price: None,
                     comment: None,
+                    flag: None,
                 },
                 CreateTransactionPostingRequest {
                     account: "Expenses:Food".to_owned(),
@@ -762,6 +770,7 @@ mod string_round_trip_test {
                     cost: None,
                     price: None,
                     comment: None,
+                    flag: None,
                 },
             ],
             metas: vec![MetaRequest {
@@ -1709,6 +1718,7 @@ mod string_round_trip_test {
                 cost: None,
                 price: None,
                 comment: None,
+                flag: None,
             })
             .collect();
         update
@@ -2211,6 +2221,7 @@ mod string_round_trip_test {
             cost: None,
             price: None,
             comment: None,
+            flag: None,
         }
     }
 
@@ -2616,17 +2627,21 @@ mod string_round_trip_test {
             assert_eq!(buy["postings"][0]["account"], "Assets:Stock", "{main}");
             assert_eq!(
                 buy["postings"][0]["written"],
-                json!({"cost": "{ 5 USD }", "price": "@ 6 USD", "comment": "inline"}),
+                json!({"flag": null, "cost": "{ 5 USD }", "price": "@ 6 USD", "comment": "inline"}),
                 "{main}"
             );
-            assert_eq!(buy["postings"][1]["written"], json!({"cost": null, "price": null, "comment": null}), "{main}");
+            assert_eq!(
+                buy["postings"][1]["written"],
+                json!({"flag": null, "cost": null, "price": null, "comment": null}),
+                "{main}"
+            );
 
             let sale = by_narration("sale");
             assert_eq!(sale["postings"].as_array().unwrap().len(), 3, "{main}");
             assert_eq!(sale["postings"][0]["account"], "Assets:Stock", "{main}");
             assert_eq!(
                 sale["postings"][0]["written"],
-                json!({"cost": "{ }", "price": "@ 7 USD", "comment": null}),
+                json!({"flag": null, "cost": "{ }", "price": "@ 7 USD", "comment": null}),
                 "{main}"
             );
 

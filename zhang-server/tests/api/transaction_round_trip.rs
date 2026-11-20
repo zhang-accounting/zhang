@@ -1,12 +1,12 @@
-//! What a client reads of a transaction in the journal, and sends back in an update, is what is written: the
-//! metadata in its order. An edit that sends back what it read leaves it as it was.
+//! What a client reads of a transaction in the journal, and sends back in an update, is what is written: the flag of
+//! each posting, and the metadata in its order. An edit that sends back what it read leaves these as they were.
 
 use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 use zhang_server::request::JournalRequest;
-use zhang_server::routes::transaction::{get_journals, update_single_transaction};
+use zhang_server::routes::transaction::{create_new_transaction, get_journals, preview_transaction_update, update_single_transaction};
 use zhang_server::routes::{IfMatch, Query as UrlQuery};
 use zhang_server::state::SharedLedger;
 use zhang_testkit::http::{reload, respond, shared};
@@ -50,11 +50,26 @@ impl Served {
         records[0].clone()
     }
 
+    async fn create(&self, request: Value) -> (StatusCode, Value) {
+        let request = serde_json::from_value(request).expect("a create request");
+        respond(create_new_transaction(State(self.ledger.clone()), reload(), Json(request)).await).await
+    }
+
     /// an update of the only transaction
     async fn update(&self, request: Value) -> (StatusCode, Value) {
         let id = self.transaction().await["id"].as_str().unwrap().to_owned();
         let request = serde_json::from_value(request).expect("an update request");
         respond(update_single_transaction(State(self.ledger.clone()), reload(), UrlPath((id,)), IfMatch(None), Json(request)).await).await
+    }
+
+    /// the preview of an update of the only transaction
+    async fn preview(&self, request: Value) -> Value {
+        let id = self.transaction().await["id"].as_str().unwrap().to_owned();
+        let request = serde_json::from_value(request).expect("an update request");
+        let (status, body) =
+            respond(preview_transaction_update(State(self.ledger.clone()), reload(), UrlPath((id,)), IfMatch(None), Json(request)).await).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body["data"].clone()
     }
 
     fn written(&self) -> String {
@@ -79,6 +94,80 @@ fn request(datetime: &str, postings: Value, metas: Value) -> Value {
         "tags": [],
         "links": [],
     })
+}
+
+/// The journal gives the flag of each posting with the rest of its line, `written.flag`; an update keeps the flag of a
+/// posting when the request leaves the field out, removes it with `null` and sets one given.
+#[tokio::test]
+async fn posting_flags_are_read_kept_removed_and_set() {
+    for main in ["main.zhang", "main.bean"] {
+        let ledger = format!("{OPENS}2024-01-15 * \"Cafe\" \"coffee\"\n  ! Assets:Cash -5 CNY\n  & Expenses:Food\n");
+        let served = Served::new(main, &ledger);
+        let transaction = served.transaction().await;
+        let flags = |transaction: &Value| {
+            transaction["postings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|it| it["written"]["flag"].clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(flags(&transaction), vec![json!("!"), json!("&")], "{main}");
+
+        // left out: kept
+        let postings = json!([{"account": "Assets:Cash", "unit": "-6 CNY"}, {"account": "Expenses:Food", "unit": null}]);
+        let (status, body) = served.update(request("2024-01-15T12:00:00", postings, json!([]))).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        assert!(
+            served.written().contains("\n  ! Assets:Cash -6 CNY\n  & Expenses:Food"),
+            "{main}: {}",
+            served.written()
+        );
+
+        // `null` removes it, a flag sets one
+        let postings = json!([
+            {"account": "Assets:Cash", "unit": "-6 CNY", "flag": null},
+            {"account": "Expenses:Food", "unit": null, "flag": "?"},
+        ]);
+        let (status, body) = served.update(request("2024-01-15T12:00:00", postings, json!([]))).await;
+        assert_eq!(status, StatusCode::OK, "{main}: {body}");
+        assert!(
+            served.written().contains("\n  Assets:Cash -6 CNY\n  ? Expenses:Food"),
+            "{main}: {}",
+            served.written()
+        );
+        assert_eq!(flags(&served.transaction().await), vec![Value::Null, json!("?")], "{main}");
+        served.reloads();
+    }
+}
+
+/// A posting flag the ledger would not read back is refused as a field of the posting: `#` starts a comment in a zhang
+/// ledger, and is a flag in a beancount one; a flag is one character.
+#[tokio::test]
+async fn a_posting_flag_the_ledger_would_not_read_back_is_refused() {
+    for (main, hash) in [("main.zhang", false), ("main.bean", true)] {
+        let ledger = format!("{OPENS}2024-01-15 * \"Cafe\" \"coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food\n");
+        let served = Served::new(main, &ledger);
+        for (flag, readable) in [("#", hash), ("!!", false), ("x", false), ("", false), ("A", true)] {
+            let postings = json!([{"account": "Assets:Cash", "unit": "-5 CNY"}, {"account": "Expenses:Food", "unit": null, "flag": flag}]);
+            let preview = served.preview(request("2024-01-15T12:00:00", postings, json!([]))).await;
+            if readable {
+                assert_eq!(preview["field_errors"], json!([]), "{main} {flag:?}: {preview}");
+                continue;
+            }
+            let error = &preview["field_errors"][0];
+            assert_eq!(
+                (&error["posting"], &error["field"], &error["kind"], &error["value"]),
+                (&json!(1), &json!("flag"), &json!("invalid_flag"), &json!(flag)),
+                "{main} {flag:?}: {preview}"
+            );
+        }
+        // a create takes a flag too, and answers the first error of a field
+        let postings = json!([{"account": "Assets:Cash", "unit": "-5 CNY", "flag": "!"}, {"account": "Expenses:Food", "unit": null, "flag": "!!"}]);
+        let (status, body) = served.create(request("2024-01-16T12:00:00", postings, json!([]))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{main}: {body}");
+        assert!(body["message"].as_str().unwrap().starts_with("invalid flag \"!!\""), "{main}: {body}");
+    }
 }
 
 /// Metadata reads back in the order it is written, of the transaction and of each posting, and is written in the order

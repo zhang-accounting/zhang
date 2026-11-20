@@ -195,10 +195,12 @@ pub struct JournalTransactionPostingEntity {
     pub written: Option<WrittenPostingEntity>,
 }
 
-/// What a posting line has besides its account and units, in the ledger's own syntax: the forms the `cost`, `price`
-/// and `comment` of an update request take, so that what is read here can be sent back as it is.
+/// What a posting line has besides its account and units, in the ledger's own syntax: the forms the `flag`, `cost`,
+/// `price` and `comment` of an update request take, so that what is read here can be sent back as it is.
 #[derive(Serialize, Schematic, Clone)]
 pub struct WrittenPostingEntity {
+    /// the flag of the posting, written before its account, such as `!`; `null` for a posting without one
+    pub flag: Option<String>,
     /// the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}`
     pub cost: Option<String>,
     /// the price as written, `@ 6 USD` or `@@ 60 USD`

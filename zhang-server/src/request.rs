@@ -219,6 +219,11 @@ pub struct CreateTransactionPostingRequest {
     /// comment of the posting it edits, `null` removes it
     #[serde(default, deserialize_with = "given")]
     pub comment: Option<Option<String>>,
+    /// the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
+    /// flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+    /// `null` removes it
+    #[serde(default, deserialize_with = "given")]
+    pub flag: Option<Option<String>>,
 }
 
 /// The units of a posting: an amount, or its text as the ledger writes it, read with the ledger's own grammar, such as

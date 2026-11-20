@@ -257,15 +257,15 @@ pub(crate) fn written_transaction<'a>(ledger: &'a Ledger, span: &SpanInfo) -> Op
 /// A posting as written, as the journal shows it.
 struct WrittenPosting {
     account: String,
-    /// the cost, price and comment of its line in the ledger's syntax
+    /// the flag, cost, price and comment of its line in the ledger's syntax
     written: WrittenPostingEntity,
     /// its metadata, in the order it is written
     metas: Vec<MetaEntity>,
 }
 
-/// The postings of `transaction` as written (#638: the ledger holds them booked), each with its account, the cost,
-/// price and comment of its line in the ledger's syntax, as the exporter writes them in `style`, and its metadata in
-/// the order it is written.
+/// The postings of `transaction` as written (#638: the ledger holds them booked), each with its account, the flag,
+/// cost, price and comment of its line in the ledger's syntax, as the exporter writes them in `style`, and its
+/// metadata in the order it is written.
 fn written_postings(transaction: &Transaction, style: QuoteStyle) -> Vec<WrittenPosting> {
     transaction
         .written_postings()
@@ -273,6 +273,7 @@ fn written_postings(transaction: &Transaction, style: QuoteStyle) -> Vec<Written
         .map(|posting| WrittenPosting {
             account: posting.account.name().to_owned(),
             written: WrittenPostingEntity {
+                flag: posting.flag.map(|flag| flag.export_as(style)),
                 cost: posting.cost.map(|cost| cost.export_as(style)),
                 price: posting.price.map(|price| price.export_as(style)),
                 comment: posting.comment,

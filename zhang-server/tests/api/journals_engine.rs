@@ -266,7 +266,7 @@ async fn a_transaction_keeps_every_value_of_a_repeated_key_and_its_postings_thei
                 "account_after": amount("-10.00", "CNY"),
                 "metas": [],
                 // the rest of the posting line as written (#473): none here
-                "written": {"cost": null, "price": null, "comment": null},
+                "written": {"flag": null, "cost": null, "price": null, "comment": null},
             },
             {
                 // written without an amount: `unit` is null, `inferred_unit` what balances the transaction
@@ -277,7 +277,7 @@ async fn a_transaction_keeps_every_value_of_a_repeated_key_and_its_postings_thei
                 "account_before": amount("0.00", "CNY"),
                 "account_after": amount("10.00", "CNY"),
                 "metas": [{"key": "note", "value": "x"}],
-                "written": {"cost": null, "price": null, "comment": null},
+                "written": {"flag": null, "cost": null, "price": null, "comment": null},
             },
         ])
     );
