@@ -70,9 +70,10 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
                 ledger.report(ErrorKind::PluginsDisabled, span, metas);
                 return Ok(());
             }
-            // the module is read from the ledger's source on every load, and handed to the runtime as it is
+            // the module is read from the ledger's source on every load, and handed to the runtime as it is: a
+            // wasm module as its bytes, a Lua script (by its `.lua` extension) as text the interpreter runs
             let path = module_path(&ledger.entry.0, module)?;
-            let module_bytes = ledger.data_source.get(path).map_err(|error| module_error(module, error))?;
+            let parsed = crate::plugin::lua::PluginModule::parse(module, || ledger.data_source.get(path).map_err(|error| module_error(module, error)))?;
             let mut declaration = crate::plugin::capabilities::PluginDeclaration::parse(plugin);
             // a meta value the host cannot use is reported on the directive, and the plugin runs with the default
             for error in &declaration.errors {
@@ -86,10 +87,10 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
             }
             let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
             let files = crate::plugin::files::FileAccess::new(declaration.capabilities.allowed_paths.clone(), ledger.data_source.clone(), &ledger.entry.0);
-            let policy = ledger.plugin_policy.clone();
+            let (options, policy) = (ledger.options.all(), ledger.plugin_policy.clone());
             ledger
                 .plugins
-                .insert_plugin(plugin, module_bytes, declaration, span, &clock, timezone, files, policy)?;
+                .insert_plugin(plugin, parsed, declaration, span, &clock, timezone, files, &options, policy)?;
             // a rebuilt local module makes the ledger stale
             if let Some(input) = crate::inputs::ExtraInput::plugin_module(&ledger.entry.0, plugin.module.as_str()) {
                 ledger.extra_inputs.insert(input);

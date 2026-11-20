@@ -1,0 +1,45 @@
+# Pins of the Lua interpreter module zhang embeds (`zhang-core/src/plugin/lua/lua-runtime.wasm`): the toolchain
+# `prepare.py` downloads, checked against its sha256 before it is used (a mismatch is refused), and the provenance
+# of the sources vendored under `vendor/` (see vendor/README.md; `build.py` checks them against vendor/SHA256SUMS).
+# Only flat `key = "value"` strings under `[section]` headers, so a stock Python 3 without `tomllib` reads it (see
+# `pins()` in prepare.py).
+
+[wasi-sdk]
+# clang 23.1.0 with the wasi-libc sysroot; the standardized wasm exception-handling encoding needs LLVM 20+
+version = "34.0"
+arm64-macos-url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-arm64-macos.tar.gz"
+arm64-macos-sha256 = "9c59398106b417f8f14913380fdf0097a8cc0ff4af9eb3ce0065a859e88d49e9"
+x86_64-linux-url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz"
+x86_64-linux-sha256 = "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4"
+
+[lua]
+# vendored in vendor/lua: lua.wasm, stock PUC-Rio Lua 5.4.8 (MIT) as one translation unit with the wasm
+# exception-handling shim its C++ build needs (src/onelua.c), taken from the tarball of the 0.2.0 tag
+version = "0.2.0"
+commit = "4858557"
+url = "https://api.github.com/repos/andy-emerson/lua.wasm/tarball/0.2.0"
+sha256 = "afe9c98b4e1e40f25ae80fea268169b6f1431d68ef9d52b68eb08a6ccd6ff62c"
+vendored = "tools/lua-runtime/vendor/lua"
+
+[dkjson]
+# vendored in vendor/dkjson: David Kolf's JSON module for Lua (MIT), embedded as the `json` library of every
+# script. The sha256 is the upstream file's (vendor/README.md lists any local change)
+version = "2.11"
+url = "https://dkolf.de/dkjson-lua/dkjson-2.11.lua"
+sha256 = "197cb50834c642f84b4cf99fe724932c50e6d9c92faec7ad89aa25e91df4d481"
+vendored = "tools/lua-runtime/vendor/dkjson/dkjson.lua"
+
+[extism-c-pdk]
+# vendored in vendor/extism-c-pdk: the Extism C PDK header (BSD-3-Clause), by commit and by content
+commit = "54dbb4096dd07c9bd29bff48668209cbbd01abc7"
+url = "https://raw.githubusercontent.com/extism/c-pdk/54dbb4096dd07c9bd29bff48668209cbbd01abc7/extism-pdk.h"
+sha256 = "8500ecad7a5e1405a8206e4585e42b96e7be80f2113fe73a6299f1008fc44c4a"
+vendored = "tools/lua-runtime/vendor/extism-c-pdk/extism-pdk.h"
+
+[artifact]
+# provenance of the vendored module: the host that built the committed bytes, and whether the CI rebuild on
+# x86_64-linux (the canonical host, see README.md) produced the same bytes
+built-on = "x86_64-linux"
+# built on the canonical host itself since the push_handle fix of PR #802 (the arm64-macos build before it was
+# witnessed identical by the lua-runtime job on ubuntu-22.04)
+linux-build-matches = "yes"

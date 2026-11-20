@@ -94,6 +94,11 @@ pub mod config {
     /// config key holding how long one call into the plugin may run, in milliseconds, a decimal `u64`: its `timeout`
     /// within what the server allows. [`PLUGIN`] and the flat `timeout` key hold what the directive asked for
     pub const TIMEOUT_MS: &str = "zhang.timeout_ms";
+    /// Config key holding the source of a Lua script plugin (`plugin "x.lua"`), which the host hands to the
+    /// embedded Lua interpreter module instead of a module of the plugin's own. Set only for a script.
+    pub const SCRIPT: &str = "zhang.script";
+    /// config key holding the module path of a Lua script plugin as written, which its messages name
+    pub const SCRIPT_NAME: &str = "zhang.script_name";
 }
 
 /// The plugin's `plugin` directive as written, from the config key [`config::PLUGIN`]. It carries what the flat
