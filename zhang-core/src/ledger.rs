@@ -301,17 +301,25 @@ impl Ledger {
         self.lifecycle.status(account, at)
     }
 
-    /// The budgets a posting of `account` at the wall-clock time `at` in the ledger's timezone counts in, by the one rule
-    /// of budget membership ([`AccountLifecycle::budgets`]): those the `budget` metadata of the account's latest `open`
-    /// at or before `at` names. `None` before its first `open`. Whether the posting then counts toward one of them also
-    /// depends on the budget: it must be defined before the posting and not closed by then.
+    /// The values of the metadata `key` of the `open` of `account` in effect at the wall-clock time `at` in the ledger's
+    /// timezone ([`AccountLifecycle::open_meta_values`]): those of its latest `open` at or before `at`, each once, so a
+    /// later `open` replaces them and a `close` changes nothing. Empty when that `open` has no `key`, `None` before the
+    /// account's first `open`.
+    pub fn open_meta_values_at(&self, account: &str, key: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
+        self.lifecycle.open_meta_values(account, key, at)
+    }
+
+    /// The budgets a posting of `account` at the wall-clock time `at` in the ledger's timezone counts in: an alias of
+    /// [`Ledger::open_meta_values_at`] with the key `budget`, the one rule of budget membership. `None` before its first
+    /// `open`. Whether the posting then counts toward one of them also depends on the budget: it must be defined before
+    /// the posting and not closed by then.
     pub fn account_budgets(&self, account: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
-        self.lifecycle.budgets(account, at)
+        self.open_meta_values_at(account, "budget", at)
     }
 
     /// The accounts of every budget: those an `open` names it in with its `budget` metadata, at any time.
     pub fn budget_accounts(&self) -> HashMap<String, BTreeSet<String>> {
-        self.lifecycle.budget_accounts()
+        self.lifecycle.open_meta_accounts("budget")
     }
 
     /// The error a directive dated `at`, at the wall-clock time of the ledger's timezone, would raise by using `account`
