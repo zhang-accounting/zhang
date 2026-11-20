@@ -101,14 +101,15 @@ if not ok then return { status = 400, json = { error = result } } end
 
 ## JSON
 
-The `json` table is [dkjson](https://dkolf.de/dkjson-lua/) with a few rules fixed, and the same rules apply to the `json` field of a response:
+The `json` table is a JSON codec built into the interpreter, and the same rules apply to the `json` field of a response:
 
-- `json.encode(value)` and `json.decode(text)`. `json.decode` raises on a document that is not JSON, naming the position.
+- `json.encode(value)` and `json.decode(text)`. `json.decode` reads standard JSON ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)) and nothing else: no comments, no trailing commas, nothing after the value but whitespace. It raises on anything else, naming the position in bytes: `invalid JSON: missing colon at line 3, column 9`, `invalid JSON: unexpected data at byte 14`.
 - **`null`.** JSON `null` decodes to `json.null`, not to `nil`, so a null field is still there (`body.payee == json.null`). Encode `json.null` to send a null. A field holding `nil` is absent.
-- **Empty tables.** A Lua table has no kind, so an empty `{}` encodes as `[]`. Use `json.object()`, or `json.object(t)`, for a table that must encode as `{}` even when empty, and `json.array()` for one that must encode as `[]`. What `json.decode` and the host give you keeps its kind: an empty object stays `{}` through a round trip. A response's `headers` is always an object.
-- **Numbers.** Integers are exact up to 2<sup>63</sup>; floats are written with 14 significant digits. **Amounts never travel as numbers**: a query result gives every decimal as a string (`"12.50"`), and a plugin keeps it as a string. Do not `tonumber` an amount to add it up; let the query sum it.
-- **Strings** are bytes. A NUL byte inside a string survives a round trip. A `json` value must be UTF-8 text; send other bytes in `body`.
+- **Arrays and objects.** A Lua table has no kind, so an empty `{}` encodes as `[]`. A table whose keys are 1 to n is an array, with `null` for a hole, unless it is sparse (its largest key is past 10 and more than twice the number of keys); any other table is an object, with number keys written as strings. Use `json.object()`, or `json.object(t)`, for a table that must encode as an object even when it is empty or keyed by numbers, and `json.array()` for one that must encode as `[]`. What `json.decode` and the host give you keeps its kind: an object stays an object through a round trip, empty or not. A response's `headers` is always an object.
+- **Numbers.** An integer is exact within 64 bits, both ways. A float is written with the fewest digits that read back as the same float (`0.1`, `0.30000000000000004`, `1.0`); NaN and the infinities, which JSON cannot write, are written as `null`. When decoding, a number with a fraction or an exponent, or an integer past 64 bits, becomes the nearest float (`math.type` tells it apart), and one past the range of a float, such as `1e400`, raises. **Amounts never travel as numbers**: a query result gives every decimal as a string (`"12.50"`), and a plugin keeps it as a string. Do not `tonumber` an amount to add it up; let the query sum it.
+- **Strings** are bytes. A NUL byte inside a string survives a round trip. A `json` value must be UTF-8 text: `json.encode` raises on a string that is not, naming the first bad byte, and `json.decode` on a document that is not; send other bytes in `body`. Control characters, U+2028, U+2029 and a few other invisible characters are written as `\u` escapes.
 - **Keys are sorted.** `json.encode`, and the `json` field of a response, write an object's keys in order: number keys first, ascending, then string keys, ascending by byte. The same value always gives byte-identical JSON. `pairs` itself visits a table's keys in no fixed order, and the order changes from one request to the next: the interpreter seeds its string hash at random for every request, so keys cannot be crafted to collide. Do not rely on the order of `pairs`; sort the keys when the order matters.
+- **Nesting.** Arrays and objects nest up to 1000 levels; `json.encode` and `json.decode` raise past that, and `json.encode` raises `reference cycle` on a table that contains itself. The codec's buffers and the values it builds count against the [memory limit](#limits).
 
 ## The sandbox
 
@@ -122,6 +123,7 @@ Each request runs in a fresh interpreter, so a script cannot keep state between 
 |---|---|---|
 | Script size | 1 MiB, UTF-8 text | The ledger does not load. |
 | Memory | 64 MiB of Lua values per request | The request fails with status 500 and the log says `plugin \`plugins/food.lua\` exceeded 64 MiB`. |
+| JSON nesting | 1000 levels of arrays and objects | `json.encode` or `json.decode` raises. |
 | Time | The directive's `timeout` (60 seconds by default), at most the operator's ceiling for a request, `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds by default) | Status 504. |
 | Queries | The limits of `POST /api/query` | `zhang.query` raises. |
 
@@ -137,16 +139,15 @@ Each request runs in a fresh interpreter, so a script cannot keep state between 
 
 ## Router only in this release
 
-A Lua script may declare `types = { "Router" }` only. A script declaring `Processor` or `Mapper` does not load, with the message *Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, the host would take back an amount turned into a JSON number, and the JSON codec is too slow for a ledger's directives*.
+A Lua script may declare `types = { "Router" }` only. A script declaring `Processor` or `Mapper` does not load, with the message *Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, and the host would take back an amount turned into a JSON number*.
 
-How the directives travel is not the problem: a processor or mapper would receive them as JSON in which every decimal (an amount, a price, a cost, a tolerance) is a string, `"1234.56789012345678"`, as in a query result. Three things are:
+How the directives travel is not the problem: a processor or mapper would receive them as JSON in which every decimal (an amount, a price, a cost, a tolerance) is a string, `"1234.56789012345678"`, as in a query result. Two things are:
 
 - **No exact arithmetic.** Lua has integers and floating-point numbers only. A stage that splits, sums or converts an amount would `tonumber` the string and compute in floats, where `0.1 + 0.2` is not `0.3`.
 - **Numbers are taken back.** When the host reads the directives a stage returns, an amount may be a string or a JSON number. A script that wrote a computed float into an amount would hand back a number the host accepts, and a balance would change without an error, in the stage that produces the booked ledger.
-- **Speed.** The JSON library encodes and decodes about 3 MB a second. A router handles one request's data; a processor would handle every directive of the ledger on every load.
 
 A router has none of these problems: it reads query results and answers HTTP, and nothing it returns feeds the ledger. Processors and mappers in Lua will come with the exact-decimal plugin API, planned in [#698](https://github.com/zhang-accounting/zhang/issues/698).
 
 ## Where the interpreter comes from
 
-The interpreter is [Lua 5.4.8](https://www.lua.org/) as built by [lua.wasm](https://github.com/andy-emerson/lua.wasm), with [dkjson](https://dkolf.de/dkjson-lua/), compiled to one WebAssembly module and embedded in the Zhang binary. Its sources, vendored with their licenses, and its build script are in `tools/lua-runtime` of the repository; the module is vendored with its checksum, and Zhang's CI rebuilds it and fails unless the bytes match. Zhang pairs it with your script at load time, so a Lua plugin is a wasm plugin as far as the sandbox, the capabilities and the route are concerned.
+The interpreter is [Lua 5.4.8](https://www.lua.org/) as built by [lua.wasm](https://github.com/andy-emerson/lua.wasm), with a JSON codec in C written for it, compiled to one WebAssembly module and embedded in the Zhang binary. Its sources, vendored with their licenses, and its build script are in `tools/lua-runtime` of the repository; the module is vendored with its checksum, and Zhang's CI rebuilds it and fails unless the bytes match. Zhang pairs it with your script at load time, so a Lua plugin is a wasm plugin as far as the sandbox, the capabilities and the route are concerned.
