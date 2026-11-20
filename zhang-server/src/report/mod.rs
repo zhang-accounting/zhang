@@ -21,7 +21,7 @@ use zhang_ast::AccountType;
 use zhang_core::ledger::Ledger;
 use zhang_query::{DataType, ExecuteOptions, Inventory, Params, PriceMap, QueryErrorKind, QueryResult, Value};
 
-use crate::builtin::{calculated_amount, compiled, BuiltinQuery, LedgerDateRange};
+use crate::builtin::{calculated_amount, compiled_for, BuiltinQuery, LedgerDateRange};
 use crate::cells::{self, Row};
 use crate::error::ServerError;
 use crate::request::StatisticInterval;
@@ -458,7 +458,7 @@ fn run_within(ledger: &Ledger, query: &BuiltinQuery, params: Params, limits: &Gr
         max_result_values: Some(limits.max_values),
         count_total: false,
     };
-    Ok(compiled(query.name)?.execute_with_options(ledger, &params, &options)?)
+    Ok(compiled_for(ledger).get(query.name)?.execute_with_options(ledger, &params, &options)?)
 }
 
 /// The units and the value of a figure, as the queries return them.
