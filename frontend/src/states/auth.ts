@@ -62,10 +62,18 @@ export const loadAuthStatusAtom = atom(null, async (get, set, options?: { quiet?
   set(authStateAtom, { phase: 'ready', status, reason: current.phase === 'ready' ? current.reason : undefined });
 });
 
-/** Sign-in succeeded (password or passkey). */
-export const signedInAtom = atom(null, (get, set) => {
+/**
+ * The app URL (`?return_to=`) the login page showed when the user signed in on it: `null` for a session the browser already
+ * had, a sign-in without an app URL, and once the code for it was created. The mobile app login handoff creates the code
+ * without asking only for that URL, see `handoffNeedsConsent`.
+ */
+export const signedInForAppAtom = atom<string | null>(null);
+
+/** Sign-in succeeded (password or passkey), on a login page that showed the app URL `forApp`, if any. */
+export const signedInAtom = atom(null, (get, set, forApp?: string | null) => {
   const state = get(authStateAtom);
   if (state.phase !== 'ready') return;
+  set(signedInForAppAtom, forApp ?? null);
   set(authStateAtom, { phase: 'ready', status: { ...state.status, authenticated: true } });
   void set(loadAuthStatusAtom, { quiet: true });
 });
@@ -75,6 +83,7 @@ export const signedOutAtom = atom(null, (get, set, reason: LockReason) => {
   const state = get(authStateAtom);
   if (state.phase !== 'ready') return;
   if (reason === 'expired' && state.status.enabled && !state.status.authenticated) return; // already on the login page
+  set(signedInForAppAtom, null);
   set(authStateAtom, { phase: 'ready', status: { ...state.status, enabled: true, authenticated: false }, reason });
   void set(loadAuthStatusAtom, { quiet: true });
 });

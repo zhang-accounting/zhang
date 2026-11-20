@@ -124,19 +124,26 @@ Without `ZHANG_SESSION_SECRET`, a random key is generated every time the server 
 
 A mobile app cannot use the passkeys of an arbitrary domain by itself, so it signs in through the login page of the server in the system browser (`ASWebAuthenticationSession` on iOS, Custom Tabs on Android), where passkeys and the password work as on the web, and receives the session through a one-time code:
 
-1. The app opens `https://zhang.example.com/login?return_to=zhang-app://auth/callback` (URL-encode `return_to` when it carries a query of its own).
-2. You sign in with a passkey or the password, or register the first passkey. When the browser is already signed in, this step is skipped.
-3. The login page shows **Returning to the app…**, asks the server for a one-time code with `POST /api/auth/app/code` and opens `zhang-app://auth/callback?code=…`.
-4. The app sends the code to `POST /api/auth/app/exchange` and receives the session token, which it sends as `Authorization: Bearer <token>` with every request.
+1. The app creates a random code verifier and a random state, and opens `https://zhang.example.com/login?return_to=zhang-app://auth/callback&code_challenge=…&code_challenge_method=S256&state=…`, where `code_challenge` is the base64url SHA-256 of the code verifier ([PKCE](https://www.rfc-editor.org/rfc/rfc7636), URL-encode `return_to` when it carries a query of its own).
+2. The login page says **Signing in to the app at zhang-app://auth** (the scheme and host of `return_to`), and you sign in with a passkey or the password, or register the first passkey. When the browser is already signed in, the page asks **Sign in to the app as <user>?** instead, naming the scheme and host the code will be sent to (`zhang-app://auth`), and goes on only after you click **Continue**.
+3. The login page shows **Returning to the app…**, asks the server for a one-time code with `POST /api/auth/app/code`, passing the challenge and the state on, and opens `zhang-app://auth/callback?code=…&state=…`.
+4. The app checks that the state is the one it sent, sends the code and its code verifier to `POST /api/auth/app/exchange` and receives the session token, which it sends as `Authorization: Bearer <token>` with every request.
 
 | Endpoint | Needs | Request | Response |
 | --- | --- | --- | --- |
-| `POST /api/auth/app/code` | a session (cookie or Bearer token) | `{"return_to": "zhang-app://auth/callback"}` | `{"data": {"code": "…", "redirect": "zhang-app://auth/callback?code=…"}}` |
-| `POST /api/auth/app/exchange` | nothing, the code is the credential | `{"code": "…"}` | `{"data": {"token": "…", "expires_at": "2026-11-09T08:00:00Z", "user": "admin"}}` |
+| `POST /api/auth/app/code` | a session (cookie or Bearer token) | `{"return_to": "zhang-app://auth/callback", "code_challenge": "…", "code_challenge_method": "S256", "state": "…"}` | `{"data": {"code": "…", "redirect": "zhang-app://auth/callback?code=…&state=…"}}` |
+| `POST /api/auth/app/exchange` | nothing, the code and its verifier are the credential | `{"code": "…", "code_verifier": "…"}` | `{"data": {"token": "…", "expires_at": "2026-11-09T08:00:00Z", "user": "admin"}}` |
 
-`GET /api/auth/status` reports `"app_login": true` and the allowed schemes in `"app_return_schemes"`, so an app can tell whether the server supports this. An unknown, expired or already used code is answered with `401` and `{"message": "invalid or expired code"}`; a `return_to` of a scheme that is not allowed with `400`.
+`GET /api/auth/status` reports `"app_login": true`, `"app_login_pkce": true` and the allowed schemes in `"app_return_schemes"`, so an app can tell whether the server supports this, and whether it takes PKCE and echoes the state. An unknown, expired or already used code is answered with `401` and `{"message": "invalid or expired code"}`; a `return_to` of a scheme that is not allowed with `400`.
 
-The app URL must use the `zhang-app` scheme. To allow other schemes, for example for a build of the app with its own scheme, list them, comma-separated, in the `ZHANG_APP_RETURN_SCHEMES` environment variable:
+`code_challenge`, `code_challenge_method` and `state` are optional, so apps that send none keep working; their codes are exchanged without a verifier.
+
+- The only challenge method is `S256`. A `code_challenge` with `plain`, with another method, or without a method (which means `plain`) gets no code: `400` with `` {"message": "code_challenge_method must be `S256`"} ``, and the login page shows the error. The challenge is the 43-character base64url of 32 bytes.
+- A code issued with a challenge is exchanged only with a `code_verifier` (43 to 128 characters of `A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) whose SHA-256 is the challenge. A code issued without a challenge is refused when a `code_verifier` comes with it: the challenge was lost on the way. Empty parameters count as absent, on both endpoints.
+- A missing or wrong verifier is answered like an unknown code, `401` and `{"message": "invalid or expired code"}`, and uses the code up as well: a code cannot be tried with one verifier after another, and the answer does not tell whether the code existed.
+- `state` (at most 512 bytes) is echoed as it is. When it is given, `return_to` must not carry a `state` parameter of its own.
+
+The app URL must use the `zhang-app` scheme. To allow other schemes, for example for a build of the app with its own scheme, list them, comma-separated, in the `ZHANG_APP_RETURN_SCHEMES` environment variable. Schemes of the browser itself (`http`, `https`, `ws`, `wss`, `ftp`, `javascript`, `data`, `file`, `blob`, `about`, `vbscript`) are never allowed: the server logs a warning and ignores them.
 
 ```shell
 docker run --name zhang \
@@ -149,7 +156,10 @@ docker run --name zhang \
 Security notes:
 
 - A code can be exchanged once, within 60 seconds, and is bound to the session that asked for it: it stops working when that session ends (for example because its passkey was removed). Codes are kept in memory, so a restart drops the pending ones.
-- Only app URLs of the allowed schemes are returned to, so the login page cannot be used to redirect the browser to another web site. Do not add `http` or `https` to `ZHANG_APP_RETURN_SCHEMES`.
+- Another app on the same device can register the `zhang-app` scheme too. PKCE protects a sign-in the real app started: if that app receives the redirect, it gets the code but not the code verifier, which never left the real app, so it cannot exchange the code; and the state lets the real app refuse a redirect that does not answer its own sign-in.
+- PKCE cannot tell which app started a sign-in. An app registered for the scheme can start a sign-in of its own, with its own verifier, and gets a session if you sign in on that page or click **Continue** (client impersonation, [RFC 8252 section 8.6](https://www.rfc-editor.org/rfc/rfc8252#section-8.6)). This is why a browser that is already signed in asks before it hands its session to an app: sign in or click **Continue** only when you just started signing in from the app yourself, and check the scheme and host the page shows. The real app opens the login page in a private browser session, so it normally sees the login form, not the question.
+- Only app URLs of the allowed schemes are returned to, so the login page cannot be used to redirect the browser to another web site.
+- The pages of the web UI are sent with `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`, so another site cannot show the login page in a frame and trick you into clicking **Continue**.
 - Failed exchanges count as [failed sign-in attempts](#failed-sign-in-attempts).
 - The token is the session token of the browser: it lasts as long as the browser session (30 days from the sign-in) and ends in the same cases, when `ZHANG_AUTH` or `ZHANG_SESSION_SECRET` changes or its passkey is removed. Signing out (in the browser or in the app) does not revoke a token that was handed off, as sessions are not stored on the server; to end every session, change `ZHANG_SESSION_SECRET`.
 - Set `ZHANG_SESSION_SECRET`, otherwise every restart signs the app out as well.

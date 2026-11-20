@@ -47,6 +47,7 @@ use self::passkey::{Ceremonies, Ceremony, CeremonyKind, RelyingParty};
 pub use self::passkey::{PasskeyRecord, PASSKEYS_PATH, STATE_DIR};
 use self::session::{SessionClaims, SessionKey};
 use crate::error::ServerError;
+use crate::request::AppCodeRequest;
 use crate::response::{AppCodeEntity, AppTokenEntity, AuthMethodsEntity, AuthStatusEntity, PasskeyEntity, ResponseWrapper};
 use crate::{ServeConfig, ServerResult};
 
@@ -131,6 +132,12 @@ fn expired_ceremony() -> ServerError {
 
 fn invalid_app_code() -> ServerError {
     ServerError::Unauthorized("invalid or expired code".to_owned())
+}
+
+/// An optional parameter of the app login handoff: empty counts as absent, as the login page leaves
+/// empty ones out.
+fn given_param(value: &Option<String>) -> Option<&str> {
+    value.as_deref().filter(|it| !it.is_empty())
 }
 
 /// A JSON response that may also set (or clear) the session cookie.
@@ -469,6 +476,7 @@ impl AuthState {
             user: principal.filter(|_| enabled).map(|it| it.user.clone()),
             title,
             app_login: true,
+            app_login_pkce: true,
             app_return_schemes: self.app_return_schemes.clone(),
         }
     }
@@ -554,32 +562,42 @@ impl AuthState {
             .ok_or_else(expired_ceremony)
     }
 
-    /// A one-time code for the app url `return_to`, bound to the session of the caller.
-    async fn issue_app_code(&self, headers: &HeaderMap, return_to: &str) -> ServerResult<AppCodeEntity> {
+    /// A one-time code for the app url `return_to` of `request`, bound to the session of the caller
+    /// and to the PKCE challenge of the request, with its `state` echoed in the redirect. Empty
+    /// parameters count as absent.
+    async fn issue_app_code(&self, headers: &HeaderMap, request: &AppCodeRequest) -> ServerResult<AppCodeEntity> {
         if !self.enabled() {
             return Err(ServerError::InvalidInput("authentication is not enabled".to_owned()));
         }
         let (principal, session) = self.session(headers).await.ok_or_else(unauthorized)?;
-        let return_to = app_login::parse_return_to(return_to, &self.app_return_schemes).map_err(|e| {
+        let return_to = app_login::parse_return_to(&request.return_to, &self.app_return_schemes).map_err(|e| {
             if let ReturnToError::SchemeNotAllowed(_) = e {
-                warn!("refused an app login handoff of {} to `{return_to}`: {e}", principal.user);
+                warn!("refused an app login handoff of {} to `{}`: {e}", principal.user, request.return_to);
             }
             ServerError::InvalidInput(e.to_string())
         })?;
-        let code = self.app_codes.lock().expect("app codes lock is poisoned").issue(session, Instant::now());
+        let invalid = |e: app_login::HandoffParameterError| ServerError::InvalidInput(e.to_string());
+        let challenge = app_login::parse_code_challenge(given_param(&request.code_challenge), given_param(&request.code_challenge_method)).map_err(invalid)?;
+        let state = app_login::check_state(given_param(&request.state), &return_to).map_err(invalid)?;
+        let code = self
+            .app_codes
+            .lock()
+            .expect("app codes lock is poisoned")
+            .issue(session, challenge, Instant::now());
         Ok(AppCodeEntity {
-            redirect: app_login::redirect_with_code(return_to, &code),
+            redirect: app_login::redirect_with_code(return_to, &code, state),
             code,
         })
     }
 
-    /// The session token a one-time code was issued for, when the code is valid and the session still is.
-    async fn exchange_app_code(&self, code: &str) -> ServerResult<AppTokenEntity> {
+    /// The session token a one-time code was issued for, when the code is valid, `verifier` meets
+    /// its PKCE challenge, and the session is still valid.
+    async fn exchange_app_code(&self, code: &str, verifier: Option<&str>) -> ServerResult<AppTokenEntity> {
         let session = self
             .app_codes
             .lock()
             .expect("app codes lock is poisoned")
-            .take(code.trim(), Instant::now())
+            .take(code.trim(), verifier, Instant::now())
             .ok_or_else(invalid_app_code)?;
         let claims = self.session_claims(&session).await.ok_or_else(invalid_app_code)?;
         let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0).ok_or_else(invalid_app_code)?;
@@ -846,19 +864,22 @@ pub mod handlers {
     }
 
     /// Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
-    /// `return_to` with the code appended; needs a session (cookie or Bearer). The scheme of
-    /// `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+    /// `return_to` with the code (and `state`, when given) appended; needs a session (cookie or
+    /// Bearer). The scheme of `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+    /// With a PKCE `code_challenge` (method `S256` only), the exchange needs its `code_verifier`.
     #[api(group = "auth")]
     pub async fn app_login_code(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, Json(payload): Json<AppCodeRequest>,
     ) -> ApiResult<AppCodeEntity> {
         Ok(ResponseWrapper {
-            data: auth.issue_app_code(&headers, &payload.return_to).await?,
+            data: auth.issue_app_code(&headers, &payload).await?,
         })
     }
 
     /// Exchanges a one-time code of the app login handoff for the session token, to send as
-    /// `Authorization: Bearer`. A code can be exchanged once; failures count towards the sign-in limit.
+    /// `Authorization: Bearer`. A code issued with a PKCE challenge needs its `code_verifier`, one
+    /// issued without refuses a verifier. A code can be exchanged once, a failed exchange uses it up
+    /// too; failures count towards the sign-in limit.
     #[api(group = "auth")]
     pub async fn app_login_exchange(
         State(auth): State<SharedAuth>, #[api(skip)] headers: HeaderMap, #[api(skip)] peer: Option<ConnectInfo<SocketAddr>>,
@@ -866,7 +887,7 @@ pub mod handlers {
     ) -> ApiResult<AppTokenEntity> {
         let client = auth.client(&headers, peer);
         auth.check_attempts(&client)?;
-        match auth.exchange_app_code(&payload.code).await {
+        match auth.exchange_app_code(&payload.code, super::given_param(&payload.code_verifier)).await {
             Ok(token) => {
                 auth.reset_failed_attempts(&client);
                 Ok(ResponseWrapper { data: token })

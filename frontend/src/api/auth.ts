@@ -1,5 +1,6 @@
 import { apiBaseUrl } from './fetcher';
 import { responseError } from '@/lib/api-error';
+import type { AppHandoffParams } from '@/lib/auth-paths';
 import type { CreationOptionsJSON, RequestOptionsJSON } from '@/lib/webauthn';
 
 /** `GET /api/auth/status`. `enabled` = the server was started with `ZHANG_AUTH` and / or `ZHANG_PASSKEY`. */
@@ -14,6 +15,8 @@ export interface AuthStatus {
   title?: string | null;
   /** The server supports the mobile app login handoff (`/login?return_to=<app url>`); absent on older servers. */
   app_login?: boolean;
+  /** The handoff passes the app's PKCE challenge (`S256`) and `state` on to the code; absent on older servers. */
+  app_login_pkce?: boolean;
   /** URL schemes the handoff may return to (`zhang-app` and `ZHANG_APP_RETURN_SCHEMES`). */
   app_return_schemes?: string[];
 }
@@ -82,8 +85,11 @@ export const login = (username: string, password: string) => authRequest<void>('
 
 export const logout = () => authRequest<void>('/logout', 'POST');
 
-/** Asks for a one-time code for the signed-in session; the app exchanges it for the session token. */
-export const createAppCode = (returnTo: string) => authRequest<AppCode>('/app/code', 'POST', { return_to: returnTo });
+/**
+ * Asks for a one-time code for the signed-in session; the app exchanges it for the session token (with the code verifier of
+ * `params.code_challenge`). The redirect echoes `params.state`.
+ */
+export const createAppCode = (returnTo: string, params: AppHandoffParams = {}) => authRequest<AppCode>('/app/code', 'POST', { return_to: returnTo, ...params });
 
 /** `secret` is the `ZHANG_PASSKEY` value; `null` once signed in (adding another passkey from Settings). */
 export const startPasskeyRegistration = (secret: string | null, name: string | null) =>

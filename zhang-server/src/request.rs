@@ -311,12 +311,21 @@ pub struct LoginRequest {
 pub struct AppCodeRequest {
     /// the app url to return to with the code, of the `zhang-app` scheme or one of `ZHANG_APP_RETURN_SCHEMES`
     pub return_to: String,
+    /// the PKCE challenge of the app (RFC 7636): the base64url SHA-256 of its code verifier, without padding
+    pub code_challenge: Option<String>,
+    /// `S256`, the only method supported; needed with `code_challenge`
+    pub code_challenge_method: Option<String>,
+    /// an opaque value of the app, echoed in the redirect next to the code (at most 512 bytes)
+    pub state: Option<String>,
 }
 
 #[derive(Schematic, Deserialize)]
 pub struct AppExchangeRequest {
     /// the one-time code of `POST /api/auth/app/code`
     pub code: String,
+    /// the PKCE code verifier (RFC 7636) whose challenge the code was issued with; leave it out for a
+    /// code issued without one
+    pub code_verifier: Option<String>,
 }
 
 #[derive(Schematic, Deserialize)]
