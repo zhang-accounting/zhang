@@ -692,6 +692,57 @@ async fn the_watchers_reload_after_a_write_loads_only_an_edit_outside() {
     assert!(served.reload_sender.last_failure().is_none());
 }
 
+/// A plugin's script is an input of the load besides the ledger's own files, and its code counts in the generation
+/// (#826): the watcher's reload after a write still loads nothing while the ledger's files hold what the ledger
+/// served was loaded from (#841), and keeps the generation; an edit of the script always loads and moves the
+/// generation on, and the script written again as it is loads and keeps it
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_watcher_skips_files_as_loaded_and_an_edit_of_a_script_moves_the_generation() {
+    const SCRIPT: &str = "return { name = \"echo\", version = \"0.1.0\", types = { \"Router\" },\n  \
+                          router = function(request) return { json = request } end }\n";
+    let scratch = Scratch::with_main("main.zhang", "");
+    std::fs::write(scratch.dir().join("echo.lua"), SCRIPT).unwrap();
+    scratch.write("main.zhang", &format!("option \"features.plugin\" \"true\"\nplugin \"echo.lua\"\n{OPENS}"));
+    let served = Served::new(scratch, PluginPolicy::default());
+    assert_eq!(served.ledger.read().await.plugins.ordered.len(), 1, "the script registered");
+    let roots = watch::watch_roots(served.scratch.dir());
+    let loads = || served.gate.loads.load(Ordering::SeqCst);
+    let generation = || served.reload_sender.generation();
+    let modified = |file: &str| {
+        let path = served.scratch.dir().join(file);
+        Ok(notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Data(notify::event::DataChange::Content))).add_path(path))
+    };
+    // what the watcher reports, then a reload that must load, as a sync point: the listener runs them in turn
+    let watched_then_forced = |file: &'static str| {
+        let (served, roots, event) = (served.clone(), roots.clone(), modified(file));
+        async move {
+            on_file_events(&served.ledger, &served.reload_sender, &roots, &[event]).await;
+            served.reload_sender.reload_and_wait().await.unwrap();
+        }
+    };
+
+    let created = served.create(None, coffee("Cafe", "5")).await;
+    assert_eq!(created.status, StatusCode::OK, "{}", created.body);
+    let (before, written) = (loads(), generation());
+    watched_then_forced("main.zhang").await;
+    assert_eq!(loads(), before + 1, "the watcher's reload after the write loads nothing");
+    assert_eq!(generation(), written);
+
+    std::fs::write(served.scratch.dir().join("echo.lua"), format!("{SCRIPT}-- edited\n")).unwrap();
+    watched_then_forced("echo.lua").await;
+    assert_eq!(loads(), before + 3, "the watcher's reload after an edit of the script loads");
+    assert_eq!(generation(), written + 1, "the script changed");
+
+    std::fs::write(served.scratch.dir().join("echo.lua"), format!("{SCRIPT}-- edited\n")).unwrap();
+    watched_then_forced("echo.lua").await;
+    assert_eq!(loads(), before + 5, "the script written again loads");
+    assert_eq!(generation(), written + 1, "the same script");
+
+    watched_then_forced("main.zhang").await;
+    assert_eq!(loads(), before + 6, "the ledger's files as loaded load nothing");
+    assert_eq!(generation(), written + 1);
+}
+
 /// An update whose client goes away while the update reloads: the version it replaced is a tombstone already,
 /// recorded with the write, so once an edit outside restores the transaction as it was, the update sent again with that
 /// version is refused (#818) rather than applied a second time

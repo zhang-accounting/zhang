@@ -309,12 +309,13 @@ fill.
 - **Bound to the generation (#826) by construction.** A snapshot lives and dies with its `Ledger` value, and the
   server swaps that value whole under the write lock. A reader holding a `Ledger` sees only that ledger's snapshots.
   A reload always re-analyses, and no WASM instance outlives the `analyze` call.
-- **The fingerprint covers inputs, not analysis output.** #826's fingerprint (`zhang-server/src/lib.rs:597-615`) does
-  not hash analysis output. That is sound only because analyzers are deterministic and their inputs are hashed. Two
-  gaps:
-  - It hashes `module_bytes()`, which for a Lua script is the interpreter, not the script
-    (`zhang-server/src/lib.rs:677-678`), so a script edit keeps the generation today.
-  - P1.5 adds the script source and the default plugins' modules to the fingerprint.
+- **The fingerprint covers inputs, not analysis output.** #826's fingerprint (`ledger_fingerprint` in
+  `zhang-server/src/lib.rs`) does not hash analysis output. That is sound only because analyzers are deterministic
+  and their inputs are hashed. The gap this left is closed ahead of P1.5:
+  - It hashed `module_bytes()`, which for a Lua script is the interpreter, not the script, so a script edit kept the
+    generation.
+  - It now hashes each plugin's code (`RegisteredPlugin::hash_code`): a wasm module's bytes, a Lua script's source
+    with the interpreter's identity, a bundled plugin's embedded file. P1.5's default plugins are covered by it.
 - **Atomic publish.** The output is decoded, type-checked against the manifest, size-checked and converted to host
   values in full, and only then stored. Any failure stores `failed` with no data, never half a snapshot.
 - **The query cache is reset after the merge.** The analyzer's queries build the query engine's per-ledger cache
@@ -823,7 +824,7 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | **Parity drift**, in report order and ids (placement, transfer `from`/`to`, after-fold mismatches), tie rules, booked legs against written postings, zero foreign amounts, the sign rule (K4) | • #835's golden files, ids and report order included. <br>• The dual run (`native\|plugin\|both`) in P3. <br>• **Differential fuzzing** over generated ledgers: native against plugin on the full `Ledger::errors` (id, kind, span, metas, order) and every table and named query. <br>• The `budget_reference` oracle. |
 | **The query cache built during analysis** | `derived` is reset after the merge; error-dependent tables, columns and queries are refused during analysis (§2.4) |
 | **The catalog refactor** reaches `CExpr::Column`, the projector's 64-column bitmask and every `&'static Table` | P1.1 is byte-identical by construction and guarded by the equivalence and oracle suites |
-| **The fingerprint misses script edits** today (§2.4) | P1.5 hashes script sources and the default plugins' modules |
+| **The fingerprint missed script edits** (§2.4) | Fixed ahead of P1.5: it hashes every plugin's code, script sources and bundled plugins included |
 | **Reusing a bad snapshot** | Only `ok` snapshots are ever reused; a failed one is retried on the next load |
 | **The playground** (`bindings/wasm`) stops interpreting budgets | `ExtensionUnavailable` and a playground regression test (P3.3) |
 | **Operators surprised** that `ZHANG_PLUGINS=off` now stops budgets | The upgrading note, the startup log line, the `GET /api/plugins` status |
@@ -882,7 +883,7 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | **P1.2** `feat(core)` open metadata at a time | The lifecycle keeps open metas; `open_meta_values`; `account_budgets` as an alias | #835 unchanged; reopen and same-day tests |
 | **P1.3** `feat(query)` extension tables | Record tables with row metadata. Series tables with `carry`, `zero` and `previous`, the generic `{seq}` causes, the tie rules, and the `#budgets` wording in the compat allowlist. Label columns with the `:x IN column` fast path. Catalog digest, `provided_by` (OpenAPI and `schemas.ts` regenerated). Today's native budget code re-hosted on them through an in-process provider. | #835 byte-identical; engine budget suites unchanged; tie-rule tests; no slower than P0b |
 | **P1.4** `feat(plugin)` Analyzer (after I1) | ABI module (manifest, records, output). `AnalysisHost` hook. Snapshots; never reuse a failed one. Diagnostic placement by phase and target. Reset of `derived`; refusal of error-dependent tables. `zhang_convert`, limits, recursion guard, failure isolation. SDK `analyzer:` and `decimal`. **The lifecycle and isolation tests:** module and config swap, clock change at midnight, concurrent reload and query, timeout, OOM, trap, invalid output, missing plugin. | Every failure mode loads the ledger with one diagnostic and no partial snapshot; an SDK fixture analyzer's diagnostics land at the places and ids the native fold gives |
-| **P1.5** `feat(plugin)` default plugins and named queries (absorbs P2) | Plugin-declared named queries per catalog digest. Default bundled plugins and `zhang:budget` (Lua, queries only) serving the five `budgets.*` queries moved from `builtin.rs`, still over native tables. `ZHANG_PLUGINS=off` stops defaults, with `ExtensionUnavailable` and the upgrade note. `GET /api/plugins` fields. Fingerprint hashes script sources and default modules. | #835 and `builtins.ts` byte-identical; the matrix `features.plugin` × `ZHANG_PLUGINS` × runtime present or absent |
+| **P1.5** `feat(plugin)` default plugins and named queries (absorbs P2) | Plugin-declared named queries per catalog digest. Default bundled plugins and `zhang:budget` (Lua, queries only) serving the five `budgets.*` queries moved from `builtin.rs`, still over native tables. `ZHANG_PLUGINS=off` stops defaults, with `ExtensionUnavailable` and the upgrade note. `GET /api/plugins` fields. (The fingerprint already hashes script sources and bundled plugins, §2.4.) | #835 and `builtins.ts` byte-identical; the matrix `features.plugin` × `ZHANG_PLUGINS` × runtime present or absent |
 | **P1.6** `feat(plugin)` Lua analyzers (after I2) | Interpreter: the `Analyzer` type, the manifest in the module table, `zhang.decimal` (pure Lua, §4), `zhang.convert`, `api_version` 2 | Decimal parity property tests; Lua and MCP tests unchanged; reproducible module |
 | ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Added load p95 **and** added `POST /api/transactions` p95 each ≤ max(5% of P0b, 50 ms) at 10,000 and 100,000 transactions; parity with #835. On failure, the Rust→wasm fallback only with the owner's go-ahead |
 | **P3.1** `feat(budget)` definitions and events | `budget.lua` publishes `#budget_definitions`, `#budget_events` and the directive diagnostics. Test switch `native\|plugin\|both`. The differential fuzzing harness (seeded generated ledgers; full `Ledger::errors` and every table and named query) | `both` and the fuzzer report no difference |

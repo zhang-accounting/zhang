@@ -17,7 +17,7 @@ use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage, WriteKind};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
-use crate::plugin::lua::{LuaScript, PluginModule};
+use crate::plugin::lua::{interpreter_digest, LuaScript, PluginModule};
 use crate::plugin::runtime::{PluginInstance, PluginRuntime};
 use crate::plugin::write::{declared_writes, DeclaredCapabilities};
 use crate::plugin::{log_safe, PluginType};
@@ -265,6 +265,27 @@ impl RegisteredPlugin {
     /// interpreter (the script is [`RegisteredPlugin::script`])
     pub fn module_bytes(&self) -> &[u8] {
         self.runtime.module_bytes()
+    }
+
+    /// Feed `hasher` the code the plugin runs, as the load read it, so that a plugin running other code hashes
+    /// otherwise: a wasm module's bytes; a Lua script's name and source, with the interpreter's identity
+    /// ([`interpreter_digest`]) rather than its bytes, which are the same for every script and every load. A bundled
+    /// plugin's code is its embedded file. What its directive grants and configures is not hashed: that is the
+    /// directive's text, and the ledger's options
+    pub fn hash_code<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        match &self.script {
+            Some(script) => {
+                hasher.write_u8(1);
+                interpreter_digest().hash(hasher);
+                script.name.hash(hasher);
+                script.source.hash(hasher);
+            }
+            None => {
+                hasher.write_u8(0);
+                self.module_bytes().hash(hasher);
+            }
+        }
     }
 
     /// the write kinds the plugin declared in its `capabilities` export; it writes those its directive also grants

@@ -424,9 +424,9 @@ fn route(request: Request) -> Result<Response, Error> {
    files that were written and those that were not, the batch is void (every token with it) and the ledger reloads:
    tell the user what was recorded, and preview only the rest again.
 3. **The token is optimistic concurrency control, not consent.** It is the host's HMAC of the ledger's generation (a
-   counter moved on by every commit and by every reload that loaded other content than before; the file watcher's
-   reload of unchanged files keeps it), the plugin's name, the files and the exact text, with an expiry 10 minutes
-   out. It lets a commit find out that the ledger or the batch changed since the preview: a batch that differs, a
+   counter moved on by every commit and by every reload that loaded other content than before, a plugin's code
+   included: a wasm module or a Lua script edited in place; the file watcher's reload of unchanged files keeps it),
+   the plugin's name, the files and the exact text, with an expiry 10 minutes out. It lets a commit find out that the ledger or the batch changed since the preview: a batch that differs, a
    token of another generation, an expired token, a ledger that is reloading after a write, or a second commit
    before that reload is a `conflict`, and the plugin previews again. It proves nothing about who saw the preview:
    the plugin mints its own tokens (it may preview and commit in the same request), and the commit plans and

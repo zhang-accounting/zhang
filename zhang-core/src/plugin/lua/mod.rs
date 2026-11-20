@@ -29,6 +29,19 @@ use crate::{ZhangError, ZhangResult};
 /// the Lua interpreter module every script runs in, built by `tools/lua-runtime` (see its README and PINS.toml)
 pub const INTERPRETER: &[u8] = include_bytes!("lua-runtime.wasm");
 
+/// A hash of [`INTERPRETER`]'s bytes, computed once per process: the interpreter's identity where a script plugin's
+/// code is hashed ([`crate::plugin::store::RegisteredPlugin::hash_code`]), which then hashes the script and not the
+/// interpreter's bytes again on every load. Not a cryptographic hash, nor stable across builds of zhang
+pub fn interpreter_digest() -> u64 {
+    use std::hash::{Hash, Hasher};
+    static DIGEST: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *DIGEST.get_or_init(|| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        INTERPRETER.hash(&mut hasher);
+        hasher.finish()
+    })
+}
+
 /// the longest script the host loads
 pub const MAX_SCRIPT_LEN: usize = 1024 * 1024;
 
