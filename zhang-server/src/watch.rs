@@ -2,6 +2,7 @@
 //! that depends on the date, the next local midnight.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use chrono::{DateTime, NaiveTime, TimeDelta, Utc};
 use chrono_tz::Tz;
@@ -16,6 +17,34 @@ use zhang_core::utils::has_path_visited;
 /// zhang's own state under the root (the registered passkeys), which the server writes itself, so a change there is
 /// never a change to an input either
 const STATE_DIR: &str = crate::auth::STATE_DIR;
+
+/// how long the watcher waits for no other change before it looks at the changes it gathered ([`gather`])
+pub const QUIET: Duration = Duration::from_millis(500);
+
+/// the longest the watcher gathers changes, from the first, however busy the files are ([`gather`])
+pub const MAX_WAIT: Duration = Duration::from_secs(2);
+
+/// whether a report of the watcher may be a change, to gather: not a read (an access), which inotify reports for every
+/// file a load opens, and which changes nothing; an error may be anything
+pub fn is_change(event: &notify::Result<Event>) -> bool {
+    !matches!(event, Ok(event) if event.kind.is_access())
+}
+
+/// The reports of the watcher, gathered: the first one, waited for, then every other until none came for `quiet`, or
+/// until `max_wait` passed since the first, so that a burst of writes, or an editor saving a file in steps, is looked
+/// at once, and a file that never stops changing still is, every `max_wait`. `None` once the watcher is gone.
+pub async fn gather<T>(reports: &mut tokio::sync::mpsc::Receiver<T>, quiet: Duration, max_wait: Duration) -> Option<Vec<T>> {
+    let mut gathered = vec![reports.recv().await?];
+    let longest = tokio::time::Instant::now() + max_wait;
+    loop {
+        let until = (tokio::time::Instant::now() + quiet).min(longest);
+        match tokio::time::timeout_at(until, reports.recv()).await {
+            Ok(Some(report)) => gathered.push(report),
+            // quiet, or waited long enough; a watcher gone leaves what it reported to look at, and `None` next time
+            Ok(None) | Err(_) => return Some(gathered),
+        }
+    }
+}
 
 /// the ledger root as event paths spell it: canonical (macOS reports canonical paths) and absolute (other
 /// platforms join the watched path onto the working directory)
@@ -83,13 +112,15 @@ pub fn next_local_midnight(now: DateTime<Utc>, timezone: Tz) -> DateTime<Utc> {
 #[cfg(test)]
 mod test {
     use std::path::PathBuf;
+    use std::time::Duration;
 
     use indexmap::IndexSet;
     use notify::event::{AccessKind, CreateKind, DataChange, ModifyKind, RemoveKind};
     use notify::{Event, EventKind};
+    use tokio::time::Instant;
     use zhang_core::inputs::ExtraInput;
 
-    use super::should_reload;
+    use super::{gather, is_change, should_reload};
 
     const MODIFY: EventKind = EventKind::Modify(ModifyKind::Data(DataChange::Content));
     const CREATE: EventKind = EventKind::Create(CreateKind::File);
@@ -207,6 +238,67 @@ mod test {
             .add_path(PathBuf::from("/var/ledger/plugins/fx.wasm.tmp"))
             .add_path(PathBuf::from("/var/ledger/plugins/fx.wasm"));
         assert!(should_reload(&event, &roots(), &visited_files(), &inputs()));
+    }
+
+    /// a read is no change; anything else may be, an error too
+    #[test]
+    fn a_read_is_no_change() {
+        assert!(!is_change(&Ok(Event::new(ACCESS).add_path(PathBuf::from("/var/ledger/main.zhang")))));
+        let opened = EventKind::Access(AccessKind::Open(notify::event::AccessMode::Read));
+        assert!(!is_change(&Ok(Event::new(opened))));
+        let closed = EventKind::Access(AccessKind::Close(notify::event::AccessMode::Read));
+        assert!(!is_change(&Ok(Event::new(closed))));
+        assert!(is_change(&Ok(Event::new(MODIFY))));
+        assert!(is_change(&Ok(Event::new(CREATE))));
+        assert!(is_change(&Err(notify::Error::generic("lost"))));
+    }
+
+    const QUIET: Duration = Duration::from_millis(500);
+    const MAX_WAIT: Duration = Duration::from_secs(2);
+
+    /// changes coming closer together than the quiet period are gathered at once, looked at a quiet period after the
+    /// last
+    #[tokio::test(start_paused = true)]
+    async fn changes_are_gathered_until_a_quiet_moment() {
+        let (sender, mut reports) = tokio::sync::mpsc::channel(16);
+        let started = Instant::now();
+        tokio::spawn(async move {
+            for report in 1..=3 {
+                sender.send(report).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            // later than the quiet period: the next gathering
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            sender.send(4).await.unwrap();
+        });
+        assert_eq!(gather(&mut reports, QUIET, MAX_WAIT).await, Some(vec![1, 2, 3]));
+        // the last at 600 ms, then a quiet period
+        assert_eq!(started.elapsed(), Duration::from_millis(1100));
+        assert_eq!(gather(&mut reports, QUIET, MAX_WAIT).await, Some(vec![4]));
+        assert_eq!(gather(&mut reports, QUIET, MAX_WAIT).await, None, "the watcher is gone");
+    }
+
+    /// files that never stop changing, as under writes back to back, are looked at every longest wait
+    #[tokio::test(start_paused = true)]
+    async fn changes_that_never_stop_are_gathered_for_the_longest_wait() {
+        let (sender, mut reports) = tokio::sync::mpsc::channel(16);
+        tokio::spawn(async move {
+            for report in 0.. {
+                if sender.send(report).await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+        let started = Instant::now();
+        let first = gather(&mut reports, QUIET, MAX_WAIT).await.unwrap();
+        assert_eq!(started.elapsed(), MAX_WAIT);
+        // one at once, then one every 100 ms for 2 s, the one at 2 s in this gathering or the next
+        assert!((20..=21).contains(&first.len()), "{first:?}");
+        let second = gather(&mut reports, QUIET, MAX_WAIT).await.unwrap();
+        let elapsed = started.elapsed();
+        assert!(elapsed >= MAX_WAIT * 2 && elapsed <= MAX_WAIT * 2 + Duration::from_millis(100), "{elapsed:?}");
+        assert_eq!(second[0], first.last().unwrap() + 1, "nothing is lost between two gatherings");
     }
 
     #[test]

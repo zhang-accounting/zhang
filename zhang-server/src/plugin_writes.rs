@@ -54,9 +54,10 @@ const BOOKING_METHOD_META: &str = "booking_method";
 
 /// What the writes of every router plugin share: the key their preview tokens are signed with, random per process
 /// (a token does not outlive the server, as a session does not), and the lock that serializes their commits among
-/// themselves (API writes hold the ledger's write lock for their whole write, so they are excluded already: the lock
-/// order is the ledger first, then this). One commit per reload cycle is the reload sender's pending-write flag,
-/// set by a commit and cleared by the next successful reload ([`ReloadSender::mark_written`]).
+/// themselves (API writes and reloads hold the ledger's write cycle exclusively for their whole write, and the request
+/// of a plugin that may write holds it shared, so they are excluded already: the lock order is the write cycle, the
+/// ledger, then this; see [`crate::state::LedgerWriter`]). One commit per reload cycle is the reload sender's
+/// pending-write flag, set by a commit and cleared by the next successful reload ([`ReloadSender::mark_written`]).
 pub struct PluginWrites {
     key: Vec<u8>,
     append: Mutex<()>,

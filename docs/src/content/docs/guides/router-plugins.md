@@ -99,7 +99,7 @@ The server bounds every router plugin, whatever its `plugin` directive asks for.
 | Time one request runs | the plugin's `timeout`, at most 30 seconds | the `timeout` meta, within `ZHANG_PLUGIN_MAX_TIMEOUT` | 504 |
 | Memory of one plugin instance | 256 MiB | `ZHANG_PLUGIN_MAX_MEMORY` | 500 |
 
-Sizes are written as `4MiB`, `512KiB` or a number of bytes. A request holds the ledger's read lock for as long as the plugin runs, and while a write to the ledger waits for that lock, no other request is served: think twice before raising `ZHANG_PLUGIN_MAX_TIMEOUT` above its 30 seconds. A router plugin reaches the network like any plugin, within what [the server allows](/guides/plugins/#what-the-server-allows).
+Sizes are written as `4MiB`, `512KiB` or a number of bytes. A request holds the ledger's read lock for as long as the plugin runs: a reload loads the new ledger meanwhile, but replaces the one served only once the plugin returns, and while it waits to, no other request is served. A plugin that may write (it is granted writes and the server runs with `ZHANG_PLUGINS=write`) also holds off every write and reload of the ledger until it returns. Think twice before raising `ZHANG_PLUGIN_MAX_TIMEOUT` above its 30 seconds. A router plugin reaches the network like any plugin, within what [the server allows](/guides/plugins/#what-the-server-allows).
 
 ## Reading the ledger: `zhang_query` and `zhang_query_params`
 
@@ -145,7 +145,7 @@ These functions answer only while `router` runs. A plugin that is also a `Proces
 
 ## Isolation and errors
 
-Every request runs in a fresh instance of the plugin, so nothing is kept between requests. The plugin gets the same config and `allowed_hosts` as its processor: a request running longer than the `timeout` meta of its `plugin` directive, and at most `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds unless set), is stopped. It cannot read files, whatever its `allowed_paths`: `zhang_read_file` and `zhang_list_dir` answer `denied` in a router. While it runs the ledger does not reload.
+Every request runs in a fresh instance of the plugin, so nothing is kept between requests. The plugin gets the same config and `allowed_hosts` as its processor: a request running longer than the `timeout` meta of its `plugin` directive, and at most `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds unless set), is stopped. It cannot read files, whatever its `allowed_paths`: `zhang_read_file` and `zhang_list_dir` answer `denied` in a router. While it runs, the ledger it reads is not replaced by a reload.
 
 When the plugin cannot answer, Zhang responds with JSON `{"message": "..."}` and logs the details:
 

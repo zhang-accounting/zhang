@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **Route:** `{name}` is the plugin's name; the request's `path` is the part below the route.
 - **Authentication:** the routes sit behind Zhang's own sign-in. Only an allowlist of request headers reaches the plugin, never the credentials or a proxy's identity headers.
-- **Read-only, unless granted writes:** a router reads the ledger only through `zhang_query`, `zhang_query_params` and `zhang_query_builtin` (BQL), `zhang_query_schema` and `zhang_ledger_info`; no host function changes it, except the [writes](#writes) a plugin declares, the ledger owner grants and the server allows (`ZHANG_PLUGINS=write`). Every request runs in a fresh instance, and the ledger does not reload while it runs.
+- **Read-only, unless granted writes:** a router reads the ledger only through `zhang_query`, `zhang_query_params` and `zhang_query_builtin` (BQL), `zhang_query_schema` and `zhang_ledger_info`; no host function changes it, except the [writes](#writes) a plugin declares, the ledger owner grants and the server allows (`ZHANG_PLUGINS=write`). Every request runs in a fresh instance, and the ledger it reads is not replaced by a reload while it runs.
 - **Bind user input:** never write what a user typed into a query's text. `router::query_with_params` binds typed parameters, and the query is compiled against their types:
 
   ```rust

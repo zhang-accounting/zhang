@@ -339,7 +339,7 @@ pub async fn create_new_transaction(
     let text = ledger.data_source.export(written)?;
 
     let appended = ledger.data_source.append(&ledger, vec![trx]);
-    let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, appended.map_err(ServerError::from)).await?;
+    let ((), reloaded) = wrote_and_reloaded(&mut ledger, appended.map_err(ServerError::from)).await?;
     let id = reloaded
         .then(|| appended_transaction(&ledger, &file, &String::from_utf8_lossy(&text)))
         .flatten();
@@ -583,7 +583,7 @@ pub async fn upload_transaction_document(
     }
     .await;
     // reloaded before the answer, as the other writes of a transaction are: the journal gives its new version
-    wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
+    wrote_and_reloaded(&mut ledger, written.map_err(moved)).await?;
     ResponseWrapper::json("Ok".to_string())
 }
 
@@ -677,11 +677,13 @@ pub async fn update_single_transaction(
         ServerResult::Ok(())
     }
     .await;
-    let ((), reloaded) = wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
-    // the version replaced is a tombstone, unless the update wrote the same text
-    if let Some(replaced) = journals::transaction_version(&span_info.span).filter(|_| span_info.span.content != trx_content.trim_end_matches(['\n', '\r'])) {
+    // the version replaced is a tombstone, unless the update wrote the same text: recorded with the write, before the
+    // reload, which a client that goes away does not wait for
+    let replaced = journals::transaction_version(&span_info.span).filter(|_| span_info.span.content != trx_content.trim_end_matches(['\n', '\r']));
+    if let (Ok(()), Some(replaced)) = (&written, replaced) {
         reload_sender.tombstones().add(transaction_id, replaced);
     }
+    let ((), reloaded) = wrote_and_reloaded(&mut ledger, written.map_err(moved)).await?;
     let id = reloaded.then(|| transaction_at(&ledger, &source_file_path, span_info.span_start)).flatten();
     let written = written_transaction(&ledger, id);
     answered(&reload_sender, &written);
@@ -732,11 +734,12 @@ pub async fn delete_single_transaction(
         ServerResult::Ok(())
     }
     .await;
-    wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
-    // the version deleted is a tombstone: a twin can take its place and its id
-    if let Some(deleted) = journals::transaction_version(&span_info.span) {
+    // the version deleted is a tombstone: a twin can take its place and its id. Recorded with the write, before the
+    // reload, which a client that goes away does not wait for
+    if let (Ok(()), Some(deleted)) = (&written, journals::transaction_version(&span_info.span)) {
         reload_sender.tombstones().add(transaction_id, deleted);
     }
+    wrote_and_reloaded(&mut ledger, written.map_err(moved)).await?;
     ResponseWrapper::json(())
 }
 
