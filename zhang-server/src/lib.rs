@@ -9,7 +9,7 @@ use axum::routing::{any, get};
 use chrono::Utc;
 use gotcha::config::BasicConfig;
 use gotcha::{ConfigWrapper, GotchaApp, GotchaContext, GotchaRouter};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use routes::account::*;
 use routes::commodity::*;
@@ -545,24 +545,30 @@ pub fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender
         // the changes of a burst of writes, of an editor saving a file, at once
         while let Some(all) = watch::gather(&mut rx, watch::QUIET, watch::MAX_WAIT).await {
             trace!("receive all file changes: {:?}", all);
-            let events: Vec<Event> = all.into_iter().filter_map(Result::ok).collect();
-            on_file_events(&cloned_ledger, &reload_sender_for_fs, &roots, &events).await;
+            on_file_events(&cloned_ledger, &reload_sender_for_fs, &roots, &all).await;
         }
     });
 }
 
-/// What the file watcher makes of `events`, the changes it gathered under the ledger's root, whose spellings are
-/// `roots` ([`watch::watch_roots`]): a reload when one of them changed something the load of the ledger served read
+/// What the file watcher makes of `events`, what it reported under the ledger's root, whose spellings are `roots`
+/// ([`watch::watch_roots`]): a reload when one of them changed something the load of the ledger served read
 /// ([`watch::change`]), one that loads nothing while the ledger's own files hold what it was loaded from when only
 /// those were modified ([`ReloadSender::reload_if_files_changed`]). The ledger is looked at once the writes and reloads
 /// in progress are done, holding the write cycle shared ([`LedgerWriter`]): a load in progress reads files the ledger
 /// served did not, the file an `include` it newly follows names, and a change to one of those while it loads is a
-/// change to the ledger it swaps in
-pub async fn on_file_events(ledger: &Arc<RwLock<Ledger>>, reload_sender: &ReloadSender, roots: &[PathBuf], events: &[Event]) {
+/// change to the ledger it swaps in. An error of the watcher, or a report that it lost events (its queue overflowed,
+/// a rescan), may hide any change: the ledger is reloaded
+pub async fn on_file_events(ledger: &Arc<RwLock<Ledger>>, reload_sender: &ReloadSender, roots: &[PathBuf], events: &[notify::Result<Event>]) {
+    if let Some(lost) = events.iter().find(|event| event.as_ref().map_or(true, Event::need_rescan)) {
+        warn!("the file watcher may have missed changes ({lost:?}), reloading the ledger");
+        reload_sender.reload();
+        return;
+    }
     let _cycle = state::write_cycle(ledger).read_owned().await;
     let served = ledger.read().await;
     let change = events
         .iter()
+        .filter_map(|event| event.as_ref().ok())
         .filter_map(|event| watch::change(event, roots, &served.visited_files, &served.extra_inputs))
         .max();
     drop(served);

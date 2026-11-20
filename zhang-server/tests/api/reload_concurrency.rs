@@ -575,7 +575,7 @@ async fn an_edit_during_a_reload_to_a_file_it_newly_includes_is_served() {
         let edit = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Data(notify::event::DataChange::Content))).add_path(data.clone());
         tokio::spawn(async move {
             let roots = watch::watch_roots(served.scratch.dir());
-            on_file_events(&served.ledger, &served.reload_sender, &roots, &[edit]).await
+            on_file_events(&served.ledger, &served.reload_sender, &roots, &[Ok(edit)]).await
         })
     };
     waits(&watcher, "the watcher").await;
@@ -690,6 +690,33 @@ async fn the_watchers_reload_after_a_write_loads_only_an_edit_outside() {
     served.reload_sender.reload_and_wait().await.unwrap();
     assert_eq!(loads(), before + 7, "the watcher's reload loads while the last reload failed");
     assert!(served.reload_sender.last_failure().is_none());
+}
+
+/// The file watcher reports that it lost events (its queue overflowed: a rescan), or an error: any change may be
+/// hidden, so the ledger is reloaded, though no event names a file of it
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_watcher_that_lost_events_reloads() {
+    let served = Served::with_main(OPENS);
+    let roots = watch::watch_roots(served.scratch.dir());
+    let loads = || served.gate.loads.load(Ordering::SeqCst);
+    let rescan = || Ok(notify::Event::new(notify::EventKind::Other).set_flag(notify::event::Flag::Rescan));
+    let failed = || Err(notify::Error::generic("the watcher failed"));
+    for (lost, account) in [(rescan(), "Expenses:Tea"), (failed(), "Expenses:Coffee")] {
+        // an edit outside, which the watcher did not report
+        let main = served.read("main.zhang");
+        served.scratch.write("main.zhang", &format!("{main}1970-01-01 open {account}\n"));
+        let before = loads();
+        on_file_events(&served.ledger, &served.reload_sender, &roots, &[lost]).await;
+        // a reload that loads, after the watcher's: the listener runs them in turn
+        served.reload_sender.reload_and_wait().await.unwrap();
+        assert_eq!(loads(), before + 2, "the watcher's reload loads, then the one after it");
+        assert!(served.accounts().await.contains(&account.to_owned()), "the edit is served");
+    }
+    // nothing lost, nothing changed: no reload
+    let before = loads();
+    on_file_events(&served.ledger, &served.reload_sender, &roots, &[]).await;
+    served.reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(loads(), before + 1);
 }
 
 /// An SSE client that does not read and would miss a reload event is let go: its stream gives what its buffer holds,
