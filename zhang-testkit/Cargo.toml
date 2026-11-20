@@ -24,6 +24,8 @@ bigdecimal = { workspace = true }
 chrono = "0.4"
 tempfile = "3.20"
 serde_json = { workspace = true }
+# the digest of a generated ledger (`budget_ledger`), which the budget baseline records
+sha2 = "0.11"
 
 zhang-query = { path = "../zhang-query", optional = true }
 zhang-server = { path = "../zhang-server", optional = true }
