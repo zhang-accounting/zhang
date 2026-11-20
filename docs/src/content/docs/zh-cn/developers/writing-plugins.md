@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **路由：** `{name}` 是插件的名称；请求的 `path` 是路由之下的部分。
 - **身份认证：** 这些路由位于张记账自己的登录保护之后。只有允许列表中的请求头会传给插件，凭据和代理的身份请求头永远不会。
-- **只读，除非被授予写入：** router 只能通过 `zhang_query`、`zhang_query_params` 和 `zhang_query_builtin`（BQL）、`zhang_query_schema` 和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本，唯一的例外是插件声明、由账本所有者授予、并且服务器允许（`ZHANG_PLUGINS=write`）的[写入](#写入)。每个请求都在新的实例中运行，运行期间账本不会重新加载。
+- **只读，除非被授予写入：** router 只能通过 `zhang_query`、`zhang_query_params` 和 `zhang_query_builtin`（BQL）、`zhang_query_schema` 和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本，唯一的例外是插件声明、由账本所有者授予、并且服务器允许（`ZHANG_PLUGINS=write`）的[写入](#写入)。每个请求都在新的实例中运行，运行期间它读取的账本不会被重新加载替换。
 - **绑定用户输入：** 永远不要把用户输入的内容写进查询文本。`router::query_with_params` 绑定带类型的参数，查询按参数的类型编译：
 
   ```rust
