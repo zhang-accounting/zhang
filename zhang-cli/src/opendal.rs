@@ -1599,6 +1599,7 @@ mod test {
             passkey_origin: None,
             session_secret: None,
             app_return_schemes: None,
+            plugins: Default::default(),
         };
         let ledger = zhang_server::load_served_ledger(&mut config).await.unwrap();
 

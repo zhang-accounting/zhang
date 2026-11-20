@@ -27,6 +27,7 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
+use zhang_core::clock::Clock;
 use zhang_core::data_source::DataSource;
 use zhang_core::error::IoErrorIntoZhangError;
 use zhang_core::inputs::ExtraInput;
@@ -37,6 +38,7 @@ use crate::auth::{AuthConfig, AuthState, SharedAuth};
 use crate::broadcast::{BroadcastEvent, Broadcaster};
 use crate::error::ServerError;
 use crate::response::ResponseWrapper;
+use crate::routes::plugin_router::{PluginRoutes, PluginSettings};
 use crate::state::{AppState, ReloadFailure};
 
 pub mod account_queries;
@@ -68,6 +70,7 @@ pub struct ServerApp {
     broadcaster: Arc<Broadcaster>,
     reload_sender: Arc<ReloadSender>,
     auth: Arc<AuthState>,
+    plugin_routes: Arc<PluginRoutes>,
 }
 
 impl GotchaApp for ServerApp {
@@ -169,6 +172,7 @@ impl GotchaApp for ServerApp {
             broadcaster: SharedBroadcaster(self.broadcaster.clone()),
             reload_sender: SharedReloadSender(self.reload_sender.clone()),
             auth: SharedAuth(self.auth.clone()),
+            plugin_routes: self.plugin_routes.clone(),
         })
     }
 }
@@ -216,6 +220,9 @@ pub struct ServeConfig {
     pub session_secret: Option<String>,
     /// more url schemes the app login handoff may return to, comma separated, next to `zhang-app` (`ZHANG_APP_RETURN_SCHEMES`)
     pub app_return_schemes: Option<String>,
+    /// what the operator lets plugins use: the policy every plugin of the ledger runs under, and the limits of the
+    /// plugin routes (`ZHANG_PLUGIN_*`)
+    pub plugins: PluginSettings,
 }
 
 impl ServeConfig {
@@ -349,6 +356,7 @@ impl ReloadSender {
 
 pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
+    info!("{}", opts.plugins);
     let ledger = load_served_ledger(&mut opts).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
@@ -383,7 +391,8 @@ pub async fn load_served_ledger(opts: &mut ServeConfig) -> ZhangResult<Ledger> {
         opts.path = opts.path.canonicalize().with_path(&opts.path)?;
     }
     let (path, endpoint, data_source) = (opts.path.clone(), opts.endpoint.clone(), opts.data_source.clone());
-    tokio::task::spawn_blocking(move || Ledger::load(path, endpoint, data_source))
+    let plugin_policy = Arc::new(opts.plugins.policy.clone());
+    tokio::task::spawn_blocking(move || Ledger::load_with_policy(path, endpoint, data_source, Clock::System, plugin_policy))
         .await
         .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()))
 }
@@ -551,12 +560,14 @@ fn log_auth_settings(auth: &AuthState, opts: &ServeConfig) {
 pub fn create_server_app(opts: ServeConfig, ledger: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>) -> ServerApp {
     let auth = Arc::new(AuthState::new(AuthConfig::from_serve_config(&opts), ledger.clone()));
     log_auth_settings(&auth, &opts);
+    let plugin_routes = Arc::new(PluginRoutes::new(opts.plugins.routes));
     ServerApp {
         opts,
         ledger,
         broadcaster,
         reload_sender,
         auth,
+        plugin_routes,
     }
 }
 
@@ -921,6 +932,7 @@ mod served_root_test {
             passkey_origin: None,
             session_secret: None,
             app_return_schemes: None,
+            plugins: Default::default(),
         }
     }
 

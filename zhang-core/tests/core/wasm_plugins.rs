@@ -27,8 +27,9 @@ use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::outcome::Detail;
 use zhang_core::plugin::capabilities::{plugin_seed, PluginStage};
 use zhang_core::plugin::http::PluginRequest;
-use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
+use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost, ROUTER_MAX_TIMEOUT};
 use zhang_core::plugin::PluginType;
+use zhang_core::plugin_policy::{PluginPolicy, MIB};
 use zhang_core::ZhangResult;
 
 const LEDGER: &str = indoc! {r#"
@@ -546,10 +547,90 @@ fn router_answers_with_its_response() {
     let response = call(&ledger, "router-echo", &request).unwrap();
 
     assert_eq!(response.status(), 201);
-    assert_eq!(response.headers()["x-echo"], "router");
     assert_eq!(response.headers()["content-type"], "application/json");
+    assert!(response.headers().get("x-echo").is_none(), "a header zhang does not allow is dropped");
     let echoed: PluginRequest = serde_json::from_slice(response.body()).unwrap();
     assert_eq!(echoed, request);
+    assert!(echoed.headers.is_empty(), "x-custom is not passed on: {:?}", echoed.headers);
+}
+
+#[test]
+fn router_responses_are_sandboxed_and_keep_only_the_allowed_headers() {
+    let (_dir, ledger) = router_ledger(&["router_hostile.wat"]);
+
+    let response = call(&ledger, "router-hostile", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap();
+
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(name, value)| format!("{name}: {}", value.to_str().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        headers,
+        vec![
+            "cache-control: no-store",
+            "content-type: text/html; charset=utf-8",
+            "content-security-policy: sandbox allow-scripts allow-forms allow-popups allow-downloads",
+            "x-content-type-options: nosniff",
+        ]
+    );
+    assert!(String::from_utf8_lossy(response.body()).starts_with("<script>"), "the body is sent as it is");
+}
+
+/// load `content` as the main file of `dir` with the plugins bounded by `policy`
+fn load_with_policy(dir: &TempDir, content: &str, policy: PluginPolicy) -> ZhangResult<Ledger> {
+    std::fs::write(dir.path().join("main.zhang"), content).unwrap();
+    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    Ledger::load_with_policy(dir.path().to_path_buf(), "main.zhang".to_owned(), source, Clock::System, Arc::new(policy))
+}
+
+#[test]
+fn a_plugin_growing_past_the_memory_limit_fails_cleanly() {
+    let dir = ledger_dir(&["memory_hog.wat"]);
+    let content = with_plugins(&plugin(&dir, "memory_hog.wat"));
+
+    // 64 MiB is well within the default limit
+    let ledger = load(&dir, &content);
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the processor passed the stream through");
+    let response = call(&ledger, "memory-hog", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap();
+    assert_eq!(response.body(), b"grown");
+
+    // under a limit of 16 MiB the processor fails the load, saying why
+    let error = load_with_policy(&dir, &content, PluginPolicy { max_memory: 16 * MIB })
+        .err()
+        .expect("the load fails");
+    assert_eq!(
+        error.to_string(),
+        "custom error: plugin memory-hog ran out of memory: its `processor` call needed more than the 16 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
+    );
+}
+
+#[test]
+fn a_router_growing_past_the_memory_limit_fails_cleanly() {
+    let dir = ledger_dir(&["memory_hog.wat"]);
+    // 48 MiB lets the processor grow by its 32 MiB, but not the router by its 64 MiB
+    let policy = PluginPolicy { max_memory: 48 * MIB };
+    let ledger = load_with_policy(&dir, &with_plugins(&plugin(&dir, "memory_hog.wat")), policy).unwrap_or_else(|e| panic!("the processor fits: {e}"));
+
+    let error = call(&ledger, "memory-hog", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap_err();
+
+    assert_eq!(
+        error,
+        RouterError::Failed("it ran out of memory: it needed more than the 48 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)".to_owned())
+    );
+    // a new request gets a new instance, which fails the same way rather than crashing anything
+    assert!(call(&ledger, "memory-hog", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).is_err());
+}
+
+#[test]
+fn a_router_call_runs_for_at_most_thirty_seconds() {
+    let dir = ledger_dir(&["router.wat"]);
+    for (meta, timeout) in [("", 30), ("  timeout: \"2m\"\n", 30), ("  timeout: \"10\"\n", 10)] {
+        let ledger = load(&dir, &with_plugins(&format!("{}{meta}", plugin(&dir, "router.wat"))));
+        let router = ledger.plugins.router("router-echo").unwrap();
+        assert_eq!(router.router_timeout(), Duration::from_secs(timeout), "{meta:?}");
+    }
+    assert_eq!(ROUTER_MAX_TIMEOUT, Duration::from_secs(30));
 }
 
 #[test]

@@ -31,6 +31,7 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::ZhangResult;
 use zhang_server::broadcast::Broadcaster;
+use zhang_server::routes::plugin_router::PluginSettings;
 pub use zhang_server::state::{SharedLedger, SharedReloadSender};
 pub use zhang_server::{ReloadSender, ServeConfig, ServerApp};
 
@@ -149,7 +150,7 @@ pub async fn data(response: impl IntoResponse) -> Value {
 
 // ---- router level -----------------------------------------------------------------------------------------------
 
-/// The authentication settings of a server: none by default.
+/// The authentication settings of a server, none by default, and what its plugins may use, the defaults by default.
 #[derive(Default, Clone, Debug)]
 pub struct Settings {
     pub auth_credential: Option<String>,
@@ -158,6 +159,8 @@ pub struct Settings {
     pub passkey_origin: Option<String>,
     pub session_secret: Option<String>,
     pub app_return_schemes: Option<String>,
+    /// what plugins may use: their policy and the limits of their routes
+    pub plugins: PluginSettings,
 }
 
 /// The configuration of a server on the ledger `dir/entry` read through `data_source`, on an ephemeral port, with
@@ -176,6 +179,7 @@ pub fn serve_config(dir: &Path, entry: &str, data_source: Arc<dyn DataSource>, s
         passkey_origin: settings.passkey_origin.clone(),
         session_secret: settings.session_secret.clone(),
         app_return_schemes: settings.app_return_schemes.clone(),
+        plugins: settings.plugins.clone(),
     }
 }
 

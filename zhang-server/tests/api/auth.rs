@@ -112,6 +112,7 @@ async fn app_and_ledger(dir: &Path, settings: &Settings) -> (ServerApp, Arc<RwLo
         passkey_origin: settings.origin.map(str::to_owned),
         session_secret: settings.session_secret.map(str::to_owned),
         app_return_schemes: settings.app_return_schemes.map(str::to_owned),
+        plugins: Default::default(),
     };
     zhang_testkit::http::app_and_ledger(dir, "main.zhang", Arc::new(RootedFileSystem::new(dir)), &settings).await
 }
@@ -1080,7 +1081,11 @@ async fn router_plugins_need_a_session_and_never_see_it() {
     let cookie = password_login(&router).await;
     let reply = get(&router, "/api/plugins/router-echo/x?k=v", &[("cookie", &format!("theme=dark; {cookie}"))]).await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
-    assert_eq!(reply.headers["x-echo"], "router");
+    // sandboxed, so a page of the plugin cannot use this session itself
+    assert_eq!(
+        reply.headers["content-security-policy"],
+        "sandbox allow-scripts allow-forms allow-popups allow-downloads"
+    );
     assert_eq!((&reply.body["method"], &reply.body["path"]), (&json!("GET"), &json!("/x")));
     assert_eq!(reply.body["query"], json!({"k": ["v"]}));
     // neither the session cookie nor any other cookie reaches the plugin

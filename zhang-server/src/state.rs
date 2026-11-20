@@ -11,6 +11,7 @@ use zhang_core::ZhangError;
 use crate::auth::SharedAuth;
 use crate::broadcast::Broadcaster;
 use crate::error::ServerError;
+use crate::routes::plugin_router::{PluginRouteState, PluginRoutes};
 use crate::{ReloadSender, ServerResult};
 
 /// Why the last reload failed, kept while the ledger served is the one loaded before it (#492): `/api/info` shows
@@ -103,6 +104,8 @@ pub struct AppState {
     pub broadcaster: SharedBroadcaster,
     pub reload_sender: SharedReloadSender,
     pub auth: SharedAuth,
+    /// the limits of the router plugins' routes, and the requests each plugin handles now
+    pub plugin_routes: Arc<PluginRoutes>,
 }
 
 impl FromRef<GotchaContext<AppState, ()>> for SharedLedger {
@@ -119,6 +122,15 @@ impl FromRef<GotchaContext<AppState, ()>> for SharedBroadcaster {
 impl FromRef<GotchaContext<AppState, ()>> for SharedReloadSender {
     fn from_ref(input: &GotchaContext<AppState, ()>) -> Self {
         input.state.reload_sender.clone()
+    }
+}
+
+impl FromRef<GotchaContext<AppState, ()>> for PluginRouteState {
+    fn from_ref(input: &GotchaContext<AppState, ()>) -> Self {
+        PluginRouteState {
+            ledger: input.state.ledger.clone(),
+            routes: input.state.plugin_routes.clone(),
+        }
     }
 }
 

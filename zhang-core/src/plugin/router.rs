@@ -33,13 +33,19 @@
 //! # Isolation
 //!
 //! Every request runs in a new instance of the plugin, so no state survives between requests. The
-//! instance gets the same config, `allowed_hosts` and timeout as the plugin's processor: a call
-//! running longer than the timeout is stopped and answered as [`RouterError::Timeout`]. The caller
-//! holds the ledger's read lock for the whole call, so the ledger cannot reload under the plugin,
-//! and no host function can change the ledger.
+//! instance gets the same config, `allowed_hosts` and memory limit as the plugin's processor, and its
+//! timeout, but at most [`ROUTER_MAX_TIMEOUT`]: a call running longer is stopped and answered as
+//! [`RouterError::Timeout`]. The caller holds the ledger's read lock for the whole call, so the ledger
+//! cannot reload under the plugin, and no host function can change the ledger. That lock is why a
+//! router call is bounded more tightly than a processor: while a writer waits for the lock, no new
+//! reader gets it, so a long call would stall every request of the server.
+//!
+//! What the plugin answers is sent only as [`PluginResponse::into_http`] makes it: the headers it may
+//! set, and the sandbox zhang adds to every response.
 
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, PoisonError};
+use std::time::Duration;
 
 use extism::{CurrentPlugin, Plugin as WasmPlugin, UserData, Val};
 use log::{debug, warn};
@@ -53,11 +59,18 @@ use crate::clock::LoadClock;
 use crate::ledger::Ledger;
 use crate::plugin::host::{read_input_str, HostState, MESSAGE_META};
 use crate::plugin::http::{PluginRequest, PluginResponse};
+use crate::plugin::log_safe;
 use crate::plugin::store::{PluginStore, RegisteredPlugin};
+use crate::plugin_policy::{Size, MAX_MEMORY_ENV};
 
 /// the most bytes `zhang_query` will read for a plugin's BQL text. A query is human-written SQL-like
 /// text, so one mebibyte is far beyond any real query while capping what a single call can read.
 const QUERY_MAX_LEN: usize = 1024 * 1024;
+
+/// The longest a router call may run, whatever the plugin's `timeout` asks for; a shorter `timeout` still counts. The
+/// call holds the ledger's read lock all along (see "Isolation" above), so this bounds how long it can stall the
+/// server.
+pub const ROUTER_MAX_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// a query that failed to parse, compile or run
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,10 +199,8 @@ impl PluginStore {
     /// register a router plugin. One sharing the name of an earlier router plugin never serves a request
     pub(crate) fn add_router(&mut self, plugin: RegisteredPlugin) {
         if self.router(&plugin.name).is_some() {
-            warn!(
-                "two router plugins are named {}: the first one declared serves /api/plugins/{}, the later one never does",
-                plugin.name, plugin.name
-            );
+            let name = log_safe(&plugin.name);
+            warn!("two router plugins are named {name}: the first one declared serves /api/plugins/{name}, the later one never does");
         }
         self.routers.push(plugin);
     }
@@ -199,39 +210,64 @@ impl RegisteredPlugin {
     /// handle `request` in a new instance of the plugin, with the host functions reading `ledger`
     /// through `host`. The caller keeps `ledger` read-locked until this returns.
     ///
-    /// The response is validated and ready to send (see [`PluginResponse::into_http`]).
+    /// The call runs for at most [`RegisteredPlugin::router_timeout`]. The response is validated and ready to send
+    /// (see [`PluginResponse::into_http`]). What the plugin wrote into an error is escaped ([`log_safe`]).
     pub fn execute_as_router(&self, request: &PluginRequest, ledger: &Ledger, host: Arc<dyn RouterHost>) -> Result<http::Response<Vec<u8>>, RouterError> {
-        debug!("plugin {} {} handles {} {}", self.name, self.version, request.method, request.path);
+        debug!(
+            "plugin {} {} handles {} {}",
+            log_safe(&self.name),
+            log_safe(&self.version),
+            request.method,
+            log_safe(&request.path)
+        );
         let options = ledger.options.all();
         // `zhang_emit_error` too, so a plugin importing it can serve requests. `zhang_now` reads the
         // ledger's clock afresh for this request
         let plugin_host = self
             .routing_host(LoadClock::new(ledger.clock()), ledger.options.timezone)
             .with_router(host, ledger_info(ledger));
-        // the same manifest as a processor gets: config, allowed hosts and timeout
-        let mut plugin = WasmPlugin::new(self.manifest(&options), plugin_host.functions(), true).map_err(|e| RouterError::Load(format!("{e:#}")))?;
+        // the same manifest as a processor gets: config, allowed hosts and memory limit, with the router's timeout
+        let manifest = self.manifest_with_timeout(&options, self.router_timeout());
+        let mut plugin = WasmPlugin::new(manifest, plugin_host.functions(), true).map_err(|e| RouterError::Load(log_safe(&format!("{e:#}")).into_owned()))?;
         if !plugin.function_exists(ROUTER_EXPORT) {
             return Err(RouterError::NoRouterExport);
         }
-        let input = serde_json::to_vec(request).map_err(|e| RouterError::Failed(format!("cannot encode the request: {e}")))?;
+        let input = serde_json::to_vec(request).map_err(|e| RouterError::Failed(log_safe(&format!("cannot encode the request: {e}")).into_owned()))?;
         let output = plugin.call::<&[u8], &[u8]>(ROUTER_EXPORT, &input).map(<[u8]>::to_vec);
         // a request has no error list to report into
         for error in plugin_host.take_errors() {
             let message = error.metas.get(MESSAGE_META).map(String::as_str).unwrap_or_default();
             warn!(
-                "router plugin {} reported a problem while handling {} {}: {message}",
-                self.name, request.method, request.path
+                "router plugin {} reported a problem while handling {} {}: {}",
+                log_safe(&self.name),
+                request.method,
+                log_safe(&request.path),
+                log_safe(message)
             );
         }
         let output = match output {
             Ok(output) => output,
-            // extism reports a call it stopped at the manifest's timeout as exactly "timeout"
-            Err(e) if e.to_string() == "timeout" => return Err(RouterError::Timeout),
-            Err(e) => return Err(RouterError::Failed(format!("{e:?}"))),
+            Err(e) => {
+                return Err(match e.to_string().as_str() {
+                    // extism reports a call it stopped at the manifest's timeout as exactly "timeout"
+                    "timeout" => RouterError::Timeout,
+                    // and one whose memory would grow past the manifest's limit as exactly "oom"
+                    "oom" => RouterError::Failed(format!(
+                        "it ran out of memory: it needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
+                        Size(self.policy().max_memory)
+                    )),
+                    _ => RouterError::Failed(log_safe(&format!("{e:#}")).into_owned()),
+                });
+            }
         };
         PluginResponse::from_json(&output)
             .and_then(PluginResponse::into_http)
-            .map_err(RouterError::BadResponse)
+            .map_err(|reason| RouterError::BadResponse(log_safe(&reason).into_owned()))
+    }
+
+    /// how long one router call of the plugin may run: its `timeout`, but at most [`ROUTER_MAX_TIMEOUT`]
+    pub fn router_timeout(&self) -> Duration {
+        self.capabilities().timeout.min(ROUTER_MAX_TIMEOUT)
     }
 }
 

@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -8,6 +9,8 @@ use env_logger::Env;
 use log::info;
 use self_update::{UpdateStrategy, VersionStatus};
 use tokio::task::spawn_blocking;
+use zhang_core::plugin_policy::{parse_size, PluginPolicy, MAX_MEMORY_ENV};
+use zhang_server::routes::plugin_router::{PluginSettings, MAX_BODY_ENV, MAX_CONCURRENCY_ENV};
 use zhang_server::ServeConfig;
 
 use crate::opendal::OpendalDataSource;
@@ -97,6 +100,8 @@ impl Opts {
                 let data_source = OpendalDataSource::from_env(file_system.clone(), &mut opts).await?;
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 let passkey_secret = opts.passkey.or_else(|| env_value("ZHANG_PASSKEY")).filter(|it| !it.is_empty());
+                // a limit the operator set but mistyped stops the server, rather than running without it
+                let plugins = plugin_settings(env_value)?;
                 let result = zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
@@ -110,6 +115,7 @@ impl Opts {
                     app_return_schemes: env_value("ZHANG_APP_RETURN_SCHEMES"),
                     no_report: opts.no_report,
                     data_source: Arc::new(data_source),
+                    plugins,
                 })
                 .await;
                 // the initial load (and binding the port) can fail here; reload failures while
@@ -160,6 +166,29 @@ impl Opts {
 /// The value of an environment variable, when it is set and not empty.
 fn env_value(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|it| !it.trim().is_empty())
+}
+
+/// What plugins may use, from the environment `env` reads: `ZHANG_PLUGIN_MAX_MEMORY` and `ZHANG_PLUGIN_MAX_BODY` are
+/// sizes (`256MiB`), `ZHANG_PLUGIN_MAX_CONCURRENCY` a whole number above zero. A variable that is not set keeps the
+/// default; one that is set to something else is an error naming it.
+fn plugin_settings(env: impl Fn(&str) -> Option<String>) -> Result<PluginSettings, String> {
+    let size = |name: &str| env(name).map(|value| parse_size(&value).map_err(|e| format!("{name}: {e}"))).transpose();
+    let mut settings = PluginSettings::default();
+    if let Some(max_memory) = size(MAX_MEMORY_ENV)? {
+        settings.policy = PluginPolicy { max_memory };
+    }
+    if let Some(max_body) = size(MAX_BODY_ENV)? {
+        settings.routes.max_body = usize::try_from(max_body).map_err(|_| format!("{MAX_BODY_ENV}: {max_body} bytes is too large"))?;
+    }
+    if let Some(value) = env(MAX_CONCURRENCY_ENV) {
+        settings.routes.max_concurrency = value
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|it| *it > 0)
+            .ok_or_else(|| format!("{MAX_CONCURRENCY_ENV}: {value:?} is not a whole number above zero"))?;
+    }
+    Ok(settings)
 }
 
 /// The log filter, in env_logger syntax: `ZHANG_LOG`, else `RUST_LOG`, else `info`, so that errors, warnings and
@@ -232,6 +261,42 @@ mod test {
 
     };
 }
+    #[test]
+    fn plugin_settings_read_the_limits_from_the_environment() {
+        use zhang_core::plugin_policy::{PluginPolicy, MIB};
+        use zhang_server::routes::plugin_router::{PluginRouteLimits, PluginSettings};
+
+        use crate::plugin_settings;
+
+        let env =
+            |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| value.to_string());
+        assert_eq!(plugin_settings(env(&[])), Ok(PluginSettings::default()));
+        assert_eq!(
+            plugin_settings(env(&[
+                ("ZHANG_PLUGIN_MAX_MEMORY", "64MiB"),
+                ("ZHANG_PLUGIN_MAX_BODY", "1 MiB"),
+                ("ZHANG_PLUGIN_MAX_CONCURRENCY", "2"),
+            ])),
+            Ok(PluginSettings {
+                policy: PluginPolicy { max_memory: 64 * MIB },
+                routes: PluginRouteLimits {
+                    max_body: MIB as usize,
+                    max_concurrency: 2,
+                },
+            })
+        );
+        for (name, value) in [
+            ("ZHANG_PLUGIN_MAX_MEMORY", "lots"),
+            ("ZHANG_PLUGIN_MAX_BODY", "0"),
+            ("ZHANG_PLUGIN_MAX_CONCURRENCY", "0"),
+            ("ZHANG_PLUGIN_MAX_CONCURRENCY", "-1"),
+        ] {
+            let pairs: &'static [(&'static str, &'static str)] = Box::leak(Box::new([(name, value)]));
+            let error = plugin_settings(env(pairs)).unwrap_err();
+            assert!(error.starts_with(&format!("{name}: ")), "{}", error);
+        }
+    }
+
     #[test]
     fn log_filter_reads_zhang_log_then_rust_log_then_defaults_to_info() {
         use crate::log_filter;
@@ -350,6 +415,7 @@ mod test {
                         app_return_schemes: None,
                         no_report: false,
                         data_source: data_source.clone(),
+                        plugins: Default::default(),
                     },
                     ledger_data,
                     broadcaster,
@@ -556,6 +622,7 @@ mod test {
                 app_return_schemes: None,
                 no_report: true,
                 data_source,
+                plugins: Default::default(),
             },
             Arc::new(RwLock::new(ledger)),
             Broadcaster::create(),

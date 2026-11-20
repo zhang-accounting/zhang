@@ -50,6 +50,7 @@ sha2 = "0.11"
 rand = "0.10"
 percent-encoding = "2"
 form_urlencoded = "1"
+http-body-util = "0.1"
 
 [build-dependencies]
 chrono = { version = "0.4" }

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono_tz::Tz;
@@ -16,7 +17,8 @@ use crate::pipeline::StageContext;
 use crate::plugin::capabilities::{PluginCapabilities, PluginDeclaration, PluginStage};
 use crate::plugin::files::FileAccess;
 use crate::plugin::host::PluginHost;
-use crate::plugin::PluginType;
+use crate::plugin::{log_safe, PluginType};
+use crate::plugin_policy::{PluginPolicy, Size, MAX_MEMORY_ENV};
 use crate::{ZhangError, ZhangResult};
 
 #[derive(Default)]
@@ -29,16 +31,18 @@ pub struct PluginStore {
 impl PluginStore {
     /// register the plugin `_plugin` declares, whose module is `module_bytes`, as parsed into `declaration`; `span` is
     /// the directive's span. `clock` is the clock of the load, which the plugin reads in the ledger timezone
-    /// `timezone`, and `files` what the plugin may read once it runs as a processor or mapper
+    /// `timezone`, `files` what the plugin may read once it runs as a processor or mapper, and `policy` what the
+    /// operator lets it use
     #[allow(clippy::too_many_arguments)]
     pub fn insert_plugin(
-        &mut self, _plugin: &Plugin, module_bytes: Vec<u8>, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+        &mut self, _plugin: &Plugin, module_bytes: Vec<u8>, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz,
+        files: FileAccess, policy: Arc<PluginPolicy>,
     ) -> ZhangResult<()> {
         let plugin_name = _plugin.module.as_str().to_string();
 
         let wasm = Wasm::data(module_bytes.clone());
         let timeout = declaration.capabilities.timeout;
-        let manifest = Manifest::new([wasm]).with_timeout(timeout);
+        let manifest = Manifest::new([wasm]).with_timeout(timeout).with_memory_max(policy.max_memory_pages());
 
         // registering, the file functions deny every path and the router functions answer that they
         // are unavailable
@@ -47,20 +51,23 @@ impl PluginStore {
             WasmPlugin::new(manifest, host.functions(), true).map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
         let name = plugin
             .call::<(), WasmJson<String>>(export::NAME, ())
-            .map_err(|e| call_error(&plugin_name, export::NAME, timeout, e))?
+            .map_err(|e| call_error(&plugin_name, export::NAME, timeout, &policy, e))?
             .0;
         let version = plugin
             .call::<(), WasmJson<String>>(export::VERSION, ())
-            .map_err(|e| call_error(&plugin_name, export::VERSION, timeout, e))?
+            .map_err(|e| call_error(&plugin_name, export::VERSION, timeout, &policy, e))?
             .0;
         let declared_types = plugin
             .call::<(), WasmJson<Vec<serde_json::Value>>>(export::SUPPORTED_TYPE, ())
-            .map_err(|e| call_error(&plugin_name, export::SUPPORTED_TYPE, timeout, e))?
+            .map_err(|e| call_error(&plugin_name, export::SUPPORTED_TYPE, timeout, &policy, e))?
             .0;
         let plugin_types = known_plugin_types(&name, declared_types)?;
         let ignored_errors = host.take_errors().len();
         if ignored_errors > 0 {
-            warn!("plugin {name} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors");
+            warn!(
+                "plugin {} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors",
+                log_safe(&name)
+            );
         }
 
         let occurrence = self.occurrences(&declaration.directive.module);
@@ -72,6 +79,7 @@ impl PluginStore {
             span: span.clone(),
             occurrence,
             files,
+            policy,
         };
         if plugin_types.contains(&PluginType::Router) {
             self.add_router(registered_plugin.clone())
@@ -115,22 +123,32 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
         let plugin_type = serde_json::from_value::<PluginType>(value.clone())
             .map_err(|e| ZhangError::CustomError(format!("plugin {plugin_name} declares an invalid plugin type {value}: {e}")))?;
         match plugin_type {
-            PluginType::Unknown => warn!("plugin {plugin_name} declares the plugin type {value}, which this version of zhang does not know; ignoring it"),
+            PluginType::Unknown => warn!(
+                "plugin {} declares the plugin type {value}, which this version of zhang does not know; ignoring it",
+                log_safe(plugin_name)
+            ),
             plugin_type => known.push(plugin_type),
         }
     }
     Ok(known)
 }
 
-/// the error of a failed call into a plugin; a call the host stopped at the plugin's timeout says so
-fn call_error(plugin: &str, export: &str, timeout: Duration, error: extism::Error) -> ZhangError {
-    // extism reports a call it interrupted at the manifest's timeout as exactly "timeout"
-    if error.to_string() == "timeout" {
-        ZhangError::CustomError(format!(
+/// the error of a failed call into a plugin: a call the host stopped at the plugin's timeout, or that ran out of the
+/// memory `policy` allows, says so. What the plugin wrote into the error is escaped ([`log_safe`]), as the error ends
+/// up in the server's log
+fn call_error(plugin: &str, export: &str, timeout: Duration, policy: &PluginPolicy, error: extism::Error) -> ZhangError {
+    let plugin = log_safe(plugin);
+    match error.to_string().as_str() {
+        // extism reports a call it interrupted at the manifest's timeout as exactly "timeout"
+        "timeout" => ZhangError::CustomError(format!(
             "plugin {plugin} timed out: its `{export}` call ran longer than {timeout:?}. A `timeout` meta on its `plugin` directive raises the limit"
-        ))
-    } else {
-        ZhangError::CustomError(format!("plugin {plugin} failed in its `{export}` call: {error}"))
+        )),
+        // and one whose memory would grow past the manifest's limit as exactly "oom"
+        "oom" => ZhangError::CustomError(format!(
+            "plugin {plugin} ran out of memory: its `{export}` call needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
+            Size(policy.max_memory)
+        )),
+        _ => ZhangError::CustomError(format!("plugin {plugin} failed in its `{export}` call: {}", log_safe(&format!("{error:#}")))),
     }
 }
 
@@ -148,6 +166,8 @@ pub struct RegisteredPlugin {
     occurrence: usize,
     /// the files the plugin's `allowed_paths` let it read
     files: FileAccess,
+    /// what the operator lets the plugin use
+    policy: Arc<PluginPolicy>,
 }
 
 impl RegisteredPlugin {
@@ -156,15 +176,32 @@ impl RegisteredPlugin {
         &self.declaration.capabilities
     }
 
-    /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts and timeout
+    /// what the operator lets the plugin use
+    pub fn policy(&self) -> &PluginPolicy {
+        &self.policy
+    }
+
+    /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts, its timeout and the
+    /// memory limit of the policy
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
+        self.manifest_with_timeout(options, self.declaration.capabilities.timeout)
+    }
+
+    /// [`RegisteredPlugin::manifest`] with the timeout `timeout` instead of the plugin's own
+    pub(super) fn manifest_with_timeout(&self, options: &[OptionDomain], timeout: Duration) -> Manifest {
         let config = self.declaration.config_with(options, self.declaration.host_config(self.occurrence));
         let wasm = Wasm::data(self.module_bytes.clone());
         Manifest::new([wasm])
             .with_config(config.into_iter())
             // no declared host means the plugin gets no network access at all
             .with_allowed_hosts(self.declaration.capabilities.allowed_hosts.iter().cloned())
-            .with_timeout(self.declaration.capabilities.timeout)
+            .with_timeout(timeout)
+            .with_memory_max(self.policy.max_memory_pages())
+    }
+
+    /// what a failed call of the plugin's `export` is, see [`call_error`]
+    pub(super) fn call_error(&self, export: &str, timeout: Duration, error: extism::Error) -> ZhangError {
+        call_error(&self.name, export, timeout, &self.policy, error)
     }
 
     /// the host side of a new instance of this plugin, running as a stage with the context `ctx`, with the
@@ -182,9 +219,9 @@ impl RegisteredPlugin {
 
     /// a new instance of the plugin, with the host functions of `host` linked in
     pub fn load_as_plugin(&self, options: &InMemoryOptions, host: &PluginHost) -> ZhangResult<WasmPlugin> {
-        info!("loading plugin {} {}", self.name, self.version);
+        info!("loading plugin {} {}", log_safe(&self.name), log_safe(&self.version));
         let plugin = WasmPlugin::new(self.manifest(&options.all()), host.functions(), true)
-            .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", self.name, e)))?;
+            .map_err(|e| ZhangError::CustomError(format!("cannot load plugin {}: {}", log_safe(&self.name), log_safe(&format!("{e:#}")))))?;
 
         Ok(plugin)
     }
@@ -195,7 +232,7 @@ impl RegisteredPlugin {
         let mut plugin = self.load_as_plugin(ctx.options, &host)?;
         let ret = plugin
             .call::<WasmJson<Vec<Spanned<Directive>>>, WasmJson<Vec<Spanned<Directive>>>>(export::PROCESSOR, WasmJson(directive))
-            .map_err(|e| call_error(&self.name, export::PROCESSOR, self.declaration.capabilities.timeout, e))?
+            .map_err(|e| self.call_error(export::PROCESSOR, self.declaration.capabilities.timeout, e))?
             .0;
         host.forward_to(ctx);
         Ok(ret)
@@ -210,7 +247,7 @@ impl RegisteredPlugin {
         for directive in directives {
             let mapped = plugin
                 .call::<WasmJson<Spanned<Directive>>, WasmJson<Vec<Spanned<Directive>>>>(export::MAPPER, WasmJson(directive))
-                .map_err(|e| call_error(&self.name, export::MAPPER, self.declaration.capabilities.timeout, e))?
+                .map_err(|e| self.call_error(export::MAPPER, self.declaration.capabilities.timeout, e))?
                 .0;
             ret.extend(mapped);
         }
@@ -236,6 +273,7 @@ mod test {
     use crate::plugin::files::FileAccess;
     use crate::plugin::store::{call_error, known_plugin_types, PluginStore, RegisteredPlugin};
     use crate::plugin::PluginType;
+    use crate::plugin_policy::{PluginPolicy, MIB};
 
     fn no_files() -> FileAccess {
         FileAccess::new(vec![], Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})), Path::new("/ledger"))
@@ -260,6 +298,7 @@ mod test {
             span: SpanInfo::default(),
             occurrence,
             files: no_files(),
+            policy: Arc::new(PluginPolicy::default()),
         }
     }
 
@@ -321,6 +360,7 @@ mod test {
             span: SpanInfo::default(),
             occurrence: 0,
             files: no_files(),
+            policy: Arc::new(PluginPolicy::default()),
         };
 
         let manifest = plugin.manifest(&options);
@@ -365,6 +405,7 @@ mod test {
             span: SpanInfo::default(),
             occurrence: 0,
             files: no_files(),
+            policy: Arc::new(PluginPolicy::default()),
         };
 
         assert_eq!(plugin.manifest(&[]).allowed_hosts, Some(vec![]));
@@ -402,11 +443,48 @@ mod test {
 
     #[test]
     fn should_say_that_a_plugin_timed_out() {
-        let timed_out = call_error("slow", "processor", Duration::from_secs(1), extism::Error::msg("timeout")).to_string();
+        let policy = PluginPolicy::default();
+        let timed_out = call_error("slow", "processor", Duration::from_secs(1), &policy, extism::Error::msg("timeout")).to_string();
         assert!(timed_out.contains("plugin slow timed out"), "{timed_out}");
         assert!(timed_out.contains("`processor` call ran longer than 1s"), "{timed_out}");
 
-        let failed = call_error("slow", "processor", Duration::from_secs(1), extism::Error::msg("boom")).to_string();
+        let failed = call_error("slow", "processor", Duration::from_secs(1), &policy, extism::Error::msg("boom")).to_string();
         assert!(failed.contains("plugin slow failed in its `processor` call: boom"), "{failed}");
+    }
+
+    #[test]
+    fn should_say_that_a_plugin_ran_out_of_memory() {
+        let policy = PluginPolicy { max_memory: 16 * MIB };
+        let error = call_error("hog", "mapper", Duration::from_secs(1), &policy, extism::Error::msg("oom")).to_string();
+        assert_eq!(
+            error,
+            "custom error: plugin hog ran out of memory: its `mapper` call needed more than the 16 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
+        );
+    }
+
+    #[test]
+    fn should_escape_what_the_plugin_wrote_into_its_error() {
+        let error = call_error(
+            "evil\nname",
+            "processor",
+            Duration::from_secs(1),
+            &PluginPolicy::default(),
+            extism::Error::msg("boom\n[2024-01-01T00:00:00Z ERROR zhang] forged"),
+        )
+        .to_string();
+        assert_eq!(
+            error,
+            "custom error: plugin evil\\nname failed in its `processor` call: boom\\n[2024-01-01T00:00:00Z ERROR zhang] forged"
+        );
+        assert!(!error.contains('\n'));
+    }
+
+    #[test]
+    fn should_cap_the_memory_of_every_instance_by_the_policy() {
+        assert_eq!(registered_with_meta(&[]).manifest(&[]).memory.max_pages, Some(4096), "256 MiB by default");
+        let mut plugin = registered_with_meta(&[]);
+        plugin.policy = Arc::new(PluginPolicy { max_memory: 16 * MIB });
+        assert_eq!(plugin.manifest(&[]).memory.max_pages, Some(256));
+        assert_eq!(plugin.manifest_with_timeout(&[], Duration::from_secs(1)).memory.max_pages, Some(256));
     }
 }

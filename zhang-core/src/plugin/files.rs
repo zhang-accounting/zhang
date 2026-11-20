@@ -133,7 +133,11 @@ fn remote_error(path: &str, error: ZhangError) -> FileError {
         ZhangError::FileNotFound => (FileErrorKind::NotFound, "no such file or directory"),
         ZhangError::IoError(e) | ZhangError::FileError { e, .. } if e.kind() == ErrorKind::NotFound => (FileErrorKind::NotFound, "no such file or directory"),
         _ => {
-            warn!("a plugin could not read {path} from the ledger's source: {error}");
+            warn!(
+                "a plugin could not read {} from the ledger's source: {}",
+                crate::plugin::log_safe(path),
+                crate::plugin::log_safe(&error.to_string())
+            );
             (FileErrorKind::NotFound, "the ledger's source could not read it")
         }
     };
