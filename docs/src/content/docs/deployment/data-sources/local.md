@@ -54,7 +54,7 @@ Zhang watches the ledger folder and its subfolders, and reloads the ledger when:
 - you use the reload button of the web UI;
 - the date changes (at midnight, in the ledger's timezone), but only if a plugin read the current date during the load.
 
-Events are grouped: Zhang waits until nothing else changed for half a second (at most two seconds after the first change), then reloads once for everything that changed meanwhile. Reading a file is not a change. The web UI refreshes by itself after a reload. A reload does not hold up the web UI: until the new ledger is loaded, every page is answered from the ledger as it was, and the new one replaces it at once.
+Events are grouped: Zhang waits until nothing else changed for half a second (at most two seconds after the first change), then reloads once for everything that changed meanwhile. Reading a file is not a change. The web UI refreshes by itself after a reload. A reload does not hold up the web UI: until the new ledger is loaded, every page is answered from the ledger as it was, and the new one replaces it at once. A change to the ledger's files that leaves them holding exactly what the ledger was loaded from, as after something recorded in the web UI (which reloads before it answers), loads nothing again.
 
 Some changes do not trigger a reload:
 

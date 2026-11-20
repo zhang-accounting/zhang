@@ -276,6 +276,11 @@ pub struct ReloadSender {
     fingerprint: std::sync::Mutex<Option<u64>>,
     /// the freeing of the ledger the last reload replaced ([`ReloadSender::retire`])
     retired: std::sync::Mutex<Option<JoinHandle<()>>>,
+    /// Whether a reload was asked for that must load whatever the files hold ([`ReloadSender::reload`]), since the
+    /// listener last started one: taken by the listener as it starts the next. A reload asked for by
+    /// [`ReloadSender::reload_if_files_changed`] alone loads nothing while the ledger's files hold what the ledger
+    /// served was loaded from
+    forced: std::sync::atomic::AtomicBool,
 }
 
 impl Deref for ReloadSender {
@@ -298,6 +303,7 @@ impl ReloadSender {
             written: std::sync::atomic::AtomicBool::new(false),
             fingerprint: std::sync::Mutex::new(None),
             retired: std::sync::Mutex::new(None),
+            forced: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -358,6 +364,16 @@ impl ReloadSender {
     /// ask for a reload, without waiting for it: a reload already asked for and not started reads the files as
     /// they are now too
     pub fn reload(&self) {
+        self.forced.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.sender.try_send(ReloadRequest { reply: None }).ok();
+    }
+
+    /// Ask for a reload, as [`ReloadSender::reload`] does, that loads nothing when every one of the ledger's own files
+    /// still holds what the ledger served was loaded from ([`Ledger::files_unchanged`]), checked once the writes and
+    /// reloads before it are done: the file watcher's after a modification of the ledger's files, which the server's
+    /// own writes make, each reloaded before its answer. A reload asked for otherwise meanwhile, a write pending, a
+    /// stale ledger or a failed last reload load all the same
+    pub fn reload_if_files_changed(&self) {
         self.sender.try_send(ReloadRequest { reply: None }).ok();
     }
 
@@ -537,19 +553,31 @@ pub fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender
 
 /// What the file watcher makes of `events`, the changes it gathered under the ledger's root, whose spellings are
 /// `roots` ([`watch::watch_roots`]): a reload when one of them changed something the load of the ledger served read
-/// ([`watch::should_reload`]). The ledger is looked at once the writes and reloads in progress are done, holding the
-/// write cycle shared ([`LedgerWriter`]): a load in progress reads files the ledger served did not, the file an
-/// `include` it newly follows names, and a change to one of those while it loads is a change to the ledger it swaps in
+/// ([`watch::change`]), one that loads nothing while the ledger's own files hold what it was loaded from when only
+/// those were modified ([`ReloadSender::reload_if_files_changed`]). The ledger is looked at once the writes and reloads
+/// in progress are done, holding the write cycle shared ([`LedgerWriter`]): a load in progress reads files the ledger
+/// served did not, the file an `include` it newly follows names, and a change to one of those while it loads is a
+/// change to the ledger it swaps in
 pub async fn on_file_events(ledger: &Arc<RwLock<Ledger>>, reload_sender: &ReloadSender, roots: &[PathBuf], events: &[Event]) {
     let _cycle = state::write_cycle(ledger).read_owned().await;
     let served = ledger.read().await;
-    let is_stale = events
+    let change = events
         .iter()
-        .any(|event| watch::should_reload(event, roots, &served.visited_files, &served.extra_inputs));
+        .filter_map(|event| watch::change(event, roots, &served.visited_files, &served.extra_inputs))
+        .max();
     drop(served);
-    if is_stale {
-        debug!("gotcha event, sending reload event...");
-        reload_sender.reload();
+    match change {
+        Some(watch::Change::Inputs) => {
+            debug!("gotcha event, sending reload event...");
+            reload_sender.reload();
+        }
+        // the server's own writes modify the ledger's files, and reload it before they answer: a reload of the files
+        // they left would load the ledger served again
+        Some(watch::Change::LedgerFiles) => {
+            debug!("gotcha event on the ledger's files, sending reload event unless they are as loaded...");
+            reload_sender.reload_if_files_changed();
+        }
+        None => {}
     }
 }
 
@@ -580,6 +608,14 @@ pub fn start_reload_listener(
         }
         while let Some(request) = rx.recv().await {
             let mut writer = LedgerWriter::new(ledger_for_reload.clone(), reload_sender.clone()).await;
+            // a request that waits for the reload, or a reload asked for anew, loads; the file watcher's alone loads
+            // only what the ledger served was not loaded from ([`ReloadSender::reload_if_files_changed`])
+            let forced = reload_sender.forced.swap(false, std::sync::atomic::Ordering::SeqCst) || request.reply.is_some();
+            let settled = !writer.stale && !reload_sender.write_pending() && reload_sender.last_failure().is_none();
+            if !forced && settled && files_unchanged(&writer).await {
+                debug!("the ledger's files hold what the ledger served was loaded from: no reload");
+                continue;
+            }
             let outcome = writer.reload().await;
             // the readers wait for the swap only, and no longer once it is done
             drop(writer);
@@ -589,6 +625,12 @@ pub fn start_reload_listener(
             }
         }
     });
+}
+
+/// whether the files of the ledger served still hold what it was loaded from ([`Ledger::files_unchanged`]), read on a
+/// blocking thread; `false` when the check panics
+async fn files_unchanged(ledger: &Ledger) -> bool {
+    tokio::task::spawn_blocking(ledger.files_unchanged()).await.unwrap_or(false)
 }
 
 /// Load the served ledger again with `reload` ([`Ledger::reloader`]), as every reload of it does: on a blocking thread,
@@ -964,7 +1006,7 @@ mod reload_test {
             Ok(LoadResult {
                 directives,
                 visited_files: vec![PathBuf::from(entry).join(endpoint)],
-                missing_includes: vec![],
+                ..Default::default()
             })
         }
     }
@@ -1285,7 +1327,7 @@ mod generation_test {
             Ok(LoadResult {
                 directives,
                 visited_files: vec![PathBuf::from(entry).join(endpoint)],
-                missing_includes: vec![],
+                ..Default::default()
             })
         }
     }
@@ -1354,7 +1396,7 @@ mod served_root_test {
             Ok(LoadResult {
                 directives,
                 visited_files: vec![file],
-                missing_includes: vec![],
+                ..Default::default()
             })
         }
     }

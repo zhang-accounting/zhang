@@ -63,18 +63,39 @@ pub fn watch_roots(entry: &Path) -> Vec<PathBuf> {
     roots
 }
 
-/// whether `event` makes the ledger stale:
-/// - a modification of one of the ledger's own files (`visited_files`)
-/// - creating, modifying or removing a [`ExtraInput::File`]
-/// - any change under an [`ExtraInput::Dir`], including a file created in it; reading is not a change
+/// What an event changed of what the load of the served ledger read, the most first
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Change {
+    /// one of the ledger's own files, modified: it may hold what the ledger served was loaded from still, as after a
+    /// write of the server, which reloaded the ledger itself ([`zhang_core::ledger::Ledger::files_unchanged`])
+    LedgerFiles,
+    /// something else the load read ([`ExtraInput`]): the ledger is stale
+    Inputs,
+}
+
+/// what `event` changed ([`Change`]), `None` when it makes the ledger no staler:
+/// - a modification of one of the ledger's own files (`visited_files`) is [`Change::LedgerFiles`]
+/// - creating, modifying or removing a [`ExtraInput::File`], and any change under an [`ExtraInput::Dir`], including a
+///   file created in it, is [`Change::Inputs`]; reading is not a change
 ///
 /// `roots` are the spellings of the ledger root from [`watch_roots`]; extra inputs are relative to it
-pub fn should_reload(event: &Event, roots: &[PathBuf], visited_files: &[PathBuf], extra_inputs: &IndexSet<ExtraInput>) -> bool {
-    event.paths.iter().any(|path| {
+pub fn change(event: &Event, roots: &[PathBuf], visited_files: &[PathBuf], extra_inputs: &IndexSet<ExtraInput>) -> Option<Change> {
+    let changes = event.paths.iter().filter_map(|path| {
+        let is_input_changed =
+            relative_to_root(path, roots).is_some_and(|relative| extra_inputs.iter().any(|input| is_changed_by(input, &event.kind, &relative)));
         let is_visited_file_modified = event.kind.is_modify() && has_path_visited(visited_files, path);
-        is_visited_file_modified
-            || relative_to_root(path, roots).is_some_and(|relative| extra_inputs.iter().any(|input| is_changed_by(input, &event.kind, &relative)))
-    })
+        match (is_input_changed, is_visited_file_modified) {
+            (true, _) => Some(Change::Inputs),
+            (false, true) => Some(Change::LedgerFiles),
+            (false, false) => None,
+        }
+    });
+    changes.max()
+}
+
+/// whether `event` makes the ledger stale, or may: it changed something the load read ([`change`])
+pub fn should_reload(event: &Event, roots: &[PathBuf], visited_files: &[PathBuf], extra_inputs: &IndexSet<ExtraInput>) -> bool {
+    change(event, roots, visited_files, extra_inputs).is_some()
 }
 
 /// `path`, a path on the disk an event names, relative to the ledger root; `None` outside the root and in zhang's own
@@ -120,7 +141,7 @@ mod test {
     use tokio::time::Instant;
     use zhang_core::inputs::ExtraInput;
 
-    use super::{gather, is_change, should_reload};
+    use super::{change, gather, is_change, should_reload, Change};
 
     const MODIFY: EventKind = EventKind::Modify(ModifyKind::Data(DataChange::Content));
     const CREATE: EventKind = EventKind::Create(CreateKind::File);
@@ -299,6 +320,28 @@ mod test {
         let elapsed = started.elapsed();
         assert!(elapsed >= MAX_WAIT * 2 && elapsed <= MAX_WAIT * 2 + Duration::from_millis(100), "{elapsed:?}");
         assert_eq!(second[0], first.last().unwrap() + 1, "nothing is lost between two gatherings");
+    }
+
+    /// A modification of the ledger's own files may leave them as loaded; any change to another input does not
+    #[test]
+    fn a_modification_of_the_ledgers_files_alone_is_a_change_of_the_ledger_files() {
+        let modify = |path: &str| Event::new(MODIFY).add_path(PathBuf::from(path));
+        let changes = |event: &Event| change(event, &roots(), &visited_files(), &inputs());
+        assert_eq!(changes(&modify("/var/ledger/main.zhang")), Some(Change::LedgerFiles));
+        assert_eq!(changes(&modify("/var/ledger/data/2024.zhang")), Some(Change::LedgerFiles));
+        assert_eq!(changes(&modify("/var/ledger/plugins/fx.wasm")), Some(Change::Inputs));
+        assert_eq!(changes(&Event::new(CREATE).add_path(PathBuf::from("/var/ledger/main.zhang"))), None);
+        // an event naming both, as a rename does: the input decides
+        let both = Event::new(EventKind::Modify(ModifyKind::Name(notify::event::RenameMode::Both)))
+            .add_path(PathBuf::from("/var/ledger/main.zhang"))
+            .add_path(PathBuf::from("/var/ledger/plugins/fx.wasm"));
+        assert_eq!(changes(&both), Some(Change::Inputs));
+        // a ledger file under a directory input, the root here, is an input
+        let root = IndexSet::from([ExtraInput::Dir(PathBuf::new())]);
+        assert_eq!(
+            change(&modify("/var/ledger/main.zhang"), &roots(), &visited_files(), &root),
+            Some(Change::Inputs)
+        );
     }
 
     #[test]

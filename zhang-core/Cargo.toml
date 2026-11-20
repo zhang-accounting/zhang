@@ -33,6 +33,7 @@ nom = "7"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 uuid = { version = "1", default-features = false, features = ["v6", "serde"] }
 sha256 = { version = "1.5.0", features = [], default-features = false }
+sha2 = "0.11"
 iana-time-zone = { version = "0.1", optional = true }
 once_cell = "1.19"
 # Pinned: the host memory-bounds check in src/plugin/host.rs hard-codes the extism kernel's
