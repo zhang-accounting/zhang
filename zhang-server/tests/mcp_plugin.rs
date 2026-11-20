@@ -822,7 +822,7 @@ async fn the_endpoint_sits_behind_zhang_authentication() {
 // ---- writes ---------------------------------------------------------------------------------------------------------
 
 /// the directive lines of a ledger that lists the write tools and grants both kinds
-const GRANTED: &str = "  allow_writes: \"true\"\n  allowed_writes: \"transaction\"\n  allowed_writes: \"open\"\n";
+const GRANTED: &str = "  allowed_writes: \"transaction\"\n  allowed_writes: \"open\"\n";
 
 /// A run of whitespace inside an argument is trimmed in linear time (the pattern trim was quadratic: 20 KB of BQL held
 /// the ledger's read lock for the whole timeout), and every text a tool reads has a cap its schema states: 16 KiB of
@@ -899,33 +899,25 @@ fn coffee(token: Option<&str>) -> Value {
 }
 
 #[tokio::test]
-async fn without_the_grant_the_write_tools_are_hidden_and_with_allow_writes_alone_they_name_the_meta() {
-    // read-only: `allow_writes` off (the default) hides the tools even with a grant
-    let dir = ledger_dir("  allowed_writes: \"transaction\"\n  allowed_writes: \"open\"\n");
-    let router = server(&dir, &Settings::default()).await;
-    assert_eq!(tool_names(&router).await, READ_TOOLS);
-    let reply = post(
-        &router,
-        &[],
-        &request(4, "tools/call", json!({"name": "add_transaction", "arguments": coffee(Some("x"))})),
-    )
-    .await;
-    assert_eq!(reply.json()["error"]["code"], -32602);
+async fn without_a_grant_the_write_tools_are_hidden_and_with_one_the_others_name_their_meta() {
+    // read-only: no `allowed_writes` (the default) hides the tools, and the old `allow_writes` switch is gone, so it
+    // lists nothing either
+    for metas in ["", "  allow_writes: \"true\"\n"] {
+        let dir = ledger_dir(metas);
+        let router = server(&dir, &Settings::default()).await;
+        assert_eq!(tool_names(&router).await, READ_TOOLS);
+        let reply = post(
+            &router,
+            &[],
+            &request(4, "tools/call", json!({"name": "add_transaction", "arguments": coffee(Some("x"))})),
+        )
+        .await;
+        assert_eq!(reply.json()["error"]["code"], -32602);
+    }
 
-    // `allow_writes` on, no grant: listed, and every call says which meta line to add (the owner turned writes on,
-    // so the model relays the missing grant instead of claiming it has no write tool)
-    let dir = ledger_dir("  allow_writes: \"true\"\n");
-    let router = server(&dir, &Settings::default()).await;
-    let mut expected: Vec<&str> = READ_TOOLS.to_vec();
-    expected.extend(WRITE_TOOLS);
-    assert_eq!(tool_names(&router).await, expected);
-    let denied = error_text(&router, "preview_transaction", coffee(None)).await;
-    assert!(denied.contains("allowed_writes: \"transaction\""), "{denied}");
-    let denied = error_text(&router, "open_account", json!({"date": "2024-03-20", "account": "Expenses:Food:Coffee"})).await;
-    assert!(denied.contains("allowed_writes: \"open\""), "{denied}");
-
-    // `allow_writes` on, only `open` granted: listed, and the transaction tools name the missing line
-    let dir = ledger_dir("  allow_writes: \"true\"\n  allowed_writes: \"open\"\n");
+    // only `open` granted: every write tool is listed, and the transaction tools name the missing line (the owner
+    // turned writes on, so the model relays the missing grant instead of claiming it has no write tool)
+    let dir = ledger_dir("  allowed_writes: \"open\"\n");
     let router = server(&dir, &Settings::default()).await;
     let mut expected: Vec<&str> = READ_TOOLS.to_vec();
     expected.extend(WRITE_TOOLS);

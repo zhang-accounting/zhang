@@ -128,12 +128,12 @@ deleted.
 
 ## 5. Writes (`mcp.lua` section `write tools`)
 
-Two switches, both required: the plugin's `allow_writes: "true"` (lists the three tools; default off, so a read-only
-deployment never shows them to the model) and the host's `allowed_writes: "transaction"` / `allowed_writes: "open"`
-(the generic grant of PRD2 §B, the same shape as `allowed_paths`). With `allow_writes` on but a kind not granted, the
-tool is listed and answers an `isError` naming the exact meta line to add (actionable for the owner, harmless for the
-model). Without `allow_writes` the three names are unknown tools (`-32602`), whatever the grant; with it they are always
-listed, so the owner who turned writes on gets the missing grant line relayed by the model instead of "no such tool".
+One switch, the host's `allowed_writes: "transaction"` / `allowed_writes: "open"` (the generic grant of PRD2 §B, the
+same shape as `allowed_paths`), which the script reads from its own directive. Without any grant the write tools are
+unknown tools (`-32602`), so a read-only deployment never shows them to the model. With one kind granted every write
+tool is listed, and a tool of a kind not granted answers an `isError` naming the exact meta line to add (actionable for
+the owner, harmless for the model), so the owner gets the missing grant line relayed instead of "no such tool". (A
+plugin-side `allow_writes` switch existed before review; it only repeated what the grant says, and was removed.)
 
 The flow and the token: `preview_transaction` sends one `transaction` directive to `zhang.write.preview`; the host
 validates it exactly as `POST /api/transactions/preview` does, exports the text, chooses the file by the ledger's
@@ -172,7 +172,6 @@ plugin "plugins/mcp.lua"
   timeout: "20s"                                  ; the host's: how long one request may run (default 60s)
   allowed_origins: "https://ledger.example.com"   ; comma-separated or repeated; absent = loopback same-host only
   max_rows: "500"                                 ; the cap of every tool's limit; default 1000
-  allow_writes: "true"                            ; list the write tools; default false
   write_tag: "mcp"                                ; the tag add_transaction adds; "" disables
   allowed_writes: "transaction"                   ; the host's grant
   allowed_writes: "open"

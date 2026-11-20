@@ -5,9 +5,8 @@
 --     timeout: "20s"                                  ; the host's: how long one request may run
 --     allowed_origins: "https://ledger.example.com"   ; comma-separated, or the key repeated; absent = loopback only
 --     max_rows: "500"                                 ; the cap of every tool's `limit`; default 1000
---     allow_writes: "true"                            ; list the write tools; default false
 --     write_tag: "mcp"                                ; the tag add_transaction puts on every entry; "" disables
---     allowed_writes: "transaction"                   ; the host's grant, needed for the write tools to work
+--     allowed_writes: "transaction"                   ; the host's grant: with any, the write tools are listed
 --     allowed_writes: "open"
 --
 -- It serves `POST /api/plugins/zhang-mcp/mcp` behind zhang's own authentication, speaking both the legacy
@@ -174,7 +173,6 @@ local function load_config()
   end
   local rows = tonumber(trim(last("max_rows") or ""))
   config.max_rows = (rows and math.type(rows) == "integer" and rows > 0) and rows or DEFAULT_MAX_ROWS
-  config.allow_writes = trim(last("allow_writes") or ""):lower() == "true"
   local tag = last("write_tag")
   config.write_tag = tag == nil and "mcp" or (trim(tag) ~= "" and trim(tag) or nil)
   for _, kind in ipairs(values("allowed_writes")) do config.granted[trim(kind)] = true end
@@ -974,13 +972,14 @@ local TOOLS = {
 }
 
 -- ---- write tools: preview, add, open over the host's write capability (allowed_writes) ----------------------------
--- Listed when the directive says allow_writes: "true"; otherwise they are unknown tools. A kind the host did not
--- grant with allowed_writes answers an isError naming the line to add. The host validates a batch exactly as POST /api/transactions/preview does and mints a token bound
+-- Listed when the directive grants the plugin a kind of write (allowed_writes); otherwise they are unknown tools. A
+-- tool of a kind the host did not grant answers an isError naming the line to add. The host validates a batch exactly as POST /api/transactions/preview does and mints a token bound
 -- to the ledger state and the exact text; commit needs that token, so the model can only record what it showed.
 
--- with allow_writes on the write tools are always listed: a kind the host did not grant answers with the line to add,
--- so the owner who turned writes on gets the fix relayed by the model instead of "no such tool"
-function writes_enabled() return CONFIG.allow_writes end
+-- the write tools are listed when the directive grants any kind of write: the grant is the owner's one switch, and
+-- a tool of a kind not granted answers with the line to add, so the owner gets the fix relayed by the model instead
+-- of "no such tool"
+function writes_enabled() return next(CONFIG.granted) ~= nil end
 
 -- a tool error naming the exact meta line to add when `kind` is not granted
 local function require_grant(kind)
