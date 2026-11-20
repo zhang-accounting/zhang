@@ -547,32 +547,56 @@ pub fn start_reload_listener(
     });
 }
 
-/// The fingerprint of what a load produced: a hash of every directive's place and text in its file (the span the
-/// loader keeps on each one: file, offsets and the text as written), of the directives plugins made (no file: their
-/// canonical JSON, few), and of the options by key. Two loads of the same files give the same fingerprint; an edit
-/// that changes a directive, or a byte before one (its offsets move), gives another. Nothing is serialized or read
-/// again, so it costs a hash of the text on every data source (about 2% of a load of 50 000 transactions, where
-/// serializing them through JSON cost 70%). Not a cryptographic hash: it tells a reload of the same files from an
-/// edit, nothing more
+/// The fingerprint of what a load produced, the content the generation counts ([`ReloadSender::generation`]):
+///
+/// - every directive's place and text in its file: the span the loader keeps on each one (file, offsets and the text
+///   as written), so an edit that changes a directive, or a byte before one (its offsets move), gives another;
+/// - the directives without a file, which plugins made: their canonical JSON;
+/// - the options, by key;
+/// - the module of every plugin, as the load read it, so a module updated in place counts, whatever the plugin is;
+/// - when a processor or a mapper plugin ran, everything it may have changed: the canonical JSON of every directive
+///   and every error after the stages. What such a plugin makes depends on more than the spans: a file it read through
+///   `allowed_paths`, the date, what it fetched, its module. Its output is hashed rather than what it read, so the
+///   fingerprint is that of the ledger served, with no file read again and no race with an edit after the load.
+///
+/// Two loads of the same input give the same fingerprint. Without such plugins nothing is serialized or read again:
+/// it costs a hash of the text (3.5 ms against a load of 426 ms for 50 000 transactions, where serializing them
+/// through JSON cost 364 ms). With them, the JSON pass is the price of the guarantee, as each of their stages already
+/// passes every directive through JSON. Not a cryptographic hash: it tells a reload of the same input from a change,
+/// nothing more
 fn ledger_fingerprint(ledger: &Ledger) -> u64 {
     use std::hash::{Hash, Hasher};
 
+    use zhang_core::plugin::PluginType;
+
+    // through `serde_json::Value`, whose objects are sorted, so a map (metadata) hashes the same whatever order its
+    // hash map iterates in
+    fn canonical(value: impl serde::Serialize) -> String {
+        serde_json::to_value(value).map(|value| value.to_string()).unwrap_or_default()
+    }
+
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut transformed = false;
+    for (plugin, types) in &ledger.plugins.ordered {
+        plugin.module_bytes().hash(&mut hasher);
+        transformed |= types.iter().any(|it| matches!(it, PluginType::Processor | PluginType::Mapper));
+    }
     for directive in ledger.directives.iter().chain(&ledger.metas) {
         let span = &directive.span;
         match &span.filename {
-            Some(file) => {
+            Some(file) if !transformed => {
                 file.hash(&mut hasher);
                 span.start.hash(&mut hasher);
                 span.end.hash(&mut hasher);
                 span.content.hash(&mut hasher);
             }
-            // a directive a plugin made: through `serde_json::Value`, whose objects are sorted, so a map it holds
-            // (metadata) hashes the same whatever order its hash map iterates in
-            None => serde_json::to_value(directive)
-                .map(|value| value.to_string())
-                .unwrap_or_default()
-                .hash(&mut hasher),
+            // a directive a plugin made, or any directive once a plugin could have changed it
+            _ => canonical(directive).hash(&mut hasher),
+        }
+    }
+    if transformed {
+        for error in &ledger.errors {
+            canonical(error).hash(&mut hasher);
         }
     }
     // the options come out of a hash map in no fixed order: by key, so two loads list them alike
@@ -980,7 +1004,7 @@ mod reload_test {
 /// on only when it loaded other content than the ledger served before
 #[cfg(test)]
 mod generation_test {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use tokio::sync::{mpsc, RwLock};
@@ -1039,6 +1063,63 @@ mod generation_test {
         assert_eq!(reload_sender.generation(), 4, "a failed reload keeps the generation");
         std::fs::write(&main, served).unwrap();
         assert_eq!(reloaded().await, 4, "the files as they were when the ledger served was loaded");
+    }
+
+    /// the content of the comments of the ledger served
+    async fn comments(ledger: &RwLock<Ledger>) -> Vec<String> {
+        let ledger = ledger.read().await;
+        let comments = ledger.directives.iter().chain(&ledger.metas).filter_map(|it| match &it.data {
+            zhang_ast::Directive::Comment(comment) => Some(comment.content.clone()),
+            _ => None,
+        });
+        comments.collect()
+    }
+
+    /// What a processor plugin makes counts, whatever it read to make it: here a rules file it reads through
+    /// `allowed_paths`, whose content becomes a comment at a fixed place in `main.zhang`, so that no span changes with
+    /// it. A change to the rules file moves the generation on, a reload of the same files keeps it, and an update of
+    /// the plugin's module in place moves it on too, though the plugin makes the same
+    #[tokio::test]
+    async fn what_a_processor_plugin_read_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugins/read_rules.wat");
+        std::fs::copy(fixture, root.join("read_rules.wat")).unwrap();
+        std::fs::create_dir_all(root.join("rules")).unwrap();
+        std::fs::write(root.join("rules/rules.txt"), "coffee: Expenses:Food").unwrap();
+        std::fs::write(
+            root.join("main.zhang"),
+            "option \"features.plugin\" \"true\"\nplugin \"read_rules.wat\"\n  allowed_paths: \"rules\"\n  read: \"rules/rules.txt\"\n",
+        )
+        .unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let loaded = Ledger::load(root.clone(), "main.zhang".to_owned(), source).expect("load ledger");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+        let reloaded = || async {
+            reload_sender.reload_and_wait().await.expect("the reload succeeds");
+            reload_sender.generation()
+        };
+        let served = comments(&ledger).await;
+        assert!(
+            served.len() == 1 && served[0].contains("Expenses:Food"),
+            "the plugin read the rules: {served:?}"
+        );
+
+        assert_eq!(reloaded().await, 1, "the same rules");
+        std::fs::write(root.join("rules/rules.txt"), "coffee: Expenses:Drinks").unwrap();
+        assert_eq!(reloaded().await, 2, "the rules changed");
+        assert!(comments(&ledger).await[0].contains("Expenses:Drinks"), "the plugin read the new rules");
+        assert_eq!(reloaded().await, 2, "and reloaded as they are now");
+
+        // the version it answers, `0.1.0` in its text, which nothing it makes holds
+        let module = std::fs::read_to_string(root.join("read_rules.wat")).unwrap();
+        assert_eq!(module.matches("0.1.0").count(), 1);
+        std::fs::write(root.join("read_rules.wat"), module.replace("0.1.0", "0.1.1")).unwrap();
+        assert_eq!(reloaded().await, 3, "the module changed");
+        assert_eq!(reloaded().await, 3, "and reloaded as it is now");
     }
 
     /// The options count in the fingerprint apart from the directives that set them: an option set otherwise, with

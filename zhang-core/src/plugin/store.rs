@@ -181,6 +181,11 @@ impl RegisteredPlugin {
         &self.policy
     }
 
+    /// the plugin's module as the load read it, from the ledger's storage or from a URL
+    pub fn module_bytes(&self) -> &[u8] {
+        &self.module_bytes
+    }
+
     /// the manifest of every instance of the plugin, whatever it runs as: config, allowed hosts, its timeout and the
     /// memory limit of the policy
     pub(super) fn manifest(&self, options: &[OptionDomain]) -> Manifest {
