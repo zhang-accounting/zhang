@@ -101,7 +101,7 @@ zhang serve [OPTIONS] <PATH>
 | `--source <SOURCE>` | `ZHANG_DATA_SOURCE` | `fs` | Where the ledger is stored: `fs` ([local file system](/deployment/data-sources/local/)), `s3` ([S3](/deployment/data-sources/s3/)), `web-dav` ([WebDAV](/deployment/data-sources/webdav/)) or `github` ([GitHub](/deployment/data-sources/github/)). |
 | `--no-report` | | off | Stops the anonymous usage report: once an hour, Zhang sends its version and build date to `https://zhang-cloud.kilerd.me/client_report`. |
 
-A command-line option takes precedence over its environment variable. An `--auth` or `ZHANG_AUTH` value without a colon is ignored, and an unknown `ZHANG_DATA_SOURCE` value falls back to `fs`.
+A command-line option takes precedence over its environment variable. An `--auth` or `ZHANG_AUTH` value without a colon is ignored, and an unknown `ZHANG_DATA_SOURCE` value falls back to `fs`. A `ZHANG_PLUGIN_*` value that is not a size or a number stops `zhang serve` with an error naming it, so a limit is never silently left out.
 
 Other environment variables:
 
@@ -110,6 +110,8 @@ Other environment variables:
 | `ZHANG_SESSION_SECRET`, `ZHANG_PASSKEY_ORIGIN`, `ZHANG_PASSKEY_RP_ID`, `ZHANG_APP_RETURN_SCHEMES` | Sessions, passkeys and the mobile app sign-in, see [Authentication](/deployment/authentication/). |
 | `ZHANG_S3_*`, `ZHANG_WEBDAV_*`, `ZHANG_GITHUB_*` | The settings of the [S3](/deployment/data-sources/s3/), [WebDAV](/deployment/data-sources/webdav/) and [GitHub](/deployment/data-sources/github/) data sources. |
 | `ZHANG_QUERY_MAX_RESULT_VALUES` | How many values a [query](/reference/query-language/) result may hold before the query is stopped. Default `1000000`. Lower it on a machine with little memory. |
+| `ZHANG_PLUGIN_MAX_MEMORY` | The most memory one instance of a [plugin](/guides/plugins/) may use, such as `512MiB`. Default `256MiB`. |
+| `ZHANG_PLUGIN_MAX_BODY`, `ZHANG_PLUGIN_MAX_CONCURRENCY` | The largest request body a [router plugin](/guides/router-plugins/#limits) receives (default `4MiB`), and how many requests one router plugin handles at once (default `4`). |
 | `ZHANG_LOG` | The log filter, such as `info`, `debug` or `zhang_core=trace` ([env_logger syntax](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)). When it is not set, `RUST_LOG` is used; without either, the level is `info`. The Docker image sets `RUST_LOG=info`. |
 
 When the ledger cannot be loaded at startup, for example because of a syntax error, or the port is already in use, `zhang serve` prints the reason on stderr and exits with code 1, so systemd, Docker and hosting platforms see a failed start. Problems in the books themselves, such as an unbalanced transaction, do not stop the server: they are listed in the web UI.

@@ -320,9 +320,10 @@ fn route(request: Request) -> Result<Response, Error> {
 ```
 
 - **Route:** `{name}` is the plugin's name; the request's `path` is the part below the route.
-- **Authentication:** the routes sit behind Zhang's own sign-in, and the credential headers never reach the plugin.
+- **Authentication:** the routes sit behind Zhang's own sign-in. Only an allowlist of request headers reaches the plugin, never the credentials or a proxy's identity headers.
 - **Read-only:** a router reads the ledger only through `zhang_query` (BQL) and `zhang_ledger_info`; no host function changes it. Every request runs in a fresh instance, and the ledger does not reload while it runs.
-- **Security:** a router's pages are served from Zhang's own address, so a script on such a page can call Zhang's API, including the endpoints that change your ledger files, with your session. Escape everything you put into HTML.
+- **Security:** a router's pages are served from Zhang's own address, sandboxed: Zhang sends only the response headers it allows and adds `Content-Security-Policy: sandbox …`, so a script on such a page runs with an opaque origin and cannot use the visitor's session. Inline the page's scripts, styles and images. Escape everything you put into HTML.
+- **Limits:** a request body of at most 4 MiB, 4 requests at once per plugin, 30 seconds per request and 256 MiB of memory per instance, unless the operator sets other limits.
 
 [Router Plugins](/guides/router-plugins/) has the request and response JSON, the error statuses and the details.
 

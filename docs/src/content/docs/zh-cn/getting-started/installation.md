@@ -101,7 +101,7 @@ zhang serve [OPTIONS] <PATH>
 | `--source <SOURCE>` | `ZHANG_DATA_SOURCE` | `fs` | 账本存放的位置：`fs`（[本地文件系统](/zh-cn/deployment/data-sources/local/)）、`s3`（[S3](/zh-cn/deployment/data-sources/s3/)）、`web-dav`（[WebDAV](/zh-cn/deployment/data-sources/webdav/)）或 `github`（[GitHub](/zh-cn/deployment/data-sources/github/)）。 |
 | `--no-report` | | 关闭 | 停止匿名使用报告：张记账每小时向 `https://zhang-cloud.kilerd.me/client_report` 发送一次它的版本号和构建日期。 |
 
-命令行选项优先于对应的环境变量。不含冒号的 `--auth` 或 `ZHANG_AUTH` 值会被忽略，未知的 `ZHANG_DATA_SOURCE` 值会回退为 `fs`。
+命令行选项优先于对应的环境变量。不含冒号的 `--auth` 或 `ZHANG_AUTH` 值会被忽略，未知的 `ZHANG_DATA_SOURCE` 值会回退为 `fs`。不是有效大小或数字的 `ZHANG_PLUGIN_*` 值会让 `zhang serve` 报错退出并指出该变量，所以限制永远不会被悄悄忽略。
 
 其他环境变量：
 
@@ -110,6 +110,8 @@ zhang serve [OPTIONS] <PATH>
 | `ZHANG_SESSION_SECRET`、`ZHANG_PASSKEY_ORIGIN`、`ZHANG_PASSKEY_RP_ID`、`ZHANG_APP_RETURN_SCHEMES` | 会话、通行密钥和移动端登录，见[身份认证](/zh-cn/deployment/authentication/)。 |
 | `ZHANG_S3_*`、`ZHANG_WEBDAV_*`、`ZHANG_GITHUB_*` | [S3](/zh-cn/deployment/data-sources/s3/)、[WebDAV](/zh-cn/deployment/data-sources/webdav/) 和 [GitHub](/zh-cn/deployment/data-sources/github/) 数据源的设置。 |
 | `ZHANG_QUERY_MAX_RESULT_VALUES` | 一条[查询](/zh-cn/reference/query-language/)的结果最多能包含多少个值，超出后查询会被中止。默认为 `1000000`。在内存较小的机器上可以调低。 |
+| `ZHANG_PLUGIN_MAX_MEMORY` | 一个[插件](/zh-cn/guides/plugins/)实例最多能使用的内存，例如 `512MiB`。默认为 `256MiB`。 |
+| `ZHANG_PLUGIN_MAX_BODY`、`ZHANG_PLUGIN_MAX_CONCURRENCY` | [Router 插件](/zh-cn/guides/router-plugins/#限制)能收到的最大请求体（默认为 `4MiB`），以及一个 Router 插件能同时处理的请求数（默认为 `4`）。 |
 | `ZHANG_LOG` | 日志过滤器，例如 `info`、`debug` 或 `zhang_core=trace`（[env_logger 语法](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)）。不设置时使用 `RUST_LOG`；两者都不设置时级别为 `info`。Docker 镜像设置了 `RUST_LOG=info`。 |
 
 如果启动时账本无法加载（例如存在语法错误），或者端口已被占用，`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出，这样 systemd、Docker 和托管平台都能识别出启动失败。账目本身的问题，例如不平衡的交易，不会让服务器停止：它们会列在网页界面中。
