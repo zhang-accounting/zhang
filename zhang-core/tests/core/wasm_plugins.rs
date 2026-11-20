@@ -460,6 +460,41 @@ fn root_length_cannot_be_forged_to_bypass_the_emit_error_bound() {
 }
 
 #[test]
+fn a_forged_error_message_fails_the_call_instead_of_crashing() {
+    // extism reads the message of a failed call by the length the plugin forged; unpatched, this test process dies
+    let dir = ledger_dir(&["error_forge.wat"]);
+
+    let error = try_load(&dir, &with_plugins(&plugin(&dir, "error_forge.wat"))).err().expect("the load fails").to_string();
+
+    assert!(error.contains("plugin error-forge failed in its `processor` call"), "{error}");
+    assert!(error.contains("lies outside the plugin's memory"), "{error}");
+}
+
+#[test]
+fn a_forged_output_length_fails_the_call_instead_of_crashing() {
+    // `output_set`'s own bounds check wraps around for a length of u64::MAX; unpatched, this test process dies
+    let dir = ledger_dir(&["output_forge.wat"]);
+
+    let error = try_load(&dir, &with_plugins(&plugin(&dir, "output_forge.wat"))).err().expect("the load fails").to_string();
+
+    assert!(error.contains("plugin output-forge failed in its `processor` call"), "{error}");
+    assert!(error.contains("lies outside the plugin's memory"), "{error}");
+}
+
+#[test]
+fn extisms_own_host_functions_refuse_a_forged_block_instead_of_crashing() {
+    // extism's `config_get` reads the key by the length the plugin forged; unpatched, this test process dies
+    let (_dir, ledger) = router_ledger(&["config_get_forge.wat"]);
+
+    let error = call(&ledger, "config-get-forge", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap_err();
+
+    assert!(
+        matches!(&error, RouterError::Failed(message) if message.contains("lies outside the plugin's memory")),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn plugin_without_the_error_import_is_unaffected() {
     // echo imports no host function: it loads next to a plugin that does, and reports nothing
     let dir = ledger_dir(&["echo.wat", "emit_error.wat"]);

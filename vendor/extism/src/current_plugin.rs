@@ -70,6 +70,29 @@ impl wasmtime::ResourceLimiter for MemoryLimiter {
     }
 }
 
+/// zhang patch: refuse a block that does not lie inside the kernel's linear memory of `memory_size` bytes.
+///
+/// A block's length comes from the kernel's `length` export, which reads the block header, or from `output_set`,
+/// and a plugin can write both: it forges the header through `store_u8`, and `output_set`'s own bounds check wraps
+/// around for a length near `u64::MAX`. `memory_bytes` built a slice of that length from the start of the block, and
+/// reading it ran past the mapped memory and killed the process (SIGBUS or SIGSEGV). Every read of plugin memory goes
+/// through `memory_bytes` or `memory_bytes_mut`: the PDK functions `config_get`, `var_get`, `var_set`,
+/// `http_request` and `log_*`, the output and the error of a call, and the host functions of an embedder.
+fn check_in_memory(handle: &MemoryHandle, memory_size: usize) -> Result<(), Error> {
+    let start = usize::try_from(handle.offset).ok();
+    let len = usize::try_from(handle.length).ok();
+    let end = start.zip(len).and_then(|(start, len)| start.checked_add(len));
+    match end {
+        Some(end) if end <= memory_size => Ok(()),
+        _ => anyhow::bail!(
+            "the memory block at {} of {} bytes lies outside the plugin's memory of {} bytes",
+            handle.offset,
+            handle.length,
+            memory_size
+        ),
+    }
+}
+
 impl CurrentPlugin {
     /// Gets `Plugin`'s ID
     pub fn id(&self) -> uuid::Uuid {
@@ -171,6 +194,8 @@ impl CurrentPlugin {
         let (linker, store) = self.linker_and_store();
         if let Some(mem) = linker.get(&mut *store, EXTISM_ENV_MODULE, "memory") {
             let mem = mem.into_memory().unwrap();
+            // zhang patch: see `check_in_memory`
+            check_in_memory(&handle, mem.data_size(&*store))?;
             let ptr = unsafe { mem.data_ptr(&*store).add(handle.offset() as usize) };
             if ptr.is_null() {
                 return Ok(&mut []);
@@ -185,6 +210,8 @@ impl CurrentPlugin {
         let (linker, store) = self.linker_and_store();
         if let Some(mem) = linker.get(&mut *store, EXTISM_ENV_MODULE, "memory") {
             let mem = mem.into_memory().unwrap();
+            // zhang patch: see `check_in_memory`
+            check_in_memory(&handle, mem.data_size(&*store))?;
             let ptr = unsafe { mem.data_ptr(&*store).add(handle.offset() as usize) };
             if ptr.is_null() {
                 return Ok(&[]);

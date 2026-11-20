@@ -384,7 +384,9 @@ pub fn log(
         None => anyhow::bail!("invalid handle offset for log message: {offset}"),
     };
     let id = data.id.to_string();
-    let buf = data.memory_str(handle);
+    // zhang patch: the text is the plugin's own, escaped so that it cannot end the log line and forge the ones after
+    // it
+    let buf = data.memory_str(handle).map(str::escape_debug);
 
     match buf {
         Ok(buf) => match level {

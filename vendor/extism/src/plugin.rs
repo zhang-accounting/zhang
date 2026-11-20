@@ -989,9 +989,12 @@ impl Plugin {
                 match self.current_plugin_mut().memory_str(handle) {
                     Ok(e) => {
                         let x = e.to_string();
+                        // zhang patch: the message is the plugin's own text, escaped so that it
+                        // cannot end the log line and forge the ones after it
                         error!(
                             plugin = self.id.to_string(),
-                            "call to {name} returned with error message: {}", x
+                            "call to {name} returned with error message: {}",
+                            x.escape_debug()
                         );
                         if let Err(e) = res {
                             res = Err(wasmtime::Error::msg(x).context(e));
