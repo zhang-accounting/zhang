@@ -301,7 +301,12 @@ export interface paths {
     get: operations['get_statistic_graph'];
   };
   '/api/transactions': {
-    /** Create New Transaction */
+    /**
+     * Create New Transaction
+     * @description Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
+     * of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
+     * gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
+     */
     post: operations['create_new_transaction'];
   };
   '/api/transactions/preview': {
@@ -315,8 +320,21 @@ export interface paths {
     post: operations['preview_new_transaction'];
   };
   '/api/transactions/{transaction_id}': {
-    /** Update Single Transaction */
+    /**
+     * Update Single Transaction
+     * @description Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
+     * answer, which gives the transaction's id in it: an update keeps it, as the transaction stays where it was.
+     */
     put: operations['update_single_transaction'];
+    /**
+     * Delete Single Transaction
+     * @description Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
+     * left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
+     * a request sent after it no longer finds the transaction. Ids are derived from places: the transactions after it in
+     * its file move, and take other ids, the next one possibly the id of the transaction deleted. The documents its
+     * metadata names stay in the ledger's directory.
+     */
+    delete: operations['delete_single_transaction'];
   };
   '/api/transactions/{transaction_id}/documents': {
     /** Upload Transaction Document */
@@ -2201,7 +2219,12 @@ export interface operations {
       };
     };
   };
-  /** Create New Transaction */
+  /**
+   * Create New Transaction
+   * @description Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
+   * of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
+   * gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
+   */
   create_new_transaction: {
     requestBody: {
       content: {
@@ -2267,7 +2290,19 @@ export interface operations {
       200: {
         content: {
           'application/json': {
-            data: string;
+            data: {
+              /**
+               * Format: uuid
+               * @description The id of the transaction written, in the ledger as reloaded before this answer: `GET /api/journals` lists it
+               * under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
+               * derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
+               * file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
+               * ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
+               * load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
+               * but in no journal
+               */
+              id: string | null;
+            };
           };
         };
       };
@@ -2442,7 +2477,11 @@ export interface operations {
       };
     };
   };
-  /** Update Single Transaction */
+  /**
+   * Update Single Transaction
+   * @description Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
+   * answer, which gives the transaction's id in it: an update keeps it, as the transaction stays where it was.
+   */
   update_single_transaction: {
     parameters: {
       path: {
@@ -2506,6 +2545,43 @@ export interface operations {
           }[];
           tags: string[];
         };
+      };
+    };
+    responses: {
+      /** @description default return */
+      200: {
+        content: {
+          'application/json': {
+            data: {
+              /**
+               * Format: uuid
+               * @description The id of the transaction written, in the ledger as reloaded before this answer: `GET /api/journals` lists it
+               * under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
+               * derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
+               * file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
+               * ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
+               * load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
+               * but in no journal
+               */
+              id: string | null;
+            };
+          };
+        };
+      };
+    };
+  };
+  /**
+   * Delete Single Transaction
+   * @description Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
+   * left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
+   * a request sent after it no longer finds the transaction. Ids are derived from places: the transactions after it in
+   * its file move, and take other ids, the next one possibly the id of the transaction deleted. The documents its
+   * metadata names stay in the ledger's directory.
+   */
+  delete_single_transaction: {
+    parameters: {
+      path: {
+        transaction_id: string;
       };
     };
     responses: {
