@@ -58,7 +58,6 @@ pub use self::postings::COLUMNS;
 pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
 #[cfg(test)]
 use crate::catalog::ColumnRef;
-use crate::catalog::TableRef;
 use crate::error::LocatedError;
 use crate::executor::{Budget, Deadline};
 use crate::functions::AccountDirectives;
@@ -292,7 +291,11 @@ pub(crate) enum Get {
 impl Get {
     /// The value at `row`. A column only reads rows of its own table (the compiler resolves columns against the
     /// query's table); any other row reads as NULL.
-    #[inline]
+    ///
+    /// No `#[inline]`, here and in [`crate::catalog::ColumnRef::value`]: with the hint, the release build (`opt-level =
+    /// "s"`) builds the getter's value in a temporary and copies it into the executor's result, a `Value` per column
+    /// read (about 22 instructions); left to the compiler, the getter writes into the result, as it did before the
+    /// handles kept their getters.
     pub(crate) fn value(self, data: &Dataset<'_>, row: RowRef<'_, '_>) -> Value {
         match (self, row) {
             (Get::Posting(get), RowRef::Posting(row)) => get(data, row),
@@ -418,8 +421,9 @@ pub(crate) enum RowRef<'r, 'a> {
 
 /// The rows of one query execution plus lazily built lookup structures.
 pub(crate) struct Dataset<'a> {
-    /// the table the rows belong to
-    pub table: TableRef,
+    /// whether the rows are `postings` rows (`rows`) rather than records (`records`): what every row access asks,
+    /// kept here so that it reads no table
+    postings: bool,
     /// the transactions of the `postings` rows
     pub entries: Vec<Entry<'a>>,
     /// the rows of the `postings` table
@@ -452,7 +456,7 @@ impl<'a> Dataset<'a> {
             Rows::Generated(source) => source(ledger, Generation { today, until }, projection, limits)?,
         };
         Ok(Dataset {
-            table: projection.table().clone(),
+            postings: false,
             entries: vec![],
             rows: vec![],
             records,
@@ -467,17 +471,19 @@ impl<'a> Dataset<'a> {
 
     /// The number of rows.
     pub fn len(&self) -> usize {
-        match self.table.rows() {
-            Rows::Postings => self.rows.len(),
-            Rows::Records(_) | Rows::Generated(_) => self.records.len(),
+        if self.postings {
+            self.rows.len()
+        } else {
+            self.records.len()
         }
     }
 
     /// The row at `idx`.
     pub fn row(&self, idx: usize) -> RowRef<'_, 'a> {
-        match self.table.rows() {
-            Rows::Postings => RowRef::Posting(&self.rows[idx]),
-            Rows::Records(_) | Rows::Generated(_) => RowRef::Record(&self.records[idx]),
+        if self.postings {
+            RowRef::Posting(&self.rows[idx])
+        } else {
+            RowRef::Record(&self.records[idx])
         }
     }
 

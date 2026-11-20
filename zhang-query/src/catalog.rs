@@ -195,7 +195,6 @@ impl ColumnRef {
     }
 
     /// The value of the column at `row`; see [`Get::value`].
-    #[inline]
     pub fn value(&self, data: &Dataset<'_>, row: RowRef<'_, '_>) -> Value {
         self.get.value(data, row)
     }

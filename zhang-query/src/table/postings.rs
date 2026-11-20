@@ -190,7 +190,7 @@ impl<'a> Dataset<'a> {
         }
 
         Dataset {
-            table: projection.table().clone(),
+            postings: true,
             entries,
             rows,
             records: vec![],
