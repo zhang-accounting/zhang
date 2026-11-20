@@ -23,11 +23,12 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use axum::response::{IntoResponse, Response};
+use bigdecimal::BigDecimal;
 use zhang_ast::amount::Amount;
 use zhang_ast::{booked_group_units, written_groups, Account, Directive, Meta, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
     is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
-    read_posting_price, NotRead,
+    read_posting_price, written_number_reads_back, NotRead,
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
@@ -212,8 +213,9 @@ pub fn account(name: &str, rules: &Rules) -> Checked<Account> {
     Account::from_str(name).map_err(|_| invalid(InvalidKind::InvalidAccount, name, RULE))
 }
 
-/// Check that the commodity of `amount` reads back unchanged.
+/// Check that `amount` reads back unchanged: its number ([`number`]) and its commodity.
 pub fn amount(amount: &Amount, rules: &Rules) -> Checked<()> {
+    number(&amount.number)?;
     let commodity = &amount.commodity;
     if !is_valid_commodity_name(commodity) {
         return Err(invalid(
@@ -230,6 +232,31 @@ pub fn amount(amount: &Amount, rules: &Rules) -> Checked<()> {
         ));
     }
     Ok(())
+}
+
+/// Check that `number`, written out as every write writes it, in plain notation, is a number the ledger reads back
+/// ([`written_number_reads_back`]). A request can give one with any exponent, such as `1e300000000`: written out, or
+/// exported for a preview, it has as many digits as its exponent says, which took a minute and hundreds of megabytes
+/// with the ledger held, and the ledger it was written into no longer loaded. It is refused first, with a 400.
+pub fn number(number: &BigDecimal) -> Checked<()> {
+    if written_number_reads_back(number) {
+        return Ok(());
+    }
+    Err(invalid(
+        InvalidKind::InvalidAmount,
+        &described(number),
+        "number out of range: written out in full, it has more digits or decimal places than the ledger reads back",
+    ))
+}
+
+/// `number` as an error names it, short whatever its exponent: its digits and its exponent (`1e300000000`), or, for
+/// one with too many digits to show, how many it has
+fn described(number: &BigDecimal) -> String {
+    let exponent = -number.fractional_digit_count();
+    match number.digits() {
+        ..=40 => format!("{}e{exponent}", number.as_bigint_and_exponent().0),
+        many => format!("a number of {many} digits times 1e{exponent}"),
+    }
 }
 
 /// Read the units of a posting given as text in the ledger's own syntax ([`read_posting_amount`]): a number, which may
@@ -279,6 +306,9 @@ pub fn cost(text: &str, rules: &Rules) -> Checked<PostingCost> {
     })?;
     if let Some(base) = &cost.base {
         amount(base, rules)?;
+    }
+    if let Some(total) = &cost.compound_total {
+        number(total)?;
     }
     Ok(cost)
 }
@@ -613,6 +643,50 @@ mod test {
                 assert_eq!(amount(&commodity, strict).is_ok(), beancount, "{name:?}");
             }
         });
+    }
+
+    /// A number of a request is written out in plain notation, with as many digits as its exponent says: one that
+    /// would then have more digits or decimal places than the parser reads is refused, before it is written or exported
+    /// for a preview, and named short in the error.
+    #[test]
+    fn a_number_that_would_not_read_back_written_out_is_refused() {
+        use bigdecimal::BigDecimal;
+
+        let units = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "CNY");
+        for number in ["0", "-12.50", "1e30", "1e999998", "123e999996", "1e-999999", "0e1000000000"] {
+            assert!(amount(&units(number), &Rules::Zhang).is_ok(), "{number}");
+        }
+        for (number, named) in [
+            ("1e999999", "1e999999"),
+            ("123e999997", "123e999997"),
+            ("1e-1000000", "1e-1000000"),
+            ("1e300000000", "1e300000000"),
+            ("-1e300000000", "-1e300000000"),
+            ("0e-1000000000", "0e-1000000000"),
+        ] {
+            let invalid = amount(&units(number), &Rules::Zhang).unwrap_err();
+            assert_eq!(invalid.kind, InvalidKind::InvalidAmount, "{number}");
+            assert_eq!(invalid.value, named, "{number}");
+            assert!(invalid.message.ends_with("than the ledger reads back"), "{}", invalid.message);
+        }
+        let many = format!("{}e5", "9".repeat(41));
+        assert!(number(&BigDecimal::from_str(&many).unwrap()).is_ok());
+        let too_many = format!("{}e999990", "9".repeat(41));
+        let invalid = number(&BigDecimal::from_str(&too_many).unwrap()).unwrap_err();
+        assert_eq!(invalid.value, "a number of 41 digits times 1e999990");
+        // units given as text: the parser reads `1e999999` as a literal, which written out it would not
+        assert!(units_of_text("1e999999 CNY").is_err());
+        assert!(units_of_text("1e999998 CNY").is_ok());
+        // a cost and a price
+        assert!(cost("{1e999999 USD}", &Rules::Zhang).is_err());
+        assert!(cost("{1 # 1e999999 USD}", &Rules::Zhang).is_err());
+        assert!(price("@ 1e999999 USD", &Rules::Zhang).is_err());
+        assert!(price("@@ 1e30 USD", &Rules::Zhang).is_ok());
+    }
+
+    /// the units of the text `text`, as a request gives them
+    fn units_of_text(text: &str) -> Checked<Amount> {
+        units(text, &Rules::Zhang, "CNY")
     }
 
     #[test]

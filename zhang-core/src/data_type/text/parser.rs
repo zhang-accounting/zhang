@@ -1179,6 +1179,23 @@ pub fn read_number(text: &str) -> Result<BigDecimal, NotRead> {
     read_whole(number_expr(text))
 }
 
+/// Whether `number`, written out as every writer writes a number, in plain notation
+/// ([`plain_decimal`](zhang_shared::decimal::plain_decimal)), is a literal [`number`] reads back: at most
+/// [`MAX_OPERAND_SIZE`] digits, and as many decimal places. A number with an exponent, as a request may give one, is
+/// written out with as many digits as its exponent says: `1e999999` is a literal the parser reads, but written out it
+/// has a million digits, and the ledger it is written into no longer loads. Told from the digits and the scale,
+/// without writing the number out.
+pub fn written_number_reads_back(number: &BigDecimal) -> bool {
+    let (digits, scale) = (number.digits(), number.fractional_digit_count());
+    if scale > 0 {
+        // `0.0012` and `12.34`: the digits, and the places after the point
+        digits <= MAX_OPERAND_SIZE && scale.unsigned_abs() <= MAX_OPERAND_SIZE
+    } else {
+        // `1200`: the digits, then a zero for each step of the exponent; zero is written `0`
+        bigdecimal::Zero::is_zero(number) || digits.saturating_add(scale.unsigned_abs()) <= MAX_OPERAND_SIZE
+    }
+}
+
 /// `text` read whole as the price annotation of a posting ([`posting_price`]): `@ 6 USD` per unit or
 /// `@@ 60 USD` in total. [`NotRead`] when it is not one, such as `6 USD` without the `@`, or when an expression in it
 /// has no value.
@@ -2888,7 +2905,8 @@ mod test {
         use bigdecimal::BigDecimal;
 
         use crate::data_type::text::parser::{
-            is_valid_bare_meta_value, number_expr, parse, read_number, read_posting_amount, read_posting_cost, read_posting_price, NotRead,
+            is_valid_bare_meta_value, number_expr, parse, read_number, read_posting_amount, read_posting_cost, read_posting_price, written_number_reads_back,
+            NotRead,
         };
 
         /// The parse error of `content`.
@@ -2946,6 +2964,26 @@ mod test {
             assert!(parse("2024-01-02 price STK 1e999999 * 1e-999999 USD\n", None).is_ok());
             assert!(parse("2024-01-02 price STK 1e999999 USD\n", None).is_ok());
             assert!(parse("2024-01-02 price STK 1e-999999 USD\n", None).is_ok());
+        }
+
+        /// Every writer writes a number out in plain notation, with a zero for each step of its exponent: written so, a
+        /// number reads back when it is within the bound of a literal, its digits and its decimal places. `1e999999` is
+        /// a literal within it, but written out it has a million digits.
+        #[test]
+        fn a_number_reads_back_written_out_within_the_bound_of_a_literal() {
+            let reads = |text: &str| written_number_reads_back(&BigDecimal::from_str(text).unwrap());
+            for text in ["0", "-12.50", "0.0001", "1e999998", "123e999996", "1e-999999", "0e1000000000"] {
+                assert!(reads(text), "{text}");
+            }
+            for text in ["1e999999", "123e999997", "1e-1000000", "1e300000000", "0e-1000000000"] {
+                assert!(!reads(text), "{text}");
+            }
+            // as the parser reads them written out, where that is cheap
+            for text in ["0", "-12.50", "0.0001", "1e5", "-7e3", "0e3", "0.000e-2"] {
+                let number = BigDecimal::from_str(text).unwrap();
+                let written = zhang_shared::decimal::plain_decimal(&number);
+                assert!(reads(text) && read_number(&written).is_ok(), "{text} written {written}");
+            }
         }
 
         /// A literal beyond the bound is out of range at the literal, wherever a number is written: alone, in an
