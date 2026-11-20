@@ -307,8 +307,9 @@ pub async fn preview_transaction_update(
         with_ledger(&ledger.0, move |ledger| {
             let span = ledger.transaction_span(&transaction_id);
             let span = span.ok_or(ServerError::NoSuchTransaction(transaction_id))?;
-            // the update refuses a transaction in no file of the ledger
+            // the update refuses a transaction in no file of the ledger, and the padding of a pad
             editable_file(ledger, &span)?;
+            written_as_transaction(ledger, &span)?;
             preview(ledger, payload, Some(&span))
         })
         .await?,
@@ -455,6 +456,7 @@ pub async fn update_single_transaction(
         return Err(ServerError::NoSuchTransaction(transaction_id));
     };
     let source_file_path = editable_file(&ledger, &span_info)?;
+    written_as_transaction(&ledger, &span_info)?;
 
     let trx = requested_transaction(payload, &ledger, original_transaction(&ledger, &span_info))?;
     let txn_content = ledger.data_source.export(trx)?;
@@ -474,6 +476,29 @@ pub async fn update_single_transaction(
     .await;
     wrote(&mut ledger, &reload_sender, written.map_err(moved))?;
     ResponseWrapper::json(())
+}
+
+/// Refuse to edit the stored transaction at `span` as a transaction when its text is another directive's: the
+/// padding a `pad` books, or a `balance` with a pad, has the place of that directive. Its documents are written to
+/// that directive's text, which is what an upload to it does; replacing the text would drop the directive, with every
+/// padding it books and, for a `balance`, its assertion.
+fn written_as_transaction(ledger: &Ledger, span: &TransactionInfoDomain) -> ServerResult<()> {
+    let place = (&span.span.filename, span.span_start);
+    let other = ledger
+        .directives
+        .iter()
+        .find(|it| (&it.span.filename, it.span.start) == place && !matches!(it.data, Directive::Transaction(_)));
+    match other {
+        None => Ok(()),
+        Some(directive) => Err(ServerError::InvalidInput(format!(
+            "the transaction {} is the padding booked by the {} directive at line {} of {}, not a transaction written \
+             in the file: edit that directive in the file instead",
+            span.id,
+            directive.data.directive_type(),
+            directive.span.line.unwrap_or_default(),
+            span.source_file.display(),
+        ))),
+    }
 }
 
 /// Transactions written through the API read back exactly (issue #442).

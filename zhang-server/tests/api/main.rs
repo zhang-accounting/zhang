@@ -22,4 +22,5 @@ mod posting_metadata;
 mod query_zhang_tables;
 mod string_escaping;
 mod transaction_preview;
+mod transaction_writes;
 mod wall_clock_times;
