@@ -5,20 +5,22 @@
 //! carry a time of day, and a ledger may quote a price several times a day: `time` and `timestamp` (zhang extensions)
 //! tell those quotes apart. None of these are part of `SELECT *`, which stays beanquery's.
 
+use std::borrow::Cow;
+
 use zhang_ast::{Directive, Price};
 use zhang_core::ledger::Ledger;
 
 use super::directives::{directive, directives_where};
 use super::entries::{DATE, DAY, FILENAME, ID, META, METAS, MONTH, SEQ, TIME, TIMESTAMP, TYPE, YEAR};
-use super::{ColumnDef, Record, Rows, Table};
+use super::{ColumnDef, Names, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
 pub(super) static PRICES: Table = Table {
-    name: "prices",
-    description: "One row per price directive, in ledger order.",
-    columns: COLUMNS,
-    wildcard: &["date", "currency", "amount"],
+    name: Cow::Borrowed("prices"),
+    description: Cow::Borrowed("One row per price directive, in ledger order."),
+    columns: Cow::Borrowed(COLUMNS),
+    wildcard: Names::Static(&["date", "currency", "amount"]),
     rows: Rows::Records(rows),
 };
 

@@ -7,22 +7,26 @@
 //! account has no such directive. `open.time`, the time of day the `open` is written at, is a
 //! zhang extension: with `open.date` it is the instant the account's lifecycle starts at.
 
+use std::borrow::Cow;
+
 use zhang_ast::{Close, Directive, Open, Spanned};
 use zhang_core::ledger::Ledger;
 
 use super::cache::LedgerCache;
 use super::directives::{date_of, set_value, str_value};
 use super::postings::time_value;
-use super::{render_meta, ColumnDef, Record, Rows, Table};
+use super::{render_meta, ColumnDef, Names, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
 pub(super) static ACCOUNTS: Table = Table {
-    name: "accounts",
-    description: "One row per account with an open or close directive, in the order of its first one. open and close are \
+    name: Cow::Borrowed("accounts"),
+    description: Cow::Borrowed(
+        "One row per account with an open or close directive, in the order of its first one. open and close are \
                   structured: read their fields with open.date, open.currencies, close.date, ...",
-    columns: COLUMNS,
-    wildcard: &["account", "open", "close"],
+    ),
+    columns: Cow::Borrowed(COLUMNS),
+    wildcard: Names::Static(&["account", "open", "close"]),
     rows: Rows::Records(rows),
 };
 

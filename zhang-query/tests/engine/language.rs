@@ -581,7 +581,7 @@ fn new_functions_and_columns_are_in_the_schema() {
             .unwrap()
             .columns
             .iter()
-            .map(|column| (column.name, column.ty))
+            .map(|column| (column.name.as_str(), column.ty))
             .collect::<Vec<_>>()
     };
     assert!(columns("postings").contains(&("metas", DataType::Metas)));

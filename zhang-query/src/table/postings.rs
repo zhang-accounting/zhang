@@ -26,8 +26,7 @@ use zhang_ast::{booked_group_units, Directive, Flag, Posting, PostingCost, Singl
 use zhang_core::ledger::Ledger;
 
 use super::cache::{Accounts, CachedRow, Head, LedgerCache, Lot, Postings};
-use super::{render_pairs, Borrow, ColumnDef, Dataset, POSTINGS};
-use crate::catalog::TableRef;
+use super::{render_pairs, Borrow, ColumnDef, Dataset};
 use crate::decimal;
 use crate::functions::is_under;
 use crate::projector::Projection;
@@ -141,13 +140,14 @@ impl Scope {
 impl<'a> Dataset<'a> {
     /// Every row of the `postings` table, for `projection`.
     #[cfg(test)]
-    pub fn new(ledger: &'a Ledger, now: NaiveDateTime, projection: Projection) -> Self {
+    pub fn new(ledger: &'a Ledger, now: NaiveDateTime, projection: &'a Projection) -> Self {
         Dataset::postings(ledger, LedgerCache::of(ledger), now, projection, &Scope::All)
     }
 
-    /// The rows of the `postings` table in `scope`, for `projection`, assembled from the booked
+    /// The rows of the `postings` table of `projection` in `scope`, assembled from the booked
     /// rows of `cache` (the cache of `ledger`).
-    pub fn postings(ledger: &'a Ledger, cache: &'a LedgerCache, now: NaiveDateTime, projection: Projection, scope: &Scope) -> Self {
+    pub fn postings(ledger: &'a Ledger, cache: &'a LedgerCache, now: NaiveDateTime, projection: &'a Projection, scope: &Scope) -> Self {
+        debug_assert!(projection.table().is_postings(), "{:?} has no postings", projection.table());
         let today = now.date();
         let postings = cache.postings(ledger);
         let table = cache.entries(ledger);
@@ -190,7 +190,7 @@ impl<'a> Dataset<'a> {
         }
 
         Dataset {
-            table: TableRef::Static(&POSTINGS),
+            table: projection.table().clone(),
             entries,
             rows,
             records: vec![],
@@ -471,28 +471,40 @@ pub static COLUMNS: &[ColumnDef] = &[
     ColumnDef::posting("flag", DataType::Str, "Flag of the transaction: '*', '!', or 'P' for padding.", |data, row| {
         txn_flag(&data.entry(row).parsed)
     }),
-    ColumnDef::posting("payee", DataType::Str, "Payee of the transaction.", |data, row| opt_str(payee(data, row))).borrowing(Borrow::Str(payee)),
-    ColumnDef::posting(
+    ColumnDef::posting_borrowing(
+        "payee",
+        DataType::Str,
+        "Payee of the transaction.",
+        |data, row| opt_str(payee(data, row)),
+        Borrow::Str(payee),
+    ),
+    ColumnDef::posting_borrowing(
         "narration",
         DataType::Str,
         "Narration of the transaction; '' when absent (as in beancount).",
         |data, row| opt_str(narration(data, row)),
-    )
-    .borrowing(Borrow::Str(narration)),
+        Borrow::Str(narration),
+    ),
     ColumnDef::posting(
         "description",
         DataType::Str,
         "Payee and narration joined with ' | ' (whichever are present).",
         |data, row| txn_description(&data.entry(row).parsed),
     ),
-    ColumnDef::posting("tags", DataType::Set, "Tags of the transaction.", |data, row| {
-        set_of(&data.entry(row).parsed.tags)
-    })
-    .borrowing(Borrow::Contains(|data, row, tag| data.entry(row).parsed.tags.contains(tag))),
-    ColumnDef::posting("links", DataType::Set, "Links of the transaction.", |data, row| {
-        set_of(&data.entry(row).parsed.links)
-    })
-    .borrowing(Borrow::Contains(|data, row, link| data.entry(row).parsed.links.contains(link))),
+    ColumnDef::posting_borrowing(
+        "tags",
+        DataType::Set,
+        "Tags of the transaction.",
+        |data, row| set_of(&data.entry(row).parsed.tags),
+        Borrow::Contains(|data, row, tag| data.entry(row).parsed.tags.contains(tag)),
+    ),
+    ColumnDef::posting_borrowing(
+        "links",
+        DataType::Set,
+        "Links of the transaction.",
+        |data, row| set_of(&data.entry(row).parsed.links),
+        Borrow::Contains(|data, row, link| data.entry(row).parsed.links.contains(link)),
+    ),
     ColumnDef::posting("id", DataType::Str, "Unique id of the transaction.", |data, row| {
         Value::Str(data.entry(row).id.to_string())
     }),
@@ -505,34 +517,46 @@ pub static COLUMNS: &[ColumnDef] = &[
             posting.and_then(|it| it.flag.as_ref()).map_or(Value::Null, |flag| Value::Str(flag.to_string()))
         },
     ),
-    ColumnDef::posting("account", DataType::Str, "Account of the posting.", |data, row| opt_str(account(data, row))).borrowing(Borrow::Str(account)),
+    ColumnDef::posting_borrowing(
+        "account",
+        DataType::Str,
+        "Account of the posting.",
+        |data, row| opt_str(account(data, row)),
+        Borrow::Str(account),
+    ),
     ColumnDef::posting("number", DataType::Decimal, "Number of units of the posting.", |_, row| {
         Value::Decimal(row.units.number.clone())
     }),
-    ColumnDef::posting("currency", DataType::Str, "Currency of the units of the posting.", |data, row| {
-        opt_str(currency(data, row))
-    })
-    .borrowing(Borrow::Str(currency)),
+    ColumnDef::posting_borrowing(
+        "currency",
+        DataType::Str,
+        "Currency of the units of the posting.",
+        |data, row| opt_str(currency(data, row)),
+        Borrow::Str(currency),
+    ),
     ColumnDef::posting("position", DataType::Position, "Units and cost of the posting.", |_, row| {
         Value::Position(position(row))
     }),
     ColumnDef::posting("cost_number", DataType::Decimal, "Per-unit cost number of the posting's lot.", |_, row| {
         row.cost.as_ref().map(|cost| Value::Decimal(cost.number.clone())).unwrap_or(Value::Null)
     }),
-    ColumnDef::posting("cost_currency", DataType::Str, "Cost currency of the posting's lot.", |data, row| {
-        opt_str(cost_currency(data, row))
-    })
-    .borrowing(Borrow::Str(cost_currency)),
+    ColumnDef::posting_borrowing(
+        "cost_currency",
+        DataType::Str,
+        "Cost currency of the posting's lot.",
+        |data, row| opt_str(cost_currency(data, row)),
+        Borrow::Str(cost_currency),
+    ),
     ColumnDef::posting("cost_date", DataType::Date, "Acquisition date of the posting's lot.", |_, row| {
         row.cost.as_ref().and_then(|cost| cost.date).map(Value::Date).unwrap_or(Value::Null)
     }),
-    ColumnDef::posting(
+    ColumnDef::posting_borrowing(
         "cost_label",
         DataType::Str,
         "Label of the posting's lot; '' when the posting has no cost (as in beanquery).",
         |data, row| opt_str(cost_label(data, row)),
-    )
-    .borrowing(Borrow::Str(cost_label)),
+        Borrow::Str(cost_label),
+    ),
     ColumnDef::posting("price", DataType::Amount, "Per-unit price annotation (@ or @@) of the posting.", |_, row| {
         row.price.as_ref().map(|price| Value::Amount(price.as_ref().clone())).unwrap_or(Value::Null)
     }),
@@ -542,13 +566,13 @@ pub static COLUMNS: &[ColumnDef] = &[
         "Amount the posting contributes to the transaction balance: units × cost, else units × price, else units.",
         |_, row| Value::Amount(weight(row)),
     ),
-    ColumnDef::posting(
+    ColumnDef::posting_borrowing(
         "other_accounts",
         DataType::Set,
         "Accounts of the other postings of the transaction.",
         |data, row| Value::Set(other_accounts(data, row).map(str::to_owned).collect()),
-    )
-    .borrowing(Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account))),
+        Borrow::Contains(|data, row, account| other_accounts(data, row).any(|it| it == account)),
+    ),
     ColumnDef::posting("meta", DataType::Str, "Metadata of the posting, as `key: \"value\"` pairs.", |data, row| {
         render_pairs(data.posting_metas(row).iter().map(|(key, value)| (key.as_str(), value.as_str())))
     }),
@@ -615,16 +639,14 @@ pub static COLUMNS: &[ColumnDef] = &[
         A zhang extension.",
         |data, row| balanced(data.entry(row).errors),
     ),
-    ColumnDef::posting(
+    ColumnDef::posting_borrowing(
         "errors",
         DataType::Set,
         "Kinds of the errors zhang recorded for the transaction, as #errors names them in kind; empty when there are \
         none. A zhang extension.",
         |data, row| error_kinds(data.entry(row).errors),
-    )
-    .borrowing(Borrow::Contains(|data, row, kind| {
-        data.entry(row).errors.is_some_and(|errors| errors.contains(kind))
-    })),
+        Borrow::Contains(|data, row, kind| data.entry(row).errors.is_some_and(|errors| errors.contains(kind))),
+    ),
     ColumnDef::posting(
         "automatic",
         DataType::Bool,

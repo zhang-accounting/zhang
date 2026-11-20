@@ -9,6 +9,8 @@
 //! also gives zhang's own columns: `seq` (the position in `#entries`), and on `#transactions`
 //! the transaction's `id` and the errors recorded for it (`balanced`, `errors`).
 
+use std::borrow::Cow;
+
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate};
 use zhang_ast::{Directive, Spanned, Transaction};
 use zhang_core::ledger::Ledger;
@@ -16,16 +18,18 @@ use zhang_core::ledger::Ledger;
 use super::cache::{EntryInfo, LedgerCache};
 use super::directives::{date_value, directive, directive_time, directive_timestamp, meta_value, set_value, str_value, year};
 use super::postings::{balanced, error_kinds, txn_date, txn_description, txn_flag, txn_narration, txn_payee, txn_time, txn_timestamp};
-use super::{meta_pairs, ColumnDef, Dataset, Record, Rows, Table};
+use super::{meta_pairs, ColumnDef, Dataset, Names, Record, Rows, Table};
 use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
 pub(super) static ENTRIES: Table = Table {
-    name: "entries",
-    description: "One row per directive of the ledger (transactions, open, close, balance, price, note, document, event, \
+    name: Cow::Borrowed("entries"),
+    description: Cow::Borrowed(
+        "One row per directive of the ledger (transactions, open, close, balance, price, note, document, event, \
                   commodity, custom, query and budget directives), in the order zhang processes the ledger (seq).",
-    columns: ENTRY_COLUMNS,
-    wildcard: &[
+    ),
+    columns: Cow::Borrowed(ENTRY_COLUMNS),
+    wildcard: Names::Static(&[
         "id",
         "type",
         "filename",
@@ -41,15 +45,15 @@ pub(super) static ENTRIES: Table = Table {
         "links",
         "meta",
         "accounts",
-    ],
+    ]),
     rows: Rows::Records(entry_rows),
 };
 
 pub(super) static TRANSACTIONS: Table = Table {
-    name: "transactions",
-    description: "One row per transaction, including the padding transactions of balance ... with pad, in ledger order.",
-    columns: TRANSACTION_COLUMNS,
-    wildcard: &["date", "flag", "payee", "narration", "tags", "links", "accounts"],
+    name: Cow::Borrowed("transactions"),
+    description: Cow::Borrowed("One row per transaction, including the padding transactions of balance ... with pad, in ledger order."),
+    columns: Cow::Borrowed(TRANSACTION_COLUMNS),
+    wildcard: Names::Static(&["date", "flag", "payee", "narration", "tags", "links", "accounts"]),
     rows: Rows::Records(transaction_rows),
 };
 

@@ -67,14 +67,38 @@ use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
 /// A table a query can read with `FROM #name`.
+///
+/// A core table is a `static` whose names and columns are `'static` too; a table a catalog builds at run time (see
+/// [`crate::catalog::TableRef::Shared`]) owns them. Either way the handles of [`crate::catalog`] read them through
+/// this one type.
 pub struct Table {
     /// the name after `#`, lower-case; names are case-sensitive
-    pub name: &'static str,
-    pub description: &'static str,
-    pub columns: &'static [ColumnDef],
+    pub name: Cow<'static, str>,
+    pub description: Cow<'static, str>,
+    pub columns: Cow<'static, [ColumnDef]>,
     /// the columns `SELECT *` expands to, in order
-    pub(crate) wildcard: &'static [&'static str],
+    pub(crate) wildcard: Names,
     pub(crate) rows: Rows,
+}
+
+/// Names a table keeps: `'static` ones of a core table, or owned ones.
+#[derive(Debug, Clone)]
+pub(crate) enum Names {
+    Static(&'static [&'static str]),
+    // built by the catalogs of extension tables
+    #[cfg_attr(not(test), allow(dead_code))]
+    Owned(Vec<String>),
+}
+
+impl Names {
+    /// The names, in order.
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        let (borrowed, owned) = match self {
+            Names::Static(names) => (*names, &[][..]),
+            Names::Owned(names) => (&[][..], names.as_slice()),
+        };
+        borrowed.iter().copied().chain(owned.iter().map(String::as_str))
+    }
 }
 
 impl fmt::Debug for Table {
@@ -85,7 +109,7 @@ impl fmt::Debug for Table {
 
 impl Table {
     /// The column `name` (case-insensitive).
-    pub fn column(&self, name: &str) -> Option<&'static ColumnDef> {
+    pub fn column(&self, name: &str) -> Option<&ColumnDef> {
         self.column_index(name).map(|index| &self.columns[index])
     }
 
@@ -94,14 +118,15 @@ impl Table {
         self.columns.iter().position(|it| it.name.eq_ignore_ascii_case(name))
     }
 
-    /// Whether this is the `postings` table, the default of a query without `FROM #name`.
+    /// Whether this is a `postings` table, whose rows are the booked postings: the default of a query without
+    /// `FROM #name`. It is the core's [`POSTINGS`], or a copy of it with more columns that a catalog builds.
     pub fn is_postings(&self) -> bool {
-        std::ptr::eq(self, &POSTINGS)
+        matches!(self.rows, Rows::Postings)
     }
 
     /// The attributes of the structured column `base` (the columns named `base.attribute`),
     /// in column order; empty when `base` has none.
-    pub(crate) fn attributes(&self, base: &str) -> Vec<&'static str> {
+    pub(crate) fn attributes(&self, base: &str) -> Vec<&str> {
         self.columns
             .iter()
             .filter_map(|column| column.name.split_once('.'))
@@ -164,10 +189,10 @@ impl<'e> Limits<'e> {
 
 /// The `postings` table.
 pub static POSTINGS: Table = Table {
-    name: "postings",
-    description: "One row per posting of every transaction, booked against the lots of its account (the default table).",
-    columns: COLUMNS,
-    wildcard: &postings::WILDCARD_COLUMNS,
+    name: Cow::Borrowed("postings"),
+    description: Cow::Borrowed("One row per posting of every transaction, booked against the lots of its account (the default table)."),
+    columns: Cow::Borrowed(COLUMNS),
+    wildcard: Names::Static(&postings::WILDCARD_COLUMNS),
     rows: Rows::Postings,
 };
 
@@ -201,10 +226,11 @@ pub(crate) fn column(name: &str) -> Option<ColumnRef> {
 }
 
 /// A column of a table.
+#[derive(Clone)]
 pub struct ColumnDef {
-    pub name: &'static str,
+    pub name: Cow<'static, str>,
     pub ty: DataType,
-    pub description: &'static str,
+    pub description: Cow<'static, str>,
     pub(crate) get: Get,
     /// how predicates can read the column in place, without copying it into a [`Value`]
     /// (postings only)
@@ -221,9 +247,9 @@ impl ColumnDef {
     /// A column of a record table.
     pub(crate) const fn record(name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Record<'_>) -> Value) -> ColumnDef {
         ColumnDef {
-            name,
+            name: Cow::Borrowed(name),
             ty,
-            description,
+            description: Cow::Borrowed(description),
             get: Get::Record(get),
             borrow: Borrow::No,
         }
@@ -232,36 +258,48 @@ impl ColumnDef {
     /// A column of the `postings` table.
     pub(crate) const fn posting(name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Row<'_>) -> Value) -> ColumnDef {
         ColumnDef {
-            name,
+            name: Cow::Borrowed(name),
             ty,
-            description,
+            description: Cow::Borrowed(description),
             get: Get::Posting(get),
             borrow: Borrow::No,
         }
     }
 
-    /// The column, read in place by predicates through `borrow`.
-    pub(crate) const fn borrowing(self, borrow: Borrow) -> ColumnDef {
-        ColumnDef { borrow, ..self }
-    }
-
-    /// The value of the column at `row`. A column only reads rows of its own table (the
-    /// compiler resolves columns against the query's table); any other row reads as NULL.
-    pub(crate) fn value(&self, data: &Dataset<'_>, row: RowRef<'_, '_>) -> Value {
-        match (&self.get, row) {
-            (Get::Posting(get), RowRef::Posting(row)) => get(data, row),
-            (Get::Record(get), RowRef::Record(record)) => get(data, record),
-            _ => Value::Null,
+    /// A column of the `postings` table that predicates read in place through `borrow`.
+    pub(crate) const fn posting_borrowing(
+        name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Row<'_>) -> Value, borrow: Borrow,
+    ) -> ColumnDef {
+        ColumnDef {
+            name: Cow::Borrowed(name),
+            ty,
+            description: Cow::Borrowed(description),
+            get: Get::Posting(get),
+            borrow,
         }
     }
 }
 
 /// How a column reads its value from a row.
+#[derive(Clone, Copy)]
 pub(crate) enum Get {
     /// a column of the `postings` table
     Posting(fn(&Dataset<'_>, &Row<'_>) -> Value),
     /// a column of a record table
     Record(fn(&Dataset<'_>, &Record<'_>) -> Value),
+}
+
+impl Get {
+    /// The value at `row`. A column only reads rows of its own table (the compiler resolves columns against the
+    /// query's table); any other row reads as NULL.
+    #[inline]
+    pub(crate) fn value(self, data: &Dataset<'_>, row: RowRef<'_, '_>) -> Value {
+        match (self, row) {
+            (Get::Posting(get), RowRef::Posting(row)) => get(data, row),
+            (Get::Record(get), RowRef::Record(record)) => get(data, record),
+            _ => Value::Null,
+        }
+    }
 }
 
 /// In-place access to a column, for predicates that only inspect the value.
@@ -391,7 +429,8 @@ pub(crate) struct Dataset<'a> {
     pub today: NaiveDate,
     /// `now()` of the execution: the instant of the ledger's clock in its timezone, whose date is `today`
     pub now: NaiveDateTime,
-    pub projection: Projection,
+    /// the columns of the table the execution reads
+    pub projection: &'a Projection,
     ledger: &'a Ledger,
     /// what every query of the ledger shares (see [`LedgerCache`])
     cache: &'a LedgerCache,
@@ -403,14 +442,14 @@ impl<'a> Dataset<'a> {
     /// The rows of the projection's table (of the `postings` table, those in `scope`);
     /// generated rows count against `limits`.
     pub fn build(
-        ledger: &'a Ledger, now: NaiveDateTime, projection: Projection, scope: &Scope, until: Option<NaiveDate>, limits: &mut Limits<'_>,
+        ledger: &'a Ledger, now: NaiveDateTime, projection: &'a Projection, scope: &Scope, until: Option<NaiveDate>, limits: &mut Limits<'_>,
     ) -> Result<Self, LocatedError> {
         let cache = LedgerCache::of(ledger);
         let today = now.date();
         let records = match projection.table().rows() {
             Rows::Postings => return Ok(Dataset::postings(ledger, cache, now, projection, scope)),
-            Rows::Records(source) => source(ledger, &projection),
-            Rows::Generated(source) => source(ledger, Generation { today, until }, &projection, limits)?,
+            Rows::Records(source) => source(ledger, projection),
+            Rows::Generated(source) => source(ledger, Generation { today, until }, projection, limits)?,
         };
         Ok(Dataset {
             table: projection.table().clone(),

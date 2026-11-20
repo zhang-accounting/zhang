@@ -177,10 +177,14 @@ fn transaction_id(ledger: &Ledger, narration: &str) -> String {
 // schema and documentation: every new column and function is in the registry-driven schema
 // (`GET /api/query/schema`) with a description, and in both language references
 
-fn column_doc(table: &str, column: &str) -> Option<(&'static str, &'static str)> {
+fn column_doc(table: &str, column: &str) -> Option<(&'static str, String)> {
     let schema = zhang_query::schema();
     let table = schema.tables.iter().find(|it| it.name == table)?;
-    table.columns.iter().find(|it| it.name == column).map(|it| (it.ty.name(), it.description))
+    table
+        .columns
+        .iter()
+        .find(|it| it.name == column)
+        .map(|it| (it.ty.name(), it.description.clone()))
 }
 
 fn assert_columns(expected: &[(&str, &str, &str)]) {
