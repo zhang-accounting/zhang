@@ -21,7 +21,7 @@ extern "C" {
 #include "lualib.h"
 }
 
-// json.cpp: push the JSON codec, a table of `null`, the `objectmeta` and `arraymeta` markers, `encode` and `decode`
+// json.cpp: push the `json` table of scripts: `null`, `encode`, `decode`, `object` and `array`
 int json_open(lua_State *L);
 
 // LLVM 23 requires a definition of the exception tag lua.wasm's EH shim throws (onelua.c: tag 0,
@@ -195,11 +195,8 @@ local sbyte, schar, sgsub, ssub, slower, sformat = string.byte, string.char, str
 local concat, utf8len = table.concat, utf8.len
 local rawload, traceback = base.load, base.debug.traceback
 
--- ---- json: the C codec of json.cpp, with a fixed null and the shared object/array markers ---------------------
-local objectmeta, arraymeta = codec.objectmeta, codec.arraymeta
-local json = {null = codec.null, encode = codec.encode, decode = codec.decode}
-function json.object(t) return setmetatable(t or {}, objectmeta) end
-function json.array(t) return setmetatable(t or {}, arraymeta) end
+-- ---- json: the C codec of json.cpp (null, encode, decode, and the sealed object/array markers) --------------------
+local json = codec
 
 -- ---- base64, for bytes that are not UTF-8: file contents from the host, response bodies to it -----------------
 local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"

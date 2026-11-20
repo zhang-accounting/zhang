@@ -9,13 +9,16 @@
 // - encode: nil and `json.null` are null. A table marked as an object (`json.object`, a decoded object) is an object;
 //   any other table is an array when its keys are 1..n, holes allowed unless it is sparse (its largest key past 10
 //   and more than twice its count), and an object otherwise, whose keys (strings and numbers) are written sorted:
-//   numbers first, ascending, then strings by byte, so one value always gives the same bytes. An integer is written
-//   exactly; a float with the fewest digits that read back as the same float (".0" when it looks like an integer, as
-//   Lua prints it), NaN and the infinities as null. A string must be UTF-8 text; control characters and the code
-//   points dkjson escaped are written as \u escapes.
+//   numbers first, ascending, then strings by byte, so one value always gives the same bytes; a number key and the
+//   same key as a string in one table are an error, not a key written twice. An integer is written exactly; a float
+//   with 15 significant digits when they read back as the same float, else 16, else 17 (".0" when it looks like an
+//   integer, as Lua prints it), NaN and the infinities as null. A string must be UTF-8 text; control characters and
+//   the code points dkjson escaped are written as \u escapes.
 // - limits: 1000 levels of nesting both ways. Both directions loop over an explicit stack instead of recursing, so a
 //   deep document grows neither the C nor the wasm stack; every byte they allocate is a Lua object, under the call's
 //   memory budget, so a refused allocation is Lua's own memory error.
+// - the markers: `json.object` and `json.array` set shared metatables, sealed with __metatable (getmetatable gives a
+//   look-alike table), so a script cannot make every decoded document weak through them.
 
 #include <math.h>
 #include <stdint.h>
@@ -51,8 +54,10 @@ template <typename... Args>
 // The collector is paused while a value is encoded or decoded: no finalizer runs Lua code in the middle (it could
 // change the table being written, whose string keys this file holds as pointers), and a document being built is not
 // traversed again and again. An allocation the budget refuses still runs Lua's emergency collection, which runs no
-// finalizer, before it fails. A Lua error unwinding the scope restarts the collector too (Lua errors are C++
-// exceptions in this build, see runtime.cpp's HostBlock).
+// finalizer but does clear the entries of weak tables whose values are garbage: the encoder writes a weak table from
+// a strong copy (Encoder::open), so no entry it has seen goes away, nor the key strings it points into. A Lua error
+// unwinding the scope restarts the collector too (Lua errors are C++ exceptions in this build, see runtime.cpp's
+// HostBlock).
 struct CollectorPause {
   lua_State *L;
   bool running;
@@ -146,15 +151,16 @@ struct AsciiEscapes {
   char of[128];
   constexpr AsciiEscapes() : of() {
     for (int c = 0; c < 0x20; c++) of[c] = 'u';
-    of['\b'] = 'b';
-    of['\f'] = 'f';
-    of['\n'] = 'n';
-    of['\r'] = 'r';
-    of['\t'] = 't';
-    of['"'] = '"';
-    of['\\'] = '\\';
-    of[0x7F] = 'u';
+    set('\b', 'b');
+    set('\f', 'f');
+    set('\n', 'n');
+    set('\r', 'r');
+    set('\t', 't');
+    set('"', '"');
+    set('\\', '\\');
+    set(0x7F, 'u');
   }
+  constexpr void set(unsigned char c, char escape) { of[c] = escape; }
 };
 constexpr AsciiEscapes ASCII_ESCAPES;
 
@@ -225,9 +231,11 @@ size_t format_integer(char *text, lua_Integer value) {
   return length;
 }
 
-// a finite float with the fewest significant digits (15, 16 or 17) that read back as the same float, and ".0" when the
-// digits look like an integer, as Lua's tostring writes it (1.0, 1e+20). 15 digits give what Lua's 14 gave whenever
-// those 14 were exact. `text` holds at least 32 bytes
+// a finite float with 15 significant digits when they read back as the same float, else 16, else 17 (17 always do),
+// without trailing zeros, and ".0" when the digits look like an integer, as Lua's tostring writes it (1.0, 1e+20). 15
+// digits give what Lua's 14 gave whenever those 14 were exact. It is the shortest form for a normal float, which
+// 15 digits always pin when any shorter form does; a subnormal may get more digits than it needs (5e-324 is written
+// 4.94065645841247e-324). `text` holds at least 32 bytes
 size_t format_float(char *text, double value) {
   int length = 0;
   for (int precision = 15; precision <= 17; precision++) {
@@ -258,8 +266,8 @@ void write_number(lua_State *L, Buffer &out, int index) {
   out.append(text, length);
 }
 
-// a key of an object being written: a string (pointing into the Lua string, which the table keeps alive while the
-// collector is paused) or a number
+// a key of an object being written: a string (pointing into the Lua string, which the table keeps alive: a strong
+// table loses no entry while the collector is paused, and a weak one is written from a strong copy) or a number
 enum KeyKind { KEY_INTEGER, KEY_FLOAT, KEY_STRING };
 
 struct Key {
@@ -294,26 +302,37 @@ int compare_keys(const void *left, const void *right) {
   return integer_before_float(b->integer, a->number) ? 1 : -1;
 }
 
+// the text of a number key, as Lua writes the number, NUL-terminated; `text` holds at least 32 bytes
+size_t number_key_text(char *text, const Key &key) {
+  size_t length;
+  if (key.kind == KEY_INTEGER) {
+    length = format_integer(text, key.integer);
+  } else if (isfinite(key.number)) {
+    length = format_float(text, key.number);
+  } else {
+    length = strlen(strcpy(text, key.number > 0 ? "inf" : "-inf"));
+  }
+  text[length] = '\0';
+  return length;
+}
+
 void write_key(lua_State *L, Buffer &out, const Key &key) {
   if (key.kind == KEY_STRING) {
     write_string(L, out, key.text, key.length);
     return;
   }
-  // a number key is written as Lua writes the number, quoted
   char text[34];
-  size_t length = 1;
   text[0] = '"';
-  if (key.kind == KEY_INTEGER) {
-    length += format_integer(text + 1, key.integer);
-  } else if (isfinite(key.number)) {
-    length += format_float(text + 1, key.number);
-  } else {
-    const char *name = key.number > 0 ? "inf" : "-inf";
-    memcpy(text + 1, name, strlen(name));
-    length += strlen(name);
-  }
+  size_t length = 1 + number_key_text(text + 1, key);
   text[length++] = '"';
   out.append(text, length);
+}
+
+// the order of a string key and the bytes `text`, as compare_keys orders two string keys
+int compare_text(const Key &key, const char *text, size_t length) {
+  int order = memcmp(key.text, text, key.length < length ? key.length : length);
+  if (order) return order;
+  return (key.length > length) - (key.length < length);
 }
 
 void push_key(lua_State *L, const Key &key) {
@@ -322,23 +341,51 @@ void push_key(lua_State *L, const Key &key) {
   else lua_pushnumber(L, key.number);
 }
 
-// whether the table at `index` carries the object marker: the shared metatable of json.object() and of decoded
-// objects, or any metatable whose __jsontype is "object", as dkjson read it
-bool marked_object(lua_State *L, int index) {
-  if (!lua_getmetatable(L, index)) return false;
-  bool marked = false;
+// What the metatable of the table at `index` says: whether it carries the object marker (the shared metatable of
+// json.object() and of decoded objects, or any metatable whose __jsontype is "object", as dkjson read it), and whether
+// the table is weak (a string __mode, as the collector reads it). The shared metatables are sealed and never weak.
+void inspect_metatable(lua_State *L, int index, bool *marked, bool *weak) {
+  *marked = *weak = false;
+  if (!lua_getmetatable(L, index)) return;
   if (lua_rawequal(L, -1, OBJECT_META)) {
-    marked = true;
+    *marked = true;
   } else if (!lua_rawequal(L, -1, ARRAY_META)) {
     lua_pushliteral(L, "__jsontype");
     lua_rawget(L, -2);
     size_t length;
     const char *kind = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : NULL;
-    marked = kind && length == 6 && memcmp(kind, "object", 6) == 0;
+    *marked = kind && length == 6 && memcmp(kind, "object", 6) == 0;
+    lua_pop(L, 1);
+    lua_pushliteral(L, "__mode");
+    lua_rawget(L, -2);
+    *weak = lua_type(L, -1) == LUA_TSTRING;
     lua_pop(L, 1);
   }
   lua_pop(L, 1);
-  return marked;
+}
+
+// Push a strong copy of the weak table at `index` and return its index. An emergency collection (a growth the budget
+// refuses) clears the entries of a weak table whose values are garbage and may then free their key strings, which
+// the encoder points into; the copy keeps every entry it took, so none is written as a key with a dropped value or
+// read after it was freed. The copy is made without an allocation after its own: the entries are counted, the copy is
+// sized for them, and filling a hash part sized for its keys allocates nothing. So it holds the table as it was after
+// the copy's allocation, which may have collected garbage values exactly as a collection before the call would.
+int strong_copy(lua_State *L, int index) {
+  int count = 0;
+  lua_pushnil(L);
+  while (lua_next(L, index)) {
+    lua_pop(L, 1);
+    count++;
+  }
+  lua_createtable(L, 0, count);
+  int copy = lua_gettop(L);
+  lua_pushnil(L);
+  while (lua_next(L, index)) {
+    lua_pushvalue(L, -2);
+    lua_insert(L, -2);
+    lua_rawset(L, copy);
+  }
+  return copy;
 }
 
 // whether the table at `index` is an array, and its last index: every key a positive integer and the table not
@@ -366,10 +413,12 @@ bool array_extent(lua_State *L, int index, lua_Integer *last) {
 }
 
 // one table being written: an array going through the indices first..last (1..n), or an object going through its
-// sorted keys, which sit at [first, last) of the key buffer; `next` is the one to write next
+// sorted keys, which sit at [first, last) of the key buffer; `next` is the one to write next. `slot` holds the table,
+// or its strong copy, and `pushed` counts what to pop when it is done (the table its parent pushed, the copy)
 struct Frame {
   const void *table;
   int slot;
+  int pushed;
   bool object;
   lua_Integer first;
   lua_Integer next;
@@ -396,12 +445,20 @@ struct Encoder {
       if (frames[level].table == table) fail(L, "reference cycle");
     }
     if (depth == MAX_DEPTH) fail(L, "cannot encode a value nested deeper than %d levels", MAX_DEPTH);
-    luaL_checkstack(L, 4, "nesting too deep");
+    luaL_checkstack(L, 6, "nesting too deep");
+    bool marked, weak;
+    inspect_metatable(L, index, &marked, &weak);
+    int pushed = index == 1 ? 0 : 1;
+    if (weak) {
+      index = strong_copy(L, index);
+      pushed++;
+    }
     Frame &frame = frames[depth++];
     frame.table = table;
     frame.slot = index;
+    frame.pushed = pushed;
     lua_Integer last = 0;
-    frame.object = marked_object(L, index) || !array_extent(L, index, &last);
+    frame.object = marked || !array_extent(L, index, &last);
     if (!frame.object) {
       frame.first = frame.next = 1;
       frame.last = last;
@@ -429,10 +486,34 @@ struct Encoder {
     }
     lua_Integer count = (lua_Integer)(keys.length / sizeof(Key)) - first;
     qsort(key_at(first), (size_t)count, sizeof(Key), compare_keys);
+    refuse_twice_written_keys(first, first + count);
     frame.first = frame.next = first;
     frame.last = first + count;
     out.put('{');
     return true;
+  }
+
+  // Raise when a number key of the sorted keys [first, last) is written as the same text as one of its string keys:
+  // {[1] = ..., ["1"] = ...} would give {"1":...,"1":...}, which JSON readers resolve each their own way. Number keys
+  // sort first; each one's text is looked up among the string keys, which are sorted by byte
+  void refuse_twice_written_keys(lua_Integer first, lua_Integer last) {
+    lua_Integer strings = first;
+    while (strings < last && key_at(strings)->kind != KEY_STRING) strings++;
+    if (strings == first || strings == last) return;
+    for (lua_Integer number = first; number < strings; number++) {
+      char text[32];
+      size_t length = number_key_text(text, *key_at(number));
+      lua_Integer low = strings, high = last;
+      while (low < high) {
+        lua_Integer middle = low + (high - low) / 2;
+        if (compare_text(*key_at(middle), text, length) < 0) low = middle + 1;
+        else high = middle;
+      }
+      if (low < last && compare_text(*key_at(low), text, length) == 0) {
+        fail(L, "cannot encode a table with both the number key %s and the string key \"%s\": JSON would write the key twice",
+             text, text);
+      }
+    }
   }
 
   // push the next value of the innermost table, closing the tables that are done; false when the outermost is done
@@ -458,8 +539,8 @@ struct Encoder {
       } else {
         out.put(']');
       }
-      // a nested table is the value its parent pushed, on top of the stack
-      if (frame.slot != 1) lua_pop(L, 1);
+      // a nested table is the value its parent pushed, and a weak one's copy is above it, on top of the stack
+      lua_pop(L, frame.pushed);
       depth--;
     }
     return false;
@@ -858,10 +939,41 @@ done:
   return 1;
 }
 
+// json.object(t) and json.array(t): `t`, or a new table, with the marker that is upvalue 1. Like setmetatable, it
+// refuses a table whose metatable is protected, except by the markers themselves, which it may swap
+int json_mark(lua_State *L) {
+  if (!lua_toboolean(L, 1)) {
+    lua_settop(L, 0);
+    lua_newtable(L);
+  }
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_settop(L, 1);
+  if (lua_getmetatable(L, 1)) {
+    bool marker = lua_rawequal(L, -1, lua_upvalueindex(2)) || lua_rawequal(L, -1, lua_upvalueindex(3));
+    lua_pop(L, 1);
+    if (!marker && luaL_getmetafield(L, 1, "__metatable") != LUA_TNIL) fail(L, "cannot change a protected metatable");
+  }
+  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_setmetatable(L, 1);
+  return 1;
+}
+
+// push a marker metatable, {__jsontype = kind}, sealed: getmetatable gives a look-alike, {__jsontype = kind}, so a
+// script reads the kind but cannot reach the metatable itself (to make every decoded document weak, say)
+void push_marker(lua_State *L, const char *kind) {
+  lua_createtable(L, 0, 2);
+  lua_pushstring(L, kind);
+  lua_setfield(L, -2, "__jsontype");
+  lua_createtable(L, 0, 1);
+  lua_pushstring(L, kind);
+  lua_setfield(L, -2, "__jsontype");
+  lua_setfield(L, -2, "__metatable");
+}
+
 }  // namespace
 
-// Push the codec as a table: `null`, the `objectmeta` and `arraymeta` markers, and `encode` and `decode`, closures
-// over those three.
+// Push the `json` table: `null`, `encode` and `decode` (closures over null and the two markers), and `object` and
+// `array` (closures over their marker and both markers).
 int json_open(lua_State *L) {
   lua_createtable(L, 0, 5);
   // json.null: a table of its own, which decoding gives for null and encoding writes as null
@@ -870,22 +982,22 @@ int json_open(lua_State *L) {
   lua_pushliteral(L, "json.null");
   lua_setfield(L, -2, "__name");
   lua_setmetatable(L, -2);
-  lua_createtable(L, 0, 1);
-  lua_pushliteral(L, "object");
-  lua_setfield(L, -2, "__jsontype");
-  lua_createtable(L, 0, 1);
-  lua_pushliteral(L, "array");
-  lua_setfield(L, -2, "__jsontype");
-  // stack: codec, null, objectmeta, arraymeta
-  for (int i = 0; i < 2; i++) {
+  push_marker(L, "object");
+  push_marker(L, "array");
+  // stack: json, null, objectmeta, arraymeta
+  const struct {
+    const char *name;
+    lua_CFunction function;
+    int first;  // the stack index of its first upvalue, then the two markers
+  } closures[] = {{"encode", json_encode, -3}, {"decode", json_decode, -3}, {"object", json_mark, -2}, {"array", json_mark, -1}};
+  for (const auto &closure : closures) {
+    lua_pushvalue(L, closure.first);
     lua_pushvalue(L, -3);
     lua_pushvalue(L, -3);
-    lua_pushvalue(L, -3);
-    lua_pushcclosure(L, i == 0 ? json_encode : json_decode, 3);
-    lua_setfield(L, -5, i == 0 ? "encode" : "decode");
+    lua_pushcclosure(L, closure.function, 3);
+    lua_setfield(L, -5, closure.name);
   }
-  lua_setfield(L, -4, "arraymeta");
-  lua_setfield(L, -3, "objectmeta");
+  lua_pop(L, 2);
   lua_setfield(L, -2, "null");
   return 1;
 }

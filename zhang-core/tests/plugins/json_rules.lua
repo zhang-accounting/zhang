@@ -74,6 +74,27 @@ function M.router(request)
   local deep = {}; local cur = deep; for i = 1, 999 do cur[1] = {}; cur = cur[1] end
   eq("depth 1000", #E(deep), 2000)
   cur[1] = {}; err("depth 1001", function() return E(deep) end, "nested deeper than 1000 levels")
+  -- a number key and the same key as a string would be written twice
+  err("dup int", function() return E({[1] = "a", ["1"] = "b"}) end, 'both the number key 1 and the string key "1": JSON would write the key twice')
+  err("dup float", function() return E({[1.5] = 1, ["1.5"] = 2, z = 3}) end, 'number key 1.5 and the string key "1.5"')
+  err("dup inf", function() return E({[math.huge] = 1, inf = 2}) end, 'number key inf and the string key "inf"')
+  eq("no dup", E({[1] = 1, ["01"] = 2, ["1.0"] = 3, [2] = 4}), '{"1":1,"2":4,"01":2,"1.0":3}')
+  -- the markers: sealed, a look-alike for getmetatable, swappable by json.object/json.array only
+  eq("marker kind object", getmetatable(json.object()).__jsontype, "object"); eq("marker kind array", getmetatable(json.array()).__jsontype, "array")
+  local lookalike = getmetatable(json.object()); lookalike.__mode = "v"
+  local held = D('{"a":{"b":1}}'); collectgarbage(); collectgarbage(); lookalike.__mode = nil
+  eq("sealed marker stays strong", E(held), '{"a":{"b":1}}')
+  eq("reobject", E(json.object(D("[]"))), "{}"); eq("rearray", E(json.array(D("{}"))), "[]"); eq("object(false)", E(json.object(false)), "{}")
+  err("protected", function() return json.object(setmetatable({}, {__metatable = "locked"})) end, "cannot change a protected metatable")
+  err("object(1)", function() return json.object(1) end, "table expected, got number")
+  eq("lookalike marks", E(setmetatable({}, getmetatable(json.object()))), "{}")
+  -- a weak table is written from a strong copy: every entry it holds, each key with its value
+  local kept, weak = {}, setmetatable({}, {__mode = "v"})
+  for i = 1, 300 do kept[i] = {i}; weak["w" .. i] = kept[i] end
+  local back = D(E(weak)); local entries = 0; for _ in pairs(back) do entries = entries + 1 end
+  eq("weak entries", entries, 300); eq("weak value", back.w123[1], 123)
+  local weakarray = setmetatable({}, {__mode = "k"}); for i = 1, 5 do weakarray[i] = i end
+  eq("weak array", E(weakarray), "[1,2,3,4,5]")
   local wide = {}; for i = 1, 5000 do wide["k" .. i] = i end
   local text = E(wide); eq("wide first", text:sub(1, 8), '{"k1":1,'); eq("wide back", D(text).k4321, 4321)
 

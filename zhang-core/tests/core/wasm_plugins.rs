@@ -2806,6 +2806,20 @@ mod lua {
     }
 
     #[test]
+    fn a_weak_table_near_the_budget_is_encoded_whole_or_refused() {
+        // an emergency collection clears a weak table's garbage values and frees their keys: the encoder writes a weak
+        // table from a strong copy, so it never reads a freed key nor writes a key without its value
+        let dir = ledger_dir(&["json_weak.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "json_weak.lua"))));
+
+        let body = json_body(&call(&ledger, "json-weak", &get("/")).unwrap());
+
+        assert_eq!(body["failures"], json!([]), "{body}");
+        assert_eq!(body["runs"], 22, "{body}");
+        assert!(body["encoded"].as_u64().unwrap() > 0, "{body}");
+    }
+
+    #[test]
     fn the_string_hash_seed_differs_between_requests() {
         // a fixed seed would let a script's input be crafted with keys that all collide (hash flooding)
         let (_dir, ledger) = router_ledger(&["pairs_order.lua"]);

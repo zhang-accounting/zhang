@@ -82,13 +82,18 @@ It replaced dkjson 2.11 (pure Lua, about 3 MB/s, patched here to sort keys) and 
 The codec reads and writes in one pass, straight between the text and Lua values, with an explicit stack instead of
 recursion (1000 levels at most, so a deep document grows neither the C nor the wasm stack). Its buffers are Lua
 userdata, so the budget counts them and refuses them with Lua's own memory error, and the collector is paused while
-it runs, so no finalizer changes a table it is writing. Numbers: an integer within 64 bits is exact both ways; a
-float is decoded with Clinger's exact fast path or wasi-libc's `strtod`, and written with `%.15g`, `%.16g` or `%.17g`,
-the first that reads back as the same float.
+it runs, so no finalizer changes a table it is writing. The encoder points into the string keys of the table it
+writes; a growth the budget refuses still runs Lua's emergency collection, which clears a weak table's garbage
+values and frees their keys, so a weak table (a string `__mode`) is written from a strong copy. The object and array
+markers are sealed with `__metatable` (`getmetatable` gives a look-alike), so no script can make every decoded document
+weak through them. A table holding a number key and the same key as a string raises rather than writing the key
+twice. Numbers: an integer within 64 bits is exact both ways; a float is decoded with Clinger's exact fast path or
+wasi-libc's `strtod`, and written with `%.15g`, `%.16g` or `%.17g`, the first that reads back as the same float (the
+shortest form for a normal float; a subnormal may get more digits than it needs).
 
 Before it replaced dkjson it was checked natively against JSONTestSuite (every `y_` document accepted, every `n_`
 refused) and against the patched dkjson on random documents (byte-identical output wherever the rules did not
-change). `zhang-core/tests/plugins/json_rules.lua` holds its rules as checks that run inside the module; change it with
+change); a later review fuzzed it under ASan and UBSan and compared it with Python's `json`. `zhang-core/tests/plugins/json_rules.lua` holds its rules as checks that run inside the module; change it with
 the codec.
 
 ## Changing the runtime
