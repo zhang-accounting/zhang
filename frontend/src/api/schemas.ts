@@ -338,7 +338,9 @@ export interface paths {
      * The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
      * the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
      * the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
-     * without the version would delete that one.
+     * without the version would delete that one. When that one is written alike, with the same version, the server
+     * remembers that it deleted that version at that id lately (in memory, for a day): a delete or an update naming it is
+     * a 412 too.
      */
     delete: operations['delete_single_transaction'];
   };
@@ -2614,7 +2616,9 @@ export interface operations {
    * The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
    * the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
    * the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
-   * without the version would delete that one.
+   * without the version would delete that one. When that one is written alike, with the same version, the server
+   * remembers that it deleted that version at that id lately (in memory, for a day): a delete or an update naming it is
+   * a 412 too.
    */
   delete_single_transaction: {
     parameters: {
