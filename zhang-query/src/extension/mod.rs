@@ -42,10 +42,10 @@ use std::sync::{Arc, LazyLock};
 use zhang_core::ledger::Ledger;
 
 pub(crate) use self::labels::{LabelColumn, Labels};
-pub(crate) use self::series::{SeriesRow, SeriesSpec};
+pub(crate) use self::series::{FillRead, SeriesRow, SeriesSpec};
 pub(crate) use self::snapshot::{snapshot, snapshots, Cause, FactRow, Label, Partition, RecordRow, Snapshot, TableData};
 use crate::catalog::TableRef;
-use crate::table::{self, Borrow, CellRead, ColumnDef, FillRead, Get, Names, Rows, Table};
+use crate::table::{self, Borrow, ColumnDef, Get, Names, Rows, Table};
 use crate::value::DataType;
 
 /// What a provider declares: its tables and its label columns. It is static, so the catalog is known before any
@@ -241,13 +241,14 @@ pub(crate) fn build(manifests: &[Manifest]) -> Result<Extensions, String> {
                 return Err(error(format!("{}: postings already has a column '{}'", what, decl.name)));
             }
             let column = LabelColumn::compile(&provider, decl).map_err(|it| error(format!("{}: {}", what, it)))?;
-            let slot = u16::try_from(labels.len()).map_err(|_| error("too many label columns".to_owned()))?;
+            let (getter, holds) =
+                table::label_getter(labels.len()).ok_or_else(|| error(format!("{}: a catalog has at most {} label columns", what, table::MAX_LABELS)))?;
             let def = ColumnDef {
                 name: Cow::Owned(decl.name.clone()),
                 ty: DataType::Set,
                 description: Cow::Owned(decl.description.clone()),
-                get: Get::Labels(slot),
-                borrow: Borrow::Labels(slot),
+                get: Get::Posting(getter),
+                borrow: Borrow::Contains(holds),
                 provided_by: Some(provider.clone()),
             };
             labels.push((def, Arc::new(column)));
@@ -277,6 +278,9 @@ fn extension_table(provider: &Arc<str>, decl: &TableDecl) -> Result<Table, Strin
     if decl.columns.is_empty() {
         return Err("a table has columns".to_owned());
     }
+    if decl.columns.len() > table::MAX_CELLS {
+        return Err(format!("a table has at most {} columns", table::MAX_CELLS));
+    }
     let mut seen = HashSet::new();
     for column in &decl.columns {
         check_name(&column.name).map_err(|it| format!("column '{}': {}", column.name, it))?;
@@ -287,16 +291,16 @@ fn extension_table(provider: &Arc<str>, decl: &TableDecl) -> Result<Table, Strin
     for name in &decl.wildcard {
         index(name).ok_or_else(|| format!("its wildcard names '{}', which is no column", name))?;
     }
-    let (reads, kind) = match &decl.kind {
+    let kind = match &decl.kind {
         TableKind::Records => {
             if let Some(column) = decl.columns.iter().find(|column| column.fill.is_some()) {
                 return Err(format!("column '{}' has a fill, which only the columns of a series have", column.name));
             }
-            (decl.columns.iter().map(|_| FillRead::Value).collect::<Vec<_>>(), ExtensionKind::Records)
+            ExtensionKind::Records
         }
         TableKind::Series(series) => {
             let period = index(&series.period).ok_or_else(|| format!("its period is '{}', which is no column", series.period))?;
-            let reads = decl
+            let fills = decl
                 .columns
                 .iter()
                 .enumerate()
@@ -313,21 +317,21 @@ fn extension_table(provider: &Arc<str>, decl: &TableDecl) -> Result<Table, Strin
                 period,
                 unit: series.unit,
                 partition,
+                fills,
                 extend_to_today: series.extend_to_today,
             };
-            (reads, ExtensionKind::Series(spec))
+            ExtensionKind::Series(spec)
         }
     };
     let columns = decl
         .columns
         .iter()
-        .zip(reads)
         .enumerate()
-        .map(|(at, (column, fill))| ColumnDef {
+        .map(|(at, column)| ColumnDef {
             name: Cow::Owned(column.name.clone()),
             ty: column.ty,
             description: Cow::Owned(column.description.clone()),
-            get: Get::Cell(CellRead { index: at as u32, fill }),
+            get: Get::Record(table::cell_getter(at).expect("checked above")),
             borrow: Borrow::No,
             provided_by: Some(provider.clone()),
         })

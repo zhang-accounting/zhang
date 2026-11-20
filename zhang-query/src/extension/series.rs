@@ -24,7 +24,7 @@ use super::snapshot::{Cause, FactRow, Partition};
 use super::{compat, PeriodUnit};
 use crate::catalog::TableRef;
 use crate::error::{LocatedError, QueryErrorKind};
-use crate::table::{CellRead, FillRead, Generation, Limits, Record};
+use crate::table::{Generation, Limits, Record};
 use crate::value::{first_of_month, month_index, Value};
 
 /// How the host serves a series table.
@@ -35,7 +35,26 @@ pub(crate) struct SeriesSpec {
     pub unit: PeriodUnit,
     /// the indexes of the partition columns
     pub partition: Vec<usize>,
+    /// how each column reads a row, by its index
+    pub fills: Vec<FillRead>,
     pub extend_to_today: bool,
+}
+
+/// How a column of a series table reads a row (see [`crate::extension::Fill`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FillRead {
+    /// in a generated period, the last fact's cell
+    Carry,
+    /// in a generated period, zero in the commodity of the last fact's cell
+    Zero,
+    /// in a generated period, the last fact's cell of the column at this index
+    Previous(u32),
+    /// the period
+    Period,
+    /// the year of the period
+    Year,
+    /// the month of the period
+    Month,
 }
 
 /// One row of a series table: a fact of the snapshot, or a period after it that the host generates from it.
@@ -47,6 +66,8 @@ pub(crate) struct SeriesRow<'a> {
     period: NaiveDate,
     /// whether the period is generated from `fact` rather than being its own
     generated: bool,
+    /// how each column reads the row ([`SeriesSpec::fills`])
+    fills: &'a [FillRead],
 }
 
 impl<'a> SeriesRow<'a> {
@@ -55,17 +76,20 @@ impl<'a> SeriesRow<'a> {
         self.fact.meta.as_deref()
     }
 
-    /// The cell `read` reads.
-    pub fn cell(&self, read: CellRead) -> Value {
-        let cell = |index: u32| self.fact.cells.get(index as usize).cloned().unwrap_or(Value::Null);
-        match read.fill {
+    /// The cell at `index`: the fact's own, or a generated period's by the column's fill.
+    pub fn cell(&self, index: usize) -> Value {
+        let cell = |index: usize| self.fact.cells.get(index).cloned().unwrap_or(Value::Null);
+        let Some(fill) = self.fills.get(index) else {
+            return Value::Null;
+        };
+        match *fill {
             FillRead::Period => Value::Date(self.period),
             FillRead::Year => Value::Int(i64::from(self.period.year())),
             FillRead::Month => Value::Int(i64::from(self.period.month())),
-            _ if !self.generated => cell(read.index),
-            FillRead::Value | FillRead::Carry => cell(read.index),
-            FillRead::Zero => zero_like(&cell(read.index)),
-            FillRead::Previous(source) => cell(source),
+            _ if !self.generated => cell(index),
+            FillRead::Carry => cell(index),
+            FillRead::Zero => zero_like(&cell(index)),
+            FillRead::Previous(source) => cell(source as usize),
         }
     }
 }
@@ -137,7 +161,7 @@ fn extents<'a>(partitions: &'a [Partition], spec: &SeriesSpec, generation: Gener
 /// The rows of the series table `table` (of the provider `provider`) for one execution: every partition's periods in
 /// order, each charged to `limits` before it is built.
 pub(crate) fn rows<'a>(
-    ledger: &Ledger, table: &TableRef, provider: &str, spec: &SeriesSpec, partitions: &'a [Partition], generation: Generation, limits: &mut Limits<'_>,
+    ledger: &Ledger, table: &TableRef, provider: &str, spec: &'a SeriesSpec, partitions: &'a [Partition], generation: Generation, limits: &mut Limits<'_>,
 ) -> Result<Vec<Record<'a>>, LocatedError> {
     let all = extents(partitions, spec, generation);
     let mut records = vec![];
@@ -154,6 +178,7 @@ pub(crate) fn rows<'a>(
                 fact: last,
                 period,
                 generated: last.period != period,
+                fills: &spec.fills,
             }));
             let Some(following) = period.checked_add_months(Months::new(1)) else {
                 break;
@@ -197,7 +222,14 @@ mod tests {
     fn fact(period: NaiveDate, value: i64) -> FactRow {
         FactRow {
             period,
-            cells: vec![Value::Str("p".to_owned()), Value::Null, Value::Int(value), Value::Int(value * 10)].into_boxed_slice(),
+            cells: vec![
+                Value::Str("p".to_owned()),
+                Value::Null,
+                Value::Int(value),
+                Value::Int(value * 10),
+                Value::Int(value * 100),
+            ]
+            .into_boxed_slice(),
             meta: None,
         }
     }
@@ -211,12 +243,16 @@ mod tests {
         }
     }
 
-    const SPEC: SeriesSpec = SeriesSpec {
-        period: 1,
-        unit: PeriodUnit::Month,
-        partition: vec![],
-        extend_to_today: true,
-    };
+    /// a partition column, the period, a column filled with zero, one with carry and one with the previous value of it
+    fn spec() -> SeriesSpec {
+        SeriesSpec {
+            period: 1,
+            unit: PeriodUnit::Month,
+            partition: vec![0],
+            fills: vec![FillRead::Carry, FillRead::Period, FillRead::Zero, FillRead::Carry, FillRead::Previous(3)],
+            extend_to_today: true,
+        }
+    }
 
     fn ends(partition: &Partition, spec: &SeriesSpec, today: NaiveDate, until: Option<NaiveDate>) -> (NaiveDate, EndBy) {
         let extents = extents(std::slice::from_ref(partition), spec, Generation { today, until });
@@ -228,24 +264,27 @@ mod tests {
         let series = partition(vec![fact(day(2024, 1), 1)], day(2024, 6));
         let cause = EndBy::Entry(Some(Cause { seq: 7 }));
         // the provider's end, unless the current month is strictly later
-        assert_eq!(ends(&series, &SPEC, day(2024, 6), None), (day(2024, 6), cause));
-        assert_eq!(ends(&series, &SPEC, NaiveDate::from_ymd_opt(2024, 6, 30).unwrap(), None), (day(2024, 6), cause));
-        assert_eq!(ends(&series, &SPEC, day(2024, 7), None), (day(2024, 7), EndBy::CurrentPeriod));
+        assert_eq!(ends(&series, &spec(), day(2024, 6), None), (day(2024, 6), cause));
+        assert_eq!(
+            ends(&series, &spec(), NaiveDate::from_ymd_opt(2024, 6, 30).unwrap(), None),
+            (day(2024, 6), cause)
+        );
+        assert_eq!(ends(&series, &spec(), day(2024, 7), None), (day(2024, 7), EndBy::CurrentPeriod));
         // a table that does not extend its series to today keeps the provider's end
         let fixed = SeriesSpec {
             extend_to_today: false,
-            ..SPEC
+            ..spec()
         };
         assert_eq!(ends(&series, &fixed, day(2030, 1), None), (day(2024, 6), cause));
         // the query's bound only when strictly earlier, as a month
-        assert_eq!(ends(&series, &SPEC, day(2024, 1), Some(day(2024, 6))), (day(2024, 6), cause));
+        assert_eq!(ends(&series, &spec(), day(2024, 1), Some(day(2024, 6))), (day(2024, 6), cause));
         assert_eq!(
-            ends(&series, &SPEC, day(2024, 1), Some(NaiveDate::from_ymd_opt(2024, 6, 15).unwrap())),
+            ends(&series, &spec(), day(2024, 1), Some(NaiveDate::from_ymd_opt(2024, 6, 15).unwrap())),
             (day(2024, 6), cause)
         );
-        assert_eq!(ends(&series, &SPEC, day(2024, 1), Some(day(2024, 5))), (day(2024, 5), EndBy::Query));
-        assert_eq!(ends(&series, &SPEC, day(2030, 1), Some(day(2024, 9))), (day(2024, 9), EndBy::Query));
-        assert_eq!(ends(&series, &SPEC, day(2030, 1), Some(day(2031, 1))), (day(2030, 1), EndBy::CurrentPeriod));
+        assert_eq!(ends(&series, &spec(), day(2024, 1), Some(day(2024, 5))), (day(2024, 5), EndBy::Query));
+        assert_eq!(ends(&series, &spec(), day(2030, 1), Some(day(2024, 9))), (day(2024, 9), EndBy::Query));
+        assert_eq!(ends(&series, &spec(), day(2030, 1), Some(day(2031, 1))), (day(2030, 1), EndBy::CurrentPeriod));
     }
 
     fn generate(partitions: &[Partition], today: NaiveDate, until: Option<NaiveDate>, max: Option<u64>) -> Result<Vec<(NaiveDate, Vec<Value>)>, String> {
@@ -253,19 +292,13 @@ mod tests {
         let table = crate::catalog::Catalog::core().postings().clone();
         let mut budget = Budget::new(max);
         let mut limits = Limits::new(None, &mut budget);
-        let rows = rows(&ledger, &table, "test:series", &SPEC, partitions, Generation { today, until }, &mut limits).map_err(|err| err.message)?;
-        let read = |index: u32, fill: FillRead| CellRead { index, fill };
+        let spec = spec();
+        let rows = rows(&ledger, &table, "test:series", &spec, partitions, Generation { today, until }, &mut limits).map_err(|err| err.message)?;
         Ok(rows
             .iter()
             .map(|row| {
                 let Record::Series(row) = row else { panic!("a series row") };
-                let cells = [
-                    read(0, FillRead::Carry),
-                    read(2, FillRead::Zero),
-                    read(3, FillRead::Carry),
-                    read(3, FillRead::Previous(2)),
-                ];
-                (row.period, cells.into_iter().map(|it| row.cell(it)).collect())
+                (row.period, [0, 2, 3, 4].into_iter().map(|index| row.cell(index)).collect())
             })
             .collect())
     }
@@ -280,22 +313,23 @@ mod tests {
         assert_eq!(
             rows,
             [
-                (day(2024, 1), vec![p(), Value::Int(1), Value::Int(10), Value::Int(10)]),
-                (day(2024, 2), vec![p(), Value::Int(0), Value::Int(10), Value::Int(1)]),
-                (day(2024, 3), vec![p(), Value::Int(2), Value::Int(20), Value::Int(20)]),
-                (day(2024, 4), vec![p(), Value::Int(0), Value::Int(20), Value::Int(2)]),
+                (day(2024, 1), vec![p(), Value::Int(1), Value::Int(10), Value::Int(100)]),
+                (day(2024, 2), vec![p(), Value::Int(0), Value::Int(10), Value::Int(10)]),
+                (day(2024, 3), vec![p(), Value::Int(2), Value::Int(20), Value::Int(200)]),
+                (day(2024, 4), vec![p(), Value::Int(0), Value::Int(20), Value::Int(20)]),
             ]
         );
         // the period and its parts are generated for every row
+        let fills = [FillRead::Period, FillRead::Year, FillRead::Month];
         let row = SeriesRow {
             fact: &fact(day(2024, 1), 1),
             period: day(2025, 11),
             generated: true,
+            fills: &fills,
         };
-        let read = |fill| row.cell(CellRead { index: 1, fill });
         assert_eq!(
-            [read(FillRead::Period), read(FillRead::Year), read(FillRead::Month)],
-            [Value::Date(day(2025, 11)), Value::Int(2025), Value::Int(11)]
+            [row.cell(0), row.cell(1), row.cell(2), row.cell(3)],
+            [Value::Date(day(2025, 11)), Value::Int(2025), Value::Int(11), Value::Null]
         );
     }
 

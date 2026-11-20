@@ -89,7 +89,7 @@ pub struct Table {
     pub(crate) rows: Rows,
     /// the provider of an extension's table; `None` for a core table
     pub provided_by: Option<Arc<str>>,
-    /// the label columns among the columns of a `postings` table, by slot ([`Get::Labels`])
+    /// the label columns among the columns of a `postings` table, by slot ([`label_getter`])
     pub(crate) labels: Vec<Arc<LabelColumn>>,
 }
 
@@ -257,7 +257,7 @@ impl fmt::Debug for ColumnDef {
 
 impl ColumnDef {
     /// A column of a record table.
-    pub(crate) const fn record(name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Record<'_>) -> Value) -> ColumnDef {
+    pub(crate) const fn record(name: &'static str, ty: DataType, description: &'static str, get: RecordGetter) -> ColumnDef {
         ColumnDef {
             name: Cow::Borrowed(name),
             ty,
@@ -269,7 +269,7 @@ impl ColumnDef {
     }
 
     /// A column of the `postings` table.
-    pub(crate) const fn posting(name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Row<'_>) -> Value) -> ColumnDef {
+    pub(crate) const fn posting(name: &'static str, ty: DataType, description: &'static str, get: PostingGetter) -> ColumnDef {
         ColumnDef {
             name: Cow::Borrowed(name),
             ty,
@@ -281,9 +281,7 @@ impl ColumnDef {
     }
 
     /// A column of the `postings` table that predicates read in place through `borrow`.
-    pub(crate) const fn posting_borrowing(
-        name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Row<'_>) -> Value, borrow: Borrow,
-    ) -> ColumnDef {
+    pub(crate) const fn posting_borrowing(name: &'static str, ty: DataType, description: &'static str, get: PostingGetter, borrow: Borrow) -> ColumnDef {
         ColumnDef {
             name: Cow::Borrowed(name),
             ty,
@@ -295,17 +293,58 @@ impl ColumnDef {
     }
 }
 
-/// How a column reads its value from a row.
+/// How a column reads its value from a row: a getter, as a plain function pointer. The columns of the extensions have
+/// getters too, one per position of a cell ([`cell_getter`]) and per slot of a label column ([`label_getter`]), so that
+/// reading any column is the one indirect call it has always been.
 #[derive(Clone, Copy)]
 pub(crate) enum Get {
-    /// a column of the `postings` table
-    Posting(fn(&Dataset<'_>, &Row<'_>) -> Value),
+    /// a column of a `postings` table
+    Posting(PostingGetter),
     /// a column of a record table
-    Record(fn(&Dataset<'_>, &Record<'_>) -> Value),
-    /// a column of an extension's table: a cell of its rows
-    Cell(CellRead),
-    /// a label column of a `postings` table, the one at this slot of its label columns ([`Table::labels`])
-    Labels(u16),
+    Record(RecordGetter),
+}
+
+/// The getter of a column of a `postings` table.
+pub(crate) type PostingGetter = for<'a> fn(&Dataset<'a>, &Row<'a>) -> Value;
+
+/// The getter of a column of a record table.
+pub(crate) type RecordGetter = fn(&Dataset<'_>, &Record<'_>) -> Value;
+
+/// How many columns an extension's table can have: the getters of its cells, by position.
+pub(crate) const MAX_CELLS: usize = 64;
+
+/// How many label columns a catalog can have: their getters, by slot.
+pub(crate) const MAX_LABELS: usize = 16;
+
+/// The getter of the cell at `index` of the rows of an extension's table; `None` past [`MAX_CELLS`].
+pub(crate) fn cell_getter(index: usize) -> Option<RecordGetter> {
+    fn cell<const INDEX: usize>(_: &Dataset<'_>, record: &Record<'_>) -> Value {
+        record.cell(INDEX)
+    }
+    macro_rules! cells {
+        ($($index:literal)*) => { [$(cell::<$index> as RecordGetter),*] };
+    }
+    static CELLS: [RecordGetter; MAX_CELLS] = cells!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63);
+    CELLS.get(index).copied()
+}
+
+/// The membership test of a set column of a `postings` table, read in place ([`Borrow::Contains`]).
+pub(crate) type ContainsTest = for<'a> fn(&Dataset<'a>, &Row<'a>, &str) -> bool;
+
+/// The getter and the membership test of the label column at `slot` of a `postings` table ([`Table::labels`]);
+/// `None` past [`MAX_LABELS`].
+pub(crate) fn label_getter(slot: usize) -> Option<(PostingGetter, ContainsTest)> {
+    fn labels<'a, const SLOT: u16>(data: &Dataset<'a>, row: &Row<'a>) -> Value {
+        Value::Set(data.labels(SLOT).of_row(data, row))
+    }
+    fn holds<'a, const SLOT: u16>(data: &Dataset<'a>, row: &Row<'a>, label: &str) -> bool {
+        data.labels(SLOT).holds(data, row, label)
+    }
+    macro_rules! labels {
+        ($($slot:literal)*) => { [$((labels::<$slot> as PostingGetter, holds::<$slot> as ContainsTest)),*] };
+    }
+    static LABELS: [(PostingGetter, ContainsTest); MAX_LABELS] = labels!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15);
+    LABELS.get(slot).copied()
 }
 
 impl Get {
@@ -320,38 +359,9 @@ impl Get {
         match (self, row) {
             (Get::Posting(get), RowRef::Posting(row)) => get(data, row),
             (Get::Record(get), RowRef::Record(record)) => get(data, record),
-            (Get::Cell(read), RowRef::Record(record)) => record.cell(read),
-            (Get::Labels(slot), RowRef::Posting(row)) => Value::Set(data.labels(slot).of_row(data, row)),
             _ => Value::Null,
         }
     }
-}
-
-/// Which cell of an extension's row a column reads, and how a generated period of a series fills it.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CellRead {
-    /// the position of the cell: the column's index in its table
-    pub index: u32,
-    pub fill: FillRead,
-}
-
-/// How a column of an extension's table reads a row (see [`crate::extension::Fill`]).
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum FillRead {
-    /// its cell, in a record table
-    Value,
-    /// in a generated period, the last fact's cell
-    Carry,
-    /// in a generated period, zero in the commodity of the last fact's cell
-    Zero,
-    /// in a generated period, the last fact's cell of the column at this index
-    Previous(u32),
-    /// the period
-    Period,
-    /// the year of the period
-    Year,
-    /// the month of the period
-    Month,
 }
 
 /// In-place access to a column, for predicates that only inspect the value.
@@ -361,10 +371,9 @@ pub(crate) enum Borrow {
     No,
     /// a string column, read without copying; `None` is NULL. `get` returns the same string.
     Str(for<'r> fn(&'r Dataset<'_>, &'r Row<'_>) -> Option<&'r str>),
-    /// a set column, as a membership test that does not build the set
-    Contains(fn(&Dataset<'_>, &Row<'_>, &str) -> bool),
-    /// a label column ([`Get::Labels`]): whether one label's predicate holds, which does not evaluate the others
-    Labels(u16),
+    /// a set column, as a membership test that does not build the set; of a label column, one that evaluates the
+    /// predicate of the label asked for only ([`label_getter`])
+    Contains(ContainsTest),
 }
 
 /// One row of a record table. It only borrows the ledger; the table's columns compute their
@@ -409,12 +418,12 @@ impl<'a> Record<'a> {
         }
     }
 
-    /// The cell of an extension's row `read` reads; NULL on any other row.
-    fn cell(&self, read: CellRead) -> Value {
+    /// The cell at `index` of an extension's row, as a series fills it in a generated period; NULL on any other row.
+    fn cell(&self, index: usize) -> Value {
         match self {
             // TODO(P1.4): a missing cell reads NULL silently; the publish checks of a snapshot rule it out
-            Record::Extension(row) => row.cells.get(read.index as usize).cloned().unwrap_or(Value::Null),
-            Record::Series(row) => row.cell(read),
+            Record::Extension(row) => row.cells.get(index).cloned().unwrap_or(Value::Null),
+            Record::Series(row) => row.cell(index),
             _ => Value::Null,
         }
     }

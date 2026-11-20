@@ -45,7 +45,7 @@ use crate::catalog::{ColumnRef, TableRef};
 use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
 use crate::functions::AggregateKind;
-use crate::table::{Borrow, Get, RowRef, Rows};
+use crate::table::{Borrow, RowRef, Rows};
 use crate::value::Value;
 
 /// The columns of its table one plan reads.
@@ -231,7 +231,7 @@ impl Projection {
     /// column.
     pub fn reads_extensions(&self) -> bool {
         matches!(self.table.rows(), Rows::Extension(_))
-            || (self.table.columns().iter().enumerate()).any(|(index, column)| self.columns.contains(index) && matches!(column.get, Get::Labels(_)))
+            || (self.table.columns().iter().enumerate()).any(|(index, column)| self.columns.contains(index) && column.provided_by.is_some())
     }
 
     /// Whether the column `name` (case-insensitive) of the projected table is projected: what a row source asks to
@@ -282,21 +282,16 @@ pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Opt
 }
 
 /// A membership test of a set column of the current row ([`Borrow::Contains`]), which does
-/// not build the set, or of a label column ([`Borrow::Labels`]), which evaluates the predicate of
-/// the label asked for only; `None` when the operand has to be evaluated instead.
+/// not build the set (of a label column, it evaluates the predicate of the label asked for only);
+/// `None` when the operand has to be evaluated instead.
 pub(crate) fn set_membership<'r, 'a>(expr: &'r CExpr, env: &Env<'r, 'a>) -> Option<impl Fn(&str) -> bool + use<'r, 'a>> {
-    let (CExpr::Column(column), Some(data), Some(RowRef::Posting(row))) = (expr, env.data, env.row) else {
-        return None;
-    };
-    let borrow = column.borrow();
-    if !matches!(borrow, Borrow::Contains(_) | Borrow::Labels(_)) {
-        return None;
+    match expr {
+        CExpr::Column(column) => match (column.borrow(), env.data, env.row) {
+            (Borrow::Contains(contains), Some(data), Some(RowRef::Posting(row))) => Some(move |needle: &str| contains(data, row, needle)),
+            _ => None,
+        },
+        _ => None,
     }
-    Some(move |needle: &str| match borrow {
-        Borrow::Contains(contains) => contains(data, row, needle),
-        Borrow::Labels(slot) => data.labels(slot).holds(data, row, needle),
-        Borrow::No | Borrow::Str(_) => unreachable!("not a membership test"),
-    })
 }
 
 #[cfg(test)]
