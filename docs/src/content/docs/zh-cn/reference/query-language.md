@@ -1239,7 +1239,7 @@ GROUP BY week ORDER BY week
 
 ### 结构化元数据
 
-`metas` 列和 `open_meta(account)` 以 `metas` 类型给出元数据：由 `(key, value)` 对组成的列表，按键排序，重复键的每个值按书写顺序保留。值都是文本。张记账不保留不同键之间的顺序，所以按键排序。`str(metas)` 把各对写成 `key: value`，用 `; ` 连接；[HTTP API](#单元格编码) 把它们作为 `{"key": ..., "value": ...}` 对象的列表发送；[CSV 导出](#csv-导出)的写法与 `str` 相同。这种文本形式是给人读的，不做转义，所以值本身含有 `; ` 或 `: ` 时会有歧义；程序应读取 HTTP API 给出的键值对，或者用 `meta_values` 和 `entry_meta_values` 读取值。`metas` 是张记账的扩展；要按某个键筛选，请使用 `meta`、`entry_meta`、`meta_values` 或 `entry_meta_values`。
+`metas` 列和 `open_meta(account)` 以 `metas` 类型给出元数据：由 `(key, value)` 对组成的列表，按键排序，重复键的每个值按书写顺序保留。值都是文本。无论元数据按什么顺序书写，这些对都按键排序，因此查询结果不依赖于书写顺序；`GET /api/journals` 则按书写顺序给出交易及其记账行的元数据。`str(metas)` 把各对写成 `key: value`，用 `; ` 连接；[HTTP API](#单元格编码) 把它们作为 `{"key": ..., "value": ...}` 对象的列表发送；[CSV 导出](#csv-导出)的写法与 `str` 相同。这种文本形式是给人读的，不做转义，所以值本身含有 `; ` 或 `: ` 时会有歧义；程序应读取 HTTP API 给出的键值对，或者用 `meta_values` 和 `entry_meta_values` 读取值。`metas` 是张记账的扩展；要按某个键筛选，请使用 `meta`、`entry_meta`、`meta_values` 或 `entry_meta_values`。
 
 ### 搜索函数
 
