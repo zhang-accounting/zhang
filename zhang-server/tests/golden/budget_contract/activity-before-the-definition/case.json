@@ -1,0 +1,8 @@
+{
+  "description": "Activity before a budget's definition (see main.zhang): what is reported, and the months and figures from the definition on.",
+  "now": "2024-03-10T00:00:00Z",
+  "pages": {
+    "months": ["2024-01-01", "2024-02-01", "2024-03-01"],
+    "budgets": ["Food"]
+  }
+}

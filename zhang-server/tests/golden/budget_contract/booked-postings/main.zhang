@@ -1,0 +1,37 @@
+; Booked postings. A posting's activity is its booked units: an implicit posting gets what booking makes of the
+; others, here the cost of shares sold from two lots; several postings of one transaction to a budget's accounts each
+; count, and each is listed.
+option "operating_currency" "USD"
+option "timezone" "UTC"
+
+1970-01-01 commodity USD
+1970-01-01 commodity AAPL
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Assets:Broker
+  booking_method: "FIFO"
+2024-01-01 open Expenses:Gifts
+  budget: Gifts
+2024-01-01 open Expenses:Fees
+  budget: Gifts
+
+2024-01-01 budget Gifts USD
+2024-01-01 budget-add Gifts 2000 USD
+
+2024-01-02 * "Broker" "buy"
+  Assets:Broker 5 AAPL {100 USD}
+  Assets:Bank -500 USD
+
+2024-01-03 * "Broker" "buy again"
+  Assets:Broker 5 AAPL {120 USD}
+  Assets:Bank -600 USD
+
+2024-02-01 * "Friend" "shares from two lots given away, the expense implicit"
+  Assets:Broker -8 AAPL {}
+  Expenses:Gifts
+
+2024-02-02 * "Shop" "three postings to the budget's accounts in one transaction"
+  Expenses:Gifts 10 USD
+  Expenses:Fees 2 USD
+  Expenses:Gifts 3 USD
+  Assets:Bank

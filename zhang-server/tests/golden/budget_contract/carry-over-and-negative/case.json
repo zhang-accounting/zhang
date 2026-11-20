@@ -1,0 +1,26 @@
+{
+  "description": "Carry-over and negative amounts (see main.zhang), the pages before a budget's first month, within its months and after the last generated month, the queries of a year, an unknown budget, malformed parameters, and the retired budget endpoints (#754).",
+  "now": "2024-06-15T00:00:00Z",
+  "pages": {
+    "months": ["2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01", "2024-05-01", "2024-06-01", "2024-09-01"],
+    "budgets": ["Food", "Rent", "Nope"]
+  },
+  "requests": [
+    {"bql": "SELECT name, sum(added) AS added, sum(activity) AS spent, last(available) AS left FROM #budgets WHERE year = 2024 GROUP BY name ORDER BY name"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE number(available) < 0 ORDER BY name, date"},
+    {"bql": "SELECT name, assigned - added AS carried_over, added, assigned FROM #budgets WHERE date = 2024-03-01"},
+    {"bql": "SELECT name, date, assigned, activity, available FROM #budgets WHERE date >= 2024-02-01 AND date <= 2024-04-01 ORDER BY date DESC, name"},
+    {"builtin": "budgets.month", "params": {"month": "2024-03-15"}, "note": "KNOWN-ISSUE: a `month` that is not the first day of a month is taken, not refused: budgets.month and budgets.budget_month answer the month carried over (its available amount as assigned, activity 0) and budgets.events and budgets.postings answer nothing (zhang-server/src/builtin.rs:106-114, 365-381); the app and the web UI send first days"},
+    {"builtin": "budgets.budget_month", "params": {"name": "Food", "month": "2024-03-15"}, "note": "KNOWN-ISSUE: a month that is not a first day, as above"},
+    {"builtin": "budgets.events", "params": {"name": "Food", "month": "2024-03-15"}, "note": "KNOWN-ISSUE: a month that is not a first day, as above"},
+    {"builtin": "budgets.month", "params": {"month": "2024-13-01"}},
+    {"builtin": "budgets.month", "params": {}},
+    {"builtin": "budgets.month", "params": {"month": 20240101}},
+    {"builtin": "budgets.budget", "params": {"name": "Food", "month": "2024-01-01"}},
+    {"builtin": "budgets.nope", "params": {}},
+    {"batch": [{"name": "budgets.budget", "params": {"name": "Food"}}, {"name": "budgets.budget_month", "params": {"name": "Food"}}]},
+    {"method": "GET", "uri": "/api/budgets?year=2024&month=1"},
+    {"method": "GET", "uri": "/api/budgets/Food?year=2024&month=1"},
+    {"method": "GET", "uri": "/api/budgets/Food/interval/2024/1"}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "description": "The ledger of the months case with the clock in the past, at 2023-07-15: a budget's months still run through the ledger's last transaction and its own last directive, and a budget defined after the clock's date has its months.",
+  "ledger": "zhang-server/tests/golden/budget_contract/months",
+  "now": "2023-07-15T12:00:00Z",
+  "pages": {
+    "months": ["2023-07-01", "2023-08-01", "2023-09-01"],
+    "budgets": ["Food", "Plan"]
+  },
+  "requests": [
+    {"bql": "SELECT name, min(date) AS first, max(date) AS last, count(*) AS months FROM #budgets GROUP BY name ORDER BY name"},
+    {"bql": "SELECT name, date FROM #budgets WHERE date = yearmonth(today())"}
+  ]
+}

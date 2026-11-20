@@ -1,0 +1,11 @@
+{
+  "description": "How accounts link to budgets (see main.zhang): the activity of each budget, its accounts, and the budgets of each posting.",
+  "now": "2024-03-15T00:00:00Z",
+  "pages": {
+    "months": ["2024-01-01", "2024-02-01", "2024-03-01"],
+    "budgets": ["Food", "Health", "Pocket", "Leisure"]
+  },
+  "known_issues": {
+    "activity": "KNOWN-ISSUE: a posting to an Income (or Equity) account linked to a budget counts negated, so the refund of 15 CNY booked to Income:Refunds adds 15 CNY to Food's activity instead of taking it off, and income linked to a budget would count as spending; negation suits Liabilities (a card charge is spending), the rule applies it to every account with a negative sign (zhang-query/src/table/budgets.rs:36-37, 351)"
+  }
+}

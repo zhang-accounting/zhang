@@ -1,0 +1,41 @@
+; the budget directives of main.zhang and the opens linking accounts to budgets, as written, file after file
+; ---- written as zhang
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Ghost
+  budget: Ghost
+2024-01-01 open Expenses:Shared
+  budget: Ghost
+  budget: Food
+2024-01-01 budget Food CNY
+  alias: "the first definition"
+2024-01-01 budget-add Food 100 CNY
+2024-01-02 budget-add Nope 10 CNY
+2024-01-03 budget-transfer Food Nope 5 CNY
+2024-01-03 budget-transfer Nope Food 5 CNY
+2024-01-04 budget-close Nope
+2024-01-05 budget Food USD
+  alias: "a second definition"
+  category: "ignored"
+2024-01-06 budget-add Food 10 USD
+2024-01-07 budget-transfer Food Food 20 CNY
+; ---- written as beancount
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Ghost
+  budget: Ghost
+2024-01-01 open Expenses:Shared
+  budget: Ghost
+  budget: Food
+2024-01-01 custom "budget" "Food" "CNY"
+  alias: "the first definition"
+2024-01-01 custom "budget-add" "Food" 100 CNY
+2024-01-02 custom "budget-add" "Nope" 10 CNY
+2024-01-03 custom "budget-transfer" "Food" "Nope" 5 CNY
+2024-01-03 custom "budget-transfer" "Nope" "Food" 5 CNY
+2024-01-04 custom "budget-close" "Nope"
+2024-01-05 custom "budget" "Food" "USD"
+  alias: "a second definition"
+  category: "ignored"
+2024-01-06 custom "budget-add" "Food" 10 USD
+2024-01-07 custom "budget-transfer" "Food" "Food" 20 CNY

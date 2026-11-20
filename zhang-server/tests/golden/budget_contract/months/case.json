@@ -1,0 +1,14 @@
+{
+  "description": "The months #budgets generates (see main.zhang), with the clock at 2024-03-01 03:00 UTC, still 2024-02-29 in the ledger's timezone, so the current month is February 2024.",
+  "now": "2024-03-01T03:00:00Z",
+  "pages": {
+    "months": ["2023-05-01", "2023-06-01", "2024-02-01", "2024-03-01", "2025-06-01"],
+    "budgets": ["Food", "Plan", "Short"]
+  },
+  "requests": [
+    {"bql": "SELECT name, min(date) AS first, max(date) AS last, count(*) AS months FROM #budgets GROUP BY name ORDER BY name"},
+    {"bql": "SELECT name, date FROM #budgets WHERE date = yearmonth(today())"},
+    {"bql": "SELECT name, count(*) AS months FROM #budgets WHERE date <= 2023-12-01 GROUP BY name ORDER BY name"},
+    {"bql": "SELECT name, min(date) AS first, max(date) AS last FROM #budgets WHERE date >= 2024-03-01 GROUP BY name ORDER BY name"}
+  ]
+}

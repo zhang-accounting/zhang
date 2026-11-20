@@ -1,0 +1,32 @@
+; The months of #budgets. A budget's months run from the month of its definition through the latest of its own last
+; directive, the ledger's last month with a transaction and the current month (by the clock, in the ledger's
+; timezone): a budget-add planned ahead extends them, a price, event, note or balance far ahead does not. A month
+; after a budget's last one reads as that month carried over, nothing spent.
+option "operating_currency" "CNY"
+option "timezone" "America/New_York"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+
+2023-01-01 open Assets:Bank
+2023-01-01 open Expenses:Food
+  budget: Food
+
+2023-06-01 budget Food CNY
+2023-06-01 budget-add Food 100 CNY
+
+2023-08-10 * "Market" "the last transaction of the ledger"
+  Expenses:Food 10 CNY
+  Assets:Bank
+
+2023-09-01 budget Plan CNY
+2024-12-01 budget-add Plan 50 CNY
+
+2023-10-01 budget Short CNY
+2023-11-15 budget-close Short
+
+; far ahead, but none of these extends the months
+2030-01-01 price USD 7 CNY
+2031-01-01 event "location" "Mars"
+2032-01-01 note Assets:Bank "a note"
+2033-01-01 balance Assets:Bank -10 CNY

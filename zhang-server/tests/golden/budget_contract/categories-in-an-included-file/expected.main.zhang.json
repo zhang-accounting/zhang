@@ -1,0 +1,960 @@
+{
+  "case": "categories-in-an-included-file",
+  "description": "The ledger of integration-tests/budget-sytem-syntax-and-category-multiple-file: nine budgets with aliases and categories in an included file, one defined a month before the others, two with money and one with spending.",
+  "ledger": "integration-tests/budget-sytem-syntax-and-category-multiple-file/main.zhang",
+  "now": "2024-01-15T00:00:00Z",
+  "errors": [],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-01-15", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2023-10-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": []
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2023-11-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", "2023-11-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2023-12-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["eat-with-friend", "聚餐", "精神食粮｜15%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["electric-fee", "电费", "生活开销｜55%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["food", "外食", "生活开销｜55%", "CNY", "2023-12-01", {"number": "1000", "currency": "CNY"}, "50", {"number": "950", "currency": "CNY"}, false],
+            ["game_expense", "游戏消费", "精神食粮｜15%", "CNY", "2023-12-01", {"number": "200.1", "currency": "CNY"}, "0", {"number": "200.1", "currency": "CNY"}, false],
+            ["house-rent", "房租｜每月1号", "生活开销｜55%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["insurance", "劳保、健保、福利金", "生活开销｜55%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["vacation", "假期", "长期持有｜10%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["water-fee", "水费", "生活开销｜55%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-01-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["eat-with-friend", "聚餐", "精神食粮｜15%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["electric-fee", "电费", "生活开销｜55%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["food", "外食", "生活开销｜55%", "CNY", "2024-01-01", {"number": "950", "currency": "CNY"}, "0", {"number": "950", "currency": "CNY"}, false],
+            ["game_expense", "游戏消费", "精神食粮｜15%", "CNY", "2024-01-01", {"number": "200.1", "currency": "CNY"}, "0", {"number": "200.1", "currency": "CNY"}, false],
+            ["house-rent", "房租｜每月1号", "生活开销｜55%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["insurance", "劳保、健保、福利金", "生活开销｜55%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["vacation", "假期", "长期持有｜10%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["water-fee", "水费", "生活开销｜55%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.budget_month", "params": {"name": "food", "month": "2023-10-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", "外食", "生活开销｜55%", "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "food", "month": "2023-10-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2023-10-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.budget_month", "params": {"name": "food", "month": "2023-11-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", "外食", "生活开销｜55%", "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "food", "month": "2023-11-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2023-11-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.budget_month", "params": {"name": "food", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", "外食", "生活开销｜55%", "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["food", "外食", "生活开销｜55%", "CNY", "2023-12-01", {"number": "1000", "currency": "CNY"}, "50", {"number": "950", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "food", "month": "2023-12-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2023-12-01", "00:00:00", 1701388800, "assign", {"number": "1000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2023-12-02", "00:00:00", 1701475200, "Expenses:Food", "2f8b3496-bc94-b1ef-02e3-9215063b62df", "KFC", "VME50 Package", {"number": "50", "currency": "CNY"}, {"number": "50", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "food"}},
+          {"name": "budgets.budget_month", "params": {"name": "food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["food", "外食", "生活开销｜55%", "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["food", "外食", "生活开销｜55%", "CNY", "2024-01-01", {"number": "950", "currency": "CNY"}, "0", {"number": "950", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "food", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "game_expense"}},
+          {"name": "budgets.budget_month", "params": {"name": "game_expense", "month": "2023-10-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["game_expense", "游戏消费", "精神食粮｜15%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "game_expense", "month": "2023-10-01"}},
+          {"name": "budgets.postings", "params": {"name": "game_expense", "month": "2023-10-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "game_expense"}},
+          {"name": "budgets.budget_month", "params": {"name": "game_expense", "month": "2023-11-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["game_expense", "游戏消费", "精神食粮｜15%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "game_expense", "month": "2023-11-01"}},
+          {"name": "budgets.postings", "params": {"name": "game_expense", "month": "2023-11-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "game_expense"}},
+          {"name": "budgets.budget_month", "params": {"name": "game_expense", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["game_expense", "游戏消费", "精神食粮｜15%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["game_expense", "游戏消费", "精神食粮｜15%", "CNY", "2023-12-01", {"number": "200.1", "currency": "CNY"}, "0", {"number": "200.1", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "game_expense", "month": "2023-12-01"}},
+          {"name": "budgets.postings", "params": {"name": "game_expense", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2023-12-01", "00:00:00", 1701388800, "assign", {"number": "200.1", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "game_expense"}},
+          {"name": "budgets.budget_month", "params": {"name": "game_expense", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["game_expense", "游戏消费", "精神食粮｜15%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["game_expense", "游戏消费", "精神食粮｜15%", "CNY", "2024-01-01", {"number": "200.1", "currency": "CNY"}, "0", {"number": "200.1", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "game_expense", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "game_expense", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "3C_Devices"}},
+          {"name": "budgets.budget_month", "params": {"name": "3C_Devices", "month": "2023-10-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "3C_Devices", "month": "2023-10-01"}},
+          {"name": "budgets.postings", "params": {"name": "3C_Devices", "month": "2023-10-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "3C_Devices"}},
+          {"name": "budgets.budget_month", "params": {"name": "3C_Devices", "month": "2023-11-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", "2023-11-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "3C_Devices", "month": "2023-11-01"}},
+          {"name": "budgets.postings", "params": {"name": "3C_Devices", "month": "2023-11-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "3C_Devices"}},
+          {"name": "budgets.budget_month", "params": {"name": "3C_Devices", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", "2023-12-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "3C_Devices", "month": "2023-12-01"}},
+          {"name": "budgets.postings", "params": {"name": "3C_Devices", "month": "2023-12-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "3C_Devices"}},
+          {"name": "budgets.budget_month", "params": {"name": "3C_Devices", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", [], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["3C_Devices", "3C淘汰", "长期持有｜10%", "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "3C_Devices", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "3C_Devices", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [
+            ["3C_Devices", "2023-11-01", "CNY", "3C淘汰", "长期持有｜10%", [], null, null],
+            ["eat-with-friend", "2023-12-01", "CNY", "聚餐", "精神食粮｜15%", [], null, null],
+            ["electric-fee", "2023-12-01", "CNY", "电费", "生活开销｜55%", [], null, null],
+            ["food", "2023-12-01", "CNY", "外食", "生活开销｜55%", ["Expenses:Food"], null, null],
+            ["game_expense", "2023-12-01", "CNY", "游戏消费", "精神食粮｜15%", [], null, null],
+            ["house-rent", "2023-12-01", "CNY", "房租｜每月1号", "生活开销｜55%", [], null, null],
+            ["insurance", "2023-12-01", "CNY", "劳保、健保、福利金", "生活开销｜55%", [], null, null],
+            ["vacation", "2023-12-01", "CNY", "假期", "长期持有｜10%", [], null, null],
+            ["water-fee", "2023-12-01", "CNY", "水费", "生活开销｜55%", [], null, null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [
+            ["game_expense", "2023-12-01", "00:00:00", 1701388800, "assign", {"number": "200.1", "currency": "CNY"}],
+            ["food", "2023-12-01", "00:00:00", 1701388800, "assign", {"number": "1000", "currency": "CNY"}]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "3C_Devices",
+              "2023-11-01",
+              2023,
+              11,
+              "CNY",
+              "3C淘汰",
+              "长期持有｜10%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "3C_Devices",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "3C淘汰",
+              "长期持有｜10%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "3C_Devices",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "3C淘汰",
+              "长期持有｜10%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "eat-with-friend",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "聚餐",
+              "精神食粮｜15%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "eat-with-friend",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "聚餐",
+              "精神食粮｜15%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "electric-fee",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "电费",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "electric-fee",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "电费",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "food",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "外食",
+              "生活开销｜55%",
+              {"number": "1000", "currency": "CNY"},
+              {"number": "1000", "currency": "CNY"},
+              {"number": "50", "currency": "CNY"},
+              {"number": "950", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "food",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "外食",
+              "生活开销｜55%",
+              {"number": "950", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "950", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "game_expense",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "游戏消费",
+              "精神食粮｜15%",
+              {"number": "200.1", "currency": "CNY"},
+              {"number": "200.1", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "200.1", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "game_expense",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "游戏消费",
+              "精神食粮｜15%",
+              {"number": "200.1", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "200.1", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "house-rent",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "房租｜每月1号",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "house-rent",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "房租｜每月1号",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "insurance",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "劳保、健保、福利金",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "insurance",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "劳保、健保、福利金",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "vacation",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "假期",
+              "长期持有｜10%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "vacation",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "假期",
+              "长期持有｜10%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "water-fee",
+              "2023-12-01",
+              2023,
+              12,
+              "CNY",
+              "水费",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ],
+            [
+              "water-fee",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              "水费",
+              "生活开销｜55%",
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              []
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            ["2023-12-02", "00:00:00", "Assets:BankCard", "VME50 Package", {"number": "-50", "currency": "CNY"}, []],
+            ["2023-12-02", "00:00:00", "Expenses:Food", "VME50 Package", {"number": "50", "currency": "CNY"}, ["food"]]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

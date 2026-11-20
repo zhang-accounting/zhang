@@ -1,0 +1,388 @@
+{
+  "case": "same-day-order",
+  "description": "The order of a day (see main.zhang): which postings of the day of a definition or a close count, and the order of a month's events and postings.",
+  "ledger": "zhang-server/tests/golden/budget_contract/same-day-order/main.zhang",
+  "now": "2024-03-25T00:00:00Z",
+  "known_issues": {
+    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
+  },
+  "errors": [
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 18,
+      "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "fa865265-8834-de2d-53f4-adea17a036ae"}]
+    },
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 39,
+      "metas": [{"key": "account_name", "value": "Expenses:Fun"}, {"key": "budget_name", "value": "Fun"}, {"key": "txn_id", "value": "8be33a04-3440-3fc5-057d-9c17bac5b119"}]
+    },
+    {
+      "kind": "BudgetClosed",
+      "file": "main.zhang",
+      "line": 64,
+      "metas": [{"key": "account_name", "value": "Expenses:Fun"}, {"key": "budget_name", "value": "Fun"}, {"key": "txn_id", "value": "cb9fb04f-c741-17f7-3dba-2abb47fdfb87"}]
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-03-25", "08:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-03-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", null, null, "CNY", "2024-03-01", {"number": "105", "currency": "CNY"}, "70", {"number": "35", "currency": "CNY"}, false],
+            ["Fun", null, null, "CNY", "2024-03-01", {"number": "5", "currency": "CNY"}, "168", {"number": "-163", "currency": "CNY"}, true]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", null, null, "CNY", "2024-03-01", {"number": "105", "currency": "CNY"}, "70", {"number": "35", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "18:00:00", 1710928800, "assign", {"number": "100", "currency": "CNY"}],
+              ["2024-03-20", "09:00:00", 1710896400, "assign", {"number": "10", "currency": "CNY"}],
+              ["2024-03-20", "00:00:00", 1710864000, "transfer_out", {"number": "-5", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "18:00:00", 1710928800, "Expenses:Food", "6b029395-21b3-2771-500a-3dbe4465e0b8", "G", "18:00, the instant of a budget-add", {"number": "64", "currency": "CNY"}, {"number": "71", "currency": "CNY"}],
+              ["2024-03-10", "08:00:00", 1710028800, "Expenses:Food", "b45edeaf-4bcc-8188-9058-caf66461e45c", "C", "08:00", {"number": "4", "currency": "CNY"}, {"number": "7", "currency": "CNY"}],
+              ["2024-03-10", "00:00:00", 1710000000, "Expenses:Food", "575b9250-576d-34fc-0b6b-8e7e29387865", "B", "midnight, written below the definition", {"number": "2", "currency": "CNY"}, {"number": "3", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Fun"}},
+          {"name": "budgets.budget_month", "params": {"name": "Fun", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Fun", null, null, "CNY", ["Expenses:Fun"], "2024-03-20", "23:59:59"]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Fun", null, null, "CNY", "2024-03-01", {"number": "5", "currency": "CNY"}, "168", {"number": "-163", "currency": "CNY"}, true]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Fun", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Fun", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-03-20", "00:00:00", 1710864000, "transfer_in", {"number": "5", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "23:59:59", 1710950399, "Expenses:Fun", "e23f54eb-3ddc-3881-7e9e-da7d630afa86", "H", "23:59:59, the instant of the close", {"number": "128", "currency": "CNY"}, {"number": "184", "currency": "CNY"}],
+              ["2024-03-10", "13:00:00", 1710046800, "Expenses:Fun", "491e4c1f-0874-4d09-632f-1ee6c95dfc2a", "D", "13:00, written above the definition", {"number": "8", "currency": "CNY"}, {"number": "56", "currency": "CNY"}],
+              ["2024-03-10", "12:00:00", 1710043200, "Expenses:Fun", "914da48a-c32a-4411-c1ac-4ea569024dd0", "F", "12:00, the time of the definition, written below it", {"number": "32", "currency": "CNY"}, {"number": "48", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [
+            ["Food", "2024-03-10", "CNY", null, null, ["Expenses:Food"], null, null],
+            ["Fun", "2024-03-10", "CNY", null, null, ["Expenses:Fun"], "2024-03-20", "23:59:59"]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [
+            ["Food", "2024-03-20", "00:00:00", 1710864000, "transfer_out", {"number": "-5", "currency": "CNY"}],
+            ["Fun", "2024-03-20", "00:00:00", 1710864000, "transfer_in", {"number": "5", "currency": "CNY"}],
+            ["Food", "2024-03-20", "09:00:00", 1710896400, "assign", {"number": "10", "currency": "CNY"}],
+            ["Food", "2024-03-20", "18:00:00", 1710928800, "assign", {"number": "100", "currency": "CNY"}],
+            ["Fun", "2024-03-20", "23:59:59", 1710950399, "close", null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Food",
+              "2024-03-01",
+              2024,
+              3,
+              "CNY",
+              null,
+              null,
+              {"number": "105", "currency": "CNY"},
+              {"number": "105", "currency": "CNY"},
+              {"number": "70", "currency": "CNY"},
+              {"number": "35", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "Fun",
+              "2024-03-01",
+              2024,
+              3,
+              "CNY",
+              null,
+              null,
+              {"number": "5", "currency": "CNY"},
+              {"number": "5", "currency": "CNY"},
+              {"number": "168", "currency": "CNY"},
+              {"number": "-163", "currency": "CNY"},
+              true,
+              ["Expenses:Fun"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Expenses:Food",
+              "midnight, written above the definition",
+              {"number": "1", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Assets:Bank",
+              "midnight, written above the definition",
+              {"number": "-1", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Expenses:Food",
+              "midnight, written below the definition",
+              {"number": "2", "currency": "CNY"},
+              ["Food"]
+            ],
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Assets:Bank",
+              "midnight, written below the definition",
+              {"number": "-2", "currency": "CNY"},
+              []
+            ],
+            ["2024-03-10", "08:00:00", "Expenses:Food", "08:00", {"number": "4", "currency": "CNY"}, ["Food"]],
+            ["2024-03-10", "08:00:00", "Assets:Bank", "08:00", {"number": "-4", "currency": "CNY"}, []],
+            [
+              "2024-03-10",
+              "09:00:00",
+              "Expenses:Fun",
+              "09:00, written below the definition",
+              {"number": "16", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "09:00:00",
+              "Assets:Bank",
+              "09:00, written below the definition",
+              {"number": "-16", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "12:00:00",
+              "Expenses:Fun",
+              "12:00, the time of the definition, written below it",
+              {"number": "32", "currency": "CNY"},
+              ["Fun"]
+            ],
+            [
+              "2024-03-10",
+              "12:00:00",
+              "Assets:Bank",
+              "12:00, the time of the definition, written below it",
+              {"number": "-32", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "13:00:00",
+              "Expenses:Fun",
+              "13:00, written above the definition",
+              {"number": "8", "currency": "CNY"},
+              ["Fun"]
+            ],
+            [
+              "2024-03-10",
+              "13:00:00",
+              "Assets:Bank",
+              "13:00, written above the definition",
+              {"number": "-8", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-20",
+              "18:00:00",
+              "Expenses:Food",
+              "18:00, the instant of a budget-add",
+              {"number": "64", "currency": "CNY"},
+              ["Food"]
+            ],
+            [
+              "2024-03-20",
+              "18:00:00",
+              "Assets:Bank",
+              "18:00, the instant of a budget-add",
+              {"number": "-64", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-20",
+              "23:59:59",
+              "Expenses:Fun",
+              "23:59:59, the instant of the close",
+              {"number": "128", "currency": "CNY"},
+              ["Fun"]
+            ],
+            [
+              "2024-03-20",
+              "23:59:59",
+              "Assets:Bank",
+              "23:59:59, the instant of the close",
+              {"number": "-128", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-21",
+              "00:00:00",
+              "Expenses:Fun",
+              "midnight, after the close",
+              {"number": "256", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-21",
+              "00:00:00",
+              "Assets:Bank",
+              "midnight, after the close",
+              {"number": "-256", "currency": "CNY"},
+              []
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {
+    "beancount": {
+      "load_error": "cannot parse main.bean: failed to parse beancount file: unexpected input at line 24, column 1",
+      "line": "2024-03-10 12:00:00 custom \"budget\" \"Fun\" \"CNY\""
+    },
+    "zhang": "same"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "description": "The budget ledger of the query engine's tests (zhang-query/tests/engine/server_features/budgets), in UTC+8: activity converted at each posting's date through the inverse of the only prices (CNY quoted in USD), a budget-add and a posting in the first half hour of a month (still the previous month in UTC) counted in the ledger date's month, a leap day, a transfer, a close, and a budget-add to a budget that does not exist.",
+  "ledger": "zhang-query/tests/engine/server_features/budgets",
+  "now": "2024-04-30T12:00:00Z",
+  "pages": {
+    "months": ["2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01", "2024-05-01"],
+    "budgets": ["food", "travel", "vacation"]
+  },
+  "known_issues": {
+    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
+  }
+}

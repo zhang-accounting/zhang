@@ -1,0 +1,23 @@
+; the budget directives of main.zhang and the opens linking accounts to budgets, as written, file after file
+; ---- written as zhang
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Fun
+  budget: Fun
+2024-03-10 budget Food CNY
+2024-03-10 12:00:00 budget Fun CNY
+2024-03-20 18:00:00 budget-add Food 100 CNY
+2024-03-20 09:00:00 budget-add Food 10 CNY
+2024-03-20 budget-transfer Food Fun 5 CNY
+2024-03-20 23:59:59 budget-close Fun
+; ---- written as beancount
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Fun
+  budget: Fun
+2024-03-10 custom "budget" "Food" "CNY"
+2024-03-10 12:00:00 custom "budget" "Fun" "CNY"
+2024-03-20 18:00:00 custom "budget-add" "Food" 100 CNY
+2024-03-20 09:00:00 custom "budget-add" "Food" 10 CNY
+2024-03-20 custom "budget-transfer" "Food" "Fun" 5 CNY
+2024-03-20 23:59:59 custom "budget-close" "Fun"

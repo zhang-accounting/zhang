@@ -1,0 +1,69 @@
+; budget-close. One with a date only leaves the budget open through its day; one with a time closes it at that time.
+; A budget is closed from the month of its first budget-close on. It takes no activity after its close: the first
+; posting of each of its accounts after it is reported as BudgetClosed. Its budget-add and budget-transfer still
+; count, so what is left can move to another budget. A second budget-close changes nothing, and a budget cannot be
+; defined again.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Trip
+  budget: Trip
+2024-01-01 open Expenses:Hotel
+  budget: Trip
+2024-01-01 open Expenses:Fun
+  budget: Fun
+
+2024-01-01 budget Trip CNY
+2024-01-01 budget Fun CNY
+2024-01-01 budget Savings CNY
+2024-01-01 budget-add Trip 1000 CNY
+2024-01-01 budget-add Fun 100 CNY
+
+2024-02-10 * "Airline" "on the day of a close without a time"
+  Expenses:Trip 400 CNY
+  Assets:Bank
+
+2024-02-10 budget-close Trip
+
+2024-02-11 * "Airline" "the day after the close"
+  Expenses:Trip 50 CNY
+  Assets:Bank
+
+2024-02-12 * "Airline" "after the close again"
+  Expenses:Trip 60 CNY
+  Assets:Bank
+
+2024-02-13 * "Hotel" "another account of the closed budget"
+  Expenses:Hotel 70 CNY
+  Assets:Bank
+
+2024-02-20 budget-add Trip 10 CNY
+2024-03-05 budget-transfer Trip Savings 610 CNY
+
+2024-04-01 budget-close Trip
+  note: "a second close"
+
+2024-05-01 budget Trip CNY
+  note: "defined again"
+
+2024-05-02 * "Airline" "after the definition again"
+  Expenses:Trip 5 CNY
+  Assets:Bank
+
+; Fun closes at a time
+2024-02-15 18:00:00 budget-close Fun
+
+2024-02-15 17:59:59 * "Cinema" "a second before the close"
+  Expenses:Fun 20 CNY
+  Assets:Bank
+
+2024-02-15 18:00:00 * "Cinema" "at the instant of the close"
+  Expenses:Fun 30 CNY
+  Assets:Bank
+
+2024-02-15 18:00:01 * "Cinema" "a second after the close"
+  Expenses:Fun 40 CNY
+  Assets:Bank

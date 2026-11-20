@@ -1,0 +1,38 @@
+; The order of a day in a beancount file. Beancount orders a day's entries by their kind, then as written; zhang
+; reads the `time` metadata of a transaction as its time, which orders it within its kind, but not that of a budget
+; directive, which stays metadata: a budget is defined, and closed, at the start and at the end of its day.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+2024-01-01 commodity CNY
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: "Food"
+
+2024-03-10 * "A" "written above the definition"
+  Expenses:Food 1 CNY
+  Assets:Bank
+
+2024-03-10 custom "budget" "Food" "CNY"
+  time: "12:00:00"
+
+2024-03-10 * "B" "written below the definition"
+  Expenses:Food 2 CNY
+  Assets:Bank
+
+2024-03-10 * "C" "at 08:00, written below the definition"
+  time: "08:00:00"
+  Expenses:Food 4 CNY
+  Assets:Bank
+
+2024-03-20 custom "budget-close" "Food"
+  time: "09:00:00"
+
+2024-03-20 * "D" "at 18:00 on the day of the close"
+  time: "18:00:00"
+  Expenses:Food 8 CNY
+  Assets:Bank
+
+2024-03-21 * "E" "the day after the close"
+  Expenses:Food 16 CNY
+  Assets:Bank

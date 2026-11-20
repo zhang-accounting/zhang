@@ -28,6 +28,7 @@ sidebar:
 - **"beanquery 的答案是 X"**：`zhang-query/tests` 的 beanquery 用例集中的一个用例，用 `generate.py --set <set>` 生成，绝不手写预期值。**"beancount 的行为是 X"**：`extensions/beancount/tests` 中该行为的参照目录，由其 `generate.py` 重新生成。
 - **一条 HTTP 契约**：`zhang-server` 的 `tests/`，默认在处理函数层面（`respond(handler(state, ..).await)`）；只有当中间件、路径编码、内容类型或提取器的拒绝才是重点时，才经过路由器（`send`、`call`）。
 - **对每一个账本都成立的不变量**：`zhang-server/tests` 中的一个黄金套件，遍历 `zhang_testkit::fixtures::every_fixture_ledger()`，并拆成若干部分，让单个测试不超过几秒。
+- **预算系统的客户端看到的内容**（预算页面的内置查询、对预算表的 BQL、预算错误、两种格式各自写出的预算指令）：`zhang-server/tests/golden/budget_contract/` 中的一个用例，由一个账本和一个列出请求的 `case.json` 组成，黄金文件冻结它们的回答。RFC #698 的预算插件以这些用例为契约来核对，所以它们不读取预算系统的任何 Rust 类型；看起来有误的行为用 `KNOWN-ISSUE:` 注明并按现状固定，而不是直接修改。
 - **需要真实账本形态和 API 回答的 bug**：在 `integration-tests/` 下新建一个目录，放入 `main.zhang`（或 `main.bean`，或两者）和 `validations.json`。端到端运行会检查这些校验，此后每个黄金套件也会加载这个账本。
 - **网页界面的函数**：`frontend/src/**/<name>.test.ts`。
 

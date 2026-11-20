@@ -1,0 +1,54 @@
+; The forms of budgets in a beancount file (#500): the quoted form beancount accepts, the unquoted form earlier
+; versions of zhang wrote, a quoted type with unquoted values, metadata and inline comments, a `time` metadata entry
+; on a budget-close, and `custom` directives of a budget's type that are not budgets (Fava's budgets, an extra value,
+; a missing amount).
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+2024-01-01 commodity CNY
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: "Food"
+2024-01-01 open Expenses:Fun
+  budget: "Fun"
+2024-01-01 open Expenses:Coffee
+
+2024-01-01 custom "budget" "Food" "CNY"
+  alias: "外食"
+  category: "生活开销"
+2024-01-01 custom budget Fun CNY
+2024-01-01 custom "budget" Legacy CNY ; a quoted type with unquoted values
+2024-01-01 custom "budget" Expenses:Coffee "daily" 4.00 EUR
+
+2024-01-01 custom "budget-add" "Food" 1000 CNY
+  source: "salary"
+2024-01-01 custom budget-add Fun 200.5 CNY
+2024-01-02 custom "budget-add" "Legacy" 10 CNY
+2024-01-15 custom "budget-transfer" "Fun" "Food" 50 CNY
+2024-01-16 custom budget-transfer Food Legacy 5 CNY
+2024-01-20 custom "budget-close" "Fun"
+  time: "12:00:00"
+2024-01-31 custom "budget-close" "Legacy" "an extra value"
+2024-02-01 custom "budget-add" "Food"
+
+2024-01-10 * "Restaurant" "lunch"
+  Expenses:Food 80 CNY
+  Assets:Bank
+
+2024-01-11 * "Cafe" "coffee, in no budget"
+  Expenses:Coffee 4 CNY
+  Assets:Bank
+
+2024-01-20 * "Cinema" "before noon on the day of the close"
+  time: "11:00:00"
+  Expenses:Fun 30 CNY
+  Assets:Bank
+
+2024-01-20 * "Cinema" "after noon on the day of the close"
+  time: "13:00:00"
+  Expenses:Fun 40 CNY
+  Assets:Bank
+
+2024-01-21 * "Cinema" "the day after the close"
+  Expenses:Fun 7 CNY
+  Assets:Bank

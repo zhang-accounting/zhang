@@ -1,0 +1,11 @@
+{
+  "description": "Duplicate and undefined budgets (see main.zhang): the errors, where they are written, and what the budgets that exist answer.",
+  "now": "2024-02-20T00:00:00Z",
+  "pages": {
+    "months": ["2023-12-01", "2024-01-01", "2024-02-01"],
+    "budgets": ["Food", "Ghost", "Nope"]
+  },
+  "known_issues": {
+    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)"
+  }
+}
