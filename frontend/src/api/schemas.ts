@@ -1407,10 +1407,19 @@ export interface operations {
                      */
                     edit_drops_text: boolean;
                     flag: string;
+                    /**
+                     * @description whether the transaction is written with a time of day: `false` for one written with its date alone, whose
+                     * `datetime` is then midnight. An update keeps it so by sending the date alone (`2024-01-02`) as its `datetime`
+                     */
+                    has_time: boolean;
                     /** Format: uuid */
                     id: string;
                     is_balanced: boolean;
                     links: string[];
+                    /**
+                     * @description metadata of the transaction, in the order it is written: the keys in the order they first appear, the values of
+                     * a repeated key together, after the first of them
+                     */
                     metas: {
                       key: string;
                       value: string;
@@ -1439,7 +1448,10 @@ export interface operations {
                         /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
-                      /** @description metadata of the posting, sorted by key */
+                      /**
+                       * @description metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
+                       * for a transaction read from a file; sorted by key otherwise
+                       */
                       metas: {
                         key: string;
                         value: string;
@@ -1458,6 +1470,8 @@ export interface operations {
                         comment?: string | null;
                         /** @description the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}` */
                         cost?: string | null;
+                        /** @description the flag of the posting, written before its account, such as `!`; `null` for a posting without one */
+                        flag?: string | null;
                         /** @description the price as written, `@ 6 USD` or `@@ 60 USD` */
                         price?: string | null;
                       } | null;
@@ -1528,7 +1542,10 @@ export interface operations {
                         /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
-                      /** @description metadata of the posting, sorted by key */
+                      /**
+                       * @description metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
+                       * for a transaction read from a file; sorted by key otherwise
+                       */
                       metas: {
                         key: string;
                         value: string;
@@ -1547,6 +1564,8 @@ export interface operations {
                         comment?: string | null;
                         /** @description the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}` */
                         cost?: string | null;
+                        /** @description the flag of the posting, written before its account, such as `!`; `null` for a posting without one */
+                        flag?: string | null;
                         /** @description the price as written, `@ 6 USD` or `@@ 60 USD` */
                         price?: string | null;
                       } | null;
@@ -1587,7 +1606,10 @@ export interface operations {
                         /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
                         number: string;
                       };
-                      /** @description metadata of the posting, sorted by key */
+                      /**
+                       * @description metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
+                       * for a transaction read from a file; sorted by key otherwise
+                       */
                       metas: {
                         key: string;
                         value: string;
@@ -1606,6 +1628,8 @@ export interface operations {
                         comment?: string | null;
                         /** @description the cost as written, such as `{150 USD}`, `{{1500 USD}}`, `{}` or `{150 USD, 2024-01-15, "lot"}` */
                         cost?: string | null;
+                        /** @description the flag of the posting, written before its account, such as `!`; `null` for a posting without one */
+                        flag?: string | null;
                         /** @description the price as written, `@ 6 USD` or `@@ 60 USD` */
                         price?: string | null;
                       } | null;
@@ -2252,7 +2276,8 @@ export interface operations {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
            * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone
+           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           * transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2276,7 +2301,13 @@ export interface operations {
              * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
-            /** @description metadata of the posting, checked like the transaction's `metas` */
+            /**
+             * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
+             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             * `null` removes it
+             */
+            flag?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
             metas?:
               | {
                   key: string;
@@ -2347,7 +2378,8 @@ export interface operations {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
            * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone
+           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           * transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2371,7 +2403,13 @@ export interface operations {
              * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
-            /** @description metadata of the posting, checked like the transaction's `metas` */
+            /**
+             * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
+             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             * `null` removes it
+             */
+            flag?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
             metas?:
               | {
                   key: string;
@@ -2525,7 +2563,8 @@ export interface operations {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
            * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone
+           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           * transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2549,7 +2588,13 @@ export interface operations {
              * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
-            /** @description metadata of the posting, checked like the transaction's `metas` */
+            /**
+             * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
+             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             * `null` removes it
+             */
+            flag?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
             metas?:
               | {
                   key: string;
@@ -2687,7 +2732,8 @@ export interface operations {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
            * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone
+           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           * transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2711,7 +2757,13 @@ export interface operations {
              * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
-            /** @description metadata of the posting, checked like the transaction's `metas` */
+            /**
+             * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
+             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             * `null` removes it
+             */
+            flag?: string | null;
+            /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
             metas?:
               | {
                   key: string;
