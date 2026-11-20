@@ -72,7 +72,9 @@ bytes and whether the Linux build matched.
 
 1. importing it in the imports section (`EXTISM_IMPORT_USER`), which makes the host link it into every instance;
 2. a bridge in the bridges section and an entry in `BRIDGES`;
-3. its `zhang.*` wrapper in the prelude, which unwraps the host's `{"Ok": ...}`/`{"Err": ...}` envelope;
+3. its `zhang.*` wrapper in the prelude, which unwraps the host's `{"Ok": ...}`/`{"Err": ...}` envelope, and
+   `api_version` in the prelude raised by one, with the new version listed in the Lua plugins guide
+   (`docs/src/content/docs/guides/lua-plugins.md` and its zh-cn mirror), unless the release already raised it;
 4. a fixture in `zhang-core/tests/plugins/` and a test in `zhang-core/tests/core/wasm_plugins.rs`;
 5. `build.py`, then commit the module and its checksum together.
 

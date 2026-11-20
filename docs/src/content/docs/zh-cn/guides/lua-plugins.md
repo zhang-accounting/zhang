@@ -69,6 +69,7 @@ return M
 
 | 调用 | 结果 |
 |---|---|
+| `zhang.api_version` | 本 API 的版本，一个整数；见 [API 版本](#api-版本)。 |
 | `zhang.now()` | `{ now = "2026-10-13T09:30:00+08:00", today = "2026-10-13", timezone = "Asia/Shanghai" }`，每个请求重新读取。没有 `os.time`。 |
 | `zhang.ledger_info()` | `{ title = "Home", operating_currency = "CNY", timezone = "Asia/Shanghai" }`；账本没有设置 `title` 选项时 `title` 是 `json.null`。 |
 | `zhang.query(bql)` | 运行一条[查询](/zh-cn/reference/query-language/)，给出 `POST /api/query` 在 `data` 中返回的内容：`{ columns = { { name = "account", type = "str" }, … }, rows = { { cell, … }, … } }`，时间和结果大小的限制相同。 |
@@ -85,6 +86,20 @@ return M
 local ok, result = pcall(zhang.query, request.query.bql[1])
 if not ok then return { status = 400, json = { error = result } } end
 ```
+
+### API 版本
+
+每个给 `zhang` 表增加内容的版本都会调高 `zhang.api_version`，所以需要较新功能的脚本先检查版本，在较旧的张记账上回答一个清楚的错误，而不是在调用 `nil` 时失败：
+
+```lua
+if (zhang.api_version or 0) < 1 then
+  return { status = 501, json = { error = "this plugin needs Zhang with Lua API version 1 or later" } }
+end
+```
+
+| 版本 | 增加了 |
+|---|---|
+| 1 | 上面的 API。 |
 
 ## JSON
 

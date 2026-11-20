@@ -69,6 +69,7 @@ Anything that is not a table is an invalid response, which Zhang answers with st
 
 | Call | Gives |
 |---|---|
+| `zhang.api_version` | The version of this API, an integer; see [API versions](#api-versions). |
 | `zhang.now()` | `{ now = "2026-10-13T09:30:00+08:00", today = "2026-10-13", timezone = "Asia/Shanghai" }`, read afresh for each request. There is no `os.time`. |
 | `zhang.ledger_info()` | `{ title = "Home", operating_currency = "CNY", timezone = "Asia/Shanghai" }`; `title` is `json.null` when the ledger sets no `title` option. |
 | `zhang.query(bql)` | Runs a [query](/reference/query-language/) and gives what `POST /api/query` returns in `data`: `{ columns = { { name = "account", type = "str" }, … }, rows = { { cell, … }, … } }`, with the same time and size limits. |
@@ -85,6 +86,20 @@ A call the host refuses raises a Lua error with the host's message: `query error
 local ok, result = pcall(zhang.query, request.query.bql[1])
 if not ok then return { status = 400, json = { error = result } } end
 ```
+
+### API versions
+
+`zhang.api_version` is raised by every release that adds to the `zhang` table, so a script that wants something newer checks the version first and answers a clear error on an older Zhang instead of failing on a `nil` call:
+
+```lua
+if (zhang.api_version or 0) < 1 then
+  return { status = 501, json = { error = "this plugin needs Zhang with Lua API version 1 or later" } }
+end
+```
+
+| Version | Added |
+|---|---|
+| 1 | The API above. |
 
 ## JSON
 

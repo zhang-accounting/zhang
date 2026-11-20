@@ -2208,7 +2208,7 @@ mod lua {
         // a config key that is not set is nil, so it is absent from the answer
         assert_eq!(
             json_body(&call(&ledger, "router-info", &get("/")).unwrap()),
-            json!({"title": "Home", "operating_currency": "CNY", "timezone": ledger.options.timezone.name(), "greeting": "hi", "abi": "1"})
+            json!({"title": "Home", "operating_currency": "CNY", "timezone": ledger.options.timezone.name(), "greeting": "hi", "abi": "1", "api_version": 1})
         );
     }
 

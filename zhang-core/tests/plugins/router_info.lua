@@ -6,6 +6,7 @@ function M.router(request)
   info.greeting = zhang.config("greeting")
   info.missing = zhang.config("no-such-key")
   info.abi = zhang.config("zhang.abi")
+  info.api_version = zhang.api_version
   return { json = info }
 end
 

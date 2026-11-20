@@ -271,6 +271,9 @@ local function constructor(kind)
 end
 
 local zhang = {
+  -- the version of this API, raised by every release that adds to the `zhang` table (the guide lists what each
+  -- version added), so a script checks `zhang.api_version >= n` before it uses what version n brought
+  api_version = 1,
   str = constructor("str"),
   int = constructor("int"),
   decimal = constructor("decimal"),
