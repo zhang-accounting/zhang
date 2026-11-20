@@ -58,6 +58,8 @@ chrono = { version = "0.4" }
 
 [dev-dependencies]
 beancount = { version = "0.1", path = "../extensions/beancount" }
+# a paused clock, for the file watcher's debounce
+tokio = { workspace = true, features = ["test-util"] }
 zhang-testkit = { path = "../zhang-testkit", features = ["server"] }
 webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }
 tower = { version = "0.4", features = ["util"] }

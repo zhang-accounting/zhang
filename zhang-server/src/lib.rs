@@ -21,7 +21,6 @@ use routes::transaction::*;
 use self_update::version::bump_is_greater;
 use serde::Serialize;
 use state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
-use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
@@ -192,14 +191,18 @@ fn cors_expose_headers() -> [axum::http::HeaderName; 2] {
 }
 
 fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
-    let (tx, rx) = channel(1);
+    let (tx, rx) = channel(64);
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
     let watcher = RecommendedWatcher::new(
         move |res| {
+            // a read is no change: inotify reports one for every file a load opens, a hundred and more a write
+            if !watch::is_change(&res) {
+                return;
+            }
             futures::executor::block_on(async {
-                tx.send(res).await.unwrap();
+                tx.send(res).await.ok();
             })
         },
         Config::default(),
@@ -519,24 +522,8 @@ fn start_fs_event_lisenter(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for
         let roots = watch::watch_roots(&entry_path);
         info!("watching {}", entry_path.to_str().unwrap_or(""));
         watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
-        'looper: loop {
-            let mut all = vec![];
-            match rx.recv().await {
-                Some(event) => all.push(event),
-                None => break 'looper,
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            'each_time: loop {
-                let result = rx.try_recv();
-                match result {
-                    Ok(event) => {
-                        all.push(event);
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
-                    Err(TryRecvError::Empty) => break 'each_time,
-                    Err(TryRecvError::Disconnected) => break 'looper,
-                }
-            }
+        // the changes of a burst of writes, of an editor saving a file, at once
+        while let Some(all) = watch::gather(&mut rx, watch::QUIET, watch::MAX_WAIT).await {
             trace!("receive all file changes: {:?}", all);
             let events: Vec<Event> = all.into_iter().filter_map(Result::ok).collect();
             on_file_events(&cloned_ledger, &reload_sender_for_fs, &roots, &events).await;
