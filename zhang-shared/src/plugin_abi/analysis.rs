@@ -114,6 +114,83 @@ pub fn check_size(json: &[u8], max_bytes: usize, max_nodes: usize, max_objects: 
         })
 }
 
+/// The export an analyzer declares its [`Manifest`] in, as JSON; read once while it registers.
+pub const MANIFEST: &str = "manifest";
+
+/// The export an analyzer analyses a ledger with: an [`Input`] as JSON in, an [`Output`] as JSON out.
+pub const ANALYZE: &str = "analyze";
+
+/// The host function that converts amounts with the ledger's prices, as the query engine converts them
+/// (`convert(position, currency, date)`). `zhang_convert(input: i64) -> i64` takes the offset of a block holding a JSON
+/// list of [`Conversion`]s and answers `{"Ok": [...]}`, a [`ConvertedAmount`] or `null` (no price converts it) for each,
+/// in order. Exact: the numbers are text, and the host computes them as it computes a query's.
+pub const CONVERT: &str = "zhang_convert";
+
+/// The most conversions one `zhang_convert` call converts.
+pub const MAX_CONVERSIONS: usize = 100_000;
+
+/// What `analyze` reads: the records of the kinds the analyzer consumes, in the order zhang processed the ledger, and
+/// what the ledger is kept in.
+///
+/// ```json
+/// {"records": [{"kind": "budget-add", "seq": 41, "date": "2024-03-01", "time": "00:00:00", "has_time": false,
+///               "timestamp": 1709251200, "fields": {"name": "Food", "amount": {"number": "500.00", "currency": "CNY"}},
+///               "meta": {"note": ["groceries"]}, "file": "budget.zhang", "line": 12}],
+///  "ledger": {"title": null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}}
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Input {
+    pub records: Vec<Record>,
+    pub ledger: super::LedgerInfo,
+}
+
+/// A directive of a kind an analyzer consumes, as a record: its place, its date and time, and its fields by name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Record {
+    /// `budget`, `budget-add`, `budget-transfer`, `budget-close`, or `custom:<type>` for a `custom "<type>"` directive
+    pub kind: String,
+    /// its row of `#entries`: its position in the order zhang processed the ledger, which a posting's `seq` compares
+    /// with, and what a diagnostic names it by
+    pub seq: u32,
+    /// its date, `YYYY-MM-DD`, as written
+    pub date: String,
+    /// its time of day in the ledger's timezone, `HH:MM:SS`; `00:00:00` without one
+    pub time: String,
+    /// whether it is written with a time
+    pub has_time: bool,
+    /// the Unix time in seconds of its date and time in the ledger's timezone
+    pub timestamp: i64,
+    /// its fields: `name` and `commodity` (`budget`); `name` and `amount` (`budget-add`); `from`, `to` and `amount`
+    /// (`budget-transfer`); `name` (`budget-close`); `values`, a list of strings (`custom`). An amount is
+    /// `{"number": "500.00", "currency": "CNY"}`
+    pub fields: Map<String, Value>,
+    /// its metadata, every value of each key in order
+    pub meta: BTreeMap<String, Vec<String>>,
+    /// the file it is written in, within the ledger, with `/`
+    pub file: Option<String>,
+    /// its line there, from 1
+    pub line: Option<usize>,
+}
+
+/// One amount for `zhang_convert` to convert: into `target` with the prices of `date`, and through `via`, a cost
+/// currency, when no price converts it directly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Conversion {
+    pub amount: ConvertedAmount,
+    pub target: String,
+    /// `YYYY-MM-DD`
+    pub date: String,
+    #[serde(default)]
+    pub via: Option<String>,
+}
+
+/// An amount on the wire: its number as text, exact, and its currency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConvertedAmount {
+    pub number: String,
+    pub currency: String,
+}
+
 /// What an analyzer declares about itself, read once while it registers: what it reads, the diagnostics it may report,
 /// and the tables and columns it provides. It is static, so a ledger's catalog is known before any analysis runs, even
 /// when one fails. On the wire (wrapped here for reading):

@@ -311,6 +311,13 @@ impl Query {
     pub fn execute_with_options(&self, ledger: &Ledger, params: &Params, options: &ExecuteOptions) -> Result<QueryResult, QueryError> {
         // start the clock before building the rows, which is part of the work
         let deadline = options.timeout.map(executor::Deadline::after);
+        // while the analyzers analyse a ledger, its errors are not placed yet: a query of them would read them half done
+        if ledger.extensions.analysing && self.projection.reads_errors() {
+            return Err(QueryError::new(
+                QueryErrorKind::Eval,
+                "the ledger's errors are not available while plugins analyse the ledger",
+            ));
+        }
         if let Some(digest) = self.extensions {
             if Catalog::of_ledger(ledger).digest() != digest {
                 return Err(QueryError::new(

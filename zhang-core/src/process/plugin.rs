@@ -119,3 +119,35 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
 
     Ok(())
 }
+
+/// Register the default plugin `default` into `ledger` ([`crate::analysis::LoadOptions::default_plugins`]): as a
+/// `plugin` directive naming its module would, but whatever the ledger's `features.plugin`, and without a directive to
+/// report on. The operator's `ZHANG_PLUGINS=off` stops it as it stops every plugin.
+#[cfg_attr(not(feature = "plugin_runtime"), allow(unused_variables))]
+pub(crate) fn register_default(default: &crate::analysis::DefaultPlugin, ledger: &mut Ledger) -> ZhangResult<()> {
+    #[cfg(feature = "plugin_runtime")]
+    {
+        if !ledger.plugin_policy.loads_plugins() {
+            return Ok(());
+        }
+        let plugin = Plugin {
+            module: zhang_ast::ZhangString::quote(default.module.as_str()),
+            value: vec![],
+            meta: zhang_ast::Meta::default(),
+        };
+        let content = default.content.clone();
+        let module = crate::plugin::lua::PluginModule::parse_as(&default.module, &default.file, || Ok(content.to_vec()))?;
+        let declaration = crate::plugin::capabilities::PluginDeclaration::parse(&plugin);
+        let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
+        let files = crate::plugin::files::FileAccess::new(vec![], ledger.data_source.clone(), &ledger.entry.0);
+        let (options, policy) = (ledger.options.all(), ledger.plugin_policy.clone());
+        let span = SpanInfo::default();
+        ledger
+            .plugins
+            .insert_plugin(&plugin, module, declaration, &span, &clock, timezone, files, &options, policy)?;
+        if let Some((registered, _)) = ledger.plugins.ordered.last_mut() {
+            registered.mark_default();
+        }
+    }
+    Ok(())
+}

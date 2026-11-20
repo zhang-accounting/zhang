@@ -220,6 +220,9 @@ pub(super) struct HostState {
     record: bool,
     /// whether the instance is registering the plugin, which only declares what it is: it may not reach the network
     pub(super) registering: bool,
+    /// whether the instance is analysing the ledger, which is a function of the ledger alone: it may not reach the
+    /// network, whatever its directive grants
+    pub(super) analysing: bool,
     /// whether the plugin read the time since its reads were last taken
     read: bool,
     /// what the plugin may read; `None` while it registers or handles a request as a router, when every
@@ -264,6 +267,16 @@ impl PluginHost {
         host
     }
 
+    /// the host of an instance analysing the ledger as an analyzer: `zhang_now` returns the time of the load, as for a
+    /// stage, and records that the ledger depends on the date; the file functions deny every path and `http_request` is
+    /// refused, whatever the plugin's directive grants, since an analysis is a function of the ledger alone. The router
+    /// functions read the ledger being loaded once [`PluginHost::with_router`] binds them
+    pub fn analysing(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
+        let host = Self::with_record(plugin.into(), directive_span, clock, timezone, true);
+        host.lock().analysing = true;
+        host
+    }
+
     /// the host of an instance handling an HTTP request as a router plugin. A request is not a load:
     /// `zhang_now` reads the ledger's clock afresh for each request (so a report page shows the
     /// current date even when the ledger was loaded days ago) and records nothing.
@@ -280,6 +293,7 @@ impl PluginHost {
             timezone,
             record,
             registering: false,
+            analysing: false,
             read: false,
             access: None,
             inputs: vec![],
@@ -301,7 +315,7 @@ impl PluginHost {
     /// this host handling a request as a router: `zhang_query`, `zhang_query_params`,
     /// `zhang_query_schema` and `zhang_query_builtin` read the ledger through `host` and
     /// `zhang_ledger_info` answers `info`
-    pub(super) fn with_router(self, host: Arc<dyn RouterHost>, info: LedgerInfo) -> Self {
+    pub(crate) fn with_router(self, host: Arc<dyn RouterHost>, info: LedgerInfo) -> Self {
         self.lock().router = Some((host, info));
         self
     }
@@ -331,6 +345,7 @@ impl PluginHost {
             shared(bindings, QUERY_PARAMS_FUNCTION, [PTR], [PTR], router::zhang_query_params),
             shared(bindings, QUERY_SCHEMA_FUNCTION, [], [PTR], router::zhang_query_schema),
             shared(bindings, QUERY_BUILTIN_FUNCTION, [PTR], [PTR], router::zhang_query_builtin),
+            shared(bindings, router::CONVERT_FUNCTION, [PTR], [PTR], router::zhang_convert),
             shared(bindings, WRITE_PREVIEW_FUNCTION, [PTR], [PTR], write::zhang_write_preview),
             shared(bindings, WRITE_COMMIT_FUNCTION, [PTR], [PTR], write::zhang_write_commit),
             shared(bindings, net::HTTP_REQUEST, [PTR, PTR], [PTR], net::http_request).with_namespace(EXTISM_ENV_MODULE),
@@ -348,7 +363,7 @@ impl PluginHost {
     }
 
     /// whether the plugin read the time since the last call; a host that is registering the plugin never records it
-    fn take_clock_read(&self) -> bool {
+    pub(crate) fn take_clock_read(&self) -> bool {
         std::mem::take(&mut self.lock().read)
     }
 

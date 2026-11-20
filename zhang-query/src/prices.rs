@@ -73,6 +73,17 @@ pub(crate) fn convert_units(units: &Amount, target: &str, via: Option<&str>, pri
     }
 }
 
+/// `amount` converted to `target` at the market rates of `ledger`'s prices on `date`, as BQL's `convert(position,
+/// target, date)` converts a position held at a cost in `via`: `None` when no price converts it. An amount in `target`
+/// is itself. What `zhang_convert` answers a plugin.
+pub fn convert_at(ledger: &zhang_core::ledger::Ledger, amount: &Amount, target: &str, via: Option<&str>, date: NaiveDate) -> Option<Amount> {
+    if amount.commodity == target {
+        return Some(amount.clone());
+    }
+    let converted = convert_units(amount, target, via, PriceMap::cached(ledger).as_ref(), Some(date));
+    (converted.commodity == target).then_some(converted)
+}
+
 impl Position {
     /// The units converted to `target` at the market rates of `prices` as of `date` (the latest
     /// rates when `None`), as BQL's `convert(position, target, date)` does: a direct or inverse
