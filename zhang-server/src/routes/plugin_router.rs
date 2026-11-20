@@ -612,7 +612,7 @@ mod test {
         assert_eq!(
             headers,
             vec![
-                "cache-control: no-store",
+                "cache-control: private, no-store",
                 "content-type: text/html; charset=utf-8",
                 "content-security-policy: sandbox allow-scripts allow-forms allow-popups allow-downloads",
                 "x-content-type-options: nosniff",

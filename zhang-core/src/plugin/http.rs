@@ -4,8 +4,8 @@
 //! fields it does not know. See [`crate::plugin::router`] for how requests reach a plugin.
 
 pub use zhang_shared::plugin_abi::{
-    same_origin_location, Encoding as BodyEncoding, Request as PluginRequest, Response as PluginResponse, DEFAULT_CONTENT_TYPE, FORWARDED_REQUEST_HEADERS,
-    FORWARDED_RESPONSE_HEADERS, SECURITY_HEADERS,
+    private_cache_control, same_origin_location, Encoding as BodyEncoding, Request as PluginRequest, Response as PluginResponse, DEFAULT_CONTENT_TYPE,
+    FORWARDED_REQUEST_HEADERS, FORWARDED_RESPONSE_HEADERS, SECURITY_HEADERS,
 };
 
 #[cfg(test)]
@@ -16,7 +16,7 @@ mod test {
     use http::StatusCode;
     use serde_json::json;
 
-    use super::{same_origin_location, BodyEncoding, PluginRequest, PluginResponse, FORWARDED_REQUEST_HEADERS};
+    use super::{private_cache_control, same_origin_location, BodyEncoding, PluginRequest, PluginResponse, FORWARDED_REQUEST_HEADERS};
 
     fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
         entries.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
@@ -212,7 +212,7 @@ mod test {
                 // `Content-Type` sorts first, as the plugin wrote it
                 "content-type: text/html",
                 "allow: GET, POST",
-                "cache-control: no-store",
+                "cache-control: private, no-store",
                 "content-disposition: attachment; filename=\"report.csv\"",
                 "content-language: en",
                 "etag: \"v1\"",
@@ -224,6 +224,34 @@ mod test {
             ]
         );
         assert_eq!(response.body(), b"<h1>hi</h1>");
+    }
+
+    #[test]
+    fn should_keep_every_response_out_of_shared_caches() {
+        for (plugin, sent) in [
+            (None, "private"),
+            (Some("no-store"), "private, no-store"),
+            (Some("public, max-age=3600"), "private, max-age=3600"),
+            (
+                Some("Public, S-MAXAGE=600, max-age=60, must-revalidate"),
+                "private, max-age=60, must-revalidate",
+            ),
+            (Some("private=\"x-user\", no-cache"), "private, no-cache"),
+            (Some("private"), "private"),
+            (Some(" , "), "private"),
+        ] {
+            assert_eq!(private_cache_control(plugin), sent, "{plugin:?}");
+            let mut response = PluginResponse::default();
+            if let Some(value) = plugin {
+                response = response.with_header("Cache-Control", value);
+            }
+            let headers = response.into_http().unwrap().headers().clone();
+            assert_eq!(
+                headers.get_all(http::header::CACHE_CONTROL).iter().collect::<Vec<_>>(),
+                vec![sent],
+                "{plugin:?}"
+            );
+        }
     }
 
     #[test]

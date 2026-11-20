@@ -578,7 +578,7 @@ pub const DEFAULT_CONTENT_TYPE: &str = "text/plain; charset=utf-8";
 /// `content-security-policy` (which could lift the sandbox of [`SECURITY_HEADERS`] or report the page elsewhere),
 /// `access-control-*` or `refresh` must never come from it. These describe the body and its caching, and `allow` the
 /// methods a `405` takes, which HTTP asks for. A `location` is sent only when it stays on zhang's origin (see
-/// [`same_origin_location`]).
+/// [`same_origin_location`]), and `cache-control` always makes the response private (see [`private_cache_control`]).
 pub const FORWARDED_RESPONSE_HEADERS: [&str; 9] = [
     "allow",
     "cache-control",
@@ -622,15 +622,32 @@ pub fn same_origin_location(location: &str) -> bool {
     !before_path.contains(':')
 }
 
+/// The `cache-control` zhang sends with a router plugin's response, given the plugin's own (`None` without one):
+/// always `private`, then the plugin's other directives, without `public`, `s-maxage` and its own `private`. A plugin
+/// answers a signed-in user with ledger data, which a shared cache (a CDN or a proxy in front of zhang) must not keep
+/// and hand to someone else; the user's own browser may still cache it as the plugin says.
+pub fn private_cache_control(plugin: Option<&str>) -> String {
+    let mut directives = vec!["private".to_owned()];
+    for directive in plugin.unwrap_or_default().split(',').map(str::trim) {
+        let name = directive.split('=').next().unwrap_or_default().trim().to_ascii_lowercase();
+        if directive.is_empty() || matches!(name.as_str(), "public" | "private" | "s-maxage") {
+            continue;
+        }
+        directives.push(directive.to_owned());
+    }
+    directives.join(", ")
+}
+
 #[cfg(feature = "http")]
 impl Response {
     /// The HTTP response to send: the plugin's status and body, only its headers of [`FORWARDED_RESPONSE_HEADERS`]
-    /// ([`DEFAULT_CONTENT_TYPE`] when it sets no content type), and zhang's [`SECURITY_HEADERS`]. An error says why
+    /// ([`DEFAULT_CONTENT_TYPE`] when it sets no content type, and a private `cache-control` always, see
+    /// [`private_cache_control`]), and zhang's [`SECURITY_HEADERS`]. An error says why
     /// the plugin's response cannot be sent: a status out of range, a header that is not valid HTTP, or a body that
     /// is not the base64 it claims to be. A header zhang drops, including a `location` leading off zhang's origin,
     /// is no error: the response is sent without it.
     pub fn into_http(self) -> Result<http::Response<Vec<u8>>, String> {
-        use http::header::{CONTENT_TYPE, LOCATION};
+        use http::header::{CACHE_CONTROL, CONTENT_TYPE, LOCATION};
         use http::{HeaderName, HeaderValue, StatusCode};
 
         let status = StatusCode::from_u16(self.status).map_err(|_| format!("{} is not an HTTP status", self.status))?;
@@ -642,13 +659,18 @@ impl Response {
             if !FORWARDED_RESPONSE_HEADERS.contains(&name.as_str()) || (name == LOCATION && !same_origin_location(value)) {
                 continue;
             }
-            let value = HeaderValue::from_str(value).map_err(|_| format!("the value of the header {name} is not a valid header value"))?;
+            let value = match name == CACHE_CONTROL {
+                true => HeaderValue::from_str(&private_cache_control(Some(value))),
+                false => HeaderValue::from_str(value),
+            };
+            let value = value.map_err(|_| format!("the value of the header {name} is not a valid header value"))?;
             response.headers_mut().insert(name, value);
         }
         response
             .headers_mut()
             .entry(CONTENT_TYPE)
             .or_insert(HeaderValue::from_static(DEFAULT_CONTENT_TYPE));
+        response.headers_mut().entry(CACHE_CONTROL).or_insert(HeaderValue::from_static("private"));
         for (name, value) in SECURITY_HEADERS {
             response.headers_mut().insert(HeaderName::from_static(name), HeaderValue::from_static(value));
         }
