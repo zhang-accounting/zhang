@@ -9,10 +9,11 @@ use itertools::Itertools;
 use log::info;
 use uuid::Uuid;
 use zhang_ast::amount::Amount;
-use zhang_ast::{Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction, ZhangString};
+use zhang_ast::{Date, Directive, Flag, Meta, Posting, SpanInfo, Spanned, Transaction, ZhangString};
 use zhang_core::data_source::{append_plan, loaded_file, slashed};
 use zhang_core::data_type::text::exporter::meta_lines_as;
 use zhang_core::data_type::text::parser::{is_valid_bare_meta_value, transaction_header_len};
+use zhang_core::data_type::Dialect;
 use zhang_core::domains::schemas::TransactionInfoDomain;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
@@ -342,6 +343,55 @@ fn check_version(span: &TransactionInfoDomain, versions: Option<&[String]>, relo
     Ok(())
 }
 
+/// `directive`, an update of the transaction written as `original`, as it is to be written: in a beancount ledger, its
+/// time of day is the `time` metadata of the transaction, which the exporter writes after the other metadata, so an
+/// update that sent the transaction back as it was moved the `time` the original had before them. Where the original
+/// has `time` among its metadata, the time is written there ([`written_time_place`]); otherwise, and in a zhang ledger,
+/// which writes the time on the date, as the exporter writes it.
+fn time_in_its_place(directive: Directive, original: &str, ledger: &Ledger) -> Directive {
+    let Directive::Transaction(mut transaction) = directive else {
+        return directive;
+    };
+    let datetime = match (&transaction.date, ledger.dialect) {
+        (Date::Datetime(datetime) | Date::DateHour(datetime), Dialect::Beancount) => *datetime,
+        _ => return Directive::Transaction(transaction),
+    };
+    let Some(place) = written_time_place(original) else {
+        return Directive::Transaction(transaction);
+    };
+    // as the beancount exporter writes it, which leaves a transaction dated without a time as it is
+    let time = ZhangString::QuoteString(datetime.time().format("%H:%M:%S").to_string());
+    transaction.date = Date::Date(datetime.date());
+    transaction.meta.insert_at(place, "time".to_owned(), time);
+    Directive::Transaction(transaction)
+}
+
+/// The place of the `time` metadata among the metadata of `text`, a transaction as a beancount ledger writes it: how
+/// many other keys its metadata lines name before it, those of the lines between the header and the first posting.
+/// `None` when it has no `time` there.
+fn written_time_place(text: &str) -> Option<usize> {
+    let header = transaction_header_len(text)?;
+    let mut keys: Vec<&str> = vec![];
+    for line in text[header..].lines().map(str::trim) {
+        if line.is_empty() || line.starts_with(';') {
+            continue;
+        }
+        // a metadata key of beancount starts with a lowercase letter, an account with an uppercase one
+        let key = line
+            .split_once(':')
+            .map(|(key, _)| key)
+            .filter(|key| key.starts_with(|c: char| c.is_ascii_lowercase()) && key.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')));
+        match key {
+            Some("time") => return Some(keys.len()),
+            Some(key) if !keys.contains(&key) => keys.push(key),
+            Some(_) => {}
+            // the first posting
+            None => break,
+        }
+    }
+    None
+}
+
 /// The id of the transaction an append wrote as `text` at the end of `file`, a file of `ledger` by its path within it,
 /// in `ledger` as loaded since: that of the last transaction of the file with that text, which the append wrote last.
 /// `None` when the load rejected it, which keeps it in no journal.
@@ -432,7 +482,12 @@ fn preview(ledger: &Ledger, payload: CreateTransactionRequest, edits: Option<&Tr
             })
         }
     };
-    let text = ledger.data_source.export(Directive::Transaction(transaction.clone()))?;
+    let exported = Directive::Transaction(transaction.clone());
+    let exported = match edits {
+        Some(span) => time_in_its_place(exported, &span.span.content, ledger),
+        None => exported,
+    };
+    let text = ledger.data_source.export(exported)?;
     let check = ledger.check_transaction(transaction, edits.map(|it| &it.span))?;
     Ok(TransactionPreviewEntity {
         text: Nullable(Some(String::from_utf8_lossy(&text).into_owned())),
@@ -559,7 +614,7 @@ pub async fn update_single_transaction(
     check_version(&span_info, if_match.0.as_deref(), &reload_sender)?;
 
     let trx = requested_transaction(payload, &ledger, original_transaction(&ledger, &span_info))?;
-    let txn_content = ledger.data_source.export(trx)?;
+    let txn_content = ledger.data_source.export(time_in_its_place(trx, &span_info.span.content, &ledger))?;
     let trx_content = String::from_utf8_lossy(&txn_content);
 
     let written = async {

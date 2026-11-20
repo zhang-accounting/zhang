@@ -214,6 +214,33 @@ async fn metadata_keeps_its_order() {
     }
 }
 
+/// In a beancount ledger the time of day of a transaction is its `time` metadata: an update that sends the
+/// transaction back as it was writes it where it was among the metadata, not after the others.
+#[tokio::test]
+async fn the_time_of_a_beancount_transaction_stays_in_its_place() {
+    for metas in [["time: \"08:30:00\"", "note: \"x\""], ["note: \"x\"", "time: \"08:30:00\""]] {
+        let transaction = format!(
+            "2024-01-15 * \"Cafe\" \"coffee\"\n  {}\n  {}\n  Assets:Cash -5 CNY\n  Expenses:Food\n",
+            metas[0], metas[1]
+        );
+        let ledger = format!("{OPENS}{transaction}");
+        let served = Served::new("main.bean", &ledger);
+        let read = served.transaction().await;
+        assert_eq!(
+            (&read["has_time"], &read["metas"]),
+            (&json!(true), &json!([{"key": "note", "value": "x"}])),
+            "{metas:?}"
+        );
+        let postings = json!([{"account": "Assets:Cash", "unit": "-5 CNY"}, {"account": "Expenses:Food", "unit": null}]);
+        let sent_back = request("2024-01-15T08:30:00", postings, json!([{"key": "note", "value": "x"}]));
+        let preview = served.preview(sent_back.clone()).await;
+        assert_eq!(preview["text"], json!(transaction.trim_end()), "{metas:?}");
+        let (status, body) = served.update(sent_back).await;
+        assert_eq!(status, StatusCode::OK, "{metas:?}: {body}");
+        assert_eq!(served.written(), ledger, "{metas:?}: written as it was");
+    }
+}
+
 /// A transaction written with its date alone stays so: the journal tells it with `has_time`, and a request whose
 /// `datetime` is a date alone writes no time, in a create and in an update; one with a time writes it.
 #[tokio::test]

@@ -26,6 +26,18 @@ impl<Key: Hash + Eq, Value> MultiValueMap<Key, Value> {
         key_store.push(value);
     }
 
+    /// insert `value` under `key` as [`insert`](Self::insert) does, with a new key at `place` among the keys (after the
+    /// others when there are fewer) instead of after all of them
+    pub fn insert_at(&mut self, place: usize, key: Key, value: Value) {
+        match self.inner.get_mut(&key) {
+            Some(values) => values.push(value),
+            None => {
+                let place = place.min(self.inner.len());
+                self.inner.shift_insert(place, key, vec![value]);
+            }
+        }
+    }
+
     pub fn get_one<Q>(&self, key: &Q) -> Option<&Value>
     where
         Key: Borrow<Q>,
@@ -93,6 +105,12 @@ mod test {
         assert_eq!(map.clone().get_flatten(), vec![("a", 2), ("a", 4), ("c", 3)]);
         let reordered: MultiValueMap<&str, i32> = [("c", 3), ("a", 2), ("a", 4)].into_iter().collect();
         assert_eq!(map, reordered);
+
+        // a new key in a place of its own, a known one with the others of its key
+        map.insert_at(1, "z", 5);
+        map.insert_at(0, "c", 6);
+        map.insert_at(9, "y", 7);
+        assert_eq!(map.get_flatten(), vec![("a", 2), ("a", 4), ("z", 5), ("c", 3), ("c", 6), ("y", 7)]);
     }
 
     #[test]
