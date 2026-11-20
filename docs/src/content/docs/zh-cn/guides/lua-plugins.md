@@ -114,7 +114,7 @@ end
 
 ## 沙箱
 
-脚本拥有 `string`、`table`、`math`、`utf8`、`coroutine`、基础函数（`pairs`、`ipairs`、`pcall`、`tostring`、`tonumber`、`select`、`setmetatable` 等）、只加载文本代码块的 `load`、`print` 和 `debug.traceback`。脚本没有标准输出：`print` 每次调用向 `zhang serve` 的日志写入一行，级别为 info，并以脚本路径作为前缀（`plugins/food.lua: hello\t42`），开发时在那里查看。它没有 `io`、没有 `os`、没有 `require` 和 `package`、没有 `dofile` 和 `loadfile`、不能加载二进制代码块，`debug` 的其他部分也没有。本版本中 Lua 插件不能发起 HTTP 请求，即使有 `allowed_hosts` 也不行。
+脚本拥有 `string`、`table`、`math`、`utf8`、`coroutine`、基础函数（`pairs`、`ipairs`、`pcall`、`tostring`、`tonumber`、`select`、`setmetatable` 等）、只加载文本代码块的 `load`、`print` 和 `debug.traceback`。脚本没有标准输出：`print` 每次调用向 `zhang serve` 的日志写入一行，级别为 info，并以脚本路径作为前缀（`plugins/food.lua: hello\t42`；制表符、换行等控制字符会被转义写出，所以脚本无法伪造日志行），开发时在那里查看。它没有 `io`、没有 `os`、没有 `require` 和 `package`、没有 `dofile` 和 `loadfile`、不能加载二进制代码块，`debug` 的其他部分也没有。本版本中 Lua 插件不能发起 HTTP 请求，即使有 `allowed_hosts` 也不行。
 
 每个请求都在全新的解释器中运行，所以脚本不能在请求之间保留状态，也看不到其他插件。它不能读文件（router 从来不能）、不能写文件、不能访问网络；它只通过上面的 API 读取账本。
 
@@ -124,7 +124,7 @@ end
 |---|---|---|
 | 脚本大小 | 1 MiB，UTF-8 文本 | 账本无法加载。 |
 | 内存 | 每个请求 64 MiB 的 Lua 值 | 请求以状态 500 失败，日志记录 `plugin \`plugins/food.lua\` exceeded 64 MiB`。 |
-| 时间 | 指令的 `timeout`，默认 60 秒 | 状态 504。 |
+| 时间 | 指令的 `timeout`（默认 60 秒），但不超过运维者为请求设定的上限 `ZHANG_PLUGIN_MAX_TIMEOUT`（默认 30 秒） | 状态 504。 |
 | 查询 | `POST /api/query` 的限制 | `zhang.query` 抛出错误。 |
 
 ## 错误

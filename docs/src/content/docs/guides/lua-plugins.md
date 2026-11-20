@@ -114,7 +114,7 @@ The `json` table is [dkjson](https://dkolf.de/dkjson-lua/) with a few rules fixe
 
 ## The sandbox
 
-A script has `string`, `table`, `math`, `utf8`, `coroutine`, the base functions (`pairs`, `ipairs`, `pcall`, `tostring`, `tonumber`, `select`, `setmetatable`, …), `load` for text chunks, `print` and `debug.traceback`. A script has no standard output: `print` writes one line per call to the `zhang serve` log at the info level, prefixed with the script's path (`plugins/food.lua: hello\t42`), which is where a plugin author looks while developing. It has no `io`, no `os`, no `require` and no `package`, no `dofile` and no `loadfile`, no binary chunks and nothing else of `debug`. A Lua plugin cannot make HTTP requests in this release, even with `allowed_hosts`.
+A script has `string`, `table`, `math`, `utf8`, `coroutine`, the base functions (`pairs`, `ipairs`, `pcall`, `tostring`, `tonumber`, `select`, `setmetatable`, …), `load` for text chunks, `print` and `debug.traceback`. A script has no standard output: `print` writes one line per call to the `zhang serve` log at the info level, prefixed with the script's path (`plugins/food.lua: hello\t42`; a tab, a line break or another control character is written escaped, so a script cannot forge a line of the log), which is where a plugin author looks while developing. It has no `io`, no `os`, no `require` and no `package`, no `dofile` and no `loadfile`, no binary chunks and nothing else of `debug`. A Lua plugin cannot make HTTP requests in this release, even with `allowed_hosts`.
 
 Each request runs in a fresh interpreter, so a script cannot keep state between requests or watch another plugin. It cannot read files (a router never can), write files, or reach the network; it reads the ledger through the API above only.
 
@@ -124,7 +124,7 @@ Each request runs in a fresh interpreter, so a script cannot keep state between 
 |---|---|---|
 | Script size | 1 MiB, UTF-8 text | The ledger does not load. |
 | Memory | 64 MiB of Lua values per request | The request fails with status 500 and the log says `plugin \`plugins/food.lua\` exceeded 64 MiB`. |
-| Time | The directive's `timeout`, 60 seconds by default | Status 504. |
+| Time | The directive's `timeout` (60 seconds by default), at most the operator's ceiling for a request, `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds by default) | Status 504. |
 | Queries | The limits of `POST /api/query` | `zhang.query` raises. |
 
 ## Errors
