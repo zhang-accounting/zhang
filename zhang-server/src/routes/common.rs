@@ -44,11 +44,14 @@ fn deny_framing(response: &mut Response) {
     headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("frame-ancestors 'none'"));
 }
 
+/// `GET /api/sse`: the events of the server ([`crate::broadcast::BroadcastEvent`]), until the server lets the client go,
+/// as it does a client that would miss a reload event ([`crate::broadcast::Broadcaster::broadcast`]): the stream ends,
+/// and the client connects again
 pub async fn sse(broadcaster: State<SharedBroadcaster>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let mut receiver = broadcaster.0.new_client().await;
     Sse::new(try_stream! {
-        loop {
-            if let Some(event) = receiver.recv().await { yield event; }
+        while let Some(event) = receiver.recv().await {
+            yield event;
         }
     })
     .keep_alive(KeepAlive::default())

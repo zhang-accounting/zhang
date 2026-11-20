@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use axum::extract::{Path as UrlPath, State};
 use axum::http::{Method, StatusCode};
+use axum::response::IntoResponse;
 use axum::routing::any;
 use axum::{Json, Router};
 use serde_json::{json, Value};
@@ -20,13 +21,13 @@ use zhang_core::data_source::{DataSource, LoadResult, SourceEntry};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin_policy::{PluginLevel, PluginPolicy};
 use zhang_core::{ZhangError, ZhangResult};
-use zhang_server::broadcast::Broadcaster;
+use zhang_server::broadcast::{BroadcastEvent, Broadcaster};
 use zhang_server::request::JournalRequest;
-use zhang_server::routes::common::get_basic_info;
+use zhang_server::routes::common::{get_basic_info, sse};
 use zhang_server::routes::plugin_router::{route_to_plugin, PluginRouteState, ROUTE};
 use zhang_server::routes::transaction::{create_new_transaction, delete_single_transaction, get_journals, update_single_transaction};
 use zhang_server::routes::{IdempotencyKey, IfMatch, Query as UrlQuery, RequiredIfMatch};
-use zhang_server::state::{SharedLedger, SharedReloadSender};
+use zhang_server::state::{SharedBroadcaster, SharedLedger, SharedReloadSender};
 use zhang_server::{on_file_events, start_reload_listener, watch, ReloadSender};
 use zhang_testkit::fixtures::data_source_for;
 use zhang_testkit::http::{answer, json_request, respond, send, Answer};
@@ -689,4 +690,25 @@ async fn the_watchers_reload_after_a_write_loads_only_an_edit_outside() {
     served.reload_sender.reload_and_wait().await.unwrap();
     assert_eq!(loads(), before + 7, "the watcher's reload loads while the last reload failed");
     assert!(served.reload_sender.last_failure().is_none());
+}
+
+/// An SSE client that does not read and would miss a reload event is let go: its stream gives what its buffer holds,
+/// then ends, so the client connects again and fetches anew
+#[tokio::test]
+async fn the_stream_of_an_sse_client_that_would_miss_a_reload_ends() {
+    let broadcaster = Broadcaster::create();
+    let stream = sse(State(SharedBroadcaster(broadcaster.clone()))).await.into_response();
+    for _ in 0..10 {
+        broadcaster.broadcast(BroadcastEvent::Reload).await;
+    }
+    assert_eq!(broadcaster.client_number().await, 0, "the client is let go");
+    let body = tokio::time::timeout(Duration::from_secs(10), axum::body::to_bytes(stream.into_body(), usize::MAX))
+        .await
+        .expect("the stream ends")
+        .expect("the stream");
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(text.contains("\"type\":\"Connected\""), "{text}");
+    // the buffer holds 10 events: `Connected`, a ping maybe, and the reloads
+    let reloads = text.matches("\"type\":\"Reload\"").count();
+    assert!((8..=9).contains(&reloads), "{text}");
 }
