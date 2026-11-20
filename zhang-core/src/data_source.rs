@@ -715,22 +715,26 @@ pub fn save_file(file: &Path, path: &str, content: &[u8]) -> ZhangResult<()> {
 /// - The real file is `file` with its symbolic links followed ([`resolve_links`]): a link stays a link, and its target
 ///   gets the content. A file this process may not write is refused, as a plain write refuses it: the rename below
 ///   would replace a read-only file, or a file of another user, without asking.
+/// - A file with more than one hard link (unix) is written in place: a rename would give this name a new file and
+///   leave the others with the old content.
 /// - The content goes to a new temporary file next to the real file, so the rename stays on one file system. It is
 ///   made with `create_new` (`O_CREAT | O_EXCL`), which never opens what is already there, nor follows a symbolic
 ///   link planted at its name, under a name nobody can guess ([`temporary_file`]).
-/// - Before any content, the temporary file gets the owner (unix) and the permissions of the real file through its
-///   own handle (`fchown`, `fchmod`), never by its path. A file it cannot give them, a file of another user say, is
-///   written in place instead, so its owner stays.
+/// - Before any content, the temporary file gets the owner (unix, only where it differs) and the permissions of the
+///   real file through its own handle (`fchown`, `fchmod`), never by its path. Where it cannot get them, a file of
+///   another user say, or a file system that refuses an owner or a mode (a rootless container, some FUSE or SMB
+///   mounts), the file is written in place instead, so it keeps both.
 /// - The content is written and flushed to the disk, the temporary file renamed over the real file, which replaces it
 ///   in one step on POSIX systems and on Windows, and (unix) the directory flushed to the disk, so the rename
 ///   survives a crash too. The directory's flush is best effort: a file system that cannot flush a directory has
 ///   the file whole either way, and the save is not failed for it.
 ///
-/// The temporary file is removed when a step fails. Only where the directory refuses the temporary file, its owner
-/// or its permissions for want of permission, or the rename is refused (a directory this process may not add to, a
-/// file system without rename), is the file written in place, as a plain write would: a write or flush that fails, a
-/// full or failing disk, leaves the file as it was and is the error, since a plain write would truncate the file and
-/// fail the same way ([`falls_back_in_place`])
+/// The file replaced is a new file: what the old one held besides its content, owner and permissions (extended
+/// attributes, ACLs, macOS Finder tags, its creation time) is not carried over; std has no portable way to copy them.
+/// The temporary file is removed when a step fails. Where it cannot be made or renamed for want of permission, or the
+/// rename is refused (the file busy, across file systems), the file is written in place, as a plain write would: a
+/// write or flush that fails, a full or failing disk at any step, leaves the file as it was and is the error, since a
+/// plain write would truncate the file and fail the same way ([`falls_back_in_place`])
 fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
@@ -742,6 +746,10 @@ fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => return Err(error),
             _ => {}
         }
+    }
+    #[cfg(unix)]
+    if existing.as_ref().is_some_and(|it| std::os::unix::fs::MetadataExt::nlink(it) > 1) {
+        return std::fs::write(&target, content);
     }
     let directory = match target.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
@@ -757,19 +765,11 @@ fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
         Ok(created) => created,
         Err(error) => return in_place(SaveStep::Create, error),
     };
-    // the owner before the permissions: a change of owner clears the set-user-id and set-group-id bits they may hold
     if let Some(existing) = &existing {
-        #[cfg(unix)]
-        let owned = {
-            use std::os::unix::fs::MetadataExt;
-            std::os::unix::fs::fchown(&writer, Some(existing.uid()), Some(existing.gid()))
-        };
-        #[cfg(not(unix))]
-        let owned = Ok(());
-        if let Err(error) = owned.and_then(|()| writer.set_permissions(existing.permissions())) {
+        if let Err(error) = stand_in_for(&writer, existing) {
             drop(writer);
             std::fs::remove_file(&temp).ok();
-            return in_place(SaveStep::Create, error);
+            return in_place(SaveStep::Attributes, error);
         }
     }
     let written = writer.write_all(content).and_then(|()| writer.sync_all());
@@ -789,6 +789,25 @@ fn write_atomically(file: &Path, content: &[u8]) -> std::io::Result<()> {
         directory.sync_all().ok();
     }
     Ok(())
+}
+
+/// Give `temp`, the temporary file standing in for a file whose metadata is `existing`, the owner (unix) and the
+/// permissions of that file, through its handle. The owner first, and only the ids that differ: a process that is not
+/// root may not change an owner at all, and a change of owner clears the set-user-id and set-group-id bits the
+/// permissions may hold
+fn stand_in_for(temp: &std::fs::File, existing: &std::fs::Metadata) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let made = temp.metadata()?;
+        let uid = (made.uid() != existing.uid()).then(|| existing.uid());
+        let gid = (made.gid() != existing.gid()).then(|| existing.gid());
+        if uid.is_some() || gid.is_some() {
+            std::os::unix::fs::fchown(temp, uid, gid)?;
+        }
+    }
+    temp.set_permissions(existing.permissions())
 }
 
 /// A new temporary file in `directory`, opened for writing with `create_new`, by the first of the names `name` gives
@@ -818,10 +837,14 @@ fn temporary_file(directory: &Path, private: bool, mut name: impl FnMut() -> Str
     Err(taken.unwrap_or_else(|| std::io::Error::from(std::io::ErrorKind::AlreadyExists)))
 }
 
+/// The longest a temporary file's name keeps of the name of the file it stands in for, in bytes
+const TEMPORARY_STEM: usize = 64;
+
 /// The name of a temporary file for the file named `name`: `.{name}.{16 hex digits}.tmp`, hidden, and telling whose it
-/// is (the name cut to 64 characters, so it stays within the limit of a file name). The digits are a hash keyed by
-/// the random keys the standard library seeds its hash maps with from the operating system, and differ on every
-/// call, so nobody can guess the name to plant something there first
+/// is: the name cut to [`TEMPORARY_STEM`] bytes at a character boundary, so the temporary name stays within the
+/// 255 bytes a file name may hold whenever the name does. The digits are a hash keyed by the random keys the standard
+/// library seeds its hash maps with from the operating system, and differ on every call, so nobody can guess the name
+/// to plant something there first
 fn temporary_name(name: &str) -> String {
     use std::hash::{BuildHasher, Hasher};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -829,39 +852,59 @@ fn temporary_name(name: &str) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
     hasher.write_u64(COUNTER.fetch_add(1, Ordering::Relaxed));
-    let name: String = name.chars().take(64).collect();
-    format!(".{name}.{:016x}.tmp", hasher.finish())
+    let mut end = name.len().min(TEMPORARY_STEM);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(".{}.{:016x}.tmp", &name[..end], hasher.finish())
 }
 
 /// a step of [`write_atomically`] that can fail
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SaveStep {
-    /// making the temporary file, with the file's owner and permissions
+    /// making the temporary file
     Create,
+    /// giving it the file's owner and permissions
+    Attributes,
     /// writing the content to it and flushing it to the disk
     Write,
     /// renaming it over the file
     Rename,
 }
 
-/// Whether a plain write of the file takes over after `step` failed with `error`. Only when the directory refuses
-/// the temporary file, or it cannot get the file's owner or permissions, for want of permission (`EACCES`, `EPERM`),
-/// or the rename is refused (not allowed, the file busy, or across file systems): the file is still as it was, and
-/// the plain write is what every source did before. Never when the disk or a quota is full or the disk fails
-/// (`ENOSPC`, `EDQUOT`, `EIO`), at any step: the plain write would truncate the file and fail the same way, and the
-/// file is left untouched for the user instead
+/// Whether a plain write of the file takes over after `step` failed with `error`; the file is still as it was then,
+/// and the plain write is what every source did before. When the directory refuses the temporary file for want of
+/// permission; when the temporary file cannot get the file's owner or permissions, whatever the reason (another
+/// user's file, a file system that refuses an owner or a mode, as a rootless container or a FUSE or SMB mount does:
+/// `EPERM`, `EINVAL`, `ENOTSUP`, `ENOSYS`); when the rename is refused (not allowed, the file busy, or across file
+/// systems). Never when the disk or a quota is full or the disk fails ([`disk_failed`]), at any step: the plain write
+/// would truncate the file and fail the same way, and the file is left untouched for the user instead
 fn falls_back_in_place(step: SaveStep, error: &std::io::Error) -> bool {
-    // the unix codes, the same on Linux and macOS; Windows reports a refusal as a permission error
-    const EPERM: i32 = 1;
-    const EACCES: i32 = 13;
-    const EBUSY: i32 = 16;
-    const EXDEV: i32 = 18;
-    let refused = error.kind() == std::io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(EPERM | EACCES));
+    let refused = error.kind() == std::io::ErrorKind::PermissionDenied;
     match step {
         SaveStep::Create => refused,
+        SaveStep::Attributes => !disk_failed(error),
         SaveStep::Write => false,
-        SaveStep::Rename => refused || matches!(error.raw_os_error(), Some(EBUSY | EXDEV)),
+        SaveStep::Rename => refused || rename_refused(error),
     }
+}
+
+/// whether `error` says that the disk or a quota is full (`ENOSPC`, `EDQUOT`, which std reads as these kinds on every
+/// platform), or that the disk failed (`EIO`, which has no kind: its unix number)
+fn disk_failed(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    const EIO: i32 = 5;
+    #[cfg(unix)]
+    if error.raw_os_error() == Some(EIO) {
+        return true;
+    }
+    matches!(error.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded)
+}
+
+/// whether a failed rename says that this rename cannot be done here: the file busy (`EBUSY`) or the temporary file on
+/// another file system (`EXDEV`), which std reads as these kinds on every platform
+fn rename_refused(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::ResourceBusy | std::io::ErrorKind::CrossesDevices)
 }
 
 /// `file` with its symbolic links followed, as far as they lead to something: the real file a write replaces, so
@@ -1215,51 +1258,59 @@ mod test {
             .collect()
     }
 
-    /// A plain write takes over only where no temporary file can be made or the rename is refused; a disk that
-    /// refuses the content (full, failing) leaves the file as it was and is the error
+    /// A plain write takes over only where the temporary file is refused, cannot get the file's owner or
+    /// permissions, or cannot be renamed; a disk that refuses the content (full, failing) leaves the file as it was
+    /// and is the error, at any step
     #[test]
     fn a_save_falls_back_to_a_plain_write_only_when_the_temporary_file_is_refused() {
         use std::io::{Error, ErrorKind};
 
         use super::{falls_back_in_place, SaveStep};
 
-        let (enospc, eio, eacces, eperm, ebusy, exdev) = (28, 5, 13, 1, 16, 18);
-        // EDQUOT: 69 on macOS, 122 on Linux
-        let full: [i32; 4] = [enospc, eio, 69, 122];
+        let steps = [SaveStep::Create, SaveStep::Attributes, SaveStep::Write, SaveStep::Rename];
+        let falls_back = |kind: ErrorKind| steps.map(|step| falls_back_in_place(step, &Error::from(kind)));
+        // Create, Attributes, Write, Rename
+        assert_eq!(falls_back(ErrorKind::StorageFull), [false; 4], "a full disk");
+        assert_eq!(falls_back(ErrorKind::QuotaExceeded), [false; 4], "a full quota");
+        assert_eq!(falls_back(ErrorKind::PermissionDenied), [true, true, false, true], "a refusal");
+        for kind in [ErrorKind::ResourceBusy, ErrorKind::CrossesDevices] {
+            assert_eq!(falls_back(kind), [false, true, false, true], "a rename that cannot be done here: {kind}");
+        }
+        for kind in [ErrorKind::InvalidInput, ErrorKind::Unsupported] {
+            assert_eq!(falls_back(kind), [false, true, false, false], "an owner or a mode refused: {kind}");
+        }
+        assert_eq!(falls_back(ErrorKind::AlreadyExists), [false, true, false, false], "every temporary name taken");
+        assert_eq!(falls_back(ErrorKind::NotFound), [false, true, false, false]);
+    }
+
+    /// The fallback by the numbers unix gives, as Linux and macOS number them
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_save_reads_the_unix_error_numbers() {
+        use std::io::Error;
+
+        use super::{falls_back_in_place, SaveStep};
+
+        let (eperm, eio, eacces, ebusy, exdev, einval, enospc) = (1, 5, 13, 16, 18, 22, 28);
+        #[cfg(target_os = "linux")]
+        let (enosys, enotsup, edquot) = (38, 95, 122);
+        #[cfg(target_os = "macos")]
+        let (enosys, enotsup, edquot) = (78, 45, 69);
+        let steps = [SaveStep::Create, SaveStep::Attributes, SaveStep::Write, SaveStep::Rename];
+        let falls_back = |code: i32| steps.map(|step| falls_back_in_place(step, &Error::from_raw_os_error(code)));
+        for code in [enospc, edquot, eio] {
+            assert_eq!(falls_back(code), [false; 4], "a full or failing disk: {code}");
+        }
         for code in [eacces, eperm] {
-            assert!(
-                falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
-                "a refused temporary file: {code}"
-            );
+            assert_eq!(falls_back(code), [true, true, false, true], "a refusal: {code}");
         }
-        assert!(falls_back_in_place(SaveStep::Create, &Error::from(ErrorKind::PermissionDenied)));
-        for code in full {
-            assert!(
-                !falls_back_in_place(SaveStep::Create, &Error::from_raw_os_error(code)),
-                "a full disk or quota: {code}"
-            );
-            assert!(
-                !falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(code)),
-                "a failed write never rewrites in place: {code}"
-            );
-            assert!(
-                !falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
-                "a rename the disk failed: {code}"
-            );
+        for code in [ebusy, exdev] {
+            assert_eq!(falls_back(code), [false, true, false, true], "a rename that cannot be done here: {code}");
         }
-        assert!(!falls_back_in_place(SaveStep::Write, &Error::from_raw_os_error(eacces)));
-        for code in [eperm, eacces, ebusy, exdev] {
-            assert!(
-                falls_back_in_place(SaveStep::Rename, &Error::from_raw_os_error(code)),
-                "a refused rename: {code}"
-            );
+        // a rootless container or a FUSE or SMB mount refusing an owner or a mode
+        for code in [einval, enotsup, enosys] {
+            assert_eq!(falls_back(code), [false, true, false, false], "an owner or a mode refused: {code}");
         }
-        assert!(falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::PermissionDenied)));
-        assert!(!falls_back_in_place(SaveStep::Rename, &Error::from(ErrorKind::NotFound)));
-        assert!(
-            !falls_back_in_place(SaveStep::Create, &Error::from(ErrorKind::AlreadyExists)),
-            "every temporary name taken is no refusal"
-        );
     }
 
     /// A save keeps a symbolic link a link and writes its target, and keeps the file's permissions: the temporary
@@ -1280,9 +1331,13 @@ mod test {
         std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
         let ledger = Ledger::load_with_data_source(root.join("ledger"), "main.zhang".to_owned(), source).unwrap();
+        let inode = |path: &Path| std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(path).unwrap());
+        let inodes = [inode(&root.join("real/main.zhang")), inode(&private)];
 
         ledger.data_source.append(&ledger, coffee()).unwrap();
 
+        assert_ne!(inode(&root.join("real/main.zhang")), inodes[0], "the link's target is replaced, not rewritten");
+        assert_ne!(inode(&private), inodes[1], "the private file is replaced, not rewritten");
         let link = std::fs::symlink_metadata(root.join("ledger/main.zhang")).unwrap();
         assert!(link.file_type().is_symlink(), "the main file stays a symbolic link");
         assert!(
@@ -1413,6 +1468,62 @@ mod test {
         assert_eq!(distinct.len(), names.len(), "every call names another file");
         let long = temporary_name(&"a".repeat(300));
         assert_eq!(long.len(), 1 + 64 + 1 + 16 + 4, "{long}");
+        // cut by bytes, at a character boundary: 16 emoji of 4 bytes, 21 euro signs of 3
+        let emoji = temporary_name(&"\u{1F600}".repeat(61));
+        assert!(emoji.starts_with(&format!(".{}.", "\u{1F600}".repeat(16))), "{emoji}");
+        assert_eq!(emoji.len(), 1 + 64 + 1 + 16 + 4, "{emoji}");
+        let euro = temporary_name(&"\u{20AC}".repeat(30));
+        assert!(euro.starts_with(&format!(".{}.", "\u{20AC}".repeat(21))), "{euro}");
+        assert_eq!(euro.len(), 1 + 63 + 1 + 16 + 4, "{euro}");
+    }
+
+    /// A file whose name fills the 255 bytes a name may hold, in characters of several bytes, is saved: its temporary
+    /// name is cut by bytes, and stays a valid name too
+    #[test]
+    fn a_file_with_a_long_name_of_wide_characters_is_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        // 60 emoji of 4 bytes and the extension: 246 bytes
+        let name = format!("{}.zhang", "\u{1F600}".repeat(60));
+        assert_eq!(name.len(), 246);
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+        std::fs::write(root.join(&name), "").unwrap();
+
+        ledger.data_source.save(&ledger, name.clone(), OPENS.as_bytes()).expect("the file is saved");
+
+        assert_eq!(std::fs::read_to_string(root.join(&name)).unwrap(), OPENS);
+        assert_eq!(temporary_files(&root), Vec::<String>::new(), "no temporary file is left behind");
+    }
+
+    /// A file with more than one hard link, as a sync tool or a backup may make it, is written in place: a rename
+    /// would give this name a new file and leave the other names with the old content
+    #[cfg(unix)]
+    #[test]
+    fn a_file_with_hard_links_is_written_in_place() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("ledger")).unwrap();
+        std::fs::write(root.join("ledger/main.zhang"), OPENS).unwrap();
+        std::fs::hard_link(root.join("ledger/main.zhang"), root.join("mirror.zhang")).unwrap();
+        let before = std::fs::metadata(root.join("ledger/main.zhang")).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.join("ledger"), "main.zhang".to_owned(), source).unwrap();
+
+        ledger.data_source.append(&ledger, coffee()).unwrap();
+
+        let after = std::fs::metadata(root.join("ledger/main.zhang")).unwrap();
+        assert_eq!(after.ino(), before.ino(), "the file is written in place");
+        assert_eq!(after.nlink(), 2, "both names stay one file");
+        assert!(
+            std::fs::read_to_string(root.join("mirror.zhang"))
+                .unwrap()
+                .contains("include \"data/2024/01.zhang\""),
+            "the other name has the new content too"
+        );
+        assert_eq!(temporary_files(&root.join("ledger")), Vec::<String>::new(), "no temporary file is left behind");
     }
 
     /// A file starting with a UTF-8 byte order mark, as some Windows editors save it, loads (#505): the mark is

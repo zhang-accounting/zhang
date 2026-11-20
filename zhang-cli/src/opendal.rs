@@ -1593,6 +1593,8 @@ mod test {
         std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
         let source = local_source(&root.join("ledger"), "main.zhang").await;
         let ledger = Ledger::load(root.join("ledger"), "main.zhang".to_owned(), source.clone()).unwrap();
+        let inode = |path: &Path| std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(path).unwrap());
+        let inodes = [inode(&root.join("real/main.zhang")), inode(&private)];
         let coffee = zhang_parse("2024-01-15 * \"Shop\" \"Coffee\"\n  Assets:Cash -5 CNY\n  Expenses:Food 5 CNY\n", None)
             .unwrap()
             .remove(0)
@@ -1619,6 +1621,8 @@ mod test {
                 .contains("include \"data/2024/01.zhang\""),
             "its target got the include"
         );
+        assert_ne!(inode(&root.join("real/main.zhang")), inodes[0], "the link's target is replaced, not rewritten");
+        assert_ne!(inode(&private), inodes[1], "the private file is replaced, not rewritten");
         assert_eq!(
             std::fs::metadata(&private).unwrap().permissions().mode() & 0o777,
             0o600,
