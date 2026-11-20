@@ -576,9 +576,11 @@ pub const DEFAULT_CONTENT_TYPE: &str = "text/plain; charset=utf-8";
 /// The response headers of a router plugin that zhang sends; it drops every other one. A plugin's response is served
 /// on zhang's own origin, so a header such as `set-cookie` (which could replace the session), `clear-site-data`,
 /// `content-security-policy` (which could lift the sandbox of [`SECURITY_HEADERS`] or report the page elsewhere),
-/// `access-control-*` or `refresh` must never come from it. These describe the body and its caching only. A
-/// `location` is sent only when it stays on zhang's origin (see [`same_origin_location`]).
-pub const FORWARDED_RESPONSE_HEADERS: [&str; 8] = [
+/// `access-control-*` or `refresh` must never come from it. These describe the body and its caching, and `allow` the
+/// methods a `405` takes, which HTTP asks for. A `location` is sent only when it stays on zhang's origin (see
+/// [`same_origin_location`]).
+pub const FORWARDED_RESPONSE_HEADERS: [&str; 9] = [
+    "allow",
     "cache-control",
     "content-disposition",
     "content-language",

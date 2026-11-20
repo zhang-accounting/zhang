@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Sandbox every router plugin response (`Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-downloads`, `X-Content-Type-Options: nosniff`) and send only an allowlist of its headers (`content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, and a `location` on Zhang's own origin). A plugin's page could run scripts with the owner's session and set cookies on Zhang's origin.
+- Sandbox every router plugin response (`Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-downloads`, `X-Content-Type-Options: nosniff`) and send only an allowlist of its headers (`content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow`, and a `location` on Zhang's own origin). A plugin's page could run scripts with the owner's session and set cookies on Zhang's origin.
 - Forward only an allowlist of request headers to router plugins, so proxy identity headers (`cf-access-jwt-assertion`, `x-auth-request-*`, `tailscale-user-*`, `x-forwarded-*`) no longer reach them.
 - Limit router plugin requests: a body of 4 MiB (`ZHANG_PLUGIN_MAX_BODY`, 413), 4 requests at once per plugin (`ZHANG_PLUGIN_MAX_CONCURRENCY`, 503 with `Retry-After`) and 30 seconds per request.
 - Limit the memory of every plugin instance to 256 MiB (`ZHANG_PLUGIN_MAX_MEMORY`).

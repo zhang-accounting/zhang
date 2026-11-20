@@ -176,6 +176,7 @@ mod test {
         let response: PluginResponse = serde_json::from_value(json!({
             "headers": {
                 "Content-Type": "text/html",
+                "allow": "GET, POST",
                 "cache-control": "no-store",
                 "content-disposition": "attachment; filename=\"report.csv\"",
                 "content-language": "en",
@@ -210,6 +211,7 @@ mod test {
             vec![
                 // `Content-Type` sorts first, as the plugin wrote it
                 "content-type: text/html",
+                "allow: GET, POST",
                 "cache-control: no-store",
                 "content-disposition: attachment; filename=\"report.csv\"",
                 "content-language: en",

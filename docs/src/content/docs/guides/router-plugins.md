@@ -65,7 +65,7 @@ Its output is the response as JSON. Every field is optional:
 
 - `status` defaults to `200`.
 - Without a `content-type` header the response is `text/plain; charset=utf-8`. Any content type works, so a plugin can return JSON, an HTML page or, with `"body_encoding": "base64"`, an image.
-- Zhang sends only these headers of the plugin: `content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, and `location` when it stays on Zhang: a relative URL such as `/api/plugins/report/by-month`, `by-month` or `?year=2024`. It drops every other header, such as `set-cookie`, `content-security-policy`, `access-control-*`, `clear-site-data` or `refresh`, and a `location` with a scheme or a host (`https://…`, `//…`). The response is still sent, without them.
+- Zhang sends only these headers of the plugin: `content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow` (for a `405`), and `location` when it stays on Zhang: a relative URL such as `/api/plugins/report/by-month`, `by-month` or `?year=2024`. It drops every other header, such as `set-cookie`, `content-security-policy`, `access-control-*`, `clear-site-data` or `refresh`, and a `location` with a scheme or a host (`https://…`, `//…`). The response is still sent, without them.
 - Zhang adds the headers of the [sandbox](#pages-are-sandboxed) to every response.
 
 ## Pages are sandboxed

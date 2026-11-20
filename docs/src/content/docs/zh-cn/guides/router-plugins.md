@@ -65,7 +65,7 @@ Router 插件服务 `/api/plugins/{name}` 及其下的所有路径，接受任�
 
 - `status` 默认为 `200`。
 - 没有 `content-type` 头时，响应的类型是 `text/plain; charset=utf-8`。任何内容类型都可以，因此插件可以返回 JSON、HTML 页面，或者配合 `"body_encoding": "base64"` 返回图片。
-- 张记账只发送插件的这些响应头：`content-type`、`cache-control`、`etag`、`last-modified`、`content-disposition`、`content-language`、`vary`，以及停留在张记账内的 `location`：相对 URL，例如 `/api/plugins/report/by-month`、`by-month` 或 `?year=2024`。其他响应头都会被丢弃，例如 `set-cookie`、`content-security-policy`、`access-control-*`、`clear-site-data` 或 `refresh`，带协议或主机的 `location`（`https://…`、`//…`）也会被丢弃。响应仍然会发送，只是不带这些头。
+- 张记账只发送插件的这些响应头：`content-type`、`cache-control`、`etag`、`last-modified`、`content-disposition`、`content-language`、`vary`、`allow`（用于 `405`），以及停留在张记账内的 `location`：相对 URL，例如 `/api/plugins/report/by-month`、`by-month` 或 `?year=2024`。其他响应头都会被丢弃，例如 `set-cookie`、`content-security-policy`、`access-control-*`、`clear-site-data` 或 `refresh`，带协议或主机的 `location`（`https://…`、`//…`）也会被丢弃。响应仍然会发送，只是不带这些头。
 - 张记账给每个响应加上[沙箱](#页面在沙箱中运行)的响应头。
 
 ## 页面在沙箱中运行
