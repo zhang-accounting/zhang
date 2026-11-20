@@ -9,10 +9,16 @@ use crate::domains::schemas::price_map;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 
-/// define the budget of `budget`, unless one of its name is defined already
+/// define the budget of `budget`, unless one of its name is defined already: then the definition is reported, naming
+/// the budget, the commodity it is kept in and the commodity of this definition, and ignored
 pub(crate) fn define(budget: &Budget, ledger: &mut Ledger, span: &SpanInfo) {
-    if defined(ledger, &budget.name).is_some() {
-        ledger.report(ErrorKind::DefineDuplicatedBudget, span, HashMap::default());
+    if let Some(defined) = defined(ledger, &budget.name) {
+        let metas = HashMap::from([
+            ("budget_name".to_owned(), budget.name.clone()),
+            ("budget_commodity".to_owned(), defined.commodity.clone()),
+            ("commodity".to_owned(), budget.commodity.clone()),
+        ]);
+        ledger.report(ErrorKind::DefineDuplicatedBudget, span, metas);
         return;
     }
     let defined = DefinedBudget {

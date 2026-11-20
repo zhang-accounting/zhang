@@ -3,15 +3,17 @@
   "description": "Duplicate and undefined budgets (see main.zhang): the errors, where they are written, and what the budgets that exist answer.",
   "ledger": "zhang-server/tests/golden/budget_contract/duplicate-and-undefined/main.zhang",
   "now": "2024-02-20T00:00:00Z",
-  "known_issues": {
-    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)"
-  },
   "errors": [
     {"kind": "BudgetDoesNotExist", "file": "main.zhang", "line": 23, "metas": [{"key": "budget_name", "value": "Nope"}]},
     {"kind": "BudgetDoesNotExist", "file": "main.zhang", "line": 24, "metas": [{"key": "budget_name", "value": "Nope"}]},
     {"kind": "BudgetDoesNotExist", "file": "main.zhang", "line": 25, "metas": [{"key": "budget_name", "value": "Nope"}]},
     {"kind": "BudgetDoesNotExist", "file": "main.zhang", "line": 26, "metas": [{"key": "budget_name", "value": "Nope"}]},
-    {"kind": "DefineDuplicatedBudget", "file": "main.zhang", "line": 27, "metas": []},
+    {
+      "kind": "DefineDuplicatedBudget",
+      "file": "main.zhang",
+      "line": 27,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Food"}, {"key": "commodity", "value": "USD"}]
+    },
     {
       "kind": "BudgetCommodityMismatch",
       "file": "main.zhang",
@@ -65,7 +67,7 @@
       "id_of": "main.zhang@956 DefineDuplicatedBudget #0",
       "span": {"file": "main.zhang", "start": 956, "end": 1035, "line": 27},
       "kind": "DefineDuplicatedBudget",
-      "metas": {}
+      "metas": {"budget_commodity": "CNY", "budget_name": "Food", "commodity": "USD"}
     },
     {
       "id": "b1b97181-150f-f2c7-a565-e60901b767d4",

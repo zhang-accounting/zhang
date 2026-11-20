@@ -431,9 +431,12 @@ The error has a `budget_name` meta naming the budget.
 
 ## DefineDuplicatedBudget
 
-*Trying to define duplicated budget name*
+*Budget {{meta.budget_name}} is defined already, in {{meta.budget_commodity}}: this definition is ignored*
 
-A `budget` directive names a budget that already exists. The second definition is ignored.
+A `budget` directive names a budget that already exists. The second definition is ignored: the budget keeps the
+commodity and the metadata of its first one. The error has the `budget_name` meta naming the budget, the
+`budget_commodity` meta with the commodity it is kept in, and the `commodity` meta with the commodity of the ignored
+definition.
 
 ```zhang
 2024-01-01 budget Food CNY

@@ -30,7 +30,7 @@
     "TransactionHasMultipleImplicitPosting": "该交易存在多条隐形/需推导金额的行",
     "CloseNonZeroAccount": "尝试关闭一个余额非零的账户",
     "MultipleOperatingCurrencyDetect": "账本中存在多项 operating currency 的配置，这是 zhang 中不推荐的用法",
-    "DefineDuplicatedBudget": "尝试创建一个重复的预算",
+    "DefineDuplicatedBudget": "预算 {{meta.budget_name}} 已经定义（以 {{meta.budget_commodity}} 计）：这条定义被忽略",
     "UnbalancedTransaction": "交易不平衡",
     "TransactionCannotInferTradeAmount": "无法推断交易金额",
     "TransactionExplicitPostingHaveMultipleCommodity": "交易的显式记录使用了多种货币",

@@ -8,8 +8,5 @@
   "requests": [
     {"bql": "SELECT name FROM #budgets WHERE date = 2024-02-01 AND NOT closed"},
     {"bql": "SELECT name FROM #budgets WHERE date = 2024-03-01 AND NOT closed"}
-  ],
-  "known_issues": {
-    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)"
-  }
+  ]
 }
