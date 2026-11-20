@@ -318,6 +318,8 @@ fn beancount_balances(ledger: &Ledger, rows: Vec<BalanceRow>, now: Date) -> Serv
     for row in &rows {
         let Some(source) = &row.pad else { continue };
         let difference = &row.amount.number - expected(row.account.name(), &row.amount.commodity)?;
+        // computed, and written as the padding's units: bounded as a number of the request is
+        crate::validate::number(&difference)?;
         if !difference.is_zero() {
             append.push(padding(
                 now.clone(),

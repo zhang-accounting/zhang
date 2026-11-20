@@ -28,7 +28,7 @@ use zhang_ast::amount::Amount;
 use zhang_ast::{booked_group_units, written_groups, Account, Directive, Meta, PostingCost, SingleTotalPrice};
 use zhang_core::data_type::text::parser::{
     is_valid_account_name, is_valid_commodity_name, is_valid_tag_or_link, is_valid_transaction_flag, read_number, read_posting_amount, read_posting_cost,
-    read_posting_price, written_number_reads_back, NotRead,
+    read_posting_price, NotRead,
 };
 use zhang_core::data_type::Dialect;
 use zhang_core::ledger::Ledger;
@@ -234,18 +234,49 @@ pub fn amount(amount: &Amount, rules: &Rules) -> Checked<()> {
     Ok(())
 }
 
-/// Check that `number`, written out as every write writes it, in plain notation, is a number the ledger reads back
-/// ([`written_number_reads_back`]). A request can give one with any exponent, such as `1e300000000`: written out, or
-/// exported for a preview, it has as many digits as its exponent says, which took a minute and hundreds of megabytes
-/// with the ledger held, and the ledger it was written into no longer loaded. It is refused first, with a 400.
+/// The most digits a number a request writes may have, written out in full as every write writes one (in plain
+/// notation, without an exponent), before and after its point together: a thousand.
+///
+/// A request can give a number with any exponent, such as `1e300000000`: written out, or exported for a preview, it
+/// has as many digits as its exponent says, which took a minute and hundreds of megabytes with the ledger held, and a
+/// ledger with a number beyond the bound of its parser (a million digits) no longer loads. Numbers far apart within
+/// that bound were still costly: `1e-999999` and `1e999998` in one transaction booked a residual of two million
+/// digits, which every reload of the ledger computed again, for seconds, with the ledger held.
+///
+/// A thousand digits is far beyond any amount (a `u128` has 39) and keeps every sum cheap: a number within it has at
+/// most a thousand digits before its point and 999 after it, so a sum of such numbers, as a transaction's residual or
+/// a balance, has at most about two thousand, however far apart they are. The parser's own bound stays a million, so
+/// a ledger written by hand with larger numbers still loads; a number within this one reads back.
+pub const MAX_WRITTEN_DIGITS: u64 = 1000;
+
+/// How many digits `number` has written out in full, in plain notation: `1200` and `12.34` have four, `0.0012` five,
+/// with the zero before its point. Told from its digits and its scale, without writing it out.
+pub fn written_digits(number: &BigDecimal) -> u64 {
+    let (digits, scale) = (number.digits(), number.fractional_digit_count());
+    match scale > 0 {
+        // the digits, with a zero before the point when they are all after it
+        true => digits.max(scale.unsigned_abs() + 1),
+        // zero is written `0`; any other number with a zero for each step of its exponent
+        false if bigdecimal::Zero::is_zero(number) => 1,
+        false => digits.saturating_add(scale.unsigned_abs()),
+    }
+}
+
+/// Check that `number`, which a request writes, has at most [`MAX_WRITTEN_DIGITS`] digits written out in full: one
+/// with more is refused with a 400 before anything is written or exported. So is a number a write computes, such as
+/// the difference a padding books.
 pub fn number(number: &BigDecimal) -> Checked<()> {
-    if written_number_reads_back(number) {
+    let written = written_digits(number);
+    if written <= MAX_WRITTEN_DIGITS {
         return Ok(());
     }
     Err(invalid(
         InvalidKind::InvalidAmount,
         &described(number),
-        "number out of range: written out in full, it has more digits or decimal places than the ledger reads back",
+        &format!(
+            "number out of range: written out in full it has {written} digits, before and after its point together, \
+             and a number a request writes has at most {MAX_WRITTEN_DIGITS}"
+        ),
     ))
 }
 
@@ -646,41 +677,58 @@ mod test {
     }
 
     /// A number of a request is written out in plain notation, with as many digits as its exponent says: one that
-    /// would then have more digits or decimal places than the parser reads is refused, before it is written or exported
-    /// for a preview, and named short in the error.
+    /// would then have more than a thousand digits, before and after its point together, is refused, before it is
+    /// written or exported for a preview, and named short in the error. One within the bound reads back.
     #[test]
-    fn a_number_that_would_not_read_back_written_out_is_refused() {
+    fn a_number_of_more_than_a_thousand_digits_written_out_is_refused() {
         use bigdecimal::BigDecimal;
+        use zhang_shared::decimal::plain_decimal;
 
-        let units = |number: &str| Amount::new(BigDecimal::from_str(number).unwrap(), "CNY");
-        for number in ["0", "-12.50", "1e30", "1e999998", "123e999996", "1e-999999", "0e1000000000"] {
-            assert!(amount(&units(number), &Rules::Zhang).is_ok(), "{number}");
-        }
-        for (number, named) in [
-            ("1e999999", "1e999999"),
-            ("123e999997", "123e999997"),
-            ("1e-1000000", "1e-1000000"),
-            ("1e300000000", "1e300000000"),
-            ("-1e300000000", "-1e300000000"),
-            ("0e-1000000000", "0e-1000000000"),
+        let number_of = |text: &str| BigDecimal::from_str(text).unwrap();
+        let units = |text: &str| Amount::new(number_of(text), "CNY");
+        let thousand_nines = "9".repeat(1000);
+        let thousand_digits = format!("{}.{}", "9".repeat(500), "9".repeat(500));
+        for text in [
+            "0",
+            "-12.50",
+            "0.0012",
+            "1e30",
+            "1e999",
+            "-1e999",
+            "1e-999",
+            "123e997",
+            "0e1000000000",
+            &thousand_nines,
+            &thousand_digits,
         ] {
-            let invalid = amount(&units(number), &Rules::Zhang).unwrap_err();
-            assert_eq!(invalid.kind, InvalidKind::InvalidAmount, "{number}");
-            assert_eq!(invalid.value, named, "{number}");
-            assert!(invalid.message.ends_with("than the ledger reads back"), "{}", invalid.message);
+            assert!(amount(&units(text), &Rules::Zhang).is_ok(), "{text}");
+            // written out, it reads back
+            assert_eq!(read_number(&plain_decimal(&number_of(text))).ok(), Some(number_of(text)), "{text}");
         }
-        let many = format!("{}e5", "9".repeat(41));
-        assert!(number(&BigDecimal::from_str(&many).unwrap()).is_ok());
-        let too_many = format!("{}e999990", "9".repeat(41));
-        let invalid = number(&BigDecimal::from_str(&too_many).unwrap()).unwrap_err();
-        assert_eq!(invalid.value, "a number of 41 digits times 1e999990");
-        // units given as text: the parser reads `1e999999` as a literal, which written out it would not
-        assert!(units_of_text("1e999999 CNY").is_err());
-        assert!(units_of_text("1e999998 CNY").is_ok());
-        // a cost and a price
-        assert!(cost("{1e999999 USD}", &Rules::Zhang).is_err());
-        assert!(cost("{1 # 1e999999 USD}", &Rules::Zhang).is_err());
-        assert!(price("@ 1e999999 USD", &Rules::Zhang).is_err());
+        for (text, named, digits) in [
+            ("1e1000", "1e1000", 1001),
+            ("123e998", "123e998", 1001),
+            ("1e-1000", "1e-1000", 1001),
+            ("1e300000000", "1e300000000", 300000001),
+            ("-1e300000000", "-1e300000000", 300000001),
+            ("0e-1000000000", "0e-1000000000", 1000000001),
+        ] {
+            let invalid = amount(&units(text), &Rules::Zhang).unwrap_err();
+            assert_eq!(invalid.kind, InvalidKind::InvalidAmount, "{text}");
+            assert_eq!(invalid.value, named, "{text}");
+            assert!(invalid.message.contains(&format!("it has {digits} digits")), "{}", invalid.message);
+        }
+        let too_many = format!("{}0", thousand_nines);
+        assert!(number(&number_of(&too_many)).is_err());
+        let invalid = number(&number_of(&format!("{}e1000", "9".repeat(41)))).unwrap_err();
+        assert_eq!(invalid.value, "a number of 41 digits times 1e1000");
+        // units given as text, read by the parser, and a cost and a price
+        assert!(units_of_text("1e1000 CNY").is_err());
+        assert!(units_of_text("1e999 CNY").is_ok());
+        assert!(units_of_text("1e999 * 10 CNY").is_err(), "the value of an expression is bounded too");
+        assert!(cost("{1e1000 USD}", &Rules::Zhang).is_err());
+        assert!(cost("{1 # 1e1000 USD}", &Rules::Zhang).is_err());
+        assert!(price("@ 1e1000 USD", &Rules::Zhang).is_err());
         assert!(price("@@ 1e30 USD", &Rules::Zhang).is_ok());
     }
 
