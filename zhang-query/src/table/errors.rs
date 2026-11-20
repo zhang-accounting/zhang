@@ -103,6 +103,10 @@ pub(crate) fn message(kind: &ErrorKind) -> &'static str {
         ErrorKind::AmbiguousLotMatch => "Reduction matches several lots, which is ambiguous under the STRICT booking method",
         ErrorKind::CostMergingNotSupported => "Cost merging is not supported yet, the posting books as if its cost had no `*`",
         ErrorKind::PluginError => "Plugin {{meta.plugin}}: {{meta.message}}",
+        ErrorKind::PluginsDisabled => "Plugin {{meta.plugin}} is not loaded: the server runs with plugins off ({{meta.setting}})",
+        ErrorKind::PluginCapabilityReduced => {
+            "Plugin {{meta.plugin}} asks for {{meta.capability}} {{meta.requested}}, but the server allows it {{meta.granted}}; {{meta.setting}} sets what the server allows"
+        }
     }
 }
 
@@ -332,6 +336,8 @@ mod tests {
             ErrorKind::AmbiguousLotMatch,
             ErrorKind::CostMergingNotSupported,
             ErrorKind::PluginError,
+            ErrorKind::PluginsDisabled,
+            ErrorKind::PluginCapabilityReduced,
         ];
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/public/locales/en/translation.json");
         let translation: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

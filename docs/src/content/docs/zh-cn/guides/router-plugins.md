@@ -96,10 +96,10 @@ X-Content-Type-Options: nosniff
 |---|---|---|---|
 | 请求体大小 | 4 MiB | `ZHANG_PLUGIN_MAX_BODY` | 413，插件不会运行 |
 | 一个插件同时处理的请求数 | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | 最多再有 16 个请求排队等待最多 5 秒；超出时返回 503，带 `Retry-After: 1` |
-| 一个请求的运行时间 | 插件的 `timeout`，最多 30 秒 | `timeout` 元数据，可以更短 | 504 |
+| 一个请求的运行时间 | 插件的 `timeout`，最多 30 秒 | `timeout` 元数据，不超过 `ZHANG_PLUGIN_MAX_TIMEOUT` | 504 |
 | 一个插件实例的内存 | 256 MiB | `ZHANG_PLUGIN_MAX_MEMORY` | 500 |
 
-大小写作 `4MiB`、`512KiB` 或字节数。插件运行期间，请求一直持有账本的读锁；当一次账本写入在等待这把锁时，其他请求都得不到服务：所以即使插件的 `timeout` 更长，一个请求最多也只能运行 30 秒。
+大小写作 `4MiB`、`512KiB` 或字节数。插件运行期间，请求一直持有账本的读锁；当一次账本写入在等待这把锁时，其他请求都得不到服务：把 `ZHANG_PLUGIN_MAX_TIMEOUT` 调到 30 秒以上之前请三思。Router 插件和其他插件一样，只能在[服务器允许的范围](/zh-cn/guides/plugins/#服务器允许的范围)内访问网络。
 
 ## 读取账本：`zhang_query`
 
@@ -135,7 +135,7 @@ pub fn router(request: String) -> FnResult<String> {
 
 ## 隔离与错误
 
-每个请求都在插件的一个全新实例中运行，因此请求之间不保留任何状态。插件得到的配置和 `allowed_hosts` 与它作为 processor 运行时相同：运行超过其 `plugin` 指令的 `timeout` 元数据（最多 30 秒）的请求会被终止。无论 `allowed_paths` 如何，它都不能读取文件：在 router 中，`zhang_read_file` 和 `zhang_list_dir` 会返回 `denied`。它运行期间，账本不会重新加载。
+每个请求都在插件的一个全新实例中运行，因此请求之间不保留任何状态。插件得到的配置和 `allowed_hosts` 与它作为 processor 运行时相同：运行超过其 `plugin` 指令的 `timeout` 元数据（最多为 `ZHANG_PLUGIN_MAX_TIMEOUT`，未设置时为 30 秒）的请求会被终止。无论 `allowed_paths` 如何，它都不能读取文件：在 router 中，`zhang_read_file` 和 `zhang_list_dir` 会返回 `denied`。它运行期间，账本不会重新加载。
 
 插件无法响应时，张记账以 JSON `{"message": "..."}` 作为响应，并在日志中记录详情：
 

@@ -9,7 +9,7 @@ use env_logger::Env;
 use log::info;
 use self_update::{UpdateStrategy, VersionStatus};
 use tokio::task::spawn_blocking;
-use zhang_core::plugin_policy::{parse_size, PluginPolicy, MAX_MEMORY_ENV};
+use zhang_core::plugin_policy::{parse_hosts, parse_size, parse_timeout, PluginLevel, ALLOWED_HOSTS_ENV, LEVEL_ENV, MAX_MEMORY_ENV, MAX_TIMEOUT_ENV};
 use zhang_server::routes::plugin_router::{PluginSettings, MAX_BODY_ENV, MAX_CONCURRENCY_ENV};
 use zhang_server::ServeConfig;
 
@@ -87,6 +87,13 @@ pub struct ServerOpts {
     /// whether the server report version info for anonymous statistics
     #[clap(long)]
     pub no_report: bool,
+
+    /// what plugins may do: `off` (none is loaded), `read` (they run and change nothing, the default) or `write` (they
+    /// may write to the ledger where their `plugin` directive grants it), or set it via env ZHANG_PLUGINS.
+    /// ZHANG_PLUGIN_ALLOWED_HOSTS (host patterns, comma separated, `*` for any; none by default), ZHANG_PLUGIN_MAX_TIMEOUT
+    /// (`30s` by default) and ZHANG_PLUGIN_MAX_MEMORY bound what a `plugin` directive can grant
+    #[clap(long, value_name = "off|read|write")]
+    pub plugins: Option<PluginLevel>,
 }
 
 impl Opts {
@@ -101,7 +108,7 @@ impl Opts {
                 let auth_credential = opts.auth.or(std::env::var("ZHANG_AUTH").ok()).filter(|it| it.contains(':'));
                 let passkey_secret = opts.passkey.or_else(|| env_value("ZHANG_PASSKEY")).filter(|it| !it.is_empty());
                 // a limit the operator set but mistyped stops the server, rather than running without it
-                let plugins = plugin_settings(env_value)?;
+                let plugins = plugin_settings(opts.plugins, env_value)?;
                 let result = zhang_server::serve(ServeConfig {
                     path: opts.path,
                     endpoint: opts.endpoint,
@@ -168,14 +175,32 @@ fn env_value(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|it| !it.trim().is_empty())
 }
 
-/// What plugins may use, from the environment `env` reads: `ZHANG_PLUGIN_MAX_MEMORY` and `ZHANG_PLUGIN_MAX_BODY` are
-/// sizes (`256MiB`), `ZHANG_PLUGIN_MAX_CONCURRENCY` a whole number above zero. A variable that is not set keeps the
-/// default; one that is set to something else is an error naming it.
-fn plugin_settings(env: impl Fn(&str) -> Option<String>) -> Result<PluginSettings, String> {
+/// What plugins may use: the level `level` the `--plugins` flag gives, else `ZHANG_PLUGINS`, and the rest from the
+/// environment `env` reads. `ZHANG_PLUGIN_ALLOWED_HOSTS` is host patterns separated by commas,
+/// `ZHANG_PLUGIN_MAX_TIMEOUT` a timeout as the `timeout` meta writes it (`30s`), `ZHANG_PLUGIN_MAX_MEMORY` and
+/// `ZHANG_PLUGIN_MAX_BODY` sizes (`256MiB`), `ZHANG_PLUGIN_MAX_CONCURRENCY` a whole number above zero. A variable that is
+/// not set keeps the default; one that is set to something else is an error naming it.
+fn plugin_settings(level: Option<PluginLevel>, env: impl Fn(&str) -> Option<String>) -> Result<PluginSettings, String> {
     let size = |name: &str| env(name).map(|value| parse_size(&value).map_err(|e| format!("{name}: {e}"))).transpose();
     let mut settings = PluginSettings::default();
+    match level {
+        Some(level) => settings.policy.level = level,
+        None => {
+            if let Some(value) = env(LEVEL_ENV) {
+                settings.policy.level = value.parse().map_err(|e| format!("{LEVEL_ENV}: {e}"))?;
+            }
+        }
+    }
+    if let Some(value) = env(ALLOWED_HOSTS_ENV) {
+        settings.policy.allowed_hosts = parse_hosts(&value);
+    }
+    if let Some(value) = env(MAX_TIMEOUT_ENV) {
+        settings.policy.max_timeout = parse_timeout(&value).ok_or_else(|| {
+            format!("{MAX_TIMEOUT_ENV}: {value:?} is not a timeout: write whole seconds, or a whole number with a unit ms, s, m or h, at most 24h")
+        })?;
+    }
     if let Some(max_memory) = size(MAX_MEMORY_ENV)? {
-        settings.policy = PluginPolicy { max_memory };
+        settings.policy.max_memory = max_memory;
     }
     if let Some(max_body) = size(MAX_BODY_ENV)? {
         settings.routes.max_body = usize::try_from(max_body).map_err(|_| format!("{MAX_BODY_ENV}: {max_body} bytes is too large"))?;
@@ -263,22 +288,33 @@ mod test {
 }
     #[test]
     fn plugin_settings_read_the_limits_from_the_environment() {
-        use zhang_core::plugin_policy::{PluginPolicy, MIB};
+        use zhang_core::plugin_policy::{PluginLevel, PluginPolicy, MIB};
         use zhang_server::routes::plugin_router::{PluginRouteLimits, PluginSettings};
 
         use crate::plugin_settings;
 
         let env =
             |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| value.to_string());
-        assert_eq!(plugin_settings(env(&[])), Ok(PluginSettings::default()));
+        assert_eq!(plugin_settings(None, env(&[])), Ok(PluginSettings::default()));
         assert_eq!(
-            plugin_settings(env(&[
-                ("ZHANG_PLUGIN_MAX_MEMORY", "64MiB"),
-                ("ZHANG_PLUGIN_MAX_BODY", "1 MiB"),
-                ("ZHANG_PLUGIN_MAX_CONCURRENCY", "2"),
-            ])),
+            plugin_settings(
+                None,
+                env(&[
+                    ("ZHANG_PLUGINS", "Write"),
+                    ("ZHANG_PLUGIN_ALLOWED_HOSTS", "api.example.com, *.Rates.example"),
+                    ("ZHANG_PLUGIN_MAX_TIMEOUT", "2m"),
+                    ("ZHANG_PLUGIN_MAX_MEMORY", "64MiB"),
+                    ("ZHANG_PLUGIN_MAX_BODY", "1 MiB"),
+                    ("ZHANG_PLUGIN_MAX_CONCURRENCY", "2"),
+                ])
+            ),
             Ok(PluginSettings {
-                policy: PluginPolicy { max_memory: 64 * MIB },
+                policy: PluginPolicy {
+                    level: PluginLevel::Write,
+                    allowed_hosts: vec!["api.example.com".to_owned(), "*.rates.example".to_owned()],
+                    max_timeout: std::time::Duration::from_secs(120),
+                    max_memory: 64 * MIB,
+                },
                 routes: PluginRouteLimits {
                     max_body: MIB as usize,
                     max_concurrency: 2,
@@ -286,14 +322,20 @@ mod test {
                 },
             })
         );
+        // the flag wins over the environment
+        let settings = plugin_settings(Some(PluginLevel::Off), env(&[("ZHANG_PLUGINS", "write")])).unwrap();
+        assert_eq!(settings.policy.level, PluginLevel::Off);
         for (name, value) in [
+            ("ZHANG_PLUGINS", "sometimes"),
+            ("ZHANG_PLUGIN_MAX_TIMEOUT", "forever"),
+            ("ZHANG_PLUGIN_MAX_TIMEOUT", "25h"),
             ("ZHANG_PLUGIN_MAX_MEMORY", "lots"),
             ("ZHANG_PLUGIN_MAX_BODY", "0"),
             ("ZHANG_PLUGIN_MAX_CONCURRENCY", "0"),
             ("ZHANG_PLUGIN_MAX_CONCURRENCY", "-1"),
         ] {
             let pairs: &'static [(&'static str, &'static str)] = Box::leak(Box::new([(name, value)]));
-            let error = plugin_settings(env(pairs)).unwrap_err();
+            let error = plugin_settings(None, env(pairs)).unwrap_err();
             assert!(error.starts_with(&format!("{name}: ")), "{}", error);
         }
     }
@@ -392,6 +434,7 @@ mod test {
                         passkey: None,
                         source: None,
                         no_report: false,
+                        plugins: None,
                     },
                 )
                 .await
@@ -605,6 +648,7 @@ mod test {
             passkey: Some("letmein".to_string()),
             source: None,
             no_report: true,
+            plugins: None,
         };
         let data_source = Arc::new(OpendalDataSource::from_env(FileSystem::Fs, &mut opts).await.unwrap());
         let ledger = Ledger::load(path.to_path_buf(), "main.zhang".to_string(), data_source.clone()).expect("cannot load ledger");

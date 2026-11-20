@@ -13,6 +13,8 @@ members = [
     "zhang-plugin-sdk/examples/*",
     "zhang-testkit",
 ]
+# extism, vendored and patched (see vendor/extism/Cargo.toml): a dependency, not a member of this workspace
+exclude = ["vendor/extism"]
 # the plugin SDK and its example plugins are default members: on a native target the SDK links nothing from
 # Extism (its host calls answer `unavailable`), so they build, test and lint natively like every other crate.
 # The examples become real plugins only when built for wasm32-unknown-unknown (see zhang-server/tests/sdk_plugins.rs)
@@ -53,6 +55,11 @@ http = "1.1"
 openssl = { version = "0.10", features = ["vendored"] }
 
 
+
+# extism 1.30.0 with zhang's patches, see vendor/extism/Cargo.toml. zhang-core pins `extism = "=1.30.0"`: bumping it
+# means vendoring the new version and carrying the patches over (or dropping those upstream has made)
+[patch.crates-io]
+extism = { path = "vendor/extism" }
 
 [profile.dev]
 split-debuginfo = "unpacked"

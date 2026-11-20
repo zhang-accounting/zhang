@@ -45,9 +45,11 @@ mod test {
     use axum::response::IntoResponse;
     use serde_json::json;
     use tokio::sync::RwLock;
+    use zhang_core::clock::Clock;
     use zhang_core::data_source::LocalFileSystemDataSource;
     use zhang_core::data_type::text::ZhangDataType;
     use zhang_core::ledger::Ledger;
+    use zhang_core::plugin_policy::PluginPolicy;
 
     use super::plugin_list;
     use crate::state::SharedLedger;
@@ -90,26 +92,40 @@ mod test {
             router_processor = module("router_processor.wat"),
         );
         std::fs::write(dir.0.join("main.zhang"), content).unwrap();
-        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let ledger = Ledger::load(dir.0.clone(), "main.zhang".to_owned(), source).unwrap_or_else(|error| panic!("ledger should load: {error}"));
-
-        let response = plugin_list(State(SharedLedger(Arc::new(RwLock::new(ledger))))).await.into_response();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let list = |policy: PluginPolicy| {
+            let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+            let ledger = Ledger::load_with_policy(dir.0.clone(), "main.zhang".to_owned(), source, Clock::System, Arc::new(policy))
+                .unwrap_or_else(|error| panic!("ledger should load: {error}"));
+            async move {
+                let response = plugin_list(State(SharedLedger(Arc::new(RwLock::new(ledger))))).await.into_response();
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+            }
+        };
 
         // not sorted or grouped: the same plugin declared twice is listed twice, and only the
-        // first router of a name has the route
-        let no_hosts = json!({"allowed_hosts": []});
-        assert_eq!(
-            body,
+        // first router of a name has the route. A plugin lists the hosts it may reach
+        let listed = |granted: serde_json::Value| {
+            let no_hosts = json!({"allowed_hosts": []});
             json!({"data": [
                 {"name": "router-echo", "version": "0.1.0", "plugin_type": ["Router"], "capabilities": no_hosts, "route": "/api/plugins/router-echo"},
-                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": {"allowed_hosts": ["api.frankfurter.dev", "api.example.com"]}, "route": null},
+                {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": {"allowed_hosts": granted}, "route": null},
                 {"name": "echo", "version": "0.1.0", "plugin_type": ["Processor"], "capabilities": no_hosts, "route": null},
                 {"name": "router-echo", "version": "0.1.0", "plugin_type": ["Router"], "capabilities": no_hosts, "route": null},
                 {"name": "router-processor", "version": "0.1.0", "plugin_type": ["Router", "Processor"], "capabilities": no_hosts, "route": "/api/plugins/router-processor"},
             ]})
+        };
+        assert_eq!(
+            list(PluginPolicy::unrestricted()).await,
+            listed(json!(["api.frankfurter.dev", "api.example.com"]))
         );
+        // within what the operator allows: no network by default
+        assert_eq!(list(PluginPolicy::default()).await, listed(json!([])));
+        let ceiling = PluginPolicy {
+            allowed_hosts: vec!["api.example.com".to_owned()],
+            ..PluginPolicy::default()
+        };
+        assert_eq!(list(ceiling).await, listed(json!(["api.example.com"])));
     }
 }

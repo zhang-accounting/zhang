@@ -50,17 +50,17 @@ plugin "plugins/receipts.wasm"
 
 ## 能力
 
-除非指令授予，否则插件不能在它自己的内存之外做任何事。以下元数据键是能力：
+除非指令授予，否则插件不能在它自己的内存之外做任何事，而且永远不会超过服务器允许的范围（[见下文](#服务器允许的范围)）。以下元数据键是能力：
 
 | 键 | 授予 | 默认值 |
 |---|---|---|
-| `allowed_hosts` | 向这些主机发送 HTTP 请求。多个主机就重复这个键。 | 不能访问网络 |
+| `allowed_hosts` | 向这些主机发送 HTTP 请求，限于服务器允许的主机。多个主机就重复这个键。 | 不能访问网络 |
 | `allowed_paths` | 以只读方式访问账本中的这些文件和目录。多个就重复这个键。 | 不能访问文件 |
-| `timeout` | 对插件的一次调用最多可以运行多久。 | 60 秒 |
+| `timeout` | 对插件的一次调用最多可以运行多久，不超过服务器允许的时长。 | 60 秒，不超过服务器的限制（未设置时为 30 秒） |
 | `seed` | 不授予任何东西。任意文本，混入插件生成随机值所用的种子。 | 无 |
 | `stage` | 插件在加载账本时运行的阶段：`"booked"`，在张记账完成记账之后；或 `"raw"`，在记账之前。 | `"booked"` |
 
-**`allowed_hosts`**：每个值是一个主机名，例如 `api.example.com`，与插件发出的每个请求的主机进行匹配。其中的 `*` 匹配任意字符，所以 `*.example.com` 授予 `example.com` 的所有子域名。端口和路径不参与匹配。
+**`allowed_hosts`**：每个值是一个主机名，例如 `api.example.com`，与插件发出的每个请求的主机进行匹配。其中的 `*` 匹配任意字符，所以 `*.example.com` 授予 `example.com` 的所有子域名。端口和路径不参与匹配。无论主机是什么，请求都只会发往公网地址：解析到回环、私有、链路本地（例如云元数据服务 `169.254.169.254`）或其他非公网地址，或者解析到 Azure 的主机地址 `168.63.129.16` 的名称会被拒绝，请求连接的正是检查名称时得到的地址。重定向不会被跟随：插件收到 `3xx` 响应，对其 `location` 发出的请求和其他请求一样接受检查。允许的主机的任何端口都可以访问，服务器自己的公网地址也算作公网地址：只授予插件需要的主机，只对你信任的插件授予 `*`。
 
 **`allowed_paths`**：每个值是一个文件或目录，相对于账本根目录，用 `/` 分隔：
 
@@ -100,11 +100,26 @@ plugin "plugins/receipts.wasm"
 - 模块缺失或无法加载，或者插件调用失败或运行超过 `timeout`，都会让账本无法加载。如果 `zhang serve` 已经在运行，它会继续提供重新加载之前的账本。
 - 网页界面的设置页面列出已加载的插件。router 插件在 `/api/plugins/<name>` 提供服务；见 [Router 插件](/zh-cn/guides/router-plugins/)。
 
+## 服务器允许的范围
+
+账本是文本，除了运行 `zhang serve` 的人，其他人也可能修改它：通过网页界面的文件编辑器、Git 仓库或存储桶。所以服务器用 `zhang serve` 的选项为 `plugin` 指令能授予的能力设置上限：
+
+| 设置 | 允许 | 默认值 |
+|---|---|---|
+| `--plugins <off\|read\|write>`、`ZHANG_PLUGINS` | `off`：不加载任何插件。`read`：插件运行，但不修改任何东西。`write`：插件还可以在指令授予时写入账本。 | `read` |
+| `ZHANG_PLUGIN_ALLOWED_HOSTS` | 任何插件最多能访问的主机：与 `allowed_hosts` 相同的模式，用逗号分隔；`*` 允许所有主机。 | 无：没有插件能访问网络 |
+| `ZHANG_PLUGIN_MAX_TIMEOUT` | 对插件的一次调用最长能运行多久，写法与 `timeout` 相同。 | `30s` |
+| `ZHANG_PLUGIN_MAX_MEMORY` | 一个插件实例最多能使用的内存，例如 `512MiB`。 | `256MiB` |
+
+插件得到的是它的指令授予**并且**服务器允许的能力：指令写 `allowed_hosts: "*"`，而 `ZHANG_PLUGIN_ALLOWED_HOSTS=api.example.com` 时，插件只能访问 `api.example.com`。当指令请求的超过服务器允许的范围时，插件仍会加载，只是能力更少，并且这条指令会得到一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出需要修改的设置。使用 `--plugins off` 时，每条 `plugin` 指令都会得到一个 [`PluginsDisabled`](/zh-cn/reference/error-codes/#pluginsdisabled) 错误，没有插件运行。`zhang serve` 启动时会在日志中记录这些设置。
+
 ## 错误
 
 | 错误 | 触发条件 |
 |---|---|
 | [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) | `timeout`、`allowed_paths` 或 `stage` 的值无效。错误指向这条 `plugin` 指令。 |
+| [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) | 指令授予的主机或超时超过了服务器允许的范围。插件以服务器允许的能力运行。 |
+| [`PluginsDisabled`](/zh-cn/reference/error-codes/#pluginsdisabled) | 服务器关闭了插件。插件不会加载。 |
 | [`PluginError`](/zh-cn/reference/error-codes/#pluginerror) | 插件报告了账本中的问题。 |
 
 ## Beancount 兼容性

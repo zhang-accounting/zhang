@@ -59,4 +59,11 @@ pub enum ErrorKind {
 
     /// a WASM plugin reported a problem through the `zhang_emit_error` host function
     PluginError,
+    /// a `plugin` directive in a ledger served with plugins off (`ZHANG_PLUGINS=off`): the plugin is not loaded. Metas
+    /// `plugin` (the module) and `setting`
+    PluginsDisabled,
+    /// a `plugin` directive asks for more than the server allows: the plugin runs with less. Metas `plugin` (the
+    /// module), `capability` (the meta key, such as `allowed_hosts`), `requested`, `granted` (`none` for nothing) and
+    /// `setting`, the setting of `zhang serve` that would allow more
+    PluginCapabilityReduced,
 }

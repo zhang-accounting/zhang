@@ -27,9 +27,9 @@ use zhang_core::ledger::{Ledger, LedgerProcessContext};
 use zhang_core::outcome::Detail;
 use zhang_core::plugin::capabilities::{plugin_seed, PluginStage};
 use zhang_core::plugin::http::PluginRequest;
-use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost, ROUTER_MAX_TIMEOUT};
+use zhang_core::plugin::router::{QueryFailure, RouterError, RouterHost};
 use zhang_core::plugin::PluginType;
-use zhang_core::plugin_policy::{PluginPolicy, MIB};
+use zhang_core::plugin_policy::{PluginLevel, PluginPolicy, MIB};
 use zhang_core::ZhangResult;
 
 const LEDGER: &str = indoc! {r#"
@@ -460,6 +460,47 @@ fn root_length_cannot_be_forged_to_bypass_the_emit_error_bound() {
 }
 
 #[test]
+fn a_forged_error_message_fails_the_call_instead_of_crashing() {
+    // extism reads the message of a failed call by the length the plugin forged; unpatched, this test process dies
+    let dir = ledger_dir(&["error_forge.wat"]);
+
+    let error = try_load(&dir, &with_plugins(&plugin(&dir, "error_forge.wat")))
+        .err()
+        .expect("the load fails")
+        .to_string();
+
+    assert!(error.contains("plugin error-forge failed in its `processor` call"), "{error}");
+    assert!(error.contains("lies outside the plugin's memory"), "{error}");
+}
+
+#[test]
+fn a_forged_output_length_fails_the_call_instead_of_crashing() {
+    // `output_set`'s own bounds check wraps around for a length of u64::MAX; unpatched, this test process dies
+    let dir = ledger_dir(&["output_forge.wat"]);
+
+    let error = try_load(&dir, &with_plugins(&plugin(&dir, "output_forge.wat")))
+        .err()
+        .expect("the load fails")
+        .to_string();
+
+    assert!(error.contains("plugin output-forge failed in its `processor` call"), "{error}");
+    assert!(error.contains("lies outside the plugin's memory"), "{error}");
+}
+
+#[test]
+fn extisms_own_host_functions_refuse_a_forged_block_instead_of_crashing() {
+    // extism's `config_get` reads the key by the length the plugin forged; unpatched, this test process dies
+    let (_dir, ledger) = router_ledger(&["config_get_forge.wat"]);
+
+    let error = call(&ledger, "config-get-forge", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap_err();
+
+    assert!(
+        matches!(&error, RouterError::Failed(message) if message.contains("lies outside the plugin's memory")),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn plugin_without_the_error_import_is_unaffected() {
     // echo imports no host function: it loads next to a plugin that does, and reports nothing
     let dir = ledger_dir(&["echo.wat", "emit_error.wat"]);
@@ -596,9 +637,16 @@ fn a_plugin_growing_past_the_memory_limit_fails_cleanly() {
     assert_eq!(response.body(), b"grown");
 
     // under a limit of 16 MiB the processor fails the load, saying why
-    let error = load_with_policy(&dir, &content, PluginPolicy { max_memory: 16 * MIB })
-        .err()
-        .expect("the load fails");
+    let error = load_with_policy(
+        &dir,
+        &content,
+        PluginPolicy {
+            max_memory: 16 * MIB,
+            ..PluginPolicy::default()
+        },
+    )
+    .err()
+    .expect("the load fails");
     assert_eq!(
         error.to_string(),
         "custom error: plugin memory-hog ran out of memory: its `processor` call needed more than the 16 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
@@ -606,10 +654,41 @@ fn a_plugin_growing_past_the_memory_limit_fails_cleanly() {
 }
 
 #[test]
+fn the_memory_a_plugin_starts_with_counts_toward_the_limit() {
+    // 250 MiB to start with and 250 MiB more: within a limit of 1 GiB, but not of the default 256 MiB, which extism as
+    // published let this module exceed by counting only what it grew by
+    let dir = ledger_dir(&["initial_memory_hog.wat"]);
+    let content = with_plugins(&plugin(&dir, "initial_memory_hog.wat"));
+
+    let ledger = load_with_policy(
+        &dir,
+        &content,
+        PluginPolicy {
+            max_memory: 1024 * MIB,
+            ..PluginPolicy::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(store_summary(&ledger).1.len(), 2, "the processor passed the stream through");
+
+    let error = load_with_policy(&dir, &content, PluginPolicy::default())
+        .err()
+        .expect("the load fails")
+        .to_string();
+    assert_eq!(
+        error,
+        "custom error: plugin initial-memory-hog ran out of memory: its `processor` call needed more than the 256 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
+    );
+}
+
+#[test]
 fn a_router_growing_past_the_memory_limit_fails_cleanly() {
     let dir = ledger_dir(&["memory_hog.wat"]);
     // 48 MiB lets the processor grow by its 32 MiB, but not the router by its 64 MiB
-    let policy = PluginPolicy { max_memory: 48 * MIB };
+    let policy = PluginPolicy {
+        max_memory: 48 * MIB,
+        ..PluginPolicy::default()
+    };
     let ledger = load_with_policy(&dir, &with_plugins(&plugin(&dir, "memory_hog.wat")), policy).unwrap_or_else(|e| panic!("the processor fits: {e}"));
 
     let error = call(&ledger, "memory-hog", &PluginRequest::new("GET", "/", vec![], vec![], vec![])).unwrap_err();
@@ -623,14 +702,185 @@ fn a_router_growing_past_the_memory_limit_fails_cleanly() {
 }
 
 #[test]
-fn a_router_call_runs_for_at_most_thirty_seconds() {
+fn a_call_runs_for_at_most_the_timeout_the_policy_allows() {
     let dir = ledger_dir(&["router.wat"]);
-    for (meta, timeout) in [("", 30), ("  timeout: \"2m\"\n", 30), ("  timeout: \"10\"\n", 10)] {
-        let ledger = load(&dir, &with_plugins(&format!("{}{meta}", plugin(&dir, "router.wat"))));
+    for (meta, policy, timeout) in [
+        ("", PluginPolicy::default(), 30),
+        ("  timeout: \"10\"\n", PluginPolicy::default(), 10),
+        ("  timeout: \"2m\"\n", PluginPolicy::default(), 30),
+        ("", PluginPolicy::unrestricted(), 60),
+        ("  timeout: \"2m\"\n", PluginPolicy::unrestricted(), 120),
+    ] {
+        let ledger = load_with_policy(&dir, &with_plugins(&format!("{}{meta}", plugin(&dir, "router.wat"))), policy.clone()).unwrap();
         let router = ledger.plugins.router("router-echo").unwrap();
-        assert_eq!(router.router_timeout(), Duration::from_secs(timeout), "{meta:?}");
+        assert_eq!(router.capabilities().timeout, Duration::from_secs(timeout), "{meta:?} {policy:?}");
+        assert_eq!(router.router_timeout(), Duration::from_secs(timeout), "{meta:?} {policy:?}");
     }
-    assert_eq!(ROUTER_MAX_TIMEOUT, Duration::from_secs(30));
+}
+
+/// the errors of `ledger` of the kind `kind`, as their metas
+fn errors_of(ledger: &Ledger, kind: ErrorKind) -> Vec<HashMap<String, String>> {
+    ledger.errors.iter().filter(|it| it.error_type == kind).map(|it| it.metas.clone()).collect()
+}
+
+#[test]
+fn plugins_off_loads_no_plugin_and_says_so_on_each_directive() {
+    let dir = ledger_dir(&["echo.wat", "router.wat"]);
+    let content = with_plugins(&format!("{}{}", plugin(&dir, "echo.wat"), plugin(&dir, "router.wat")));
+    let off = PluginPolicy {
+        level: PluginLevel::Off,
+        ..PluginPolicy::default()
+    };
+
+    let ledger = load_with_policy(&dir, &content, off).unwrap();
+
+    assert_eq!(registered(&ledger), vec![]);
+    assert!(ledger.plugins.router("router-echo").is_none());
+    let module = |fixture: &str| dir.path().join(fixture).display().to_string();
+    assert_eq!(
+        errors_of(&ledger, ErrorKind::PluginsDisabled),
+        vec![
+            metas(&[("plugin", &module("echo.wat")), ("setting", "ZHANG_PLUGINS")]),
+            metas(&[("plugin", &module("router.wat")), ("setting", "ZHANG_PLUGINS")]),
+        ]
+    );
+
+    // without `features.plugin` there is nothing to say
+    let ledger = load_with_policy(
+        &dir,
+        &format!("{}{LEDGER}", plugin(&dir, "echo.wat")),
+        PluginPolicy {
+            level: PluginLevel::Off,
+            ..PluginPolicy::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(errors_of(&ledger, ErrorKind::PluginsDisabled), vec![]);
+}
+
+#[test]
+fn plugins_read_and_write_both_load_and_only_write_allows_writes() {
+    let dir = ledger_dir(&["router.wat"]);
+    let content = with_plugins(&plugin(&dir, "router.wat"));
+    for (level, writes) in [(PluginLevel::Read, false), (PluginLevel::Write, true)] {
+        let ledger = load_with_policy(
+            &dir,
+            &content,
+            PluginPolicy {
+                level,
+                ..PluginPolicy::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(registered(&ledger), vec![("router-echo".to_owned(), vec![PluginType::Router])], "{level}");
+        assert_eq!(ledger.plugin_policy.allows_writes(), writes, "{level}");
+        assert_eq!(ledger.plugins.router("router-echo").unwrap().policy().allows_writes(), writes, "{level}");
+    }
+    assert_eq!(PluginPolicy::default().level, PluginLevel::Read, "read-only by default");
+}
+
+#[test]
+fn a_plugin_gets_the_hosts_its_directive_and_the_operator_both_allow() {
+    let dir = ledger_dir(&["router.wat"]);
+    let module = dir.path().join("router.wat").display().to_string();
+    let content = |hosts: &[&str]| {
+        let metas = hosts.iter().map(|host| format!("  allowed_hosts: \"{host}\"\n")).collect::<String>();
+        with_plugins(&format!("{}{metas}", plugin(&dir, "router.wat")))
+    };
+    let ceiling = |hosts: &[&str]| PluginPolicy {
+        allowed_hosts: hosts.iter().map(|it| it.to_string()).collect(),
+        ..PluginPolicy::default()
+    };
+    let cases: [(&[&str], &[&str], &[&str]); 6] = [
+        // directive, ceiling, effective
+        (&["api.example.com"], &[], &[]),
+        (&["api.example.com", "rates.example"], &["*"], &["api.example.com", "rates.example"]),
+        (&["*"], &["api.example.com", "rates.example"], &["api.example.com", "rates.example"]),
+        (&["api.example.com", "evil.example"], &["*.example.com"], &["api.example.com"]),
+        (&["*.example.com"], &["*.example.com"], &["*.example.com"]),
+        // only partly within: left out rather than let more through
+        (&["*.example.com"], &["*.api.example.com"], &[]),
+    ];
+    for (granted, allowed, effective) in cases {
+        let ledger = load_with_policy(&dir, &content(granted), ceiling(allowed)).unwrap();
+
+        let router = ledger.plugins.router("router-echo").unwrap();
+        assert_eq!(
+            router.capabilities().allowed_hosts,
+            effective.iter().map(|it| it.to_string()).collect::<Vec<_>>(),
+            "{granted:?} within {allowed:?}"
+        );
+        let reported = errors_of(&ledger, ErrorKind::PluginCapabilityReduced);
+        if effective.len() == granted.len() && granted.iter().all(|it| effective.contains(it)) {
+            assert_eq!(reported, vec![], "{granted:?} within {allowed:?}");
+        } else {
+            let granted_text = if effective.is_empty() { "none".to_owned() } else { effective.join(", ") };
+            assert_eq!(
+                reported,
+                vec![metas(&[
+                    ("plugin", &module),
+                    ("capability", "allowed_hosts"),
+                    ("requested", &granted.join(", ")),
+                    ("granted", &granted_text),
+                    ("setting", "ZHANG_PLUGIN_ALLOWED_HOSTS"),
+                ])],
+                "{granted:?} within {allowed:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_timeout_beyond_the_operators_is_lowered_and_reported() {
+    let dir = ledger_dir(&["router.wat"]);
+    let module = dir.path().join("router.wat").display().to_string();
+
+    let ledger = load_with_policy(
+        &dir,
+        &with_plugins(&format!("{}  timeout: \"2m\"\n", plugin(&dir, "router.wat"))),
+        PluginPolicy::default(),
+    )
+    .unwrap();
+
+    assert_eq!(ledger.plugins.router("router-echo").unwrap().capabilities().timeout, Duration::from_secs(30));
+    assert_eq!(
+        errors_of(&ledger, ErrorKind::PluginCapabilityReduced),
+        vec![metas(&[
+            ("plugin", &module),
+            ("capability", "timeout"),
+            ("requested", "120s"),
+            ("granted", "30s"),
+            ("setting", "ZHANG_PLUGIN_MAX_TIMEOUT"),
+        ])]
+    );
+    // the default timeout of a directive without one is lowered without a word
+    let ledger = load_with_policy(&dir, &with_plugins(&plugin(&dir, "router.wat")), PluginPolicy::default()).unwrap();
+    assert_eq!(errors_of(&ledger, ErrorKind::PluginCapabilityReduced), vec![]);
+}
+
+#[test]
+fn a_plugins_http_request_goes_through_zhang_and_never_to_a_private_address() {
+    let dir = ledger_dir(&["http_request.wat"]);
+    let content = with_plugins(&format!("{}  allowed_hosts: \"127.0.0.1\"\n", plugin(&dir, "http_request.wat")));
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+
+    // granted by the directive and the operator, the loopback is still refused: extism's own `http_request` would
+    // have tried to connect
+    let ledger = load_with_policy(&dir, &content, PluginPolicy::unrestricted()).unwrap();
+    let error = call(&ledger, "http-request", &request).unwrap_err();
+    assert!(
+        matches!(&error, RouterError::Failed(message) if message.contains("HTTP request to http://127.0.0.1:9/ is not allowed: 127.0.0.1 is not a public address")),
+        "{error:?}"
+    );
+
+    // without the operator's leave, the host is not allowed at all
+    let ledger = load_with_policy(&dir, &content, PluginPolicy::default()).unwrap();
+    let error = call(&ledger, "http-request", &request).unwrap_err();
+    assert!(
+        matches!(&error, RouterError::Failed(message) if message.contains("127.0.0.1 is not one of the plugin's allowed_hosts")),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -736,7 +986,8 @@ fn the_first_declared_router_serves_a_shared_name() {
         "option \"features.plugin\" \"true\"\nplugin \"{module}\"\n  allowed_hosts: \"first.example\"\nplugin \"{module}\"\n  allowed_hosts: \"second.example\"\n{LEDGER}",
         module = module.display()
     );
-    let ledger = load(&dir, &content);
+    // the operator allows every host, so each plugin gets what its directive grants
+    let ledger = load_with_policy(&dir, &content, PluginPolicy::unrestricted()).unwrap();
 
     assert_eq!(ledger.plugins.routers.len(), 2);
     let router = ledger.plugins.router("router-echo").unwrap();

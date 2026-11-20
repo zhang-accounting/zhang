@@ -1683,7 +1683,10 @@ export interface operations {
           'application/json': {
             data: {
               capabilities: {
-                /** @description hosts the plugin may reach over HTTP; empty means no network access */
+                /**
+                 * @description hosts the plugin may reach over HTTP: what its directive grants within what the server allows
+                 * (`ZHANG_PLUGIN_ALLOWED_HOSTS`); empty means no network access
+                 */
                 allowed_hosts: string[];
               };
               name: string;
@@ -2483,7 +2486,9 @@ export interface operations {
                   | 'UnsupportedBookingMethod'
                   | 'AmbiguousLotMatch'
                   | 'CostMergingNotSupported'
-                  | 'PluginError';
+                  | 'PluginError'
+                  | 'PluginsDisabled'
+                  | 'PluginCapabilityReduced';
                 metas: {
                   [key: string]: string;
                 };
@@ -2837,7 +2842,9 @@ export interface operations {
                   | 'UnsupportedBookingMethod'
                   | 'AmbiguousLotMatch'
                   | 'CostMergingNotSupported'
-                  | 'PluginError';
+                  | 'PluginError'
+                  | 'PluginsDisabled'
+                  | 'PluginCapabilityReduced';
                 metas: {
                   [key: string]: string;
                 };

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+
+- The server, not the ledger, has the last word on what plugins may do (`zhang serve --plugins off|read|write` /
+  `ZHANG_PLUGINS`, `ZHANG_PLUGIN_ALLOWED_HOSTS`, `ZHANG_PLUGIN_MAX_TIMEOUT`). By default plugins run read-only, with
+  no network and for at most 30 seconds a call: a plugin whose directive grants `allowed_hosts` has no network until
+  `ZHANG_PLUGIN_ALLOWED_HOSTS` allows its hosts, and a longer `timeout` is lowered. Each such directive gets a
+  `PluginCapabilityReduced` error naming the setting; with plugins off, each gets `PluginsDisabled`.
+- A plugin's HTTP requests no longer follow redirects and never go to a loopback, private, link-local, CGNAT or other
+  non-public address, whatever `allowed_hosts` allows.
+
 ### Security
 
 - Sandbox every router plugin response (`Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-downloads`, `X-Content-Type-Options: nosniff`) and send only an allowlist of its headers (`content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow`, and a `location` on Zhang's own origin), with a `cache-control` that is always `private`. A plugin's page could run scripts with the owner's session and set cookies on Zhang's origin.
@@ -14,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Limit router plugin requests: a body of 4 MiB (`ZHANG_PLUGIN_MAX_BODY`, 413), 4 requests at once per plugin (`ZHANG_PLUGIN_MAX_CONCURRENCY`; up to 16 more wait up to 5 seconds, then 503 with `Retry-After`) and 30 seconds per request.
 - Limit the memory of every plugin instance to 256 MiB (`ZHANG_PLUGIN_MAX_MEMORY`).
 - Escape control characters in the plugin text Zhang logs, so a plugin cannot forge log lines.
+- Vendor extism 1.30.0 with a bounds check on every read of plugin memory: a plugin could forge the length of a
+  memory block and crash the server (SIGSEGV/SIGBUS) through extism's own host functions or the output and error of
+  any call. The patched extism also counts the memory a plugin starts with toward `ZHANG_PLUGIN_MAX_MEMORY`, which it
+  left out, so a plugin could use about twice the limit.
+- Resolve a plugin's HTTP request once, refuse non-public addresses and connect to the checked address, so DNS
+  rebinding and redirects cannot reach the machine, the private network or the cloud metadata service.
 
 ## [0.2.0] - 2026-10-02
 

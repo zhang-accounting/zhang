@@ -379,6 +379,8 @@ mod test {
                 r#"{"module":"fx-rate.wasm","args":["positional"],"meta":{"allowed_hosts":["api.frankfurter.dev","api.example.com"],"base_currency":["USD"],"operating_currency":["EUR"],"tag":["first","second"],"zhang.mine":["kept"]}}"#,
             ),
             ("zhang.seed", "1811957226761548848"),
+            ("zhang.allowed_hosts", r#"["api.frankfurter.dev","api.example.com"]"#),
+            ("zhang.timeout_ms", "60000"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
@@ -454,7 +456,10 @@ mod test {
 
     #[test]
     fn should_say_that_a_plugin_ran_out_of_memory() {
-        let policy = PluginPolicy { max_memory: 16 * MIB };
+        let policy = PluginPolicy {
+            max_memory: 16 * MIB,
+            ..PluginPolicy::default()
+        };
         let error = call_error("hog", "mapper", Duration::from_secs(1), &policy, extism::Error::msg("oom")).to_string();
         assert_eq!(
             error,
@@ -483,7 +488,10 @@ mod test {
     fn should_cap_the_memory_of_every_instance_by_the_policy() {
         assert_eq!(registered_with_meta(&[]).manifest(&[]).memory.max_pages, Some(4096), "256 MiB by default");
         let mut plugin = registered_with_meta(&[]);
-        plugin.policy = Arc::new(PluginPolicy { max_memory: 16 * MIB });
+        plugin.policy = Arc::new(PluginPolicy {
+            max_memory: 16 * MIB,
+            ..PluginPolicy::default()
+        });
         assert_eq!(plugin.manifest(&[]).memory.max_pages, Some(256));
         assert_eq!(plugin.manifest_with_timeout(&[], Duration::from_secs(1)).memory.max_pages, Some(256));
     }

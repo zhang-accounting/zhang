@@ -45,11 +45,15 @@
 //!   [`PluginDirectiveConfig`]), and [`SEED_CONFIG_KEY`] (`zhang.seed`) to the plugin's seed (see
 //!   [`plugin_seed`]).
 //!
+//! What a directive grants is not all a plugin gets: the operator's
+//! [`PluginPolicy`](crate::plugin_policy::PluginPolicy) bounds `allowed_hosts` and `timeout`
+//! ([`PluginCapabilities::bound_by`]), and the load reports what a directive asked for beyond it.
+//!
 //! Every other capability key (`allowed_paths`, `timeout`, `seed`, `stage`) is read here *and*
 //! still passed through as config, so a plugin that already uses a meta key with that name
 //! sees no change, and a plugin can see what it was granted.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -60,6 +64,7 @@ use zhang_ast::Plugin;
 use crate::domains::schemas::OptionDomain;
 pub use crate::pipeline::PluginStage;
 use crate::plugin::files::clean_path;
+use crate::plugin_policy::{parse_timeout, PluginPolicy, ALLOWED_HOSTS_ENV, MAX_TIMEOUT_ENV};
 use crate::utils::hashmap::HashMapOfExt;
 
 /// meta key on a `plugin` directive granting it HTTP access to the given hosts
@@ -74,9 +79,6 @@ const TIMEOUT_KEY: &str = "timeout";
 /// how long a single call into a plugin may run when its directive declares no `timeout`
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// the longest `timeout` a plugin may declare
-const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
-
 /// meta key on a `plugin` directive mixed into the plugin's seed, [`SEED_CONFIG_KEY`]
 const SEED_KEY: &str = "seed";
 
@@ -84,7 +86,8 @@ const SEED_KEY: &str = "seed";
 const STAGE_KEY: &str = "stage";
 
 pub use zhang_shared::plugin_abi::config::{
-    ABI as ABI_CONFIG_KEY, PLUGIN as PLUGIN_CONFIG_KEY, RESERVED_PREFIX as RESERVED_CONFIG_PREFIX, SEED as SEED_CONFIG_KEY,
+    ABI as ABI_CONFIG_KEY, ALLOWED_HOSTS as ALLOWED_HOSTS_CONFIG_KEY, PLUGIN as PLUGIN_CONFIG_KEY, RESERVED_PREFIX as RESERVED_CONFIG_PREFIX,
+    SEED as SEED_CONFIG_KEY, TIMEOUT_MS as TIMEOUT_MS_CONFIG_KEY,
 };
 /// The plugin's directive as written, which the plugin receives as JSON under the config key
 /// [`PLUGIN_CONFIG_KEY`] (`zhang.plugin`): its positional arguments and every value of its meta keys.
@@ -142,6 +145,11 @@ pub struct PluginDeclaration {
 }
 
 impl PluginDeclaration {
+    /// whether the directive sets its plugin's timeout: it has a `timeout` meta the host could use
+    pub fn declares_timeout(&self) -> bool {
+        self.directive.meta.contains_key(TIMEOUT_KEY) && !self.errors.iter().any(|error| error.metas.contains_key(TIMEOUT_KEY))
+    }
+
     /// the single place turning a `plugin` directive's meta into capabilities and config
     pub fn parse(directive: &Plugin) -> PluginDeclaration {
         let mut declaration = PluginDeclaration {
@@ -218,16 +226,20 @@ impl PluginDeclaration {
     }
 
     /// the config values the host sets under [`RESERVED_CONFIG_PREFIX`] for this plugin:
-    /// [`ABI_CONFIG_KEY`], [`PLUGIN_CONFIG_KEY`] and [`SEED_CONFIG_KEY`]. `occurrence` is the number of
-    /// `plugin` directives before this one declaring the same module. Pass them to
-    /// [`PluginDeclaration::config_with`]
+    /// [`ABI_CONFIG_KEY`], [`PLUGIN_CONFIG_KEY`], [`SEED_CONFIG_KEY`], and the capabilities the plugin has, which the
+    /// operator's policy may have bounded ([`PluginCapabilities::bound_by`]): [`ALLOWED_HOSTS_CONFIG_KEY`] and
+    /// [`TIMEOUT_MS_CONFIG_KEY`]. `occurrence` is the number of `plugin` directives before this one declaring the same
+    /// module. Pass them to [`PluginDeclaration::config_with`]
     pub fn host_config(&self, occurrence: usize) -> Vec<(String, String)> {
         let directive = serde_json::to_string(&self.directive).expect("strings, arrays and maps of strings always serialize to JSON");
         let seed = plugin_seed(&self.directive.module, occurrence, self.capabilities.seed.as_deref());
+        let allowed_hosts = serde_json::to_string(&self.capabilities.allowed_hosts).expect("strings always serialize to JSON");
         vec![
             (ABI_CONFIG_KEY.to_owned(), ABI_VERSION.to_string()),
             (PLUGIN_CONFIG_KEY.to_owned(), directive),
             (SEED_CONFIG_KEY.to_owned(), seed.to_string()),
+            (ALLOWED_HOSTS_CONFIG_KEY.to_owned(), allowed_hosts),
+            (TIMEOUT_MS_CONFIG_KEY.to_owned(), self.capabilities.timeout.as_millis().to_string()),
         ]
     }
 
@@ -279,20 +291,118 @@ pub fn plugin_seed(module: &str, occurrence: usize, seed: Option<&str>) -> u64 {
     u64::from_str_radix(&hash[..16], 16).expect("a SHA-256 digest is hexadecimal")
 }
 
-/// a `timeout` meta value: whole seconds, or a whole number with a unit `ms`, `s`, `m` or `h`.
-/// `None` for anything else, for zero and for more than [`MAX_TIMEOUT`]
-fn parse_timeout(value: &str) -> Option<Duration> {
-    let value = value.trim();
-    let (amount, unit) = value.split_at(value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len()));
-    let amount: u64 = amount.parse().ok()?;
-    let timeout = match unit.trim_start() {
-        "" | "s" => Duration::from_secs(amount),
-        "ms" => Duration::from_millis(amount),
-        "m" => Duration::from_secs(amount.checked_mul(60)?),
-        "h" => Duration::from_secs(amount.checked_mul(60 * 60)?),
-        _ => return None,
-    };
-    (!timeout.is_zero() && timeout <= MAX_TIMEOUT).then_some(timeout)
+/// Whether the host pattern `pattern` allows `host`, the way extism has always matched `allowed_hosts`: a glob
+/// (`*` any run of characters, `?` one, `[...]` one of a set), or the pattern as written when it is no valid glob.
+/// Both are compared in lower case
+pub fn host_allowed(pattern: &str, host: &str) -> bool {
+    let (pattern, host) = (pattern.to_ascii_lowercase(), host.to_ascii_lowercase());
+    match glob::Pattern::new(&pattern) {
+        Ok(glob) => glob.matches(&host),
+        Err(_) => pattern == host,
+    }
+}
+
+/// whether every host the pattern `inner` allows is one `outer` allows too. Decided only where that is sure: `outer`
+/// is `*`, the two are the same, or `inner` is a plain host (no `*`, `?` or `[`) that `outer` allows. Anything else
+/// counts as not within, so a ceiling never lets through more than it allows
+fn pattern_within(inner: &str, outer: &str) -> bool {
+    let (inner, outer) = (inner.to_ascii_lowercase(), outer.to_ascii_lowercase());
+    outer == "*" || inner == outer || (!inner.contains(['*', '?', '[']) && host_allowed(&outer, &inner))
+}
+
+/// A capability a `plugin` directive asks for that the operator's [`PluginPolicy`] does not allow in full: the
+/// plugin runs with `granted` instead of `requested`, and the load reports it as a
+/// [`ErrorKind::PluginCapabilityReduced`] on the directive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityReduced {
+    /// the meta key of the capability, such as `allowed_hosts`
+    pub capability: &'static str,
+    /// what the directive asks for, as the meta writes it
+    pub requested: String,
+    /// what the plugin gets, `none` for nothing
+    pub granted: String,
+    /// the setting of `zhang serve` that would grant more, such as `ZHANG_PLUGIN_ALLOWED_HOSTS`
+    pub setting: &'static str,
+}
+
+impl CapabilityReduced {
+    /// the metas of the error reporting it on the directive of the plugin `module`
+    pub fn metas(&self, module: &str) -> HashMap<String, String> {
+        [
+            ("plugin", module),
+            ("capability", self.capability),
+            ("requested", &self.requested),
+            ("granted", &self.granted),
+            ("setting", self.setting),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect()
+    }
+}
+
+/// a list as a [`CapabilityReduced`] shows it: its items separated by `, `, or `none`
+fn listed(items: &[String]) -> String {
+    match items.is_empty() {
+        true => "none".to_owned(),
+        false => items.join(", "),
+    }
+}
+
+impl PluginCapabilities {
+    /// Bound these capabilities, as a directive grants them, by the operator's `policy`, and say what they lost.
+    ///
+    /// - `allowed_hosts` keeps the patterns within one of the policy's, and the policy's patterns within one of the
+    ///   directive's (so `*` with a policy of `api.example.com` gives `api.example.com`). A pattern only partly within
+    ///   the policy is left out, so the plugin may reach fewer hosts than both allow, never more.
+    /// - `timeout` is at most [`PluginPolicy::max_timeout`]; the default, which a directive did not write
+    ///   (`timeout_declared` false), is lowered without a word.
+    ///
+    /// A capability to write to the ledger, once plugins have one, is bounded here too: cleared unless
+    /// [`PluginPolicy::allows_writes`], and reported as a [`CapabilityReduced`] naming
+    /// [`LEVEL_ENV`](crate::plugin_policy::LEVEL_ENV).
+    pub fn bound_by(&mut self, policy: &PluginPolicy, timeout_declared: bool) -> Vec<CapabilityReduced> {
+        let mut reduced = vec![];
+        let mut hosts: Vec<String> = vec![];
+        for granted in &self.allowed_hosts {
+            if policy.allowed_hosts.iter().any(|ceiling| pattern_within(granted, ceiling)) {
+                hosts.push(granted.to_ascii_lowercase());
+            }
+            for ceiling in &policy.allowed_hosts {
+                if pattern_within(ceiling, granted) {
+                    hosts.push(ceiling.clone());
+                }
+            }
+        }
+        let mut seen = HashSet::new();
+        hosts.retain(|host| seen.insert(host.clone()));
+        let fully_granted = self
+            .allowed_hosts
+            .iter()
+            .all(|granted| policy.allowed_hosts.iter().any(|ceiling| pattern_within(granted, ceiling)));
+        if !fully_granted {
+            reduced.push(CapabilityReduced {
+                capability: ALLOWED_HOSTS_KEY,
+                requested: listed(&self.allowed_hosts),
+                granted: listed(&hosts),
+                setting: ALLOWED_HOSTS_ENV,
+            });
+        }
+        self.allowed_hosts = hosts;
+
+        if self.timeout > policy.max_timeout {
+            if timeout_declared {
+                reduced.push(CapabilityReduced {
+                    capability: TIMEOUT_KEY,
+                    requested: format!("{:?}", self.timeout),
+                    granted: format!("{:?}", policy.max_timeout),
+                    setting: MAX_TIMEOUT_ENV,
+                });
+            }
+            self.timeout = policy.max_timeout;
+        }
+        reduced
+    }
 }
 
 #[cfg(test)]
@@ -306,9 +416,117 @@ mod test {
 
     use crate::domains::schemas::OptionDomain;
     use crate::plugin::capabilities::{
-        plugin_seed, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig, PluginStage, DEFAULT_TIMEOUT,
+        host_allowed, pattern_within, plugin_seed, CapabilityReduced, DeclarationError, PluginCapabilities, PluginDeclaration, PluginDirectiveConfig,
+        PluginStage, DEFAULT_TIMEOUT,
     };
+    use crate::plugin_policy::PluginPolicy;
     use crate::utils::hashmap::HashMapOfExt;
+
+    #[test]
+    fn should_match_hosts_as_extism_always_did_in_any_case() {
+        assert!(host_allowed("api.example.com", "api.example.com"));
+        assert!(host_allowed("API.Example.com", "api.example.com"));
+        assert!(host_allowed("*.example.com", "api.example.com"));
+        assert!(host_allowed("*", "anything.example"));
+        assert!(!host_allowed("*.example.com", "example.com"));
+        assert!(!host_allowed("api.example.com", "api.example.com.evil.example"));
+        assert!(host_allowed("[", "["), "a pattern that is no glob matches as written");
+    }
+
+    #[test]
+    fn should_count_a_pattern_within_another_only_when_that_is_sure() {
+        for (inner, outer) in [
+            ("api.example.com", "*"),
+            ("*", "*"),
+            ("*.example.com", "*.example.com"),
+            ("api.example.com", "*.example.com"),
+        ] {
+            assert!(pattern_within(inner, outer), "{inner} within {outer}");
+        }
+        for (inner, outer) in [
+            ("*", "api.example.com"),
+            ("*.example.com", "*.api.example.com"),
+            ("*.example.com", "?.example.com"),
+            ("a.com", "b.com"),
+        ] {
+            assert!(!pattern_within(inner, outer), "{inner} not within {outer}");
+        }
+    }
+
+    #[test]
+    fn should_bound_capabilities_by_the_policy_and_say_what_they_lost() {
+        let mut capabilities = PluginCapabilities {
+            allowed_hosts: vec!["api.example.com".to_owned(), "*".to_owned()],
+            timeout: Duration::from_secs(600),
+            ..PluginCapabilities::default()
+        };
+        let policy = PluginPolicy {
+            allowed_hosts: vec!["api.example.com".to_owned(), "rates.example".to_owned()],
+            ..PluginPolicy::default()
+        };
+
+        let reduced = capabilities.bound_by(&policy, true);
+
+        assert_eq!(capabilities.allowed_hosts, vec!["api.example.com", "rates.example"]);
+        assert_eq!(capabilities.timeout, Duration::from_secs(30));
+        assert_eq!(
+            reduced,
+            vec![
+                CapabilityReduced {
+                    capability: "allowed_hosts",
+                    requested: "api.example.com, *".to_owned(),
+                    granted: "api.example.com, rates.example".to_owned(),
+                    setting: "ZHANG_PLUGIN_ALLOWED_HOSTS",
+                },
+                CapabilityReduced {
+                    capability: "timeout",
+                    requested: "600s".to_owned(),
+                    granted: "30s".to_owned(),
+                    setting: "ZHANG_PLUGIN_MAX_TIMEOUT",
+                },
+            ]
+        );
+        assert_eq!(
+            reduced[0].metas("fx.wasm"),
+            HashMap::from(
+                [
+                    ("plugin", "fx.wasm"),
+                    ("capability", "allowed_hosts"),
+                    ("requested", "api.example.com, *"),
+                    ("granted", "api.example.com, rates.example"),
+                    ("setting", "ZHANG_PLUGIN_ALLOWED_HOSTS"),
+                ]
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            )
+        );
+    }
+
+    #[test]
+    fn should_leave_capabilities_within_the_policy_alone() {
+        let granted = PluginCapabilities {
+            allowed_hosts: vec!["api.example.com".to_owned()],
+            timeout: Duration::from_secs(10),
+            ..PluginCapabilities::default()
+        };
+        let mut capabilities = granted.clone();
+
+        assert_eq!(capabilities.bound_by(&PluginPolicy::unrestricted(), true), vec![]);
+        assert_eq!(capabilities, granted);
+        // the default timeout is lowered silently when the directive did not write it
+        let mut capabilities = PluginCapabilities::default();
+        assert_eq!(capabilities.bound_by(&PluginPolicy::default(), false), vec![]);
+        assert_eq!(capabilities.timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn should_know_whether_a_directive_sets_the_timeout() {
+        assert!(PluginDeclaration::parse(&directive(&[("timeout", "2m")])).declares_timeout());
+        assert!(!PluginDeclaration::parse(&directive(&[])).declares_timeout());
+        assert!(
+            !PluginDeclaration::parse(&directive(&[("timeout", "soon")])).declares_timeout(),
+            "an invalid one counts as none"
+        );
+    }
 
     fn directive(meta: &[(&str, &str)]) -> Plugin {
         directive_with_args(&[], meta)
@@ -559,6 +777,8 @@ mod test {
                     r#"{"module":"fx-rate.wasm","args":["USD","strict \"mode\""],"meta":{"allowed_hosts":["b.example","a.example"],"base_currency":["USD"],"tag":["first","second"]}}"#
                 ),
                 ("zhang.seed", "1811957226761548848"),
+                ("zhang.allowed_hosts", r#"["b.example","a.example"]"#),
+                ("zhang.timeout_ms", "60000"),
             ])
         );
     }
@@ -573,8 +793,28 @@ mod test {
                 ("zhang.abi", "1"),
                 ("zhang.plugin", r#"{"module":"fx-rate.wasm","args":[],"meta":{}}"#),
                 ("zhang.seed", "1811957226761548848"),
+                ("zhang.allowed_hosts", "[]"),
+                ("zhang.timeout_ms", "60000"),
             ])
         );
+    }
+
+    #[test]
+    fn should_hand_the_plugin_the_capabilities_the_policy_left_it() {
+        let mut declaration = PluginDeclaration::parse(&directive(&[("allowed_hosts", "*"), ("timeout", "2m")]));
+        let policy = PluginPolicy {
+            allowed_hosts: vec!["api.example.com".to_owned()],
+            ..PluginPolicy::default()
+        };
+        declaration.capabilities.bound_by(&policy, declaration.declares_timeout());
+
+        let config = declaration.config_with(&[], declaration.host_config(0));
+
+        assert_eq!(config["zhang.allowed_hosts"], r#"["api.example.com"]"#);
+        assert_eq!(config["zhang.timeout_ms"], "30000");
+        // what the directive asked for stays where it always was
+        assert_eq!(config["timeout"], "2m");
+        assert!(config["zhang.plugin"].contains(r#""allowed_hosts":["*"]"#), "{}", config["zhang.plugin"]);
     }
 
     #[test]
@@ -591,6 +831,8 @@ mod test {
                     r#"{"module":"fx-rate.wasm","args":[],"meta":{"zhang.abi":["0"],"zhang.plugin":["from meta"],"zhang.seed":["7"]}}"#
                 ),
                 ("zhang.seed", "1811957226761548848"),
+                ("zhang.allowed_hosts", "[]"),
+                ("zhang.timeout_ms", "60000"),
             ])
         );
     }

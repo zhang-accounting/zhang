@@ -78,6 +78,12 @@ pub mod config {
     pub const PLUGIN: &str = "zhang.plugin";
     /// config key holding the plugin's seed, a decimal `u64`
     pub const SEED: &str = "zhang.seed";
+    /// config key holding the hosts the plugin may reach, a JSON array of host patterns: what its `allowed_hosts`
+    /// grants within what the server allows. [`PLUGIN`] holds what the directive asked for
+    pub const ALLOWED_HOSTS: &str = "zhang.allowed_hosts";
+    /// config key holding how long one call into the plugin may run, in milliseconds, a decimal `u64`: its `timeout`
+    /// within what the server allows. [`PLUGIN`] and the flat `timeout` key hold what the directive asked for
+    pub const TIMEOUT_MS: &str = "zhang.timeout_ms";
 }
 
 /// The plugin's `plugin` directive as written, from the config key [`config::PLUGIN`]. It carries what the flat

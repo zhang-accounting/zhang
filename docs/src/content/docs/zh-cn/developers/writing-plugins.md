@@ -44,13 +44,13 @@ plugin "plugins/guard.wasm" "strict"
 
 ### 能力
 
-除非它的指令授予，插件在自己的内存之外什么也做不了。
+除非它的指令授予，插件在自己的内存之外什么也做不了，而且运行它的服务器会为每项授予设置上限（[服务器允许的范围](/zh-cn/reference/directives/plugin/#服务器允许的范围)）：默认没有主机、每次调用最多 30 秒、只读。编写插件时要能应对比指令请求的更少的能力，并在插件文档中说明运维者需要允许什么。
 
 | 元数据 | 授予 | 默认值 |
 |---|---|---|
-| `allowed_hosts` | 向这些主机发起 HTTP 请求。多个主机时重复这个键。 | 完全不能联网 |
+| `allowed_hosts` | 向这些主机发起 HTTP 请求，限于 `ZHANG_PLUGIN_ALLOWED_HOSTS` 允许的主机，只发往公网地址，并且不跟随重定向。多个主机时重复这个键。 | 完全不能联网 |
 | `allowed_paths` | 对账本中这些文件和目录的只读访问。多个时重复这个键。 | 不能访问文件 |
-| `timeout` | 对插件的一次调用最多可以运行多久：整数秒（`"90"`），或者带单位 `ms`、`s`、`m` 或 `h` 的数字（`"500ms"`、`"2m"`），最长一天 | 60 秒 |
+| `timeout` | 对插件的一次调用最多可以运行多久：整数秒（`"90"`），或者带单位 `ms`、`s`、`m` 或 `h` 的数字（`"500ms"`、`"2m"`），最长一天，并且不超过 `ZHANG_PLUGIN_MAX_TIMEOUT` | 60 秒，不超过 `ZHANG_PLUGIN_MAX_TIMEOUT`（未设置时为 30 秒） |
 | `seed` | 不授予任何东西；任意文本，混入插件的[种子](#确定性) | 无 |
 | `stage` | 插件的 processor 和 mapper 在哪个阶段运行：`"booked"`，在张记账完成记账之后；或 `"raw"`，在记账之前，看到的是按原样写下的交易（见[阶段顺序约定](#阶段顺序约定)） | `"booked"` |
 
@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 - **身份认证：** 这些路由位于张记账自己的登录保护之后。只有允许列表中的请求头会传给插件，凭据和代理的身份请求头永远不会。
 - **只读：** router 只能通过 `zhang_query`（BQL）和 `zhang_ledger_info` 读取账本；没有任何宿主函数能修改账本。每个请求都在新的实例中运行，运行期间账本不会重新加载。
 - **安全：** router 的页面由张记账自己的地址提供，但在沙箱中运行：张记账只发送它允许的响应头，并加上 `Content-Security-Policy: sandbox …`，所以这类页面上的脚本以不透明的源运行，无法使用访问者的会话。请把页面的脚本、样式和图片内联到页面中。放进 HTML 的所有内容都要转义。
-- **限制：** 请求体最大 4 MiB，每个插件同时处理 4 个请求，每个请求最多 30 秒，每个实例最多 256 MiB 内存，除非运维者设置了其他限制。
+- **限制：** 请求体最大 4 MiB，每个插件同时处理 4 个请求，每个请求最多 30 秒（`ZHANG_PLUGIN_MAX_TIMEOUT`），每个实例最多 256 MiB 内存，除非运维者设置了其他限制。
 
 [Router 插件](/zh-cn/guides/router-plugins/)介绍了请求和响应的 JSON、错误状态码以及更多细节。
 
@@ -369,6 +369,8 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang.abi` | ABI 版本，`"1"` |
 | `zhang.plugin` | 按原样写下的指令，格式为 JSON：`{"module": "…", "args": ["…"], "meta": {"key": ["value", …]}}`，包含每个元数据键的所有值（包括 `allowed_hosts`） |
 | `zhang.seed` | 插件的种子，一个十进制的 `u64` |
+| `zhang.allowed_hosts` | 插件能访问的主机，一个 JSON 数组：它的 `allowed_hosts` 中服务器允许的部分。`zhang.plugin` 保留指令请求的内容 |
+| `zhang.timeout_ms` | 一次调用最长能运行多久，单位为毫秒：它的 `timeout`（或默认值）在服务器允许的范围内的值。扁平的 `timeout` 键保留指令请求的内容 |
 
 没有设置 `zhang.abi` 的张记账早于 ABI v1：它不设置任何 `zhang.*` 键，也不链接下面的任何宿主函数。
 
@@ -399,4 +401,4 @@ fn route(request: Request) -> Result<Response, Error> {
 | 功能 | 张记账版本 |
 |---|---|
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
-| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、上面所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
+| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |

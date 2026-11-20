@@ -48,13 +48,13 @@ What a processor or mapper changes exists only while the ledger is loaded. Your 
 
 ## Grant capabilities
 
-Outside its own memory, a plugin can do nothing that its directive does not grant:
+Outside its own memory, a plugin can do nothing that its directive does not grant, and never more than the server allows (see [below](#what-the-server-allows)):
 
 | Metadata | Lets the plugin | Without it |
 |---|---|---|
-| `allowed_hosts` | make HTTP requests to these hosts. Repeat the key for several hosts. | no network access |
+| `allowed_hosts` | make HTTP requests to these hosts, among those the server allows. Repeat the key for several hosts. | no network access |
 | `allowed_paths` | read these files and directories of the ledger. Repeat the key for several. | no file access |
-| `timeout` | run each call for up to this long: whole seconds (`"90"`) or a number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"2m"`), at most a day | 60 seconds |
+| `timeout` | run each call for up to this long, at most what the server allows: whole seconds (`"90"`) or a number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"2m"`) | 60 seconds, at most the server's limit (30 seconds unless set) |
 | `seed` | nothing more. Any text: it changes the seed the plugin derives random values from. | the default seed |
 
 ```zhang
@@ -77,6 +77,27 @@ About `allowed_paths`:
 
 A value Zhang cannot use, such as `timeout: "soon"`, is reported as a [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) error on the `plugin` directive, and the plugin gets the default.
 
+About `allowed_hosts`: a request only goes to a public address. A host that resolves to the machine itself, the private network or a cloud metadata service (`169.254.169.254`, Azure's `168.63.129.16`) is refused, and redirects are not followed. Any port of an allowed host can be reached, and the server's own public address counts as public, so grant only the hosts a plugin needs. At most 8 name lookups of plugins run at once, and at most 2 of any one plugin: when the name server of a plugin's host does not answer, that plugin's further requests fail rather than pile up, and the other plugins keep resolving names.
+
+## What the server allows
+
+Whoever can change your ledger files, through the web UI's file editor, a Git repository or a storage bucket, can write `plugin` directives. So the server, not the ledger, has the last word, with options of `zhang serve`:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` loads no plugin; `read` runs plugins, which change nothing; `write` also lets a plugin write to the ledger where its directive grants it. |
+| `ZHANG_PLUGIN_ALLOWED_HOSTS` | none | The hosts plugins may reach, separated by commas, such as `api.frankfurter.dev,*.example.com`; `*` allows any host. A plugin reaches a host only if its `allowed_hosts` and this setting both allow it. |
+| `ZHANG_PLUGIN_MAX_TIMEOUT` | `30s` | The longest one call into a plugin may run. |
+| `ZHANG_PLUGIN_MAX_MEMORY` | `256MiB` | The most memory one plugin instance may use. |
+
+So by default plugins run read-only, without any network, for at most 30 seconds a call. When a directive grants more, the plugin still loads with what the server allows, and the error list shows a [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) error on the directive that names the setting to change. With `--plugins off`, each `plugin` directive shows a [`PluginsDisabled`](/reference/error-codes/#pluginsdisabled) error instead.
+
+For example, to let the exchange-rate plugin above fetch its rates, start the server with:
+
+```shell
+ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev zhang serve /path/to/ledger
+```
+
 :::danger[Files and network together]
 A plugin with both `allowed_paths` and `allowed_hosts` can send what it reads off your machine. A plugin already receives your whole ledger, so grant both only to a plugin you would trust with both.
 :::
@@ -87,7 +108,7 @@ Every plugin receives your **whole ledger**: every entry and every option. It ca
 
 What the sandbox prevents:
 
-- network access, except to the hosts in `allowed_hosts`;
+- network access, except to the public addresses of the hosts in `allowed_hosts` that the server allows;
 - reading files, except those `allowed_paths` grants inside the ledger root;
 - writing files, including your ledger files;
 - running longer than its `timeout`;
@@ -100,7 +121,7 @@ Only declare plugins you trust, ideally ones whose source you can read, and gran
 ## See which plugins are loaded
 
 - The **Settings** page lists the loaded plugins, in the order they run, with their name, version and types. A router plugin has a link to its pages.
-- `GET /api/plugins` returns the same list as JSON, with the `allowed_hosts` each plugin was granted and the route of each router plugin. To review `allowed_paths` and `timeout`, read the `plugin` directives of your ledger.
+- `GET /api/plugins` returns the same list as JSON, with the hosts each plugin may reach (its `allowed_hosts` within what the server allows) and the route of each router plugin. To review `allowed_paths` and `timeout`, read the `plugin` directives of your ledger.
 
 ## When a plugin goes wrong
 

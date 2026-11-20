@@ -98,10 +98,11 @@ zhang serve [OPTIONS] <PATH>
 | `-p`, `--port <PORT>` | | `8000` | 监听的端口。 |
 | `--auth <USER:PASSWORD>` | `ZHANG_AUTH` | 无 | 启用密码登录。见[身份认证](/zh-cn/deployment/authentication/)。 |
 | `--passkey <SECRET>` | `ZHANG_PASSKEY` | 无 | 启用通行密钥登录。值是注册通行密钥时需要的密钥。见[身份认证](/zh-cn/deployment/authentication/#通行密钥)。 |
+| `--plugins <off\|read\|write>` | `ZHANG_PLUGINS` | `read` | [插件](/zh-cn/guides/plugins/#服务器允许的范围)能做什么：`off` 不加载插件，`read` 运行插件但不修改任何东西，`write` 还允许插件在其指令授予时写入账本。 |
 | `--source <SOURCE>` | `ZHANG_DATA_SOURCE` | `fs` | 账本存放的位置：`fs`（[本地文件系统](/zh-cn/deployment/data-sources/local/)）、`s3`（[S3](/zh-cn/deployment/data-sources/s3/)）、`web-dav`（[WebDAV](/zh-cn/deployment/data-sources/webdav/)）或 `github`（[GitHub](/zh-cn/deployment/data-sources/github/)）。 |
 | `--no-report` | | 关闭 | 停止匿名使用报告：张记账每小时向 `https://zhang-cloud.kilerd.me/client_report` 发送一次它的版本号和构建日期。 |
 
-命令行选项优先于对应的环境变量。不含冒号的 `--auth` 或 `ZHANG_AUTH` 值会被忽略，未知的 `ZHANG_DATA_SOURCE` 值会回退为 `fs`。不是有效大小或数字的 `ZHANG_PLUGIN_*` 值会让 `zhang serve` 报错退出并指出该变量，所以限制永远不会被悄悄忽略。
+命令行选项优先于对应的环境变量。不含冒号的 `--auth` 或 `ZHANG_AUTH` 值会被忽略，未知的 `ZHANG_DATA_SOURCE` 值会回退为 `fs`。无法读取的 `ZHANG_PLUGINS` 或 `ZHANG_PLUGIN_*` 值会让 `zhang serve` 报错退出并指出该变量，所以限制永远不会被悄悄忽略。`zhang serve` 启动时会在日志中记录插件能做什么。
 
 其他环境变量：
 
@@ -110,6 +111,8 @@ zhang serve [OPTIONS] <PATH>
 | `ZHANG_SESSION_SECRET`、`ZHANG_PASSKEY_ORIGIN`、`ZHANG_PASSKEY_RP_ID`、`ZHANG_APP_RETURN_SCHEMES` | 会话、通行密钥和移动端登录，见[身份认证](/zh-cn/deployment/authentication/)。 |
 | `ZHANG_S3_*`、`ZHANG_WEBDAV_*`、`ZHANG_GITHUB_*` | [S3](/zh-cn/deployment/data-sources/s3/)、[WebDAV](/zh-cn/deployment/data-sources/webdav/) 和 [GitHub](/zh-cn/deployment/data-sources/github/) 数据源的设置。 |
 | `ZHANG_QUERY_MAX_RESULT_VALUES` | 一条[查询](/zh-cn/reference/query-language/)的结果最多能包含多少个值，超出后查询会被中止。默认为 `1000000`。在内存较小的机器上可以调低。 |
+| `ZHANG_PLUGIN_ALLOWED_HOSTS` | [插件](/zh-cn/guides/plugins/#服务器允许的范围)最多能访问的主机，用逗号分隔，例如 `api.frankfurter.dev`；`*` 允许任何主机。默认为无：插件不能访问网络。 |
+| `ZHANG_PLUGIN_MAX_TIMEOUT` | 对插件的一次调用最长能运行多久，例如 `90s` 或 `2m`。默认为 `30s`。 |
 | `ZHANG_PLUGIN_MAX_MEMORY` | 一个[插件](/zh-cn/guides/plugins/)实例最多能使用的内存，例如 `512MiB`。默认为 `256MiB`。 |
 | `ZHANG_PLUGIN_MAX_BODY`、`ZHANG_PLUGIN_MAX_CONCURRENCY` | [Router 插件](/zh-cn/guides/router-plugins/#限制)能收到的最大请求体（默认为 `4MiB`），以及一个 Router 插件能同时处理的请求数（默认为 `4`）。 |
 | `ZHANG_LOG` | 日志过滤器，例如 `info`、`debug` 或 `zhang_core=trace`（[env_logger 语法](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)）。不设置时使用 `RUST_LOG`；两者都不设置时级别为 `info`。Docker 镜像设置了 `RUST_LOG=info`。 |

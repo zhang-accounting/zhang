@@ -1,3 +1,8 @@
+#[cfg(feature = "plugin_runtime")]
+use std::collections::HashMap;
+
+#[cfg(feature = "plugin_runtime")]
+use zhang_ast::error::ErrorKind;
 use zhang_ast::{Plugin, SpanInfo};
 
 use crate::ledger::Ledger;
@@ -55,14 +60,29 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
     feature_enable!(ledger.options.features.plugins, {
         #[cfg(feature = "plugin_runtime")]
         {
-            // the module is read from the ledger's source on every load, and handed to the runtime as it is
             let module = plugin.module.as_str();
+            // the operator turned plugins off: the directive says so, and nothing of the plugin is read
+            if !ledger.plugin_policy.loads_plugins() {
+                let metas = HashMap::from([
+                    ("plugin".to_owned(), module.to_owned()),
+                    ("setting".to_owned(), crate::plugin_policy::LEVEL_ENV.to_owned()),
+                ]);
+                ledger.report(ErrorKind::PluginsDisabled, span, metas);
+                return Ok(());
+            }
+            // the module is read from the ledger's source on every load, and handed to the runtime as it is
             let path = module_path(&ledger.entry.0, module)?;
             let module_bytes = ledger.data_source.get(path).map_err(|error| module_error(module, error))?;
-            let declaration = crate::plugin::capabilities::PluginDeclaration::parse(plugin);
+            let mut declaration = crate::plugin::capabilities::PluginDeclaration::parse(plugin);
             // a meta value the host cannot use is reported on the directive, and the plugin runs with the default
             for error in &declaration.errors {
                 ledger.report(error.kind.clone(), span, error.metas.clone());
+            }
+            // the plugin gets what its directive grants within what the operator allows, and the directive says what
+            // it asked for beyond that
+            let timeout_declared = declaration.declares_timeout();
+            for reduced in declaration.capabilities.bound_by(&ledger.plugin_policy, timeout_declared) {
+                ledger.report(ErrorKind::PluginCapabilityReduced, span, reduced.metas(module));
             }
             let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
             let files = crate::plugin::files::FileAccess::new(declaration.capabilities.allowed_paths.clone(), ledger.data_source.clone(), &ledger.entry.0);

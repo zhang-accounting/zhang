@@ -504,6 +504,29 @@ option "operating_currency" "EUR"
 
 **修正方法**：按 `message` 元数据的要求处理，或者修改插件的设置。如果消息说插件用无效的数据调用了 `zhang_emit_error`，那是插件的缺陷：请报告给插件的作者。
 
+## PluginsDisabled
+
+*插件 `<plugin>` 未加载：服务器关闭了插件（`<setting>`）*
+
+账本用 `features.plugin` 启用了插件，但服务器关闭了插件（`zhang serve --plugins off` 或 `ZHANG_PLUGINS=off`），所以这条 [`plugin`](/zh-cn/reference/directives/plugin/) 指令的插件没有加载。账本在没有它的情况下加载：它的 processor 或 mapper 本应添加或检查的内容不存在，router 插件也不提供路由。元数据：`plugin`，按原样写下的模块；`setting`，即 `ZHANG_PLUGINS`。
+
+**修正方法**：如果服务器由你运行，用 `--plugins read`（或 `write`）启动它，或者取消设置 `ZHANG_PLUGINS`。否则删除这条指令，或者关闭 `features.plugin`。
+
+## PluginCapabilityReduced
+
+*插件 `<plugin>` 请求的 `<capability>` 为 `<requested>`，但服务器只允许 `<granted>`；服务器允许的范围由 `<setting>` 设置*
+
+一条 [`plugin`](/zh-cn/reference/directives/plugin/) 指令授予的能力超过了服务器允许的范围（见[服务器允许的范围](/zh-cn/reference/directives/plugin/#服务器允许的范围)）：`allowed_hosts` 中的主机多于 `ZHANG_PLUGIN_ALLOWED_HOSTS` 允许的主机，或者 `timeout` 长于 `ZHANG_PLUGIN_MAX_TIMEOUT`。插件仍会加载，并以服务器允许的能力运行，所以访问不被允许的主机时，插件的调用会失败；运行时间超过服务器限制时，插件会被终止。元数据：`plugin`（按原样写下的模块）、`capability`（`allowed_hosts` 或 `timeout`）、`requested`（指令授予的内容）、`granted`（插件得到的内容，什么都没有时为 `none`）和 `setting`（设置服务器限制的 `zhang serve` 环境变量）。
+
+例如，没有设置 `ZHANG_PLUGIN_ALLOWED_HOSTS` 时，下面这条指令会被报告，`requested` 为 `api.frankfurter.dev`，`granted` 为 `none`：
+
+```zhang
+plugin "plugins/fx-rates.wasm"
+  allowed_hosts: "api.frankfurter.dev"
+```
+
+**修正方法**：如果服务器由你运行并且你信任这个插件，用错误中指出的设置允许它需要的能力，例如 `ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev`，然后重启服务器。否则在指令中减少对插件的授予。
+
 ## 账本无法加载的情况
 
 以下问题会让张记账无法加载账本。`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出。服务器已在运行时，失败的重新加载会保持账本原样，在日志中记录原因，并在网页界面中显示原因，直到某次重新加载成功为止。
