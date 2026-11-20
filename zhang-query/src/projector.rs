@@ -41,27 +41,45 @@
 
 use std::fmt;
 
+use crate::catalog::{ColumnRef, TableRef};
 use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
 use crate::functions::AggregateKind;
-use crate::table::{Borrow, ColumnDef, RowRef, Table};
+use crate::table::{Borrow, RowRef};
 use crate::value::Value;
 
 /// The columns of its table one plan reads.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Projection {
-    table: &'static Table,
-    /// bit `i` is set when `table.columns[i]` is read
-    columns: u64,
+    table: TableRef,
+    /// the indexes of the columns read, among the table's columns
+    columns: ColumnSet,
 }
 
-impl PartialEq for Projection {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.table, other.table) && self.columns == other.columns
+/// A set of column indexes: one bit per column of the table, so a table can have any number of
+/// columns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ColumnSet {
+    /// bit `i % 64` of word `i / 64` is set when column `i` is in the set
+    words: Box<[u64]>,
+}
+
+impl ColumnSet {
+    /// The empty set of the columns of a table with `columns` columns.
+    fn new(columns: usize) -> ColumnSet {
+        ColumnSet {
+            words: vec![0; columns.div_ceil(64)].into_boxed_slice(),
+        }
+    }
+
+    fn insert(&mut self, index: usize) {
+        self.words[index / 64] |= 1 << (index % 64);
+    }
+
+    fn contains(&self, index: usize) -> bool {
+        self.words.get(index / 64).is_some_and(|word| word & (1 << (index % 64)) != 0)
     }
 }
-
-impl Eq for Projection {}
 
 /// Decide how the plan materializes its running totals (see the module docs).
 pub(crate) fn plan_running(plan: &mut Plan) {
@@ -169,56 +187,55 @@ fn never_null(expr: &CExpr) -> bool {
 /// Build the projection of an optimized plan.
 pub(crate) fn project(plan: &Plan) -> Projection {
     let referenced = plan.referenced_columns();
-    Projection::of_columns(plan.table, plan.table.columns.iter().filter(|column| referenced.contains(column.name)))
+    let columns = plan.table.columns().iter().enumerate();
+    Projection::of_columns(
+        plan.table.clone(),
+        columns.filter(|(_, column)| referenced.contains(column.name)).map(|(index, _)| index),
+    )
 }
 
 impl Projection {
     /// Every column of the `postings` table: rows carry everything.
     #[cfg(test)]
     pub fn all() -> Projection {
-        Projection::all_of(&crate::table::POSTINGS)
+        Projection::all_of(crate::catalog::Catalog::core().postings().clone())
     }
 
     /// Every column of `table`.
     #[cfg(test)]
-    pub fn all_of(table: &'static Table) -> Projection {
-        Projection::of_columns(table, table.columns.iter())
+    pub fn all_of(table: TableRef) -> Projection {
+        let columns = 0..table.columns().len();
+        Projection::of_columns(table, columns)
     }
 
-    fn of_columns<'c>(table: &'static Table, columns: impl Iterator<Item = &'c ColumnDef>) -> Projection {
-        let mut projection = Projection { table, columns: 0 };
-        for column in columns {
-            projection.columns |= projection.bit(column);
+    /// The columns of `table` at `indexes`.
+    fn of_columns(table: TableRef, indexes: impl Iterator<Item = usize>) -> Projection {
+        let mut columns = ColumnSet::new(table.columns().len());
+        for index in indexes {
+            columns.insert(index);
         }
-        projection
+        Projection { table, columns }
     }
 
     /// The table whose columns are projected.
-    pub fn table(&self) -> &'static Table {
-        self.table
+    pub fn table(&self) -> &TableRef {
+        &self.table
     }
 
     /// Whether the column is projected; never for a column of another table.
-    pub fn contains(&self, column: &ColumnDef) -> bool {
-        self.index(column).is_some_and(|index| self.columns & (1 << index) != 0)
-    }
-
-    fn index(&self, column: &ColumnDef) -> Option<usize> {
-        self.table.columns.iter().position(|it| std::ptr::eq(it, column))
-    }
-
-    fn bit(&self, column: &ColumnDef) -> u64 {
-        1 << self.index(column).expect("a column of the projected table")
+    pub fn contains(&self, column: &ColumnRef) -> bool {
+        *column.table() == self.table && self.columns.contains(column.index())
     }
 
     /// The projected column names, in name order (like [`Plan::referenced_columns`]).
-    pub fn names(&self) -> Vec<&'static str> {
+    pub fn names(&self) -> Vec<&str> {
         let mut names = self
             .table
-            .columns
+            .columns()
             .iter()
-            .filter(|column| self.contains(column))
-            .map(|column| column.name)
+            .enumerate()
+            .filter(|(index, _)| self.columns.contains(*index))
+            .map(|(_, column)| column.name)
             .collect::<Vec<_>>();
         names.sort_unstable();
         names
@@ -229,7 +246,7 @@ impl Projection {
 impl fmt::Display for Projection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let names = self.names();
-        write!(f, "[{}] ({} of {} columns)", names.join(", "), names.len(), self.table.columns.len())
+        write!(f, "[{}] ({} of {} columns)", names.join(", "), names.len(), self.table.columns().len())
     }
 }
 
@@ -238,7 +255,7 @@ impl fmt::Display for Projection {
 /// `Some(None)` is a NULL string; `None` when the operand has to be evaluated instead.
 pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Option<&'r str>> {
     match expr {
-        CExpr::Column(column) => match (column.borrow, env.data, env.row) {
+        CExpr::Column(column) => match (column.borrow(), env.data, env.row) {
             (Borrow::Str(get), Some(data), Some(RowRef::Posting(row))) => Some(get(data, row)),
             _ => None,
         },
@@ -255,7 +272,7 @@ pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Opt
 /// not build the set; `None` when the operand has to be evaluated instead.
 pub(crate) fn set_membership<'r, 'a>(expr: &'r CExpr, env: &Env<'r, 'a>) -> Option<impl Fn(&str) -> bool + use<'r, 'a>> {
     match expr {
-        CExpr::Column(column) => match (column.borrow, env.data, env.row) {
+        CExpr::Column(column) => match (column.borrow(), env.data, env.row) {
             (Borrow::Contains(contains), Some(data), Some(RowRef::Posting(row))) => Some(move |needle: &str| contains(data, row, needle)),
             _ => None,
         },
@@ -274,9 +291,11 @@ mod tests {
     use zhang_core::ledger::Ledger;
 
     use super::*;
+    use crate::catalog::Catalog;
     use crate::executor::{execute, Budget, RegexCache};
-    use crate::params::Params;
-    use crate::table::{column, Dataset, Limits, Scope, COLUMNS};
+    use crate::params::{ParamTypes, Params};
+    use crate::table::{column, ColumnDef, Dataset, Limits, Record, Rows, Scope, Table, COLUMNS};
+    use crate::value::DataType;
     use crate::Query;
 
     fn load(dir: PathBuf) -> Ledger {
@@ -415,7 +434,12 @@ option "operating_currency" "USD"
 
     /// Run `sql` over the rows of its table built for `projection` (or the query's own).
     fn run_table(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
-        let query = Query::compile(sql).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        run_table_in(Catalog::core(), ledger, sql, projection)
+    }
+
+    /// [`run_table`] with the tables of `catalog`.
+    fn run_table_in(catalog: &Catalog, ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
+        let query = Query::compile_in(catalog, sql, &ParamTypes::default()).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
         let mut budget = Budget::new(None);
         let data = Dataset::build(
@@ -437,15 +461,15 @@ option "operating_currency" "USD"
             "{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n2024-04-04 note Assets:Bank \"x\"\n"
         ));
         let mut checked = 0;
-        for table in crate::table::tables().iter().filter(|table| !table.is_postings()) {
-            let all = Projection::all_of(table);
+        for table in Catalog::core().tables().iter().filter(|table| !table.is_postings()) {
+            let all = Projection::all_of(table.clone());
             let queries = table
-                .columns
+                .columns()
                 .iter()
-                .map(|column| format!("SELECT {} FROM #{}", column.name, table.name))
-                .chain([format!("SELECT * FROM #{}", table.name), format!("SELECT count(*) FROM #{}", table.name)]);
+                .map(|column| format!("SELECT {} FROM #{}", column.name, table.name()))
+                .chain([format!("SELECT * FROM #{}", table.name()), format!("SELECT count(*) FROM #{}", table.name())]);
             for sql in queries {
-                assert_eq!(run_table(&ledger, &sql, None), run_table(&ledger, &sql, Some(all)), "{sql}");
+                assert_eq!(run_table(&ledger, &sql, None), run_table(&ledger, &sql, Some(all.clone())), "{sql}");
                 checked += 1;
             }
         }
@@ -458,7 +482,7 @@ option "operating_currency" "USD"
             .unwrap()
             .projection;
         assert_eq!(projection.names(), vec!["payee", "position", "price", "tags"]);
-        assert!(projection.contains(column("tags").unwrap()) && !projection.contains(column("account").unwrap()));
+        assert!(projection.contains(&column("tags").unwrap()) && !projection.contains(&column("account").unwrap()));
         assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 36 columns)");
 
         assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 36 columns)");
@@ -488,22 +512,120 @@ option "operating_currency" "USD"
                 params: &params,
                 regexes: &regexes,
             };
-            for column in COLUMNS {
-                let expr = CExpr::Column(column);
+            for column in (0..COLUMNS.len()).map(|index| Catalog::core().postings().column_at(index)) {
+                let expr = CExpr::Column(column.clone());
                 let value = column.value(&data, RowRef::Posting(row));
                 if let Some(text) = borrowed_str(&expr, &env) {
-                    assert_eq!(text.map(|it| Value::Str(it.to_owned())).unwrap_or(Value::Null), value, "{}", column.name);
+                    assert_eq!(text.map(|it| Value::Str(it.to_owned())).unwrap_or(Value::Null), value, "{}", column.name());
                     checked += 1;
                 }
                 if let Some(contains) = set_membership(&expr, &env) {
-                    let Value::Set(set) = &value else { panic!("{} is not a set", column.name) };
+                    let Value::Set(set) = &value else { panic!("{} is not a set", column.name()) };
                     for needle in needles {
-                        assert_eq!(contains(needle), set.contains(needle), "{} {}", column.name, needle);
+                        assert_eq!(contains(needle), set.contains(needle), "{} {}", column.name(), needle);
                     }
                     checked += 1;
                 };
             }
         }
         assert_eq!(checked, data.rows.len() * 10);
+    }
+
+    /// A test-only table with more columns than a `u64` has bits: `c0` to `c69`, three rows
+    /// (`r0` to `r2`), and the cell of column `cN` in row `rM` is `'rM.N'`.
+    static WIDE: Table = Table {
+        name: "wide",
+        description: "A test-only table with 70 columns.",
+        columns: WIDE_COLUMNS,
+        wildcard: &["c0", "c64", "c69"],
+        rows: Rows::Records(wide_rows),
+    };
+
+    macro_rules! wide_columns {
+        ($($index:literal)*) => {
+            &[$(ColumnDef::record(concat!("c", stringify!($index)), DataType::Str, "A column of the wide test table.", |_, record| wide_cell(record, $index)),)*]
+        };
+    }
+
+    static WIDE_COLUMNS: &[ColumnDef] = wide_columns!(
+        0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39
+        40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69
+    );
+
+    thread_local! {
+        /// the names of the columns projected for the last rows [`wide_rows`] built on this thread
+        static WIDE_PROJECTED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    fn wide_rows<'a>(_ledger: &'a Ledger, projection: &Projection) -> Vec<Record<'a>> {
+        WIDE_PROJECTED.set(projection.names().into_iter().map(str::to_owned).collect());
+        ["r0", "r1", "r2"]
+            .into_iter()
+            .map(|name| Record::Account {
+                name,
+                open: None,
+                close: None,
+                booking: None,
+            })
+            .collect()
+    }
+
+    fn wide_cell(record: &Record<'_>, index: usize) -> Value {
+        match record {
+            Record::Account { name, .. } => Value::Str(format!("{name}.{index}")),
+            _ => Value::Null,
+        }
+    }
+
+    #[test]
+    fn a_table_with_more_than_64_columns_projects_its_columns() {
+        assert_eq!(WIDE.columns.len(), 70);
+        let catalog = Catalog::core_and([TableRef::Static(&WIDE)]);
+        let wide = catalog.find("wide").unwrap().clone();
+        let sql = "SELECT c69, c0, c64 FROM #wide WHERE c63 != '' ORDER BY c65 DESC";
+        let query = Query::compile_in(&catalog, sql, &ParamTypes::default()).unwrap();
+
+        let read = [0, 63, 64, 65, 69];
+        assert_eq!(query.projection.names(), ["c0", "c63", "c64", "c65", "c69"]);
+        assert_eq!(query.projection.to_string(), "[c0, c63, c64, c65, c69] (5 of 70 columns)");
+        for index in 0..WIDE.columns.len() {
+            assert_eq!(query.projection.contains(&wide.column_at(index)), read.contains(&index), "c{index}");
+        }
+        // a column at the same index of another table is not projected
+        assert!(!query.projection.contains(&Catalog::core().postings().column_at(0)));
+
+        // the builder sees the projection, every column the plan reads is projected (the executor asserts it), and
+        // every column reads its own cell
+        let ledger = load_text(LEDGER);
+        let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let result = query.execute_at(&ledger, &Params::new(), today).unwrap();
+        assert_eq!(WIDE_PROJECTED.take(), ["c0", "c63", "c64", "c65", "c69"]);
+        let cell = |text: &str| Value::Str(text.to_owned());
+        assert_eq!(
+            result.rows,
+            [
+                vec![cell("r2.69"), cell("r2.0"), cell("r2.64")],
+                vec![cell("r1.69"), cell("r1.0"), cell("r1.64")],
+                vec![cell("r0.69"), cell("r0.0"), cell("r0.64")],
+            ]
+        );
+
+        // `SELECT *` reads the wildcard columns only; every column projected gives the same rows
+        let star = Query::compile_in(&catalog, "SELECT * FROM #wide", &ParamTypes::default()).unwrap();
+        assert_eq!(star.projection.to_string(), "[c0, c64, c69] (3 of 70 columns)");
+        let all = Projection::all_of(wide.clone());
+        assert_eq!(all.names().len(), 70);
+        assert!((0..70).all(|index| all.contains(&wide.column_at(index))));
+        for sql in [sql, "SELECT * FROM #wide", "SELECT count(*) FROM #wide"] {
+            assert_eq!(
+                run_table_in(&catalog, &ledger, sql, None),
+                run_table_in(&catalog, &ledger, sql, Some(all.clone())),
+                "{sql}"
+            );
+        }
+
+        // the core catalog, which `Query::compile` uses, does not have the table
+        let unknown = Query::compile("SELECT c0 FROM #wide").err().unwrap();
+        assert!(unknown.message.starts_with("unknown table '#wide'"), "{}", unknown.message);
     }
 }

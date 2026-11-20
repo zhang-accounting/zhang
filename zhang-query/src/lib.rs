@@ -44,6 +44,7 @@
 //! ```
 
 mod ast;
+pub mod catalog;
 mod compiler;
 pub mod decimal;
 #[cfg(test)]
@@ -70,6 +71,7 @@ use chrono::NaiveDate;
 pub use zhang_ast::amount::Amount;
 use zhang_core::ledger::Ledger;
 
+pub use crate::catalog::Catalog;
 pub use crate::error::{QueryError, QueryErrorKind};
 pub use crate::params::{Bindings, ParamRef, ParamTypes, Params};
 pub use crate::parser::{MAX_DEPTH, MAX_NAME_PARTS, MAX_QUERY_LENGTH};
@@ -112,8 +114,15 @@ impl Query {
 
     /// Compile a query whose `$n` / `:name` parameters have the given types.
     pub fn compile_with_params(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
+        Query::compile_in(Catalog::core(), query, params)
+    }
+
+    /// Compile a query whose `$n` / `:name` parameters have the given types against the tables
+    /// of `catalog`: `FROM #name` names one of them, and a query without it reads the catalog's
+    /// `postings` table. [`Query::compile_with_params`] compiles against [`Catalog::core`].
+    pub fn compile_in(catalog: &Catalog, query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
         let select = parser::parse(query)?;
-        let plan = compiler::compile(query, &select, params).map_err(|err| err.resolve(query))?;
+        let plan = compiler::compile(catalog, query, &select, params).map_err(|err| err.resolve(query))?;
         let mut plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
         projector::plan_running(&mut plan);
         let projection = projector::project(&plan);
@@ -132,7 +141,7 @@ impl Query {
     #[cfg(test)]
     pub(crate) fn compile_naive(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
         let select = parser::parse(query)?;
-        let plan = compiler::compile(query, &select, params).map_err(|err| err.resolve(query))?;
+        let plan = compiler::compile(Catalog::core(), query, &select, params).map_err(|err| err.resolve(query))?;
         let plan = optimizer::optimize_naive(plan).map_err(|err| err.resolve(query))?;
         let projection = projector::project(&plan);
         Ok(Query {
@@ -157,13 +166,13 @@ impl Query {
     }
 
     /// The columns of the query's [table](Query::table) it reads, in name order.
-    pub fn referenced_columns(&self) -> Vec<&'static str> {
+    pub fn referenced_columns(&self) -> Vec<&str> {
         self.plan.referenced_columns().into_iter().collect()
     }
 
     /// The name of the table the query reads (`FROM #name`), `postings` by default.
-    pub fn table(&self) -> &'static str {
-        self.plan.table.name
+    pub fn table(&self) -> &str {
+        self.plan.table.name()
     }
 
     /// The result columns.
@@ -319,11 +328,11 @@ impl Query {
                 let scope = self.plan.execution.scope.as_ref().map(|scope| scope.resolve(params)).unwrap_or_default();
                 let until = self.plan.execution.until.as_ref().map(|until| until.resolve(params, today));
                 let mut limits = table::Limits::new(deadline.as_ref(), &mut budget);
-                table::Dataset::build(ledger, now, self.projection, &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
+                table::Dataset::build(ledger, now, self.projection.clone(), &scope, until, &mut limits).map_err(|err| err.resolve(&self.source))?
             }
             Some(period) => {
                 equity = period::EquityAccounts::from_options(&ledger.options.values);
-                let data = table::Dataset::postings(ledger, cache, now, self.projection, &table::Scope::All);
+                let data = table::Dataset::postings(ledger, cache, now, self.projection.clone(), &table::Scope::All);
                 period.apply(data, ledger, &equity)
             }
         };

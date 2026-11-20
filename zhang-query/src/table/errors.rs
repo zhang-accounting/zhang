@@ -135,7 +135,7 @@ pub(crate) fn render_message(kind: &ErrorKind, metas: &HashMap<String, String>) 
     rendered
 }
 
-fn rows<'a>(ledger: &'a Ledger, projection: Projection) -> Vec<Record<'a>> {
+fn rows<'a>(ledger: &'a Ledger, projection: &Projection) -> Vec<Record<'a>> {
     let mut errors = ledger
         .errors
         .iter()
@@ -182,8 +182,8 @@ fn rows<'a>(ledger: &'a Ledger, projection: Projection) -> Vec<Record<'a>> {
 }
 
 /// Whether the column `name` of this table is projected.
-fn projects(projection: Projection, name: &str) -> bool {
-    ERRORS.column(name).is_some_and(|column| projection.contains(column))
+fn projects(projection: &Projection, name: &str) -> bool {
+    ERRORS.column_ref(name).is_some_and(|column| projection.contains(&column))
 }
 
 fn ledger_error<'r, 'a>(record: &'r Record<'a>) -> Option<&'r LedgerError<'a>> {

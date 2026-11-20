@@ -234,7 +234,7 @@ fn late_targets(plan: &Plan) -> Vec<usize> {
 /// rather than through the end of the ledger, keeps a query of this month working when a date
 /// typo dates an entry centuries ahead.
 pub(crate) fn date_bound(plan: &Plan) -> Option<DateBound> {
-    if !matches!(plan.table.rows, Rows::Generated(_)) {
+    if !matches!(plan.table.rows(), Rows::Generated(_)) {
         return None;
     }
     let conjuncts = match plan.filter.as_ref()? {
@@ -254,7 +254,7 @@ pub(crate) fn date_bound(plan: &Plan) -> Option<DateBound> {
 
 /// The date bound of a filter conjunct (see [`date_bound`]).
 fn bounding_date(expr: &CExpr) -> Option<DateBound> {
-    let is_date = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.name == "date");
+    let is_date = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.name() == "date");
     let is_month = |expr: &CExpr| matches!(expr, CExpr::Scalar { function, args, .. } if function.name == "yearmonth" && matches!(args.as_slice(), [date] if is_date(date)));
     let is_today = |expr: &CExpr| matches!(expr, CExpr::Scalar { function, args, .. } if function.name == "today" && args.is_empty());
     let bound = |expr: &CExpr| match expr {
@@ -331,7 +331,7 @@ pub(crate) fn account_scope(plan: &Plan) -> Option<AccountScope> {
 /// To scope by another predicate on the account, add an arm here and, when it names accounts
 /// in a new way, a [`ScopedAccount`] variant.
 fn scoped_accounts(expr: &CExpr) -> Option<Vec<ScopedAccount>> {
-    let is_account = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.name == "account");
+    let is_account = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.name() == "account");
     // a value naming accounts: a string or NULL, or a string parameter
     let named = |expr: &CExpr| match expr {
         CExpr::Const(value @ (Value::Str(_) | Value::Null)) => Some(ScopeValue::Const(value.clone())),

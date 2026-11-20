@@ -513,7 +513,7 @@ impl Series<'_, '_> {
     }
 }
 
-fn rows<'a>(ledger: &'a Ledger, generation: Generation, projection: Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
+fn rows<'a>(ledger: &'a Ledger, generation: Generation, projection: &Projection, limits: &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError> {
     let Budgets { budgets, events } = budgets(ledger);
     let last_transaction = last_transaction(ledger);
     let wants_activity = ["activity", "assigned", "available"].into_iter().any(|name| projects(projection, name));
@@ -657,8 +657,8 @@ fn too_many_months(err: LocatedError, ledger: &Ledger, all: &[Series<'_, '_>]) -
 }
 
 /// Whether the column `name` of this table is projected.
-fn projects(projection: Projection, name: &str) -> bool {
-    BUDGETS.column(name).is_some_and(|column| projection.contains(column))
+fn projects(projection: &Projection, name: &str) -> bool {
+    BUDGETS.column_ref(name).is_some_and(|column| projection.contains(&column))
 }
 
 /// The accounts of every budget: those whose `open` has a `budget` metadata entry naming it, at
@@ -759,9 +759,9 @@ pub(crate) struct BudgetDefinition<'a> {
     accounts: BTreeSet<String>,
 }
 
-fn definition_rows<'a>(ledger: &'a Ledger, projection: Projection) -> Vec<Record<'a>> {
-    let mut accounts = match BUDGET_DEFINITIONS.column("accounts") {
-        Some(column) if projection.contains(column) => budget_accounts(ledger),
+fn definition_rows<'a>(ledger: &'a Ledger, projection: &Projection) -> Vec<Record<'a>> {
+    let mut accounts = match BUDGET_DEFINITIONS.column_ref("accounts") {
+        Some(column) if projection.contains(&column) => budget_accounts(ledger),
         _ => HashMap::new(),
     };
     let mut budgets = budgets(ledger).budgets.into_values().collect::<Vec<_>>();
@@ -848,7 +848,7 @@ static DEFINITION_COLUMNS: &[ColumnDef] = &[
 // ---------------------------------------------------------------------------------------
 // #budget_events
 
-fn event_rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+fn event_rows<'a>(ledger: &'a Ledger, _projection: &Projection) -> Vec<Record<'a>> {
     budgets(ledger).events.into_iter().map(Record::BudgetEvent).collect()
 }
 
