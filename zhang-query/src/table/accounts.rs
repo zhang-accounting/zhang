@@ -26,7 +26,7 @@ pub(super) static ACCOUNTS: Table = Table {
     rows: Rows::Records(rows),
 };
 
-fn rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+fn rows<'a>(ledger: &'a Ledger, _projection: &Projection) -> Vec<Record<'a>> {
     let booking = ledger.booking_methods();
     let directive = |idx: Option<usize>| idx.map(|idx| &ledger.directives[idx]);
     LedgerCache::of(ledger)

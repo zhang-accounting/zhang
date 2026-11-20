@@ -91,12 +91,12 @@ impl CExpr {
     pub(crate) fn eval(&self, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
         match self {
             CExpr::Const(value) => Ok(value.clone()),
-            CExpr::Column(def) => match (env.data, env.row) {
+            CExpr::Column(column) => match (env.data, env.row) {
                 (Some(data), Some(row)) => {
-                    debug_assert!(data.projection.contains(def), "column '{}' is not projected", def.name);
-                    Ok(def.value(data, row))
+                    debug_assert!(data.projection.contains(column), "column '{}' is not projected", column.name());
+                    Ok(column.value(data, row))
                 }
-                _ => Err(LocatedError::eval(format!("column '{}' is not available here", def.name), None)),
+                _ => Err(LocatedError::eval(format!("column '{}' is not available here", column.name()), None)),
             },
             CExpr::Running(total) => match env.running {
                 Some(running) => Ok(Value::Inventory(running.value(*total, env.row))),

@@ -2,8 +2,9 @@
 //!
 //! Every table is a static [`Table`] in the registry ([`tables`]): a name, a description,
 //! typed columns ([`ColumnDef`]), the columns `SELECT *` expands to, and a row source. The
-//! compiler resolves the query's table first and then its column names against that table
-//! only; the projector prunes the table's columns; the executor reads rows through
+//! compiler resolves the query's table in its catalog ([`crate::Catalog`]) first and then its
+//! column names against that table only, into handles ([`crate::catalog`]); the projector
+//! prunes the table's columns; the executor reads rows through
 //! [`RowRef`], so every later stage (filters, grouping, ordering, LIMIT, the result budget
 //! and the deadline) works the same way for every table.
 //!
@@ -55,6 +56,9 @@ use zhang_core::ledger::Ledger;
 pub(crate) use self::cache::{Head, LedgerCache};
 pub use self::postings::COLUMNS;
 pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
+#[cfg(test)]
+use crate::catalog::ColumnRef;
+use crate::catalog::TableRef;
 use crate::error::LocatedError;
 use crate::executor::{Budget, Deadline};
 use crate::functions::AccountDirectives;
@@ -82,7 +86,12 @@ impl fmt::Debug for Table {
 impl Table {
     /// The column `name` (case-insensitive).
     pub fn column(&self, name: &str) -> Option<&'static ColumnDef> {
-        self.columns.iter().find(|it| it.name.eq_ignore_ascii_case(name))
+        self.column_index(name).map(|index| &self.columns[index])
+    }
+
+    /// The position of the column `name` (case-insensitive) among the columns.
+    pub(crate) fn column_index(&self, name: &str) -> Option<usize> {
+        self.columns.iter().position(|it| it.name.eq_ignore_ascii_case(name))
     }
 
     /// Whether this is the `postings` table, the default of a query without `FROM #name`.
@@ -113,13 +122,13 @@ pub(crate) enum Rows {
 }
 
 /// Builds the rows of a record table, in the table's row order.
-pub(crate) type RecordSource = for<'a> fn(&'a Ledger, Projection) -> Vec<Record<'a>>;
+pub(crate) type RecordSource = for<'a> fn(&'a Ledger, &Projection) -> Vec<Record<'a>>;
 
 /// Builds the generated rows of a record table, in the table's row order, calling
 /// [`Limits::row`] for every row before it builds it.
 /// It gets `today()` of the execution, and the last date a row needs to have (see
 /// [`crate::optimizer::date_bound`]): rows dated after it are not generated.
-pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, Generation, Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
+pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, Generation, &Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
 
 /// What a [`GeneratedSource`] needs to know of the execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,20 +189,15 @@ static TABLES: &[&Table] = &[
     &errors::ERRORS,
 ];
 
-/// Every table a query can read, `postings` first.
+/// Every table a query can read, `postings` first: the tables of [`crate::Catalog::core`].
 pub fn tables() -> &'static [&'static Table] {
     TABLES
 }
 
-/// The table `name` (without `#`). Table names are case-sensitive, as in beanquery.
-pub(crate) fn find(name: &str) -> Option<&'static Table> {
-    TABLES.iter().copied().find(|table| table.name == name)
-}
-
 /// The column `name` of the `postings` table.
 #[cfg(test)]
-pub(crate) fn column(name: &str) -> Option<&'static ColumnDef> {
-    POSTINGS.column(name)
+pub(crate) fn column(name: &str) -> Option<ColumnRef> {
+    POSTINGS.column_ref(name)
 }
 
 /// A column of a table.
@@ -377,7 +381,7 @@ pub(crate) enum RowRef<'r, 'a> {
 /// The rows of one query execution plus lazily built lookup structures.
 pub(crate) struct Dataset<'a> {
     /// the table the rows belong to
-    pub table: &'static Table,
+    pub table: TableRef,
     /// the transactions of the `postings` rows
     pub entries: Vec<Entry<'a>>,
     /// the rows of the `postings` table
@@ -403,13 +407,13 @@ impl<'a> Dataset<'a> {
     ) -> Result<Self, LocatedError> {
         let cache = LedgerCache::of(ledger);
         let today = now.date();
-        let records = match projection.table().rows {
+        let records = match projection.table().rows() {
             Rows::Postings => return Ok(Dataset::postings(ledger, cache, now, projection, scope)),
-            Rows::Records(source) => source(ledger, projection),
-            Rows::Generated(source) => source(ledger, Generation { today, until }, projection, limits)?,
+            Rows::Records(source) => source(ledger, &projection),
+            Rows::Generated(source) => source(ledger, Generation { today, until }, &projection, limits)?,
         };
         Ok(Dataset {
-            table: projection.table(),
+            table: projection.table().clone(),
             entries: vec![],
             rows: vec![],
             records,
@@ -424,7 +428,7 @@ impl<'a> Dataset<'a> {
 
     /// The number of rows.
     pub fn len(&self) -> usize {
-        match self.table.rows {
+        match self.table.rows() {
             Rows::Postings => self.rows.len(),
             Rows::Records(_) | Rows::Generated(_) => self.records.len(),
         }
@@ -432,7 +436,7 @@ impl<'a> Dataset<'a> {
 
     /// The row at `idx`.
     pub fn row(&self, idx: usize) -> RowRef<'_, 'a> {
-        match self.table.rows {
+        match self.table.rows() {
             Rows::Postings => RowRef::Posting(&self.rows[idx]),
             Rows::Records(_) | Rows::Generated(_) => RowRef::Record(&self.records[idx]),
         }

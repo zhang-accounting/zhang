@@ -55,13 +55,13 @@ pub(super) static TRANSACTIONS: Table = Table {
 
 /// The entries, in ledger order: the dated directives without the transactions the ledger
 /// rejected (see [`super::cache::Entries`]).
-fn entry_rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+fn entry_rows<'a>(ledger: &'a Ledger, _projection: &Projection) -> Vec<Record<'a>> {
     let table = LedgerCache::of(ledger).entries(ledger);
     table.rows.iter().map(|info| entry_record(ledger, info)).collect()
 }
 
 /// The transaction entries, in the order of the ledger's directives.
-fn transaction_rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+fn transaction_rows<'a>(ledger: &'a Ledger, _projection: &Projection) -> Vec<Record<'a>> {
     let table = LedgerCache::of(ledger).entries(ledger);
     table.transactions.iter().map(|idx| entry_record(ledger, &table.rows[*idx as usize])).collect()
 }

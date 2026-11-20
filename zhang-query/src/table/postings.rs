@@ -27,6 +27,7 @@ use zhang_core::ledger::Ledger;
 
 use super::cache::{Accounts, CachedRow, Head, LedgerCache, Lot, Postings};
 use super::{render_pairs, Borrow, ColumnDef, Dataset, POSTINGS};
+use crate::catalog::TableRef;
 use crate::decimal;
 use crate::functions::is_under;
 use crate::projector::Projection;
@@ -189,7 +190,7 @@ impl<'a> Dataset<'a> {
         }
 
         Dataset {
-            table: &POSTINGS,
+            table: TableRef::Static(&POSTINGS),
             entries,
             rows,
             records: vec![],

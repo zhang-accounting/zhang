@@ -13,12 +13,13 @@ use regex::{Regex, RegexBuilder};
 
 pub(crate) use crate::ast::ArithOp;
 use crate::ast::{self, BinaryOp, Count, CountValue, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
+use crate::catalog::{Catalog, ColumnRef, TableRef};
 use crate::error::{LocatedError, Span};
 use crate::functions::aggregates::{is_aggregate, resolve_aggregate};
 use crate::functions::{reads_the_row, resolve_scalar, AggregateFunction, AggregateKind, ScalarFunction};
 use crate::params::{ParamRef, ParamTypes, Params};
 use crate::period::{Period, PeriodDate};
-use crate::table::{self, ColumnDef, Scope, Table, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN, POSTINGS};
+use crate::table::{Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
 use crate::value::{first_of_month, DataType, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +77,8 @@ pub(crate) struct ArithStep {
 #[derive(Clone)]
 pub(crate) enum CExpr {
     Const(Value),
-    Column(&'static ColumnDef),
+    /// a column of the plan's table
+    Column(ColumnRef),
     /// the `balance` column (the running inventory of the rows produced so far, including
     /// the current one), or a linear function of it the optimizer turned into its own running
     /// sum. It is stateful, so it is never folded, and the executor provides it.
@@ -577,7 +579,7 @@ pub(crate) struct Pivot {
 #[derive(Clone)]
 pub(crate) struct Plan {
     /// the table the query reads (`FROM #name`; `postings` by default)
-    pub table: &'static Table,
+    pub table: TableRef,
     /// visible targets first, then hidden ones added by GROUP BY / ORDER BY
     pub targets: Vec<PlannedTarget>,
     pub visible: usize,
@@ -640,7 +642,7 @@ struct ExprInfo {
 struct Compiler<'q> {
     src: &'q str,
     /// the table whose columns the query's names resolve to
-    table: &'static Table,
+    table: TableRef,
     param_types: &'q ParamTypes,
     aggregates: Vec<AggregateCall>,
     /// the source of each aggregate call of `aggregates`, at the same index: a call that is
@@ -653,13 +655,14 @@ struct Compiler<'q> {
 
 type Typed = (CExpr, DataType);
 
-pub(crate) fn compile(src: &str, select: &Select, param_types: &ParamTypes) -> Result<Plan, LocatedError> {
+/// Compile `select` (parsed from `src`) against the tables of `catalog`.
+pub(crate) fn compile(catalog: &Catalog, src: &str, select: &Select, param_types: &ParamTypes) -> Result<Plan, LocatedError> {
     let table = match &select.table {
-        None => &POSTINGS,
-        Some(name) => match table::find(&name.name) {
-            Some(table) => table,
+        None => catalog.postings().clone(),
+        Some(name) => match catalog.find(&name.name) {
+            Some(table) => table.clone(),
             None => {
-                let names = table::tables().iter().map(|table| format!("#{}", table.name)).collect::<Vec<_>>();
+                let names = catalog.tables().iter().map(|table| format!("#{}", table.name())).collect::<Vec<_>>();
                 let what = if name.bare {
                     format!("unknown column or table '{}'", name.name)
                 } else {
@@ -704,7 +707,7 @@ impl Compiler<'_> {
         let target_exprs: Vec<(Expr, Option<String>)> = match &select.targets {
             Targets::Wildcard => self
                 .table
-                .wildcard
+                .wildcard()
                 .iter()
                 .map(|name| (Expr::new(ExprKind::Column((*name).to_owned()), Span::default()), Some((*name).to_owned())))
                 .collect(),
@@ -830,7 +833,7 @@ impl Compiler<'_> {
         }
 
         let mut plan = Plan {
-            table: self.table,
+            table: self.table.clone(),
             targets,
             visible,
             period,
@@ -1025,7 +1028,7 @@ impl Compiler<'_> {
         Ok(match &expr.kind {
             ExprKind::Literal(literal) => return Ok(literal_value(literal)),
             ExprKind::Param(param) => return self.param(param, span),
-            ExprKind::Column(name) => return column_ref(self.table, name, span, mode, info),
+            ExprKind::Column(name) => return column_ref(&self.table, name, span, mode, info),
             ExprKind::Call { name, args, star } => self.call(name, args, *star, span, mode, info)?,
             ExprKind::Unary(op, inner) => {
                 let operand = self.expr(inner, mode, info)?;
@@ -1406,18 +1409,19 @@ fn literal_value(literal: &Literal) -> Typed {
     }
 }
 
-fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+fn column_ref(table: &TableRef, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
     match table.column(name) {
-        Some(def) => {
+        Some(column) => {
             if info.bare_column.is_none() {
-                info.bare_column = Some((def.name.to_owned(), span));
+                info.bare_column = Some((column.name().to_owned(), span));
             }
-            if table.is_postings() && def.name == ACCOUNT_BALANCE_COLUMN {
+            let ty = column.ty();
+            if table.is_postings() && column.name() == ACCOUNT_BALANCE_COLUMN {
                 // a running total, which the filter may read: it does not depend on the filter
-                return Ok((CExpr::Running(Running::AccountBalance), def.ty));
+                return Ok((CExpr::Running(Running::AccountBalance), ty));
             }
-            if !(table.is_postings() && def.name == BALANCE_COLUMN) {
-                return Ok((CExpr::Column(def), def.ty));
+            if !(table.is_postings() && column.name() == BALANCE_COLUMN) {
+                return Ok((CExpr::Column(column), ty));
             }
             if let Mode::Row(clause @ ("FROM" | "WHERE")) = mode {
                 return err(
@@ -1425,7 +1429,7 @@ fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &
                     span,
                 );
             }
-            Ok((CExpr::Running(Running::Balance), def.ty))
+            Ok((CExpr::Running(Running::Balance), ty))
         }
         None if name.contains('.') => attribute_error(table, name, span, mode, info),
         None => {
@@ -1437,9 +1441,15 @@ fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &
             if table.is_postings() {
                 err(format!("unknown column '{}'{}", name, hint), span)
             } else {
-                let columns = table.columns.iter().map(|column| column.name).collect::<Vec<_>>();
+                let columns = table.columns().iter().map(|column| column.name).collect::<Vec<_>>();
                 err(
-                    format!("unknown column '{}' in #{} (its columns are {}){}", name, table.name, columns.join(", "), hint),
+                    format!(
+                        "unknown column '{}' in #{} (its columns are {}){}",
+                        name,
+                        table.name(),
+                        columns.join(", "),
+                        hint
+                    ),
                     span,
                 )
             }
@@ -1452,7 +1462,7 @@ fn column_ref(table: &'static Table, name: &str, span: Span, mode: Mode, info: &
 /// that has none, both reported at the attribute after that prefix. When no prefix is a
 /// column, the first part is an unknown column. Iterative, so that no number of dots can
 /// exhaust the stack (the parser also caps it, at [`crate::parser::MAX_NAME_PARTS`]).
-fn attribute_error(table: &'static Table, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
+fn attribute_error(table: &TableRef, name: &str, span: Span, mode: Mode, info: &mut ExprInfo) -> Result<Typed, LocatedError> {
     let dots = name.match_indices('.').map(|(idx, _)| idx).collect::<Vec<_>>();
     for (k, &dot) in dots.iter().enumerate().rev() {
         let base = &name[..dot];
@@ -1470,7 +1480,10 @@ fn attribute_error(table: &'static Table, name: &str, span: Span, mode: Mode, in
             return err(
                 format!(
                     "{} is a {} and has no attributes, so {}.{} does not exist",
-                    column.name, column.ty, column.name, attribute
+                    column.name(),
+                    column.ty(),
+                    column.name(),
+                    attribute
                 ),
                 attribute_span,
             );
@@ -1728,10 +1741,10 @@ impl CExpr {
     }
 
     /// Add the names of the columns this expression reads to `columns`.
-    pub(crate) fn collect_columns(&self, columns: &mut BTreeSet<&'static str>) {
+    pub(crate) fn collect_columns<'e>(&'e self, columns: &mut BTreeSet<&'e str>) {
         match self {
-            CExpr::Column(def) => {
-                columns.insert(def.name);
+            CExpr::Column(column) => {
+                columns.insert(column.name());
             }
             CExpr::Running(total) => {
                 columns.insert(total.column());
@@ -1812,7 +1825,7 @@ impl Plan {
 
     /// The columns of the plan's table read anywhere in the plan (targets, filter, aggregate
     /// arguments), for a projection stage that only computes what is used.
-    pub(crate) fn referenced_columns(&self) -> BTreeSet<&'static str> {
+    pub(crate) fn referenced_columns(&self) -> BTreeSet<&str> {
         let mut columns = BTreeSet::new();
         for target in &self.targets {
             target.expr.collect_columns(&mut columns);
@@ -1845,7 +1858,7 @@ impl fmt::Display for CExpr {
             CExpr::Const(Value::Str(it)) => write!(f, "'{}'", it),
             CExpr::Const(Value::Date(it)) => write!(f, "{}", it),
             CExpr::Const(value) => write!(f, "{}", value),
-            CExpr::Column(def) => f.write_str(def.name),
+            CExpr::Column(column) => f.write_str(column.name()),
             CExpr::Running(running) => f.write_str(running.expression()),
             CExpr::Param(param) => write!(f, "{}", param),
             CExpr::Scalar { function, args, .. } => {
@@ -1926,7 +1939,7 @@ impl fmt::Display for CExpr {
 impl fmt::Display for Plan {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if !self.table.is_postings() {
-            writeln!(f, "table: #{}", self.table.name)?;
+            writeln!(f, "table: #{}", self.table.name())?;
         }
         for (idx, target) in self.targets.iter().enumerate() {
             let hidden = if idx >= self.visible { " (hidden)" } else { "" };
@@ -2027,7 +2040,7 @@ mod tests {
                 let name = vec!["a"; parts].join(".");
                 let Targets::List(targets) = &mut select.targets else { panic!() };
                 targets[0].expr = Expr::new(ExprKind::Column(name.clone()), Span::new(7, 7 + name.len()));
-                compile(src, &select, &ParamTypes::default()).err().expect("an unknown column")
+                compile(Catalog::core(), src, &select, &ParamTypes::default()).err().expect("an unknown column")
             })
             .unwrap()
             .join()

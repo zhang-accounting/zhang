@@ -22,7 +22,7 @@ pub(super) static PRICES: Table = Table {
     rows: Rows::Records(rows),
 };
 
-fn rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+fn rows<'a>(ledger: &'a Ledger, _projection: &Projection) -> Vec<Record<'a>> {
     directives_where(ledger, |it| matches!(it, Directive::Price(_)))
 }
 

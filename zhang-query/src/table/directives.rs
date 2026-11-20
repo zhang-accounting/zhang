@@ -333,7 +333,7 @@ impl<'a> DocumentRow<'a> {
 /// The path of a document directive of a beancount ledger is the one zhang resolved it to while
 /// loading the ledger ([`Detail::Document`]): relative to the file of the directive, as beancount
 /// reads it, or relative to the ledger's root where only that names a file.
-fn document_rows<'a>(ledger: &'a Ledger, _projection: Projection) -> Vec<Record<'a>> {
+fn document_rows<'a>(ledger: &'a Ledger, _projection: &Projection) -> Vec<Record<'a>> {
     let row = |directive, source, filename: &'a str, path: Cow<'a, Path>, transaction_id, seq| {
         Record::Document(DocumentRow {
             directive,
