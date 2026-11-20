@@ -212,9 +212,11 @@ fn quote_unreadable_meta(directive: &mut Directive) {
 /// - a tag, `#[A-Za-z0-9\-_/.]+` (lexer.l:287): ASCII only, `#旅行` is a syntax error;
 /// - a date, `[0-9]{4,}[\-/][0-9]+[\-/][0-9]+` (lexer.l:267), here a valid `YYYY-MM-DD`;
 /// - a currency, `[A-Z][A-Z0-9'._-]*[A-Z0-9]` or a single capital (lexer.l:203, :240);
-/// - a plain number, `([0-9]+|[0-9][0-9,]+[0-9])(\.[0-9]*)?` (lexer.l:282) after an optional sign, or an amount, such a
-///   number and a currency. Beancount evaluates the arithmetic of numbers in a value, so `978-3-16` would read as 959
-///   and `2024-01` as 2023, and two numbers (`12 34`) are a syntax error: every other value made of digits is quoted;
+/// - a plain number, `([0-9]+|[0-9][0-9,]+[0-9])(\.[0-9]*)?` (lexer.l:282) after an optional sign, its commas only
+///   between groups of three digits, as `^[0-9]{1,3}(,[0-9]{3})*` (beancount reports `1,5`, `1,00,000` or `1,,2` as an
+///   "Invalid number format"), or an amount, such a number and a currency. Beancount evaluates the arithmetic of numbers
+///   in a value, so `978-3-16` would read as 959 and `2024-01` as 2023, and two numbers (`12 34`) are a syntax error:
+///   every other value made of digits is quoted;
 /// - an account, `{ACCOUNTTYPE}(:{ACCOUNTNAME})+` (lexer.l:129-130, :272): components of ASCII letters, digits and
 ///   `-` and of any non-ASCII character, each starting with an ASCII capital or digit or a non-ASCII character. Beancount
 ///   then matches it from its start against its account pattern: the root is one of the five account types, and the
@@ -231,12 +233,14 @@ fn reads_bare(value: &str) -> bool {
             && chars.all(|it| it.is_ascii_uppercase() || it.is_ascii_digit() || matches!(it, '\'' | '.' | '_' | '-'))
     }
     fn number(text: &str) -> bool {
+        let digits = |text: &str| !text.is_empty() && text.bytes().all(|it| it.is_ascii_digit());
         let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
         let (whole, fraction) = unsigned.split_once('.').map_or((unsigned, ""), |(whole, fraction)| (whole, fraction));
-        whole.starts_with(|it: char| it.is_ascii_digit())
-            && whole.ends_with(|it: char| it.is_ascii_digit())
-            && whole.chars().all(|it| it.is_ascii_digit() || it == ',')
-            && fraction.chars().all(|it| it.is_ascii_digit())
+        // digits, or groups of three digits after a first group of one to three: `^[0-9]{1,3}(,[0-9]{3})*`
+        let mut groups = whole.split(',');
+        let first = groups.next().unwrap_or_default();
+        let grouped = digits(first) && (!whole.contains(',') || (first.len() <= 3 && groups.all(|group| group.len() == 3 && digits(group))));
+        grouped && fraction.bytes().all(|it| it.is_ascii_digit())
     }
     fn account(text: &str) -> bool {
         let mut components = text.split(':');
@@ -374,6 +378,10 @@ mod test {
             "-3",
             "+3",
             "1,000.50",
+            "1,000",
+            "12,345,678.90",
+            "-1,000.5",
+            "1234",
             "10 USD",
             "-10 USD",
             "Assets:Cash",
@@ -388,6 +396,15 @@ mod test {
             "978-3-16",
             "2024-01",
             "12 34",
+            "1,2",
+            "1,23",
+            "1,,2",
+            "1234,567",
+            "1,000,00",
+            "1,5",
+            "1,00,000",
+            "-1,5",
+            "1,5 USD",
             "(1 + 2) * 3",
             "1 + 2 USD",
             "1/2",
@@ -459,6 +476,47 @@ mod test {
         }
     }
 
+    /// A number whose commas are not between groups of three digits is quoted: beancount reports it as an "Invalid
+    /// number format" (`1,5`, a decimal comma, or `1,00,000`, Indian grouping), so written bare it would not load.
+    /// Grouped by three it stays bare, and either way zhang reads it back as its text.
+    #[test]
+    fn a_number_is_bare_only_with_its_commas_in_groups_of_three() {
+        let cases = [
+            ("a", "1,2", true),
+            ("b", "1,23", true),
+            ("c", "1,,2", true),
+            ("d", "1234,567", true),
+            ("e", "1,000,00", true),
+            ("f", "1,5", true),
+            ("g", "1,00,000", true),
+            ("h", "1,000", false),
+            ("i", "12,345,678.90", false),
+            ("j", "-1,000.5", false),
+            ("k", "1234.5", false),
+        ];
+        let mut open = zhang_core::data_type::text::ZhangDataType {}
+            .transform("2024-01-01 open Assets:Cash".to_owned(), None)
+            .unwrap()
+            .remove(0);
+        for (key, value, _) in &cases {
+            open.data.meta_mut().unwrap().insert(format!("value-{key}"), ZhangString::unquote(*value));
+        }
+        let written = Beancount {}.export(open);
+        for (key, value, quoted) in &cases {
+            let line = if *quoted {
+                format!("  value-{key}: \"{value}\"")
+            } else {
+                format!("  value-{key}: {value}")
+            };
+            assert!(written.lines().any(|it| it == line), "{line:?} in\n{written}");
+        }
+        let read = Beancount::default().transform(written, None).unwrap().remove(0);
+        for (key, value, _) in &cases {
+            let read = read.data.meta().unwrap().get_one(format!("value-{key}").as_str()).map(|it| it.as_str());
+            assert_eq!(read, Some(*value), "{key}");
+        }
+    }
+
     /// The `time` metadata of a directive in a beancount file is its time when it is a time of day, `H:M:S` or `H:M`;
     /// any other `time`, such as `evening` or `12:00:00+08:00`, stays metadata, and the directive keeps its date. Before,
     /// such a `time` was dropped, neither applied nor kept.
@@ -480,7 +538,7 @@ mod test {
                 assert_eq!(directive.meta().unwrap().get_one("time"), None, "{time}");
             }
         }
-        for time in ["evening", "12:00:00+08:00", "25:00", "12"] {
+        for time in ["evening", "12:00:00+08:00", "25:00", "12", "+1:30", "1:-30", "1::30"] {
             for directive in read(time) {
                 assert!(matches!(directive.clone().date_mut(), Some(Date::Date(_))), "{time}: {directive:?}");
                 assert_eq!(directive.meta().unwrap().get_one("time").map(|it| it.as_str()), Some(time), "{time}");
