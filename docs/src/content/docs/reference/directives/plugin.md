@@ -55,19 +55,23 @@ receives the setting `base_currency`. The second may read the files under `docum
 
 ## Capabilities
 
-A plugin can do nothing outside its own memory unless its directive grants it. These metadata keys are capabilities:
+A plugin can do nothing outside its own memory unless its directive grants it, and never more than the server
+allows ([below](#what-the-server-allows)). These metadata keys are capabilities:
 
 | Key | Grants | Default |
 |---|---|---|
-| `allowed_hosts` | HTTP requests to these hosts. Repeat the key for several hosts. | no network access |
+| `allowed_hosts` | HTTP requests to these hosts, within the hosts the server allows. Repeat the key for several hosts. | no network access |
 | `allowed_paths` | Read-only access to these files and directories of the ledger. Repeat the key for several. | no file access |
-| `timeout` | How long one call into the plugin may run. | 60 seconds |
+| `timeout` | How long one call into the plugin may run, at most what the server allows. | 60 seconds, at most the server's limit (30 seconds unless set) |
 | `seed` | Nothing. Any text, mixed into the seed the plugin derives its random values from. | none |
 | `stage` | Where the plugin runs while the ledger loads: `"booked"`, after Zhang has booked the transactions, or `"raw"`, before. | `"booked"` |
 
 **`allowed_hosts`.** Each value is a host name, such as `api.example.com`, matched against the host of each request
 the plugin sends. A `*` in it matches any characters, so `*.example.com` grants every sub-domain of `example.com`.
-The port and the path are not part of the match.
+The port and the path are not part of the match. Whatever the hosts, a request only goes to a public address: a name
+that resolves to a loopback, private, link-local (such as the cloud metadata service `169.254.169.254`) or otherwise
+non-public address is refused, and the request connects to the address the name was checked at. Redirects are not
+followed: the plugin receives the `3xx` response, and a request to its `location` is checked like any other.
 
 **`allowed_paths`.** Each value is a file or a directory, relative to the ledger root and written with `/`:
 
@@ -137,11 +141,33 @@ A plugin can also read settings that change over time from [`custom`](/reference
 - The settings page of the web UI lists the loaded plugins. A router plugin serves `/api/plugins/<name>`; see
   [Router plugins](/guides/router-plugins/).
 
+## What the server allows
+
+A ledger is text that others than the person running `zhang serve` may be able to change: through the web UI's file
+editor, a Git repository or a bucket. So the server sets a ceiling over what `plugin` directives can grant, with
+options of `zhang serve`:
+
+| Setting | Allows | Default |
+|---|---|---|
+| `--plugins <off\|read\|write>`, `ZHANG_PLUGINS` | `off`: no plugin is loaded. `read`: plugins run and change nothing. `write`: plugins may also write to the ledger where their directive grants it. | `read` |
+| `ZHANG_PLUGIN_ALLOWED_HOSTS` | The hosts any plugin may reach at most: patterns like those of `allowed_hosts`, separated by commas; `*` allows every host. | none: no plugin has network access |
+| `ZHANG_PLUGIN_MAX_TIMEOUT` | The longest one call into a plugin may run, written like `timeout`. | `30s` |
+| `ZHANG_PLUGIN_MAX_MEMORY` | The most memory one plugin instance may use, such as `512MiB`. | `256MiB` |
+
+A plugin gets what its directive grants *and* the server allows: with `allowed_hosts: "*"` and
+`ZHANG_PLUGIN_ALLOWED_HOSTS=api.example.com`, the plugin reaches `api.example.com` only. When a directive asks for more
+than the server allows, the plugin still loads, with less, and the directive gets a
+[`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) error naming the setting to change. With
+`--plugins off`, every `plugin` directive gets a [`PluginsDisabled`](/reference/error-codes/#pluginsdisabled) error
+instead, and no plugin runs. `zhang serve` logs these settings when it starts.
+
 ## Errors
 
 | Error | When |
 |---|---|
 | [`ParseInvalidMeta`](/reference/error-codes/#parseinvalidmeta) | A `timeout`, `allowed_paths` or `stage` value is invalid. The error points at the `plugin` directive. |
+| [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) | The directive grants more hosts or a longer timeout than the server allows. The plugin runs with what the server allows. |
+| [`PluginsDisabled`](/reference/error-codes/#pluginsdisabled) | The server runs with plugins off. The plugin is not loaded. |
 | [`PluginError`](/reference/error-codes/#pluginerror) | The plugin reports a problem in the ledger. |
 
 ## Beancount compatibility

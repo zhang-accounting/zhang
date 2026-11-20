@@ -52,9 +52,9 @@ plugin "plugins/large_expense.wasm"
 
 | 元数据 | 允许插件 | 没有时 |
 |---|---|---|
-| `allowed_hosts` | 向这些主机发送 HTTP 请求。有多个主机时重复这个键。 | 无网络访问 |
+| `allowed_hosts` | 向这些主机发送 HTTP 请求，限于服务器允许的主机。有多个主机时重复这个键。 | 无网络访问 |
 | `allowed_paths` | 读取账本中的这些文件和目录。有多个时重复这个键。 | 无文件访问 |
-| `timeout` | 每次调用最多运行这么久：整秒数（`"90"`），或带单位 `ms`、`s`、`m` 或 `h` 的数字（`"500ms"`、`"2m"`），最长一天 | 60 秒 |
+| `timeout` | 每次调用最多运行这么久，不超过服务器允许的时长：整秒数（`"90"`），或带单位 `ms`、`s`、`m` 或 `h` 的数字（`"500ms"`、`"2m"`） | 60 秒，不超过服务器的限制（未设置时为 30 秒） |
 | `seed` | 不增加任何权限。可以是任意文本：它会改变插件派生随机值所用的种子。 | 默认种子 |
 
 ```zhang
@@ -77,6 +77,27 @@ plugin "plugins/receipts.wasm"
 
 张记账无法使用的值，例如 `timeout: "soon"`，会在 `plugin` 指令上报告为 [`ParseInvalidMeta`](/zh-cn/reference/error-codes/#parseinvalidmeta) 错误，插件则使用默认值。
 
+关于 `allowed_hosts`：请求只会发往公网地址。解析到本机、私有网络或云元数据服务（`169.254.169.254`）的主机会被拒绝，重定向也不会被跟随。
+
+## 服务器允许的范围
+
+能修改你的账本文件的人，无论是通过网页界面的文件编辑器、Git 仓库还是存储桶，都能写 `plugin` 指令。所以最终决定权在服务器而不是账本，由 `zhang serve` 的选项设置：
+
+| 设置 | 默认值 | 作用 |
+|---|---|---|
+| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` 不加载任何插件；`read` 运行插件，插件不修改任何东西；`write` 还允许插件在其指令授予时写入账本。 |
+| `ZHANG_PLUGIN_ALLOWED_HOSTS` | 无 | 插件可以访问的主机，用逗号分隔，例如 `api.frankfurter.dev,*.example.com`；`*` 允许任何主机。只有插件的 `allowed_hosts` 和这个设置都允许时，插件才能访问一个主机。 |
+| `ZHANG_PLUGIN_MAX_TIMEOUT` | `30s` | 对插件的一次调用最长能运行多久。 |
+| `ZHANG_PLUGIN_MAX_MEMORY` | `256MiB` | 一个插件实例最多能使用的内存。 |
+
+所以默认情况下，插件以只读方式运行，没有任何网络访问，每次调用最多 30 秒。当指令授予的更多时，插件仍会以服务器允许的能力加载，错误列表会在该指令上显示一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出需要修改的设置。使用 `--plugins off` 时，每条 `plugin` 指令会显示一个 [`PluginsDisabled`](/zh-cn/reference/error-codes/#pluginsdisabled) 错误。
+
+例如，要让上面的汇率插件获取汇率，这样启动服务器：
+
+```shell
+ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev zhang serve /path/to/ledger
+```
+
 :::danger[同时授予文件和网络访问]
 同时拥有 `allowed_paths` 和 `allowed_hosts` 的插件可以把它读到的内容发送到你的机器之外。插件本来就会收到你的整个账本，所以只有当你在这两方面都信任一个插件时，才同时授予它两者。
 :::
@@ -87,7 +108,7 @@ plugin "plugins/receipts.wasm"
 
 沙箱阻止的是：
 
-- 网络访问，`allowed_hosts` 中的主机除外；
+- 网络访问，`allowed_hosts` 中服务器也允许的主机的公网地址除外；
 - 读取文件，`allowed_paths` 在账本根目录内授予的除外；
 - 写入文件，包括你的账本文件；
 - 运行超过 `timeout`；
@@ -100,7 +121,7 @@ Router 插件的页面由张记账自己的地址提供，但[在沙箱中运行
 ## 查看已加载的插件
 
 - **设置**页面按运行顺序列出已加载的插件，包括它们的名称、版本和类型。Router 插件附有指向其页面的链接。
-- `GET /api/plugins` 以 JSON 返回同样的列表，并附上每个插件被授予的 `allowed_hosts` 以及每个 Router 插件的路由。要检查 `allowed_paths` 和 `timeout`，请阅读账本中的 `plugin` 指令。
+- `GET /api/plugins` 以 JSON 返回同样的列表，并附上每个插件能访问的主机（它的 `allowed_hosts` 中服务器允许的部分）以及每个 Router 插件的路由。要检查 `allowed_paths` 和 `timeout`，请阅读账本中的 `plugin` 指令。
 
 ## 插件出错时
 

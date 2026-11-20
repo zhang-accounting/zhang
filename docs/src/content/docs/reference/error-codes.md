@@ -624,6 +624,42 @@ transaction:
 **Fix:** do what the `message` meta asks, or change the plugin's settings. A message saying that the plugin called
 `zhang_emit_error` with an invalid payload is a bug in the plugin: report it to the plugin's author.
 
+## PluginsDisabled
+
+*Plugin `<plugin>` is not loaded: the server runs with plugins off (`<setting>`)*
+
+The ledger enables plugins with `features.plugin`, but the server runs with plugins off (`zhang serve --plugins off`
+or `ZHANG_PLUGINS=off`), so the plugin of this [`plugin`](/reference/directives/plugin/) directive is not loaded. The
+ledger loads without it: what its processor or mapper would add or check is missing, and a router plugin serves no
+route. Metas: `plugin`, the module as written, and `setting`, `ZHANG_PLUGINS`.
+
+**Fix:** if you run the server, start it with `--plugins read` (or `write`), or unset `ZHANG_PLUGINS`. Otherwise remove
+the directive, or turn `features.plugin` off.
+
+## PluginCapabilityReduced
+
+*Plugin `<plugin>` asks for `<capability>` `<requested>`, but the server allows it `<granted>`; `<setting>` sets what
+the server allows*
+
+A [`plugin`](/reference/directives/plugin/) directive grants more than the server allows (see
+[What the server allows](/reference/directives/plugin/#what-the-server-allows)): more hosts in `allowed_hosts` than
+`ZHANG_PLUGIN_ALLOWED_HOSTS` allows, or a `timeout` longer than `ZHANG_PLUGIN_MAX_TIMEOUT`. The plugin still loads and
+runs with what the server allows, so a plugin reaching a host it may not reach fails its call, and one running longer
+than the server's limit is stopped. Metas: `plugin` (the module as written), `capability` (`allowed_hosts` or
+`timeout`), `requested` (what the directive grants), `granted` (what the plugin gets, `none` for nothing) and `setting`
+(the environment variable of `zhang serve` that sets the server's limit).
+
+For example, without `ZHANG_PLUGIN_ALLOWED_HOSTS`, this directive is reported with `requested: api.frankfurter.dev`
+and `granted: none`:
+
+```zhang
+plugin "plugins/fx-rates.wasm"
+  allowed_hosts: "api.frankfurter.dev"
+```
+
+**Fix:** if you run the server and trust the plugin, allow what it needs with the setting the error names, such as
+`ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev`, and restart it. Otherwise ask less of the plugin in its directive.
+
 ## When the ledger does not load
 
 These problems stop Zhang from loading the ledger. `zhang serve` prints the reason on stderr and exits with exit

@@ -44,13 +44,13 @@ Meta keys starting with `zhang.` are reserved for values Zhang sets.
 
 ### Capabilities
 
-A plugin can do nothing outside its own memory unless its directive grants it.
+A plugin can do nothing outside its own memory unless its directive grants it, and the server running it caps every grant ([what the server allows](/reference/directives/plugin/#what-the-server-allows)): by default no host, at most 30 seconds a call, read-only. Write your plugin to cope with less than its directive asks for, and say in its documentation what an operator has to allow.
 
 | Meta | Grants | Default |
 |---|---|---|
-| `allowed_hosts` | HTTP requests to these hosts. Repeat the key for several hosts. | no network at all |
+| `allowed_hosts` | HTTP requests to these hosts, within `ZHANG_PLUGIN_ALLOWED_HOSTS`, to public addresses only and without following redirects. Repeat the key for several hosts. | no network at all |
 | `allowed_paths` | read-only access to these files and directories of the ledger. Repeat the key for several. | no file access |
-| `timeout` | how long one call into the plugin may run: whole seconds (`"90"`) or a number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"2m"`), at most a day | 60 seconds |
+| `timeout` | how long one call into the plugin may run: whole seconds (`"90"`) or a number with a unit `ms`, `s`, `m` or `h` (`"500ms"`, `"2m"`), at most a day and at most `ZHANG_PLUGIN_MAX_TIMEOUT` | 60 seconds, at most `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds unless set) |
 | `seed` | nothing; any text, mixed into the plugin's [seed](#determinism) | none |
 | `stage` | where the plugin's processor and mapper run: `"booked"`, after Zhang has booked the transactions, or `"raw"`, before, on the transactions as written (see [the stage order contract](#the-stage-order-contract)) | `"booked"` |
 
@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 - **Authentication:** the routes sit behind Zhang's own sign-in. Only an allowlist of request headers reaches the plugin, never the credentials or a proxy's identity headers.
 - **Read-only:** a router reads the ledger only through `zhang_query` (BQL) and `zhang_ledger_info`; no host function changes it. Every request runs in a fresh instance, and the ledger does not reload while it runs.
 - **Security:** a router's pages are served from Zhang's own address, sandboxed: Zhang sends only the response headers it allows and adds `Content-Security-Policy: sandbox …`, so a script on such a page runs with an opaque origin and cannot use the visitor's session. Inline the page's scripts, styles and images. Escape everything you put into HTML.
-- **Limits:** a request body of at most 4 MiB, 4 requests at once per plugin, 30 seconds per request and 256 MiB of memory per instance, unless the operator sets other limits.
+- **Limits:** a request body of at most 4 MiB, 4 requests at once per plugin, 30 seconds per request (`ZHANG_PLUGIN_MAX_TIMEOUT`) and 256 MiB of memory per instance, unless the operator sets other limits.
 
 [Router Plugins](/guides/router-plugins/) has the request and response JSON, the error statuses and the details.
 
