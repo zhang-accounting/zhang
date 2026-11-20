@@ -2,7 +2,7 @@ use std::convert::Infallible;
 
 use async_stream::try_stream;
 use axum::extract::State;
-use axum::http::{Method, StatusCode, Uri};
+use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive};
 use axum::response::{IntoResponse, Response, Sse};
 use futures_util::Stream;
@@ -17,23 +17,31 @@ use crate::ApiResult;
 /// Every path no route takes. An `/api` path is a JSON 404 that names the method and the path, in every build: a
 /// script that calls an endpoint that is gone (the typed read endpoints retire in favour of the built-in queries, #754)
 /// gets an error it can read, never a page. Any other path is the frontend's, its single-page app, or in a build
-/// without the frontend a note that says so.
+/// without the frontend a note that says so; other sites may not show it in a frame (see [`deny_framing`]).
 pub async fn fallback(method: Method, uri: Uri) -> Response {
     let path = uri.path();
     if path == "/api" || path.starts_with("/api/") {
         return error_response(StatusCode::NOT_FOUND, format!("no route {} {}", method, path));
     }
     #[cfg(feature = "frontend")]
-    {
-        crate::routes::frontend::serve_frontend(uri).await.into_response()
-    }
+    let mut response = crate::routes::frontend::serve_frontend(uri).await.into_response();
     #[cfg(not(feature = "frontend"))]
-    {
-        "hello zhang,\n\
+    let mut response = "hello zhang,\n\
          seems you are trying to access the frontend UI, but the feature of frontend is not enable.\n\
          try to enable the feature and compile again"
-            .into_response()
-    }
+        .into_response();
+    deny_framing(&mut response);
+    response
+}
+
+/// Keeps the frontend out of the frames of other sites, so no page can overlay it and trick a click on its buttons
+/// (clickjacking), such as "Continue" of the mobile app login handoff: `X-Frame-Options` for older browsers and the
+/// `frame-ancestors` directive of `Content-Security-Policy` for the others. The frontend never frames itself, and the dev
+/// server of the frontend serves its own pages.
+fn deny_framing(response: &mut Response) {
+    let headers = response.headers_mut();
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("frame-ancestors 'none'"));
 }
 
 pub async fn sse(broadcaster: State<SharedBroadcaster>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {

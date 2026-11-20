@@ -694,6 +694,9 @@ async fn the_frontend_stays_reachable() {
     for uri in ["/", "/login", "/accounts", "/assets/index.js"] {
         let reply = get(&router, uri, &[]).await;
         assert_ne!(reply.status, StatusCode::UNAUTHORIZED, "{uri} is served");
+        // and never in a frame of another site (clickjacking of the login page)
+        assert_eq!(reply.headers.get(header::X_FRAME_OPTIONS).unwrap(), "DENY", "{uri}");
+        assert_eq!(reply.headers.get(header::CONTENT_SECURITY_POLICY).unwrap(), "frame-ancestors 'none'", "{uri}");
     }
     // CORS preflights carry no credentials
     let reply = call(

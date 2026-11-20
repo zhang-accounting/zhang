@@ -159,6 +159,7 @@ docker run --name zhang \
 - 同一设备上的其他 App 也可以注册 `zhang-app` scheme。PKCE 保护的是真正的 App 发起的登录：即使其他 App 收到了这次跳转，它拿到的也只是 code，拿不到从未离开真正 App 的 code verifier，因此无法兑换；state 则让真正的 App 能拒绝不属于自己发起的登录的跳转。
 - PKCE 无法分辨是哪个 App 发起了登录。注册了该 scheme 的 App 可以用自己的 verifier 发起自己的登录，只要你在那个页面上登录或点击**继续**，它就能拿到会话（客户端冒充，[RFC 8252 第 8.6 节](https://www.rfc-editor.org/rfc/rfc8252#section-8.6)）。因此已经登录的浏览器在把会话交给 App 之前会先询问：只有在你刚刚亲自从 App 发起登录时才登录或点击**继续**，并核对页面显示的 scheme 和主机。真正的 App 在私密浏览会话中打开登录页，所以通常看到的是登录表单，而不是这个询问。
 - 只会跳转到允许的 scheme 的 App 地址，登录页不能被用来把浏览器重定向到其他网站。
+- 网页界面的页面带有 `X-Frame-Options: DENY` 和 `Content-Security-Policy: frame-ancestors 'none'` 响应头，其他网站无法把登录页嵌入框架中、诱导你点击**继续**。
 - 兑换失败会计入[登录失败次数限制](#登录失败次数限制)。
 - token 就是浏览器的会话 token：有效期与浏览器会话相同（从登录起 30 天），失效条件也相同：`ZHANG_AUTH` 或 `ZHANG_SESSION_SECRET` 改变，或者它的通行密钥被移除。由于会话不保存在服务器上，退出登录（无论在浏览器还是 App 中）都不会吊销已经交给 App 的 token；要结束所有会话，请修改 `ZHANG_SESSION_SECRET`。
 - 请设置 `ZHANG_SESSION_SECRET`，否则每次重启 App 也会被登出。
