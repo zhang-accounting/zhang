@@ -93,13 +93,7 @@ if not ok then return { status = 400, json = { error = result } } end
 
 ### API 版本
 
-每个给 `zhang` 表增加内容的版本都会调高 `zhang.api_version`，所以需要较新功能的脚本先检查版本，在较旧的张记账上回答一个清楚的错误，而不是在调用 `nil` 时失败：
-
-```lua
-if (zhang.api_version or 0) < 1 then
-  return { status = 501, json = { error = "this plugin needs Zhang with Lua API version 1 or later" } }
-end
-```
+能运行 Lua 脚本的张记账中，`zhang.api_version` 都是 1，所以只使用上面这些 API 的脚本不需要检查。给 `zhang` 表增加内容的版本会调高这个版本号，并在下表列出增加的内容；用到这些新增内容的脚本先比较版本，例如 `if zhang.api_version < 2 then return { status = 501, json = { error = "this plugin needs Lua API version 2" } } end`，在较旧的张记账上回答这个清楚的错误，而不是在调用 `nil` 时失败。
 
 | 版本 | 增加了 |
 |---|---|

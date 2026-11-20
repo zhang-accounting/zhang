@@ -218,6 +218,8 @@ pub(super) struct HostState {
     timezone: Tz,
     /// whether a `zhang_now` call is recorded as reading the date; not while the plugin registers or routes
     record: bool,
+    /// whether the instance is registering the plugin, which only declares what it is: it may not reach the network
+    pub(super) registering: bool,
     /// whether the plugin read the time since its reads were last taken
     read: bool,
     /// what the plugin may read; `None` while it registers or handles a request as a router, when every
@@ -252,11 +254,14 @@ impl PluginHost {
         Self::with_record(plugin.into(), directive_span, clock, timezone, true)
     }
 
-    /// the host of an instance registering the plugin (`name`, `version`, `supported_type`): `zhang_now` returns
-    /// the time of the load as for a stage, but records nothing, since what a plugin answers there is not ledger
-    /// content
+    /// the host of an instance registering the plugin (`name`, `version`, `supported_type`, `capabilities`):
+    /// `zhang_now` returns the time of the load as for a stage, but records nothing, since what a plugin answers
+    /// there is not ledger content, and `http_request` is refused, since registering only declares what the plugin
+    /// is: its allowed hosts are for its stages and requests
     pub fn registering(plugin: impl Into<String>, directive_span: SpanInfo, clock: LoadClock, timezone: Tz) -> Self {
-        Self::with_record(plugin.into(), directive_span, clock, timezone, false)
+        let host = Self::with_record(plugin.into(), directive_span, clock, timezone, false);
+        host.lock().registering = true;
+        host
     }
 
     /// the host of an instance handling an HTTP request as a router plugin. A request is not a load:
@@ -274,6 +279,7 @@ impl PluginHost {
             clock,
             timezone,
             record,
+            registering: false,
             read: false,
             access: None,
             inputs: vec![],

@@ -29,13 +29,16 @@ fn load(body: &str) -> Ledger {
 }
 
 /// reported errors in store order, with the first line of their span and all their metas
+/// the errors with the first line of their span and their metas but `txn_id`, which every error at a transaction
+/// carries
 fn errors(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
     ledger
         .errors
         .iter()
         .map(|it| {
             let span = it.span.as_ref().and_then(|span| span.content.lines().next()).unwrap_or_default();
-            (it.error_type.clone(), span.to_owned(), it.metas.clone().into_iter().collect())
+            let metas = it.metas.clone().into_iter().filter(|(key, _)| key != "txn_id").collect();
+            (it.error_type.clone(), span.to_owned(), metas)
         })
         .collect()
 }

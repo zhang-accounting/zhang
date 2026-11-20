@@ -933,6 +933,48 @@ fn a_plugins_http_request_goes_through_zhang_and_never_to_a_private_address() {
     );
 }
 
+/// A plugin reaches the network from a stage or a router request only, never while it registers: one manifest, with
+/// its allowed hosts, serves the registration and the calls, and registering only declares what the plugin is
+#[test]
+fn a_plugin_makes_no_http_request_while_it_registers() {
+    let dir = ledger_dir(&["http_registering.wat"]);
+    let content = with_plugins(&format!("{}  allowed_hosts: \"203.0.113.1\"\n", plugin(&dir, "http_registering.wat")));
+
+    let error = load_with_policy(&dir, &content, PluginPolicy::unrestricted())
+        .err()
+        .expect("the registration fails")
+        .to_string();
+
+    assert!(error.contains("failed in its `name` call"), "{error}");
+    assert!(error.contains(zhang_core::plugin::net::REGISTERING_REFUSED), "{error}");
+}
+
+/// Two errors of one kind at one directive have ids of their own (seen live: the reduced hosts and the reduced timeout
+/// of one plugin directive shared an id), as do those of two directives
+#[test]
+fn the_reductions_of_one_directive_and_of_two_have_ids_of_their_own() {
+    let dir = ledger_dir(&["router.wat", "echo.wat"]);
+    let content = with_plugins(&format!(
+        "{}  allowed_hosts: \"api.example.com\"\n  timeout: \"2m\"\n{}  timeout: \"3m\"\n",
+        plugin(&dir, "router.wat"),
+        plugin(&dir, "echo.wat")
+    ));
+
+    let ledger = load_with_policy(&dir, &content, PluginPolicy::default()).unwrap();
+
+    let reduced: Vec<(&str, &str)> = ledger
+        .errors
+        .iter()
+        .filter(|error| error.error_type == ErrorKind::PluginCapabilityReduced)
+        .map(|error| (error.metas["capability"].as_str(), error.id.as_str()))
+        .collect();
+    assert_eq!(
+        reduced.iter().map(|(capability, _)| *capability).collect_vec(),
+        ["allowed_hosts", "timeout", "timeout"]
+    );
+    assert_eq!(reduced.iter().map(|(_, id)| *id).unique().count(), 3, "{reduced:?}");
+}
+
 #[test]
 fn router_reads_the_ledger_through_host_functions_only_while_routing() {
     // loading proves the processor got an `Err` from both host functions: it traps otherwise

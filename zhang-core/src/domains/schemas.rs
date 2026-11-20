@@ -69,15 +69,32 @@ pub struct ErrorDomain {
 }
 
 impl ErrorDomain {
-    /// the error `kind` of the directive at `span`, with what else the load knows of it in `metas`
+    /// the error `kind` of the directive at `span`, with what else the load knows of it in `metas`. Its id is that of
+    /// the first error of its kind there; [`identify_errors`] numbers the others once the load reported them all
     pub fn new(kind: ErrorKind, span: &SpanInfo, metas: HashMap<String, String>) -> ErrorDomain {
         debug!("insert a new error [{}] [span: {:?}] [meta:{:?}]", kind, span, metas);
         ErrorDomain {
-            id: Uuid::from_span(span).to_string(),
+            id: Uuid::of_error(span, &kind.to_string(), 0).to_string(),
             error_type: kind,
             span: Some(span.clone()),
             metas,
         }
+    }
+}
+
+/// Give each of `errors`, the errors of a load in the order it reported them, its id: the `n`-th error of a kind at a
+/// directive gets the `n`-th id of that kind there ([`FromSpan::of_error`]). No two errors of a load share an id, two
+/// errors of one directive included (a plugin directive whose hosts and timeout were both reduced), and an error keeps
+/// its id from one load of the same files to the next. An error of a transaction names the transaction in its
+/// `txn_id` meta.
+pub fn identify_errors(errors: &mut [ErrorDomain]) {
+    let mut reported: HashMap<(Option<PathBuf>, usize, String), usize> = HashMap::new();
+    for error in errors {
+        let Some(span) = &error.span else { continue };
+        let kind = error.error_type.to_string();
+        let n = reported.entry((span.filename.clone(), span.start, kind.clone())).or_default();
+        error.id = Uuid::of_error(span, &kind, *n).to_string();
+        *n += 1;
     }
 }
 

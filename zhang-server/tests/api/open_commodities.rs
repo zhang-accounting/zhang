@@ -75,7 +75,11 @@ async fn the_posting_in_eur_is_reported_on_its_transaction(main: &str) {
     let errors = errors(&ledger).await;
     assert_eq!(errors.len(), 1, "{main}: {errors:?}");
     assert_eq!(errors[0]["kind"], "CommodityNotAllowed", "{main}");
-    assert_eq!(metas(&errors[0]), json!({"account_name": "Assets:Bank", "commodity": "EUR"}), "{main}");
+    // the error names its transaction, as every error at one does
+    let mut metas = metas(&errors[0]);
+    let txn_id = metas.as_object_mut().unwrap().remove("txn_id");
+    assert_eq!(txn_id.and_then(|it| it.as_str().map(str::len)), Some(36), "{main}");
+    assert_eq!(metas, json!({"account_name": "Assets:Bank", "commodity": "EUR"}), "{main}");
     let span = &errors[0];
     assert_eq!(span["file"], main);
     assert_eq!(span["line"].as_u64(), Some(7), "{main}: {span}");

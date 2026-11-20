@@ -50,14 +50,16 @@ fn errors(ledger: &Ledger) -> Vec<(ErrorKind, Option<String>)> {
         .collect()
 }
 
-/// reported errors in store order, with the first line of their span and all their metas
+/// reported errors in store order, with the first line of their span and their metas but `txn_id`, which every error
+/// at a transaction carries (see `e11_postings_to_missing_or_closed_accounts_are_reported`)
 fn error_details(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
     ledger
         .errors
         .iter()
         .map(|it| {
             let span = it.span.as_ref().and_then(|span| span.content.lines().next()).unwrap_or_default();
-            (it.error_type.clone(), span.to_owned(), it.metas.clone().into_iter().collect())
+            let metas = it.metas.clone().into_iter().filter(|(key, _)| key != "txn_id").collect();
+            (it.error_type.clone(), span.to_owned(), metas)
         })
         .collect()
 }
@@ -1398,6 +1400,12 @@ fn e11_postings_to_missing_or_closed_accounts_are_reported() {
         ]
     );
     assert_eq!(ledger.transactions().len(), 1);
+    // both name the transaction, which their ids no longer are
+    let id = ledger.transactions()[0].0.to_string();
+    for error in &ledger.errors {
+        assert_eq!(error.metas.get("txn_id"), Some(&id), "{error:?}");
+        assert_ne!(error.id, id, "{error:?}");
+    }
 }
 
 #[test]

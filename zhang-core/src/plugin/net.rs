@@ -15,7 +15,9 @@
 //! remaining addresses only. Redirects are not followed: the plugin gets the `3xx` response, and following it is a
 //! new request, checked the same way. No proxy of the environment is used. The function keeps extism's contract
 //! otherwise: it takes the JSON `{"url", "method"?, "headers"?}` and a body, frees both, answers the offset of the
-//! response body (0 for none), and fails the call (a trap) when the request is not allowed or fails.
+//! response body (0 for none), and fails the call (a trap) when the request is not allowed or fails. A plugin that is
+//! registering (its `name`, `version`, `supported_type` and `capabilities` exports) makes no request at all
+//! ([`REGISTERING_REFUSED`]): those only declare what it is.
 //!
 //! [`PluginCapabilities::bound_by`]: crate::plugin::capabilities::PluginCapabilities::bound_by
 
@@ -48,6 +50,10 @@ const REQUEST_MAX_LEN: usize = 1024 * 1024;
 const BODY_MAX_LEN: usize = 16 * 1024 * 1024;
 /// the largest response body a plugin receives when its manifest sets none, extism's own default
 const DEFAULT_MAX_RESPONSE: u64 = 50 * 1024 * 1024;
+/// why `http_request` fails while the plugin registers: one manifest serves the registration and the calls, so the
+/// allowed hosts are there, but registering only declares what the plugin is
+pub const REGISTERING_REFUSED: &str = "HTTP requests are not allowed while the plugin registers (its name, version, supported_type and \
+                                       capabilities exports only declare what it is): make them from a stage or a router request";
 
 /// what a plugin asks `http_request` for, extism's `HttpRequest`
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -303,6 +309,9 @@ pub(super) fn http_request(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: 
     let request =
         take_block(plugin, inputs.first(), REQUEST_MAX_LEN, "HTTP request")?.ok_or_else(|| extism::Error::msg("the HTTP request is not a memory block"))?;
     let body = take_block(plugin, inputs.get(1), BODY_MAX_LEN, "HTTP request body")?;
+    if state.get()?.lock().unwrap_or_else(PoisonError::into_inner).registering {
+        return Err(extism::Error::msg(REGISTERING_REFUSED));
+    }
     let request: HttpRequest = serde_json::from_slice(&request).map_err(|e| extism::Error::msg(format!("the HTTP request is not valid: {e}")))?;
     let allowed_hosts = plugin.manifest().allowed_hosts.clone().unwrap_or_default();
     let max_response = plugin.manifest().memory.max_http_response_bytes.unwrap_or(DEFAULT_MAX_RESPONSE);
