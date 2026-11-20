@@ -1,7 +1,7 @@
 //! The performance baseline of the native budget implementation, which #698 P4 compares the budget plugin against: on
 //! generated ledgers of 10,000 and 100,000 transactions ([`zhang_testkit::budget_ledger`]), with budgets and without,
-//! the load and reload times, the budget pages' requests (cold after a reload, and warm), the writes of transactions
-//! and the reload the file watcher adds after each, readers stalled by it, readers concurrent with writes, the peak
+//! the load and reload times, the budget pages' requests (cold after a reload, and warm), the writes of transactions,
+//! what the file watcher does after each, readers during and after a write, readers concurrent with writes, the peak
 //! RSS, and the bytes of the responses and of what the budget computation reads. The method, the numbers and how to
 //! read them are on the "Budget Baseline" page of the developer docs
 //! (`docs/src/content/docs/developers/budget-baseline.md`).
@@ -22,7 +22,8 @@
 //! Without an argument the example runs each ledger in a process of its own, itself again, so that the peak RSS of a
 //! ledger is its own. A run prints its figures on stderr and a `BASELINE {...}` JSON line on stdout; with
 //! `ZHANG_BUDGET_BASELINE_OUT=<dir>` the JSON is also written to `<dir>/<ledger>.json`, and with
-//! `ZHANG_BUDGET_BASELINE_KEEP=<dir>` the ledger, as generated, to `<dir>/<ledger>/`. A debug build refuses to run.
+//! `ZHANG_BUDGET_BASELINE_KEEP=<dir>` the ledger, as generated, to `<dir>/<ledger>/`. `ZHANG_BUDGET_BASELINE_ONLY=writes`
+//! measures the load and the writes only, to repeat them cheaply. A debug build refuses to run.
 
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
@@ -69,8 +70,11 @@ pub enum FileSystem {
 
 /// the budgets of the baseline's ledgers
 const BUDGETS: usize = 30;
-/// the timed reloads, after one that is not timed
+/// the timed reloads of each kind (back to back, and spaced), after one that is not timed
 const RELOADS: usize = 20;
+/// the pause before each spaced reload: long enough for the ledger the reload before replaced to be freed, which the
+/// next reload waits for when it is not
+const RELOAD_PAUSE: Duration = Duration::from_secs(1);
 /// the cold requests of each kind: the first request after a reload, which also fills the ledger's query cache
 const COLD: usize = 5;
 /// the requests of each kind before the timed rounds
@@ -79,9 +83,9 @@ const WARM_UP: usize = 3;
 const ROUNDS: usize = 30;
 /// the transactions written before the timed ones; the first also adds the file it goes to and its `include`
 const WRITE_WARM_UP: usize = 2;
-/// the transactions written and timed, each with the reload of the file watcher after it
+/// the transactions written and timed, each with what the file watcher does after it
 const WRITES: usize = 20;
-/// how long the bench waits after the watcher's reload of a write, for a further reload to show
+/// how long the bench waits after the watcher's turn of a write, for a further reload to show
 const QUIET: Duration = Duration::from_secs(1);
 /// the concurrent readers
 const READERS: usize = 8;
@@ -164,15 +168,22 @@ fn run_all() -> ExitCode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reload {
+    /// a reload started: "start reloading..."
     Started,
+    /// a reload swapped the ledger it loaded in: "ledger is reloaded successfully in ..."
     Done,
+    /// the file watcher looked at its changes and asked for a reload: "gotcha event..."
+    Asked,
+    /// the reload listener found the ledger's files as the ledger served was loaded from, and loaded nothing
+    Skipped,
 }
 
-/// The logger of the bench. It keeps when the server's reloads start and end, as `ReloadSender::reload_in_place` logs
-/// them ("start reloading...", "ledger is reloaded successfully in ..."; every reload of the served ledger runs it, the
-/// reload listener's and a write's alike), and, at the trace level, the kinds of the file events each batch of the
-/// file watcher holds ("receive all file changes: ..."). It prints the other warnings and errors, but for the count
-/// of errors of every load: the ledgers have two.
+/// The logger of the bench. It keeps when the server's reloads start and end, as `LedgerWriter::reload` logs them
+/// ("start reloading...", "ledger is reloaded successfully in ..."; every reload of the served ledger runs it, the
+/// reload listener's and a write's alike), and, at the debug and trace levels, when the file watcher asks for a reload
+/// ("gotcha event..."), when the reload listener skips one ("... no reload") and the kinds of the file events each
+/// batch of the file watcher holds ("receive all file changes: ..."). It prints the other warnings and errors, but for
+/// the count of errors of every load: the ledgers have two.
 struct Reloads {
     events: Mutex<Vec<(Instant, Reload)>>,
     /// the kinds of the events of each batch of the file watcher, as notify writes them (`Modify(Data(Any))`)
@@ -190,7 +201,8 @@ impl log::Log for Reloads {
     }
 
     fn log(&self, record: &log::Record) {
-        if record.target() != "zhang_server" {
+        // the reload listener and the watcher log under `zhang_server`, a reload under `zhang_server::state`
+        if !matches!(record.target(), "zhang_server" | "zhang_server::state") {
             if record.level() <= log::Level::Warn && !(record.target() == "zhang_core::ledger" && record.args().to_string().starts_with("Ledger loaded with")) {
                 eprintln!("[{} {}] {}", record.level(), record.target(), record.args());
             }
@@ -204,6 +216,8 @@ impl log::Log for Reloads {
         let event = match message.as_str() {
             "start reloading..." => Reload::Started,
             it if it.starts_with("ledger is reloaded successfully") => Reload::Done,
+            it if it.starts_with("gotcha event") => Reload::Asked,
+            it if it.ends_with(": no reload") => Reload::Skipped,
             it if it.starts_with("receive all file changes") => {
                 let kinds = it
                     .split("kind: ")
@@ -235,24 +249,30 @@ fn count(events: &[(Instant, Reload)], kind: Reload) -> usize {
     events.iter().filter(|(_, it)| *it == kind).count()
 }
 
-/// Wait until every reload started since `since` is done, `done` of them at least; panics after `limit`.
-async fn reloads_done(since: Instant, done: usize, limit: Duration) -> Vec<(Instant, Reload)> {
+/// The file watcher's turn after the write sent at `since`: wait until, since then, the reload listener skipped a
+/// reload or a second reload (the write's own being the first) is done, and every reload started is done; panics after
+/// `limit`. The events since `since`.
+async fn watcher_turn(since: Instant, limit: Duration) -> Vec<(Instant, Reload)> {
     let deadline = Instant::now() + limit;
     loop {
         let events = reloads_since(since);
-        let finished = count(&events, Reload::Done);
-        if finished >= done && finished == count(&events, Reload::Started) {
+        let done = count(&events, Reload::Done);
+        if (count(&events, Reload::Skipped) >= 1 || done >= 2) && done == count(&events, Reload::Started) {
             return events;
         }
         assert!(
             Instant::now() < deadline,
-            "{} of {} reloads done after {:?}: does the file watcher run?",
-            finished,
-            done,
-            limit
+            "nothing of the file watcher {:?} after a write: does it run? {:?}",
+            limit,
+            events
         );
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
+}
+
+/// the time of the `nth` event of `kind` in `events`
+fn nth(events: &[(Instant, Reload)], kind: Reload, nth: usize) -> Option<Instant> {
+    events.iter().filter(|(_, it)| *it == kind).nth(nth).map(|(at, _)| *at)
 }
 
 // ---- the requests -----------------------------------------------------------------------------------------------
@@ -549,23 +569,33 @@ fn baseline(spec: Spec) -> Value {
         let config = serve_config(&dir, MAIN, source.clone(), &Settings::default());
         let router = router_of(create_server_app(config, shared.clone(), broadcaster, reload_sender.clone())).await;
 
-        // reloads through the reload listener, as the watcher asks for them: each loads the files again under the
-        // ledger's write lock, replaces the ledger and drops the old one. The first, after which the listener runs,
-        // is not timed
+        // Reloads through the reload listener, as the watcher asks for them. A reload waits for the writes before it
+        // (the write cycle) and for the ledger the reload before it replaced to be freed, loads the files with no lock
+        // held, swaps the new ledger in under the write lock and has the old one freed on a blocking thread, which the
+        // next reload waits for. Back to back, a reload waits for most of the freeing of the one before; spaced by
+        // [`RELOAD_PAUSE`], it does not. The first reload, after which the listener runs, is not timed
         let reload = || async {
             reload_sender
                 .reload_and_wait()
                 .await
                 .unwrap_or_else(|failure| panic!("{}: {}", name, failure.message));
         };
+        let only_writes = std::env::var("ZHANG_BUDGET_BASELINE_ONLY").is_ok_and(|it| it == "writes");
         reload().await;
-        let (mut reloads, since) = (vec![], Instant::now());
-        for _ in 0..RELOADS {
+        let (mut back_to_back, since) = (vec![], Instant::now());
+        for _ in 0..if only_writes { 0 } else { RELOADS } {
             let started = Instant::now();
             reload().await;
-            reloads.push(started.elapsed());
+            back_to_back.push(started.elapsed());
         }
         let logged = reload_durations(&reloads_since(since));
+        let mut spaced = vec![];
+        for _ in 0..if only_writes { 0 } else { RELOADS } {
+            tokio::time::sleep(RELOAD_PAUSE).await;
+            let started = Instant::now();
+            reload().await;
+            spaced.push(started.elapsed());
+        }
         let peak_reloads = status_mib("VmHWM");
 
         let mut report = json!({
@@ -577,8 +607,9 @@ fn baseline(spec: Spec) -> Value {
             "data_source": if local { "LocalFileSystemDataSource" } else { "OpendalDataSource (Fs)" },
             "generate_ms": ms(generate),
             "load_ms": ms(first_load),
-            "reload": summary(&reloads),
-            "reload_as_logged": summary(&logged),
+            "reload": if only_writes { Value::Null } else { summary(&back_to_back) },
+            "reload_as_logged": if only_writes { Value::Null } else { summary(&logged) },
+            "reload_spaced": if only_writes { Value::Null } else { summary(&spaced) },
             "errors": errors.len(),
             "input": input,
         });
@@ -589,7 +620,9 @@ fn baseline(spec: Spec) -> Value {
             "rss_after_load": rss_loaded,
             "peak_after_reloads": peak_reloads,
         });
-        if spec.with_budgets {
+        if spec.with_budgets && only_writes {
+            report["writes"] = writes(&router, &spec).await;
+        } else if spec.with_budgets {
             // the first request of each kind after a reload, the kinds in turn
             let mut cold = SCENARIOS.map(|_| vec![]);
             for index in 0..COLD * SCENARIOS.len() {
@@ -699,48 +732,71 @@ async fn reads(router: &Router) -> Value {
 }
 
 /// Transactions written one at a time, [`WRITE_WARM_UP`] and then [`WRITES`] timed ones. A write appends to
-/// `data/<year>/<month>.zhang` and reloads the ledger in place before it answers; the file watcher then sees the file
-/// written and asks the reload listener for a second reload. After each answer a reader sends `budgets.month` request
-/// after request until that second reload is done: the longest of them is what the watcher's reload stalls a reader.
-/// The bench then waits [`QUIET`] for a further reload before the next write.
+/// `data/<year>/<month>.zhang`, loads the ledger again with no lock held and swaps it in before it answers. Meanwhile a
+/// reader sends `budgets.month` request after request: the longest is what a write holds up a reader. The file watcher
+/// then sees the file written, gathers its events until none came for 500 ms, and asks the reload listener for a
+/// reload that loads only when the ledger's files no longer hold what the ledger served was loaded from; after each
+/// answer a reader sends `budgets.month` request after request until that turn of the watcher is over. The bench then
+/// waits [`QUIET`] for a further reload before the next write.
 async fn writes(router: &Router, spec: &Spec) -> Value {
-    // the file watcher logs its batches at the trace level
+    // the file watcher and the reload listener log what they do at the debug and trace levels
     log::set_max_level(log::LevelFilter::Trace);
-    let (mut latencies, mut stalls, mut watcher_delays, mut watcher_reloads, mut per_write) = (vec![], vec![], vec![], vec![], vec![]);
+    let (mut latencies, mut during, mut after, mut turns, mut checks, mut per_write, mut skipped) = (vec![], vec![], vec![], vec![], vec![], vec![], 0);
     let mut bytes = 0;
     let mut batches = 0;
     for index in 0..WRITE_WARM_UP + WRITES {
         if index == WRITE_WARM_UP {
             batches = watcher_batches().len();
         }
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader = {
+            let (router, spec, stop) = (router.clone(), *spec, stop.clone());
+            tokio::spawn(async move {
+                let mut longest = Duration::ZERO;
+                while !stop.load(Ordering::SeqCst) {
+                    longest = longest.max(send(&router, &spec, Scenario::Month).await.elapsed);
+                }
+                longest
+            })
+        };
         let sent = Instant::now();
         let answer = write(router, spec, index).await;
         let answered = Instant::now();
+        stop.store(true, Ordering::SeqCst);
+        let during_write = reader.await.expect("the reader");
         bytes = answer.bytes.len();
         let mut longest = Duration::ZERO;
         loop {
             longest = longest.max(send(router, spec, Scenario::Month).await.elapsed);
-            if count(&reloads_since(sent), Reload::Done) >= 2 {
+            let events = reloads_since(sent);
+            if count(&events, Reload::Skipped) >= 1 || count(&events, Reload::Done) >= 2 {
                 break;
             }
-            assert!(answered.elapsed() < Duration::from_secs(60), "no reload of the watcher a minute after a write");
+            assert!(
+                answered.elapsed() < Duration::from_secs(60),
+                "nothing of the file watcher a minute after a write"
+            );
         }
         tokio::time::sleep(QUIET).await;
-        let events = reloads_done(sent, 2, Duration::from_secs(60)).await;
+        let events = watcher_turn(sent, Duration::from_secs(60)).await;
         if index < WRITE_WARM_UP {
             continue;
         }
-        let starts = events.iter().filter(|(_, it)| *it == Reload::Started).map(|(at, _)| *at).collect::<Vec<_>>();
-        let durations = reload_durations(&events);
         latencies.push(answer.elapsed);
-        stalls.push(longest);
-        // the watcher's reload starts once the write released the ledger: right after the answer when the write's own
-        // reload took longer than the watcher waits
-        watcher_delays.push(starts[1].saturating_duration_since(answered));
-        watcher_reloads.push(durations[1]);
-        per_write.push(starts.len());
+        during.push(during_write);
+        after.push(longest);
+        per_write.push(count(&events, Reload::Started));
+        // the watcher's turn: from the answer to the reload listener's skip, or to the end of its reload
+        let end = nth(&events, Reload::Skipped, 0)
+            .or_else(|| nth(&events, Reload::Done, 1))
+            .expect("the watcher's turn");
+        turns.push(end.saturating_duration_since(answered));
+        if let (Some(asked), Some(skip)) = (nth(&events, Reload::Asked, 0), nth(&events, Reload::Skipped, 0)) {
+            skipped += 1;
+            checks.push(skip.saturating_duration_since(asked));
+        }
     }
-    // the batches of the timed writes: how many events the watcher waited for, and of which kinds
+    // the batches of the timed writes: how many events the watcher gathered, and of which kinds
     let batches = watcher_batches().split_off(batches);
     let mut kinds = std::collections::BTreeMap::<String, usize>::new();
     for kind in batches.iter().flatten() {
@@ -748,20 +804,25 @@ async fn writes(router: &Router, spec: &Spec) -> Value {
     }
     let sizes = batches.iter().map(Vec::len).collect::<Vec<_>>();
     log::set_max_level(log::LevelFilter::Info);
-    json!({
+    let mut report = json!({
         "write": summary(&latencies),
-        "watcher_batches": {"n": batches.len(), "events_min": sizes.iter().min(), "events_max": sizes.iter().max(), "kinds": kinds},
         "response_bytes": bytes,
-        "reloads_per_write": {"min": per_write.iter().min(), "max": per_write.iter().max()},
-        "watcher_reload_start_after_answer": summary(&watcher_delays),
-        "watcher_reload": summary(&watcher_reloads),
-        "reader_stall": summary(&stalls),
-    })
+        "loads_per_write": {"min": per_write.iter().min(), "max": per_write.iter().max()},
+        "watcher_skipped_its_reload": skipped,
+        "watcher_batches": {"n": batches.len(), "events_min": sizes.iter().min(), "events_max": sizes.iter().max(), "kinds": kinds},
+        "reader_during_write": summary(&during),
+        "watcher_turn_after_answer": summary(&turns),
+        "reader_during_watcher_turn": summary(&after),
+    });
+    if !checks.is_empty() {
+        report["watcher_check"] = summary(&checks);
+    }
+    report
 }
 
 /// [`READERS`] readers sending the budget pages' requests at once, the kinds in turn: first while nothing is written,
 /// [`READER_ROUNDS`] rounds of every kind each; then while [`CONCURRENT_WRITES`] transactions are written one after
-/// the other, each once the watcher's reload of the one before is done.
+/// the other, each once the watcher's turn of the one before is over.
 async fn concurrent(router: &Router, spec: &Spec) -> Value {
     let readers = |rounds: Option<usize>, stop: Arc<AtomicBool>| {
         (0..READERS)
@@ -789,15 +850,18 @@ async fn concurrent(router: &Router, spec: &Spec) -> Value {
 
     let quiet = gather(readers(Some(READER_ROUNDS), Arc::new(AtomicBool::new(false)))).await;
 
+    // the reload listener logs a skipped reload at the debug level
+    log::set_max_level(log::LevelFilter::Debug);
     let stop = Arc::new(AtomicBool::new(false));
     let tasks = readers(None, stop.clone());
     let (mut written, started) = (vec![], Instant::now());
     for index in 0..CONCURRENT_WRITES {
         let sent = Instant::now();
         written.push(write(router, spec, WRITE_WARM_UP + WRITES + index).await.elapsed);
-        reloads_done(sent, 2, Duration::from_secs(60)).await;
+        watcher_turn(sent, Duration::from_secs(60)).await;
     }
     let period = started.elapsed();
+    log::set_max_level(log::LevelFilter::Info);
     stop.store(true, Ordering::SeqCst);
     let during_writes = gather(tasks).await;
     json!({
@@ -827,8 +891,9 @@ fn print(report: &Value) {
     );
     eprintln!("{:<22} {:>5} {:>10} {:>10} {:>10} {:>10}", "ms", "n", "min", "p50", "p95", "max");
     eprintln!("{:<22} {:>5} {:>10}", "load", 1, report["load_ms"]);
-    line("reload", &report["reload"], String::new());
-    line("reload, as logged", &report["reload_as_logged"], String::new());
+    line("reload, back to back", &report["reload"], String::new());
+    line("  as logged", &report["reload_as_logged"], String::new());
+    line("reload, spaced", &report["reload_spaced"], String::new());
     if let Some(requests) = report["requests"].as_object() {
         for (name, stats) in requests {
             let cold = &report["cold"][name];
@@ -838,15 +903,27 @@ fn print(report: &Value) {
                 format!("bytes {}, cold {} – {}", report["response_bytes"][name], cold["min_ms"], cold["max_ms"]),
             );
         }
-        let writes = &report["writes"];
+    }
+    let writes = &report["writes"];
+    if writes.is_object() {
         line(
             "write",
             &writes["write"],
-            format!("bytes {}, reloads a write {}", writes["response_bytes"], writes["reloads_per_write"]),
+            format!(
+                "bytes {}, loads a write {}, watcher skipped {}",
+                writes["response_bytes"], writes["loads_per_write"], writes["watcher_skipped_its_reload"]
+            ),
         );
-        line("watcher reload", &writes["watcher_reload"], format!("batches {}", writes["watcher_batches"]));
-        line("  start after answer", &writes["watcher_reload_start_after_answer"], String::new());
-        line("reader stall", &writes["reader_stall"], String::new());
+        line("  reader meanwhile", &writes["reader_during_write"], String::new());
+        line(
+            "watcher turn",
+            &writes["watcher_turn_after_answer"],
+            format!("batches {}", writes["watcher_batches"]),
+        );
+        line("  check", &writes["watcher_check"], String::new());
+        line("  reader meanwhile", &writes["reader_during_watcher_turn"], String::new());
+    }
+    if report["concurrent"].is_object() {
         let concurrent = &report["concurrent"];
         line("8 readers", &concurrent["reads_without_writes"], String::new());
         line(
