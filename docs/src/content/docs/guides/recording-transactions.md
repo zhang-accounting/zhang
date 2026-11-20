@@ -129,6 +129,7 @@ Zhang appends what you record in the web UI to a file chosen by the entry's date
 ```
 
 - If the ledger does not read that file yet, Zhang also adds `include "data/2024/04.zhang"` at the end of the main file.
+- If that file cannot be written, a folder of the same name say, the save fails and the main file keeps no `include` of it: the ledger loads as before.
 - Everything else the web UI adds as a new entry goes to the same place: balance assertions written on an account page or with the **Batch balance** tool, and documents uploaded to an account.
 - A different template changes the layout. `option "directive_output_path" "data/{{year}}.{{ext}}"` keeps one file per year. The template can use `year`, `month`, `month_str`, `day`, `day_str`, `type` (the kind of entry) and `ext`.
 - In a beancount ledger the file has the main file's extension, such as `.bean`, and is written in beancount syntax, with the time of day in a `time` metadata entry.

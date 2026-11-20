@@ -269,7 +269,8 @@ fn committed(
 
 /// The `io` error of a write that failed after `failure.written` landed: it names the entries (by index) and the
 /// files that are in the ledger's files now, and those that are not, so a client tells the user what was recorded
-/// and does not record the whole batch a second time. An `include` line the plan wrote counts with its file
+/// and does not record the whole batch a second time. An `include` line the plan wrote counts with its file when the
+/// file was written; one of a file that was not is said to be taken out again, or, when that failed too, to stay
 fn partial_write(entries: &[WritePreviewEntry], failure: &zhang_core::data_source::AppendError) -> HostError {
     let listed = |predicate: &dyn Fn(&str) -> bool| -> String {
         let mut files: Vec<String> = vec![];
@@ -293,24 +294,26 @@ fn partial_write(entries: &[WritePreviewEntry], failure: &zhang_core::data_sourc
     };
     let written = listed(&|file| failure.written.iter().any(|it| it == file));
     let not_written = listed(&|file| !failure.written.iter().any(|it| it == file));
-    let other_written: Vec<&str> = failure
-        .written
-        .iter()
-        .filter(|file| !entries.iter().any(|entry| &entry.file == *file))
-        .map(String::as_str)
-        .collect();
     let mut message = format!("the ledger's files could not be written: {}.", failure.error);
-    match written.is_empty() {
-        true => message.push_str(" Nothing was written"),
-        false => message.push_str(&format!(" Already written, do not send again: {written}")),
-    }
-    if !other_written.is_empty() {
-        message.push_str(&format!(" (and the include in {})", other_written.join(", ")));
+    match (written.is_empty(), failure.written.is_empty()) {
+        (false, _) => message.push_str(&format!(" Already written, do not send again: {written}.")),
+        (true, true) => message.push_str(" Nothing was written."),
+        // a file holding no entry of the batch: the main file, with an include that stayed
+        (true, false) => message.push_str(" No entry was written."),
     }
     if !not_written.is_empty() {
-        message.push_str(&format!(". Not written: {not_written}"));
+        message.push_str(&format!(" Not written: {not_written}."));
     }
-    message.push_str(". The ledger reloads; preview the entries that are not written again");
+    let mut mains: Vec<&str> = failure.taken_out.iter().map(|(main, _)| main.as_str()).collect();
+    mains.dedup();
+    for main in mains {
+        let files: Vec<&str> = failure.taken_out.iter().filter(|(it, _)| it == main).map(|(_, file)| file.as_str()).collect();
+        message.push_str(&format!(" The include of {} written into {main} was taken out again.", files.join(", ")));
+    }
+    if !failure.dangling.is_empty() {
+        message.push_str(&format!(" {}.", zhang_core::data_source::dangling_includes(&failure.dangling)));
+    }
+    message.push_str(" The ledger reloads; preview the entries that are not written again");
     HostError::new(HostErrorKind::Io, message)
 }
 
@@ -833,6 +836,70 @@ mod test {
         // a wall-clock time is a date and time
         let timed = ok(&ledger, json!([open(json!({"date": "2026-10-13T08:30:00"}))]));
         assert_eq!(timed["entries"][0]["text"], "2026-10-13 08:30:00 open Assets:Bank");
+    }
+
+    /// The `io` error of a failed commit says exactly what landed: the entries written and those not, and of an
+    /// include it wrote of a file it could not write, that it was taken out again, or that it stayed and must go
+    #[test]
+    fn a_failed_commit_says_exactly_what_was_written_and_what_was_not() {
+        use zhang_core::data_source::AppendError;
+        use zhang_core::ZhangError;
+
+        let entry = |index: usize, file: &str| super::WritePreviewEntry {
+            index,
+            kind: "transaction".to_owned(),
+            file: file.to_owned(),
+            text: Some("2026-10-13 * \"x\"".to_owned()),
+            field_errors: vec![],
+            unbalanced: None,
+            errors: vec![],
+            already_open: None,
+        };
+        let entries = [entry(0, "data/2026/10.zhang"), entry(1, "data/2026/11.zhang"), entry(2, "data/2026/11.zhang")];
+        let paths = |files: &[&str]| files.iter().map(|it| it.to_string()).collect::<Vec<_>>();
+        let includes = |files: &[&str]| files.iter().map(|it| ("main.zhang".to_owned(), it.to_string())).collect::<Vec<_>>();
+        let message = |written: &[&str], taken_out: &[&str], dangling: &[&str]| {
+            let failure = AppendError {
+                error: ZhangError::CustomError("cannot write data/2026/11.zhang: Is a directory".to_owned()),
+                written: paths(written),
+                taken_out: includes(taken_out),
+                dangling: includes(dangling),
+            };
+            super::partial_write(&entries, &failure).message
+        };
+        let failed = "the ledger's files could not be written: custom error: cannot write data/2026/11.zhang: Is a directory.";
+        let reloads = "The ledger reloads; preview the entries that are not written again";
+
+        // refused before anything was written
+        assert_eq!(
+            message(&[], &[], &[]),
+            format!("{failed} Nothing was written. Not written: data/2026/10.zhang (entries 0); data/2026/11.zhang (entries 1, 2). {reloads}")
+        );
+        // the include of November written, then taken out again when November failed: the files are as they were
+        assert_eq!(
+            message(&[], &["data/2026/10.zhang", "data/2026/11.zhang"], &[]),
+            format!(
+                "{failed} Nothing was written. Not written: data/2026/10.zhang (entries 0); data/2026/11.zhang (entries 1, 2). \
+                 The include of data/2026/10.zhang, data/2026/11.zhang written into main.zhang was taken out again. {reloads}"
+            )
+        );
+        // October written, with its include; November's include taken out again
+        assert_eq!(
+            message(&["main.zhang", "data/2026/10.zhang"], &["data/2026/11.zhang"], &[]),
+            format!(
+                "{failed} Already written, do not send again: data/2026/10.zhang (entries 0). Not written: data/2026/11.zhang \
+                 (entries 1, 2). The include of data/2026/11.zhang written into main.zhang was taken out again. {reloads}"
+            )
+        );
+        // taking it out failed too: the include stays, and the owner is told to take it out
+        assert_eq!(
+            message(&["main.zhang"], &[], &["data/2026/10.zhang", "data/2026/11.zhang"]),
+            format!(
+                "{failed} No entry was written. Not written: data/2026/10.zhang (entries 0); data/2026/11.zhang (entries 1, 2). \
+                 main.zhang still includes data/2026/10.zhang, which was not written: take that include out of main.zhang; \
+                 main.zhang still includes data/2026/11.zhang, which was not written: take that include out of main.zhang. {reloads}"
+            )
+        );
     }
 
     /// What a plugin is told names files as the ledger does, never by where the server keeps them: an io error's

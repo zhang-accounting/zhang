@@ -536,14 +536,16 @@ async fn a_plugin_that_fails_after_its_commit_answers_what_was_committed() {
     assert!(reply.json()["error"].as_str().unwrap().starts_with("conflict: "), "{}", reply.text());
 }
 
-/// A write that fails after some of its files landed (#803 review, P2): the files written whole are named with their
-/// entries, the rest is untouched, the ledger reloads and every token is void, so a client retries only what is not
-/// written and nothing is recorded twice. The include of the file that failed dangles until the retry writes it.
+/// A directory where the file of a write goes (security review, after #825): every file is read before any is
+/// written, so the commit writes nothing, the main file gets no include of the directory, and the ledger reloads.
+/// Before, the include landed, every reload failed on the directory, and writes stayed blocked until a hand fix. The
+/// same for `POST /api/transactions`.
 #[tokio::test]
-async fn a_write_that_fails_midway_names_what_landed_and_voids_the_batch() {
+async fn a_directory_where_the_file_goes_writes_nothing_by_a_plugin_or_the_api() {
     let scratch = ledger_with("main.zhang", r#"["transaction","open"]"#, &["transaction", "open"]);
     let (router, _, reload_sender) = server(&scratch, true).await;
-    // the November file cannot be written: a non-empty directory in its place
+    let main_before = read(scratch.dir(), "main.zhang");
+    // the November file is a directory
     std::fs::create_dir_all(scratch.dir().join("data/2026/11.zhang/blocker")).unwrap();
     let batch = json!([coffee("2026-10-13", "Expenses:Food"), coffee("2026-11-13", "Expenses:Food")]);
     let previewed = preview(&router, batch.clone()).await;
@@ -551,35 +553,97 @@ async fn a_write_that_fails_midway_names_what_landed_and_voids_the_batch() {
     assert!(token.is_string(), "{previewed}");
 
     let (kind, message) = err(&commit(&router, batch.clone(), &token).await);
+
     assert_eq!(kind, "io");
     assert!(
-        message.contains("Already written, do not send again: data/2026/10.zhang (entries 0)"),
+        message.contains("cannot write data/2026/11.zhang: it is a directory or another entry, not a file"),
         "{message}"
     );
-    assert!(message.contains("(and the include in main.zhang)"), "{message}");
-    assert!(message.contains("Not written: data/2026/11.zhang (entries 1)"), "{message}");
+    assert!(
+        message.contains("Nothing was written. Not written: data/2026/10.zhang (entries 0); data/2026/11.zhang (entries 1). The ledger reloads"),
+        "{message}"
+    );
+    assert!(!message.contains("include"), "no include was written: {message}");
+    assert_eq!(read(scratch.dir(), "main.zhang"), main_before);
+    assert!(!scratch.dir().join("data/2026/10.zhang").exists());
+    // the ledger reloads, and the next write is not blocked
+    reload_sender.reload_and_wait().await.unwrap();
+    let october = json!([coffee("2026-10-13", "Expenses:Food")]);
+    let previewed = preview(&router, october.clone()).await;
+    ok(&commit(&router, october, &previewed["Ok"]["token"]).await);
+    reload_sender.reload_and_wait().await.unwrap();
+
+    // the API alike
+    let mut request = coffee("2026-11-14", "Expenses:Food");
+    request.as_object_mut().unwrap().remove("kind");
+    let main_before = read(scratch.dir(), "main.zhang");
+    let reply = send(&router, json_request(Method::POST, "/api/transactions", &[], Some(&request))).await;
+    assert_ne!(reply.status, 200, "{}", reply.text());
+    assert!(
+        reply
+            .text()
+            .contains("cannot write data/2026/11.zhang: it is a directory or another entry, not a file"),
+        "{}",
+        reply.text()
+    );
+    assert_eq!(read(scratch.dir(), "main.zhang"), main_before);
+    reload_sender.reload_and_wait().await.unwrap();
+
+    // the owner moves the directory away: November is written, with its include
+    std::fs::remove_dir_all(scratch.dir().join("data/2026/11.zhang")).unwrap();
+    let reply = send(&router, json_request(Method::POST, "/api/transactions", &[], Some(&request))).await;
+    assert_eq!(reply.status, 200, "{}", reply.text());
+    let november = json!([coffee("2026-11-13", "Expenses:Food")]);
+    let previewed = preview(&router, november.clone()).await;
+    ok(&commit(&router, november, &previewed["Ok"]["token"]).await);
+    reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(journal_payees(&router).await.len(), 3);
+    let main = read(scratch.dir(), "main.zhang");
+    assert_eq!(main.matches("include \"data/2026/10.zhang\"").count(), 1, "{main}");
+    assert_eq!(main.matches("include \"data/2026/11.zhang\"").count(), 1, "{main}");
+}
+
+/// A write that fails after the files before it landed (here: November is a link into a directory that is not
+/// there, which reads as no file and cannot be written): October and its include stay and are named, the include of
+/// November is taken out of the main file again, so the ledger reloads clean, and only November is sent again.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_write_that_fails_midway_names_what_landed_and_takes_its_include_out() {
+    let scratch = ledger_with("main.zhang", r#"["transaction","open"]"#, &["transaction", "open"]);
+    let (router, _, reload_sender) = server(&scratch, true).await;
+    std::fs::create_dir_all(scratch.dir().join("data/2026")).unwrap();
+    std::os::unix::fs::symlink("nowhere/11.zhang", scratch.dir().join("data/2026/11.zhang")).unwrap();
+    let batch = json!([coffee("2026-10-13", "Expenses:Food"), coffee("2026-11-13", "Expenses:Food")]);
+    let previewed = preview(&router, batch.clone()).await;
+    let token = previewed["Ok"]["token"].clone();
+
+    let (kind, message) = err(&commit(&router, batch.clone(), &token).await);
+
+    assert_eq!(kind, "io");
+    assert!(
+        message.contains(
+            "Already written, do not send again: data/2026/10.zhang (entries 0). Not written: data/2026/11.zhang (entries 1). \
+             The include of data/2026/11.zhang written into main.zhang was taken out again. The ledger reloads"
+        ),
+        "{message}"
+    );
     assert_eq!(read(scratch.dir(), "data/2026/10.zhang").matches("Blue Bottle").count(), 1);
+    let main = read(scratch.dir(), "main.zhang");
+    assert_eq!(main.matches("include \"data/2026/10.zhang\"").count(), 1, "{main}");
+    assert_eq!(main.matches("include \"data/2026/11.zhang\"").count(), 0, "{main}");
     // the batch cannot be sent again as it is: the ledger moved on
     let (kind, _) = err(&commit(&router, batch.clone(), &token).await);
     assert_eq!(kind, "conflict");
-    // the include of November dangles, and the directory in its place even fails the reload: the ledger served stays
-    // the one before, previews say so, and the write stays pending
-    assert!(reload_sender.reload_and_wait().await.is_err());
-    let (kind, message) = err(&preview(&router, batch.clone()).await);
-    assert_eq!(kind, "conflict");
-    assert!(message.contains("failed to reload after a write"), "{message}");
-    // the owner fixes the disk: the reload lands with the dangling include reported, and only the entry that is not
-    // written is sent again, into the file the include names already
-    std::fs::remove_dir_all(scratch.dir().join("data/2026/11.zhang")).unwrap();
+    // the ledger reloads clean, and only the entry that is not written is sent again
     reload_sender.reload_and_wait().await.unwrap();
     assert_eq!(journal_payees(&router).await, vec!["Blue Bottle"]);
+    std::fs::remove_file(scratch.dir().join("data/2026/11.zhang")).unwrap();
     let rest = json!([coffee("2026-11-13", "Expenses:Food")]);
     let previewed = preview(&router, rest.clone()).await;
     ok(&commit(&router, rest, &previewed["Ok"]["token"]).await);
     reload_sender.reload_and_wait().await.unwrap();
     assert_eq!(journal_payees(&router).await.len(), 2);
     let main = read(scratch.dir(), "main.zhang");
-    assert_eq!(main.matches("include \"data/2026/10.zhang\"").count(), 1, "{main}");
     assert_eq!(main.matches("include \"data/2026/11.zhang\"").count(), 1, "{main}");
 }
 

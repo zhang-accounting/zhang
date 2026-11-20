@@ -75,35 +75,70 @@ where
     /// Append `directives` to the files of `ledger` ([`append_plan`]): every source appends alike, reading each file
     /// with [`DataSource::get`] and writing it back with [`DataSource::save`], once per file ([`DataSource::append_files`])
     fn append(&self, ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<()> {
-        self.append_files(ledger, directives).map(|_| ()).map_err(|failure| failure.error)
+        self.append_files(ledger, directives).map(|_| ()).map_err(AppendError::into_error)
     }
 
     /// Append `directives` to the files of `ledger`, one write per file: every directive planned for a file
     /// ([`append_plan`]) goes into it at once, in the plan's order of files, so a file is either as it was or holds
-    /// all of its new text. The files written, in order; or, when a read or a write fails, [`AppendError`] with the
-    /// error and the files written whole before it: the caller tells what landed, and the rest was not touched
+    /// all of its new text. The files written, in order; or, when a read or a write fails, [`AppendError`]: the caller
+    /// tells what landed, and the rest was not touched.
+    ///
+    /// Every file is read before any is written ([`DataSource::get_to_replace`]): a path holding something other than
+    /// a file (a directory where the file goes), a file the storage refuses to read, or one that is not text fails the
+    /// append with nothing written, so the main file never gets an `include` of it, which would fail every later load. When a write fails all the same, the `include` lines
+    /// this append wrote of the files it did not write are taken out again ([`AppendError::taken_out`]): the ledger
+    /// stays as loadable as it was
     fn append_files(&self, ledger: &Ledger, directives: Vec<Directive>) -> Result<Vec<String>, AppendError> {
-        let untouched = |error: ZhangError| AppendError { error, written: vec![] };
+        let untouched = AppendError::untouched;
         // every text first, so an export that fails writes nothing
-        let mut files: Vec<(String, Vec<Vec<u8>>)> = vec![];
+        let mut files: Vec<AppendedFile> = vec![];
         for (path, directive) in append_plan(ledger, directives).map_err(untouched)? {
+            let includes = match &directive {
+                Directive::Include(include) => Some(include.file.clone().to_plain_string()),
+                _ => None,
+            };
             let text = self.export(directive).map_err(untouched)?;
-            match files.iter_mut().find(|(file, _)| *file == path) {
-                Some((_, texts)) => texts.push(text),
-                None => files.push((path, vec![text])),
-            }
+            let index = match files.iter().position(|file| file.path == path) {
+                Some(index) => index,
+                None => {
+                    files.push(AppendedFile {
+                        path,
+                        original: None,
+                        texts: vec![],
+                    });
+                    files.len() - 1
+                }
+            };
+            files[index].texts.push((text, includes));
+        }
+        // then every file read, before any is written; none is there for a file this append creates
+        for file in &mut files {
+            file.original = match self.get_to_replace(file.path.clone()).map_err(untouched)? {
+                Some(content) => Some(FileText::decode(content, &file.path).map_err(untouched)?),
+                None => None,
+            };
         }
         let mut written = vec![];
-        for (path, texts) in files {
-            let failed = |error: ZhangError| AppendError {
-                error,
-                written: written.clone(),
-            };
-            let content = appended(self.get(path.clone()), &path, &texts).map_err(failed)?;
-            self.save(ledger, path.clone(), &content).map_err(failed)?;
-            written.push(path);
+        for (index, file) in files.iter().enumerate() {
+            if let Err(error) = self.save(ledger, file.path.clone(), &file.content(|_| true)) {
+                return Err(take_out_includes(self, ledger, &files, index, written, error));
+            }
+            written.push(file.path.clone());
         }
         Ok(written)
+    }
+
+    /// The content of the file at `path`, relative to the ledger root and written with `/`, that a write is about to
+    /// replace: `None` when nothing is there, which the write creates, and an error ([`not_a_file`]) when something
+    /// other than a file is there, a directory say, which no write may replace. The default reads with
+    /// [`DataSource::get`], which errs on reading a directory on the local disk; a source that may read a directory as
+    /// content (a WebDAV service answers a page listing it) checks what is there first
+    fn get_to_replace(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        match self.get(path) {
+            Ok(content) => Ok(Some(content)),
+            Err(error) if error.is_file_not_found() => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The content of the file at `path`, relative to the ledger root and written with `/`, or `None` when there is
@@ -250,9 +285,10 @@ pub fn output_file(ledger: &Ledger, datetime: Option<chrono::NaiveDateTime>, dir
 /// What an append of `directives` to `ledger` writes, in order: each directive as it is written there
 /// ([`written_into`]), with the file it is appended to, by its path within the ledger as [`DataSource::get`] takes it.
 /// That is the file [`directive_output_file`] gives it. The main file gets an `include` of a file the ledger did not
-/// load first, once per append: a write that fails between the two leaves an `include` of a file that is not there,
-/// which the next load reports as `IncludeNotFound` where the user sees it, never a file no `include` names, whose
-/// entries a retry would add a second time without anyone noticing. A file outside the ledger's directory is an
+/// load first, once per append, so an append never leaves a file no `include` names, whose entries a retry would add
+/// a second time without anyone noticing: when the file's write fails, [`DataSource::append_files`] takes the
+/// `include` out again, and one it cannot take out is an `include` of a file that is not there, which the next load
+/// reports as `IncludeNotFound` where the user sees it. A file outside the ledger's directory is an
 /// error, and nothing is written: a source writes nothing there, and an `include` of it would name no file of the
 /// ledger.
 pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<Vec<(String, Directive)>> {
@@ -285,30 +321,119 @@ pub fn append_plan(ledger: &Ledger, directives: Vec<Directive>) -> ZhangResult<V
     Ok(plan)
 }
 
-/// An append that failed: the error, and the files it had written whole before, by their paths within the ledger,
-/// in order. The files after the failure were not touched
+/// An append that failed: the error, the files that hold new text now, and the `include` lines it wrote and took out
+/// again or could not. Files are named by their paths within the ledger. The files after the failure were not touched
 #[derive(Debug)]
 pub struct AppendError {
     pub error: ZhangError,
+    /// the files written whole, in order; a file whose only new text was taken out again is as it was and not listed
     pub written: Vec<String>,
+    /// the `include` lines this append wrote and took out again, after the file they name could not be written: the
+    /// file that held the include (the main file), and the file it named
+    pub taken_out: Vec<(String, String)>,
+    /// the `include` lines this append wrote that stayed, though the file they name was not written: taking them out
+    /// failed too. A load reports one as `IncludeNotFound` while nothing is there, and fails while the path is not a
+    /// file; a retry writes the file without a second include
+    pub dangling: Vec<(String, String)>,
 }
 
-/// the content of the file at `path`, whose content is `existing` (none when it is not there), with each of `texts`
-/// appended on a line of its own; the byte order mark the file may start with stays ([`FileText`])
-fn appended(existing: ZhangResult<Vec<u8>>, path: &str, texts: &[Vec<u8>]) -> ZhangResult<Vec<u8>> {
-    let content = match existing {
-        Ok(content) => FileText::decode(content, path)?,
-        // a file this append creates
-        Err(error) if error.is_file_not_found() => FileText::new(String::new()),
-        Err(error) => return Err(error),
-    };
-    let mut bytes = content.into_bytes();
-    for text in texts {
-        bytes.extend_from_slice(b"\n");
-        bytes.extend_from_slice(text);
-        bytes.extend_from_slice(b"\n");
+impl AppendError {
+    /// a failure before anything was written
+    pub fn untouched(error: ZhangError) -> AppendError {
+        AppendError {
+            error,
+            written: vec![],
+            taken_out: vec![],
+            dangling: vec![],
+        }
     }
-    Ok(bytes)
+
+    /// The error of a caller that tells no more than one error: the storage's, and when an `include` of a file that
+    /// was not written stayed, what to take out
+    pub fn into_error(self) -> ZhangError {
+        match self.dangling.is_empty() {
+            true => self.error,
+            false => ZhangError::CustomError(format!("{}; {}", self.error, dangling_includes(&self.dangling))),
+        }
+    }
+}
+
+/// the error of a write to `path`, a path of the ledger where something other than a file is: a directory, or another
+/// kind of entry, which no write replaces
+pub fn not_a_file(path: &str) -> ZhangError {
+    ZhangError::CustomError(format!("cannot write {path}: it is a directory or another entry, not a file"))
+}
+
+/// what to do about `dangling`, `include` lines naming files that were not written, each with the file holding it
+pub fn dangling_includes(dangling: &[(String, String)]) -> String {
+    dangling
+        .iter()
+        .map(|(main, file)| format!("{main} still includes {file}, which was not written: take that include out of {main}"))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// a file an append writes: its path within the ledger, its text when the append read it (none when it is not there),
+/// and the new texts, each with the file it is the `include` of, when it is one
+struct AppendedFile {
+    path: String,
+    original: Option<FileText>,
+    texts: Vec<(Vec<u8>, Option<String>)>,
+}
+
+impl AppendedFile {
+    /// the file's content with the texts `keep` keeps appended, each on a line of its own; the byte order mark the file
+    /// may start with stays ([`FileText`])
+    fn content(&self, keep: impl Fn(&(Vec<u8>, Option<String>)) -> bool) -> Vec<u8> {
+        let mut bytes = self.original.clone().unwrap_or_else(|| FileText::new(String::new())).into_bytes();
+        for (text, _) in self.texts.iter().filter(|it| keep(it)) {
+            bytes.extend_from_slice(b"\n");
+            bytes.extend_from_slice(text);
+            bytes.extend_from_slice(b"\n");
+        }
+        bytes
+    }
+}
+
+/// After the write of `files[failed]` failed with `error`, `written` being the files written before it: the `include`
+/// lines of it and of the files after it, none of them written, taken out of the files written (the main file), each
+/// written again with the rest of its new text. A file left with no new text is as it was, and no longer written
+fn take_out_includes<S: DataSource + ?Sized>(
+    source: &S, ledger: &Ledger, files: &[AppendedFile], failed: usize, mut written: Vec<String>, error: ZhangError,
+) -> AppendError {
+    let unwritten: Vec<&str> = files[failed..].iter().map(|file| file.path.as_str()).collect();
+    let of_unwritten = |(_, includes): &(Vec<u8>, Option<String>)| includes.as_deref().is_some_and(|file| unwritten.contains(&file));
+    let (mut taken_out, mut dangling) = (vec![], vec![]);
+    for file in &files[..failed] {
+        let includes: Vec<(String, String)> = file
+            .texts
+            .iter()
+            .filter(|text| of_unwritten(text))
+            .filter_map(|(_, includes)| includes.clone())
+            .map(|included| (file.path.clone(), included))
+            .collect();
+        if includes.is_empty() {
+            continue;
+        }
+        match source.save(ledger, file.path.clone(), &file.content(|text| !of_unwritten(text))) {
+            Ok(()) => {
+                if file.texts.iter().all(of_unwritten) {
+                    written.retain(|it| *it != file.path);
+                }
+                taken_out.extend(includes);
+            }
+            Err(rollback) => {
+                warn!("the include lines of files not written stay in {}: {rollback}", file.path);
+                dangling.extend(includes);
+            }
+        }
+    }
+    AppendError {
+        error,
+        written,
+        taken_out,
+        dangling,
+    }
 }
 
 /// `path`, a file or directory of the ledger whose root is `root`, by its path within the ledger: the path a
@@ -720,6 +845,23 @@ impl DataSource for LocalFileSystemDataSource {
     fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
         let file = self.resolve(&path).ok_or(ZhangError::FileNotFound)?;
         std::fs::read(file).map_err(|error| storage_error(&path, Access::Read, error.kind().into(), error))
+    }
+
+    /// what is at the path is looked at first, its links followed: a directory, or another entry that is no file, is
+    /// [`not_a_file`]
+    fn get_to_replace(&self, path: String) -> ZhangResult<Option<Vec<u8>>> {
+        let file = self.resolve(&path).ok_or(ZhangError::FileNotFound)?;
+        match std::fs::metadata(&file) {
+            Ok(metadata) if !metadata.is_file() => return Err(not_a_file(&path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            // anything else is the read's to tell
+            _ => {}
+        }
+        match self.get(path) {
+            Ok(content) => Ok(Some(content)),
+            Err(error) if error.is_file_not_found() => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// the ledger root itself: this source reads the paths it is given from the local disk
@@ -1147,18 +1289,19 @@ mod include_pattern_test {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use zhang_ast::error::ErrorKind;
     use zhang_ast::Directive;
 
-    use super::{path_in_ledger, FileText, LocalFileSystemDataSource};
+    use super::{path_in_ledger, DataSource, FileText, LoadResult, LocalFileSystemDataSource};
     use crate::data_type::text::ZhangDataType;
     use crate::data_type::DataType;
     use crate::inputs::ExtraInput;
     use crate::ledger::Ledger;
-    use crate::ZhangError;
+    use crate::{ZhangError, ZhangResult};
 
     /// A file is named by its path within the ledger, normalized, whether it is given relative to the root or under
     /// it; nothing outside the root is: an absolute path elsewhere, or one climbing above the root.
@@ -1366,51 +1509,145 @@ mod test {
         );
         assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap().matches("include").count(), 1);
 
-        // a February file that cannot be written: January and its include land, February does not, and the error
-        // names both
-        let reloaded = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
-        std::fs::create_dir_all(root.join("data/2024/02.zhang/blocker")).unwrap();
+        // a February file that cannot be written: January lands, February does not, and the include of February the
+        // main file got is taken out again, so the ledger loads as it did
+        let refusing = RefusingSaves::new([("data/2024/02.zhang", 0)]);
+        let reloaded = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), refusing.clone()).unwrap();
         let both = format!("{january}2024-02-01 * \"lunch\"\n  Assets:Cash -9 CNY\n  Expenses:Food\n");
+        let main_before = std::fs::read_to_string(root.join("main.zhang")).unwrap();
         let failure = reloaded
             .data_source
             .append_files(&reloaded, directives(&both))
             .expect_err("February cannot be written");
         assert!(failure.error.to_string().contains("02.zhang"), "{}", failure.error);
-        // January is included already, so its file comes first; then the main file, for the include of February
-        assert_eq!(failure.written, vec!["data/2024/01.zhang".to_owned(), "main.zhang".to_owned()]);
+        // January is included already, so its file comes first; then the main file, for the include of February,
+        // which is as it was again
+        assert_eq!(failure.written, vec!["data/2024/01.zhang".to_owned()]);
+        assert_eq!(failure.taken_out, vec![("main.zhang".to_owned(), "data/2024/02.zhang".to_owned())]);
+        assert_eq!(failure.dangling, vec![]);
         assert_eq!(
             std::fs::read_to_string(root.join("data/2024/01.zhang")).unwrap().matches("coffee").count(),
             2,
             "January was written again, whole"
         );
-        assert_eq!(
-            std::fs::read_to_string(root.join("main.zhang"))
-                .unwrap()
-                .matches("include \"data/2024/02.zhang\"")
-                .count(),
-            1
-        );
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap(), main_before);
+        let loaded = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
+        assert!(loaded.errors.is_empty(), "{:?}", loaded.errors);
 
-        // the include of February dangles until February is written: a reload reports it, and the retry writes the
-        // file without a second include
-        std::fs::remove_dir_all(root.join("data/2024/02.zhang")).unwrap();
-        let dangling = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
-        assert_eq!(dangling.errors.iter().filter(|it| it.error_type == ErrorKind::IncludeNotFound).count(), 1);
-        let written = dangling
+        // the retry, once February can be written, writes its include and its file
+        let written = loaded
             .data_source
-            .append_files(&dangling, directives("2024-02-01 * \"lunch\"\n  Assets:Cash -9 CNY\n  Expenses:Food\n"))
+            .append_files(&loaded, directives("2024-02-01 * \"lunch\"\n  Assets:Cash -9 CNY\n  Expenses:Food\n"))
             .unwrap();
-        assert_eq!(written, vec!["data/2024/02.zhang".to_owned()]);
-        assert_eq!(
-            std::fs::read_to_string(root.join("main.zhang"))
-                .unwrap()
-                .matches("include \"data/2024/02.zhang\"")
-                .count(),
-            1
-        );
+        assert_eq!(written, vec!["main.zhang".to_owned(), "data/2024/02.zhang".to_owned()]);
         let whole = Ledger::load_with_data_source(root, "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
         assert!(whole.errors.is_empty(), "{:?}", whole.errors);
         assert_eq!(whole.transactions().len(), 5);
+    }
+
+    /// The local disk, refusing some saves: of a file listed with `n`, the first `n` saves are written and every later
+    /// one refused, as a full disk or a read-only mount refuses them
+    struct RefusingSaves {
+        disk: LocalFileSystemDataSource,
+        allowed: Mutex<HashMap<String, usize>>,
+    }
+
+    impl RefusingSaves {
+        fn new<const N: usize>(allowed: [(&str, usize); N]) -> Arc<RefusingSaves> {
+            Arc::new(RefusingSaves {
+                disk: LocalFileSystemDataSource::new(ZhangDataType {}),
+                allowed: Mutex::new(allowed.into_iter().map(|(path, saves)| (path.to_owned(), saves)).collect()),
+            })
+        }
+    }
+
+    impl DataSource for RefusingSaves {
+        fn export(&self, directive: Directive) -> ZhangResult<Vec<u8>> {
+            self.disk.export(directive)
+        }
+
+        fn get(&self, path: String) -> ZhangResult<Vec<u8>> {
+            self.disk.get(path)
+        }
+
+        fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+            self.disk.load(entry, endpoint)
+        }
+
+        fn save(&self, ledger: &Ledger, path: String, content: &[u8]) -> ZhangResult<()> {
+            if let Some(left) = self.allowed.lock().unwrap().get_mut(&path) {
+                match *left {
+                    0 => return Err(ZhangError::WriteRefused(path)),
+                    _ => *left -= 1,
+                }
+            }
+            self.disk.save(ledger, path, content)
+        }
+    }
+
+    /// A directory where the file of an append goes (a security review finding): every file is read before any is
+    /// written, so the append fails with nothing written. Before, the main file got the include first, and every load
+    /// after it failed on the directory, which blocked the writes until someone edited the main file by hand.
+    #[test]
+    fn an_append_whose_file_is_a_directory_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), OPENS).unwrap();
+        std::fs::create_dir_all(root.join("data/2024/01.zhang")).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), source).unwrap();
+
+        let failure = ledger
+            .data_source
+            .append_files(&ledger, coffee())
+            .expect_err("a directory is no file to append to");
+
+        assert!(failure.error.to_string().contains("data/2024/01.zhang"), "{}", failure.error);
+        assert_eq!(
+            (failure.written, failure.taken_out, failure.dangling),
+            (vec![], vec![], vec![]),
+            "refused before anything was written"
+        );
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap(), OPENS);
+        let reloaded = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), ledger.data_source.clone()).unwrap();
+        assert!(reloaded.errors.is_empty(), "{:?}", reloaded.errors);
+        // `append`, as the API calls it, the same
+        assert!(ledger.data_source.append(&ledger, coffee()).is_err());
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap(), OPENS);
+    }
+
+    /// When a write fails and taking its include out of the main file fails too, the include stays and the error says
+    /// so: the load reports it as `IncludeNotFound`, and a retry writes the file without a second include
+    #[test]
+    fn an_include_that_cannot_be_taken_out_again_is_told_and_a_retry_completes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), OPENS).unwrap();
+        // the main file is written once, for the include; the data file never
+        let refusing = RefusingSaves::new([("main.zhang", 1), ("data/2024/01.zhang", 0)]);
+        let ledger = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), refusing.clone()).unwrap();
+
+        let failure = ledger.data_source.append_files(&ledger, coffee()).expect_err("the data file cannot be written");
+
+        let include = ("main.zhang".to_owned(), "data/2024/01.zhang".to_owned());
+        assert_eq!(failure.written, vec!["main.zhang".to_owned()]);
+        assert_eq!((failure.taken_out.clone(), failure.dangling.clone()), (vec![], vec![include]));
+        let error = failure.into_error().to_string();
+        assert!(
+            error.contains("main.zhang still includes data/2024/01.zhang, which was not written: take that include out of main.zhang"),
+            "{error}"
+        );
+        let dangling = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), refusing.clone()).unwrap();
+        assert_eq!(dangling.errors.iter().filter(|it| it.error_type == ErrorKind::IncludeNotFound).count(), 1);
+
+        let disk = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let dangling = Ledger::load_with_data_source(root.clone(), "main.zhang".to_owned(), disk).unwrap();
+        let written = dangling.data_source.append_files(&dangling, coffee()).unwrap();
+        assert_eq!(written, vec!["data/2024/01.zhang".to_owned()]);
+        assert_eq!(std::fs::read_to_string(root.join("main.zhang")).unwrap().matches("include").count(), 1);
+        let whole = Ledger::load_with_data_source(root, "main.zhang".to_owned(), dangling.data_source.clone()).unwrap();
+        assert!(whole.errors.is_empty(), "{:?}", whole.errors);
+        assert_eq!(whole.transactions().len(), 1);
     }
 
     /// the temporary files a save may have left in `dir`
