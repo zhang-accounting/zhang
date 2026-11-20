@@ -10,7 +10,7 @@ use crate::builtin::ledger_now;
 use crate::request::{AccountBalanceRequest, AccountJournalRequest, BatchAccountBalanceRequest};
 use crate::response::{AccountEntity, AccountInfoEntity, AccountJournalEntity, Created, Paged, ResponseWrapper};
 use crate::routes::Query;
-use crate::state::{wrote, SharedLedger, SharedReloadSender};
+use crate::state::{wrote_and_reloaded, SharedLedger, SharedReloadSender};
 use crate::validate::Rules;
 use crate::{account_queries, validate, ApiResult, ServerResult};
 
@@ -89,7 +89,7 @@ pub async fn upload_account_document(
         ServerResult::Ok(())
     }
     .await;
-    wrote(&mut ledger_stage, &reload_sender, written)?;
+    wrote_and_reloaded(&mut ledger_stage, &reload_sender, written).await?;
     Ok(Created)
 }
 
@@ -129,7 +129,8 @@ pub async fn create_account_balance(
 
     let writes = balance_directives(&ledger, vec![row], Date::Datetime(ledger_now(&ledger)))?;
     let written = writes.write(&ledger).await;
-    ResponseWrapper::json(wrote(&mut ledger, &reload_sender, written)?)
+    let (written, _) = wrote_and_reloaded(&mut ledger, &reload_sender, written).await?;
+    ResponseWrapper::json(written)
 }
 
 /// the balances of a batch, those of deeper accounts first, the order of the request kept otherwise
@@ -161,7 +162,8 @@ pub async fn create_batch_account_balances(
     // one time for the whole batch, so the file order decides the order of its directives
     let writes = balance_directives(&ledger, rows, Date::Datetime(ledger_now(&ledger)))?;
     let written = writes.write(&ledger).await;
-    ResponseWrapper::json(wrote(&mut ledger, &reload_sender, written)?)
+    let (written, _) = wrote_and_reloaded(&mut ledger, &reload_sender, written).await?;
+    ResponseWrapper::json(written)
 }
 
 /// Balance requests are checked like transactions: a name the ledger would not read

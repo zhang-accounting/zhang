@@ -20,7 +20,7 @@ use zhang_server::routes::transaction::{
     create_new_transaction, delete_single_transaction, get_journals, preview_transaction_update, update_single_transaction,
 };
 use zhang_server::routes::{IfMatch, Query as UrlQuery, RequiredIfMatch};
-use zhang_server::state::SharedLedger;
+use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_testkit::fixtures::data_source_for;
 use zhang_testkit::http::{call, get, reload, respond, router, send, shared, RootedFileSystem, Settings};
 use zhang_testkit::ledger::Scratch;
@@ -43,12 +43,23 @@ const COFFEE: &str = "2024-01-02 * \"Cafe\" \"coffee\"\n  ; an indented comment 
 struct Served {
     scratch: Scratch,
     ledger: SharedLedger,
+    /// the one reload sender of the server, which keeps the tombstones of the writes
+    reload: State<SharedReloadSender>,
 }
 
 impl Served {
     fn new(scratch: Scratch) -> Served {
         let ledger = shared(scratch.ledger().unwrap_or_else(|error| panic!("the ledger should load: {error}")));
-        Served { scratch, ledger }
+        Served {
+            scratch,
+            ledger,
+            reload: reload(),
+        }
+    }
+
+    /// the reload sender of the server
+    fn reload(&self) -> State<SharedReloadSender> {
+        State(self.reload.0.clone())
     }
 
     /// `main.zhang` or `main.bean` holding `content`
@@ -58,7 +69,7 @@ impl Served {
 
     async fn create(&self, request: Value) -> (StatusCode, Value) {
         let request = serde_json::from_value(request).expect("a create request");
-        respond(create_new_transaction(State(self.ledger.clone()), reload(), Json(request)).await).await
+        respond(create_new_transaction(State(self.ledger.clone()), self.reload(), Json(request)).await).await
     }
 
     /// an update, without `If-Match`
@@ -70,13 +81,13 @@ impl Served {
     async fn update_if(&self, id: &str, version: Option<&str>, request: Value) -> (StatusCode, Value) {
         let request = serde_json::from_value(request).expect("an update request");
         let if_match = IfMatch(version.map(|it| vec![it.to_owned()]));
-        respond(update_single_transaction(State(self.ledger.clone()), reload(), UrlPath((id.to_owned(),)), if_match, Json(request)).await).await
+        respond(update_single_transaction(State(self.ledger.clone()), self.reload(), UrlPath((id.to_owned(),)), if_match, Json(request)).await).await
     }
 
     /// a delete, with `If-Match: <version>`
     async fn delete(&self, id: &str, version: &str) -> (StatusCode, Value) {
         let if_match = RequiredIfMatch(vec![version.to_owned()]);
-        respond(delete_single_transaction(State(self.ledger.clone()), reload(), UrlPath((id.to_owned(),)), if_match).await).await
+        respond(delete_single_transaction(State(self.ledger.clone()), self.reload(), UrlPath((id.to_owned(),)), if_match).await).await
     }
 
     /// a delete of the transaction of `payee`, by the id and the version the journal gives it
@@ -565,4 +576,50 @@ async fn a_delete_writes_through_the_data_source_of_the_ledger() {
     assert_eq!(scratch.read("main.zhang"), format!("{OPENS}{MEALS}").replace(COFFEE, ""));
     let journal = get(&router, "/api/journals", &[]).await.json();
     assert_eq!(journal["data"]["records"].as_array().unwrap().len(), 2, "{journal}");
+}
+
+/// Every write of the API reloads the ledger before it answers: the balances, the documents of an account and the
+/// save of a file, as the writes of transactions. A request sent after the answer reads what it wrote.
+#[tokio::test]
+async fn every_write_reloads_before_it_answers() {
+    let scratch = Scratch::with_main("main.zhang", &format!("{OPENS}1970-01-01 open Equity:Open\n{MEALS}"));
+    let router = router(scratch.dir(), "main.zhang", data_source_for("main.zhang"), &Settings::default()).await;
+    let journal = || async { get(&router, "/api/journals", &[]).await.json()["data"]["records"].as_array().unwrap().len() };
+    assert_eq!(journal().await, 3);
+
+    let balance = json!({"type": "Check", "amount": {"number": "-20", "commodity": "CNY"}});
+    let answer = call(&router, Method::POST, "/api/accounts/Assets:Cash/balances", &[], Some(&balance)).await;
+    assert!(answer.status.is_success(), "{}", answer.text());
+    assert_eq!(journal().await, 4, "the balance is in the journal");
+
+    let batch = json!([{"type": "Pad", "account_name": "Assets:Cash", "amount": {"number": "100", "commodity": "CNY"}, "pad": "Equity:Open"}]);
+    let answer = call(&router, Method::POST, "/api/accounts/batch-balances", &[], Some(&batch)).await;
+    assert!(answer.status.is_success(), "{}", answer.text());
+    assert!(journal().await > 4, "the padding and its balance are in the journal");
+
+    let upload = Request::builder()
+        .method(Method::POST)
+        .uri("/api/accounts/Assets:Cash/documents")
+        .header("content-type", "multipart/form-data; boundary=X")
+        .body(Body::from(
+            "--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"statement.pdf\"\r\n\r\n%PDF\r\n--X--\r\n",
+        ))
+        .unwrap();
+    let answer = send(&router, upload).await;
+    assert!(answer.status.is_success(), "{}", answer.text());
+    let documents = call(
+        &router,
+        Method::POST,
+        "/api/query/builtins/journals.documents",
+        &[],
+        Some(&json!({"params": {}})),
+    )
+    .await;
+    assert!(documents.text().contains("statement.pdf"), "the document is listed: {}", documents.text());
+
+    let path = format!("/api/files/{}", BASE64_STANDARD.encode("main.zhang"));
+    let content = format!("{OPENS}1970-01-01 open Equity:Open\n");
+    let answer = call(&router, Method::PUT, &path, &[], Some(&json!({"content": content}))).await;
+    assert!(answer.status.is_success(), "{}", answer.text());
+    assert_eq!(journal().await, 0, "the journal is that of the file saved");
 }
