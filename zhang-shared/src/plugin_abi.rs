@@ -331,10 +331,32 @@ pub struct LedgerInfo {
     pub timezone: String,
 }
 
-/// Request headers carrying the user's credentials for zhang itself, or for a proxy in front of it. A plugin sits
-/// behind zhang's authentication and never needs them, and one allowed to reach the network could leak them, so they
-/// are never passed on.
-pub const WITHHELD_REQUEST_HEADERS: [&str; 3] = ["authorization", "proxy-authorization", "cookie"];
+/// The request headers a router plugin receives; zhang drops every other one. It is an allowlist because the headers
+/// that must not reach a plugin cannot be listed: besides zhang's own credentials (`authorization`, `cookie`), a proxy
+/// in front of zhang adds identity headers of its own (`cf-access-jwt-assertion`, `x-auth-request-*`,
+/// `tailscale-user-*`, `x-forwarded-*`, ...), and a plugin allowed to reach the network could send any of them away.
+///
+/// - content negotiation and caching: `accept`, `accept-language`, `content-type`, `if-modified-since`,
+///   `if-none-match`, `user-agent`
+/// - where the request comes from, for a plugin's own origin check (the DNS rebinding check of an MCP endpoint):
+///   `host`, `origin`
+/// - the MCP Streamable HTTP transport: `last-event-id`, `mcp-method`, `mcp-name`, `mcp-protocol-version`,
+///   `mcp-session-id`
+pub const FORWARDED_REQUEST_HEADERS: [&str; 13] = [
+    "accept",
+    "accept-language",
+    "content-type",
+    "host",
+    "if-modified-since",
+    "if-none-match",
+    "last-event-id",
+    "mcp-method",
+    "mcp-name",
+    "mcp-protocol-version",
+    "mcp-session-id",
+    "origin",
+    "user-agent",
+];
 
 /// the HTTP request a router plugin's `router` export receives, as JSON:
 ///
@@ -360,8 +382,8 @@ pub struct Request {
     /// the decoded query string: every key with all its values, in order
     #[serde(default)]
     pub query: BTreeMap<String, Vec<String>>,
-    /// the headers, names lower case, the values of a repeated header joined with `, `. zhang never passes the
-    /// credential headers [`WITHHELD_REQUEST_HEADERS`]
+    /// the headers, names lower case, the values of a repeated header joined with `, `. zhang passes only the
+    /// headers of [`FORWARDED_REQUEST_HEADERS`]
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
     /// the body, encoded as [`Request::body_encoding`] says; empty when there is none
@@ -373,8 +395,9 @@ pub struct Request {
 }
 
 impl Request {
-    /// a request: the query pairs grouped by key, the header names lower-cased, the credential headers left out, and
-    /// the body carried as UTF-8 when it is valid UTF-8 and as base64 otherwise
+    /// a request: the query pairs grouped by key, the header names lower-cased, only the headers of
+    /// [`FORWARDED_REQUEST_HEADERS`] kept, and the body carried as UTF-8 when it is valid UTF-8 and as base64
+    /// otherwise
     pub fn new(
         method: impl Into<String>, path: impl Into<String>, query: impl IntoIterator<Item = (String, String)>,
         headers: impl IntoIterator<Item = (String, String)>, body: Vec<u8>,
@@ -386,7 +409,7 @@ impl Request {
         let mut grouped_headers: BTreeMap<String, String> = BTreeMap::new();
         for (name, value) in headers {
             let name = name.to_ascii_lowercase();
-            if WITHHELD_REQUEST_HEADERS.contains(&name.as_str()) {
+            if !FORWARDED_REQUEST_HEADERS.contains(&name.as_str()) {
                 continue;
             }
             grouped_headers
@@ -444,8 +467,9 @@ impl Request {
 /// }
 /// ```
 ///
-/// Any content type works, so a router can answer JSON for a script or a whole HTML page. zhang sets
-/// `content-length`, `transfer-encoding` and `connection` itself; without a `content-type` header the response is
+/// Any content type works, so a router can answer JSON for a script or a whole HTML page. zhang sends only the
+/// headers of [`FORWARDED_RESPONSE_HEADERS`] (a `location` only when it stays on zhang's origin) and adds its own
+/// [`SECURITY_HEADERS`], which sandbox the response; without a `content-type` header the response is
 /// `text/plain; charset=utf-8`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Response {
@@ -549,17 +573,63 @@ impl Response {
 #[cfg(feature = "http")]
 pub const DEFAULT_CONTENT_TYPE: &str = "text/plain; charset=utf-8";
 
+/// The response headers of a router plugin that zhang sends; it drops every other one. A plugin's response is served
+/// on zhang's own origin, so a header such as `set-cookie` (which could replace the session), `clear-site-data`,
+/// `content-security-policy` (which could lift the sandbox of [`SECURITY_HEADERS`] or report the page elsewhere),
+/// `access-control-*` or `refresh` must never come from it. These describe the body and its caching only. A
+/// `location` is sent only when it stays on zhang's origin (see [`same_origin_location`]).
+pub const FORWARDED_RESPONSE_HEADERS: [&str; 8] = [
+    "cache-control",
+    "content-disposition",
+    "content-language",
+    "content-type",
+    "etag",
+    "last-modified",
+    "location",
+    "vary",
+];
+
+/// The headers zhang adds to every router plugin response, whatever the plugin returns.
+///
+/// - `content-security-policy: sandbox ...` gives a page the plugin serves an opaque origin. Its scripts run, but
+///   not as zhang's origin: they cannot read zhang's cookies or storage, and the browser treats their requests to
+///   zhang as cross-site, so they carry no session (the session cookie is `SameSite=Lax`) and zhang's API stays out
+///   of reach. `allow-same-origin` would undo exactly that, so it is never granted. The page may still run scripts
+///   (`allow-scripts`, for charts and tables), submit forms (`allow-forms`, a filter form that navigates to another
+///   page of the plugin), open links in a new tab (`allow-popups`; the new tab is sandboxed too) and download what it
+///   links to (`allow-downloads`, a CSV export).
+/// - `x-content-type-options: nosniff` keeps a browser from reading a plugin's text or JSON as HTML or script.
+pub const SECURITY_HEADERS: [(&str, &str); 2] = [
+    ("content-security-policy", "sandbox allow-scripts allow-forms allow-popups allow-downloads"),
+    ("x-content-type-options", "nosniff"),
+];
+
+/// Whether a `location` a router plugin returns stays on zhang's origin: a relative reference without a scheme or
+/// an authority, such as `/api/plugins/report/by-month`, `by-month` or `?year=2024`. It is checked the strict way a
+/// browser would read it: any control character, whitespace or backslash refuses it (a browser drops tabs and
+/// newlines and reads `\` as `/`, so `/\evil.example` is `//evil.example`), and so does a leading `//` or a `:` before
+/// the first `/`, `?` or `#` (a scheme, as in `https:` or `javascript:`).
+pub fn same_origin_location(location: &str) -> bool {
+    if location.is_empty() || location.chars().any(|c| c.is_control() || c.is_whitespace() || c == '\\') {
+        return false;
+    }
+    if location.starts_with("//") {
+        return false;
+    }
+    let before_path = location.split(['/', '?', '#']).next().unwrap_or_default();
+    !before_path.contains(':')
+}
+
 #[cfg(feature = "http")]
 impl Response {
-    /// the HTTP response to send: [`DEFAULT_CONTENT_TYPE`] when the plugin sets no content type, and without the
-    /// framing headers the host sets itself. An error says why the plugin's response cannot be sent: a status out
-    /// of range, a header that is not valid HTTP, or a body that is not the base64 it claims to be.
+    /// The HTTP response to send: the plugin's status and body, only its headers of [`FORWARDED_RESPONSE_HEADERS`]
+    /// ([`DEFAULT_CONTENT_TYPE`] when it sets no content type), and zhang's [`SECURITY_HEADERS`]. An error says why
+    /// the plugin's response cannot be sent: a status out of range, a header that is not valid HTTP, or a body that
+    /// is not the base64 it claims to be. A header zhang drops, including a `location` leading off zhang's origin,
+    /// is no error: the response is sent without it.
     pub fn into_http(self) -> Result<http::Response<Vec<u8>>, String> {
-        use http::header::{CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, TRANSFER_ENCODING};
+        use http::header::{CONTENT_TYPE, LOCATION};
         use http::{HeaderName, HeaderValue, StatusCode};
-
-        /// the response headers describing how the body is framed
-        const FRAMING_HEADERS: [HeaderName; 3] = [CONTENT_LENGTH, TRANSFER_ENCODING, CONNECTION];
 
         let status = StatusCode::from_u16(self.status).map_err(|_| format!("{} is not an HTTP status", self.status))?;
         let body = self.body_bytes().map_err(|e| format!("the body is not valid base64: {e}"))?;
@@ -567,7 +637,7 @@ impl Response {
         *response.status_mut() = status;
         for (name, value) in &self.headers {
             let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| format!("{name:?} is not a valid header name"))?;
-            if FRAMING_HEADERS.contains(&name) {
+            if !FORWARDED_RESPONSE_HEADERS.contains(&name.as_str()) || (name == LOCATION && !same_origin_location(value)) {
                 continue;
             }
             let value = HeaderValue::from_str(value).map_err(|_| format!("the value of the header {name} is not a valid header value"))?;
@@ -577,6 +647,9 @@ impl Response {
             .headers_mut()
             .entry(CONTENT_TYPE)
             .or_insert(HeaderValue::from_static(DEFAULT_CONTENT_TYPE));
+        for (name, value) in SECURITY_HEADERS {
+            response.headers_mut().insert(HeaderName::from_static(name), HeaderValue::from_static(value));
+        }
         Ok(response)
     }
 }

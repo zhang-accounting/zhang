@@ -4,7 +4,8 @@
 //! fields it does not know. See [`crate::plugin::router`] for how requests reach a plugin.
 
 pub use zhang_shared::plugin_abi::{
-    Encoding as BodyEncoding, Request as PluginRequest, Response as PluginResponse, DEFAULT_CONTENT_TYPE, WITHHELD_REQUEST_HEADERS,
+    same_origin_location, Encoding as BodyEncoding, Request as PluginRequest, Response as PluginResponse, DEFAULT_CONTENT_TYPE, FORWARDED_REQUEST_HEADERS,
+    FORWARDED_RESPONSE_HEADERS, SECURITY_HEADERS,
 };
 
 #[cfg(test)]
@@ -15,7 +16,7 @@ mod test {
     use http::StatusCode;
     use serde_json::json;
 
-    use super::{BodyEncoding, PluginRequest, PluginResponse};
+    use super::{same_origin_location, BodyEncoding, PluginRequest, PluginResponse, FORWARDED_REQUEST_HEADERS};
 
     fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
         entries.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
@@ -27,14 +28,7 @@ mod test {
             "POST",
             "/sub/path",
             pairs(&[("k", "v1"), ("other", ""), ("k", "v2")]),
-            pairs(&[
-                ("Accept", "text/html"),
-                ("X-Tag", "a"),
-                ("Authorization", "Basic dXNlcjpwYXNz"),
-                ("x-tag", "b"),
-                ("Cookie", "session=secret"),
-                ("proxy-authorization", "Bearer secret"),
-            ]),
+            pairs(&[("Accept", "text/html"), ("Accept-Language", "en"), ("accept", "application/json")]),
             b"{\"a\": 1}".to_vec(),
         );
 
@@ -44,11 +38,58 @@ mod test {
                 "method": "POST",
                 "path": "/sub/path",
                 "query": {"k": ["v1", "v2"], "other": [""]},
-                "headers": {"accept": "text/html", "x-tag": "a, b"},
+                "headers": {"accept": "text/html, application/json", "accept-language": "en"},
                 "body": "{\"a\": 1}",
                 "body_encoding": "utf8",
             })
         );
+    }
+
+    #[test]
+    fn should_pass_only_the_allowlisted_request_headers() {
+        let allowed = FORWARDED_REQUEST_HEADERS.map(|name| (name.to_ascii_uppercase(), format!("value of {name}")));
+        let withheld = [
+            // zhang's own credentials
+            "authorization",
+            "proxy-authorization",
+            "cookie",
+            // the identity headers of proxies in front of zhang
+            "cf-access-jwt-assertion",
+            "cf-access-authenticated-user-email",
+            "x-auth-request-user",
+            "x-auth-request-email",
+            "x-auth-request-access-token",
+            "tailscale-user-login",
+            "tailscale-user-name",
+            "x-forwarded-for",
+            "x-forwarded-user",
+            "x-forwarded-email",
+            "x-real-ip",
+            "remote-user",
+            // anything else
+            "x-custom",
+            "referer",
+        ]
+        .map(|name| (name.to_owned(), "secret".to_owned()));
+
+        let request = PluginRequest::new("GET", "/", vec![], allowed.iter().cloned().chain(withheld), vec![]);
+
+        let expected: BTreeMap<String, String> = FORWARDED_REQUEST_HEADERS
+            .iter()
+            .map(|name| (name.to_string(), format!("value of {name}")))
+            .collect();
+        assert_eq!(request.headers, expected);
+        for name in [
+            "origin",
+            "host",
+            "mcp-session-id",
+            "mcp-protocol-version",
+            "mcp-method",
+            "mcp-name",
+            "last-event-id",
+        ] {
+            assert!(request.headers.contains_key(name), "the MCP transport needs {name}");
+        }
     }
 
     #[test]
@@ -121,10 +162,42 @@ mod test {
         assert_eq!(response.body(), b"missing");
     }
 
+    /// the headers of `response`, as `name: value`, in order
+    fn header_lines(response: &http::Response<Vec<u8>>) -> Vec<String> {
+        response
+            .headers()
+            .iter()
+            .map(|(name, value)| format!("{name}: {}", value.to_str().unwrap()))
+            .collect()
+    }
+
     #[test]
-    fn should_send_the_plugin_headers_but_not_the_framing_ones() {
+    fn should_send_the_allowlisted_headers_and_the_security_headers_only() {
         let response: PluginResponse = serde_json::from_value(json!({
-            "headers": {"Content-Type": "text/html", "x-report": "monthly", "content-length": "999", "transfer-encoding": "chunked"},
+            "headers": {
+                "Content-Type": "text/html",
+                "cache-control": "no-store",
+                "content-disposition": "attachment; filename=\"report.csv\"",
+                "content-language": "en",
+                "etag": "\"v1\"",
+                "last-modified": "Wed, 21 Oct 2015 07:28:00 GMT",
+                "vary": "accept",
+                "location": "/api/plugins/report/by-month",
+                // all of these are dropped
+                "set-cookie": "zhang_session=evil; Path=/",
+                "clear-site-data": "\"*\"",
+                "content-security-policy": "default-src *; report-uri https://evil.example/",
+                "content-security-policy-report-only": "default-src 'none'",
+                "access-control-allow-origin": "https://evil.example",
+                "access-control-allow-credentials": "true",
+                "refresh": "0; url=https://evil.example/",
+                "link": "<https://evil.example/>; rel=preload",
+                "x-report": "monthly",
+                "x-content-type-options": "sniff",
+                "content-length": "999",
+                "transfer-encoding": "chunked",
+                "connection": "close",
+            },
             "body": "<h1>hi</h1>",
         }))
         .unwrap();
@@ -132,12 +205,83 @@ mod test {
         let response = response.into_http().unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let headers = response
-            .headers()
-            .iter()
-            .map(|(name, value)| format!("{name}: {}", value.to_str().unwrap()))
-            .collect::<Vec<_>>();
-        assert_eq!(headers, vec!["content-type: text/html", "x-report: monthly"]);
+        assert_eq!(
+            header_lines(&response),
+            vec![
+                // `Content-Type` sorts first, as the plugin wrote it
+                "content-type: text/html",
+                "cache-control: no-store",
+                "content-disposition: attachment; filename=\"report.csv\"",
+                "content-language: en",
+                "etag: \"v1\"",
+                "last-modified: Wed, 21 Oct 2015 07:28:00 GMT",
+                "location: /api/plugins/report/by-month",
+                "vary: accept",
+                "content-security-policy: sandbox allow-scripts allow-forms allow-popups allow-downloads",
+                "x-content-type-options: nosniff",
+            ]
+        );
+        assert_eq!(response.body(), b"<h1>hi</h1>");
+    }
+
+    #[test]
+    fn should_sandbox_every_response_whatever_the_plugin_returns() {
+        for response in [
+            PluginResponse::default(),
+            PluginResponse::html("<script>fetch('/api/files')</script>"),
+            PluginResponse::text("plain").with_status(404),
+            PluginResponse::bytes("image/svg+xml", b"<svg onload=\"alert(1)\"/>"),
+            PluginResponse::default().with_header("content-security-policy", "sandbox allow-same-origin allow-scripts"),
+        ] {
+            let response = response.into_http().unwrap();
+            let csp = response.headers().get_all(http::header::CONTENT_SECURITY_POLICY).iter().collect::<Vec<_>>();
+            assert_eq!(csp, vec!["sandbox allow-scripts allow-forms allow-popups allow-downloads"]);
+            assert!(!csp[0].to_str().unwrap().contains("allow-same-origin"));
+            assert_eq!(response.headers()[http::header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+            assert!(response.headers().get(http::header::SET_COOKIE).is_none());
+        }
+    }
+
+    #[test]
+    fn should_send_a_location_only_when_it_stays_on_zhangs_origin() {
+        for location in [
+            "/api/plugins/report/by-month",
+            "by-month",
+            "./by-month?year=2024",
+            "?year=2024",
+            "#top",
+            "/a%2F%2Fb",
+            "/x:y",
+        ] {
+            assert!(same_origin_location(location), "{location:?}");
+            let response = PluginResponse::default()
+                .with_status(302)
+                .with_header("location", location)
+                .into_http()
+                .unwrap();
+            assert_eq!(response.headers()[http::header::LOCATION], location, "{location:?}");
+        }
+        for location in [
+            "https://evil.example/",
+            "HTTP://evil.example/",
+            "//evil.example/",
+            "/\\evil.example/",
+            "\\\\evil.example/",
+            "/\t/evil.example/",
+            "/\n/evil.example/",
+            " //evil.example/",
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "",
+        ] {
+            assert!(!same_origin_location(location), "{location:?}");
+            let response = PluginResponse::default().with_status(302).with_header("location", location).into_http();
+            // a header value with a control character is not valid HTTP; any other is dropped
+            if let Ok(response) = response {
+                assert!(response.headers().get(http::header::LOCATION).is_none(), "{location:?}");
+                assert_eq!(response.status(), StatusCode::FOUND);
+            }
+        }
     }
 
     #[test]
@@ -146,8 +290,8 @@ mod test {
             (json!({"status": 42}), "42 is not an HTTP status"),
             (json!({"headers": {"bad name": "x"}}), "\"bad name\" is not a valid header name"),
             (
-                json!({"headers": {"x-bad": "line\nbreak"}}),
-                "the value of the header x-bad is not a valid header value",
+                json!({"headers": {"content-type": "line\nbreak"}}),
+                "the value of the header content-type is not a valid header value",
             ),
             (
                 json!({"body": "%%%", "body_encoding": "base64"}),
@@ -158,5 +302,8 @@ mod test {
             let response: PluginResponse = serde_json::from_value(response).unwrap();
             assert_eq!(response.into_http().unwrap_err(), message);
         }
+        // a header zhang drops anyway is no error, whatever its value
+        let response: PluginResponse = serde_json::from_value(json!({"headers": {"x-bad": "line\nbreak"}})).unwrap();
+        assert!(response.into_http().is_ok());
     }
 }
