@@ -1,0 +1,292 @@
+{
+  "case": "same-day-order-beancount",
+  "description": "The order of a day in a beancount file (see main.bean): which postings of the day of a definition or a close count when the transactions carry a time and the budget directives a time metadata entry.",
+  "ledger": "zhang-server/tests/golden/budget_contract/same-day-order-beancount/main.bean",
+  "now": "2024-03-25T00:00:00Z",
+  "errors": [
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.bean",
+      "line": 12,
+      "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "2d407efa-4e6e-80ad-0909-8db01ca7212e"}]
+    },
+    {
+      "kind": "BudgetClosed",
+      "file": "main.bean",
+      "line": 36,
+      "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "5f61512a-208b-7d6f-f144-26d71efccab4"}]
+    }
+  ],
+  "error_list": [
+    {
+      "id": "7db8859a-f621-96b5-4486-f9ea6f781c34",
+      "id_of": "main.bean@497 BudgetDoesNotExist #0",
+      "span": {"file": "main.bean", "start": 497, "end": 580, "line": 12},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "2d407efa-4e6e-80ad-0909-8db01ca7212e"}
+    },
+    {
+      "id": "56388b43-d9db-0f60-437f-b8be59cc99a5",
+      "id_of": "main.bean@1009 BudgetClosed #0",
+      "span": {"file": "main.bean", "start": 1009, "end": 1088, "line": 36},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "5f61512a-208b-7d6f-f144-26d71efccab4"}
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-03-25", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-03-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", null, null, "CNY", "2024-03-01", {"number": "0", "currency": "CNY"}, "14", {"number": "-14", "currency": "CNY"}, true]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], "2024-03-20", null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", null, null, "CNY", "2024-03-01", {"number": "0", "currency": "CNY"}, "14", {"number": "-14", "currency": "CNY"}, true]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "18:00:00", 1710957600, "Expenses:Food", "729e0c92-6788-b451-17c0-a3897633d6c0", "D", "at 18:00 on the day of the close", {"number": "8", "currency": "CNY"}, {"number": "15", "currency": "CNY"}],
+              ["2024-03-10", "08:00:00", 1710057600, "Expenses:Food", "0410156a-fa69-2e2c-427a-ba36d07d3768", "C", "at 08:00, written below the definition", {"number": "4", "currency": "CNY"}, {"number": "7", "currency": "CNY"}],
+              ["2024-03-10", "00:00:00", 1710028800, "Expenses:Food", "e5c510a7-e932-65dd-658a-7fdda1f5b9fc", "B", "written below the definition", {"number": "2", "currency": "CNY"}, {"number": "3", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], "2024-03-20", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-20", "18:00:00", 1710957600, "Expenses:Food", "729e0c92-6788-b451-17c0-a3897633d6c0", "D", "at 18:00 on the day of the close", {"number": "8", "currency": "CNY"}, {"number": "15", "currency": "CNY"}],
+              ["2024-03-10", "08:00:00", 1710057600, "Expenses:Food", "0410156a-fa69-2e2c-427a-ba36d07d3768", "C", "at 08:00, written below the definition", {"number": "4", "currency": "CNY"}, {"number": "7", "currency": "CNY"}],
+              ["2024-03-10", "00:00:00", 1710028800, "Expenses:Food", "e5c510a7-e932-65dd-658a-7fdda1f5b9fc", "B", "written below the definition", {"number": "2", "currency": "CNY"}, {"number": "3", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [["Food", "2024-03-10", "CNY", null, null, ["Expenses:Food"], "2024-03-20", null]]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [["Food", "2024-03-20", "00:00:00", 1710892800, "close", null]]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Food",
+              "2024-03-01",
+              2024,
+              3,
+              "CNY",
+              null,
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "14", "currency": "CNY"},
+              {"number": "-14", "currency": "CNY"},
+              true,
+              ["Expenses:Food"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Expenses:Food",
+              "written above the definition",
+              {"number": "1", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Assets:Bank",
+              "written above the definition",
+              {"number": "-1", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Expenses:Food",
+              "written below the definition",
+              {"number": "2", "currency": "CNY"},
+              ["Food"]
+            ],
+            [
+              "2024-03-10",
+              "00:00:00",
+              "Assets:Bank",
+              "written below the definition",
+              {"number": "-2", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "08:00:00",
+              "Expenses:Food",
+              "at 08:00, written below the definition",
+              {"number": "4", "currency": "CNY"},
+              ["Food"]
+            ],
+            [
+              "2024-03-10",
+              "08:00:00",
+              "Assets:Bank",
+              "at 08:00, written below the definition",
+              {"number": "-4", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-20",
+              "18:00:00",
+              "Expenses:Food",
+              "at 18:00 on the day of the close",
+              {"number": "8", "currency": "CNY"},
+              ["Food"]
+            ],
+            [
+              "2024-03-20",
+              "18:00:00",
+              "Assets:Bank",
+              "at 18:00 on the day of the close",
+              {"number": "-8", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-21",
+              "00:00:00",
+              "Expenses:Food",
+              "the day after the close",
+              {"number": "16", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-21",
+              "00:00:00",
+              "Assets:Bank",
+              "the day after the close",
+              {"number": "-16", "currency": "CNY"},
+              []
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

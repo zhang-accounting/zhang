@@ -1,0 +1,250 @@
+; A long legitimate range: twenty budgets defined in 1990, with spending in 1995 and 2024, have 414 months each
+; through June 2024, 8,280 rows in all: well within the result size limit, so every query answers.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+
+1990-01-01 open Assets:Bank
+1990-01-01 open Expenses:Cat01
+  budget: b01
+1990-01-01 open Expenses:Cat02
+  budget: b02
+1990-01-01 open Expenses:Cat03
+  budget: b03
+1990-01-01 open Expenses:Cat04
+  budget: b04
+1990-01-01 open Expenses:Cat05
+  budget: b05
+1990-01-01 open Expenses:Cat06
+  budget: b06
+1990-01-01 open Expenses:Cat07
+  budget: b07
+1990-01-01 open Expenses:Cat08
+  budget: b08
+1990-01-01 open Expenses:Cat09
+  budget: b09
+1990-01-01 open Expenses:Cat10
+  budget: b10
+1990-01-01 open Expenses:Cat11
+  budget: b11
+1990-01-01 open Expenses:Cat12
+  budget: b12
+1990-01-01 open Expenses:Cat13
+  budget: b13
+1990-01-01 open Expenses:Cat14
+  budget: b14
+1990-01-01 open Expenses:Cat15
+  budget: b15
+1990-01-01 open Expenses:Cat16
+  budget: b16
+1990-01-01 open Expenses:Cat17
+  budget: b17
+1990-01-01 open Expenses:Cat18
+  budget: b18
+1990-01-01 open Expenses:Cat19
+  budget: b19
+1990-01-01 open Expenses:Cat20
+  budget: b20
+
+1990-01-01 budget b01 CNY
+1990-01-01 budget b02 CNY
+1990-01-01 budget b03 CNY
+1990-01-01 budget b04 CNY
+1990-01-01 budget b05 CNY
+1990-01-01 budget b06 CNY
+1990-01-01 budget b07 CNY
+1990-01-01 budget b08 CNY
+1990-01-01 budget b09 CNY
+1990-01-01 budget b10 CNY
+1990-01-01 budget b11 CNY
+1990-01-01 budget b12 CNY
+1990-01-01 budget b13 CNY
+1990-01-01 budget b14 CNY
+1990-01-01 budget b15 CNY
+1990-01-01 budget b16 CNY
+1990-01-01 budget b17 CNY
+1990-01-01 budget b18 CNY
+1990-01-01 budget b19 CNY
+1990-01-01 budget b20 CNY
+
+1990-01-01 budget-add b01 1000 CNY
+1990-01-01 budget-add b02 1000 CNY
+1990-01-01 budget-add b03 1000 CNY
+1990-01-01 budget-add b04 1000 CNY
+1990-01-01 budget-add b05 1000 CNY
+1990-01-01 budget-add b06 1000 CNY
+1990-01-01 budget-add b07 1000 CNY
+1990-01-01 budget-add b08 1000 CNY
+1990-01-01 budget-add b09 1000 CNY
+1990-01-01 budget-add b10 1000 CNY
+1990-01-01 budget-add b11 1000 CNY
+1990-01-01 budget-add b12 1000 CNY
+1990-01-01 budget-add b13 1000 CNY
+1990-01-01 budget-add b14 1000 CNY
+1990-01-01 budget-add b15 1000 CNY
+1990-01-01 budget-add b16 1000 CNY
+1990-01-01 budget-add b17 1000 CNY
+1990-01-01 budget-add b18 1000 CNY
+1990-01-01 budget-add b19 1000 CNY
+1990-01-01 budget-add b20 1000 CNY
+
+1995-06-15 * "Shop" "b01 in 1995"
+  Expenses:Cat01 1 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b02 in 1995"
+  Expenses:Cat02 2 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b03 in 1995"
+  Expenses:Cat03 3 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b04 in 1995"
+  Expenses:Cat04 4 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b05 in 1995"
+  Expenses:Cat05 5 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b06 in 1995"
+  Expenses:Cat06 6 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b07 in 1995"
+  Expenses:Cat07 7 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b08 in 1995"
+  Expenses:Cat08 8 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b09 in 1995"
+  Expenses:Cat09 9 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b10 in 1995"
+  Expenses:Cat10 10 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b11 in 1995"
+  Expenses:Cat11 11 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b12 in 1995"
+  Expenses:Cat12 12 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b13 in 1995"
+  Expenses:Cat13 13 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b14 in 1995"
+  Expenses:Cat14 14 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b15 in 1995"
+  Expenses:Cat15 15 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b16 in 1995"
+  Expenses:Cat16 16 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b17 in 1995"
+  Expenses:Cat17 17 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b18 in 1995"
+  Expenses:Cat18 18 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b19 in 1995"
+  Expenses:Cat19 19 CNY
+  Assets:Bank
+
+1995-06-15 * "Shop" "b20 in 1995"
+  Expenses:Cat20 20 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b01 in 2024"
+  Expenses:Cat01 1 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b02 in 2024"
+  Expenses:Cat02 2 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b03 in 2024"
+  Expenses:Cat03 3 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b04 in 2024"
+  Expenses:Cat04 4 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b05 in 2024"
+  Expenses:Cat05 5 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b06 in 2024"
+  Expenses:Cat06 6 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b07 in 2024"
+  Expenses:Cat07 7 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b08 in 2024"
+  Expenses:Cat08 8 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b09 in 2024"
+  Expenses:Cat09 9 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b10 in 2024"
+  Expenses:Cat10 10 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b11 in 2024"
+  Expenses:Cat11 11 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b12 in 2024"
+  Expenses:Cat12 12 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b13 in 2024"
+  Expenses:Cat13 13 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b14 in 2024"
+  Expenses:Cat14 14 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b15 in 2024"
+  Expenses:Cat15 15 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b16 in 2024"
+  Expenses:Cat16 16 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b17 in 2024"
+  Expenses:Cat17 17 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b18 in 2024"
+  Expenses:Cat18 18 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b19 in 2024"
+  Expenses:Cat19 19 CNY
+  Assets:Bank
+
+2024-06-15 * "Shop" "b20 in 2024"
+  Expenses:Cat20 20 CNY
+  Assets:Bank

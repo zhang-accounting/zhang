@@ -1,0 +1,17 @@
+{
+  "description": "Date typos at the ends of a budget's months (see main.zhang): a definition in the year 0024 and a budget-add in 9999, the pages before, in and after the current month, and queries over every month.",
+  "now": "2024-02-15T00:00:00Z",
+  "tables": false,
+  "pages": {
+    "months": ["0024-01-01", "2024-02-01", "9999-12-01"],
+    "budgets": ["Old", "Food"]
+  },
+  "requests": [
+    {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+    {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+    {"bql": "SELECT name, min(date) AS first, max(date) AS last, count(*) AS months, sum(activity) AS spent FROM #budgets GROUP BY name ORDER BY name"},
+    {"bql": "SELECT name, date, assigned, activity, available FROM #budgets WHERE date = yearmonth(today())"},
+    {"bql": "SELECT name, date, assigned, activity, available FROM #budgets WHERE name = 'Old' AND date <= 0024-03-01"},
+    {"bql": "SELECT name, date, assigned, added, available FROM #budgets WHERE name = 'Food' AND date >= 9999-11-01"}
+  ]
+}

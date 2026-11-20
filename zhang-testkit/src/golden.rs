@@ -10,9 +10,9 @@ use serde_json::Value;
 /// the environment variable that makes the golden helpers rewrite their files
 pub const UPDATE_VAR: &str = "UPDATE_GOLDEN";
 
-/// Whether `UPDATE_GOLDEN=1` (or any value but `0` and empty) is set.
+/// Whether `UPDATE_GOLDEN=1` (or `true`) is set. Any other value, `false` and `0` included, compares.
 pub fn update_requested() -> bool {
-    std::env::var(UPDATE_VAR).map(|value| !value.is_empty() && value != "0").unwrap_or(false)
+    std::env::var(UPDATE_VAR).is_ok_and(|value| matches!(value.as_str(), "1" | "true"))
 }
 
 /// Compare `actual` with the text of the golden file at `path`, or rewrite the file when an update is requested.

@@ -1,0 +1,26 @@
+{
+  "description": "A date typo far ahead (see main.zhang): the filters that bound the months #budgets generates (date <= x, date < x, date = x, yearmonth(date) = x or <= x, today(), on either side, after a conjunct that cannot fail) answer, the others fail as too large.",
+  "now": "2024-02-15T00:00:00Z",
+  "tables": false,
+  "pages": {
+    "months": ["2024-01-01", "2024-02-01"],
+    "budgets": ["b00"]
+  },
+  "requests": [
+    {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+    {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE name = 'b00' AND date <= 2024-03-01"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE name = 'b00' AND date < 2024-03-01"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE name = 'b00' AND date = 2024-02-01"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE name = 'b00' AND yearmonth(date) = 2024-02-01"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE name = 'b00' AND yearmonth(date) <= 2024-02-01"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE name = 'b00' AND 2024-02-01 >= date"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE name = 'b00' AND date <= today()"},
+    {"bql": "SELECT name, date, available FROM #budgets WHERE date = yearmonth(today()) AND name = 'b00'"},
+    {"bql": "SELECT count(*) FROM #budgets WHERE date <= 2024-02-01"},
+    {"bql": "SELECT name, date FROM #budgets LIMIT 1"},
+    {"bql": "SELECT name, date FROM #budgets WHERE year = 2024"},
+    {"bql": "SELECT name, date FROM #budgets WHERE date >= 2024-01-01 AND date <= 2024-02-01"},
+    {"builtin": "budgets.month", "params": {"month": "9999-01-01"}}
+  ]
+}

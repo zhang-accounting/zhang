@@ -1,0 +1,10 @@
+{
+  "description": "The ledger of integration-tests/budget-sytem-syntax-and-category-multiple-file: nine budgets with aliases and categories in an included file, one defined a month before the others, two with money and one with spending.",
+  "ledger": "integration-tests/budget-sytem-syntax-and-category-multiple-file",
+  "timezone": "UTC",
+  "now": "2024-01-15T00:00:00Z",
+  "pages": {
+    "months": ["2023-10-01", "2023-11-01", "2023-12-01", "2024-01-01"],
+    "budgets": ["food", "game_expense", "3C_Devices"]
+  }
+}

@@ -1,0 +1,35 @@
+2024-01-10 * "Airline" "USD at the price of 2024-01-01"
+  Expenses:Travel 100 USD
+  Assets:Bank
+
+2024-01-15 * "Hotel" "USD on a day of two prices"
+  Expenses:Travel 100 USD
+  Assets:Bank
+
+2024-01-20 09:00:00 * "Taxi" "USD at 09:00 on the day of a price at 18:00"
+  Expenses:Travel 10 USD
+  Assets:Bank
+
+2024-01-21 * "Cafe" "EUR, through the inverse of CNY in EUR"
+  Expenses:Travel 8 EUR
+  Assets:Bank
+
+2024-01-22 * "Gift shop" "a share held at cost in USD"
+  Expenses:Gifts 1 AAPL {140 USD}
+  Assets:Broker -140 USD
+
+2024-01-23 * "Ramen" "JPY before its first price"
+  Expenses:Travel 1000 JPY
+  Assets:Bank
+
+2024-02-02 * "Ramen" "JPY after its first price"
+  Expenses:Travel 1000 JPY
+  Assets:Bank
+
+2024-01-24 * "Shop" "GBP with a price annotation"
+  Expenses:Travel 10 GBP @ 9 CNY
+  Assets:Bank -90 CNY
+
+2024-01-25 * "Bar" "CNY in the USD budget"
+  Expenses:Abroad 71 CNY
+  Assets:Bank

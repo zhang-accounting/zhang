@@ -1,0 +1,64 @@
+{
+  "builtin_queries": [
+    {"name": "ledger.now", "params": [], "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}]},
+    {
+      "name": "journals.errors",
+      "params": [{"name": "size", "type": "int"}, {"name": "offset", "type": "int"}],
+      "columns": [{"name": "id", "type": "str"}, {"name": "kind", "type": "str"}, {"name": "file", "type": "str"}, {"name": "line", "type": "int"}, {"name": "column", "type": "int"}, {"name": "span_start", "type": "int"}, {"name": "span_end", "type": "int"}, {"name": "source", "type": "str"}, {"name": "metas", "type": "metas"}]
+    },
+    {
+      "name": "budgets.month",
+      "params": [{"name": "month", "type": "date"}],
+      "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}]
+    },
+    {
+      "name": "budgets.budget",
+      "params": [{"name": "name", "type": "str"}],
+      "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}]
+    },
+    {
+      "name": "budgets.budget_month",
+      "params": [{"name": "name", "type": "str"}, {"name": "month", "type": "date"}],
+      "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}]
+    },
+    {
+      "name": "budgets.events",
+      "params": [{"name": "name", "type": "str"}, {"name": "month", "type": "date"}],
+      "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}]
+    },
+    {
+      "name": "budgets.postings",
+      "params": [{"name": "name", "type": "str"}, {"name": "month", "type": "date"}],
+      "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}]
+    }
+  ],
+  "tables": [
+    {"name": "postings", "columns": [{"name": "budgets", "type": "set"}]},
+    {
+      "name": "budgets",
+      "columns": [
+        {"name": "name", "type": "str"},
+        {"name": "alias", "type": "str"},
+        {"name": "category", "type": "str"},
+        {"name": "currency", "type": "str"},
+        {"name": "date", "type": "date"},
+        {"name": "year", "type": "int"},
+        {"name": "month", "type": "int"},
+        {"name": "assigned", "type": "amount"},
+        {"name": "added", "type": "amount"},
+        {"name": "activity", "type": "amount"},
+        {"name": "available", "type": "amount"},
+        {"name": "accounts", "type": "set"},
+        {"name": "closed", "type": "bool"}
+      ]
+    },
+    {
+      "name": "budget_events",
+      "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}]
+    },
+    {
+      "name": "budget_definitions",
+      "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}]
+    }
+  ]
+}

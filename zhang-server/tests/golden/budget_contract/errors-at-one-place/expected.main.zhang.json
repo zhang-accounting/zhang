@@ -1,0 +1,578 @@
+{
+  "case": "errors-at-one-place",
+  "description": "Several errors at one place (see main.zhang): their order within the place and their ids, in the list by file and position the API answers and in the id-exact list.",
+  "ledger": "zhang-server/tests/golden/budget_contract/errors-at-one-place/main.zhang",
+  "now": "2024-01-20T00:00:00Z",
+  "known_issues": {
+    "errors": "KNOWN-ISSUE: DefineDuplicatedBudget has no metas, so it does not name the budget, unlike every other budget error (zhang-core/src/process/budget.rs:15)",
+    "error_list": "pinned, not marked wrong: a transfer's two errors come `from`, then `to` (zhang-core/src/process/budget.rs:38-41), and with both budgets undefined only `from` is reported (the `&&` at :38 stops at the first); a posting's errors at an account of several budgets come in the order of the budgets' names (the BTreeSet of zhang-core/src/ledger.rs:308); at one place a BudgetDoesNotExist (reported during the fold) comes before the BudgetCommodityMismatch errors (reported after it), whatever the order of the postings. Which place the load checks first is not pinned: the unconverted amounts are checked after the fold (report_unconverted_amounts, zhang-core/src/process/budget.rs:121, reporting at :142, called at zhang-core/src/ledger.rs:758), which no client sees, as the API orders errors by place"
+  },
+  "errors": [
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 34,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Zeta"}, {"key": "commodity", "value": "USD"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 34,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Alpha"}, {"key": "commodity", "value": "USD"}]
+    },
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 36,
+      "metas": [{"key": "budget_name", "value": "Nope-Zulu"}]
+    },
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 38,
+      "metas": [{"key": "account_name", "value": "Expenses:Ghosts"}, {"key": "budget_name", "value": "Delta"}, {"key": "txn_id", "value": "8da8e21c-6ea0-09ce-ebd7-40582adfba0c"}]
+    },
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 38,
+      "metas": [{"key": "account_name", "value": "Expenses:Ghosts"}, {"key": "budget_name", "value": "Zulu"}, {"key": "txn_id", "value": "8da8e21c-6ea0-09ce-ebd7-40582adfba0c"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 42,
+      "metas": [{"key": "account_name", "value": "Expenses:Dollars"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Alpha"}, {"key": "commodity", "value": "USD"}, {"key": "txn_id", "value": "e7624672-13a2-a31b-ff12-a13555ad305f"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 42,
+      "metas": [{"key": "account_name", "value": "Expenses:Dollars"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Zeta"}, {"key": "commodity", "value": "USD"}, {"key": "txn_id", "value": "e7624672-13a2-a31b-ff12-a13555ad305f"}]
+    },
+    {
+      "kind": "BudgetClosed",
+      "file": "main.zhang",
+      "line": 49,
+      "metas": [{"key": "account_name", "value": "Expenses:Closed"}, {"key": "budget_name", "value": "Bravo"}, {"key": "txn_id", "value": "136475b9-577a-c4ad-f6b9-5425bc6799ba"}]
+    },
+    {
+      "kind": "BudgetClosed",
+      "file": "main.zhang",
+      "line": 49,
+      "metas": [{"key": "account_name", "value": "Expenses:Closed"}, {"key": "budget_name", "value": "Yankee"}, {"key": "txn_id", "value": "136475b9-577a-c4ad-f6b9-5425bc6799ba"}]
+    },
+    {"kind": "DefineDuplicatedBudget", "file": "main.zhang", "line": 53, "metas": []},
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 55,
+      "metas": [{"key": "account_name", "value": "Expenses:Unknown"}, {"key": "budget_name", "value": "Echo"}, {"key": "txn_id", "value": "993cd7a5-85d8-91e9-6fbb-f6643cd61c90"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 55,
+      "metas": [{"key": "account_name", "value": "Expenses:Dollars"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Alpha"}, {"key": "commodity", "value": "USD"}, {"key": "txn_id", "value": "993cd7a5-85d8-91e9-6fbb-f6643cd61c90"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 55,
+      "metas": [{"key": "account_name", "value": "Expenses:Dollars"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Zeta"}, {"key": "commodity", "value": "USD"}, {"key": "txn_id", "value": "993cd7a5-85d8-91e9-6fbb-f6643cd61c90"}]
+    }
+  ],
+  "error_list": [
+    {
+      "id": "173e608d-fea5-5b79-c54b-7f402f0ee498",
+      "id_of": "main.zhang@1396 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1396, "end": 1440, "line": 34},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {"budget_commodity": "CNY", "budget_name": "Zeta", "commodity": "USD"}
+    },
+    {
+      "id": "b3feebaf-6ab5-216c-27a4-115eb0b413ce",
+      "id_of": "main.zhang@1396 BudgetCommodityMismatch #1",
+      "span": {"file": "main.zhang", "start": 1396, "end": 1440, "line": 34},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {"budget_commodity": "CNY", "budget_name": "Alpha", "commodity": "USD"}
+    },
+    {
+      "id": "020b8f0f-b84a-589f-bc3b-f7c386cecb95",
+      "id_of": "main.zhang@1442 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1442, "end": 1495, "line": 36},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"budget_name": "Nope-Zulu"}
+    },
+    {
+      "id": "908d9db0-883e-33d2-5426-facf2c1ccbbc",
+      "id_of": "main.zhang@1497 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1497, "end": 1600, "line": 38},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Ghosts", "budget_name": "Delta", "txn_id": "8da8e21c-6ea0-09ce-ebd7-40582adfba0c"}
+    },
+    {
+      "id": "aa99d802-59be-708e-3029-08b1b0bdd1a7",
+      "id_of": "main.zhang@1497 BudgetDoesNotExist #1",
+      "span": {"file": "main.zhang", "start": 1497, "end": 1600, "line": 38},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Ghosts", "budget_name": "Zulu", "txn_id": "8da8e21c-6ea0-09ce-ebd7-40582adfba0c"}
+    },
+    {
+      "id": "e2efcd7b-8e58-ead3-a5d1-ef31c60e4ae2",
+      "id_of": "main.zhang@1602 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1602, "end": 1718, "line": 42},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Dollars",
+        "budget_commodity": "CNY",
+        "budget_name": "Alpha",
+        "commodity": "USD",
+        "txn_id": "e7624672-13a2-a31b-ff12-a13555ad305f"
+      }
+    },
+    {
+      "id": "3832808c-859e-2048-9108-60d59698e9d0",
+      "id_of": "main.zhang@1602 BudgetCommodityMismatch #1",
+      "span": {"file": "main.zhang", "start": 1602, "end": 1718, "line": 42},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Dollars",
+        "budget_commodity": "CNY",
+        "budget_name": "Zeta",
+        "commodity": "USD",
+        "txn_id": "e7624672-13a2-a31b-ff12-a13555ad305f"
+      }
+    },
+    {
+      "id": "26fac962-c3b4-a536-b97c-9c8346450078",
+      "id_of": "main.zhang@1782 BudgetClosed #0",
+      "span": {"file": "main.zhang", "start": 1782, "end": 1874, "line": 49},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Closed", "budget_name": "Bravo", "txn_id": "136475b9-577a-c4ad-f6b9-5425bc6799ba"}
+    },
+    {
+      "id": "3c281577-db74-1cb6-fc13-9673df5babac",
+      "id_of": "main.zhang@1782 BudgetClosed #1",
+      "span": {"file": "main.zhang", "start": 1782, "end": 1874, "line": 49},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Closed", "budget_name": "Yankee", "txn_id": "136475b9-577a-c4ad-f6b9-5425bc6799ba"}
+    },
+    {
+      "id": "50b51514-337f-e407-a1dc-69fe91e495df",
+      "id_of": "main.zhang@1876 DefineDuplicatedBudget #0",
+      "span": {"file": "main.zhang", "start": 1876, "end": 1903, "line": 53},
+      "kind": "DefineDuplicatedBudget",
+      "metas": {}
+    },
+    {
+      "id": "7bae19bf-a12f-86d4-236e-cf9a4ef4e92f",
+      "id_of": "main.zhang@1905 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 1905, "end": 2093, "line": 55},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Unknown", "budget_name": "Echo", "txn_id": "993cd7a5-85d8-91e9-6fbb-f6643cd61c90"}
+    },
+    {
+      "id": "7af6a094-fca6-166b-cb45-af2e963a3164",
+      "id_of": "main.zhang@1905 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1905, "end": 2093, "line": 55},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Dollars",
+        "budget_commodity": "CNY",
+        "budget_name": "Alpha",
+        "commodity": "USD",
+        "txn_id": "993cd7a5-85d8-91e9-6fbb-f6643cd61c90"
+      }
+    },
+    {
+      "id": "19eff02e-4525-19a5-a5ca-cbaf509ffb96",
+      "id_of": "main.zhang@1905 BudgetCommodityMismatch #1",
+      "span": {"file": "main.zhang", "start": 1905, "end": 2093, "line": 55},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Dollars",
+        "budget_commodity": "CNY",
+        "budget_name": "Zeta",
+        "commodity": "USD",
+        "txn_id": "993cd7a5-85d8-91e9-6fbb-f6643cd61c90"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-01-20", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-01-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Alpha", null, null, "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false],
+            ["Bravo", null, null, "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, true],
+            ["Yankee", null, null, "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, true],
+            ["Zeta", null, null, "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Zeta"}},
+          {"name": "budgets.budget_month", "params": {"name": "Zeta", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Zeta", null, null, "CNY", ["Expenses:Dollars"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Zeta", null, null, "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Zeta", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Zeta", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-02", "00:00:00", 1704153600, "transfer_out", {"number": "-10", "currency": "USD"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Zeta"}},
+          {"name": "budgets.events", "params": {"name": "Zeta", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Zeta", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Zeta", null, null, "CNY", ["Expenses:Dollars"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-02", "00:00:00", 1704153600, "transfer_out", {"number": "-10", "currency": "USD"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Alpha"}},
+          {"name": "budgets.budget_month", "params": {"name": "Alpha", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Alpha", null, null, "CNY", ["Expenses:Dollars"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Alpha", null, null, "CNY", "2024-01-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Alpha", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Alpha", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-02", "00:00:00", 1704153600, "transfer_in", {"number": "10", "currency": "USD"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Alpha"}},
+          {"name": "budgets.events", "params": {"name": "Alpha", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Alpha", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Alpha", null, null, "CNY", ["Expenses:Dollars"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-02", "00:00:00", 1704153600, "transfer_in", {"number": "10", "currency": "USD"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [
+            ["Alpha", "2024-01-01", "CNY", null, null, ["Expenses:Dollars"], null, null],
+            ["Bravo", "2024-01-01", "CNY", null, null, ["Expenses:Closed"], "2024-01-06", null],
+            ["Yankee", "2024-01-01", "CNY", null, null, ["Expenses:Closed"], "2024-01-06", null],
+            ["Zeta", "2024-01-01", "CNY", null, null, ["Expenses:Dollars"], null, null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [
+            ["Zeta", "2024-01-02", "00:00:00", 1704153600, "transfer_out", {"number": "-10", "currency": "USD"}],
+            ["Alpha", "2024-01-02", "00:00:00", 1704153600, "transfer_in", {"number": "10", "currency": "USD"}],
+            ["Yankee", "2024-01-06", "00:00:00", 1704499200, "close", null],
+            ["Bravo", "2024-01-06", "00:00:00", 1704499200, "close", null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Alpha",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Dollars"]
+            ],
+            [
+              "Bravo",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              true,
+              ["Expenses:Closed"]
+            ],
+            [
+              "Yankee",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              true,
+              ["Expenses:Closed"]
+            ],
+            [
+              "Zeta",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Dollars"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-01-04",
+              "00:00:00",
+              "Expenses:Ghosts",
+              "an account of two budgets that do not exist",
+              {"number": "1", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-01-04",
+              "00:00:00",
+              "Assets:Bank",
+              "an account of two budgets that do not exist",
+              {"number": "-1", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-01-05",
+              "00:00:00",
+              "Expenses:Dollars",
+              "an account of two budgets, in dollars no price converts",
+              {"number": "5", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-05",
+              "00:00:00",
+              "Assets:Bank",
+              "an account of two budgets, in dollars no price converts",
+              {"number": "-5", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-07",
+              "00:00:00",
+              "Expenses:Closed",
+              "an account of two closed budgets",
+              {"number": "2", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-01-07",
+              "00:00:00",
+              "Assets:Bank",
+              "an account of two closed budgets",
+              {"number": "-2", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-01-09",
+              "00:00:00",
+              "Expenses:Dollars",
+              "dollars no price converts, then an account of a budget that does not exist",
+              {"number": "3", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-09",
+              "00:00:00",
+              "Expenses:Unknown",
+              "dollars no price converts, then an account of a budget that does not exist",
+              {"number": "1", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-01-09",
+              "00:00:00",
+              "Assets:Bank",
+              "dollars no price converts, then an account of a budget that does not exist",
+              {"number": "-3", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-09",
+              "00:00:00",
+              "Assets:Bank",
+              "dollars no price converts, then an account of a budget that does not exist",
+              {"number": "-1", "currency": "CNY"},
+              []
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

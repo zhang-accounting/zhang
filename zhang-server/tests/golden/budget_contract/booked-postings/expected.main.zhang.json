@@ -1,0 +1,261 @@
+{
+  "case": "booked-postings",
+  "description": "Booked postings (see main.zhang): the activity of an implicit posting next to a sale from two lots, and of several postings of one transaction.",
+  "ledger": "zhang-server/tests/golden/budget_contract/booked-postings/main.zhang",
+  "now": "2024-02-15T00:00:00Z",
+  "errors": [],
+  "error_list": [],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-02-15", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-02-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Gifts", null, null, "USD", "2024-02-01", {"number": "2000", "currency": "USD"}, "875", {"number": "1125", "currency": "USD"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gifts", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "USD", ["Expenses:Fees", "Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gifts", null, null, "USD", "2024-02-01", {"number": "2000", "currency": "USD"}, "875", {"number": "1125", "currency": "USD"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-02", "00:00:00", 1706832000, "Expenses:Gifts", "8632250f-7f72-e4a2-0e50-d122e91bf421", "Shop", "three postings to the budget's accounts in one transaction", {"number": "10", "currency": "USD"}, {"number": "870", "currency": "USD"}],
+              ["2024-02-02", "00:00:00", 1706832000, "Expenses:Fees", "8632250f-7f72-e4a2-0e50-d122e91bf421", "Shop", "three postings to the budget's accounts in one transaction", {"number": "2", "currency": "USD"}, {"number": "2", "currency": "USD"}],
+              ["2024-02-02", "00:00:00", 1706832000, "Expenses:Gifts", "8632250f-7f72-e4a2-0e50-d122e91bf421", "Shop", "three postings to the budget's accounts in one transaction", {"number": "3", "currency": "USD"}, {"number": "873", "currency": "USD"}],
+              ["2024-02-01", "00:00:00", 1706745600, "Expenses:Gifts", "af213369-8bb7-39f6-eece-50176fabf917", "Friend", "shares from two lots given away, the expense implicit", {"number": "860", "currency": "USD"}, {"number": "860", "currency": "USD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "USD", ["Expenses:Fees", "Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-02", "00:00:00", 1706832000, "Expenses:Gifts", "8632250f-7f72-e4a2-0e50-d122e91bf421", "Shop", "three postings to the budget's accounts in one transaction", {"number": "10", "currency": "USD"}, {"number": "870", "currency": "USD"}],
+              ["2024-02-02", "00:00:00", 1706832000, "Expenses:Fees", "8632250f-7f72-e4a2-0e50-d122e91bf421", "Shop", "three postings to the budget's accounts in one transaction", {"number": "2", "currency": "USD"}, {"number": "2", "currency": "USD"}],
+              ["2024-02-02", "00:00:00", 1706832000, "Expenses:Gifts", "8632250f-7f72-e4a2-0e50-d122e91bf421", "Shop", "three postings to the budget's accounts in one transaction", {"number": "3", "currency": "USD"}, {"number": "873", "currency": "USD"}],
+              ["2024-02-01", "00:00:00", 1706745600, "Expenses:Gifts", "af213369-8bb7-39f6-eece-50176fabf917", "Friend", "shares from two lots given away, the expense implicit", {"number": "860", "currency": "USD"}, {"number": "860", "currency": "USD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [["Gifts", "2024-01-01", "USD", null, null, ["Expenses:Fees", "Expenses:Gifts"], null, null]]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [["Gifts", "2024-01-01", "00:00:00", 1704067200, "assign", {"number": "2000", "currency": "USD"}]]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Gifts",
+              "2024-01-01",
+              2024,
+              1,
+              "USD",
+              null,
+              null,
+              {"number": "2000", "currency": "USD"},
+              {"number": "2000", "currency": "USD"},
+              {"number": "0", "currency": "USD"},
+              {"number": "2000", "currency": "USD"},
+              false,
+              ["Expenses:Fees", "Expenses:Gifts"]
+            ],
+            [
+              "Gifts",
+              "2024-02-01",
+              2024,
+              2,
+              "USD",
+              null,
+              null,
+              {"number": "2000", "currency": "USD"},
+              {"number": "0", "currency": "USD"},
+              {"number": "875", "currency": "USD"},
+              {"number": "1125", "currency": "USD"},
+              false,
+              ["Expenses:Fees", "Expenses:Gifts"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            ["2024-01-02", "00:00:00", "Assets:Broker", "buy", {"number": "5", "currency": "AAPL"}, []],
+            ["2024-01-02", "00:00:00", "Assets:Bank", "buy", {"number": "-500", "currency": "USD"}, []],
+            ["2024-01-03", "00:00:00", "Assets:Broker", "buy again", {"number": "5", "currency": "AAPL"}, []],
+            ["2024-01-03", "00:00:00", "Assets:Bank", "buy again", {"number": "-600", "currency": "USD"}, []],
+            [
+              "2024-02-01",
+              "00:00:00",
+              "Assets:Broker",
+              "shares from two lots given away, the expense implicit",
+              {"number": "-5", "currency": "AAPL"},
+              []
+            ],
+            [
+              "2024-02-01",
+              "00:00:00",
+              "Assets:Broker",
+              "shares from two lots given away, the expense implicit",
+              {"number": "-3", "currency": "AAPL"},
+              []
+            ],
+            [
+              "2024-02-01",
+              "00:00:00",
+              "Expenses:Gifts",
+              "shares from two lots given away, the expense implicit",
+              {"number": "860", "currency": "USD"},
+              ["Gifts"]
+            ],
+            [
+              "2024-02-02",
+              "00:00:00",
+              "Expenses:Gifts",
+              "three postings to the budget's accounts in one transaction",
+              {"number": "10", "currency": "USD"},
+              ["Gifts"]
+            ],
+            [
+              "2024-02-02",
+              "00:00:00",
+              "Expenses:Fees",
+              "three postings to the budget's accounts in one transaction",
+              {"number": "2", "currency": "USD"},
+              ["Gifts"]
+            ],
+            [
+              "2024-02-02",
+              "00:00:00",
+              "Expenses:Gifts",
+              "three postings to the budget's accounts in one transaction",
+              {"number": "3", "currency": "USD"},
+              ["Gifts"]
+            ],
+            [
+              "2024-02-02",
+              "00:00:00",
+              "Assets:Bank",
+              "three postings to the budget's accounts in one transaction",
+              {"number": "-15", "currency": "USD"},
+              []
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

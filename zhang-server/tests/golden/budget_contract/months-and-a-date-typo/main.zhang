@@ -1,0 +1,33 @@
+; A date typo far ahead: a transaction dated 9999 makes the months of twelve budgets run through 9999, more rows
+; than the result size limit allows. The pages ask for one month (`date <= :month`), so they keep working; a query
+; whose filter keeps no month up to a date fails as too large, naming the budget and the directive that ends its months.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: b00
+
+2024-01-01 budget b00 CNY
+2024-01-01 budget b01 CNY
+2024-01-01 budget b02 CNY
+2024-01-01 budget b03 CNY
+2024-01-01 budget b04 CNY
+2024-01-01 budget b05 CNY
+2024-01-01 budget b06 CNY
+2024-01-01 budget b07 CNY
+2024-01-01 budget b08 CNY
+2024-01-01 budget b09 CNY
+2024-01-01 budget b10 CNY
+2024-01-01 budget b11 CNY
+2024-01-01 budget-add b00 100 CNY
+
+2024-01-10 * "Market" "lunch"
+  Expenses:Food 10 CNY
+  Assets:Bank
+
+9999-01-01 * "Market" "a typo"
+  Expenses:Food 1 CNY
+  Assets:Bank

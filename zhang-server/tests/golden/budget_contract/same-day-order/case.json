@@ -1,0 +1,11 @@
+{
+  "description": "The order of a day (see main.zhang): which postings of the day of a definition or a close count, and the order of a month's events and postings.",
+  "now": "2024-03-25T00:00:00Z",
+  "pages": {
+    "months": ["2024-03-01"],
+    "budgets": ["Food", "Fun"]
+  },
+  "known_issues": {
+    "round_trip.beancount": "KNOWN-ISSUE: a budget directive with a time is written to beancount with its date and time (`2024-02-15 18:00:00 custom \"budget-close\" \"Fun\"`), which zhang's beancount parser cannot read, so the round trip does not load, and which bean-check 3.2.3 rejects (`syntax error, unexpected NUMBER`); other directives move their time into a `time` metadata entry (extensions/beancount/src/lib.rs:163-169)"
+  }
+}

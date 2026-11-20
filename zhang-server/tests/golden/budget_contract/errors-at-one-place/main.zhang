@@ -1,0 +1,59 @@
+; Several errors at one place, and their ids: the n-th error of a kind at a place has the id (place, kind, n).
+; - A budget-transfer in a commodity neither budget converts has two BudgetCommodityMismatch errors at its place: its
+;   `from` budget's first (#0), then its `to` budget's (#1), whatever their names.
+; - A budget-transfer between two budgets that do not exist reports its `from` budget only.
+; - A posting to an account linked to two budgets has each budget's error at the posting, in the order of the
+;   budgets' names, whatever the order of the `budget` entries: two that do not exist, two in whose commodity no price
+;   converts it, two that are closed.
+; - A transaction with errors of two kinds has its BudgetDoesNotExist before its BudgetCommodityMismatch errors, although
+;   the posting no price converts is written first: amounts are checked for a price once every price is known.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Ghosts
+  budget: Zulu
+  budget: Delta
+2024-01-01 open Expenses:Dollars
+  budget: Zeta
+  budget: Alpha
+2024-01-01 open Expenses:Closed
+  budget: Yankee
+  budget: Bravo
+2024-01-01 open Expenses:Unknown
+  budget: Echo
+
+2024-01-01 budget Zeta CNY
+2024-01-01 budget Alpha CNY
+2024-01-01 budget Yankee CNY
+2024-01-01 budget Bravo CNY
+
+2024-01-02 budget-transfer Zeta Alpha 10 USD
+
+2024-01-03 budget-transfer Nope-Zulu Nope-Alpha 1 CNY
+
+2024-01-04 * "Shop" "an account of two budgets that do not exist"
+  Expenses:Ghosts 1 CNY
+  Assets:Bank
+
+2024-01-05 * "Shop" "an account of two budgets, in dollars no price converts"
+  Expenses:Dollars 5 USD
+  Assets:Bank
+
+2024-01-06 budget-close Yankee
+2024-01-06 budget-close Bravo
+
+2024-01-07 * "Shop" "an account of two closed budgets"
+  Expenses:Closed 2 CNY
+  Assets:Bank
+
+2024-01-08 budget Alpha USD
+
+2024-01-09 * "Shop" "dollars no price converts, then an account of a budget that does not exist"
+  Expenses:Dollars 3 USD
+  Expenses:Unknown 1 CNY
+  Assets:Bank -3 USD
+  Assets:Bank -1 CNY

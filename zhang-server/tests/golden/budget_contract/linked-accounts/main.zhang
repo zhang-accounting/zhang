@@ -1,0 +1,97 @@
+; How accounts link to budgets: through the `budget` entries of the account's `open` in effect at a posting's date
+; and time. An account in two budgets counts in both; a repeated entry counts once; several accounts add up in one
+; budget; a posting to an Income, Liabilities or Equity account counts negated; a sub-account does not count in its
+; parent's budget; an account closed and opened again with other budgets counts in those from the reopening on, also
+; when it reopens later the same day; and a second `open` without a close.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Assets:Wallet
+  budget: Pocket
+2024-01-01 open Liabilities:Card
+  budget: Food
+2024-01-01 open Income:Refunds
+  budget: Food
+2024-01-01 open Equity:Adjust
+  budget: Food
+2024-01-01 open Expenses:Food
+  budget: Food
+  budget: Health
+2024-01-01 open Expenses:Food:Snacks
+2024-01-01 open Expenses:Pharmacy
+  budget: Health
+  budget: Health
+2024-01-01 open Expenses:Gym
+  budget: Health
+
+2024-01-01 budget Food CNY
+2024-01-01 budget Health CNY
+2024-01-01 budget Pocket CNY
+2024-01-01 budget Leisure CNY
+2024-01-01 budget-add Food 1000 CNY
+2024-01-01 budget-add Health 300 CNY
+
+2024-01-05 * "Market" "an account in Food and in Health"
+  Expenses:Food 100 CNY
+  Assets:Bank
+
+2024-01-06 * "Kiosk" "a sub-account linked to no budget"
+  Expenses:Food:Snacks 7 CNY
+  Assets:Bank
+
+2024-01-07 * "Pharmacy" "a repeated budget entry"
+  Expenses:Pharmacy 20 CNY
+  Assets:Bank
+
+2024-01-08 * "Gym" "paid by a card linked to Food"
+  Expenses:Gym 50 CNY
+  Liabilities:Card
+
+2024-01-09 * "Shop" "a refund booked to an Income account linked to Food"
+  Assets:Bank 15 CNY
+  Income:Refunds
+
+2024-01-10 * "Bank" "an Equity adjustment linked to Food"
+  Assets:Bank 3 CNY
+  Equity:Adjust
+
+2024-01-11 * "ATM" "cash into an Assets account linked to Pocket"
+  Assets:Wallet 40 CNY
+  Assets:Bank
+
+2024-01-25 * "Bank" "paying the card"
+  Liabilities:Card 50 CNY
+  Assets:Bank
+
+; reopened on another day with another budget
+2024-01-31 close Expenses:Pharmacy
+2024-02-01 open Expenses:Pharmacy
+  budget: Leisure
+
+2024-02-02 * "Pharmacy" "after the reopening"
+  Expenses:Pharmacy 9 CNY
+  Assets:Bank
+
+; reopened later the same day with another budget
+2024-02-10 08:00:00 * "Gym" "before the reopening of the day"
+  Expenses:Gym 11 CNY
+  Assets:Bank
+
+2024-02-10 09:00:00 close Expenses:Gym
+2024-02-10 10:00:00 open Expenses:Gym
+  budget: Leisure
+
+2024-02-10 11:00:00 * "Gym" "after the reopening of the day"
+  Expenses:Gym 13 CNY
+  Assets:Bank
+
+; opened again without a close
+2024-03-01 open Expenses:Food
+  budget: Leisure
+
+2024-03-02 * "Market" "after a second open without a close"
+  Expenses:Food 5 CNY
+  Assets:Bank

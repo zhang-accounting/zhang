@@ -1,0 +1,28 @@
+; Date typos at the ends of a budget's months. A definition dated in the year 0024 starts its budget's months two
+; thousand years early; a budget-add dated 9999 runs its budget's months to 9999. Each is one budget's months, under
+; the result size limit: the pages answer, and so does a query over every month.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Old
+  budget: Old
+
+0024-01-01 budget Old CNY
+2024-01-01 budget Food CNY
+2024-01-01 budget Normal CNY
+
+2024-01-01 budget-add Food 100 CNY
+9999-12-01 budget-add Food 1 CNY
+
+2024-01-10 * "Market" "lunch"
+  Expenses:Food 10 CNY
+  Assets:Bank
+
+2024-01-11 * "Shop" "something old"
+  Expenses:Old 5 CNY
+  Assets:Bank

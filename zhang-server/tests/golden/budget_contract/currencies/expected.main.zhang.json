@@ -1,0 +1,753 @@
+{
+  "case": "currencies",
+  "description": "Several currencies (see main.zhang and 2024/01.zhang): each amount converted at its date, by the pair, its inverse or the cost currency, and the errors of the amounts no price converts, with their file and line.",
+  "ledger": "zhang-server/tests/golden/budget_contract/currencies/main.zhang",
+  "now": "2024-02-10T00:00:00Z",
+  "errors": [
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "2024/01.zhang",
+      "line": 21,
+      "metas": [{"key": "account_name", "value": "Expenses:Travel"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Travel"}, {"key": "commodity", "value": "JPY"}, {"key": "txn_id", "value": "bd09e155-4b69-65e9-28bc-27a973685f83"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "2024/01.zhang",
+      "line": 29,
+      "metas": [{"key": "account_name", "value": "Expenses:Travel"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Travel"}, {"key": "commodity", "value": "GBP"}, {"key": "txn_id", "value": "6d5452af-87db-cc54-48f0-44315151eb8a"}]
+    },
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 43,
+      "metas": [{"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Travel"}, {"key": "commodity", "value": "JPY"}]
+    }
+  ],
+  "error_list": [
+    {
+      "id": "c9f333f2-a440-28f0-897b-412c73bc94ac",
+      "id_of": "2024/01.zhang@518 BudgetCommodityMismatch #0",
+      "span": {"file": "2024/01.zhang", "start": 518, "end": 608, "line": 21},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Travel",
+        "budget_commodity": "CNY",
+        "budget_name": "Travel",
+        "commodity": "JPY",
+        "txn_id": "bd09e155-4b69-65e9-28bc-27a973685f83"
+      }
+    },
+    {
+      "id": "409eb411-768d-d2a5-fff5-6b48b755501d",
+      "id_of": "2024/01.zhang@701 BudgetCommodityMismatch #0",
+      "span": {"file": "2024/01.zhang", "start": 701, "end": 805, "line": 29},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Travel",
+        "budget_commodity": "CNY",
+        "budget_name": "Travel",
+        "commodity": "GBP",
+        "txn_id": "6d5452af-87db-cc54-48f0-44315151eb8a"
+      }
+    },
+    {
+      "id": "90e5ebb5-efc6-84d6-4361-5b3d69637b1a",
+      "id_of": "main.zhang@1437 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1437, "end": 1475, "line": 43},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {"budget_commodity": "CNY", "budget_name": "Travel", "commodity": "JPY"}
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-02-10", "01:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-01-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Dollars", null, null, "USD", "2024-01-01", {"number": "190.8450704225352112676056338", "currency": "USD"}, "9.726027397260273972602739727", {"number": "181.119043025274937295002894073", "currency": "USD"}, false],
+            ["Travel", null, null, "CNY", "2024-01-01", {"number": "10355.00", "currency": "CNY"}, "2667.00", {"number": "7688.00", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-02-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Dollars", null, null, "USD", "2024-02-01", {"number": "181.119043025274937295002894073", "currency": "USD"}, "0", {"number": "181.119043025274937295002894073", "currency": "USD"}, false],
+            ["Travel", null, null, "CNY", "2024-02-01", {"number": "7688.00", "currency": "CNY"}, "50.00", {"number": "7638.00", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Travel"}},
+          {"name": "budgets.budget_month", "params": {"name": "Travel", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Travel", null, null, "CNY", ["Expenses:Gifts", "Expenses:Travel"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Travel", null, null, "CNY", "2024-01-01", {"number": "10355.00", "currency": "CNY"}, "2667.00", {"number": "7688.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Travel", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Travel", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-01-05", "00:00:00", 1704409200, "transfer_out", {"number": "-50", "currency": "USD"}],
+              ["2024-01-04", "00:00:00", 1704322800, "assign", {"number": "0", "currency": "GBP"}],
+              ["2024-01-03", "00:00:00", 1704236400, "assign", {"number": "10000", "currency": "JPY"}],
+              ["2024-01-02", "00:00:00", 1704150000, "assign", {"number": "100", "currency": "USD"}],
+              ["2024-01-01", "00:00:00", 1704063600, "assign", {"number": "10000", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-22", "00:00:00", 1705878000, "Expenses:Gifts", "7f17ca2f-a6c9-0f1b-0460-d6fe23f0b5af", "Gift shop", "a share held at cost in USD", {"number": "1", "currency": "AAPL"}, {"number": "1", "currency": "AAPL"}],
+              ["2024-01-21", "00:00:00", 1705791600, "Expenses:Travel", "93e5242d-2fbd-c623-28ab-0b199f96d3b6", "Cafe", "EUR, through the inverse of CNY in EUR", {"number": "8", "currency": "EUR"}, {"number": "8", "currency": "EUR"}],
+              ["2024-01-20", "09:00:00", 1705737600, "Expenses:Travel", "79a5afcf-b7ad-2fe6-e45e-1a14fd6cefae", "Taxi", "USD at 09:00 on the day of a price at 18:00", {"number": "10", "currency": "USD"}, {"number": "210", "currency": "USD"}],
+              ["2024-01-15", "00:00:00", 1705273200, "Expenses:Travel", "e6f40737-6ae8-c64e-d8db-5e64068a28e9", "Hotel", "USD on a day of two prices", {"number": "100", "currency": "USD"}, {"number": "200", "currency": "USD"}],
+              ["2024-01-10", "00:00:00", 1704841200, "Expenses:Travel", "4c685cab-5dc9-313d-0554-9ab07867f45a", "Airline", "USD at the price of 2024-01-01", {"number": "100", "currency": "USD"}, {"number": "100", "currency": "USD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Travel"}},
+          {"name": "budgets.events", "params": {"name": "Travel", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Travel", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Travel", null, null, "CNY", ["Expenses:Gifts", "Expenses:Travel"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-01-05", "00:00:00", 1704409200, "transfer_out", {"number": "-50", "currency": "USD"}],
+              ["2024-01-04", "00:00:00", 1704322800, "assign", {"number": "0", "currency": "GBP"}],
+              ["2024-01-03", "00:00:00", 1704236400, "assign", {"number": "10000", "currency": "JPY"}],
+              ["2024-01-02", "00:00:00", 1704150000, "assign", {"number": "100", "currency": "USD"}],
+              ["2024-01-01", "00:00:00", 1704063600, "assign", {"number": "10000", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-22", "00:00:00", 1705878000, "Expenses:Gifts", "7f17ca2f-a6c9-0f1b-0460-d6fe23f0b5af", "Gift shop", "a share held at cost in USD", {"number": "1", "currency": "AAPL"}, {"number": "1", "currency": "AAPL"}],
+              ["2024-01-21", "00:00:00", 1705791600, "Expenses:Travel", "93e5242d-2fbd-c623-28ab-0b199f96d3b6", "Cafe", "EUR, through the inverse of CNY in EUR", {"number": "8", "currency": "EUR"}, {"number": "8", "currency": "EUR"}],
+              ["2024-01-20", "09:00:00", 1705737600, "Expenses:Travel", "79a5afcf-b7ad-2fe6-e45e-1a14fd6cefae", "Taxi", "USD at 09:00 on the day of a price at 18:00", {"number": "10", "currency": "USD"}, {"number": "210", "currency": "USD"}],
+              ["2024-01-15", "00:00:00", 1705273200, "Expenses:Travel", "e6f40737-6ae8-c64e-d8db-5e64068a28e9", "Hotel", "USD on a day of two prices", {"number": "100", "currency": "USD"}, {"number": "200", "currency": "USD"}],
+              ["2024-01-10", "00:00:00", 1704841200, "Expenses:Travel", "4c685cab-5dc9-313d-0554-9ab07867f45a", "Airline", "USD at the price of 2024-01-01", {"number": "100", "currency": "USD"}, {"number": "100", "currency": "USD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Travel"}},
+          {"name": "budgets.budget_month", "params": {"name": "Travel", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Travel", null, null, "CNY", ["Expenses:Gifts", "Expenses:Travel"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Travel", null, null, "CNY", "2024-02-01", {"number": "7688.00", "currency": "CNY"}, "50.00", {"number": "7638.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Travel", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Travel", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-02", "00:00:00", 1706828400, "Expenses:Travel", "d11d705b-78c5-4943-8bb1-23f07c21e0db", "Ramen", "JPY after its first price", {"number": "1000", "currency": "JPY"}, {"number": "2000", "currency": "JPY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Travel"}},
+          {"name": "budgets.events", "params": {"name": "Travel", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Travel", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Travel", null, null, "CNY", ["Expenses:Gifts", "Expenses:Travel"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-02", "00:00:00", 1706828400, "Expenses:Travel", "d11d705b-78c5-4943-8bb1-23f07c21e0db", "Ramen", "JPY after its first price", {"number": "1000", "currency": "JPY"}, {"number": "2000", "currency": "JPY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Dollars"}},
+          {"name": "budgets.budget_month", "params": {"name": "Dollars", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Dollars", null, null, "USD", ["Expenses:Abroad"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Dollars", null, null, "USD", "2024-01-01", {"number": "190.8450704225352112676056338", "currency": "USD"}, "9.726027397260273972602739727", {"number": "181.119043025274937295002894073", "currency": "USD"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Dollars", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Dollars", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-01-05", "00:00:00", 1704409200, "transfer_in", {"number": "50", "currency": "USD"}],
+              ["2024-01-02", "00:00:00", 1704150000, "assign", {"number": "1000", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-25", "00:00:00", 1706137200, "Expenses:Abroad", "52c199a8-ae41-6b7a-61b2-7e78fe833691", "Bar", "CNY in the USD budget", {"number": "71", "currency": "CNY"}, {"number": "71", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Dollars"}},
+          {"name": "budgets.events", "params": {"name": "Dollars", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Dollars", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Dollars", null, null, "USD", ["Expenses:Abroad"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-01-05", "00:00:00", 1704409200, "transfer_in", {"number": "50", "currency": "USD"}],
+              ["2024-01-02", "00:00:00", 1704150000, "assign", {"number": "1000", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-25", "00:00:00", 1706137200, "Expenses:Abroad", "52c199a8-ae41-6b7a-61b2-7e78fe833691", "Bar", "CNY in the USD budget", {"number": "71", "currency": "CNY"}, {"number": "71", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Dollars"}},
+          {"name": "budgets.budget_month", "params": {"name": "Dollars", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Dollars", null, null, "USD", ["Expenses:Abroad"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Dollars", null, null, "USD", "2024-02-01", {"number": "181.119043025274937295002894073", "currency": "USD"}, "0", {"number": "181.119043025274937295002894073", "currency": "USD"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Dollars", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Dollars", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Dollars"}},
+          {"name": "budgets.events", "params": {"name": "Dollars", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Dollars", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Dollars", null, null, "USD", ["Expenses:Abroad"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [
+            ["Dollars", "2024-01-01", "USD", null, null, ["Expenses:Abroad"], null, null],
+            ["Travel", "2024-01-01", "CNY", null, null, ["Expenses:Gifts", "Expenses:Travel"], null, null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [
+            ["Travel", "2024-01-01", "00:00:00", 1704063600, "assign", {"number": "10000", "currency": "CNY"}],
+            ["Travel", "2024-01-02", "00:00:00", 1704150000, "assign", {"number": "100", "currency": "USD"}],
+            ["Dollars", "2024-01-02", "00:00:00", 1704150000, "assign", {"number": "1000", "currency": "CNY"}],
+            ["Travel", "2024-01-03", "00:00:00", 1704236400, "assign", {"number": "10000", "currency": "JPY"}],
+            ["Travel", "2024-01-04", "00:00:00", 1704322800, "assign", {"number": "0", "currency": "GBP"}],
+            ["Travel", "2024-01-05", "00:00:00", 1704409200, "transfer_out", {"number": "-50", "currency": "USD"}],
+            ["Dollars", "2024-01-05", "00:00:00", 1704409200, "transfer_in", {"number": "50", "currency": "USD"}]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Dollars",
+              "2024-01-01",
+              2024,
+              1,
+              "USD",
+              null,
+              null,
+              {"number": "190.8450704225352112676056338", "currency": "USD"},
+              {"number": "190.8450704225352112676056338", "currency": "USD"},
+              {"number": "9.726027397260273972602739727", "currency": "USD"},
+              {"number": "181.119043025274937295002894073", "currency": "USD"},
+              false,
+              ["Expenses:Abroad"]
+            ],
+            [
+              "Dollars",
+              "2024-02-01",
+              2024,
+              2,
+              "USD",
+              null,
+              null,
+              {"number": "181.119043025274937295002894073", "currency": "USD"},
+              {"number": "0", "currency": "USD"},
+              {"number": "0", "currency": "USD"},
+              {"number": "181.119043025274937295002894073", "currency": "USD"},
+              false,
+              ["Expenses:Abroad"]
+            ],
+            [
+              "Travel",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "10355.00", "currency": "CNY"},
+              {"number": "10355.00", "currency": "CNY"},
+              {"number": "2667.00", "currency": "CNY"},
+              {"number": "7688.00", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts", "Expenses:Travel"]
+            ],
+            [
+              "Travel",
+              "2024-02-01",
+              2024,
+              2,
+              "CNY",
+              null,
+              null,
+              {"number": "7688.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "50.00", "currency": "CNY"},
+              {"number": "7638.00", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts", "Expenses:Travel"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-01-10",
+              "00:00:00",
+              "Expenses:Travel",
+              "USD at the price of 2024-01-01",
+              {"number": "100", "currency": "USD"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-10",
+              "00:00:00",
+              "Assets:Bank",
+              "USD at the price of 2024-01-01",
+              {"number": "-100", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-15",
+              "00:00:00",
+              "Expenses:Travel",
+              "USD on a day of two prices",
+              {"number": "100", "currency": "USD"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-15",
+              "00:00:00",
+              "Assets:Bank",
+              "USD on a day of two prices",
+              {"number": "-100", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-20",
+              "09:00:00",
+              "Expenses:Travel",
+              "USD at 09:00 on the day of a price at 18:00",
+              {"number": "10", "currency": "USD"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-20",
+              "09:00:00",
+              "Assets:Bank",
+              "USD at 09:00 on the day of a price at 18:00",
+              {"number": "-10", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-21",
+              "00:00:00",
+              "Expenses:Travel",
+              "EUR, through the inverse of CNY in EUR",
+              {"number": "8", "currency": "EUR"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-21",
+              "00:00:00",
+              "Assets:Bank",
+              "EUR, through the inverse of CNY in EUR",
+              {"number": "-8", "currency": "EUR"},
+              []
+            ],
+            [
+              "2024-01-22",
+              "00:00:00",
+              "Expenses:Gifts",
+              "a share held at cost in USD",
+              {"number": "1", "currency": "AAPL"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-22",
+              "00:00:00",
+              "Assets:Broker",
+              "a share held at cost in USD",
+              {"number": "-140", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-23",
+              "00:00:00",
+              "Expenses:Travel",
+              "JPY before its first price",
+              {"number": "1000", "currency": "JPY"},
+              []
+            ],
+            [
+              "2024-01-23",
+              "00:00:00",
+              "Assets:Bank",
+              "JPY before its first price",
+              {"number": "-1000", "currency": "JPY"},
+              []
+            ],
+            [
+              "2024-01-24",
+              "00:00:00",
+              "Expenses:Travel",
+              "GBP with a price annotation",
+              {"number": "10", "currency": "GBP"},
+              []
+            ],
+            [
+              "2024-01-24",
+              "00:00:00",
+              "Assets:Bank",
+              "GBP with a price annotation",
+              {"number": "-90", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-01-25",
+              "00:00:00",
+              "Expenses:Abroad",
+              "CNY in the USD budget",
+              {"number": "71", "currency": "CNY"},
+              ["Dollars"]
+            ],
+            ["2024-01-25", "00:00:00", "Assets:Bank", "CNY in the USD budget", {"number": "-71", "currency": "CNY"}, []],
+            [
+              "2024-02-02",
+              "00:00:00",
+              "Expenses:Travel",
+              "JPY after its first price",
+              {"number": "1000", "currency": "JPY"},
+              ["Travel"]
+            ],
+            [
+              "2024-02-02",
+              "00:00:00",
+              "Assets:Bank",
+              "JPY after its first price",
+              {"number": "-1000", "currency": "JPY"},
+              []
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT date, narration, units(position) AS units, convert(position, 'CNY', date) AS in_cny, budgets FROM #postings WHERE account = 'Expenses:Travel' OR account = 'Expenses:Gifts'"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "in_cny", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-01-10",
+              "USD at the price of 2024-01-01",
+              {"number": "100", "currency": "USD"},
+              {"number": "710.00", "currency": "CNY"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-15",
+              "USD on a day of two prices",
+              {"number": "100", "currency": "USD"},
+              {"number": "725.00", "currency": "CNY"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-20",
+              "USD at 09:00 on the day of a price at 18:00",
+              {"number": "10", "currency": "USD"},
+              {"number": "73.00", "currency": "CNY"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-21",
+              "EUR, through the inverse of CNY in EUR",
+              {"number": "8", "currency": "EUR"},
+              {"number": "64", "currency": "CNY"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-22",
+              "a share held at cost in USD",
+              {"number": "1", "currency": "AAPL"},
+              {"number": "1095.00", "currency": "CNY"},
+              ["Travel"]
+            ],
+            [
+              "2024-01-23",
+              "JPY before its first price",
+              {"number": "1000", "currency": "JPY"},
+              {"number": "1000", "currency": "JPY"},
+              []
+            ],
+            [
+              "2024-01-24",
+              "GBP with a price annotation",
+              {"number": "10", "currency": "GBP"},
+              {"number": "10", "currency": "GBP"},
+              []
+            ],
+            [
+              "2024-02-02",
+              "JPY after its first price",
+              {"number": "1000", "currency": "JPY"},
+              {"number": "50.00", "currency": "CNY"},
+              ["Travel"]
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

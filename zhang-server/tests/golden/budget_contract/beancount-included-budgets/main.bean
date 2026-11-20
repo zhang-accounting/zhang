@@ -1,0 +1,20 @@
+; Budgets in an included beancount file: they define and fund the budget of the main file's account, and their errors
+; are at their place in the included file.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+2024-01-01 commodity CNY
+2024-01-01 commodity USD
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: "Food"
+
+include "budgets.bean"
+
+2024-01-10 * "Market" "lunch"
+  Expenses:Food 30 CNY
+  Assets:Bank
+
+2024-01-11 * "Market" "lunch in dollars"
+  Expenses:Food 5 USD
+  Assets:Bank

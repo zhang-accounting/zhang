@@ -1,0 +1,20 @@
+; the budgets, in a file of their own
+2024-01-01 budget Groceries CNY
+  alias: "Groceries & household"
+  category: "Daily"
+  owner: "both"
+2024-01-01 09:00:00 budget Books CNY ; a budget defined at a time, with an inline comment
+  alias: "书"
+2024-01-01 budget Daily-Coffee_2 CNY
+  category: "Daily"
+
+2024-01-01 budget-add Groceries 1000 CNY
+  source: "salary"
+2024-01-01 09:30 budget-add Books 100.5 CNY
+2024-01-15 budget-add Groceries -50 CNY ; taking money away
+2024-01-20 budget-add Daily-Coffee_2 0.001 CNY
+2024-02-01 budget-add Books 10 + 20 * 2 CNY
+2024-01-31 23:59:59 budget-transfer Groceries Books 25.50 CNY
+  reason: "month end"
+2024-03-01 18:00:00 budget-close Daily-Coffee_2
+  note: "no more coffee"

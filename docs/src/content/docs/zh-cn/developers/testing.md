@@ -28,8 +28,32 @@ sidebar:
 - **"beanquery 的答案是 X"**：`zhang-query/tests` 的 beanquery 用例集中的一个用例，用 `generate.py --set <set>` 生成，绝不手写预期值。**"beancount 的行为是 X"**：`extensions/beancount/tests` 中该行为的参照目录，由其 `generate.py` 重新生成。
 - **一条 HTTP 契约**：`zhang-server` 的 `tests/`，默认在处理函数层面（`respond(handler(state, ..).await)`）；只有当中间件、路径编码、内容类型或提取器的拒绝才是重点时，才经过路由器（`send`、`call`）。
 - **对每一个账本都成立的不变量**：`zhang-server/tests` 中的一个黄金套件，遍历 `zhang_testkit::fixtures::every_fixture_ledger()`，并拆成若干部分，让单个测试不超过几秒。
+- **预算系统的客户端看到的内容**（预算页面的内置查询、对预算表的 BQL、预算错误、两种格式各自写出的预算指令）：`zhang-server/tests/golden/budget_contract/` 中的一个用例；见[预算契约](#预算契约)。
 - **需要真实账本形态和 API 回答的 bug**：在 `integration-tests/` 下新建一个目录，放入 `main.zhang`（或 `main.bean`，或两者）和 `validations.json`。端到端运行会检查这些校验，此后每个黄金套件也会加载这个账本。
 - **网页界面的函数**：`frontend/src/**/<name>.test.ts`。
+
+## 预算契约
+
+`zhang-server/tests/golden/budget_contract/` 中的用例冻结预算系统的客户端看到的内容，把预算迁入官方插件（RFC #698）时以它们为准来核对：预算页面和应用运行的内置查询的回答，对 `#budgets`、`#budget_definitions`、`#budget_events` 以及 `#postings` 的 `budgets` 列的 BQL，带 id 的账本错误，Zhang 与 Beancount 两种格式各自写出的预算指令，以及经过每种格式往返一次之后的变化。一个用例由一个账本和一个列出请求的 `case.json` 组成，黄金文件保存回答。这些用例不读取预算系统的任何 Rust 类型，所以无论由谁实现预算，它们的含义都不变。看起来有误的行为在 `case.json` 中用 `KNOWN-ISSUE:` 注明并按现状固定，黄金文件会重复这条说明；修复放在单独的变更里，由该变更的黄金文件 diff 体现。
+
+迁移改动黄金文件时，每一处差异要么属于下面允许的差异，要么就是回归。
+
+### 迁移允许的差异
+
+- 加载在不同位置报告错误的先后顺序。客户端看到的错误按文件和位置排列（`#errors`、`journals.errors`），用例不固定加载自身跨位置的顺序。
+- 消息的文字：BQL 限额错误的消息（及其中引用的数字，例如 `1148412 months`）、参数校验和 404 的消息，以及往返结果 `load_error` 中解析器的文字。状态码保持不变。
+- 哪些过滤条件会让 `#budgets` 因生成的行过多而失败：400 可以变成正确的 200，但绝不能变成截断或不完整的回答。
+- 小数的标度，包括末尾的零（`10355.00` 或 `10355`）：`number` 按数值比较。数值本身的各位数字仍属契约，例如经反向汇率换算得到的 28 位有效数字。
+- 内置查询结果和 `SELECT *` 的列顺序，每一列的名称和类型保持不变。
+- JSON 对象中字段的顺序。
+
+### 仍属契约的内容
+
+除上述以外的一切，尤其是：
+
+- 行的顺序：不带 `ORDER BY` 读取一张表时的自然顺序，预算、月份以及一个月内事件和过账的顺序；
+- 每个错误的类型、metas、范围（文件、起点、终点、行）和 id，以及同一位置上各错误的顺序；
+- 每个数值（按数值比较）、每个状态码，以及每一列的名称和类型。
 
 ## 约定
 

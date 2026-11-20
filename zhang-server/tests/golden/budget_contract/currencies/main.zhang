@@ -1,0 +1,47 @@
+; Several currencies. Activity and amounts count in the budget's commodity, converted at their own date with the
+; ledger's prices: the latest on or before the date, the last of a day winning; the pair itself, else its inverse,
+; else through the cost currency of a posting held at cost. An amount no price converts at its date is left out and
+; reported as BudgetCommodityMismatch where it is written; a zero amount needs no price. The transactions are in an
+; included file.
+option "operating_currency" "CNY"
+option "timezone" "Europe/Berlin"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity EUR
+1970-01-01 commodity JPY
+1970-01-01 commodity GBP
+1970-01-01 commodity AAPL
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Assets:Broker
+2024-01-01 open Expenses:Travel
+  budget: Travel
+2024-01-01 open Expenses:Gifts
+  budget: Travel
+2024-01-01 open Expenses:Abroad
+  budget: Dollars
+
+2024-01-01 budget Travel CNY
+2024-01-01 budget Dollars USD
+
+; USD in CNY, changing within the month
+2024-01-01 price USD 7.10 CNY
+2024-01-15 price USD 7.20 CNY
+2024-01-15 price USD 7.25 CNY
+2024-01-20 18:00:00 price USD 7.30 CNY
+; EUR only quoted the other way round: CNY in EUR
+2024-01-01 price CNY 0.125 EUR
+; JPY only from February on
+2024-02-01 price JPY 0.05 CNY
+; AAPL only in USD
+2024-01-01 price AAPL 150 USD
+
+2024-01-01 budget-add Travel 10000 CNY
+2024-01-02 budget-add Travel 100 USD
+2024-01-02 budget-add Dollars 1000 CNY
+2024-01-03 budget-add Travel 10000 JPY
+2024-01-04 budget-add Travel 0 GBP
+2024-01-05 budget-transfer Travel Dollars 50 USD
+
+include "2024/01.zhang"

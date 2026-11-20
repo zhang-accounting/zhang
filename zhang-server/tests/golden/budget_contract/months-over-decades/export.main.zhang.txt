@@ -1,0 +1,163 @@
+; the budget directives of main.zhang and the opens linking accounts to budgets, as written, file after file
+; ---- written as zhang
+1990-01-01 open Expenses:Cat01
+  budget: b01
+1990-01-01 open Expenses:Cat02
+  budget: b02
+1990-01-01 open Expenses:Cat03
+  budget: b03
+1990-01-01 open Expenses:Cat04
+  budget: b04
+1990-01-01 open Expenses:Cat05
+  budget: b05
+1990-01-01 open Expenses:Cat06
+  budget: b06
+1990-01-01 open Expenses:Cat07
+  budget: b07
+1990-01-01 open Expenses:Cat08
+  budget: b08
+1990-01-01 open Expenses:Cat09
+  budget: b09
+1990-01-01 open Expenses:Cat10
+  budget: b10
+1990-01-01 open Expenses:Cat11
+  budget: b11
+1990-01-01 open Expenses:Cat12
+  budget: b12
+1990-01-01 open Expenses:Cat13
+  budget: b13
+1990-01-01 open Expenses:Cat14
+  budget: b14
+1990-01-01 open Expenses:Cat15
+  budget: b15
+1990-01-01 open Expenses:Cat16
+  budget: b16
+1990-01-01 open Expenses:Cat17
+  budget: b17
+1990-01-01 open Expenses:Cat18
+  budget: b18
+1990-01-01 open Expenses:Cat19
+  budget: b19
+1990-01-01 open Expenses:Cat20
+  budget: b20
+1990-01-01 budget b01 CNY
+1990-01-01 budget b02 CNY
+1990-01-01 budget b03 CNY
+1990-01-01 budget b04 CNY
+1990-01-01 budget b05 CNY
+1990-01-01 budget b06 CNY
+1990-01-01 budget b07 CNY
+1990-01-01 budget b08 CNY
+1990-01-01 budget b09 CNY
+1990-01-01 budget b10 CNY
+1990-01-01 budget b11 CNY
+1990-01-01 budget b12 CNY
+1990-01-01 budget b13 CNY
+1990-01-01 budget b14 CNY
+1990-01-01 budget b15 CNY
+1990-01-01 budget b16 CNY
+1990-01-01 budget b17 CNY
+1990-01-01 budget b18 CNY
+1990-01-01 budget b19 CNY
+1990-01-01 budget b20 CNY
+1990-01-01 budget-add b01 1000 CNY
+1990-01-01 budget-add b02 1000 CNY
+1990-01-01 budget-add b03 1000 CNY
+1990-01-01 budget-add b04 1000 CNY
+1990-01-01 budget-add b05 1000 CNY
+1990-01-01 budget-add b06 1000 CNY
+1990-01-01 budget-add b07 1000 CNY
+1990-01-01 budget-add b08 1000 CNY
+1990-01-01 budget-add b09 1000 CNY
+1990-01-01 budget-add b10 1000 CNY
+1990-01-01 budget-add b11 1000 CNY
+1990-01-01 budget-add b12 1000 CNY
+1990-01-01 budget-add b13 1000 CNY
+1990-01-01 budget-add b14 1000 CNY
+1990-01-01 budget-add b15 1000 CNY
+1990-01-01 budget-add b16 1000 CNY
+1990-01-01 budget-add b17 1000 CNY
+1990-01-01 budget-add b18 1000 CNY
+1990-01-01 budget-add b19 1000 CNY
+1990-01-01 budget-add b20 1000 CNY
+; ---- written as beancount
+1990-01-01 open Expenses:Cat01
+  budget: b01
+1990-01-01 open Expenses:Cat02
+  budget: b02
+1990-01-01 open Expenses:Cat03
+  budget: b03
+1990-01-01 open Expenses:Cat04
+  budget: b04
+1990-01-01 open Expenses:Cat05
+  budget: b05
+1990-01-01 open Expenses:Cat06
+  budget: b06
+1990-01-01 open Expenses:Cat07
+  budget: b07
+1990-01-01 open Expenses:Cat08
+  budget: b08
+1990-01-01 open Expenses:Cat09
+  budget: b09
+1990-01-01 open Expenses:Cat10
+  budget: b10
+1990-01-01 open Expenses:Cat11
+  budget: b11
+1990-01-01 open Expenses:Cat12
+  budget: b12
+1990-01-01 open Expenses:Cat13
+  budget: b13
+1990-01-01 open Expenses:Cat14
+  budget: b14
+1990-01-01 open Expenses:Cat15
+  budget: b15
+1990-01-01 open Expenses:Cat16
+  budget: b16
+1990-01-01 open Expenses:Cat17
+  budget: b17
+1990-01-01 open Expenses:Cat18
+  budget: b18
+1990-01-01 open Expenses:Cat19
+  budget: b19
+1990-01-01 open Expenses:Cat20
+  budget: b20
+1990-01-01 custom "budget" "b01" "CNY"
+1990-01-01 custom "budget" "b02" "CNY"
+1990-01-01 custom "budget" "b03" "CNY"
+1990-01-01 custom "budget" "b04" "CNY"
+1990-01-01 custom "budget" "b05" "CNY"
+1990-01-01 custom "budget" "b06" "CNY"
+1990-01-01 custom "budget" "b07" "CNY"
+1990-01-01 custom "budget" "b08" "CNY"
+1990-01-01 custom "budget" "b09" "CNY"
+1990-01-01 custom "budget" "b10" "CNY"
+1990-01-01 custom "budget" "b11" "CNY"
+1990-01-01 custom "budget" "b12" "CNY"
+1990-01-01 custom "budget" "b13" "CNY"
+1990-01-01 custom "budget" "b14" "CNY"
+1990-01-01 custom "budget" "b15" "CNY"
+1990-01-01 custom "budget" "b16" "CNY"
+1990-01-01 custom "budget" "b17" "CNY"
+1990-01-01 custom "budget" "b18" "CNY"
+1990-01-01 custom "budget" "b19" "CNY"
+1990-01-01 custom "budget" "b20" "CNY"
+1990-01-01 custom "budget-add" "b01" 1000 CNY
+1990-01-01 custom "budget-add" "b02" 1000 CNY
+1990-01-01 custom "budget-add" "b03" 1000 CNY
+1990-01-01 custom "budget-add" "b04" 1000 CNY
+1990-01-01 custom "budget-add" "b05" 1000 CNY
+1990-01-01 custom "budget-add" "b06" 1000 CNY
+1990-01-01 custom "budget-add" "b07" 1000 CNY
+1990-01-01 custom "budget-add" "b08" 1000 CNY
+1990-01-01 custom "budget-add" "b09" 1000 CNY
+1990-01-01 custom "budget-add" "b10" 1000 CNY
+1990-01-01 custom "budget-add" "b11" 1000 CNY
+1990-01-01 custom "budget-add" "b12" 1000 CNY
+1990-01-01 custom "budget-add" "b13" 1000 CNY
+1990-01-01 custom "budget-add" "b14" 1000 CNY
+1990-01-01 custom "budget-add" "b15" 1000 CNY
+1990-01-01 custom "budget-add" "b16" 1000 CNY
+1990-01-01 custom "budget-add" "b17" 1000 CNY
+1990-01-01 custom "budget-add" "b18" 1000 CNY
+1990-01-01 custom "budget-add" "b19" 1000 CNY
+1990-01-01 custom "budget-add" "b20" 1000 CNY

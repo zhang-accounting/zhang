@@ -1,0 +1,66 @@
+; The order of a day. A zhang ledger orders the directives of a day by their time, one without a time being at
+; midnight, then as written. A budget takes the postings ordered after its definition: on the day it is defined,
+; those written below it at its time and those at a later time, not those written above it at its time or at an
+; earlier time. A budget-close with a time closes the budget at that time. The events and postings of a month come
+; newest first.
+option "operating_currency" "CNY"
+option "timezone" "Asia/Shanghai"
+
+1970-01-01 commodity CNY
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Fun
+  budget: Fun
+
+; Food is defined at midnight of 2024-03-10, between two transactions at midnight of that day
+2024-03-10 * "A" "midnight, written above the definition"
+  Expenses:Food 1 CNY
+  Assets:Bank
+
+2024-03-10 budget Food CNY
+
+2024-03-10 * "B" "midnight, written below the definition"
+  Expenses:Food 2 CNY
+  Assets:Bank
+
+2024-03-10 08:00:00 * "C" "08:00"
+  Expenses:Food 4 CNY
+  Assets:Bank
+
+; Fun is defined at 12:00 the same day
+2024-03-10 13:00:00 * "D" "13:00, written above the definition"
+  Expenses:Fun 8 CNY
+  Assets:Bank
+
+2024-03-10 12:00:00 budget Fun CNY
+
+2024-03-10 09:00:00 * "E" "09:00, written below the definition"
+  Expenses:Fun 16 CNY
+  Assets:Bank
+
+2024-03-10 12:00:00 * "F" "12:00, the time of the definition, written below it"
+  Expenses:Fun 32 CNY
+  Assets:Bank
+
+; budget-adds and postings of one day, at times and at the same instant
+2024-03-20 18:00:00 budget-add Food 100 CNY
+2024-03-20 09:00:00 budget-add Food 10 CNY
+
+2024-03-20 18:00:00 * "G" "18:00, the instant of a budget-add"
+  Expenses:Food 64 CNY
+  Assets:Bank
+
+2024-03-20 budget-transfer Food Fun 5 CNY
+
+; Fun closes a second before the end of its day
+2024-03-20 23:59:59 budget-close Fun
+
+2024-03-20 23:59:59 * "H" "23:59:59, the instant of the close"
+  Expenses:Fun 128 CNY
+  Assets:Bank
+
+2024-03-21 00:00:00 * "I" "midnight, after the close"
+  Expenses:Fun 256 CNY
+  Assets:Bank
