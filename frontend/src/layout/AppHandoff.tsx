@@ -6,28 +6,32 @@ import { createAppCode } from '@/api/auth';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { apiErrorMessage } from '@/lib/api-error';
+import type { AppHandoffParams } from '@/lib/auth-paths';
 import { AuthScreen } from './AuthScreen';
 
 /**
- * Mobile app login handoff: the app opened `/login?return_to=<app url>` in the system browser. Once signed in, this asks the
- * server for a one-time code of the session and opens the app URL carrying it (`?code=`); the app exchanges the code for the
- * session token. "Continue in the browser" stays for a browser without the app.
+ * Mobile app login handoff: the app opened `/login?return_to=<app url>` in the system browser, with its PKCE challenge and state
+ * (`params`). Once signed in, this asks the server for a one-time code of the session, bound to the challenge, and opens the app
+ * URL carrying it (`?code=…&state=…`); the app exchanges the code and its code verifier for the session token. A challenge the
+ * server refuses (any method but `S256`) gets no code and shows the error. "Continue in the browser" stays for a browser without
+ * the app.
  */
-export function AppHandoff({ returnTo }: { returnTo: string }) {
+export function AppHandoff({ returnTo, params }: { returnTo: string; params: AppHandoffParams }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [error, setError] = useState<string>();
   const started = useRef(false);
+  const { code_challenge, code_challenge_method, state } = params;
 
   const handOff = useCallback(async () => {
     setError(undefined);
     try {
-      const { redirect } = await createAppCode(returnTo);
+      const { redirect } = await createAppCode(returnTo, { code_challenge, code_challenge_method, state });
       window.location.replace(redirect);
     } catch (failure) {
       setError(await apiErrorMessage(failure));
     }
-  }, [returnTo]);
+  }, [returnTo, code_challenge, code_challenge_method, state]);
 
   useEffect(() => {
     // once per page: a second code would only expire unused

@@ -63,8 +63,9 @@ export interface paths {
     /**
      * App Login Code
      * @description Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
-     * `return_to` with the code appended; needs a session (cookie or Bearer). The scheme of
-     * `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+     * `return_to` with the code (and `state`, when given) appended; needs a session (cookie or
+     * Bearer). The scheme of `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+     * With a PKCE `code_challenge` (method `S256` only), the exchange needs its `code_verifier`.
      */
     post: operations['app_login_code'];
   };
@@ -72,7 +73,9 @@ export interface paths {
     /**
      * App Login Exchange
      * @description Exchanges a one-time code of the app login handoff for the session token, to send as
-     * `Authorization: Bearer`. A code can be exchanged once; failures count towards the sign-in limit.
+     * `Authorization: Bearer`. A code issued with a PKCE challenge needs its `code_verifier`, one
+     * issued without refuses a verifier. A code can be exchanged once, a failed exchange uses it up
+     * too; failures count towards the sign-in limit.
      */
     post: operations['app_login_exchange'];
   };
@@ -699,15 +702,22 @@ export interface operations {
   /**
    * App Login Code
    * @description Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
-   * `return_to` with the code appended; needs a session (cookie or Bearer). The scheme of
-   * `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+   * `return_to` with the code (and `state`, when given) appended; needs a session (cookie or
+   * Bearer). The scheme of `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+   * With a PKCE `code_challenge` (method `S256` only), the exchange needs its `code_verifier`.
    */
   app_login_code: {
     requestBody: {
       content: {
         'application/json': {
+          /** @description the PKCE challenge of the app (RFC 7636): the base64url SHA-256 of its code verifier, without padding */
+          code_challenge?: string | null;
+          /** @description `S256`, the only method supported; needed with `code_challenge` */
+          code_challenge_method?: string | null;
           /** @description the app url to return to with the code, of the `zhang-app` scheme or one of `ZHANG_APP_RETURN_SCHEMES` */
           return_to: string;
+          /** @description an opaque value of the app, echoed in the redirect next to the code (at most 512 bytes) */
+          state?: string | null;
         };
       };
     };
@@ -730,7 +740,9 @@ export interface operations {
   /**
    * App Login Exchange
    * @description Exchanges a one-time code of the app login handoff for the session token, to send as
-   * `Authorization: Bearer`. A code can be exchanged once; failures count towards the sign-in limit.
+   * `Authorization: Bearer`. A code issued with a PKCE challenge needs its `code_verifier`, one
+   * issued without refuses a verifier. A code can be exchanged once, a failed exchange uses it up
+   * too; failures count towards the sign-in limit.
    */
   app_login_exchange: {
     requestBody: {
@@ -738,6 +750,11 @@ export interface operations {
         'application/json': {
           /** @description the one-time code of `POST /api/auth/app/code` */
           code: string;
+          /**
+           * @description the PKCE code verifier (RFC 7636) whose challenge the code was issued with; leave it out for a
+           * code issued without one
+           */
+          code_verifier?: string | null;
         };
       };
     };
@@ -783,6 +800,12 @@ export interface operations {
                * `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
+              /**
+               * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
+               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               */
+              app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
               app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
@@ -823,6 +846,12 @@ export interface operations {
                * `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
+              /**
+               * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
+               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               */
+              app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
               app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
@@ -875,6 +904,12 @@ export interface operations {
                * `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
+              /**
+               * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
+               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               */
+              app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
               app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
@@ -954,6 +989,12 @@ export interface operations {
                * `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
+              /**
+               * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
+               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               */
+              app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
               app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */
@@ -1074,6 +1115,12 @@ export interface operations {
                * `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
+              /**
+               * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
+               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               */
+              app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
               app_return_schemes: string[];
               /** @description whether the caller can use the API (always true when authentication is disabled) */

@@ -1,7 +1,7 @@
 // The return paths of the login page and the app URL of the mobile app login handoff, run with Node's built-in runner: pnpm run test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appReturnTo, returnPath } from './auth-paths.ts';
+import { appHandoffParams, appReturnTo, returnPath } from './auth-paths.ts';
 
 const SCHEMES = ['zhang-app'];
 
@@ -22,6 +22,22 @@ test('without an allowed app URL the login is a web login', () => {
   assert.equal(appReturnTo('?return_to=zhang-app://auth/callback', []), null);
   // a server without the handoff
   assert.equal(appReturnTo('?return_to=zhang-app://auth/callback', undefined), null);
+});
+
+test("the app's PKCE challenge and state ride along as they are", () => {
+  assert.deepEqual(
+    appHandoffParams(
+      '?return_to=zhang-app%3A%2F%2Fauth%2Fcallback&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=a%26b%20c',
+    ),
+    { code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256', state: 'a&b c' },
+  );
+  // an older app
+  assert.deepEqual(appHandoffParams('?return_to=zhang-app%3A%2F%2Fauth%2Fcallback'), {});
+  assert.deepEqual(appHandoffParams('?code_challenge=&code_challenge_method=&state='), {});
+  // the server refuses any method but S256, and a challenge without a method
+  assert.deepEqual(appHandoffParams('?code_challenge=abc&code_challenge_method=plain'), { code_challenge: 'abc', code_challenge_method: 'plain' });
+  assert.deepEqual(appHandoffParams('?code_challenge=abc'), { code_challenge: 'abc' });
+  assert.deepEqual(appHandoffParams('?next=/accounts&code=planted'), {});
 });
 
 test('the web return path stays on the same origin', () => {

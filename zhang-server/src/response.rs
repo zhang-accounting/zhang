@@ -1114,6 +1114,10 @@ pub struct AuthStatusEntity {
     /// whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
     /// `POST /api/auth/app/exchange`)
     pub app_login: bool,
+    /// whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
+    /// `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+    /// echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+    pub app_login_pkce: bool,
     /// the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES`
     pub app_return_schemes: Vec<String>,
 }

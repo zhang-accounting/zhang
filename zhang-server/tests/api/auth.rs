@@ -263,6 +263,7 @@ async fn without_credentials_everything_stays_open() {
             "user": null,
             "title": "Auth Test",
             "app_login": true,
+            "app_login_pkce": true,
             "app_return_schemes": ["zhang-app"]
         }})
     );
@@ -287,6 +288,7 @@ async fn password_sessions_guard_the_api() {
             "user": null,
             "title": "Auth Test",
             "app_login": true,
+            "app_login_pkce": true,
             "app_return_schemes": ["zhang-app"]
         }})
     );
@@ -1162,6 +1164,7 @@ async fn the_app_login_handoff_exchanges_a_one_time_code_for_the_session_token()
     let router = server(dir.dir(), &Settings::password()).await;
     let status = get(&router, "/api/auth/status", &[]).await;
     assert_eq!(status.body["data"]["app_login"], true);
+    assert_eq!(status.body["data"]["app_login_pkce"], true);
     assert_eq!(status.body["data"]["app_return_schemes"], json!(["zhang-app"]));
 
     // a code needs a session
@@ -1301,4 +1304,149 @@ async fn failed_app_login_exchanges_are_rate_limited_with_the_logins() {
     assert_too_many_attempts(&app_exchange(&router, attacker, &code).await);
     assert_too_many_attempts(&login_from(&router, attacker, "secret").await);
     assert_eq!(app_exchange(&router, "203.0.113.10", &code).await.status, StatusCode::OK);
+}
+
+/// The code verifier and challenge of RFC 7636, appendix B.
+const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+const CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+
+/// `POST /api/auth/app/code` as the login page sends it for the app: with the PKCE challenge and the state.
+async fn pkce_app_code(router: &Router, cookie: &str, state: &str) -> Reply {
+    let request = json!({
+        "return_to": "zhang-app://auth/callback",
+        "code_challenge": CHALLENGE,
+        "code_challenge_method": "S256",
+        "state": state,
+    });
+    post(router, "/api/auth/app/code", &[("cookie", cookie)], request).await
+}
+
+async fn app_exchange_with(router: &Router, client: &str, code: &str, verifier: &str) -> Reply {
+    let request = json!({ "code": code, "code_verifier": verifier });
+    post(router, "/api/auth/app/exchange", &[("x-forwarded-for", client)], request).await
+}
+
+fn issued_code(reply: &Reply) -> String {
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    reply.body["data"]["code"].as_str().unwrap().to_owned()
+}
+
+fn assert_invalid_code(reply: &Reply) {
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{}", reply.body);
+    assert_eq!(reply.body, json!({"message": "invalid or expired code"}));
+}
+
+#[tokio::test]
+async fn a_pkce_code_is_exchanged_with_its_verifier_and_echoes_the_state() {
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
+    let cookie = password_login(&router).await;
+
+    let issued = pkce_app_code(&router, &cookie, "a b&c").await;
+    let code = issued_code(&issued);
+    assert_eq!(issued.body["data"]["redirect"], format!("zhang-app://auth/callback?code={code}&state=a+b%26c"));
+
+    let exchanged = app_exchange_with(&router, "198.51.100.40", &code, VERIFIER).await;
+    assert_eq!(exchanged.status, StatusCode::OK, "{}", exchanged.body);
+    assert_eq!(format!("zhang_session={}", exchanged.body["data"]["token"].as_str().unwrap()), cookie);
+    assert_eq!(exchanged.body["data"]["user"], "admin");
+    assert_invalid_code(&app_exchange_with(&router, "198.51.100.40", &code, VERIFIER).await);
+}
+
+#[tokio::test]
+async fn a_missing_or_wrong_verifier_uses_the_pkce_code_up() {
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
+    let cookie = password_login(&router).await;
+    let client = "198.51.100.41";
+
+    // an app that intercepted the redirect has the code, not the verifier
+    let code = issued_code(&pkce_app_code(&router, &cookie, "s").await);
+    assert_invalid_code(&app_exchange(&router, client, &code).await);
+    assert_invalid_code(&app_exchange_with(&router, client, &code, VERIFIER).await);
+
+    for wrong in ["dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXK", CHALLENGE, "too-short", ""] {
+        let code = issued_code(&pkce_app_code(&router, &cookie, "s").await);
+        assert_invalid_code(&app_exchange_with(&router, "198.51.100.42", &code, wrong).await);
+        assert_invalid_code(&app_exchange_with(&router, "198.51.100.43", &code, VERIFIER).await);
+    }
+}
+
+#[tokio::test]
+async fn codes_without_a_challenge_keep_working_but_refuse_a_verifier() {
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
+    let cookie = password_login(&router).await;
+
+    // an older app: no challenge, no state, no verifier
+    let issued = app_code(&router, &[("cookie", &cookie)], "zhang-app://auth/callback").await;
+    let code = issued_code(&issued);
+    assert_eq!(issued.body["data"]["redirect"], format!("zhang-app://auth/callback?code={code}"));
+    assert_eq!(app_exchange(&router, "198.51.100.44", &code).await.status, StatusCode::OK);
+
+    // a verifier for a code issued without its challenge: the challenge was dropped on the way
+    let code = issued_code(&app_code(&router, &[("cookie", &cookie)], "zhang-app://auth/callback").await);
+    assert_invalid_code(&app_exchange_with(&router, "198.51.100.44", &code, VERIFIER).await);
+    assert_invalid_code(&app_exchange(&router, "198.51.100.44", &code).await);
+
+    // empty parameters, as the login page leaves them out, count as absent
+    let request = json!({"return_to": "zhang-app://auth/callback", "code_challenge": "", "code_challenge_method": "", "state": ""});
+    let issued = post(&router, "/api/auth/app/code", &[("cookie", &cookie)], request).await;
+    let code = issued_code(&issued);
+    assert_eq!(issued.body["data"]["redirect"], format!("zhang-app://auth/callback?code={code}"));
+    assert_eq!(app_exchange(&router, "198.51.100.44", &code).await.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn only_s256_challenges_and_short_states_get_a_code() {
+    let dir = scratch();
+    let router = server(dir.dir(), &Settings::password()).await;
+    let cookie = password_login(&router).await;
+    let request = |extra: Value| {
+        let mut request = json!({"return_to": "zhang-app://auth/callback"});
+        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        request
+    };
+
+    for (extra, message) in [
+        (
+            json!({"code_challenge": VERIFIER, "code_challenge_method": "plain"}),
+            "code_challenge_method `plain` is not supported, use `S256`",
+        ),
+        (
+            json!({"code_challenge": CHALLENGE}),
+            "code_challenge_method `plain` is not supported, use `S256`",
+        ),
+        (
+            json!({"code_challenge": CHALLENGE, "code_challenge_method": "S512"}),
+            "code_challenge_method `S512` is not supported, use `S256`",
+        ),
+        (json!({"code_challenge_method": "S256"}), "code_challenge_method needs a code_challenge"),
+        (
+            json!({"code_challenge": "not-a-sha-256", "code_challenge_method": "S256"}),
+            "code_challenge must be the base64url SHA-256 of the code verifier, without padding",
+        ),
+        (json!({"state": "s".repeat(513)}), "state must not be longer than 512 bytes"),
+        (
+            json!({"return_to": "zhang-app://auth/callback?state=planted", "state": "s"}),
+            "return_to must not carry a `state` parameter when `state` is given",
+        ),
+    ] {
+        let reply = post(&router, "/api/auth/app/code", &[("cookie", &cookie)], request(extra.clone())).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{extra}: {}", reply.body);
+        assert_eq!(reply.body, json!({ "message": message }), "{extra}");
+    }
+
+    // a return_to with a state of its own is kept as it is without `state`
+    let issued = app_code(&router, &[("cookie", &cookie)], "zhang-app://auth/callback?state=own").await;
+    let code = issued_code(&issued);
+    assert_eq!(issued.body["data"]["redirect"], format!("zhang-app://auth/callback?state=own&code={code}"));
+    let issued = post(
+        &router,
+        "/api/auth/app/code",
+        &[("cookie", &cookie)],
+        request(json!({"state": "s".repeat(512)})),
+    )
+    .await;
+    assert_eq!(issued.status, StatusCode::OK, "{}", issued.body);
 }

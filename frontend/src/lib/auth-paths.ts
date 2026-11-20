@@ -32,3 +32,23 @@ export function appReturnTo(search: string, schemes: readonly string[] | undefin
   }
   return schemes.some((allowed) => allowed.toLowerCase() === scheme) ? returnTo : null;
 }
+
+/** Query parameters of the login page the app passes on to the code: its PKCE challenge (RFC 7636) and its `state`. */
+export const APP_HANDOFF_PARAMS = ['code_challenge', 'code_challenge_method', 'state'] as const;
+
+export type AppHandoffParams = Partial<Record<(typeof APP_HANDOFF_PARAMS)[number], string>>;
+
+/**
+ * The PKCE challenge and the state of the app (`/login?return_to=…&code_challenge=…&code_challenge_method=S256&state=…`), as
+ * they are, for `POST /api/auth/app/code`; empty ones are left out. They stay in the URL of the login page through every way
+ * of signing in. The server checks them (only the `S256` method) and refuses the code otherwise, which the handoff shows.
+ */
+export function appHandoffParams(search: string): AppHandoffParams {
+  const query = new URLSearchParams(search);
+  const params: AppHandoffParams = {};
+  for (const name of APP_HANDOFF_PARAMS) {
+    const value = query.get(name);
+    if (value) params[name] = value;
+  }
+  return params;
+}
