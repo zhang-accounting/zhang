@@ -1096,6 +1096,7 @@ pub struct SavedQueryEntity {
 
 impl From<QueryDomain> for SavedQueryEntity {
     fn from(value: QueryDomain) -> Self {
+        // TODO(P1.4): check against the catalog of the ledger the query is saved in (`Catalog::of_ledger`)
         let error = zhang_query::Query::compile(&value.query).err().map(|error| error.to_string());
         SavedQueryEntity {
             name: value.name,

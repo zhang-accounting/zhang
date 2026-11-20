@@ -47,6 +47,12 @@ sidebar:
 - 内置查询结果和 `SELECT *` 的列顺序，每一列的名称和类型保持不变。
 - JSON 对象中字段的顺序。
 
+### 有意的契约变更
+
+迁移有意做出的变更，各自放在做出它的那个变更里，并带上其黄金文件 diff：
+
+- `GET /api/query/schema` 中每个表和每一列的 `provided_by`（RFC #698 P1.3，§3.5）：`#budgets`、`#budget_events`、`#budget_definitions` 及其各列以及 `postings` 的 `budgets` 列为 `"zhang:budget"`，其余为 `null`。这是 `schema.json` 中该字段带来的唯一变化：名称、类型和顺序都不变。
+
 ### 仍属契约的内容
 
 除上述以外的一切，尤其是：

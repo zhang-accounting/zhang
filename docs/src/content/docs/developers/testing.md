@@ -47,6 +47,12 @@ When the migration changes a golden file, each difference is one of the allowed 
 - The order of the columns of a built-in query's result and of `SELECT *`, each column keeping its name and type.
 - The order of the fields of a JSON object.
 
+### Intended contract changes
+
+Changes the migration makes on purpose, each in the change that makes it, with its golden diff:
+
+- `provided_by` on every table and column of `GET /api/query/schema` (RFC #698 P1.3, §3.5): `"zhang:budget"` for `#budgets`, `#budget_events`, `#budget_definitions`, their columns and the `budgets` column of `postings`, `null` for the rest. In `schema.json` it is the field's only change: no name, type or order changes.
+
 ### What stays contract
 
 Everything else, in particular:

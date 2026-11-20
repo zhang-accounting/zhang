@@ -116,6 +116,7 @@ pub async fn with_ledger<T: Send + 'static>(ledger: &LedgerState, work: impl FnO
 /// limit and the result size limit. The query length is capped by the parser.
 async fn execute(ledger: &LedgerState, text: String, max_result_values: u64, count_total: bool) -> ServerResult<QueryResult> {
     // compiling needs no ledger; run it, and the CPU-bound execution, off the async workers
+    // TODO(P1.4): compile inside `with_ledger` against `Catalog::of_ledger`, once plugins give a ledger tables of its own
     let query = tokio::task::spawn_blocking(move || Query::compile(&text)).await??;
     let options = ExecuteOptions {
         count_total,

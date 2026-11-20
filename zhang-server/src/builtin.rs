@@ -440,6 +440,7 @@ pub fn get(name: &str) -> Option<&'static BuiltinQuery> {
 }
 
 /// Every built-in query, compiled once, on first use.
+// TODO(P1.4/P1.5): one map per catalog digest (`Catalog::of_ledger`), holding the plugins' named queries too (RFC §3.5)
 static COMPILED: LazyLock<HashMap<&'static str, Query>> = LazyLock::new(|| {
     BUILTINS
         .iter()
