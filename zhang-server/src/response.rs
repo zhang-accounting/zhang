@@ -1001,6 +1001,9 @@ pub struct QuerySchemaColumnEntity {
     #[serde(rename = "type")]
     pub column_type: QueryColumnType,
     pub description: String,
+    /// the provider of the column, such as `zhang:budget` for the `budgets` column of `postings`; `null` for a column
+    /// of zhang's core
+    pub provided_by: Nullable<String>,
 }
 
 #[derive(Serialize, Schematic)]
@@ -1020,6 +1023,8 @@ pub struct QuerySchemaTableEntity {
     pub name: String,
     pub description: String,
     pub columns: Vec<QuerySchemaColumnEntity>,
+    /// the provider of the table, such as `zhang:budget` for `#budgets`; `null` for a table of zhang's core
+    pub provided_by: Nullable<String>,
 }
 
 /// The queryable tables, columns and functions of `POST /api/query`.
@@ -1037,9 +1042,10 @@ pub struct QuerySchemaEntity {
 impl From<zhang_query::ColumnDoc> for QuerySchemaColumnEntity {
     fn from(column: zhang_query::ColumnDoc) -> Self {
         QuerySchemaColumnEntity {
-            name: column.name.to_owned(),
+            name: column.name,
             column_type: column.ty.into(),
-            description: column.description.to_owned(),
+            description: column.description,
+            provided_by: Nullable(column.provided_by),
         }
     }
 }
@@ -1053,9 +1059,10 @@ impl From<zhang_query::Schema> for QuerySchemaEntity {
                 .tables
                 .into_iter()
                 .map(|table| QuerySchemaTableEntity {
-                    name: table.name.to_owned(),
-                    description: table.description.to_owned(),
+                    name: table.name,
+                    description: table.description,
                     columns: table.columns.into_iter().map(QuerySchemaColumnEntity::from).collect(),
+                    provided_by: Nullable(table.provided_by),
                 })
                 .collect(),
             functions: value

@@ -2183,6 +2183,11 @@ export interface operations {
               columns: {
                 description: string;
                 name: string;
+                /**
+                 * @description the provider of the column, such as `zhang:budget` for the `budgets` column of `postings`; `null` for a column
+                 * of zhang's core
+                 */
+                provided_by: string | null;
                 /** @enum {string} */
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
               }[];
@@ -2201,12 +2206,19 @@ export interface operations {
                 columns: {
                   description: string;
                   name: string;
+                  /**
+                   * @description the provider of the column, such as `zhang:budget` for the `budgets` column of `postings`; `null` for a column
+                   * of zhang's core
+                   */
+                  provided_by: string | null;
                   /** @enum {string} */
                   type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
                 }[];
                 description: string;
                 /** @description the table name, without `#` */
                 name: string;
+                /** @description the provider of the table, such as `zhang:budget` for `#budgets`; `null` for a table of zhang's core */
+                provided_by: string | null;
               }[];
             };
           };

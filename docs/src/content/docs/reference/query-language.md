@@ -1449,7 +1449,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 {
   "data": {
     "columns": [
-      { "name": "date", "type": "date", "description": "Date of the transaction." }
+      { "name": "date", "type": "date", "description": "Date of the transaction.", "provided_by": null }
     ],
     "functions": [
       { "name": "count", "signature": "count(*) -> int", "description": "Number of rows.", "aggregate": true }
@@ -1458,7 +1458,8 @@ Text is written as it is, without any protection against formulas, as in beanque
       {
         "name": "postings",
         "description": "One row per posting of every transaction, ...",
-        "columns": [{ "name": "date", "type": "date", "description": "Date of the transaction." }]
+        "columns": [{ "name": "date", "type": "date", "description": "Date of the transaction.", "provided_by": null }],
+        "provided_by": null
       }
     ]
   }
@@ -1467,6 +1468,7 @@ Text is written as it is, without any protection against formulas, as in beanque
 
 - `columns` has one entry per column, 34 in all, in the order of the [column table](#columns).
 - `tables` has one entry per table, `postings` first, then the [other tables](#other-tables) in the order listed there, then `budgets`, `budget_events` and `errors`. `name` has no `#`. The `postings` entry has the same columns as `columns`, and the attributes of a structured column are listed as columns named like `open.date`.
+- `provided_by` names the provider of a table or column that is not zhang's core, such as `zhang:budget` for the budget tables and the `budgets` column of `postings`; it is `null` for the core's. The schema is that of the served ledger: the tables and columns a query on it can use.
 - `functions` has one entry per overload, 100 in all: first the aggregate functions, then the scalar functions, including `account_sortkey` and `maxwidth`. `signature` uses the same form as the tables on this page, and `aggregate` is `true` for the [aggregate functions](#aggregate-functions) and `false` for all others.
 
 ## Examples

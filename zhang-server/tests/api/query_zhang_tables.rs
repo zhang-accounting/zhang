@@ -194,7 +194,7 @@ async fn the_errors_table_has_the_errors_of_each_ledger() {
 
 #[tokio::test]
 async fn the_schema_lists_the_zhang_tables() {
-    let schema = body(get_query_schema().await).await;
+    let schema = body(get_query_schema(State(load("budget-sytem-syntax-and-category"))).await).await;
     let columns = |name: &str| {
         let table = schema["data"]["tables"]
             .as_array()
