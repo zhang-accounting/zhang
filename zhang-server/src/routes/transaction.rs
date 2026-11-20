@@ -525,10 +525,41 @@ pub async fn update_single_transaction(
     ResponseWrapper::json(WrittenTransactionEntity { id: Nullable(id) })
 }
 
-/// Refuse to edit the stored transaction at `span` as a transaction when its text is another directive's: the
-/// padding a `pad` books, or a `balance` with a pad, has the place of that directive. Its documents are written to
-/// that directive's text, which is what an upload to it does; replacing the text would drop the directive, with every
-/// padding it books and, for a `balance`, its assertion.
+/// Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
+/// left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
+/// a request sent after it no longer finds the transaction. Ids are derived from places: the transactions after it in
+/// its file move, and take other ids, the next one possibly the id of the transaction deleted. The documents its
+/// metadata names stay in the ledger's directory.
+#[api(group = "transaction")]
+pub async fn delete_single_transaction(ledger: State<SharedLedger>, reload_sender: State<SharedReloadSender>, path: Path<(String,)>) -> ApiResult<()> {
+    let transaction_id = transaction_id(&path.0 .0)?;
+    let mut ledger = ledger.for_writing(&reload_sender).await?;
+
+    let span_info = ledger.transaction_span(&transaction_id);
+    let Some(span_info) = span_info else {
+        return Err(ServerError::NoSuchTransaction(transaction_id));
+    };
+    let source_file_path = editable_file(&ledger, &span_info)?;
+    written_as_transaction(&ledger, &span_info)?;
+
+    let written = async {
+        // the transaction must still be where the ledger loaded it
+        let mut content = ledger
+            .data_source
+            .get_unchanged(source_file_path.clone(), std::slice::from_ref(&span_info.span))?;
+        remove_directive_text(&mut content.text, span_info.span_start, span_info.span_end);
+        ledger.data_source.save(&ledger, source_file_path, &content.into_bytes())?;
+        ServerResult::Ok(())
+    }
+    .await;
+    wrote_and_reloaded(&mut ledger, &reload_sender, written.map_err(moved)).await?;
+    ResponseWrapper::json(())
+}
+
+/// Refuse to edit or delete the stored transaction at `span` as a transaction when its text is another directive's:
+/// the padding a `pad` books, or a `balance` with a pad, has the place of that directive. Its documents are written
+/// to that directive's text, which is what an upload to it does; replacing the text, or removing it, would drop the
+/// directive, with every padding it books and, for a `balance`, its assertion.
 fn written_as_transaction(ledger: &Ledger, span: &TransactionInfoDomain) -> ServerResult<()> {
     let place = (&span.span.filename, span.span_start);
     let other = ledger
@@ -546,6 +577,54 @@ fn written_as_transaction(ledger: &Ledger, span: &TransactionInfoDomain) -> Serv
             span.source_file.display(),
         ))),
     }
+}
+
+/// Remove the directive at `start..end` of `text`, the text of a file, with its lines:
+/// - the line ending of its last line goes too. A directive starts a line; text before it on its line, which no parser
+///   reads, would stay, and only the directive would go
+/// - after a blank line, or at the start of the file, the blank lines after it go too: the entries around it keep the
+///   separation the one before it had, and deleting entries one after another piles up no blank lines
+/// - with nothing but blank lines after it, the blank lines before it go too: the file ends where the entry before it
+///   ends, with its line
+/// - after a line of text, such as a comment, only the directive's lines go: a comment above an entry is not known to
+///   be about it, and stays with the separation after it
+fn remove_directive_text(text: &mut String, start: usize, end: usize) {
+    /// whether `line`, with its line ending, holds nothing but whitespace
+    fn blank(line: &str) -> bool {
+        line.trim_matches([' ', '\t', '\r', '\n']).is_empty()
+    }
+    let line_start = text[..start].rfind('\n').map_or(0, |it| it + 1);
+    let line_end = text[end..].find('\n').map_or(text.len(), |it| end + it + 1);
+    if !blank(&text[line_start..start]) || !blank(&text[end..line_end]) {
+        text.replace_range(start..end, "");
+        return;
+    }
+    // where the blank lines after the directive end: the start of the next line with text, or the end of the file
+    let mut next = line_end;
+    while next < text.len() {
+        let after = text[next..].find('\n').map_or(text.len(), |it| next + it + 1);
+        if !blank(&text[next..after]) {
+            break;
+        }
+        next = after;
+    }
+    // where the blank lines before the directive start, after the line ending of the last line with text
+    let mut previous = line_start;
+    while previous > 0 {
+        let before = text[..previous - 1].rfind('\n').map_or(0, |it| it + 1);
+        if !blank(&text[before..previous]) {
+            break;
+        }
+        previous = before;
+    }
+    let removed = if next == text.len() {
+        previous..next
+    } else if previous < line_start || line_start == 0 {
+        line_start..next
+    } else {
+        line_start..line_end
+    };
+    text.replace_range(removed, "");
 }
 
 /// Transactions written through the API read back exactly (issue #442).
@@ -573,8 +652,8 @@ mod string_round_trip_test {
     use zhang_core::utils::string_::escape_with_quote;
 
     use super::{
-        create_new_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction, upload_transaction_document,
-        write_transaction_documents,
+        create_new_transaction, delete_single_transaction, get_journals, insert_transaction_metas, metas_from_request, update_single_transaction,
+        upload_transaction_document, write_transaction_documents,
     };
     use crate::request::{CreateTransactionPostingRequest, CreateTransactionRequest, FlagRequest, JournalRequest, MetaRequest};
     use crate::state::{SharedLedger, SharedReloadSender};
@@ -1887,8 +1966,8 @@ mod string_round_trip_test {
         std::fs::remove_dir_all(dir).ok();
     }
 
-    /// A transaction a plugin made is in no file of the ledger (#476): an update, or a document uploaded to it, is
-    /// refused with a 400 saying it was generated by a plugin, nothing panics, and the ledger's files are left as
+    /// A transaction a plugin made is in no file of the ledger (#476): an update, a delete, or a document uploaded to
+    /// it, is refused with a 400 saying it was generated by a plugin, nothing panics, and the ledger's files are left as
     /// they are — whatever span the plugin gave it: none, one in a file the ledger did not load, or an empty place
     /// in a file of the ledger, which an update used to write the edited transaction into. A span past the end of
     /// a file of the ledger reads as a file that shrank since the load, and is refused as that, with a 409.
@@ -1995,7 +2074,7 @@ mod string_round_trip_test {
             assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is written");
 
             let (got, message) = status_and_message(
-                upload_transaction_document(state, reload, Path((id.to_string(),)), pdf_upload().await)
+                upload_transaction_document(state.clone(), reload.clone(), Path((id.to_string(),)), pdf_upload().await)
                     .await
                     .into_response(),
             )
@@ -2004,6 +2083,12 @@ mod string_round_trip_test {
             assert!(message.contains(says), "{case}: {message}");
             assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is written");
             assert!(!dir.join("attachments").exists(), "{case}: no attachment is saved");
+
+            // nor is it deleted: the text at its span, if there is any, is another directive's
+            let (got, message) = status_and_message(delete_single_transaction(state, reload, Path((id.to_string(),))).await.into_response()).await;
+            assert_eq!(got, status, "{case}: {message}");
+            assert!(message.contains(says), "{case}: {message}");
+            assert_eq!(std::fs::read_to_string(&main).unwrap(), ledger, "{case}: nothing is deleted");
             assert!(!dir.join("plugin.zhang").exists(), "{case}: no file is created");
             std::fs::remove_dir_all(dir).ok();
         }
@@ -2465,5 +2550,70 @@ mod string_round_trip_test {
             assert!(check["postings"][0]["written"].is_null(), "{main}: {check}");
             std::fs::remove_dir_all(dir).ok();
         }
+    }
+}
+
+/// What a delete leaves of the text of a file ([`remove_directive_text`]).
+#[cfg(test)]
+mod remove_directive_text_test {
+    use super::remove_directive_text;
+
+    /// A transaction with an indented comment, as `{X}` in the texts below.
+    const X: &str = "2024-01-02 * \"Cafe\" \"coffee\"\n  ; an indented comment is the transaction's\n  Assets:Cash -5 CNY\n  Expenses:Food";
+
+    /// `text`, with `{X}` standing for [`X`], once `X` is removed from it.
+    fn removed(text: &str) -> String {
+        let mut text = text.replace("{X}", X);
+        let start = text.find(X).expect("the text has the transaction");
+        remove_directive_text(&mut text, start, start + X.len());
+        text
+    }
+
+    #[test]
+    fn an_entry_between_blank_lines_leaves_the_separation_before_it() {
+        assert_eq!(removed("A\n\n{X}\n\nB\n"), "A\n\nB\n");
+        assert_eq!(removed("A\n\n{X}\n\n\n\nB\n"), "A\n\nB\n");
+        assert_eq!(removed("A\n\n\n{X}\nB\n"), "A\n\n\nB\n");
+        assert_eq!(removed("A\n\n{X}\n  \t\n\nB\n"), "A\n\nB\n");
+    }
+
+    #[test]
+    fn the_first_entry_of_a_file_leaves_no_blank_lines_at_its_start() {
+        assert_eq!(removed("{X}\n\nB\n"), "B\n");
+        assert_eq!(removed("{X}\nB\n"), "B\n");
+    }
+
+    #[test]
+    fn the_last_entry_of_a_file_leaves_it_ending_with_the_entry_before() {
+        assert_eq!(removed("A\n\n{X}\n"), "A\n");
+        assert_eq!(removed("A\n\n{X}"), "A\n");
+        assert_eq!(removed("A\n\n{X}\n\n\n"), "A\n");
+        assert_eq!(removed("A\n{X}\n"), "A\n");
+        assert_eq!(removed("{X}\n"), "");
+        assert_eq!(removed("\n{X}\n"), "");
+    }
+
+    #[test]
+    fn the_comments_around_an_entry_stay() {
+        // a comment above it is not known to be about it
+        assert_eq!(removed("A\n\n; lunch\n{X}\n\nB\n"), "A\n\n; lunch\n\nB\n");
+        assert_eq!(removed("A\n\n{X}\n; dinner\nB\n"), "A\n\n; dinner\nB\n");
+        assert_eq!(removed("A\n\n; the end\n{X}\n"), "A\n\n; the end\n");
+        assert_eq!(removed("A\n{X}\nB\n"), "A\nB\n");
+    }
+
+    #[test]
+    fn a_file_with_crlf_line_endings_keeps_them() {
+        let text = "A\r\n\r\n{X}\r\n\r\nB\r\n".replace("{X}", &X.replace('\n', "\r\n"));
+        let start = text.find("2024-01-02").unwrap();
+        let end = text.find("Expenses:Food").unwrap() + "Expenses:Food".len();
+        let mut text = text;
+        remove_directive_text(&mut text, start, end);
+        assert_eq!(text, "A\r\n\r\nB\r\n");
+    }
+
+    #[test]
+    fn text_before_an_entry_on_its_line_stays() {
+        assert_eq!(removed("A\n\nnot read {X}\n\nB\n"), "A\n\nnot read \n\nB\n");
     }
 }

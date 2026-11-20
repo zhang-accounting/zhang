@@ -115,6 +115,7 @@ impl GotchaApp for ServerApp {
             .post("/api/transactions", create_new_transaction)
             .post("/api/transactions/preview", preview_new_transaction)
             .put("/api/transactions/:transaction_id", update_single_transaction)
+            .delete("/api/transactions/:transaction_id", delete_single_transaction)
             .post("/api/transactions/:transaction_id/preview", preview_transaction_update)
             .post("/api/transactions/:transaction_id/documents", upload_transaction_document)
             .get("/api/accounts", get_account_list)

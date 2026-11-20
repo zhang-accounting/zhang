@@ -240,7 +240,7 @@ pub struct JournalBalanceCheckItemEntity {
 #[derive(Serialize, Schematic)]
 pub struct WrittenTransactionEntity {
     /// The id of the transaction written, in the ledger as reloaded before this answer: `GET /api/journals` lists it
-    /// under this id, and `PUT` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
+    /// under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
     /// derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
     /// file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
     /// ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
