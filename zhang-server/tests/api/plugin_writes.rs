@@ -829,3 +829,66 @@ async fn a_reload_of_unchanged_files_keeps_a_token_and_an_edit_on_disk_voids_it(
     assert_eq!(kind, "conflict");
     assert!(message.contains("the ledger changed since the preview"), "{message}");
 }
+
+/// the token of a preview by the fixture or its Lua twin: the fixture answers the host's raw `Ok`, the twin the table
+/// the host gave it
+fn token_of(previewed: &Value) -> Value {
+    let answer = if previewed["Ok"].is_object() { &previewed["Ok"] } else { previewed };
+    assert!(answer["token"].is_string(), "{previewed}");
+    answer["token"].clone()
+}
+
+/// what a commit by the fixture or its Lua twin came to: the entries it recorded, or its error as `<kind>: <message>`,
+/// as the twin raises it
+fn commit_outcome(answer: &Value) -> Result<u64, String> {
+    if let Some(error) = answer["error"].as_str() {
+        return Err(error.to_owned());
+    }
+    if answer["Err"].is_object() {
+        let (kind, message) = err(answer);
+        return Err(format!("{kind}: {message}"));
+    }
+    let committed = if answer["Ok"].is_object() { &answer["Ok"] } else { answer };
+    Ok(committed["entries"].as_u64().unwrap_or_else(|| panic!("{answer}")))
+}
+
+/// A plugin's code counts in the generation as the ledger's files do, a Lua script's as a wasm module's: an edit of it
+/// in place, once reloaded, voids a token minted before (a script edit kept the generation, as the module a script
+/// runs is always the interpreter zhang embeds, and the stale token committed), and reloads of the same code keep a
+/// token valid
+#[tokio::test]
+async fn an_edit_of_a_plugins_code_voids_a_token_and_the_same_code_keeps_it() {
+    for (module, comment) in [("router_write.lua", "-- edited"), ("router_write.wat", ";; edited")] {
+        let scratch = match module.ends_with(".lua") {
+            true => lua_ledger_with("main.zhang", r#"["transaction"]"#, &["transaction"]),
+            false => ledger_with("main.zhang", r#"["transaction"]"#, &["transaction"]),
+        };
+        let (router, _, reload_sender) = server(&scratch, true).await;
+
+        // the same code, reloaded twice: the generation holds, and the token
+        let generation = reload_sender.generation();
+        let batch = json!([coffee("2026-10-13", "Expenses:Food")]);
+        let token = token_of(&preview(&router, batch.clone()).await);
+        reload_sender.reload_and_wait().await.unwrap();
+        reload_sender.reload_and_wait().await.unwrap();
+        assert_eq!(reload_sender.generation(), generation, "{module}: the same code keeps the generation");
+        assert_eq!(commit_outcome(&commit(&router, batch, &token).await), Ok(1), "{module}");
+        reload_sender.reload_and_wait().await.unwrap();
+
+        // the code edited in place: its reload moves the generation on, and the token minted before is refused
+        let generation = reload_sender.generation();
+        let batch = json!([coffee("2026-10-14", "Expenses:Food")]);
+        let token = token_of(&preview(&router, batch.clone()).await);
+        let code = read(scratch.dir(), module);
+        std::fs::write(scratch.dir().join(module), format!("{code}\n{comment}\n")).unwrap();
+        reload_sender.reload_and_wait().await.unwrap();
+        assert_eq!(reload_sender.generation(), generation + 1, "{module}: the code changed");
+        let refused = commit_outcome(&commit(&router, batch.clone(), &token).await).unwrap_err();
+        assert!(refused.starts_with("conflict: the ledger changed since the preview"), "{module}: {refused}");
+        assert_eq!(journal_payees(&router).await.len(), 1, "{module}: the stale token wrote nothing");
+
+        // previewed again, on the code as it is now, the batch commits
+        let token = token_of(&preview(&router, batch.clone()).await);
+        assert_eq!(commit_outcome(&commit(&router, batch, &token).await), Ok(1), "{module}");
+    }
+}

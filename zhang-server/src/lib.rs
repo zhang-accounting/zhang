@@ -678,7 +678,10 @@ pub(crate) async fn load_again(reload: impl FnOnce() -> ZhangResult<Ledger> + Se
 ///   as written), so an edit that changes a directive, or a byte before one (its offsets move), gives another;
 /// - the directives without a file, which plugins made: their canonical JSON;
 /// - the options, by key;
-/// - the module of every plugin, as the load read it, so a module updated in place counts, whatever the plugin is;
+/// - the code of every plugin, as the load read it ([`zhang_core::plugin::store::RegisteredPlugin::hash_code`]): a
+///   wasm module's bytes, a Lua script's source (its module is the interpreter zhang embeds, the same for every
+///   script), a bundled plugin's embedded file. So a module or a script updated in place counts, whatever the plugin
+///   is, and voids the write tokens minted before; what its directive grants and configures is the directive's text;
 /// - when a processor or a mapper plugin ran, everything it may have changed: the canonical JSON of every directive
 ///   and every error after the stages. What such a plugin makes depends on more than the spans: a file it read through
 ///   `allowed_paths`, the date, what it fetched, its module. Its output is hashed rather than what it read, so the
@@ -689,7 +692,12 @@ pub(crate) async fn load_again(reload: impl FnOnce() -> ZhangResult<Ledger> + Se
 /// through JSON cost 364 ms). With them, the JSON pass is the price of the guarantee, as each of their stages already
 /// passes every directive through JSON; it is streamed into the hasher wherever the order of a directive's maps is
 /// fixed (about a quarter of the cost of the sorted form). A reload computes it on its blocking thread, with the load.
-/// Not a cryptographic hash: it tells a reload of the same input from a change, nothing more
+/// Not a cryptographic hash: it tells a reload of the same input from a change, nothing more.
+///
+/// The file watcher's reload after a write loads nothing while the ledger's own files hold what the ledger served was
+/// loaded from ([`ReloadSender::reload_if_files_changed`]), and keeps the generation as a load of them would: what
+/// else the fingerprint sees of the input (a plugin's module or script in the ledger's directory, a file a plugin
+/// read, the date) is another input of the load ([`ExtraInput`]), whose change always loads
 fn ledger_fingerprint(ledger: &Ledger) -> u64 {
     use std::hash::{Hash, Hasher};
 
@@ -753,7 +761,7 @@ fn ledger_fingerprint(ledger: &Ledger) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let mut transformed = false;
     for (plugin, types) in &ledger.plugins.ordered {
-        plugin.module_bytes().hash(&mut hasher);
+        plugin.hash_code(&mut hasher);
         transformed |= types.iter().any(|it| matches!(it, PluginType::Processor | PluginType::Mapper));
     }
     for directive in ledger.directives.iter().chain(&ledger.metas) {
@@ -1296,6 +1304,51 @@ mod generation_test {
         std::fs::write(root.join("read_rules.wat"), module.replace("0.1.0", "0.1.1")).unwrap();
         assert_eq!(reloaded().await, 3, "the module changed");
         assert_eq!(reloaded().await, 3, "and reloaded as it is now");
+    }
+
+    /// The code of a router plugin counts, whatever runs it: an edit of a Lua script moves the generation on as an edit
+    /// of a wasm module does, though the module a script runs is always the interpreter zhang embeds (only the
+    /// interpreter was hashed of a script, so an edit kept the generation); a reload of the same code keeps it. A
+    /// bundled plugin's code is the script built into zhang, the same on every load
+    #[tokio::test]
+    async fn a_plugins_code_counts_whatever_runs_it() {
+        const SCRIPT: &str = "return { name = \"echo\", version = \"0.1.0\", types = { \"Router\" },\n  \
+                              router = function(request) return { json = request } end }\n";
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let wasm = Path::new(env!("CARGO_MANIFEST_DIR")).join("../zhang-core/tests/plugins/router.wat");
+        std::fs::copy(wasm, root.join("router.wat")).unwrap();
+        std::fs::write(root.join("echo.lua"), SCRIPT).unwrap();
+        std::fs::write(
+            root.join("main.zhang"),
+            "option \"features.plugin\" \"true\"\nplugin \"echo.lua\"\nplugin \"router.wat\"\nplugin \"zhang:mcp\"\n",
+        )
+        .unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let loaded = Ledger::load(root.clone(), "main.zhang".to_owned(), source).expect("load ledger");
+        assert_eq!(loaded.plugins.ordered.len(), 3, "every plugin registered");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+        let reloaded = || async {
+            reload_sender.reload_and_wait().await.expect("the reload succeeds");
+            reload_sender.generation()
+        };
+
+        assert_eq!(reloaded().await, 1, "the same code");
+        assert_eq!(reloaded().await, 1, "again");
+
+        std::fs::write(root.join("echo.lua"), SCRIPT.replace("0.1.0", "0.1.1")).unwrap();
+        assert_eq!(reloaded().await, 2, "the script changed");
+        assert_eq!(reloaded().await, 2, "and reloaded as it is now");
+        std::fs::write(root.join("echo.lua"), format!("{}-- a comment\n", SCRIPT.replace("0.1.0", "0.1.1"))).unwrap();
+        assert_eq!(reloaded().await, 3, "a comment added to the script");
+
+        let module = std::fs::read_to_string(root.join("router.wat")).unwrap();
+        std::fs::write(root.join("router.wat"), format!("{module};; a comment\n")).unwrap();
+        assert_eq!(reloaded().await, 4, "the module changed");
+        assert_eq!(reloaded().await, 4, "and reloaded as it is now");
     }
 
     /// The options count in the fingerprint apart from the directives that set them: an option set otherwise, with
