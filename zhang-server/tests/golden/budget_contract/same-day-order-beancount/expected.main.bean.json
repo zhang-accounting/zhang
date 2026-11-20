@@ -13,8 +13,8 @@
     {
       "kind": "BudgetClosed",
       "file": "main.bean",
-      "line": 31,
-      "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "6b39f100-f553-52a6-81dc-5f0cc5c00377"}]
+      "line": 36,
+      "metas": [{"key": "account_name", "value": "Expenses:Food"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "51890472-666c-dcdc-c6b8-3639f08282ed"}]
     }
   ],
   "error_list": [
@@ -26,11 +26,11 @@
       "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "5295fcf1-0d43-1b96-2a67-8d5c8ef35dd3"}
     },
     {
-      "id": "e6fc80b6-7d96-a6c1-070e-eeec91ea4db2",
-      "id_of": "main.bean@906 BudgetClosed #0",
-      "span": {"file": "main.bean", "start": 906, "end": 1012, "line": 31},
+      "id": "f1f386d0-2cc1-021b-30c0-2a05eabccca3",
+      "id_of": "main.bean@1013 BudgetClosed #0",
+      "span": {"file": "main.bean", "start": 1013, "end": 1119, "line": 36},
       "kind": "BudgetClosed",
-      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "6b39f100-f553-52a6-81dc-5f0cc5c00377"}
+      "metas": {"account_name": "Expenses:Food", "budget_name": "Food", "txn_id": "51890472-666c-dcdc-c6b8-3639f08282ed"}
     }
   ],
   "responses": [
@@ -51,7 +51,7 @@
         "data": {
           "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
           "rows": [
-            ["Food", null, null, "CNY", "2024-03-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, true]
+            ["Food", null, null, "CNY", "2024-03-01", {"number": "0", "currency": "CNY"}, "16", {"number": "-16", "currency": "CNY"}, true]
           ]
         }
       }
@@ -73,7 +73,7 @@
           {
             "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
             "rows": [
-              ["Food", null, null, "CNY", "2024-03-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, true]
+              ["Food", null, null, "CNY", "2024-03-01", {"number": "0", "currency": "CNY"}, "16", {"number": "-16", "currency": "CNY"}, true]
             ]
           }
         ]
@@ -95,7 +95,9 @@
           },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
-            "rows": []
+            "rows": [
+              ["2024-03-10", "13:00:00", 1710075600, "Expenses:Food", "9dccaf8c-fcad-1b09-eb8a-4de15880d84e", "E", "at 13:00, after the definition", {"number": "16", "currency": "CNY"}, {"number": "23", "currency": "CNY"}]
+            ]
           }
         ]
       }
@@ -121,7 +123,9 @@
           },
           {
             "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
-            "rows": []
+            "rows": [
+              ["2024-03-10", "13:00:00", 1710075600, "Expenses:Food", "9dccaf8c-fcad-1b09-eb8a-4de15880d84e", "E", "at 13:00, after the definition", {"number": "16", "currency": "CNY"}, {"number": "23", "currency": "CNY"}]
+            ]
           }
         ]
       }
@@ -179,8 +183,8 @@
               null,
               {"number": "0", "currency": "CNY"},
               {"number": "0", "currency": "CNY"},
-              {"number": "0", "currency": "CNY"},
-              {"number": "0", "currency": "CNY"},
+              {"number": "16", "currency": "CNY"},
+              {"number": "-16", "currency": "CNY"},
               true,
               ["Expenses:Food"]
             ]
@@ -241,6 +245,22 @@
               "Assets:Bank",
               "at 08:00, written below the definition",
               {"number": "-4", "currency": "CNY"},
+              []
+            ],
+            [
+              "2024-03-10",
+              "13:00:00",
+              "Expenses:Food",
+              "at 13:00, after the definition",
+              {"number": "16", "currency": "CNY"},
+              ["Food"]
+            ],
+            [
+              "2024-03-10",
+              "13:00:00",
+              "Assets:Bank",
+              "at 13:00, after the definition",
+              {"number": "-16", "currency": "CNY"},
               []
             ],
             [

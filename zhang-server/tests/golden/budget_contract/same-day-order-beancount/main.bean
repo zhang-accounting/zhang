@@ -25,6 +25,11 @@ option "timezone" "UTC"
   Expenses:Food 4 CNY
   Assets:Bank
 
+2024-03-10 * "E" "at 13:00, after the definition"
+  time: "13:00:00"
+  Expenses:Food 16 CNY
+  Assets:Bank
+
 2024-03-20 custom "budget-close" "Food"
   time: "09:00:00"
 
