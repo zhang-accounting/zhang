@@ -583,6 +583,57 @@ impl<T: Serialize + Schematic> Responsible for Paged<T> {
     }
 }
 
+/// the header of an answer that replays what an earlier request with the same `Idempotency-Key` wrote
+pub const IDEMPOTENCY_REPLAYED_HEADER: &str = "Idempotency-Replayed";
+
+/// The body of [`ResponseWrapper`], and when it replays what an earlier request with the same `Idempotency-Key` wrote,
+/// the [`IDEMPOTENCY_REPLAYED_HEADER`] header, `true`.
+pub struct Replayable<T: Serialize + Schematic> {
+    pub data: T,
+    pub replayed: bool,
+}
+
+impl<T: Serialize + Schematic> IntoResponse for Replayable<T> {
+    fn into_response(self) -> Response {
+        let mut response = ResponseWrapper { data: self.data }.into_response();
+        if self.replayed {
+            response
+                .headers_mut()
+                .insert(IDEMPOTENCY_REPLAYED_HEADER, axum::http::HeaderValue::from_static("true"));
+        }
+        response
+    }
+}
+
+impl<T: Serialize + Schematic> Responsible for Replayable<T> {
+    fn response() -> Responses {
+        let mut responses = <ResponseWrapper<T> as Responsible>::response();
+        if let Some(Referenceable::Data(ok)) = responses.data.get_mut("200") {
+            ok.headers = Some(BTreeMap::from([(
+                IDEMPOTENCY_REPLAYED_HEADER.to_string(),
+                Referenceable::Data(gotcha::oas::Header {
+                    description: Some(
+                        "`true` when the answer is the transaction an earlier request with the same `Idempotency-Key` wrote, \
+                         and nothing was written; absent otherwise"
+                            .to_string(),
+                    ),
+                    required: Some(false),
+                    deprecated: None,
+                    allow_empty_value: None,
+                    style: None,
+                    explode: None,
+                    allow_reserved: None,
+                    schema: Some(Referenceable::Data(String::generate_schema().schema)),
+                    example: None,
+                    examples: None,
+                    content: None,
+                }),
+            )]));
+        }
+        responses
+    }
+}
+
 /// The result of a query endpoint: documents the HTTP 400 [`QueryErrorEntity`] next to the
 /// `200` body in OpenAPI.
 pub struct QueryApiResult<T: Serialize + Schematic>(pub ServerResult<ResponseWrapper<T>>);

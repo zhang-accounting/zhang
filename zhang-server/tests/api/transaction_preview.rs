@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use zhang_server::request::CreateTransactionRequest;
 use zhang_server::routes::transaction::{create_new_transaction, preview_new_transaction, preview_transaction_update};
-use zhang_server::routes::IfMatch;
+use zhang_server::routes::{IdempotencyKey, IfMatch};
 use zhang_server::state::{SharedLedger, SharedReloadSender};
 use zhang_server::ReloadSender;
 use zhang_testkit::fixtures::load_dir;
@@ -168,7 +168,7 @@ async fn every_invalid_field_is_named_and_nothing_else_is_checked() {
     let (sender, _receiver) = mpsc::channel(1);
     let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
     let (status, body) = respond(
-        create_new_transaction(State(ledger.clone()), reload, Json(request(postings)))
+        create_new_transaction(State(ledger.clone()), reload, IdempotencyKey(None), Json(request(postings)))
             .await
             .into_response(),
     )
@@ -291,7 +291,7 @@ async fn a_division_by_zero_is_a_field_error() {
     let (sender, _receiver) = mpsc::channel(1);
     let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
     let (status, body) = respond(
-        create_new_transaction(State(ledger.clone()), reload, Json(request(postings)))
+        create_new_transaction(State(ledger.clone()), reload, IdempotencyKey(None), Json(request(postings)))
             .await
             .into_response(),
     )

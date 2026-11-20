@@ -13,6 +13,7 @@ use zhang_ast::{Directive, Transaction};
 use zhang_core::ledger::Ledger;
 use zhang_server::request::{CreateTransactionPostingRequest, CreateTransactionRequest, MetaRequest};
 use zhang_server::routes::transaction::create_new_transaction;
+use zhang_server::routes::IdempotencyKey;
 use zhang_server::state::SharedReloadSender;
 use zhang_server::ReloadSender;
 use zhang_testkit::http::shared;
@@ -78,7 +79,7 @@ async fn created_transaction_strings_survive_a_reload() {
         tags: vec![],
         links: vec![],
     };
-    if let Err(error) = create_new_transaction(State(ledger), State(reload_sender), Json(request)).await {
+    if let Err(error) = create_new_transaction(State(ledger), State(reload_sender), IdempotencyKey(None), Json(request)).await {
         panic!("creating the transaction should succeed: {error}");
     }
 

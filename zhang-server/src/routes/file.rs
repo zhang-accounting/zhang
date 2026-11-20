@@ -122,7 +122,7 @@ mod save_test {
     use crate::request::{BuiltinQueryRunRequest, CreateTransactionRequest, FileUpdateRequest};
     use crate::routes::query::run_builtin_query;
     use crate::routes::transaction::create_new_transaction;
-    use crate::routes::Base64Path;
+    use crate::routes::{Base64Path, IdempotencyKey};
     use crate::state::{SharedLedger, SharedReloadSender};
     use crate::util::sha256_hex;
     use crate::ReloadSender;
@@ -198,7 +198,7 @@ mod save_test {
         let (_, fingerprint) = shown(&state, &main).await;
 
         // a transaction recorded in the UI appends to the main file in between (the include of its output file)
-        let (status, message) = answer(create_new_transaction(state.clone(), reload.clone(), Json(new_transaction())).await).await;
+        let (status, message) = answer(create_new_transaction(state.clone(), reload.clone(), IdempotencyKey(None), Json(new_transaction())).await).await;
         assert_eq!(status, StatusCode::OK, "{message}");
         let appended = on_disk();
         assert_ne!(appended, edited.as_bytes(), "the main file changed");
@@ -267,7 +267,7 @@ mod save_test {
             let path = Base64Path(main.to_string_lossy().into_owned());
             update_file_content(state.clone(), reload.clone(), path, Json(FileUpdateRequest { content, expected_sha256 }))
         };
-        let create = || create_new_transaction(state.clone(), reload.clone(), Json(new_transaction()));
+        let create = || create_new_transaction(state.clone(), reload.clone(), IdempotencyKey(None), Json(new_transaction()));
 
         let (_, fingerprint) = shown(&state, &main).await;
         let broken = format!("{LEDGER}this is not beancount\n");
@@ -331,7 +331,7 @@ mod save_test {
         let reload = State(SharedReloadSender(Arc::new(ReloadSender::new(sender))));
 
         for _ in 0..2 {
-            let (status, message) = answer(create_new_transaction(state.clone(), reload.clone(), Json(new_transaction())).await).await;
+            let (status, message) = answer(create_new_transaction(state.clone(), reload.clone(), IdempotencyKey(None), Json(new_transaction())).await).await;
             assert_eq!(status, StatusCode::OK, "{message}");
         }
         let main = std::fs::read_to_string(real.join("main.bean")).unwrap();
@@ -522,7 +522,7 @@ mod save_test {
                 "links": []
             }))
             .unwrap();
-            create_new_transaction(state.clone(), reload.clone(), Json(request))
+            create_new_transaction(state.clone(), reload.clone(), IdempotencyKey(None), Json(request))
         };
 
         let broken = format!("{ledger}this is not beancount\n");
