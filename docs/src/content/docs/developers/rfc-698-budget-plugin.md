@@ -5,18 +5,13 @@ sidebar:
   order: 5
 ---
 
-:::note[Status: revised after the owner's decisions of 2026-11-20]
+:::note[Status: every decision recorded on 2026-11-20]
 Nothing on this page is implemented. It answers the questions RFC
 [#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1, against `main` at `9c156c7b`. File
 references are `path:line` at that commit.
 
-[§11](#11-decisions) gives the status of every decision:
-
-- **decided** by the owner;
-- **lead decision, pending owner confirmation**;
-- **open**, with a recommendation.
-
-This revision applies the owner's decisions and an independent critique of the first version.
+The owner recorded every decision of [§11](#11-decisions) on 2026-11-20. The page applies them and the findings of an
+independent critique of its first version.
 :::
 
 ## Summary
@@ -48,8 +43,7 @@ This revision applies the owner's decisions and an independent critique of the f
    and products are exact.
 7. **The official plugin is `zhang:budget`, a bundled Lua script, enabled by default.**
    - It needs neither `features.plugin` nor a `plugin` directive.
-   - `ZHANG_PLUGINS=off` stops it, with an explicit `ExtensionUnavailable` diagnostic and an upgrade note (pending
-     owner confirmation).
+   - `ZHANG_PLUGINS=off` stops it, with an explicit `ExtensionUnavailable` diagnostic and an upgrade note.
    - It requires the C JSON codec that replaces dkjson (lane I2).
 8. **The API contract is the five `budgets.*` named queries, not `/api/budgets*`.** #754 retired those routes. The
    plugin declares the named queries, and neither client changes.
@@ -287,7 +281,7 @@ the ledger.
 
 ### 2.3 Lifecycle (#698 open question 1)
 
-**Recommendation: split by what each part needs.**
+**Decided (2026-11-20): split by what each part needs.**
 
 - **At each load, so at each write too:** analysis runs eagerly, producing the diagnostics and every fact that grows
   with the ledger.
@@ -297,7 +291,7 @@ the ledger.
 
 | Option | Load diagnostics | Stable snapshot | Resource bound | Verdict |
 | --- | --- | --- | --- | --- |
-| Analysis at load | Yes: merged before placement and ids, so the journal's per-transaction errors and #833's ids work unchanged | Yes: part of the immutable `Ledger` value | Bounded by the ledger, not by time; paid on every load *and write* | **Recommended**, for facts and diagnostics |
+| Analysis at load | Yes: merged before placement and ids, so the journal's per-transaction errors and #833's ids work unchanged | Yes: part of the immutable `Ledger` value | Bounded by the ledger, not by time; paid on every load *and write* | **Decided**, for facts and diagnostics |
 | First-query computation | No: the errors page and journal would change after a query ran, and ids would depend on request order | Needs a once-cell and race handling under the read lock | The first reader pays the whole analysis | Rejected for diagnostics |
 | Plugin code per query (a `table_rows` export) | Not applicable | The plugin must be handed its state on every call | wasm per request under the read lock, re-serialised every call, recursion risk | Rejected (§3.7) |
 
@@ -409,7 +403,7 @@ it:
 | Lua | Not yet (needs a full decimal API) | Yes (§4, P1.6) | Yes |
 
 **Operator ceiling.** `ZHANG_PLUGINS=off|read|write` (`zhang-core/src/plugin_policy.rs:39,57,93`) bounds every
-plugin, the default ones included (§6, pending owner confirmation). `read` and `write` mean nothing to an analyzer,
+plugin, the default ones included (§6). `read` and `write` mean nothing to an analyzer,
 which never writes. The timeout and memory ceilings apply to every analyzer.
 
 ### 2.9 The embedding seam
@@ -678,7 +672,7 @@ d(0.1)                   --> error: decimal must be a string or an integer, got 
 
 | Option | Export and spans | Effect on ABI v1 plugins | Verdict |
 | --- | --- | --- | --- |
-| A. **Keep the four `Directive::Budget*` variants as syntax only.** A compat mapping defines each kind's record fields: `name`, `commodity` / `name`, `amount` / `from`, `to`, `amount` / `name`. | Unchanged | None: processors keep seeing `{"Budget": …}` | **Recommended** |
+| A. **Keep the four `Directive::Budget*` variants as syntax only.** A compat mapping defines each kind's record fields: `name`, `commodity` / `name`, `amount` / `from`, `to`, `amount` / `name`. | Unchanged | None: processors keep seeing `{"Budget": …}` | **Decided** |
 | B. A generic `Directive::Record` replacing the four | Needs per-kind writers in both exporters | Breaking: `AbiV1View` would have to map records back forever, as it hides `pad` (`pipeline/plugin_view.rs:1-33`) | Later, only for a second plugin's syntax |
 | C. Map the keywords to `Custom` | `budget-add` would export as `custom "budget-add"`; `Custom` has no amount type | Changes what processors see | Rejected |
 | D. Plugin-owned parsing | n/a | n/a | Rejected: plugins load after parsing, and both dialects would need a parser ABI |
@@ -704,7 +698,7 @@ own `custom "<type>"` directives through `consumes`.
 - A default plugin is registered for every ledger, with no `plugin` directive and no `features.plugin`. It registers
   and analyses first.
 
-**Lead decision, pending owner confirmation:** there is no `ZHANG_DEFAULT_PLUGINS`. The operator ceiling of #830 bounds
+**Decided (2026-11-20):** there is no `ZHANG_DEFAULT_PLUGINS`. The operator ceiling of #830 bounds
 default plugins too, and `getting-started/installation.md:101` documents `off` as "loads none".
 
 | Situation | Behaviour |
@@ -752,11 +746,16 @@ the optional item #805 deferred.
   It also settles the review's "dkjson is slow" item for `zhang:mcp`.
 - **Load-outside-the-lock is a prerequisite** (lane I1, §2.1).
 - **Gate G1** (after P1.6): a Lua prototype of the budget analyzer runs on P0's baseline ledgers, measuring:
-  - **load p95** and **`POST /api/transactions` p95**, at 10,000 and 100,000 transactions, against the bar of
-    decision 16;
+  - the **added load p95** and the **added `POST /api/transactions` p95**, at 10,000 and 100,000 transactions,
+    each at most 5% of P0's baseline or 50 ms, whichever is larger (decision 16);
   - **parity** with #835's golden files.
 
-  If G1 fails, the owner decides between more host-side aggregation and implementing the same contract in Rust.
+  **The bar is tight.** The estimate above for a budget-heavy ledger of 10,000 transactions is about 0.15 s, over
+  50 ms, so G1 is a real test. The levers before any fallback are fewer, grouped host queries and a compact encoding
+  of records and facts. Snapshot reuse is no lever: a write changes the content, so it gets no reuse.
+
+  **If G1 fails,** the fallback is the same contract (manifest, records, output, tables) implemented in Rust compiled
+  to wasm through the SDK. Only the plugin changes. That switch needs the owner's go-ahead at the gate.
 
 **D1 and the SDK.**
 
@@ -816,7 +815,7 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | **The fingerprint misses script edits** today (§2.4) | P1.5 hashes script sources and the default plugins' modules |
 | **Reusing a bad snapshot** | Only `ok` snapshots are ever reused; a failed one is retried on the next load |
 | **The playground** (`bindings/wasm`) stops interpreting budgets | `ExtensionUnavailable` and a playground regression test (P3.3) |
-| **Operators surprised** that `ZHANG_PLUGINS=off` now stops budgets | The upgrading note, the startup log line, the `GET /api/plugins` status (pending owner confirmation) |
+| **Operators surprised** that `ZHANG_PLUGINS=off` now stops budgets | The upgrading note, the startup log line, the `GET /api/plugins` status |
 | **Prerequisites in other lanes** (I1, I2, the P0 baseline, known-issue fixes) | Each PR states its prerequisite; P1.1 to P1.3 depend on none of them |
 | **ABI creep** | The analysis ABI is its own versioned module, additive only, independent of zhang-ast |
 
@@ -874,33 +873,33 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | **P1.4** `feat(plugin)` Analyzer (after I1) | ABI module (manifest, records, output). `AnalysisHost` hook. Snapshots; never reuse a failed one. Diagnostic placement by phase and target. Reset of `derived`; refusal of error-dependent tables. `zhang_convert`, limits, recursion guard, failure isolation. SDK `analyzer:` and `decimal`. **The lifecycle and isolation tests:** module and config swap, clock change at midnight, concurrent reload and query, timeout, OOM, trap, invalid output, missing plugin. | Every failure mode loads the ledger with one diagnostic and no partial snapshot; an SDK fixture analyzer's diagnostics land at the places and ids the native fold gives |
 | **P1.5** `feat(plugin)` default plugins and named queries (absorbs P2) | Plugin-declared named queries per catalog digest. Default bundled plugins and `zhang:budget` (Lua, queries only) serving the five `budgets.*` queries moved from `builtin.rs`, still over native tables. `ZHANG_PLUGINS=off` stops defaults, with `ExtensionUnavailable` and the upgrade note. `GET /api/plugins` fields. Fingerprint hashes script sources and default modules. | #835 and `builtins.ts` byte-identical; the matrix `features.plugin` × `ZHANG_PLUGINS` × runtime present or absent |
 | **P1.6** `feat(plugin)` Lua analyzers (after I2) | Interpreter: the `Analyzer` type, the manifest in the module table, `zhang.decimal` (pure Lua, §4), `zhang.convert`, `api_version` 2 | Decimal parity property tests; Lua and MCP tests unchanged; reproducible module |
-| ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Load p95 **and** `POST /api/transactions` p95 within decision 16's bar; parity with #835 |
+| ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Added load p95 **and** added `POST /api/transactions` p95 each ≤ max(5% of P0b, 50 ms) at 10,000 and 100,000 transactions; parity with #835. On failure, the Rust→wasm fallback only with the owner's go-ahead |
 | **P3.1** `feat(budget)` definitions and events | `budget.lua` publishes `#budget_definitions`, `#budget_events` and the directive diagnostics. Test switch `native\|plugin\|both`. The differential fuzzing harness (seeded generated ledgers; full `Ledger::errors` and every table and named query) | `both` and the fuzzer report no difference |
 | **P3.2** `feat(budget)` activity, series and labels | Activity by host BQL per budget, carry-over facts, `#budgets` as a series, `postings.budgets` labels, posting diagnostics, the after-fold mismatches | `both`, the fuzzer and the `budget_reference` oracle report no difference |
 | ⛳ **P3.3** `feat(budget)!` switch | The plugin is the only runtime implementation; native code remains only behind the test switch. A playground regression test (`bindings/wasm`: `ExtensionUnavailable` on a budget ledger, unchanged otherwise) | #835 identical, ids and report order included; ⛳ the owner confirms |
-| ⛳ **P4** `test(budget)` performance and release | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Decision 16's bars met |
+| ⛳ **P4** `test(budget)` performance and release | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Added load and write p95 each ≤ max(5% of P0b, 50 ms) at 10,000 and 100,000; named-query p95 ≤ 1.1×; memory ≤ +10% |
 | **P5** `refactor(core)!` delete native, and docs | Removes `process/budget.rs`, the `Ledger` budget fields, `check_budgets`, `table/budgets.rs`, `Record::Budget*`, `posting_budgets`, `as_budget_interval`, the in-process provider and the switch. Keeps the compat mapping. Docs: budgets guide, query reference, plugin development, upgrading (en and zh-cn). | `rg -i budget` in `zhang-core/src` and `zhang-query/src` finds only the compat mapping; every suite green; the docs build |
 
 ## 11. Decisions
 
 | # | Decision | Status | Choice | Consequences |
 | --- | --- | --- | --- | --- |
-| 1 | Derived data lifecycle (#698 Q1) | Open; recommended | Analysis at each load (so at each write) for facts and diagnostics; host-side bounded generation per query | Ids and `txn_id` unchanged; no plugin code per request |
-| 2 | Bounded `#budgets` generation (Q2) | Open; recommended | Series table: fill `carry`, `zero`, `previous`; generic `{seq}` causes; the budget wording in the compat allowlist | Typo-date behaviour and messages unchanged |
-| 3 | AST and syntax (Q3) | Open; recommended | Keep the four variants as syntax only, with a record view | No change to parsing, export, spans or ABI v1 |
-| 4 | Default plugins and builds without a runtime (Q4) | **Lead decision, pending owner confirmation** | Implicit default `zhang:budget` outside `features.plugin`; `ZHANG_PLUGINS=off` stops it with `ExtensionUnavailable` and an upgrade note; no `ZHANG_DEFAULT_PLUGINS`; no native fallback | One operator ceiling, as #830 defined it; the playground reports `ExtensionUnavailable` |
-| 5 | Exact decimals (Q5) | **Decided** | No libmpdec. Exact add, subtract and compare in pure Lua on strings, or as a batched host operation, with parity tests; host aggregation first; the SDK re-exports `zhang_shared::decimal` | No multiplication or division in Lua; Lua processors stay out of scope |
-| 6 | D1 against the Rust SDK | Open; recommended | D1 binds users; the SDK stays at ABI parity, with no official plugin on it | PR #823's contradiction resolved by scoping |
-| 7 | Language of `zhang:budget` | **Decided** | Lua, bundled with `include_bytes!` | Requires I2 and P1.6; G1 confirms |
-| 8 | JSON codec | **Decided** | The C codec replaces dkjson (lane I2) | Every Lua plugin speeds up; the `json` rules stay |
-| 9 | Analyzer data access | Open; recommended | Pushed records plus pulled BQL and `zhang_convert`; never the stream | Boundary bytes scale with budgets × months |
-| 10 | Diagnostic kinds | Open; recommended | Legacy kinds allowlisted for `zhang:budget`; others `PluginError` with a `kind` meta; placement by phase and target | Closed error enums; report order and ids reproduced |
-| 11 | Reload and the write lock | **Decided**, prerequisite | Load outside the write lock, swap under it (lane I1), before the analysis stage | Readers no longer stall during reloads; writes still pay for theirs |
-| 12 | Legacy names | Open; recommended | Keep every table, column and query name forever as an allowlist; deprecate only `account_budgets()` in docs | Explore, saved queries and clients keep working |
-| 13 | `postings.budgets` | Open; recommended | Label column from a predicate template | No per-posting data across the boundary |
-| 14 | Known issues K1–K5 | **Decided** | Fixed on `main` before the migration, one PR each after the owner confirms the bug | The migration is a pure move |
-| 15 | Scope cuts | **Lead decision** | No `replaces`, no router LRU, no release asset for the script, P2 folded into P1.5, P4.2's tests folded into P1.4 | Twelve PRs |
-| 16 | Pass bars for G1 and P4 | Owner to set; proposed | Added load p95 **and** `POST /api/transactions` p95 ≤ max(15% of P0b, 150 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ 1.1×; memory ≤ +10% | They decide G1's outcome and the P5 go |
+| 1 | Derived data lifecycle (#698 Q1) | **Decided (2026-11-20)** | Analysis at each load (so at each write) for facts and diagnostics; host-side bounded generation per query | Ids and `txn_id` unchanged; no plugin code per request |
+| 2 | Bounded `#budgets` generation (Q2) | **Decided (2026-11-20)** | Series table: fill `carry`, `zero`, `previous`; generic `{seq}` causes; the budget wording in the compat allowlist | Typo-date behaviour and messages unchanged |
+| 3 | AST and syntax (Q3) | **Decided (2026-11-20)** | Keep the four variants as syntax only, with a record view | No change to parsing, export, spans or ABI v1 |
+| 4 | Default plugins and builds without a runtime (Q4) | **Decided (2026-11-20)** | Implicit default `zhang:budget` outside `features.plugin`; `ZHANG_PLUGINS=off` stops it with `ExtensionUnavailable` and an upgrade note; no `ZHANG_DEFAULT_PLUGINS`; no native fallback | One operator ceiling, as #830 defined it; the playground reports `ExtensionUnavailable` |
+| 5 | Exact decimals (Q5) | **Decided (2026-11-20)** | No libmpdec. Exact add, subtract and compare in pure Lua on strings, or as a batched host operation, with parity tests; host aggregation first; the SDK re-exports `zhang_shared::decimal` | No multiplication or division in Lua; Lua processors stay out of scope |
+| 6 | D1 against the Rust SDK | **Decided (2026-11-20)** | D1 binds users; the SDK stays at ABI parity, with no official plugin on it | PR #823's contradiction resolved by scoping |
+| 7 | Language of `zhang:budget` | **Decided (2026-11-20)** | Lua, bundled with `include_bytes!` | Requires I2 and P1.6; G1 confirms |
+| 8 | JSON codec | **Decided (2026-11-20)** | The C codec replaces dkjson (lane I2) | Every Lua plugin speeds up; the `json` rules stay |
+| 9 | Analyzer data access | **Decided (2026-11-20)** | Pushed records plus pulled BQL and `zhang_convert`; never the stream | Boundary bytes scale with budgets × months |
+| 10 | Diagnostic kinds | **Decided (2026-11-20)** | Legacy kinds allowlisted for `zhang:budget`; others `PluginError` with a `kind` meta; placement by phase and target | Closed error enums; report order and ids reproduced |
+| 11 | Reload and the write lock | **Decided (2026-11-20)**, prerequisite | Load outside the write lock, swap under it (lane I1), before the analysis stage | Readers no longer stall during reloads; writes still pay for theirs |
+| 12 | Legacy names | **Decided (2026-11-20)** | Keep every table, column and query name forever as an allowlist; deprecate only `account_budgets()` in docs | Explore, saved queries and clients keep working |
+| 13 | `postings.budgets` | **Decided (2026-11-20)** | Label column from a predicate template | No per-posting data across the boundary |
+| 14 | Known issues K1–K5 | **Decided (2026-11-20)** | Fixed on `main` before the migration, one PR each after the owner confirms the bug | The migration is a pure move |
+| 15 | Scope cuts | **Decided (2026-11-20)** (lead) | No `replaces`, no router LRU, no release asset for the script, P2 folded into P1.5, P4.2's tests folded into P1.4 | Twelve PRs |
+| 16 | Pass bars for G1 and P4 | **Decided (2026-11-20)** | Added load p95 **and** added `POST /api/transactions` p95 each ≤ max(5% of P0b, 50 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ 1.1×; memory ≤ +10% | Stricter than proposed: they decide G1's outcome (a failure needs the owner's go-ahead for the Rust→wasm fallback) and the P5 go |
 
 ## Appendix A: the budget analysis, step by step
 
