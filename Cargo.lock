@@ -6657,6 +6657,8 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror 2.0.21",
+ "ureq",
+ "url",
  "uuid",
  "zhang-ast",
  "zhang-query",

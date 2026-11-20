@@ -13,6 +13,7 @@ pub mod capabilities;
 pub mod files;
 pub mod host;
 pub mod http;
+pub mod net;
 pub mod router;
 pub mod stage;
 pub mod store;

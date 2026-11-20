@@ -832,6 +832,30 @@ fn a_timeout_beyond_the_operators_is_lowered_and_reported() {
 }
 
 #[test]
+fn a_plugins_http_request_goes_through_zhang_and_never_to_a_private_address() {
+    let dir = ledger_dir(&["http_request.wat"]);
+    let content = with_plugins(&format!("{}  allowed_hosts: \"127.0.0.1\"\n", plugin(&dir, "http_request.wat")));
+    let request = PluginRequest::new("GET", "/", vec![], vec![], vec![]);
+
+    // granted by the directive and the operator, the loopback is still refused: extism's own `http_request` would
+    // have tried to connect
+    let ledger = load_with_policy(&dir, &content, PluginPolicy::unrestricted()).unwrap();
+    let error = call(&ledger, "http-request", &request).unwrap_err();
+    assert!(
+        matches!(&error, RouterError::Failed(message) if message.contains("HTTP request to http://127.0.0.1:9/ is not allowed: 127.0.0.1 is not a public address")),
+        "{error:?}"
+    );
+
+    // without the operator's leave, the host is not allowed at all
+    let ledger = load_with_policy(&dir, &content, PluginPolicy::default()).unwrap();
+    let error = call(&ledger, "http-request", &request).unwrap_err();
+    assert!(
+        matches!(&error, RouterError::Failed(message) if message.contains("127.0.0.1 is not one of the plugin's allowed_hosts")),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn router_reads_the_ledger_through_host_functions_only_while_routing() {
     // loading proves the processor got an `Err` from both host functions: it traps otherwise
     let (_dir, ledger) = router_ledger(&["router_query.wat"]);

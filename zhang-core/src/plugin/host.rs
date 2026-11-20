@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use chrono::{DateTime, SecondsFormat};
 use chrono_tz::Tz;
 use extism::convert::MemoryHandle;
-use extism::{CurrentPlugin, Function, UserData, Val, ValType, EXTISM_USER_MODULE, PTR};
+use extism::{CurrentPlugin, Function, UserData, Val, ValType, EXTISM_ENV_MODULE, EXTISM_USER_MODULE, PTR};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use zhang_ast::error::ErrorKind;
@@ -48,8 +48,8 @@ use crate::clock::LoadClock;
 use crate::inputs::ExtraInput;
 use crate::pipeline::{StageContext, StageError};
 use crate::plugin::files::{FileAccess, FileCall, FileError, FileErrorKind};
-use crate::plugin::log_safe;
 use crate::plugin::router::{self, RouterHost, LEDGER_INFO_FUNCTION, QUERY_FUNCTION};
+use crate::plugin::{log_safe, net};
 
 /// meta of a [`ErrorKind::PluginError`] holding the name of the plugin that reported it
 pub const PLUGIN_META: &str = "plugin";
@@ -224,6 +224,8 @@ pub(super) struct HostState {
     /// what the router host functions reach, the server's query host and the ledger's info; `None` outside
     /// a router call, when they answer that they are unavailable
     pub(super) router: Option<(Arc<dyn RouterHost>, LedgerInfo)>,
+    /// the status of the plugin's last HTTP response, which `http_status_code` answers; 0 before any
+    pub(super) http_status: u16,
 }
 
 /// the host side of one plugin instance: the host functions to link into it and what they collected
@@ -266,6 +268,7 @@ impl PluginHost {
             access: None,
             inputs: vec![],
             router: None,
+            http_status: 0,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -287,7 +290,8 @@ impl PluginHost {
 
     /// every host function zhang offers, bound to this host. The router functions are linked into every
     /// instance, so a plugin importing them still loads; outside a router call they answer that they are
-    /// unavailable
+    /// unavailable. `http_request` and `http_status_code` replace extism's own (see [`net`]): extism links its
+    /// functions first and lets later ones of the same name shadow them
     pub fn functions(&self) -> Vec<Function> {
         vec![
             self.bound(EMIT_ERROR, [PTR], [], emit_error),
@@ -296,10 +300,14 @@ impl PluginHost {
             self.bound(LIST_DIR, [PTR], [PTR], list_dir),
             self.bound(QUERY_FUNCTION, [PTR], [PTR], router::zhang_query),
             self.bound(LEDGER_INFO_FUNCTION, [], [PTR], router::zhang_ledger_info),
+            self.bound(net::HTTP_REQUEST, [PTR, PTR], [PTR], net::http_request)
+                .with_namespace(EXTISM_ENV_MODULE),
+            self.bound(net::HTTP_STATUS_CODE, [], [ValType::I32], net::http_status_code)
+                .with_namespace(EXTISM_ENV_MODULE),
         ]
     }
 
-    /// the host function `function`, named `name`, bound to this host's state
+    /// the host function `function`, named `name`, bound to this host's state, in the `extism:host/user` namespace
     fn bound<F>(&self, name: &str, inputs: impl IntoIterator<Item = ValType>, outputs: impl IntoIterator<Item = ValType>, function: F) -> Function
     where
         F: 'static + Fn(&mut CurrentPlugin, &[Val], &mut [Val], UserData<HostState>) -> Result<(), extism::Error> + Sync + Send,
