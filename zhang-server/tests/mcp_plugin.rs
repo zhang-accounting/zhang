@@ -825,6 +825,49 @@ async fn the_endpoint_sits_behind_zhang_authentication() {
 const GRANTED: &str = "  allow_writes: \"true\"\n  allowed_writes: \"transaction\"\n  allowed_writes: \"open\"\n";
 
 /// a coffee at a new account, as the write session records it
+/// A run of whitespace inside an argument is trimmed in linear time (the pattern trim was quadratic: 20 KB of BQL held
+/// the ledger's read lock for the whole timeout), and every text a tool reads has a cap its schema states: 16 KiB of
+/// BQL, 1 KiB of account, 4 KiB of any other text. An Origin or Host header over 2 KiB is refused (#804 review)
+#[tokio::test]
+async fn long_arguments_are_capped_and_whitespace_is_trimmed_in_linear_time() {
+    let dir = ledger_dir("");
+    let router = server(&dir, &Settings::default()).await;
+    let spaced = format!("SELECT{}account FROM #accounts", " ".repeat(16_000));
+
+    let started = std::time::Instant::now();
+    let rows = structured(&router, "query", json!({"bql": spaced, "limit": 1})).await;
+    let elapsed = started.elapsed();
+
+    assert_eq!(columns(&rows), vec!["account"]);
+    assert!(elapsed < std::time::Duration::from_secs(2), "16 000 spaces took {elapsed:?}");
+    let message = error_text(&router, "query", json!({"bql": "x".repeat(16 * 1024 + 1)})).await;
+    assert_eq!(message, "the argument `bql` must be at most 16384 characters");
+    let message = error_text(&router, "journal", json!({"account": "A".repeat(1025)})).await;
+    assert_eq!(message, "the argument `account` must be at most 1024 characters");
+    let message = error_text(&router, "transactions", json!({"keyword": "k".repeat(4097)})).await;
+    assert_eq!(message, "the argument `keyword` must be at most 4096 characters");
+    // characters, not bytes, as JSON Schema counts them
+    structured(&router, "transactions", json!({"keyword": "账".repeat(4096)})).await;
+    let reply = post(&router, &[("mcp-protocol-version", "2025-06-18")], &request(3, "tools/list", json!({}))).await;
+    let listed = reply.json()["result"]["tools"].clone();
+    let schema = |tool: &str, property: &str| -> Value {
+        let found = listed.as_array().unwrap().iter().find(|it| it["name"] == tool).unwrap();
+        found["inputSchema"]["properties"][property]["maxLength"].clone()
+    };
+    assert_eq!(
+        (schema("query", "bql"), schema("journal", "account"), schema("transactions", "payee")),
+        (json!(16384), json!(1024), json!(4096))
+    );
+    let origin = format!("https://{}.example.com", "a".repeat(3000));
+    let reply = post(
+        &router,
+        &[("origin", &origin), ("mcp-protocol-version", "2025-06-18")],
+        &request(4, "tools/list", json!({})),
+    )
+    .await;
+    assert_eq!(reply.status, 403, "{}", reply.text());
+}
+
 fn coffee(token: Option<&str>) -> Value {
     let mut arguments = json!({
         "date": "2024-03-20",

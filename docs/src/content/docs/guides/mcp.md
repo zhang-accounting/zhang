@@ -143,7 +143,7 @@ Accounts are never created on the fly. When the preview reports `AccountDoesNotE
 
 - `limit` defaults to 200 rows; asking for more than `max_rows` (1000) is answered with an error naming the cap. A result cut at the limit says `truncated: true`; the assistant can raise `limit`, narrow the query, or, for `journal`, `transactions` and `errors`, page on with `offset`.
 - Each query has the 10 second time limit and the result size limit of the Query page; a request as a whole has the plugin's `timeout`.
-- Request bodies over 1 MiB are refused.
+- Request bodies over 1 MiB are refused, and so is an `Origin` or `Host` header over 2 KiB. A tool's text arguments have caps its schema states (`maxLength`): 16 KiB of BQL, 1 KiB of account name, 4 KiB of any other text.
 - A write is one transaction, or one `open`, per call; a preview token lives ten minutes; one entry is committed per reload cycle (the next one waits for the reload, which takes a moment).
 
 ## Troubleshooting

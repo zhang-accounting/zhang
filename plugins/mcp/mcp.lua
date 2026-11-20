@@ -32,7 +32,21 @@ local function jsontype(v)
 end
 local function is_object(v) return jsontype(v) == "object" end
 local function is_array(v) return jsontype(v) == "array" end
-local function trim(s) return (s:match("^%s*(.-)%s*$")) end
+-- `s` without leading and trailing whitespace, in linear time: `^%s*(.-)%s*$` retries `%s*$` at every end of `.-`,
+-- quadratic on a long run of inner whitespace (20 KB took the whole timeout with the ledger read-locked). An
+-- all-whitespace string is caught first, since `^%s*(.*%S)` would backtrack through it
+local function trim(s)
+  if s:find("^%s*$") then return "" end
+  return (s:match("^%s*(.*%S)"))
+end
+
+-- the most characters of an argument a tool reads: a query, an account, and any other text
+local MAX_BQL, MAX_ACCOUNT, MAX_TEXT = 16 * 1024, 1024, 4096
+-- the most bytes of the Origin and Host headers the transport compares
+local MAX_ORIGIN = 2048
+
+-- the length of `text` in characters, as JSON Schema's maxLength counts them (bytes, for text that is not UTF-8)
+local function length(text) return utf8.len(text) or #text end
 
 -- an integer, from a Lua integer or an integral float (JSON Schema's `integer` accepts 5.0); nil otherwise
 local function as_int(v)
@@ -195,6 +209,8 @@ end
 -- `allowed` is allowed; an origin whose host and port are the request's own Host is allowed only when that host is
 -- this machine, since a rebinding attack is precisely a Host the attacker controls; `null` and anything else is not.
 local function origin_allowed(origin, host, allowed)
+  -- no browser sends an Origin or Host this long; refusing it keeps the comparison cheap
+  if (origin and #origin > MAX_ORIGIN) or (host and #host > MAX_ORIGIN) then return false end
   origin = origin and normalize_origin(origin)
   if not origin then return true end
   if origin == "null" then return false end
@@ -419,16 +435,18 @@ local POSTING_FIELDS = {
 
 local function arg_schema(a)
   local schema
-  if a.kind == "str" or a.kind == "amount" then schema = { type = "string" }
+  if a.kind == "str" or a.kind == "amount" then schema = { type = "string", maxLength = a.max or MAX_TEXT }
   elseif a.kind == "date" then schema = { type = "string", format = "date", pattern = DATE_PATTERN }
   elseif a.kind == "datetime" then schema = { type = "string", pattern = "^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}:\\d{2})?$" }
   elseif a.kind == "int" then schema = { type = "integer", minimum = a.min }
   elseif a.kind == "enum" then schema = { type = "string", enum = a.values }
-  elseif a.kind == "strlist" then schema = { type = "array", items = { type = "string" } }
-  elseif a.kind == "strmap" then schema = { type = "object", additionalProperties = { type = "string" } }
+  elseif a.kind == "strlist" then schema = { type = "array", items = { type = "string", maxLength = MAX_TEXT } }
+  elseif a.kind == "strmap" then schema = { type = "object", additionalProperties = { type = "string", maxLength = MAX_TEXT } }
   elseif a.kind == "postings" then
     local properties = {}
-    for field, description in pairs(POSTING_FIELDS) do properties[field] = { type = "string", description = description } end
+    for field, description in pairs(POSTING_FIELDS) do
+      properties[field] = { type = "string", description = description, maxLength = field == "account" and MAX_ACCOUNT or MAX_TEXT }
+    end
     schema = { type = "array", minItems = 1, items = { type = "object", properties = properties, required = { "account" }, additionalProperties = false } }
   end
   schema.description = a.description
@@ -470,6 +488,10 @@ local function check_postings(a, value)
         local hint = field == "amount" and 'a decimal string such as "4.50", never a number: decimals stay exact' or "a string"
         return nil, fmt("the argument `%s.%s` must be %s", where, field, hint)
       end
+      local max = field == "account" and MAX_ACCOUNT or MAX_TEXT
+      if type(v) == "string" and length(v) > max then
+        return nil, fmt("the argument `%s.%s` must be at most %d characters", where, field, max)
+      end
       if field == "amount" and v ~= json.null and not is_amount(trim(v)) then
         return nil, fmt('the argument `%s.amount` must be a decimal string such as "4.50"', where)
       end
@@ -487,6 +509,8 @@ local function check(a, value)
   local kind = a.kind
   if kind == "str" or kind == "amount" then
     if type(value) ~= "string" then return nil, wrong("a string") end
+    local max = a.max or MAX_TEXT
+    if length(value) > max then return nil, wrong(fmt("at most %d characters", max)) end
     if kind == "amount" and not is_amount(trim(value)) then return nil, wrong('a decimal string such as "4.50"') end
     return value
   elseif kind == "date" then
@@ -511,13 +535,19 @@ local function check(a, value)
     return nil, wrong("one of " .. concat(quoted, ", "))
   elseif kind == "strlist" then
     if is_array(value) then
-      for _, it in ipairs(value) do if type(it) ~= "string" then return nil, wrong("a list of strings") end end
+      for _, it in ipairs(value) do
+        if type(it) ~= "string" then return nil, wrong("a list of strings") end
+        if length(it) > MAX_TEXT then return nil, wrong(fmt("a list of strings of at most %d characters", MAX_TEXT)) end
+      end
       return value
     end
     return nil, wrong("a list of strings")
   elseif kind == "strmap" then
     if is_object(value) then
-      for _, it in pairs(value) do if type(it) ~= "string" then return nil, wrong("an object of string values") end end
+      for key, it in pairs(value) do
+        if type(it) ~= "string" then return nil, wrong("an object of string values") end
+        if length(it) > MAX_TEXT or length(key) > MAX_TEXT then return nil, wrong(fmt("an object of strings of at most %d characters", MAX_TEXT)) end
+      end
       return value
     end
     return nil, wrong("an object of string values")
@@ -808,7 +838,7 @@ local TOOLS = {
     .. "under(account, 'Expenses') AND date >= 2026-01-01 GROUP BY account`; the default table is the postings, `FROM "
     .. "#transactions`, `#accounts`, `#prices`, `#errors` read the others. A failing query comes back as an error naming "
     .. "the line and column. Call `schema` for the columns and functions.",
-    { required("bql", "str", "the query text"), LIMIT }, ROWS, function(call)
+    { required("bql", "str", "the query text", { max = MAX_BQL }), LIMIT }, ROWS, function(call)
       local limit = call:limit()
       if trim(call.args.bql) == "" then tool_error("the argument `bql` must not be empty") end
       return shape_rows(zhang.query(call.args.bql), limit)
@@ -817,7 +847,7 @@ local TOOLS = {
     "The accounts of the ledger with their open and close dates, alias and status now. Give `prefix` for one account and "
     .. "its sub-accounts (`Expenses:Food`), and `status` to see closed accounts too.",
     {
-      arg("prefix", "str", "an account; it and its sub-accounts are listed. Absent: every account"),
+      arg("prefix", "str", "an account; it and its sub-accounts are listed. Absent: every account", { max = MAX_ACCOUNT }),
       arg("status", "enum", "which accounts to list by their status now; default open", { values = { "open", "closed", "all" } }),
     }, ROWS, function(call)
       local clock = call:clock()
@@ -841,7 +871,7 @@ local TOOLS = {
   tool("balances", "Balances",
     "The balance of every account per currency: the units held, their value in the operating currency at today's "
     .. "prices, and the date of the first posting. Give `account` for one account and its sub-accounts.",
-    { arg("account", "str", "an account; it and its sub-accounts are listed. Absent: every account") }, ROWS, function(call)
+    { arg("account", "str", "an account; it and its sub-accounts are listed. Absent: every account", { max = MAX_ACCOUNT }) }, ROWS, function(call)
       local currency = zhang.str(call:info().operating_currency)
       if call.args.account then
         return call:rows(Q.accounts_subtree_balances, { account = zhang.str(call.args.account), operating_currency = currency }, CONFIG.max_rows)
@@ -862,7 +892,7 @@ local TOOLS = {
     .. "(a commodity without a price stays in its own currency there). Positive numbers are expenses; for Income "
     .. "accounts they are negative.",
     {
-      arg("account", "str", "the account whose subtree to sum; default Expenses"),
+      arg("account", "str", "the account whose subtree to sum; default Expenses", { max = MAX_ACCOUNT }),
       FROM, TO,
       arg("group_by", "enum", "how to group the rows; default account", { values = { "account", "month", "currency" } }),
       CURRENCY,
@@ -884,7 +914,7 @@ local TOOLS = {
   tool("journal", "Account journal",
     "The postings of an account and its sub-accounts in ledger order, one row per posting with the running balance "
     .. "after it. Page with `limit` and `offset`.",
-    { required("account", "str", "the account; its sub-accounts are included"), LIMIT, OFFSET }, PAGED_ROWS, function(call)
+    { required("account", "str", "the account; its sub-accounts are included", { max = MAX_ACCOUNT }), LIMIT, OFFSET }, PAGED_ROWS, function(call)
       local limit = call:limit()
       return call:rows(Q.accounts_journal_page, { account = zhang.str(call.args.account), limit = zhang.int(call:fetch()), offset = zhang.int(call:offset()) }, limit)
     end),
@@ -1091,7 +1121,7 @@ local WRITE_TOOLS = {
     .. "these commodities. Use it when a preview reports `AccountDoesNotExist`, after confirming the name with the user.",
     {
       required("date", "date", "the opening day, YYYY-MM-DD; on or before the first transaction of the account"),
-      required("account", "str", "the account, e.g. Expenses:Food:Coffee"),
+      required("account", "str", "the account, e.g. Expenses:Food:Coffee", { max = MAX_ACCOUNT }),
       arg("commodities", "strlist", "the commodities the account may hold; absent: any"),
       arg("booking_method", "str", "the booking method, e.g. FIFO or STRICT; absent: the ledger's default"),
     }, OPENED, function(call)
