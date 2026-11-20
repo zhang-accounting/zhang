@@ -50,6 +50,8 @@ struct Gated {
     /// the loads waiting at the gate
     waiting: AtomicUsize,
     failing: AtomicBool,
+    /// the loads started
+    loads: AtomicUsize,
 }
 
 impl Gated {
@@ -60,6 +62,7 @@ impl Gated {
             opened: Condvar::new(),
             waiting: AtomicUsize::new(0),
             failing: AtomicBool::new(false),
+            loads: AtomicUsize::new(0),
         })
     }
 
@@ -114,6 +117,7 @@ impl DataSource for Gated {
     }
 
     fn load(&self, entry: String, endpoint: String) -> ZhangResult<LoadResult> {
+        self.loads.fetch_add(1, Ordering::SeqCst);
         let loaded = self.inner.load(entry, endpoint);
         let closed = self.closed.lock().unwrap();
         if *closed {
@@ -640,4 +644,49 @@ async fn a_delete_whose_client_goes_away_while_it_reloads_keeps_its_tombstone() 
     assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{body}");
     assert_eq!(served.read("main.zhang").matches("\"Cafe\" \"coffee\"").count(), 1, "the twin stays");
     assert_eq!(served.transactions().await.len(), 1);
+}
+
+/// The reload the file watcher asks for after a write of the server, which reloaded the ledger before it answered,
+/// loads nothing: the files hold what the ledger served was loaded from, byte for byte. An edit outside loads, and so
+/// does a file written again as it was while the last reload failed, which clears the failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_watchers_reload_after_a_write_loads_only_an_edit_outside() {
+    let served = Served::with_main(OPENS);
+    let loads = || served.gate.loads.load(Ordering::SeqCst);
+    // the watcher's reload, then one that must load, as a sync point: the listener runs them in turn
+    let watched_then_forced = || async {
+        served.reload_sender.reload_if_files_changed();
+        served.reload_sender.reload_and_wait().await
+    };
+    let created = served.create(None, coffee("Cafe", "5")).await;
+    assert_eq!(created.status, StatusCode::OK, "{}", created.body);
+    let (before, generation) = (loads(), served.reload_sender.generation());
+
+    watched_then_forced().await.unwrap();
+    assert_eq!(loads(), before + 1, "the watcher's reload after the write loads nothing");
+    assert_eq!(served.reload_sender.generation(), generation);
+
+    // the same bytes written again: nothing to load
+    let main = served.read("main.zhang");
+    served.scratch.write("main.zhang", &main);
+    watched_then_forced().await.unwrap();
+    assert_eq!(loads(), before + 2);
+
+    // an edit outside
+    served.scratch.write("main.zhang", &format!("{main}1970-01-01 open Expenses:Tea\n"));
+    served.reload_sender.reload_if_files_changed();
+    served.reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(loads(), before + 4, "the watcher's reload after an edit outside loads");
+    assert!(served.accounts().await.contains(&"Expenses:Tea".to_owned()));
+
+    // a reload that fails, then the files as the ledger served was loaded from: the failure is cleared by a load
+    served.gate.failing.store(true, Ordering::SeqCst);
+    served.reload_sender.reload_and_wait().await.expect_err("the load fails");
+    served.gate.failing.store(false, Ordering::SeqCst);
+    let edited = served.read("main.zhang");
+    served.scratch.write("main.zhang", &edited);
+    served.reload_sender.reload_if_files_changed();
+    served.reload_sender.reload_and_wait().await.unwrap();
+    assert_eq!(loads(), before + 7, "the watcher's reload loads while the last reload failed");
+    assert!(served.reload_sender.last_failure().is_none());
 }
