@@ -93,7 +93,13 @@ impl CExpr {
             CExpr::Const(value) => Ok(value.clone()),
             CExpr::Column(column) => match (env.data, env.row) {
                 (Some(data), Some(row)) => {
-                    debug_assert!(data.projection.contains(column), "column '{}' is not projected", column.name());
+                    // a row of `postings` has every column (only record tables build theirs for the projection), and
+                    // a label column's predicate reads columns the query does not
+                    debug_assert!(
+                        matches!(row, RowRef::Posting(_)) || data.projection.contains(column),
+                        "column '{}' is not projected",
+                        column.name()
+                    );
                     Ok(column.value(data, row))
                 }
                 _ => Err(LocatedError::eval(format!("column '{}' is not available here", column.name()), None)),

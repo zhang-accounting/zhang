@@ -50,6 +50,8 @@ pub(super) static ERRORS: Table = Table {
     columns: Cow::Borrowed(COLUMNS),
     wildcard: Names::Static(&["file", "date", "kind", "account", "message"]),
     rows: Rows::Records(rows),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 /// A ledger error: a row of the `errors` table.

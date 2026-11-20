@@ -52,6 +52,7 @@ mod equivalence_tests;
 pub mod error;
 mod executor;
 pub mod export;
+mod extension;
 pub mod functions;
 mod optimizer;
 pub mod params;
@@ -73,6 +74,7 @@ use zhang_core::ledger::Ledger;
 
 pub use crate::catalog::Catalog;
 pub use crate::error::{QueryError, QueryErrorKind};
+pub use crate::extension::CatalogDigest;
 pub use crate::params::{Bindings, ParamRef, ParamTypes, Params};
 pub use crate::parser::{MAX_DEPTH, MAX_NAME_PARTS, MAX_QUERY_LENGTH};
 pub use crate::prices::PriceMap;
@@ -104,6 +106,9 @@ pub struct Query {
     /// whether an execution turns the bound parameters into constants first
     /// ([`optimizer::bind`]); only the naive reference of the tests does not
     bind_params: bool,
+    /// the digest of the catalog the query was compiled against, when it reads data of the catalog's extensions (a
+    /// table of theirs, or a label column): it then runs only on ledgers whose catalog has that digest
+    extensions: Option<CatalogDigest>,
 }
 
 impl Query {
@@ -112,25 +117,32 @@ impl Query {
         Query::compile_with_params(query, &ParamTypes::default())
     }
 
-    /// Compile a query whose `$n` / `:name` parameters have the given types.
+    /// Compile a query whose `$n` / `:name` parameters have the given types, against the tables every ledger has
+    /// today ([`Catalog::standard`]).
     pub fn compile_with_params(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
-        Query::compile_in(Catalog::core(), query, params)
+        Query::compile_in(Catalog::standard(), query, params)
     }
 
     /// Compile a query whose `$n` / `:name` parameters have the given types against the tables
     /// of `catalog`: `FROM #name` names one of them, and a query without it reads the catalog's
-    /// `postings` table. [`Query::compile_with_params`] compiles against [`Catalog::core`].
+    /// `postings` table. [`Query::compile_with_params`] compiles against [`Catalog::standard`].
+    ///
+    /// A query that reads data of the catalog's extensions (one of their tables, or a column they add to `postings`)
+    /// runs only on a ledger whose catalog ([`Catalog::of_ledger`]) has the same [`Catalog::digest`]; on another one
+    /// it fails, asking to compile it again.
     pub fn compile_in(catalog: &Catalog, query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
         let select = parser::parse_in(query, catalog.postings())?;
         let plan = compiler::compile(catalog, query, &select, params).map_err(|err| err.resolve(query))?;
         let mut plan = optimizer::optimize(plan).map_err(|err| err.resolve(query))?;
         projector::plan_running(&mut plan);
         let projection = projector::project(&plan);
+        let extensions = projection.reads_extensions().then(|| catalog.digest());
         Ok(Query {
             source: query.to_owned(),
             plan,
             projection,
             bind_params: true,
+            extensions,
         })
     }
 
@@ -140,15 +152,18 @@ impl Query {
     /// compare it with [`Query::compile_with_params`], which must return the same results.
     #[cfg(test)]
     pub(crate) fn compile_naive(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
-        let select = parser::parse_in(query, Catalog::core().postings())?;
-        let plan = compiler::compile(Catalog::core(), query, &select, params).map_err(|err| err.resolve(query))?;
+        let catalog = Catalog::standard();
+        let select = parser::parse_in(query, catalog.postings())?;
+        let plan = compiler::compile(catalog, query, &select, params).map_err(|err| err.resolve(query))?;
         let plan = optimizer::optimize_naive(plan).map_err(|err| err.resolve(query))?;
         let projection = projector::project(&plan);
+        let extensions = projection.reads_extensions().then(|| catalog.digest());
         Ok(Query {
             source: query.to_owned(),
             plan,
             projection,
             bind_params: false,
+            extensions,
         })
     }
 
@@ -295,6 +310,14 @@ impl Query {
     pub fn execute_with_options(&self, ledger: &Ledger, params: &Params, options: &ExecuteOptions) -> Result<QueryResult, QueryError> {
         // start the clock before building the rows, which is part of the work
         let deadline = options.timeout.map(executor::Deadline::after);
+        if let Some(digest) = self.extensions {
+            if Catalog::of_ledger(ledger).digest() != digest {
+                return Err(QueryError::new(
+                    QueryErrorKind::Compile,
+                    "the ledger's tables changed since the query was compiled; compile it again",
+                ));
+            }
+        }
         self.check_params(params)?;
         let window = self.plan.window(params).map_err(|err| err.resolve(&self.source))?;
         let period = self
@@ -460,9 +483,9 @@ fn column_docs(table: &catalog::TableRef) -> Vec<ColumnDoc> {
         .collect()
 }
 
-/// Describe every table of the core catalog ([`Catalog::core`]) and every function overload.
+/// Describe every table of the catalog of every ledger ([`Catalog::standard`]) and every function overload.
 pub fn schema() -> Schema {
-    let catalog = Catalog::core();
+    let catalog = Catalog::standard();
     let columns = column_docs(catalog.postings());
     let tables = catalog
         .tables()

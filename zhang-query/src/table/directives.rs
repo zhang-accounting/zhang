@@ -28,7 +28,7 @@ use crate::projector::Projection;
 use crate::value::{DataType, Value};
 
 /// The date of a dated directive.
-pub(super) fn date_of(directive: &Directive) -> Option<NaiveDate> {
+pub(crate) fn date_of(directive: &Directive) -> Option<NaiveDate> {
     directive.datetime().map(|datetime| datetime.date())
 }
 
@@ -105,6 +105,8 @@ pub(super) static BALANCES: Table = Table {
     columns: Cow::Borrowed(BALANCE_COLUMNS),
     wildcard: Names::Static(&["date", "account", "amount", "tolerance", "discrepancy"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| assertion(it).is_some())),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 /// The account, asserted amount and tolerance of a balance assertion.
@@ -207,6 +209,8 @@ pub(super) static NOTES: Table = Table {
     columns: Cow::Borrowed(NOTE_COLUMNS),
     wildcard: Names::Static(&["date", "account", "comment", "tags", "links"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Note(_)))),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 fn note<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Note> {
@@ -248,6 +252,8 @@ pub(super) static EVENTS: Table = Table {
     columns: Cow::Borrowed(EVENT_COLUMNS),
     wildcard: Names::Static(&["date", "type", "description"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Event(_)))),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 fn event<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Event> {
@@ -289,6 +295,8 @@ pub(super) static DOCUMENTS: Table = Table {
     columns: Cow::Borrowed(DOCUMENT_COLUMNS),
     wildcard: Names::Static(&["date", "account", "filename", "tags", "links"]),
     rows: Rows::Records(document_rows),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 /// What holds a document of the `#documents` table.
@@ -545,6 +553,8 @@ pub(super) static COMMODITIES: Table = Table {
     columns: Cow::Borrowed(COMMODITY_COLUMNS),
     wildcard: Names::Static(&["meta", "date", "name"]),
     rows: Rows::Records(|ledger, _| directives_where(ledger, |it| matches!(it, Directive::Commodity(_)))),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 fn commodity<'r>(record: &'r Record<'_>) -> Option<&'r zhang_ast::Commodity> {

@@ -16,7 +16,6 @@
 //! Columns of the transaction are read from its directive on access, never copied up front.
 
 use std::borrow::Cow;
-use std::cell::OnceCell;
 use std::collections::BTreeSet;
 
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -199,7 +198,7 @@ impl<'a> Dataset<'a> {
             projection,
             ledger,
             cache,
-            budgets: OnceCell::new(),
+            labels: Dataset::unresolved_labels(projection.table()),
         }
     }
 
@@ -653,15 +652,6 @@ pub static COLUMNS: &[ColumnDef] = &[
         "TRUE when the posting was written without an amount and zhang inferred its units to balance the transaction \
         (beancount's automatic postings); FALSE when its amount is written. A zhang extension.",
         |data, row| Value::Bool(automatic(data, row)),
-    ),
-    ColumnDef::posting(
-        "budgets",
-        DataType::Set,
-        "The budgets the posting counts toward, as the budget pages count it: those the budget metadata of its \
-        account's open in effect at its date and time names, defined before it and not closed by then, into \
-        whose commodity a price converts it. The postings of a budget in a month add up to its activity in \
-        #budgets. A zhang extension.",
-        |data, row| Value::Set(super::budgets::posting_budgets(data, row)),
     ),
 ];
 
