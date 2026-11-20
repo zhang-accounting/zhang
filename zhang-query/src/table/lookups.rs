@@ -6,16 +6,19 @@
 //! As beancount keeps them for beanquery: an account's earliest `open` and earliest `close`
 //! (ties in ledger order), and a currency's last `commodity` directive.
 //!
-//! The budgets of an account's postings are not kept here: the ledger answers them by the one
-//! rule of budget membership ([`Ledger::account_budgets`]).
+//! The metadata of the `open` in effect at a time (`open_meta_values()`, and its alias
+//! `account_budgets()`) is not indexed here: the ledger's account lifecycle answers it
+//! ([`Ledger::open_meta_values_at`]), read through [`Dataset::open_meta_values`] below.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
+use chrono::NaiveDateTime;
 use indexmap::IndexMap;
 use zhang_ast::{Commodity, Directive};
 use zhang_core::ledger::Ledger;
 
 use super::cache::Entries;
+use super::Dataset;
 use crate::functions::AccountDirectives;
 
 /// Indexes into [`Ledger::directives`].
@@ -74,5 +77,14 @@ impl Lookups {
             Directive::Commodity(commodity) => Some(commodity),
             _ => None,
         }
+    }
+}
+
+impl<'a> Dataset<'a> {
+    /// The values of the metadata `key` of the `open` of `account` in effect at the wall-clock time `at`, for
+    /// `open_meta_values()`: the ledger's account lifecycle ([`Ledger::open_meta_values_at`]). `None` before the
+    /// account's first `open`.
+    pub fn open_meta_values(&self, account: &str, key: &str, at: NaiveDateTime) -> Option<&'a BTreeSet<String>> {
+        self.ledger.open_meta_values_at(account, key, at)
     }
 }
