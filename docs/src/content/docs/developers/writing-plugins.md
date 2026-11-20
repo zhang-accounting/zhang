@@ -323,7 +323,7 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **Route:** `{name}` is the plugin's name; the request's `path` is the part below the route.
 - **Authentication:** the routes sit behind Zhang's own sign-in. Only an allowlist of request headers reaches the plugin, never the credentials or a proxy's identity headers.
-- **Read-only, unless granted writes:** a router reads the ledger only through `zhang_query` and `zhang_query_params` (BQL), `zhang_query_schema` and `zhang_ledger_info`; no host function changes it, except the [writes](#writes) a plugin declares, the ledger owner grants and the server allows (`ZHANG_PLUGINS=write`). Every request runs in a fresh instance, and the ledger does not reload while it runs.
+- **Read-only, unless granted writes:** a router reads the ledger only through `zhang_query`, `zhang_query_params` and `zhang_query_builtin` (BQL), `zhang_query_schema` and `zhang_ledger_info`; no host function changes it, except the [writes](#writes) a plugin declares, the ledger owner grants and the server allows (`ZHANG_PLUGINS=write`). Every request runs in a fresh instance, and the ledger does not reload while it runs.
 - **Bind user input:** never write what a user typed into a query's text. `router::query_with_params` binds typed parameters, and the query is compiled against their types:
 
   ```rust
@@ -355,7 +355,7 @@ end
 return M
 ```
 
-The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. Lua scripts are routers only in this release: a script declaring `Processor` or `Mapper` does not load, because Lua has no exact decimal arithmetic, the host takes back an amount turned into a JSON number, and the JSON library is too slow for every directive of a ledger ([why](/guides/lua-plugins/#router-only-in-this-release)). The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
+The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_builtin`, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. Lua scripts are routers only in this release: a script declaring `Processor` or `Mapper` does not load, because Lua has no exact decimal arithmetic, the host takes back an amount turned into a JSON number, and the JSON library is too slow for every directive of a ledger ([why](/guides/lua-plugins/#router-only-in-this-release)). The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
 
 ## Writes
 
@@ -502,6 +502,7 @@ They live in the `extism:host/user` namespace. Arguments and results are `i64` o
 | `zhang_list_dir` | the path, UTF-8 | `{"entries": [{"name": "…", "kind": "file" \| "dir"}]}`, sorted by name | as `zhang_read_file` |
 | `zhang_query` | the BQL text | `{"columns": [{"name": "…", "type": "…"}], "rows": [[…]]}` | `query` (with `line` and `column`), `invalid_input`, `unavailable` |
 | `zhang_query_params` | `{"bql": "… :from …", "params": {"from": {"type": "date", "value": "2024-01-01"}}}` | as `zhang_query` | as `zhang_query`; a parameter problem is a `query` error naming the parameter |
+| `zhang_query_builtin` | `{"name": "accounts.subtree", "params": {"account": "Expenses", "date": "2026-10-13", "time": "09:30:00"}}`: a [built-in query](/reference/builtin-queries/) by name, every parameter it declares as plain JSON (`null`, a boolean, an integer, a string, a list of strings) | as `zhang_query`: the query's columns and rows | `unavailable`, `invalid_input`, `query` (an unknown name, a parameter missing, unknown or not of its type) |
 | `zhang_query_schema` | none | `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`, the `data` of `GET /api/query/schema` | `unavailable` |
 | `zhang_ledger_info` | none | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
 | `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`, `denied`, `invalid_input`, `invalid`, `conflict`, `io` |
@@ -536,9 +537,9 @@ Where they work:
 - `zhang_emit_error` reports into the error list from a processor or mapper. While the plugin registers (`name`, `version`, `supported_type`) what it reports is dropped, and in a router it is only logged.
 - `zhang_now` works everywhere. In a router it reads the clock afresh for each request, and a call while registering does not make the ledger depend on the date.
 - `zhang_read_file` and `zhang_list_dir` answer `denied` outside a processor or mapper, and for any path `allowed_paths` does not grant.
-- `zhang_query`, `zhang_query_params`, `zhang_query_schema`, `zhang_ledger_info`, `zhang_write_preview` and `zhang_write_commit` answer `unavailable` outside a router request.
+- `zhang_query`, `zhang_query_params`, `zhang_query_builtin`, `zhang_query_schema`, `zhang_ledger_info`, `zhang_write_preview` and `zhang_write_commit` answer `unavailable` outside a router request.
 
-`zhang_query_params`, `zhang_query_schema`, `zhang_write_preview` and `zhang_write_commit` were added after `zhang_query`. A new host function is an addition a plugin can ignore, so the ABI version stays 1: a plugin that does not import them runs unchanged, and one that does fails to load, as below, on a Zhang without them.
+`zhang_query_params`, `zhang_query_schema`, `zhang_query_builtin`, `zhang_write_preview` and `zhang_write_commit` were added after `zhang_query`. A new host function is an addition a plugin can ignore, so the ABI version stays 1: a plugin that does not import them runs unchanged, and one that does fails to load, as below, on a Zhang without them.
 
 ### Minimum Zhang version
 

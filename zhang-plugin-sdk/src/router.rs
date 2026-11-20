@@ -141,6 +141,35 @@ pub fn query_with_params(bql: &str, params: &Params) -> Result<QueryResult, Host
     host_result(abi::QUERY_PARAMS, &abi::query_params(&input)?)
 }
 
+/// the input of `zhang_query_builtin`, as the host reads it (`zhang_shared::plugin_abi::BuiltinQueryCall`)
+#[derive(Serialize)]
+struct BuiltinInput<'a> {
+    name: &'a str,
+    params: &'a BTreeMap<String, serde_json::Value>,
+}
+
+/// Run one of zhang's built-in queries, the named BQL behind the figures the app shows (`GET /api/query/builtins`
+/// lists them with their parameters and columns), with its parameters bound by name, so a plugin answers what the
+/// app answers without a copy of the query text. Every parameter the query declares is given, and no other; a value
+/// is `null`, a boolean, an integer, a string (a decimal such as `"12.50"`, a date `YYYY-MM-DD`) or a list of
+/// strings. An unknown name, and a parameter that is missing, unknown or not of its type, is a
+/// [`HostErrorKind::Query`](crate::HostErrorKind::Query) error without a position.
+///
+/// ```no_run
+/// use std::collections::BTreeMap;
+///
+/// use zhang_plugin_sdk::router::query_builtin;
+///
+/// let params = BTreeMap::from([("date".to_owned(), "2026-10-13".into()), ("time".to_owned(), "09:30:00".into())]);
+/// let accounts = query_builtin("accounts.list", &params)?;
+/// # Ok::<(), zhang_plugin_sdk::HostError>(())
+/// ```
+pub fn query_builtin(name: &str, params: &BTreeMap<String, serde_json::Value>) -> Result<QueryResult, HostError> {
+    let input = serde_json::to_vec(&BuiltinInput { name, params })
+        .map_err(|e| HostError::new(crate::HostErrorKind::Invalid, format!("cannot encode the call of {name}: {e}")))?;
+    host_result(abi::QUERY_BUILTIN, &abi::query_builtin(&input)?)
+}
+
 /// The tables, columns and functions a query can use, as `GET /api/query/schema` answers them:
 /// `{"tables": [{"name", "description", "columns": [{"name", "type", "description"}]}], "columns": [...],
 /// "functions": [{"name", "signature", "description", "aggregate"}], "keywords": [...]}`, where `columns` are

@@ -77,6 +77,14 @@ pub mod import {
     ///
     /// `zhang_query_schema() -> i64` answers `{"Ok": schema}`.
     pub const QUERY_SCHEMA: &str = "zhang_query_schema";
+    /// The host function a router plugin runs one of the server's named built-in queries with: the BQL behind the
+    /// figures the app shows, listed with their parameters and columns by `GET /api/query/builtins`, so a plugin
+    /// answers what the app answers without a copy of the query text.
+    ///
+    /// `zhang_query_builtin(input: i64) -> i64` takes the offset of a block holding a
+    /// [`BuiltinQueryCall`](super::BuiltinQueryCall) as JSON and answers as `zhang_query` does. An unknown name, and a
+    /// parameter that is missing, unknown or not of its type, is a `query` error without a position.
+    pub const QUERY_BUILTIN: &str = "zhang_query_builtin";
     /// The host function a router plugin previews a batch of directives to append to the ledger with.
     ///
     /// `zhang_write_preview(input: i64) -> i64` takes the offset of a block holding a [`WriteBatch`](super::WriteBatch)
@@ -459,6 +467,23 @@ pub struct QueryWithParams {
     /// the parameters by name; empty when absent. A parameter the query does not use is ignored
     #[serde(default)]
     pub params: BTreeMap<String, RawQueryParam>,
+}
+
+/// The input of `zhang_query_builtin`: the name of a built-in query and its parameters by name, as
+/// `POST /api/query/builtins/{name}` takes them. Every parameter the query declares is given, and no other; a value
+/// is plain JSON: `null` is NULL, a boolean, an integer, a string (a decimal such as `"12.50"`, a date `YYYY-MM-DD`)
+/// or a list of strings. On the wire:
+///
+/// ```json
+/// {"name": "accounts.subtree", "params": {"account": "Expenses", "date": "2026-10-13", "time": "09:30:00"}}
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BuiltinQueryCall {
+    /// the built-in query's name, such as `accounts.list`
+    pub name: String,
+    /// the parameters by name, without the colon; empty when absent
+    #[serde(default)]
+    pub params: BTreeMap<String, serde_json::Value>,
 }
 
 /// What a plugin's optional [`export::CAPABILITIES`] export answers: `{"writes": ["transaction", "open"]}`, the kinds

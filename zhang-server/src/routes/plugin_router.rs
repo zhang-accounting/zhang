@@ -58,10 +58,11 @@ use zhang_shared::plugin_abi::HostError;
 
 use crate::error::error_response;
 use crate::plugin_writes::{self, Commit, PluginWrites};
+use crate::request::BuiltinParamValue;
 use crate::response::{QueryResultEntity, QuerySchemaEntity};
 use crate::routes::query::{execute_options, max_result_values};
 use crate::state::{SharedLedger, SharedPluginWrites, SharedReloadSender};
-use crate::ReloadSender;
+use crate::{builtin, ReloadSender};
 
 /// The header of a failed plugin response whose plugin committed a write before it failed: the generation the commit
 /// moved the ledger to. The body has the commit as `committed` (`file`, `files`, `bytes`, `entries`, `generation`)
@@ -384,6 +385,26 @@ impl RouterHost for ServerRouterHost {
         serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema())).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
     }
 
+    /// the built-in query `name` ([`builtin::get`]) with its parameters read as `POST /api/query/builtins/{name}`
+    /// reads them ([`builtin::json_params`]), run like [`RouterHost::query`]
+    fn query_builtin(&self, name: &str, params: &BTreeMap<String, Value>) -> Result<Value, QueryFailure> {
+        let query = builtin::get(name).ok_or_else(|| unlocated(format!("there is no built-in query named {name}: GET /api/query/builtins lists them")))?;
+        let values = params
+            .iter()
+            .map(|(param, value)| {
+                serde_json::from_value::<Option<BuiltinParamValue>>(value.clone())
+                    .map(|value| (param.clone(), value))
+                    .map_err(|_| {
+                        unlocated(format!(
+                            "parameter :{param} of {name} must be null, a boolean, an integer, a string or a list of strings, not {value}"
+                        ))
+                    })
+            })
+            .collect::<Result<HashMap<_, _>, _>>()?;
+        let bound = builtin::json_params(query, values).map_err(|e| unlocated(e.to_string()))?;
+        self.run(builtin::compiled(name).map_err(|e| unlocated(e.to_string()))?, &bound)
+    }
+
     /// as `POST /api/transactions/preview` previews, see [`plugin_writes::preview`]
     fn write_preview(&self, plugin: &str, batch: &WriteBatch) -> Result<WritePreview, HostError> {
         plugin_writes::preview(&self.ledger, &self.writes, &self.reload_sender, plugin, &batch.directives)
@@ -514,6 +535,7 @@ fn failed_after_commit(name: &str, status: StatusCode, message: String, commit: 
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -570,10 +592,17 @@ function M.router(request)
     from = zhang.date("2024-01-01"), who = zhang.str("lunch"), min = zhang.decimal("5.5"),
   })
   local ok, failure = pcall(zhang.query, "SELECT nope")
+  local payees = zhang.query_builtin("journals.payees")
+  local subtree = zhang.query_builtin("accounts.subtree", { account = "Expenses", date = "2024-06-01", time = "00:00:00" })
+  local _, unknown = pcall(zhang.query_builtin, "no.such")
+  local _, float = pcall(zhang.query_builtin, "accounts.subtree", { account = "Expenses", date = "2024-06-01", time = 1.5 })
   return {
     status = 201,
     headers = { ["content-language"] = "lua" },
-    json = { request = request, rows = rows, bound = bound, failure = failure, info = zhang.ledger_info() },
+    json = {
+      request = request, rows = rows, bound = bound, failure = failure, info = zhang.ledger_info(),
+      payees = payees, subtree = subtree, unknown = unknown, float = float,
+    },
   }
 end
 
@@ -910,6 +939,22 @@ return M
             body["failure"]
         );
         assert_eq!(body["info"], json!({"title": "Home", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}));
+        // the server's built-in queries by name, as the app runs them
+        // `"lunch"` alone is the narration: the ledger has no payee
+        assert_eq!(body["payees"], json!({"columns": [{"name": "payee", "type": "str"}], "rows": []}));
+        assert_eq!(body["subtree"]["rows"][0][0], json!("Expenses:Food"), "{}", body["subtree"]);
+        assert_eq!(
+            body["unknown"],
+            json!("query error: there is no built-in query named no.such: GET /api/query/builtins lists them")
+        );
+        assert!(
+            body["float"]
+                .as_str()
+                .unwrap()
+                .contains("parameter :time is the float 1.5: give a decimal as a string"),
+            "{}",
+            body["float"]
+        );
     }
 
     #[tokio::test]
@@ -1003,6 +1048,53 @@ return M
             )
             .unwrap_err();
         assert!(failure.message.starts_with("the result is too large"), "{}", failure.message);
+
+        // a built-in query by name: what `POST /api/query/builtins/{name}` answers, under the same limits
+        let named = |pairs: &[(&str, Value)]| pairs.iter().map(|(name, value)| (name.to_string(), value.clone())).collect::<BTreeMap<_, _>>();
+        let subtree = named(&[("account", json!("Expenses")), ("date", json!("2024-06-01")), ("time", json!("00:00:00"))]);
+        let expected = builtin::execute(
+            &ledger.try_read().unwrap(),
+            "accounts.subtree",
+            &builtin::json_params(
+                builtin::get("accounts.subtree").unwrap(),
+                [
+                    ("account".to_owned(), Some(BuiltinParamValue::Text("Expenses".to_owned()))),
+                    ("date".to_owned(), Some(BuiltinParamValue::Text("2024-06-01".to_owned()))),
+                    ("time".to_owned(), Some(BuiltinParamValue::Text("00:00:00".to_owned()))),
+                ]
+                .into_iter()
+                .collect(),
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            host(100).query_builtin("accounts.subtree", &subtree).unwrap(),
+            serde_json::to_value(crate::response::QueryResultEntity::from(expected)).unwrap()
+        );
+        let failure = host(100)
+            .query_builtin("accounts.subtree", &named(&[("account", json!("Expenses"))]))
+            .unwrap_err();
+        assert_eq!(failure.message, "parameter :date of accounts.subtree is missing");
+        assert_eq!((failure.line, failure.column), (None, None));
+        let mut extra = subtree.clone();
+        extra.insert("nope".to_owned(), json!(1));
+        assert_eq!(
+            host(100).query_builtin("accounts.subtree", &extra).unwrap_err().message,
+            "accounts.subtree has no parameter :nope"
+        );
+        let mut object = subtree.clone();
+        object.insert("account".to_owned(), json!({"a": 1}));
+        assert_eq!(
+            host(100).query_builtin("accounts.subtree", &object).unwrap_err().message,
+            "parameter :account of accounts.subtree must be null, a boolean, an integer, a string or a list of strings, not {\"a\":1}"
+        );
+        assert!(host(1)
+            .query_builtin("accounts.subtree", &subtree)
+            .unwrap_err()
+            .message
+            .starts_with("the result is too large"));
     }
 
     #[tokio::test]

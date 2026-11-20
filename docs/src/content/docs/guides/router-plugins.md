@@ -17,7 +17,7 @@ option "features.plugin" "true"
 plugin "plugins/report.wasm"
 ```
 
-The **Settings** page lists it with an **Open** link to its pages. The rest of this page is for plugin authors: how requests reach the plugin and what it answers.
+The **Settings** page lists it with an **Open** link to its pages. Zhang's own [MCP Server](/guides/mcp/) is a router plugin written in Lua: its guide shows how to install and connect one. The rest of this page is for plugin authors: how requests reach the plugin and what it answers.
 
 :::note[Writing plugins]
 [Writing Plugins](/developers/writing-plugins/) covers every plugin type, the `plugin` directive and its capabilities, and the Rust SDK, whose `router` module wraps everything on this page.
@@ -115,6 +115,7 @@ A router plugin reads the ledger through host functions in the `extism:host/user
 
   `from` binds `:from` (positional `$1` parameters cannot be bound), and the query is compiled against the parameters' types. `type` is `bool`, `int`, `decimal`, `str`, `date` or `set`, and `value` is what the [built-in queries](/reference/builtin-queries/) take: a boolean, an integer, a number or a string such as `"12.50"`, a string, a string `YYYY-MM-DD`, or a list of strings; `null` is NULL for any type. A parameter of another type or shape is a `query` error without a position, e.g. `parameter :from must be a date string YYYY-MM-DD or null`; a parameter the query uses but the input does not bind is a `query` error at its position.
 - `zhang_query_schema()` returns the tables, columns and functions a query can use, exactly what `GET /api/query/schema` returns in `data`, for a plugin that composes queries or describes them.
+- `zhang_query_builtin(call)` runs one of the [built-in queries](/reference/builtin-queries/) by name, the BQL behind the figures the web UI shows, with its parameters as plain JSON: `{"name": "accounts.list", "params": {"date": "2026-10-13", "time": "09:30:00"}}`. It returns what `zhang_query` returns, so a plugin answers what the web UI answers without a copy of the query text.
 - `zhang_ledger_info()` returns `{"title": "...", "operating_currency": "CNY", "timezone": "Asia/Shanghai"}`, with a `title` of `null` when the ledger sets no `title` option.
 
 In Rust with the plain Extism PDK (the [Rust SDK](/developers/writing-plugins/#router-plugins) wraps these as `router::query`, `router::query_with_params` and `router::schema`):

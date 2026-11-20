@@ -7,6 +7,10 @@ description: 张记账所显示的各项数字背后有文档说明的 BQL 查�
 
 你可以在**查询**页面打开某个数字背后的查询，页面当时使用的参数值已经填好，然后修改它：换一个日期范围、加入更多账户、换一种分组方式、画成图表。应用能显示的任何内容，你都可以自己查询并加以变化，无需等待新版本。
 
+:::caution[对插件的约定]
+Router 插件通过 `zhang_query_builtin` 宿主函数按名称运行这些查询（见[编写插件](/zh-cn/developers/writing-plugins/#宿主函数)；在 [Lua](/zh-cn/guides/lua-plugins/) 中是 `zhang.query_builtin`），内置的 MCP 插件也是如此。因此，查询的名称、参数及其类型、以及它的列，既是对应用的约定，也是对插件的约定：重命名或删除查询、增加必填参数、重命名、删除列或改变列的类型，都是破坏性变更，会在更新日志中如此标明。新增查询，或在末尾新增列，则不是。
+:::
+
 :::note[库 API 迁移]
 读取端点迁移后，旧的 `Operations` 余额、账户列表、收款方列表和预算计算方法，以及 `AccountBalanceDomain`、`Store.budgets` 和对应聚合类型已删除（WASM playground 返回的序列化 Store 也不再包含这些字段）。请改用下面的查询，以及 `#budget_definitions`、`#budgets` 和 `#budget_events`。
 
